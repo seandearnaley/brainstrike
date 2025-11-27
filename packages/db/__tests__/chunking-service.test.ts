@@ -197,7 +197,7 @@ class TestClass {
       expect(result.strategyUsed).toBe('sentence');
     });
 
-    it('applies code defaults when no overrides are provided', async () => {
+    it('applies TypeScript language defaults when no overrides are provided', async () => {
       const content = 'export const answer = 42;\n'.repeat(20);
 
       const result = await chunkingService.chunkContent(content, 'file-default', {
@@ -207,7 +207,9 @@ class TestClass {
 
       expect(result.skipped).toBeUndefined();
       expect(result.chunks.length).toBeGreaterThan(0);
-      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.codeMaxTokens);
+      expect(result.chunks[0]?.chunkSize).toBe(
+        CHUNKING_CONFIG.codeLanguageDefaults.typescript.maxTokens
+      );
     });
 
     it('skips file-type recommendations when explicitly ignored', async () => {
@@ -222,6 +224,79 @@ class TestClass {
       expect(result.skipped).toBeUndefined();
       expect(result.chunks.length).toBeGreaterThan(0);
       expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.defaultMaxTokens);
+    });
+
+    it('applies language-specific defaults for Rust code', async () => {
+      const content = 'fn main() { println!("hi"); }\n'.repeat(40);
+
+      const result = await chunkingService.chunkContent(content, 'rust-file', {
+        strategy: 'recursive',
+        fileName: 'lib.rs',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.codeLanguageDefaults.rust.maxTokens);
+    });
+
+    it('keeps non-JS/TS code on the recursive splitter', async () => {
+      const content = 'def hello():\n    return "hi"\n\n'.repeat(40);
+
+      const result = await chunkingService.chunkContent(content, 'py-file', {
+        strategy: 'recursive',
+        fileName: 'script.py',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.strategyUsed).toBe('recursive');
+      expect(result.chunks[0]?.chunkType).toBe('recursive');
+    });
+
+    it('recognizes Vue single-file components as code', async () => {
+      const content = `<template><div>{{ msg }}</div></template>\n<script setup>\nconst msg = 'hi'\n</script>\n<style scoped>\ndiv { color: red; }\n</style>`;
+
+      const result = await chunkingService.chunkContent(content, 'vue-file', {
+        strategy: 'recursive',
+        fileName: 'Component.vue',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.strategyUsed).toBe('recursive');
+      expect(result.chunks[0]?.chunkType).toBe('recursive');
+      expect(result.chunks[0]?.chunkSize).toBe(
+        CHUNKING_CONFIG.codeLanguageDefaults.javascript.maxTokens
+      );
+    });
+
+    it('recognizes Svelte components as code', async () => {
+      const content =
+        '<script>\n  let count = 0;\n  const inc = () => count++;\n</script>\n<button on:click={inc}>{count}</button>';
+
+      const result = await chunkingService.chunkContent(content, 'svelte-file', {
+        strategy: 'recursive',
+        fileName: 'Counter.svelte',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.strategyUsed).toBe('recursive');
+      expect(result.chunks[0]?.chunkType).toBe('recursive');
+      expect(result.chunks[0]?.chunkSize).toBe(
+        CHUNKING_CONFIG.codeLanguageDefaults.javascript.maxTokens
+      );
+    });
+
+    it('treats Objective-C family sources as code', async () => {
+      const content = '@interface Foo : NSObject\n@end\n@implementation Foo\n- (void)bar {}\n@end';
+
+      const result = await chunkingService.chunkContent(content, 'objc-file', {
+        strategy: 'recursive',
+        fileName: 'main.mm',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.strategyUsed).toBe('recursive');
+      expect(result.chunks[0]?.chunkType).toBe('recursive');
+      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.codeLanguageDefaults.cpp.maxTokens);
     });
 
     it('respects custom chunk size for code files above defaults', async () => {
@@ -404,6 +479,49 @@ class TestClass {
       expect(result.chunks[0].chunkType).toBe('recursive');
     });
 
+    it('keeps TypeScript functions intact using AST-aware chunking', async () => {
+      const tsContent = `function alpha() {\n${'const x = 1;\n'.repeat(150)}}\n\nfunction beta() {\n${'const y = 2;\n'.repeat(
+        150
+      )}}\n`;
+
+      const result = await chunkingService.chunkContent(tsContent, 'ts-ast', {
+        strategy: 'recursive',
+        fileName: 'ast-sample.ts',
+      });
+
+      expect(result.strategyUsed).toBe('recursive');
+      const chunkTexts = result.chunks.map((c) => c.content);
+      const alphaChunk = chunkTexts.find((c) => c.includes('alpha'));
+      const betaChunk = chunkTexts.find((c) => c.includes('beta'));
+
+      expect(alphaChunk).toBeTruthy();
+      expect(betaChunk).toBeTruthy();
+    });
+
+    it('falls back to token strategy for unsupported code languages', async () => {
+      const codeContent = 'module Main exposing (.. )\nmain =\n    Debug.log "hi" 42';
+
+      const result = await chunkingService.chunkContent(codeContent, 'elm-file', {
+        strategy: 'recursive',
+        fileName: 'Main.elm',
+      });
+
+      expect(result.strategyUsed).toBe('token');
+      expect(result.chunks[0]?.chunkType).toBe('text');
+    });
+
+    it('recovers when AST parsing fails and still chunks content', async () => {
+      const malformed = 'function () { return ;';
+
+      const result = await chunkingService.chunkContent(malformed, 'bad-js', {
+        strategy: 'recursive',
+        fileName: 'broken.js',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+    });
+
     it('should handle unsupported strategy gracefully', async () => {
       // Test with an invalid strategy (TypeScript won't catch this in tests due to any casting)
       await expect(
@@ -464,8 +582,19 @@ class TestClass {
         fileName: 'foo.tsx',
       });
 
-      expect(maxTokens).toBe(CHUNKING_CONFIG.codeMaxTokens);
-      expect(overlap).toBe(CHUNKING_CONFIG.codeOverlap);
+      expect(maxTokens).toBe(CHUNKING_CONFIG.codeLanguageDefaults.typescript.maxTokens);
+      expect(overlap).toBe(CHUNKING_CONFIG.codeLanguageDefaults.typescript.overlap);
+    });
+
+    it('keeps combined caps to the tightest bound when multiple heuristics apply', () => {
+      const veryLargeTs = 'export const value = 1;\n'.repeat(7000);
+
+      const { maxTokens } = invokeAdjust(chunkingService, veryLargeTs, {
+        strategy: 'recursive',
+        fileName: 'big.ts',
+      });
+
+      expect(maxTokens).toBe(CHUNKING_CONFIG.codeLanguageDefaults.typescript.maxTokens);
     });
   });
 });

@@ -18,6 +18,22 @@ export const CHUNKING_CONFIG = {
   codeMaxTokens: 384,
   codeOverlap: 48,
 
+  // Language-aware defaults (override codeMaxTokens/codeOverlap when extension matches)
+  codeLanguageDefaults: {
+    javascript: { maxTokens: 512, overlap: 64 },
+    typescript: { maxTokens: 512, overlap: 64 },
+    python: { maxTokens: 512, overlap: 50 },
+    rust: { maxTokens: 768, overlap: 75 },
+    go: { maxTokens: 640, overlap: 72 },
+    java: { maxTokens: 640, overlap: 72 },
+    csharp: { maxTokens: 640, overlap: 72 },
+    cpp: { maxTokens: 640, overlap: 72 },
+    ruby: { maxTokens: 512, overlap: 64 },
+    php: { maxTokens: 512, overlap: 64 },
+    swift: { maxTokens: 640, overlap: 72 },
+    kotlin: { maxTokens: 640, overlap: 72 },
+  } as const,
+
   // Safety caps applied when callers provide explicit chunk sizes
   maxTokensHardLimit: 6000,
   overlapHardLimit: 2000,

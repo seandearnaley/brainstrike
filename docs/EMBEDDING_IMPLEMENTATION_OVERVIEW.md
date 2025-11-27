@@ -307,9 +307,25 @@ export const CHUNKING_CONFIG = {
   defaultMaxTokens: 500,
   defaultOverlap: 50,
 
-  // Code-specific defaults
-  codeMaxTokens: 384,  // Smaller for better code retrieval
+  // Code-specific defaults (fallback when language not detected)
+  codeMaxTokens: 384,
   codeOverlap: 48,
+
+  // Language-aware code defaults
+  codeLanguageDefaults: {
+    javascript: { maxTokens: 512, overlap: 64 },
+    typescript: { maxTokens: 512, overlap: 64 },
+    python: { maxTokens: 512, overlap: 50 },
+    rust: { maxTokens: 768, overlap: 75 },
+    go: { maxTokens: 640, overlap: 72 },
+    java: { maxTokens: 640, overlap: 72 },
+    csharp: { maxTokens: 640, overlap: 72 },
+    cpp: { maxTokens: 640, overlap: 72 },
+    ruby: { maxTokens: 512, overlap: 64 },
+    php: { maxTokens: 512, overlap: 64 },
+    swift: { maxTokens: 640, overlap: 72 },
+    kotlin: { maxTokens: 640, overlap: 72 },
+  },
 
   // Large structured files
   largeStructuredMaxTokens: 1500,

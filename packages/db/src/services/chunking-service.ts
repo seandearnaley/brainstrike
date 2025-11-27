@@ -1,3 +1,4 @@
+import { type ParserPlugin, parse } from '@babel/parser';
 import { countTokensAccurate, createLogger } from '@brainstrike/utils';
 import { CharacterTextSplitter, RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { CHUNKING_CONFIG } from '../config/chunking-config.js';
@@ -62,6 +63,41 @@ const SKIP_CHUNKING_PATTERNS = [
   /(^|\/)build(\/|$)/i,
   /(^|\/)coverage(\/|$)/i,
 ];
+
+type CodeLanguage = keyof typeof CHUNKING_CONFIG.codeLanguageDefaults;
+
+const CODE_LANGUAGE_PATTERNS: Array<{ pattern: RegExp; language: CodeLanguage }> = [
+  { pattern: /\.vue$/i, language: 'javascript' },
+  { pattern: /\.svelte$/i, language: 'javascript' },
+  { pattern: /\.(ts|tsx|mts|cts)$/i, language: 'typescript' },
+  { pattern: /\.(js|jsx|mjs|cjs)$/i, language: 'javascript' },
+  { pattern: /\.mm$/i, language: 'cpp' },
+  { pattern: /\.m$/i, language: 'cpp' },
+  { pattern: /\.py$/i, language: 'python' },
+  { pattern: /\.rs$/i, language: 'rust' },
+  { pattern: /\.go$/i, language: 'go' },
+  { pattern: /\.(java|class)$/i, language: 'java' },
+  { pattern: /\.cs$/i, language: 'csharp' },
+  { pattern: /\.(c|cc|cpp|cxx|h|hh|hpp)$/i, language: 'cpp' },
+  { pattern: /\.rb$/i, language: 'ruby' },
+  { pattern: /\.php$/i, language: 'php' },
+  { pattern: /\.swift$/i, language: 'swift' },
+  { pattern: /\.(kt|kts)$/i, language: 'kotlin' },
+];
+
+type AstNode = {
+  type?: string;
+  start?: number;
+  end?: number;
+} & Record<string, unknown>;
+
+function detectCodeLanguage(fileName: string): CodeLanguage | null {
+  const name = fileName.toLowerCase();
+  for (const { pattern, language } of CODE_LANGUAGE_PATTERNS) {
+    if (pattern.test(name)) return language;
+  }
+  return null;
+}
 
 // Large structured files that should use more aggressive chunking
 const LARGE_STRUCTURED_PATTERNS = [
@@ -197,8 +233,12 @@ export class ChunkingService {
     const hasExplicitOverlap = requestedOverlap !== undefined;
 
     // Normalize inputs to sane integer values
-    let maxTokens = normalize(requestedMaxTokens, CHUNKING_CONFIG.defaultMaxTokens, 1);
-    let overlap = normalize(requestedOverlap, CHUNKING_CONFIG.defaultOverlap, 0);
+    let maxTokens = hasExplicitMaxTokens
+      ? normalize(requestedMaxTokens, CHUNKING_CONFIG.defaultMaxTokens, 1)
+      : Number.POSITIVE_INFINITY;
+    let overlap = hasExplicitOverlap
+      ? normalize(requestedOverlap, CHUNKING_CONFIG.defaultOverlap, 0)
+      : Number.POSITIVE_INFINITY;
 
     type ChunkAdjustment = { maxTokens: number; overlap: number };
     const apply = (state: ChunkAdjustment, cap: Partial<ChunkAdjustment>) => {
@@ -214,18 +254,19 @@ export class ChunkingService {
 
     if (!ignoreRecommendations) {
       const adjustments: Array<(state: ChunkAdjustment) => ChunkAdjustment> = [];
-      const isCode =
-        /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|rs|go|py|java|kt|cs|rb|php|cpp|c|h|m|mm|swift)$/.test(
-          fileName.toLowerCase()
-        );
+      const codeLanguage = detectCodeLanguage(fileName);
+      const isCode = Boolean(codeLanguage);
       if (isCode) {
         adjustments.push((state) => {
           const cap: Partial<ChunkAdjustment> = {};
+          const languageDefaults = codeLanguage
+            ? CHUNKING_CONFIG.codeLanguageDefaults[codeLanguage]
+            : undefined;
           if (!hasExplicitMaxTokens) {
-            cap.maxTokens = CHUNKING_CONFIG.codeMaxTokens;
+            cap.maxTokens = languageDefaults?.maxTokens ?? CHUNKING_CONFIG.codeMaxTokens;
           }
           if (!hasExplicitOverlap) {
-            cap.overlap = CHUNKING_CONFIG.codeOverlap;
+            cap.overlap = languageDefaults?.overlap ?? CHUNKING_CONFIG.codeOverlap;
           }
           return apply(state, cap);
         });
@@ -488,8 +529,9 @@ export class ChunkingService {
     const overlapChars = Math.floor(effectiveOverlap * charsPerToken);
 
     const name = (options.fileName || options.filePath || '').toLowerCase();
+    const codeLanguage = detectCodeLanguage(name);
     const isMarkdown = /\.(md|mdx|markdown)$/.test(name);
-    const isCode = /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|rs|go|py|java|kt|cs|rb|php)$/.test(name);
+    const isCode = Boolean(codeLanguage);
     // Detect structured data files that need special splitting (JSON, XML, YAML, etc.)
     const isStructuredData = /\.(json|xml|yaml|yml|csv|tsv)$/.test(name);
 
@@ -529,13 +571,44 @@ export class ChunkingService {
     const chunkMarkdown = async (): Promise<ChunkGroup[]> => splitMarkdownBlocks();
 
     const chunkCode = async (): Promise<ChunkGroup[]> => {
-      const codeSeparators = getCodeSeparators(options.separators);
-      const recursiveChunker = new RecursiveCharacterTextSplitter({
-        chunkSize: maxChars,
-        chunkOverlap: overlapChars,
-        separators: codeSeparators,
-      });
-      return [{ pieces: await recursiveChunker.splitText(content), type: 'recursive' }];
+      const supportsAst = codeLanguage === 'typescript' || codeLanguage === 'javascript';
+
+      const chunkWithCodeSeparators = async (): Promise<ChunkGroup[]> => {
+        const codeSeparators = getCodeSeparators(options.separators);
+        const recursiveChunker = new RecursiveCharacterTextSplitter({
+          chunkSize: maxChars,
+          chunkOverlap: overlapChars,
+          separators: codeSeparators,
+        });
+        return [{ pieces: await recursiveChunker.splitText(content), type: 'recursive' }];
+      };
+
+      if (supportsAst) {
+        const pieces = await splitCodeByFunctions(content, {
+          maxChars,
+          overlapChars,
+          language: codeLanguage,
+          separators: getCodeSeparators(options.separators),
+        });
+
+        if (pieces && pieces.length > 0) {
+          return [{ pieces, type: 'recursive' }];
+        }
+
+        logger.debug('AST-aware chunking unavailable, falling back to separator-based chunks', {
+          fileName: options.fileName,
+          filePath: options.filePath,
+        });
+
+        return chunkWithCodeSeparators();
+      }
+      if (codeLanguage) {
+        return chunkWithCodeSeparators();
+      }
+
+      // Unsupported/unknown languages fall back to token-based chunking to avoid mid-function splits
+      effectiveStrategy = 'token';
+      return chunkTokens();
     };
 
     const chunkText = async (): Promise<ChunkGroup[]> => {
@@ -632,6 +705,171 @@ function resolveMaxTokensCap(cap?: number): number {
     return CHUNKING_CONFIG.maxTokensSafetyCap;
   }
   return Math.max(256, Math.min(CHUNKING_CONFIG.maxTokensHardLimit, sanitized));
+}
+
+function isFunctionNode(type?: string): boolean {
+  if (!type) return false;
+  return (
+    type === 'FunctionDeclaration' ||
+    type === 'FunctionExpression' ||
+    type === 'ArrowFunctionExpression' ||
+    type === 'ObjectMethod' ||
+    type === 'ClassMethod' ||
+    type === 'ClassPrivateMethod' ||
+    type === 'TSDeclareFunction' ||
+    type === 'TSMethodSignature' ||
+    type === 'TSCallSignatureDeclaration'
+  );
+}
+
+function isAstNode(value: unknown): value is AstNode {
+  return Boolean(
+    value && typeof value === 'object' && 'type' in (value as Record<string, unknown>)
+  );
+}
+
+function isTopLevelContainerType(type?: string): boolean {
+  return (
+    type === 'Program' ||
+    type === 'ExportNamedDeclaration' ||
+    type === 'ExportDefaultDeclaration' ||
+    type === 'ClassBody'
+  );
+}
+
+function iterateAstChildren(node: AstNode): AstNode[] {
+  const children: AstNode[] = [];
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        if (isAstNode(child)) {
+          children.push(child);
+        }
+      }
+    } else if (isAstNode(value)) {
+      children.push(value);
+    }
+  }
+  return children;
+}
+
+function collectTopLevelFunctionRanges(
+  node: AstNode | null,
+  ancestors: AstNode[],
+  ranges: Array<{ start: number; end: number }>
+): void {
+  if (!node) return;
+
+  const nodeType = node.type ?? '';
+  const parentType = ancestors[ancestors.length - 1]?.type;
+  if (
+    isTopLevelContainerType(parentType) &&
+    isFunctionNode(nodeType) &&
+    Number.isFinite(node.start) &&
+    Number.isFinite(node.end)
+  ) {
+    ranges.push({ start: Number(node.start), end: Number(node.end) });
+  }
+
+  const nextAncestors = [...ancestors, node];
+  for (const child of iterateAstChildren(node)) {
+    collectTopLevelFunctionRanges(child, nextAncestors, ranges);
+  }
+}
+
+async function splitCodeByFunctions(
+  content: string,
+  {
+    maxChars,
+    overlapChars,
+    language,
+    separators,
+  }: { maxChars: number; overlapChars: number; language: CodeLanguage | null; separators: string[] }
+): Promise<string[] | null> {
+  const plugins: ParserPlugin[] = [
+    'classProperties',
+    'classPrivateProperties',
+    'classPrivateMethods',
+    'decorators-legacy',
+    'dynamicImport',
+    'importAttributes',
+    'topLevelAwait',
+    'jsx',
+  ];
+
+  if (language === 'typescript') {
+    plugins.push('typescript');
+  }
+
+  let ast: AstNode | null = null;
+  try {
+    ast = parse(content, {
+      sourceType: 'module',
+      plugins,
+      errorRecovery: true,
+      allowReturnOutsideFunction: true,
+    }) as unknown as AstNode;
+  } catch (error) {
+    logger.debug('Failed to parse code for AST-aware chunking', {
+      error,
+    });
+    return null;
+  }
+
+  const ranges: Array<{ start: number; end: number }> = [];
+  collectTopLevelFunctionRanges(ast, [], ranges);
+
+  if (!ranges.length) {
+    return null;
+  }
+
+  ranges.sort((a, b) => a.start - b.start || a.end - b.end);
+
+  const pieces: string[] = [];
+  let cursor = 0;
+
+  const recursiveChunker = new RecursiveCharacterTextSplitter({
+    chunkSize: maxChars,
+    chunkOverlap: overlapChars,
+    separators,
+  });
+
+  const pushSegment = async (segment: string) => {
+    const trimmed = segment.trim();
+    if (!trimmed) return;
+    if (trimmed.length <= maxChars * 1.25) {
+      pieces.push(trimmed);
+      return;
+    }
+    const subPieces = await recursiveChunker.splitText(trimmed);
+    pieces.push(...subPieces.map((p) => p.trim()).filter(Boolean));
+  };
+
+  const appendRange = async (startIndex: number, endIndex: number) => {
+    const safeStart = Math.max(0, Math.min(startIndex, content.length));
+    const safeEnd = Math.max(safeStart, Math.min(endIndex, content.length));
+    await pushSegment(content.slice(safeStart, safeEnd));
+  };
+
+  for (const range of ranges) {
+    const clampedStart = Math.max(0, Math.min(range.start, content.length));
+    const clampedEnd = Math.max(clampedStart, Math.min(range.end, content.length));
+
+    if (clampedStart > cursor) {
+      await appendRange(cursor, clampedStart);
+    }
+
+    const paddedStart = Math.max(0, clampedStart - overlapChars);
+    const paddedEnd = Math.min(content.length, clampedEnd + overlapChars);
+    await appendRange(paddedStart, paddedEnd);
+    cursor = clampedEnd;
+  }
+
+  if (cursor < content.length) {
+    await appendRange(cursor, content.length);
+  }
+
+  return pieces;
 }
 
 // Utilities for streaming splitter

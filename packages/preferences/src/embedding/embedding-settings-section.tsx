@@ -3,6 +3,7 @@ import {
   type ProviderDefinition,
   type ProviderModelDefinition,
 } from '@brainstrike/agent/client';
+import { CHUNKING_CONFIG } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,
   ModelRegistryManager,
@@ -63,6 +64,27 @@ const MODEL_PRESETS: readonly ModelPreset[] = [
     badge: '1024D',
     icon: '🌍',
   },
+] as const;
+
+type CodeChunkRow = {
+  key: keyof typeof CHUNKING_CONFIG.codeLanguageDefaults;
+  label: string;
+  extensions: string;
+};
+
+const CODE_CHUNK_ROWS: readonly CodeChunkRow[] = [
+  { key: 'typescript', label: 'TypeScript', extensions: 'ts, tsx, mts, cts' },
+  { key: 'javascript', label: 'JavaScript', extensions: 'js, jsx, mjs, cjs' },
+  { key: 'python', label: 'Python', extensions: 'py' },
+  { key: 'rust', label: 'Rust', extensions: 'rs' },
+  { key: 'go', label: 'Go', extensions: 'go' },
+  { key: 'java', label: 'Java', extensions: 'java' },
+  { key: 'csharp', label: 'C#', extensions: 'cs' },
+  { key: 'cpp', label: 'C / C++', extensions: 'c, cc, cpp, h, hpp' },
+  { key: 'ruby', label: 'Ruby', extensions: 'rb' },
+  { key: 'php', label: 'PHP', extensions: 'php' },
+  { key: 'swift', label: 'Swift', extensions: 'swift' },
+  { key: 'kotlin', label: 'Kotlin', extensions: 'kt, kts' },
 ] as const;
 
 type NormalizedEmbeddingModel = {
@@ -412,6 +434,46 @@ export function EmbeddingSettings() {
               </p>
             ) : null}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card data-testid="code-chunking-card">
+        <CardHeader>
+          <CardTitle className="text-base">Code Chunking</CardTitle>
+          <CardDescription>
+            Language-aware defaults used when splitting source files for embeddings. JavaScript and
+            TypeScript use AST-aware function boundaries; other languages fall back to token-based
+            chunking.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {CODE_CHUNK_ROWS.map((row) => {
+              const defaults = CHUNKING_CONFIG.codeLanguageDefaults[row.key];
+              return (
+                <div
+                  key={row.key}
+                  className="rounded-md border border-border/60 bg-muted/10 px-3 py-2"
+                  data-testid={`code-chunk-row-${row.key}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium leading-tight">{row.label}</p>
+                      <p className="text-[11px] text-muted-foreground">{row.extensions}</p>
+                    </div>
+                    <Badge variant="outline">{defaults.maxTokens} tok</Badge>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Overlap {defaults.overlap} tokens
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            These defaults apply automatically during import; overrides are still subject to global
+            safety caps.
+          </p>
         </CardContent>
       </Card>
     </div>

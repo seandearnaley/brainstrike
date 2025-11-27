@@ -61,6 +61,16 @@ describe('EmbeddingSettings', () => {
     );
   });
 
+  it('exposes language-specific code chunk defaults', () => {
+    renderComponent();
+
+    expect(screen.getByText('Code Chunking')).toBeTruthy();
+    const tsRow = screen.getByTestId('code-chunk-row-typescript');
+    const rustRow = screen.getByTestId('code-chunk-row-rust');
+    expect(tsRow.textContent ?? '').toContain('512');
+    expect(rustRow.textContent ?? '').toContain('Overlap 75');
+  });
+
   it('filters models via search input', async () => {
     renderComponent();
 
