@@ -200,7 +200,7 @@ describe('Batched insertMany', () => {
     ];
 
     await expect(repository.insertMany(chunks)).rejects.toThrow(
-      /Embedding dimension 16001 exceeds pgvector's supported maximum of 16000/
+      /Embedding dimension 16001 exceeds pgvector's supported maximum of 2000/
     );
   });
 });

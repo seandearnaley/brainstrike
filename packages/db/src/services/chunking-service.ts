@@ -114,8 +114,8 @@ export class ChunkingService {
       throw new Error(`Unsupported chunking strategy: ${String(strategy)}`);
     }
 
-    // Adjust chunking parameters based on file type and size
-    const adjustedOptions = this.adjustChunkingForFileType(content, options);
+    // Note: adjustChunkingForFileType is called inside chunkContentStream, not here,
+    // to avoid double-adjustment when chunkContent delegates to the streaming path.
 
     // Collect by iterating the streaming API to minimize additional memory
     const chunks: FileChunkInsert[] = [];
@@ -123,8 +123,6 @@ export class ChunkingService {
     let idx = 0;
     for await (const chunk of this.chunkContentStream(content, fileRecordId, {
       ...options,
-      maxTokens: adjustedOptions.maxTokens,
-      overlap: adjustedOptions.overlap,
       onStrategyResolved: (resolved) => {
         strategyUsed = resolved;
       },

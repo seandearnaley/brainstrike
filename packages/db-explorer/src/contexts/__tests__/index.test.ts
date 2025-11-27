@@ -17,10 +17,11 @@ describe('contexts module exports', () => {
   });
 
   it('has expected number of exports', () => {
-    // 3 value exports (SemanticSearchContext, SemanticSearchProvider, useSemanticSearch)
-    const valueExports = Object.keys(ContextsModule).filter(
-      (key) => typeof ContextsModule[key as keyof typeof ContextsModule] !== 'undefined'
-    );
-    expect(valueExports.length).toBeGreaterThanOrEqual(3);
+    // Verify the 3 expected exports are present via static property access
+    expect(ContextsModule.SemanticSearchContext).toBeDefined();
+    expect(ContextsModule.SemanticSearchProvider).toBeDefined();
+    expect(ContextsModule.useSemanticSearch).toBeDefined();
+    // Module should have at least these 3 exports
+    expect(Object.keys(ContextsModule).length).toBeGreaterThanOrEqual(3);
   });
 });

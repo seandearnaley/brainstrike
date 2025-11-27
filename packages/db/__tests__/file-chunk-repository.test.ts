@@ -379,7 +379,7 @@ describe('FileChunkRepository', () => {
       };
 
       await expect(repository.update(updateData)).rejects.toThrow(
-        /Embedding dimension 16001 exceeds pgvector's supported maximum of 16000/
+        /Embedding dimension 16001 exceeds pgvector's supported maximum of 2000/
       );
     });
   });
@@ -604,7 +604,7 @@ describe('FileChunkRepository', () => {
         };
 
         await expect(repository.insert(chunk)).rejects.toThrow(
-          /Embedding dimension 16001 exceeds pgvector's supported maximum of 16000/
+          /Embedding dimension 16001 exceeds pgvector's supported maximum of 2000/
         );
       });
 

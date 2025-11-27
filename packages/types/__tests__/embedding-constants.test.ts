@@ -1,7 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '../src/embedding-constants';
+import {
+  DEFAULT_EMBEDDING_DIMENSION,
+  LEGACY_DEFAULT_EMBEDDING_DIMENSION,
+  MAX_EMBEDDING_DIMENSION,
+} from '../src/embedding-constants';
 
 describe('embedding-constants', () => {
+  describe('LEGACY_DEFAULT_EMBEDDING_DIMENSION', () => {
+    it('should be defined as a number', () => {
+      expect(typeof LEGACY_DEFAULT_EMBEDDING_DIMENSION).toBe('number');
+    });
+
+    it('should be 768', () => {
+      expect(LEGACY_DEFAULT_EMBEDDING_DIMENSION).toBe(768);
+    });
+
+    it('should be a positive integer', () => {
+      expect(LEGACY_DEFAULT_EMBEDDING_DIMENSION).toBeGreaterThan(0);
+      expect(Number.isInteger(LEGACY_DEFAULT_EMBEDDING_DIMENSION)).toBe(true);
+    });
+  });
+
   describe('DEFAULT_EMBEDDING_DIMENSION', () => {
     it('should be defined as a number', () => {
       expect(typeof DEFAULT_EMBEDDING_DIMENSION).toBe('number');
@@ -32,8 +51,8 @@ describe('embedding-constants', () => {
       expect(typeof MAX_EMBEDDING_DIMENSION).toBe('number');
     });
 
-    it('should be 16000', () => {
-      expect(MAX_EMBEDDING_DIMENSION).toBe(16_000);
+    it('should be 2000 (pgvector vector type limit)', () => {
+      expect(MAX_EMBEDDING_DIMENSION).toBe(2_000);
     });
 
     it('should be a positive integer', () => {
@@ -45,18 +64,20 @@ describe('embedding-constants', () => {
       expect(MAX_EMBEDDING_DIMENSION).toBeGreaterThan(DEFAULT_EMBEDDING_DIMENSION);
     });
 
-    it('should be greater than common embedding dimensions', () => {
-      const commonDimensions = [384, 512, 768, 1024, 1536, 3072, 4096];
-      commonDimensions.forEach((dimension) => {
-        expect(MAX_EMBEDDING_DIMENSION).toBeGreaterThan(dimension);
+    it('should accommodate common embedding dimensions up to pgvector limit', () => {
+      // Models that fit within pgvector's vector type limit
+      const supportedDimensions = [384, 512, 768, 1024, 1536];
+      supportedDimensions.forEach((dimension) => {
+        expect(MAX_EMBEDDING_DIMENSION).toBeGreaterThanOrEqual(dimension);
       });
     });
 
-    it('should be a reasonable upper limit', () => {
-      // MAX_EMBEDDING_DIMENSION should be large enough for any practical use case
-      // but not so large that it causes memory issues
-      expect(MAX_EMBEDDING_DIMENSION).toBeGreaterThan(10_000);
-      expect(MAX_EMBEDDING_DIMENSION).toBeLessThan(100_000);
+    it('should be the pgvector vector type limit', () => {
+      // pgvector's vector type supports up to 2000 dimensions
+      // halfvec supports more (16000) but we use standard vector
+      // See: https://github.com/pgvector/pgvector#vector
+      expect(MAX_EMBEDDING_DIMENSION).toBe(2_000);
+      expect(MAX_EMBEDDING_DIMENSION).toBeLessThan(16_000);
     });
   });
 

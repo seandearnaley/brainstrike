@@ -247,7 +247,15 @@ function applyRetrievalPrompt(
   const id = (modelId || '').toLowerCase();
   const key = (modelKey || '').toLowerCase();
 
-  // BGE family: use query/passsage prefixes per model guidance
+  // BGE-M3 specifically does NOT need prefixes per official BAAI docs
+  // https://huggingface.co/BAAI/bge-m3/discussions/35
+  // "bge-m3 doesn't need prefix instruction"
+  const isBgeM3 = id.includes('bge-m3') || key.includes('bge-m3');
+  if (isBgeM3) {
+    return text; // No prefix for M3
+  }
+
+  // Other BGE models (bge-base, bge-large, bge-small, etc.) DO need prefixes
   const isBge = id.includes('bge-') || key.includes('bge-');
   if (isBge) {
     return (role === 'query' ? 'query: ' : 'passage: ') + text;

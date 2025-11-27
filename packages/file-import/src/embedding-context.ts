@@ -1,0 +1,174 @@
+/**
+ * Context information for building embedding text with file/section metadata.
+ * Adding context helps embedding models understand where content comes from,
+ * improving retrieval accuracy for queries like "code in utils.ts" or
+ * "installation section".
+ */
+export interface ChunkContext {
+  /** File path relative to project root (e.g., "src/utils/helpers.ts") */
+  filePath?: string;
+  /** Heading path for markdown files (e.g., "Getting Started > Installation") */
+  headingPath?: string;
+  /** Programming language detected from file extension */
+  language?: string;
+}
+
+/**
+ * Build embedding text with contextual metadata prepended.
+ *
+ * This improves retrieval accuracy by including file path and section
+ * information in the embedded text, allowing queries like:
+ * - "authentication code in user-service.ts"
+ * - "installation instructions"
+ * - "Python utilities"
+ *
+ * @param content - The raw content to embed
+ * @param ctx - Contextual metadata to prepend
+ * @returns Content with context prefix, or original content if no context provided
+ *
+ * @example
+ * ```ts
+ * const text = buildEmbeddingText(
+ *   'export function validateEmail(email: string) { ... }',
+ *   { filePath: 'src/validators/email.ts', language: 'typescript' }
+ * );
+ * // Returns:
+ * // "File: src/validators/email.ts
+ * // Language: typescript
+ * //
+ * // export function validateEmail(email: string) { ... }"
+ * ```
+ */
+export function buildEmbeddingText(content: string, ctx: ChunkContext): string {
+  const contextLines: string[] = [];
+
+  if (ctx.filePath) {
+    contextLines.push(`File: ${ctx.filePath}`);
+  }
+
+  if (ctx.headingPath) {
+    contextLines.push(`Section: ${ctx.headingPath}`);
+  }
+
+  if (ctx.language) {
+    contextLines.push(`Language: ${ctx.language}`);
+  }
+
+  // If no context, return original content
+  if (contextLines.length === 0) {
+    return content;
+  }
+
+  // Prepend context with blank line separator
+  return `${contextLines.join('\n')}\n\n${content}`;
+}
+
+/**
+ * Extract heading path from markdown content by tracking nested headings.
+ *
+ * @param content - Markdown content up to the current chunk
+ * @returns Heading path like "Getting Started > Installation > Prerequisites"
+ */
+export function extractHeadingPath(content: string): string | undefined {
+  const lines = content.split('\n');
+  const headingStack: Array<{ level: number; text: string }> = [];
+
+  for (const line of lines) {
+    const match = line.match(/^(#{1,6})\s+(.+)$/);
+    if (match) {
+      const level = (match[1] as string).length;
+      const text = (match[2] as string).trim();
+
+      // Pop headings of same or higher level (lower number = higher in hierarchy)
+      while (headingStack.length > 0) {
+        const last = headingStack[headingStack.length - 1];
+        if (last && last.level >= level) {
+          headingStack.pop();
+        } else {
+          break;
+        }
+      }
+
+      headingStack.push({ level, text });
+    }
+  }
+
+  if (headingStack.length === 0) {
+    return undefined;
+  }
+
+  return headingStack.map((h) => h.text).join(' > ');
+}
+
+/**
+ * Detect programming language from file extension.
+ *
+ * @param filePath - File path or name with extension
+ * @returns Language name or undefined if not recognized
+ */
+export function detectLanguage(filePath: string): string | undefined {
+  const ext = filePath.split('.').pop()?.toLowerCase();
+  if (!ext) return undefined;
+
+  const languageMap: Record<string, string> = {
+    // JavaScript/TypeScript
+    js: 'javascript',
+    jsx: 'javascript',
+    ts: 'typescript',
+    tsx: 'typescript',
+    mjs: 'javascript',
+    cjs: 'javascript',
+
+    // Web
+    html: 'html',
+    css: 'css',
+    scss: 'scss',
+    sass: 'sass',
+    vue: 'vue',
+    svelte: 'svelte',
+
+    // Systems
+    rs: 'rust',
+    go: 'go',
+    c: 'c',
+    cpp: 'cpp',
+    h: 'c',
+    hpp: 'cpp',
+
+    // JVM
+    java: 'java',
+    kt: 'kotlin',
+    scala: 'scala',
+
+    // Scripting
+    py: 'python',
+    rb: 'ruby',
+    php: 'php',
+    sh: 'shell',
+    bash: 'shell',
+
+    // .NET
+    cs: 'csharp',
+
+    // Mobile
+    swift: 'swift',
+    m: 'objective-c',
+    mm: 'objective-c',
+
+    // Data/Config
+    json: 'json',
+    yaml: 'yaml',
+    yml: 'yaml',
+    toml: 'toml',
+    xml: 'xml',
+
+    // Documentation
+    md: 'markdown',
+    mdx: 'markdown',
+
+    // Database
+    sql: 'sql',
+  };
+
+  return languageMap[ext];
+}

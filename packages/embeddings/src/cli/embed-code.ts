@@ -436,10 +436,12 @@ export class CodeEmbeddingCLI {
   }
 
   /**
-   * Utility logging method
+   * Utility logging method - writes to stderr for CLI output (not debugging)
    */
-  private log(_message: string): void {
+  private log(message: string): void {
     if (this.config.verbose || !this.config.output) {
+      // biome-ignore lint/suspicious/noConsole: CLI tool intentionally uses stderr for output
+      console.error(message);
     }
   }
 }

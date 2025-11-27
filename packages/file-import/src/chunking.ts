@@ -149,19 +149,28 @@ async function handleChunkInsertion(
   options: ChunkingOptions,
   result: FileImportResult
 ): Promise<void> {
+  // Apply embeddingSetId to chunks if targetEmbeddingSetId is provided (matches streaming path)
+  const setId = options.targetEmbeddingSetId;
+  const chunksWithSetId: FileChunkInsert[] = setId
+    ? chunkingResult.chunks.map((chunk) => ({
+        ...chunk,
+        embeddingSetId: setId,
+      }))
+    : chunkingResult.chunks;
+
   const shouldUseTransaction =
     options.embedQueueEnabled && options.runInTransaction && options.enqueueJobsForChunksTx;
 
   if (shouldUseTransaction && options.runInTransaction) {
     await options.runInTransaction(async (tx) => {
-      await insertChunksWithTransaction(tx, chunkRepository, chunkingResult.chunks);
-      await options.enqueueJobsForChunksTx?.(tx, chunkingResult.chunks, result.id);
+      await insertChunksWithTransaction(tx, chunkRepository, chunksWithSetId);
+      await options.enqueueJobsForChunksTx?.(tx, chunksWithSetId, result.id);
       return undefined as unknown as undefined;
     });
   } else {
-    await chunkRepository.insertMany(chunkingResult.chunks);
+    await chunkRepository.insertMany(chunksWithSetId);
     if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
-      await options.enqueueJobsForChunks(chunkingResult.chunks, result.id);
+      await options.enqueueJobsForChunks(chunksWithSetId, result.id);
     }
   }
 }
