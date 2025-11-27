@@ -120,6 +120,8 @@ export interface UseCollectionTreeResult {
   similarityScores: Map<string, number>;
   /** Node IDs that match semantic search (subset of nodes) */
   semanticMatchIds: Set<string>;
+  /** Node IDs that should be auto-expanded to reveal semantic search matches */
+  semanticExpandIds: Set<string>;
 }
 
 /**
@@ -963,5 +965,6 @@ export function useCollectionTree({
     searchExpandIds,
     similarityScores,
     semanticMatchIds,
+    semanticExpandIds,
   };
 }

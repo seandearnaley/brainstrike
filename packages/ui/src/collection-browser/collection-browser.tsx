@@ -328,6 +328,7 @@ export function CollectionBrowser({
     searchExpandIds,
     similarityScores,
     semanticMatchIds,
+    semanticExpandIds,
   } = useCollectionTree({
     data,
     filters,
@@ -369,6 +370,26 @@ export function CollectionBrowser({
       expandForSearch(searchExpandIds);
     }
   }, [filters.searchQuery, searchExpandIds, expandForSearch]);
+
+  // Track previous semantic results to detect changes
+  const prevSemanticResultsLength = React.useRef<number | undefined>(undefined);
+
+  // Auto-expand nodes when semantic search results arrive
+  React.useEffect(() => {
+    // Skip if not in semantic mode or no results
+    if (!isSemanticMode || !semanticResults) return;
+
+    // Only expand when results length changes (new results arrived)
+    const resultsChanged = prevSemanticResultsLength.current !== semanticResults.length;
+    if (!resultsChanged) return;
+
+    prevSemanticResultsLength.current = semanticResults.length;
+
+    // Auto-expand ancestors to reveal semantic matches
+    if (semanticResults.length > 0 && semanticExpandIds.size > 0) {
+      expandForSearch(semanticExpandIds);
+    }
+  }, [isSemanticMode, semanticResults, semanticExpandIds, expandForSearch]);
 
   // Handle toggle expand
   const handleToggleExpand = React.useCallback(
