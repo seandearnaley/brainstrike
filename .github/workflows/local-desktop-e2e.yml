@@ -12,10 +12,11 @@ on:
         required: true
         default: '2'
 
-# Cancel in-progress runs when manually re-triggered
-# Uses workflow name only so all manual triggers compete in the same group
+# Cancel in-progress runs for the same workflow dispatch
+# Uses run_id to ensure each manual trigger gets its own group, preventing
+# unrelated manual triggers from cancelling each other
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true
 
 jobs:
