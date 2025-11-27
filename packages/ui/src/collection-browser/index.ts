@@ -13,7 +13,7 @@ export type { BulkAction, BulkActionBarProps } from './bulk-action-bar';
 export { BulkActionBar, DEFAULT_BULK_ACTIONS } from './bulk-action-bar';
 export type { CollectionBrowserProps } from './collection-browser';
 // Main component
-export { CollectionBrowser } from './collection-browser';
+export { CollectionBrowser, shortenPath } from './collection-browser';
 export { FilterBar } from './filter-bar';
 export { FilterChip } from './filter-chip';
 export type { NodeInspectorProps } from './node-inspector';

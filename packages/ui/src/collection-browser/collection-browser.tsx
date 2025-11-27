@@ -35,6 +35,46 @@ import type {
 import { useCollectionTree } from './use-collection-tree';
 
 /**
+ * Shorten a file path for display while keeping it informative.
+ * - Replaces home directory with ~
+ * - Collapses middle segments if path exceeds maxLength
+ * - Preserves filename and immediate parent for context
+ *
+ * @param path - The full file path
+ * @param maxLength - Maximum display length (default: 50)
+ * @returns Shortened path string
+ */
+export function shortenPath(path: string, maxLength = 50): string {
+  if (!path || path.length <= maxLength) return path;
+
+  // Replace common home directory patterns with ~
+  const homePatterns = [/^\/Users\/[^/]+/, /^\/home\/[^/]+/, /^C:\\Users\\[^\\]+/i];
+
+  let shortenedPath = path;
+  for (const pattern of homePatterns) {
+    if (pattern.test(path)) {
+      shortenedPath = path.replace(pattern, '~');
+      break;
+    }
+  }
+
+  // If still too long, collapse middle segments
+  if (shortenedPath.length > maxLength) {
+    const separator = path.includes('\\') ? '\\' : '/';
+    const parts = shortenedPath.split(separator);
+
+    if (parts.length > 3) {
+      // Keep first segment (~ or root), ellipsis, and last 2 segments
+      const first = parts[0];
+      const lastTwo = parts.slice(-2);
+      shortenedPath = [first, '…', ...lastTwo].join(separator);
+    }
+  }
+
+  return shortenedPath;
+}
+
+/**
  * Mapping from TreeTable column IDs to hierarchical sort keys
  */
 const COLUMN_TO_SORT_KEY: Record<string, CollectionSortKey> = {
@@ -180,7 +220,7 @@ function getNodeDisplayInfo(
     }
     case 'file': {
       const fileData = data as FileData;
-      return { displayName: fileData.name, subtitle: fileData.path };
+      return { displayName: fileData.name, subtitle: shortenPath(fileData.path) };
     }
     case 'chunk': {
       const chunkData = data as ChunkData;
@@ -476,6 +516,8 @@ export function CollectionBrowser({
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
           const { displayName, subtitle } = getNodeDisplayInfo(type, nodeData);
+          // For files, show full path in tooltip; otherwise use subtitle
+          const subtitleTooltip = type === 'file' ? (nodeData as FileData).path : subtitle;
 
           return (
             <div className="flex items-center gap-2 min-w-0 max-w-full overflow-hidden">
@@ -485,7 +527,7 @@ export function CollectionBrowser({
                   {displayName}
                 </div>
                 {subtitle && (
-                  <div className="text-xs text-muted-foreground truncate" title={subtitle}>
+                  <div className="text-xs text-muted-foreground truncate" title={subtitleTooltip}>
                     {subtitle}
                   </div>
                 )}
