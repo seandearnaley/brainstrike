@@ -16,6 +16,11 @@ describe('CHUNKING_CONFIG', () => {
     expect(CHUNKING_CONFIG.largeStructuredOverlap).toBe(150);
   });
 
+  it('should expose language-aware code defaults', () => {
+    expect(CHUNKING_CONFIG.codeLanguageDefaults.typescript.maxTokens).toBe(512);
+    expect(CHUNKING_CONFIG.codeLanguageDefaults.rust.overlap).toBe(75);
+  });
+
   it('should have correct very large content thresholds', () => {
     expect(CHUNKING_CONFIG.veryLargeContentThreshold).toBe(100000);
     expect(CHUNKING_CONFIG.veryLargeMaxTokens).toBe(1000);
@@ -52,6 +57,7 @@ describe('CHUNKING_CONFIG', () => {
       'largeStructuredOverlap',
       'codeMaxTokens',
       'codeOverlap',
+      'codeLanguageDefaults',
       'maxTokensHardLimit',
       'overlapHardLimit',
       'veryLargeContentThreshold',

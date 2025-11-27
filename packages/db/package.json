@@ -28,6 +28,7 @@
     "mutation": "npx @stryker-mutator/core run"
   },
   "dependencies": {
+    "@babel/parser": "^7.26.5",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",

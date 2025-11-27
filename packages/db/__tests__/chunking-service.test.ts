@@ -197,7 +197,7 @@ class TestClass {
       expect(result.strategyUsed).toBe('sentence');
     });
 
-    it('applies code defaults when no overrides are provided', async () => {
+    it('applies TypeScript language defaults when no overrides are provided', async () => {
       const content = 'export const answer = 42;\n'.repeat(20);
 
       const result = await chunkingService.chunkContent(content, 'file-default', {
@@ -207,7 +207,9 @@ class TestClass {
 
       expect(result.skipped).toBeUndefined();
       expect(result.chunks.length).toBeGreaterThan(0);
-      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.codeMaxTokens);
+      expect(result.chunks[0]?.chunkSize).toBe(
+        CHUNKING_CONFIG.codeLanguageDefaults.typescript.maxTokens
+      );
     });
 
     it('skips file-type recommendations when explicitly ignored', async () => {
@@ -222,6 +224,19 @@ class TestClass {
       expect(result.skipped).toBeUndefined();
       expect(result.chunks.length).toBeGreaterThan(0);
       expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.defaultMaxTokens);
+    });
+
+    it('applies language-specific defaults for Rust code', async () => {
+      const content = 'fn main() { println!("hi"); }\n'.repeat(40);
+
+      const result = await chunkingService.chunkContent(content, 'rust-file', {
+        strategy: 'recursive',
+        fileName: 'lib.rs',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.codeLanguageDefaults.rust.maxTokens);
     });
 
     it('respects custom chunk size for code files above defaults', async () => {
@@ -404,6 +419,49 @@ class TestClass {
       expect(result.chunks[0].chunkType).toBe('recursive');
     });
 
+    it('keeps TypeScript functions intact using AST-aware chunking', async () => {
+      const tsContent = `function alpha() {\n${'const x = 1;\n'.repeat(150)}}\n\nfunction beta() {\n${'const y = 2;\n'.repeat(
+        150
+      )}}\n`;
+
+      const result = await chunkingService.chunkContent(tsContent, 'ts-ast', {
+        strategy: 'recursive',
+        fileName: 'ast-sample.ts',
+      });
+
+      expect(result.strategyUsed).toBe('recursive');
+      const chunkTexts = result.chunks.map((c) => c.content);
+      const alphaChunk = chunkTexts.find((c) => c.includes('alpha'));
+      const betaChunk = chunkTexts.find((c) => c.includes('beta'));
+
+      expect(alphaChunk).toBeTruthy();
+      expect(betaChunk).toBeTruthy();
+    });
+
+    it('falls back to token strategy for unsupported code languages', async () => {
+      const codeContent = 'module Main exposing (.. )\nmain =\n    Debug.log "hi" 42';
+
+      const result = await chunkingService.chunkContent(codeContent, 'elm-file', {
+        strategy: 'recursive',
+        fileName: 'Main.elm',
+      });
+
+      expect(result.strategyUsed).toBe('token');
+      expect(result.chunks[0]?.chunkType).toBe('text');
+    });
+
+    it('recovers when AST parsing fails and still chunks content', async () => {
+      const malformed = 'function () { return ;';
+
+      const result = await chunkingService.chunkContent(malformed, 'bad-js', {
+        strategy: 'recursive',
+        fileName: 'broken.js',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+    });
+
     it('should handle unsupported strategy gracefully', async () => {
       // Test with an invalid strategy (TypeScript won't catch this in tests due to any casting)
       await expect(
@@ -464,8 +522,8 @@ class TestClass {
         fileName: 'foo.tsx',
       });
 
-      expect(maxTokens).toBe(CHUNKING_CONFIG.codeMaxTokens);
-      expect(overlap).toBe(CHUNKING_CONFIG.codeOverlap);
+      expect(maxTokens).toBe(CHUNKING_CONFIG.codeLanguageDefaults.typescript.maxTokens);
+      expect(overlap).toBe(CHUNKING_CONFIG.codeLanguageDefaults.typescript.overlap);
     });
   });
 });
