@@ -66,6 +66,25 @@ const SKIP_CHUNKING_PATTERNS = [
 
 type CodeLanguage = keyof typeof CHUNKING_CONFIG.codeLanguageDefaults;
 
+const CODE_LANGUAGE_PATTERNS: Array<{ pattern: RegExp; language: CodeLanguage }> = [
+  { pattern: /\.vue$/i, language: 'javascript' },
+  { pattern: /\.svelte$/i, language: 'javascript' },
+  { pattern: /\.(ts|tsx|mts|cts)$/i, language: 'typescript' },
+  { pattern: /\.(js|jsx|mjs|cjs)$/i, language: 'javascript' },
+  { pattern: /\.mm$/i, language: 'cpp' },
+  { pattern: /\.m$/i, language: 'cpp' },
+  { pattern: /\.py$/i, language: 'python' },
+  { pattern: /\.rs$/i, language: 'rust' },
+  { pattern: /\.go$/i, language: 'go' },
+  { pattern: /\.(java|class)$/i, language: 'java' },
+  { pattern: /\.cs$/i, language: 'csharp' },
+  { pattern: /\.(c|cc|cpp|cxx|h|hh|hpp)$/i, language: 'cpp' },
+  { pattern: /\.rb$/i, language: 'ruby' },
+  { pattern: /\.php$/i, language: 'php' },
+  { pattern: /\.swift$/i, language: 'swift' },
+  { pattern: /\.(kt|kts)$/i, language: 'kotlin' },
+];
+
 type AstNode = {
   type?: string;
   start?: number;
@@ -74,18 +93,9 @@ type AstNode = {
 
 function detectCodeLanguage(fileName: string): CodeLanguage | null {
   const name = fileName.toLowerCase();
-  if (/\.(ts|tsx|mts|cts)$/i.test(name)) return 'typescript';
-  if (/\.(js|jsx|mjs|cjs)$/i.test(name)) return 'javascript';
-  if (/\.py$/i.test(name)) return 'python';
-  if (/\.rs$/i.test(name)) return 'rust';
-  if (/\.go$/i.test(name)) return 'go';
-  if (/\.(java|class)$/i.test(name)) return 'java';
-  if (/\.cs$/i.test(name)) return 'csharp';
-  if (/\.(c|cc|cpp|cxx|h|hh|hpp)$/i.test(name)) return 'cpp';
-  if (/\.rb$/i.test(name)) return 'ruby';
-  if (/\.php$/i.test(name)) return 'php';
-  if (/\.swift$/i.test(name)) return 'swift';
-  if (/\.(kt|kts)$/i.test(name)) return 'kotlin';
+  for (const { pattern, language } of CODE_LANGUAGE_PATTERNS) {
+    if (pattern.test(name)) return language;
+  }
   return null;
 }
 
@@ -223,17 +233,21 @@ export class ChunkingService {
     const hasExplicitOverlap = requestedOverlap !== undefined;
 
     // Normalize inputs to sane integer values
-    let maxTokens = normalize(requestedMaxTokens, CHUNKING_CONFIG.defaultMaxTokens, 1);
-    let overlap = normalize(requestedOverlap, CHUNKING_CONFIG.defaultOverlap, 0);
+    let maxTokens = hasExplicitMaxTokens
+      ? normalize(requestedMaxTokens, CHUNKING_CONFIG.defaultMaxTokens, 1)
+      : Number.POSITIVE_INFINITY;
+    let overlap = hasExplicitOverlap
+      ? normalize(requestedOverlap, CHUNKING_CONFIG.defaultOverlap, 0)
+      : Number.POSITIVE_INFINITY;
 
     type ChunkAdjustment = { maxTokens: number; overlap: number };
     const apply = (state: ChunkAdjustment, cap: Partial<ChunkAdjustment>) => {
       const next: ChunkAdjustment = { ...state };
       if (typeof cap.maxTokens === 'number') {
-        next.maxTokens = cap.maxTokens;
+        next.maxTokens = Math.min(state.maxTokens, cap.maxTokens);
       }
       if (typeof cap.overlap === 'number') {
-        next.overlap = cap.overlap;
+        next.overlap = Math.min(state.overlap, cap.overlap);
       }
       return next;
     };
@@ -559,6 +573,16 @@ export class ChunkingService {
     const chunkCode = async (): Promise<ChunkGroup[]> => {
       const supportsAst = codeLanguage === 'typescript' || codeLanguage === 'javascript';
 
+      const chunkWithCodeSeparators = async (): Promise<ChunkGroup[]> => {
+        const codeSeparators = getCodeSeparators(options.separators);
+        const recursiveChunker = new RecursiveCharacterTextSplitter({
+          chunkSize: maxChars,
+          chunkOverlap: overlapChars,
+          separators: codeSeparators,
+        });
+        return [{ pieces: await recursiveChunker.splitText(content), type: 'recursive' }];
+      };
+
       if (supportsAst) {
         const pieces = await splitCodeByFunctions(content, {
           maxChars,
@@ -575,19 +599,16 @@ export class ChunkingService {
           fileName: options.fileName,
           filePath: options.filePath,
         });
-      } else {
-        // Unsupported languages fall back to token-based chunking to avoid mid-function splits
-        effectiveStrategy = 'token';
-        return chunkTokens();
+
+        return chunkWithCodeSeparators();
+      }
+      if (codeLanguage) {
+        return chunkWithCodeSeparators();
       }
 
-      const codeSeparators = getCodeSeparators(options.separators);
-      const recursiveChunker = new RecursiveCharacterTextSplitter({
-        chunkSize: maxChars,
-        chunkOverlap: overlapChars,
-        separators: codeSeparators,
-      });
-      return [{ pieces: await recursiveChunker.splitText(content), type: 'recursive' }];
+      // Unsupported/unknown languages fall back to token-based chunking to avoid mid-function splits
+      effectiveStrategy = 'token';
+      return chunkTokens();
     };
 
     const chunkText = async (): Promise<ChunkGroup[]> => {

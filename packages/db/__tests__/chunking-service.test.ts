@@ -239,6 +239,66 @@ class TestClass {
       expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.codeLanguageDefaults.rust.maxTokens);
     });
 
+    it('keeps non-JS/TS code on the recursive splitter', async () => {
+      const content = 'def hello():\n    return "hi"\n\n'.repeat(40);
+
+      const result = await chunkingService.chunkContent(content, 'py-file', {
+        strategy: 'recursive',
+        fileName: 'script.py',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.strategyUsed).toBe('recursive');
+      expect(result.chunks[0]?.chunkType).toBe('recursive');
+    });
+
+    it('recognizes Vue single-file components as code', async () => {
+      const content = `<template><div>{{ msg }}</div></template>\n<script setup>\nconst msg = 'hi'\n</script>\n<style scoped>\ndiv { color: red; }\n</style>`;
+
+      const result = await chunkingService.chunkContent(content, 'vue-file', {
+        strategy: 'recursive',
+        fileName: 'Component.vue',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.strategyUsed).toBe('recursive');
+      expect(result.chunks[0]?.chunkType).toBe('recursive');
+      expect(result.chunks[0]?.chunkSize).toBe(
+        CHUNKING_CONFIG.codeLanguageDefaults.javascript.maxTokens
+      );
+    });
+
+    it('recognizes Svelte components as code', async () => {
+      const content =
+        '<script>\n  let count = 0;\n  const inc = () => count++;\n</script>\n<button on:click={inc}>{count}</button>';
+
+      const result = await chunkingService.chunkContent(content, 'svelte-file', {
+        strategy: 'recursive',
+        fileName: 'Counter.svelte',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.strategyUsed).toBe('recursive');
+      expect(result.chunks[0]?.chunkType).toBe('recursive');
+      expect(result.chunks[0]?.chunkSize).toBe(
+        CHUNKING_CONFIG.codeLanguageDefaults.javascript.maxTokens
+      );
+    });
+
+    it('treats Objective-C family sources as code', async () => {
+      const content = '@interface Foo : NSObject\n@end\n@implementation Foo\n- (void)bar {}\n@end';
+
+      const result = await chunkingService.chunkContent(content, 'objc-file', {
+        strategy: 'recursive',
+        fileName: 'main.mm',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.strategyUsed).toBe('recursive');
+      expect(result.chunks[0]?.chunkType).toBe('recursive');
+      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.codeLanguageDefaults.cpp.maxTokens);
+    });
+
     it('respects custom chunk size for code files above defaults', async () => {
       const content = 'export const answer = 42;\n'.repeat(200);
 
@@ -524,6 +584,17 @@ class TestClass {
 
       expect(maxTokens).toBe(CHUNKING_CONFIG.codeLanguageDefaults.typescript.maxTokens);
       expect(overlap).toBe(CHUNKING_CONFIG.codeLanguageDefaults.typescript.overlap);
+    });
+
+    it('keeps combined caps to the tightest bound when multiple heuristics apply', () => {
+      const veryLargeTs = 'export const value = 1;\n'.repeat(7000);
+
+      const { maxTokens } = invokeAdjust(chunkingService, veryLargeTs, {
+        strategy: 'recursive',
+        fileName: 'big.ts',
+      });
+
+      expect(maxTokens).toBe(CHUNKING_CONFIG.codeLanguageDefaults.typescript.maxTokens);
     });
   });
 });
