@@ -234,7 +234,8 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
     return result;
   } catch (error) {
     emitErrorEvent(context.id, error);
-    throw error;
+    // Always throw a proper Error object so workerpool can serialize it correctly
+    throw normalizeError(error);
   }
 }
 
@@ -355,6 +356,31 @@ function serializeErrorCause(error: unknown): string | undefined {
     return JSON.stringify(error);
   } catch {
     return String(error);
+  }
+}
+
+/**
+ * Normalize any error value to a proper Error object.
+ * This ensures workerpool can serialize and transmit errors correctly.
+ * Raw values (numbers, undefined) from ONNX/WASM are wrapped with context.
+ */
+function normalizeError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  if (error === undefined || error === null) {
+    return new Error('Embedding failed with unknown error (no details available)');
+  }
+  if (typeof error === 'number') {
+    return new Error(`Embedding failed with error code: ${error} (0x${error.toString(16)})`);
+  }
+  if (typeof error === 'string') {
+    return new Error(error);
+  }
+  try {
+    return new Error(`Embedding failed: ${JSON.stringify(error)}`);
+  } catch {
+    return new Error(`Embedding failed: ${String(error)}`);
   }
 }
 
