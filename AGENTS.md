@@ -12,6 +12,37 @@ Always treat this file as authoritative and current.
 
 ---
 
+## TICKET & CODE REVIEW WORKFLOW
+
+Tickets tracked in Atlassian Jira with `BST-` prefix (e.g., BST-42, BST-123).
+
+**Definition of Done (DoD):**
+
+A ticket is DONE only when ALL conditions are met:
+1. Code changes pushed to feature branch
+2. CI pipeline passes (build, lint, type-check, tests)
+3. PR opened and approved via code review
+4. Branch merged to main
+5. Ticket transitioned to Done in Jira
+
+**Constraints:**
+- Do NOT close/resolve tickets until PR is merged.
+- Do NOT mark tickets Done if CI is failing.
+- Do NOT skip code review—every change requires approval.
+- Reference ticket ID in commits/PRs (e.g., "BST-42: Add feature X").
+
+**Workflow:**
+1. Pick ticket → move to In Progress
+2. Create branch: `bst-42-f/short-description` (feature) or `bst-42-b/fix-description` (bugfix)
+3. Implement → verify local CI parity (build, lint, type-check, test)
+4. Push → open PR → request review
+5. Address feedback → get approval → merge
+6. Only then: close ticket
+
+This prevents premature closure and ensures traceability from ticket → commit → PR → merge.
+
+---
+
 ## TOOLING WORKFLOW (MCP / CODE NAVIGATION)
 
 Use tools before speculating. Follow this order unless explicitly told otherwise.
