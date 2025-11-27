@@ -401,8 +401,9 @@ describe('useDatabaseDemoData', () => {
       })
     );
 
+    // Wait for connection test to complete (repository.count() succeeds)
     await waitFor(() => {
-      expect(result.current.dbInfo).toBeDefined();
+      expect(result.current.dbInfo?.connected).toBe(true);
     });
 
     // Should still be connected via repository test even if database query fails
