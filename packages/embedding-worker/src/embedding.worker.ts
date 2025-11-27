@@ -25,8 +25,23 @@ type FeatureExtractor = FeatureExtractionPipeline &
     options?: {
       readonly pooling?: 'mean' | 'max' | 'cls';
       readonly normalize?: boolean;
+      readonly truncate?: boolean;
+      readonly maxLength?: number;
     }
   ) => Promise<unknown>);
+
+/**
+ * Get the maximum sequence length for a given model.
+ * Prevents ONNX/WASM crashes from text that exceeds model context window.
+ */
+function getMaxLengthForModel(modelId: string): number {
+  const id = modelId.toLowerCase();
+  if (id.includes('bge-m3')) return 8192;
+  if (id.includes('minilm')) return 512;
+  if (id.includes('jina')) return 8192;
+  // Safe default for most sentence transformer models
+  return 512;
+}
 
 const pipelines = new Map<string, Promise<FeatureExtractor>>();
 
@@ -267,12 +282,19 @@ async function runBatches(
   extractor: FeatureExtractor
 ): Promise<Float32Array[]> {
   const vectors: Float32Array[] = [];
-  const { texts, truncateDim, id, total } = context;
+  const { texts, truncateDim, id, total, model } = context;
+  const maxLength = getMaxLengthForModel(model);
 
   for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
     const endIndex = Math.min(total, startIndex + state.batchSize);
     const slice = texts.slice(startIndex, endIndex);
-    const rawOutput = await extractor(slice, { pooling: 'mean', normalize: false });
+    // CRITICAL: truncate=true and maxLength prevent ONNX/WASM crashes from overlong input
+    const rawOutput = await extractor(slice, {
+      pooling: 'mean',
+      normalize: false,
+      truncate: true,
+      maxLength,
+    });
     const vectorsFromBatch =
       rawOutput instanceof Tensor
         ? convertTensorToVectors(rawOutput, truncateDim)
