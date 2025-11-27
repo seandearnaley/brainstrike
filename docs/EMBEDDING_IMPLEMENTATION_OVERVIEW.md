@@ -9,7 +9,7 @@ BrainStrike implements a sophisticated embedding system with **local (browser-ba
 ## 1. EMBEDDING MODEL SETTINGS CONFIGURATION
 
 ### 1.1 Model Registry (`packages/embeddings/model-registry.json`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embeddings/model-registry.json`
+**File:** `packages/embeddings/model-registry.json`
 
 The registry defines all available local embedding models:
 
@@ -70,7 +70,7 @@ The registry defines all available local embedding models:
 - Non-default models are treated as alternatives
 
 ### 1.2 Model Registry Manager (`packages/embeddings/src/model-registry.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embeddings/src/model-registry.ts` (Lines 1-96)
+**File:** `packages/embeddings/src/model-registry.ts` (Lines 1-96)
 
 Provides programmatic access to the model registry:
 
@@ -91,19 +91,12 @@ export function shouldQuantize(model: ModelConfig): boolean
 ## 2. UI/UX FOR EMBEDDING MODEL SETTINGS
 
 ### 2.1 Embedding Settings Section (`packages/preferences/src/embedding/embedding-settings-section.tsx`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/preferences/src/embedding/embedding-settings-section.tsx` (Lines 1-603)
+**File:** `packages/preferences/src/embedding/embedding-settings-section.tsx` (Lines 1-603)
 
 **Main Component: `EmbeddingSettings()`**
 
 #### Layout Structure:
-1. **Active Embedding Model Card** (Lines 296-374)
-   - Dropdown to select active model
-   - Shows selected model with dimension badge
-   - "Reset to recommended default" button
-   - "Clear selection" button
-   - Only shows enabled models in dropdown
-
-2. **Model Availability Card** (Lines 376-501)
+1. **Model Availability Card** (Lines 296-501)
    - Search box to filter models
    - Per-provider sections showing all available models
    - Enable/Disable toggles for each model
@@ -140,7 +133,7 @@ type NormalizedEmbeddingModel = {
 ## 3. EMBEDDING MODEL PROVIDERS & INTEGRATION
 
 ### 3.1 Provider Types (`packages/embeddings/src/provider-types.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embeddings/src/provider-types.ts` (Lines 1-125)
+**File:** `packages/embeddings/src/provider-types.ts` (Lines 1-125)
 
 #### Supported Providers:
 ```typescript
@@ -203,7 +196,7 @@ export type Result<T, E = EmbeddingProviderError> =
 ```
 
 ### 3.2 Provider Factory (`packages/embeddings/src/factory.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embeddings/src/factory.ts` (Lines 1-288)
+**File:** `packages/embeddings/src/factory.ts` (Lines 1-288)
 
 **Purpose:** Implements Factory pattern with caching for provider instances
 
@@ -244,7 +237,7 @@ provider:modelId:variant
 ```
 
 ### 3.3 Local Provider Implementation (`packages/embeddings/src/providers/local/transformers-provider.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embeddings/src/providers/local/transformers-provider.ts` (Lines 1-188)
+**File:** `packages/embeddings/src/providers/local/transformers-provider.ts` (Lines 1-188)
 
 **Class:** `TransformersEmbeddingProvider implements ILocalEmbeddingProvider`
 
@@ -268,7 +261,7 @@ getCurrentModelKey(): string | null
 - Implements Result pattern error handling
 
 ### 3.4 Hosted Provider API Key Resolution (`packages/embeddings/src/providers/hosted/api-key-resolver.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embeddings/src/providers/hosted/api-key-resolver.ts` (Lines 1-132)
+**File:** `packages/embeddings/src/providers/hosted/api-key-resolver.ts` (Lines 1-132)
 
 #### Key Resolution Order:
 1. **Secrets API** (Lines 59-76): `window.secrets.getKey(provider)`
@@ -303,7 +296,7 @@ const ENV_KEYS: Record<HostedProvider, readonly string[]> = {
 ## 4. TEXT CHUNKING IMPLEMENTATION
 
 ### 4.1 Chunking Configuration (`packages/db/src/config/chunking-config.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db/src/config/chunking-config.ts` (Lines 1-45)
+**File:** `packages/db/src/config/chunking-config.ts` (Lines 1-45)
 
 ```typescript
 export const CHUNKING_CONFIG = {
@@ -340,7 +333,7 @@ export const CHUNKING_CONFIG = {
 ```
 
 ### 4.2 Chunking Service (`packages/db/src/services/chunking-service.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db/src/services/chunking-service.ts` (Lines 1-150+)
+**File:** `packages/db/src/services/chunking-service.ts` (Lines 1-150+)
 
 #### Chunking Strategies:
 ```typescript
@@ -389,7 +382,7 @@ export interface ChunkingOptions {
 - Use more aggressive chunking (smaller chunks)
 
 ### 4.3 File Chunk Model (`packages/db/src/models/file-chunk.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db/src/models/file-chunk.ts` (Lines 1-62)
+**File:** `packages/db/src/models/file-chunk.ts` (Lines 1-62)
 
 ```typescript
 export interface FileChunk {
@@ -415,7 +408,7 @@ export interface FileChunk {
 ## 5. PREFERENCE STORES & STATE MANAGEMENT
 
 ### 5.1 Embedding Preferences Store (`packages/preferences/src/stores/embedding-preferences-store.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/preferences/src/stores/embedding-preferences-store.ts` (Lines 1-449)
+**File:** `packages/preferences/src/stores/embedding-preferences-store.ts` (Lines 1-449)
 
 **Store Name:** `embedding-preferences.v1`
 **Version:** 1
@@ -423,7 +416,6 @@ export interface FileChunk {
 #### State Shape:
 ```typescript
 interface EmbeddingPreferencesData {
-  selectedModel: string | null;  // "local::jina-code"
   enabledModelsByProvider: Record<EmbeddingProviderType, string[]>;
   preferredRuntime: 'browser' | 'hosted';
 }
@@ -439,7 +431,7 @@ const DEFAULT_ENABLED_MODELS = {
   voyage: [],
 };
 
-const DEFAULT_SELECTED_MODEL = 'local::jina-code';
+// DEFAULT_SELECTED_MODEL removed - selection is per-collection/embedding-set
 ```
 
 #### Key Methods (Lines 255-382):
@@ -475,7 +467,7 @@ setPreferredRuntime(runtime: 'browser' | 'hosted'): void
 - Handles SSR/test environments safely
 
 ### 5.2 Vector Preferences Store (`packages/preferences/src/stores/vector-preferences-store.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/preferences/src/stores/vector-preferences-store.ts` (Lines 1-72)
+**File:** `packages/preferences/src/stores/vector-preferences-store.ts` (Lines 1-72)
 
 **Store Name:** `vector-preferences.v1`
 **Version:** 1
@@ -503,7 +495,7 @@ setVerboseOrtLogs(v: boolean): void
 ## 6. EMBEDDING DIMENSIONS & CONSTANTS
 
 ### 6.1 Standard Embedding Dimension (`packages/types/src/embedding-constants.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/types/src/embedding-constants.ts` (Lines 1-2)
+**File:** `packages/types/src/embedding-constants.ts` (Lines 1-2)
 
 ```typescript
 export const DEFAULT_EMBEDDING_DIMENSION = 768;
@@ -526,7 +518,7 @@ export const MAX_EMBEDDING_DIMENSION = 16_000;
 ## 7. EMBEDDING WORKER (`packages/embedding-worker`)
 
 ### 7.1 Worker Index (`packages/embedding-worker/src/index.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embedding-worker/src/index.ts` (Lines 1-32)
+**File:** `packages/embedding-worker/src/index.ts` (Lines 1-32)
 
 ```typescript
 export type {
@@ -550,7 +542,7 @@ export function resolveEmbeddingWorkerUrl(): URL
 ```
 
 ### 7.2 Worker Implementation (`packages/embedding-worker/src/embedding.worker.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embedding-worker/src/embedding.worker.ts`
+**File:** `packages/embedding-worker/src/embedding.worker.ts`
 
 #### Device Inference (Lines 37-49):
 ```typescript
@@ -578,7 +570,7 @@ function inferDevice(hint: EmbeddingDeviceHint = 'auto'): EmbeddingDevice {
 ## 8. PROVIDER UTILITIES & HELPERS
 
 ### 8.1 Provider Model Parsing (`packages/embeddings/src/provider-utils.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embeddings/src/provider-utils.ts` (Lines 1-65)
+**File:** `packages/embeddings/src/provider-utils.ts` (Lines 1-65)
 
 ```typescript
 export function formatProviderModelKey(provider: EmbeddingProviderType, modelId: string): string
@@ -600,7 +592,7 @@ export function canonicalizeProviderModelKey(
 ## 9. SERVICE INTERFACES
 
 ### 9.1 Embedding Provider Interface (`packages/embeddings/src/interfaces/provider.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embeddings/src/interfaces/provider.ts` (Lines 1-117)
+**File:** `packages/embeddings/src/interfaces/provider.ts` (Lines 1-117)
 
 #### IEmbeddingProvider (Lines 20-60):
 ```typescript
@@ -640,7 +632,7 @@ export interface IHostedEmbeddingProvider extends IEmbeddingProvider {
 ## 10. EMBEDDING TYPES & DATA STRUCTURES
 
 ### 10.1 Core Types (`packages/embeddings/src/types.ts`)
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embeddings/src/types.ts` (Lines 1-182)
+**File:** `packages/embeddings/src/types.ts` (Lines 1-182)
 
 ```typescript
 export interface EmbeddingConfig {
@@ -717,7 +709,7 @@ export const FALLBACK_MODEL_CONFIG = {
 
 ## 11. SIMPLE EMBEDDING SERVICE (`packages/embeddings/src/bge-m3-service.ts`)
 
-**File:** `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/embeddings/src/bge-m3-service.ts` (Lines 1-250+)
+**File:** `packages/embeddings/src/bge-m3-service.ts` (Lines 1-250+)
 
 ### Class: SimpleEmbeddingService implements EmbeddingService
 
@@ -773,7 +765,6 @@ async dispose(): Promise<void>
 │         (embedding-preferences-store.ts: Lines 255-424)          │
 │                                                                   │
 │  State:                                                          │
-│  - selectedModel: "local::jina-code"                             │
 │  - enabledModelsByProvider: { local: ['jina-code'], ... }       │
 │  - preferredRuntime: 'browser'                                   │
 │                                                                   │

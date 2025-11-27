@@ -137,7 +137,18 @@
       "Bash(xargs ls:*)",
       "Bash(gh auth status:*)",
       "WebFetch(domain:app.codecov.io)",
-      "Bash(git remote set-url:*)"
+      "Bash(git remote set-url:*)",
+      "mcp__atlassian__getJiraIssue",
+      "WebFetch(domain:stackoverflow.com)",
+      "Bash(gh auth:*)",
+      "mcp__atlassian__addCommentToJiraIssue",
+      "mcp__atlassian__createJiraIssue",
+      "mcp__atlassian__editJiraIssue",
+      "Bash(for i in {1..5})",
+      "Bash(do echo \"=== Run $i ===\")",
+      "mcp__atlassian__searchJiraIssuesUsingJql",
+      "mcp__atlassian__getTransitionsForJiraIssue",
+      "mcp__atlassian__transitionJiraIssue"
     ],
     "deny": [],
     "ask": []
