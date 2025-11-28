@@ -284,6 +284,17 @@ jobs:
       - name: Run browser tests
         run: pnpm run test:browser
 
+      - name: Upload browser test traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-traces
+          path: |
+            packages/*/test-results/**/*.zip
+            packages/*/test-results/**/*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
   # E2E tests run in parallel with sharding
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
@@ -443,39 +454,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb
 
-      - name: Install Playwright for Electron (no browsers needed)
+      - name: Install Playwright system dependencies
         run: pnpm exec playwright install-deps
 
       - name: Build desktop application
         run: pnpm run build --filter @brainstrike/desktop
 
       - name: Run Desktop E2E tests (shard)
-        run: |
-          cd apps/desktop
-          RUN_SALT=${GITHUB_RUN_ID:-${GITHUB_RUN_NUMBER:-$(date +%s)}}
-          echo "Using RUN_SALT=${RUN_SALT} for shard isolation"
-          SHARD=${{ matrix.shardIndex }}
-          RUN_SLOT=$((RUN_SALT % 50))
-          SERVER_NUM=$((99 + SHARD + RUN_SLOT * 10))
-          export RUN_SALT
-
-          # Clear stale X locks for this display only; avoid cross-run clashes
-          LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
-          if [ -f "$LOCK_FILE" ]; then
-            rm -f "$LOCK_FILE"
-          fi
-
-          # Remove only this run's temp user data directories (keeps other runs intact)
-          rm -rf "/tmp/brainstrike-test-user-data-${RUN_SALT}-shard-*" 2>/dev/null || true
-
-          # Manually assign Xvfb server number based on shard index to prevent TCP port collisions
-          # in shared-network environments (like act with network="host") where filesystem locks in /tmp are isolated.
-          # Standard GitHub Runners are isolated VMs so this is safe there too (just explicit).
-          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24" -- \
-            env RUN_SALT="$RUN_SALT" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+        working-directory: apps/desktop
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24 -ac" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "test"
           CI: "true"
+          RUN_SALT: ${{ github.run_id }}
 
       - name: Bundle blob report (desktop shard)
         if: always()

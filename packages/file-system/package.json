@@ -36,7 +36,7 @@
     "@stryker-mutator/typescript-checker": "^9.2.0",
     "@stryker-mutator/vitest-runner": "^9.2.0",
     "@types/node": "^24.7.0",
-    "electron": "^38.2.2",
+    "electron": "^38.7.2",
     "jsdom": "^27.0.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",

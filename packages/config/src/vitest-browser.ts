@@ -17,6 +17,18 @@ export interface BrowserTestConfig {
   launchArgs?: string[];
   /** Headless mode (default: true) */
   headless?: boolean;
+  /**
+   * Playwright trace mode for debugging failed tests
+   * - 'off': No traces (default for local dev)
+   * - 'on': Always generate traces (performance impact)
+   * - 'on-first-retry': Capture traces only when test is retried first time
+   * - 'on-all-retries': Capture traces on every retry
+   * - 'retain-on-failure': Keep traces only for failed tests (recommended for CI)
+   * @see https://vitest.dev/config/browser/trace
+   */
+  trace?: 'off' | 'on' | 'on-first-retry' | 'on-all-retries' | 'retain-on-failure';
+  /** Directory for trace output (default: 'test-results') */
+  traceOutputDir?: string;
 }
 
 /**
@@ -75,16 +87,28 @@ export function createPlaywrightOptions(config?: BrowserTestConfig): PlaywrightP
 export function createBrowserProject(config?: BrowserTestConfig) {
   const testPattern = config?.testPattern ?? '**/*.browser.test.{ts,tsx}';
   const headless = config?.headless ?? true;
+  const isCI = config?.isCI ?? Boolean(process.env['CI']) ?? Boolean(process.env['GITHUB_ACTIONS']);
+
+  // Enable traces on failure in CI by default for debugging
+  const trace = config?.trace ?? (isCI ? 'retain-on-failure' : 'off');
+  const traceOutputDir = config?.traceOutputDir ?? 'test-results';
 
   return {
     test: {
       name: 'browser',
       include: [testPattern],
+      // Output directory for traces and screenshots
+      outputDir: traceOutputDir,
       browser: {
         enabled: true,
         provider: playwright(createPlaywrightOptions(config)),
         instances: [{ browser: 'chromium' as const }],
         headless,
+        // Playwright trace configuration
+        // Generates .zip trace files viewable with `npx playwright show-trace <file>`
+        trace,
+        // Capture screenshots on failure for quick visual debugging
+        screenshotFailures: true,
       },
     },
   };
