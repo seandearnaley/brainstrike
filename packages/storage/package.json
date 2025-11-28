@@ -17,7 +17,7 @@
     "build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
     "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose & tsup --watch",
-    "test": "vitest run",
+    "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage",
