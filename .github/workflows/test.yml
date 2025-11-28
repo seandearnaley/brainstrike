@@ -460,6 +460,26 @@ jobs:
       - name: Build desktop application
         run: pnpm run build --filter @brainstrike/desktop
 
+      # Debug diagnostics for CI flakiness investigation (BST-65)
+      - name: Pre-test diagnostics
+        run: |
+          echo "=== BST-65 Debug Diagnostics ==="
+          echo "[HYP-A] NODE_OPTIONS=${NODE_OPTIONS:-<not set>}"
+          echo "[HYP-A] NODE_DEBUG=${NODE_DEBUG:-<not set>}"
+          echo "[HYP-C] DISPLAY=${DISPLAY:-<not set>}"
+          echo "[HYP-C] WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<not set>}"
+          echo "[HYP-D] Platform: $(uname -a)"
+          echo "[HYP-D] Electron binary check:"
+          ls -la node_modules/electron/dist/ 2>/dev/null | head -5 || echo "Electron dist not found"
+          echo "[HYP-D] Electron version:"
+          node -e "console.log(require('electron/package.json').version)" 2>/dev/null || echo "Could not get Electron version"
+          echo "[HYP-B] Ports in use (4200x range):"
+          ss -tlnp 2>/dev/null | grep -E ':42[0-9]{3}' || echo "No ports in 4200x range in use"
+          echo "[HYP-E] Running Electron processes:"
+          ps aux 2>/dev/null | grep -i electron | grep -v grep || echo "No Electron processes running"
+          echo "=== End Diagnostics ==="
+        working-directory: apps/desktop
+
       - name: Run Desktop E2E tests (shard)
         run: |
           cd apps/desktop
@@ -470,9 +490,14 @@ jobs:
           SERVER_NUM=$((99 + SHARD + RUN_SLOT * 10))
           export RUN_SALT
 
+          # BST-65 Debug: Log computed values
+          echo "[DEBUG][HYP-C] Computed SERVER_NUM=${SERVER_NUM} (from SHARD=${SHARD}, RUN_SLOT=${RUN_SLOT})"
+          echo "[DEBUG][HYP-C] Will use DISPLAY=:${SERVER_NUM}"
+
           # Clear stale X locks for this display only; avoid cross-run clashes
           LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
           if [ -f "$LOCK_FILE" ]; then
+            echo "[DEBUG][HYP-E] Removing stale lock file: $LOCK_FILE"
             rm -f "$LOCK_FILE"
           fi
 
@@ -482,8 +507,13 @@ jobs:
           # Manually assign Xvfb server number based on shard index to prevent TCP port collisions
           # in shared-network environments (like act with network="host") where filesystem locks in /tmp are isolated.
           # Standard GitHub Runners are isolated VMs so this is safe there too (just explicit).
-          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24" -- \
-            env RUN_SALT="$RUN_SALT" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          # 
+          # BST-65: Explicitly set DISPLAY to match SERVER_NUM to avoid mismatch with hardcoded fallback
+          export DISPLAY=":${SERVER_NUM}"
+          echo "[DEBUG][HYP-C] DISPLAY explicitly set to ${DISPLAY} before xvfb-run"
+          
+          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24 -ac" -- \
+            env RUN_SALT="$RUN_SALT" DISPLAY=":${SERVER_NUM}" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "test"
           CI: "true"

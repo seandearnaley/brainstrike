@@ -20,8 +20,47 @@ export async function launchElectronApp(
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
 
   console.log('🚀 Launching Electron app...');
+
+  // #region agent log - Hypothesis A: V8 Inspector check
+  console.log('[DEBUG][HYP-A] NODE_OPTIONS:', process.env['NODE_OPTIONS'] ?? '<not set>');
+  console.log('[DEBUG][HYP-A] NODE_DEBUG:', process.env['NODE_DEBUG'] ?? '<not set>');
+  console.log(
+    '[DEBUG][HYP-A] ELECTRON_ENABLE_STACK_DUMPING:',
+    process.env['ELECTRON_ENABLE_STACK_DUMPING'] ?? '<not set>'
+  );
+  // #endregion
+
+  // #region agent log - Hypothesis C: DISPLAY check
+  console.log('[DEBUG][HYP-C] DISPLAY:', process.env['DISPLAY'] ?? '<not set>');
+  console.log('[DEBUG][HYP-C] WAYLAND_DISPLAY:', process.env['WAYLAND_DISPLAY'] ?? '<not set>');
+  console.log('[DEBUG][HYP-C] XDG_SESSION_TYPE:', process.env['XDG_SESSION_TYPE'] ?? '<not set>');
+  // #endregion
+
   if (debugPort) {
     console.log(`🔌 Requesting manual debug port: ${debugPort}`);
+    // #region agent log - Hypothesis B: Port availability check
+    try {
+      const net = require('node:net');
+      await new Promise<void>((resolve, reject) => {
+        const testServer = net.createServer();
+        testServer.once('error', (err: NodeJS.ErrnoException) => {
+          console.log(`[DEBUG][HYP-B] Port ${debugPort} check FAILED: ${err.code}`);
+          reject(err);
+        });
+        testServer.once('listening', () => {
+          testServer.close(() => {
+            console.log(`[DEBUG][HYP-B] Port ${debugPort} is AVAILABLE`);
+            resolve();
+          });
+        });
+        testServer.listen(debugPort, '127.0.0.1');
+      });
+    } catch (_portError) {
+      console.error(
+        `[DEBUG][HYP-B] Port ${debugPort} is IN USE or blocked - this may cause launch failure`
+      );
+    }
+    // #endregion
   }
   if (userDataDir) {
     console.log(`📂 Using custom user data dir: ${userDataDir}`);
@@ -109,6 +148,20 @@ function createLaunchOptions(
     '--no-sandbox',
     '--disable-dev-shm-usage',
   ];
+
+  // #region agent log - Hypothesis C: DISPLAY resolution logic
+  const currentDisplay = process.env['DISPLAY'];
+  const isLinuxCI = process.platform === 'linux' && process.env['CI'];
+  const needsDisplayFallback = isLinuxCI && !currentDisplay;
+  console.log('[DEBUG][HYP-C] DISPLAY resolution:', {
+    platform: process.platform,
+    isCI: Boolean(process.env['CI']),
+    currentDisplay: currentDisplay ?? '<not set>',
+    needsDisplayFallback,
+    willUseFallback: needsDisplayFallback ? ':99' : 'N/A',
+  });
+  // #endregion
+
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
     env: {
@@ -122,8 +175,12 @@ function createLaunchOptions(
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
+      // #region agent log - Hypothesis A: Explicitly clear NODE_OPTIONS to prevent V8 inspector issues
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      NODE_OPTIONS: '', // Clear any inherited NODE_OPTIONS that might enable --inspect
+      // #endregion
       // Ensure DISPLAY in Linux CI if not provided by runner; xvfb-maybe usually sets this
-      ...(process.platform === 'linux' && process.env['CI'] && !process.env['DISPLAY']
+      ...(needsDisplayFallback
         ? // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
           { DISPLAY: ':99' }
         : {}),
@@ -141,22 +198,56 @@ function createLaunchOptions(
 }
 
 async function startElectron(launchOptions: Parameters<typeof electron.launch>[0]) {
+  // #region agent log - Hypothesis D: Pre-launch diagnostics
+  console.log('[DEBUG][HYP-D] Pre-launch diagnostics:');
+  console.log('[DEBUG][HYP-D] Platform:', process.platform);
+  console.log('[DEBUG][HYP-D] Arch:', process.arch);
+  console.log('[DEBUG][HYP-D] CI:', process.env['CI'] ?? '<not set>');
+  console.log('[DEBUG][HYP-D] GITHUB_ACTIONS:', process.env['GITHUB_ACTIONS'] ?? '<not set>');
+  console.log('[DEBUG][HYP-D] Launch args:', JSON.stringify(launchOptions?.args ?? []));
+  console.log('[DEBUG][HYP-D] Launch env keys:', Object.keys(launchOptions?.env ?? {}).join(', '));
+  // #endregion
+
+  const launchStartTime = Date.now();
   try {
+    console.log('[DEBUG] Calling electron.launch() at', new Date().toISOString());
     const app = await electron.launch(launchOptions);
+    console.log('[DEBUG] electron.launch() returned after', Date.now() - launchStartTime, 'ms');
 
     // Pipe stdout and stderr for debugging CI crashes
-    const process = app.process();
-    console.log('🔧 Attaching process listeners for stdout/stderr');
+    const electronProcess = app.process();
+    const pid = electronProcess.pid;
+    console.log(`🔧 Attaching process listeners for stdout/stderr (PID: ${pid})`);
 
-    process.stdout?.on('data', (data) => {
-      console.log(`[Electron Stdout]: ${data.toString()}`);
+    // #region agent log - Hypothesis A: Check for V8 inspector messages
+    electronProcess.stdout?.on('data', (data) => {
+      const str = data.toString();
+      console.log(`[Electron Stdout]: ${str}`);
+      if (str.includes('debugger') || str.includes('inspector') || str.includes('Debugger')) {
+        console.log('[DEBUG][HYP-A] V8 Inspector activity detected in stdout');
+      }
     });
-    process.stderr?.on('data', (data) => {
-      console.error(`[Electron Stderr]: ${data.toString()}`);
+    electronProcess.stderr?.on('data', (data) => {
+      const str = data.toString();
+      console.error(`[Electron Stderr]: ${str}`);
+      if (str.includes('debugger') || str.includes('inspector') || str.includes('Debugger')) {
+        console.log('[DEBUG][HYP-A] V8 Inspector activity detected in stderr');
+      }
     });
+    // #endregion
 
-    process.on('exit', (code, signal) => {
-      console.log(`[Electron Process Exit] Code: ${code}, Signal: ${signal}`);
+    electronProcess.on('exit', (code, signal) => {
+      const elapsed = Date.now() - launchStartTime;
+      console.log(
+        `[Electron Process Exit] Code: ${code}, Signal: ${signal}, Elapsed: ${elapsed}ms`
+      );
+      // #region agent log - Hypothesis E: Analyze exit timing
+      if (elapsed < 2000) {
+        console.log(
+          '[DEBUG][HYP-E] RAPID EXIT: Process exited within 2 seconds - likely startup failure'
+        );
+      }
+      // #endregion
     });
 
     app.on('close', () => {
@@ -165,6 +256,13 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     return app;
   } catch (error) {
     console.error('❌ Failed to launch Electron app:', error);
+    // #region agent log - Additional error context
+    console.error('[DEBUG] Launch error details:', {
+      name: error instanceof Error ? error.name : 'unknown',
+      message: error instanceof Error ? error.message : String(error),
+      elapsed: Date.now() - launchStartTime,
+    });
+    // #endregion
     throw new Error(`Failed to launch Electron app: ${error}`);
   }
 }
