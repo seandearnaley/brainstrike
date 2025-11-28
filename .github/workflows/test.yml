@@ -477,6 +477,28 @@ jobs:
           ss -tlnp 2>/dev/null | grep -E ':42[0-9]{3}' || echo "No ports in 4200x range in use"
           echo "[HYP-E] Running Electron processes:"
           ps aux 2>/dev/null | grep -i electron | grep -v grep || echo "No Electron processes running"
+          
+          # HYP-F: Check for missing system libraries
+          echo "[HYP-F] Checking Electron dependencies..."
+          ELECTRON_BIN=$(node -e "console.log(require('electron'))")
+          echo "[HYP-F] Electron binary: $ELECTRON_BIN"
+          if [ -f "$ELECTRON_BIN" ]; then
+            echo "[HYP-F] Missing libraries check:"
+            ldd "$ELECTRON_BIN" 2>&1 | grep -i "not found" || echo "[HYP-F] No missing libraries"
+            
+            # Test if Electron can actually run
+            echo "[HYP-F] Testing Electron execution..."
+            timeout 10 "$ELECTRON_BIN" --version 2>&1 || echo "[HYP-F] Electron execution test failed or timed out"
+          else
+            echo "[HYP-F] Electron binary not found at $ELECTRON_BIN"
+          fi
+          
+          # Check GTK and X11 libraries
+          echo "[HYP-F] Checking for common Electron dependencies:"
+          for lib in libgtk-3 libgbm libxshmfence libasound libatk-bridge; do
+            ldconfig -p 2>/dev/null | grep -i "$lib" | head -1 || echo "[HYP-F] $lib: NOT FOUND"
+          done
+          
           echo "=== End Diagnostics ==="
         working-directory: apps/desktop
 

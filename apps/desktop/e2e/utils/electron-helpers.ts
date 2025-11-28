@@ -197,6 +197,61 @@ function createLaunchOptions(
   return options;
 }
 
+// #region agent log - Hypothesis F: Pre-flight Electron binary check
+function runPreflightElectronCheck(displayEnv: string | undefined): void {
+  if (process.platform !== 'linux' || !process.env['CI']) {
+    return;
+  }
+
+  const electronBinaryPath = require('electron');
+  const fs = require('node:fs');
+  const { execSync } = require('node:child_process');
+
+  console.log('[DEBUG][HYP-F] Checking Electron binary...');
+  console.log('[DEBUG][HYP-F] Binary path:', electronBinaryPath);
+
+  try {
+    const stats = fs.statSync(electronBinaryPath);
+    console.log('[DEBUG][HYP-F] Binary exists, size:', stats.size);
+    console.log('[DEBUG][HYP-F] Binary mode:', stats.mode.toString(8));
+  } catch (statErr) {
+    console.error('[DEBUG][HYP-F] Cannot stat binary:', statErr);
+  }
+
+  // Check for missing libraries using ldd
+  try {
+    const lddOutput = execSync(`ldd "${electronBinaryPath}" 2>&1 | grep -i "not found"`, {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    if (lddOutput.trim()) {
+      console.error('[DEBUG][HYP-F] MISSING LIBRARIES DETECTED:');
+      console.error(lddOutput);
+    }
+  } catch (lddErr) {
+    // grep returns exit code 1 when no matches - that's good (no missing libs)
+    if ((lddErr as { status?: number }).status === 1) {
+      console.log('[DEBUG][HYP-F] No missing libraries detected');
+    } else {
+      console.log('[DEBUG][HYP-F] ldd check inconclusive:', (lddErr as Error).message);
+    }
+  }
+
+  // Try to run electron --version to verify it can execute
+  try {
+    const versionOutput = execSync(`"${electronBinaryPath}" --version 2>&1`, {
+      encoding: 'utf8',
+      timeout: 10000,
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      env: { ...process.env, DISPLAY: displayEnv ?? process.env['DISPLAY'] },
+    });
+    console.log('[DEBUG][HYP-F] Electron version check:', versionOutput.trim());
+  } catch (versionErr) {
+    console.error('[DEBUG][HYP-F] Electron version check FAILED:', (versionErr as Error).message);
+  }
+}
+// #endregion
+
 async function startElectron(launchOptions: Parameters<typeof electron.launch>[0]) {
   // #region agent log - Hypothesis D: Pre-launch diagnostics
   console.log('[DEBUG][HYP-D] Pre-launch diagnostics:');
@@ -207,6 +262,9 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
   console.log('[DEBUG][HYP-D] Launch args:', JSON.stringify(launchOptions?.args ?? []));
   console.log('[DEBUG][HYP-D] Launch env keys:', Object.keys(launchOptions?.env ?? {}).join(', '));
   // #endregion
+
+  // Run pre-flight check for Linux CI environments
+  runPreflightElectronCheck(launchOptions?.env?.['DISPLAY']);
 
   const launchStartTime = Date.now();
   try {
@@ -219,8 +277,34 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     const pid = electronProcess.pid;
     console.log(`🔧 Attaching process listeners for stdout/stderr (PID: ${pid})`);
 
+    // #region agent log - Hypothesis G: Verify stdio pipe status
+    console.log(
+      '[DEBUG][HYP-G] stdout pipe:',
+      electronProcess.stdout ? 'available' : 'NOT AVAILABLE'
+    );
+    console.log(
+      '[DEBUG][HYP-G] stderr pipe:',
+      electronProcess.stderr ? 'available' : 'NOT AVAILABLE'
+    );
+    console.log(
+      '[DEBUG][HYP-G] stdin pipe:',
+      electronProcess.stdin ? 'available' : 'NOT AVAILABLE'
+    );
+    // #endregion
+
+    let stdoutReceived = false;
+    let stderrReceived = false;
+
     // #region agent log - Hypothesis A: Check for V8 inspector messages
     electronProcess.stdout?.on('data', (data) => {
+      if (!stdoutReceived) {
+        console.log(
+          '[DEBUG][HYP-G] First stdout data received at',
+          Date.now() - launchStartTime,
+          'ms'
+        );
+        stdoutReceived = true;
+      }
       const str = data.toString();
       console.log(`[Electron Stdout]: ${str}`);
       if (str.includes('debugger') || str.includes('inspector') || str.includes('Debugger')) {
@@ -228,12 +312,31 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
       }
     });
     electronProcess.stderr?.on('data', (data) => {
+      if (!stderrReceived) {
+        console.log(
+          '[DEBUG][HYP-G] First stderr data received at',
+          Date.now() - launchStartTime,
+          'ms'
+        );
+        stderrReceived = true;
+      }
       const str = data.toString();
       console.error(`[Electron Stderr]: ${str}`);
       if (str.includes('debugger') || str.includes('inspector') || str.includes('Debugger')) {
         console.log('[DEBUG][HYP-A] V8 Inspector activity detected in stderr');
       }
     });
+    // #endregion
+
+    // #region agent log - Hypothesis H: Heartbeat to track if we're waiting
+    const heartbeatInterval = setInterval(() => {
+      const elapsed = Date.now() - launchStartTime;
+      console.log(
+        `[DEBUG][HYP-H] Heartbeat: ${elapsed}ms elapsed, stdout=${stdoutReceived}, stderr=${stderrReceived}`
+      );
+    }, 5000);
+    // Clear heartbeat on process exit
+    electronProcess.on('exit', () => clearInterval(heartbeatInterval));
     // #endregion
 
     electronProcess.on('exit', (code, signal) => {
