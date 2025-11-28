@@ -266,11 +266,17 @@ jobs:
 
       - name: Install Playwright browsers for Vitest
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install chromium chromium-headless-shell --with-deps
+        run: |
+          # Install browsers using Playwright from within storage package
+          # to ensure version compatibility with @vitest/browser-playwright
+          cd packages/storage
+          pnpm exec playwright install chromium chromium-headless-shell --with-deps
 
       - name: Install Playwright system dependencies only
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: pnpm exec playwright install-deps chromium
+        run: |
+          cd packages/storage
+          pnpm exec playwright install-deps chromium
 
       - name: Build packages
         run: pnpm run build --filter @brainstrike/db --filter @brainstrike/storage
