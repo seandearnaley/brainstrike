@@ -11,6 +11,7 @@ import type { NavigationItem } from './types';
 export interface RootLayoutContentProps {
   readonly homePageContent: ReactNode;
   readonly settingsPageContent: ReactNode;
+  readonly promptsPageContent?: ReactNode;
   readonly navigationItems: NavigationItem[];
 
   /**
@@ -34,6 +35,7 @@ export interface RootLayoutContentProps {
 export function RootLayoutContent({
   homePageContent,
   settingsPageContent,
+  promptsPageContent,
   navigationItems,
   embeddingQueue = null,
 }: RootLayoutContentProps): ReactElement {
@@ -43,8 +45,11 @@ export function RootLayoutContent({
 
   const handleNavigationClick = useCallback(
     (path: string) => {
-      const tab = path === '/' ? 'explorer' : 'settings';
-      setState({ activeTab: tab as 'explorer' | 'settings' });
+      let tab = 'explorer';
+      if (path === '/settings') tab = 'settings';
+      else if (path === '/prompts') tab = 'prompts';
+
+      setState({ activeTab: tab as 'explorer' | 'settings' | 'prompts' });
     },
     [setState]
   );
@@ -67,7 +72,7 @@ export function RootLayoutContent({
   return (
     <AppLayout
       config={appConfig}
-      currentPath={activeTab === 'explorer' ? '/' : '/settings'}
+      currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
       onNavigationClick={handleNavigationClick}
     >
       {activeTab === 'explorer' ? (
@@ -95,6 +100,10 @@ export function RootLayoutContent({
               {homePageContent}
             </IdeLayout>
           </PanelLayoutProvider>
+        </div>
+      ) : activeTab === 'prompts' ? (
+        <div data-testid="prompts-section" className="h-full">
+          {promptsPageContent}
         </div>
       ) : (
         <div data-testid="settings-section" className="h-full">

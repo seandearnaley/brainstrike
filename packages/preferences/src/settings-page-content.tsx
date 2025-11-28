@@ -4,6 +4,7 @@ import { ChevronRight, Palette, Search, Settings, Sigma } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { FactoryResetSettingsSection } from './factory-reset/factory-reset-settings-section';
+import { ModelRegistrySettingsSection } from './model-registry/model-registry-settings-section';
 import { TokenCountingSettingsSection } from './token-counting/token-counting-settings-section';
 
 /**
@@ -374,5 +375,16 @@ export function createFactoryResetSettingsCategory(): SettingsCategory {
     keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences'],
     icon: Settings,
     render: () => <FactoryResetSettingsSection />,
+  };
+}
+
+export function createModelRegistrySettingsCategory(): SettingsCategory {
+  return {
+    id: 'models',
+    title: 'Models & Providers',
+    description: 'Manage AI providers and enable/disable specific models.',
+    keywords: ['models', 'providers', 'llm', 'embedding', 'openai', 'anthropic', 'google'],
+    icon: Settings, // Using Settings icon for now, could import something better like Brain or Cpu
+    render: () => <ModelRegistrySettingsSection />,
   };
 }

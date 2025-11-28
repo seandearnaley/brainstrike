@@ -7,6 +7,7 @@ export * from './factory-reset/factory-reset-settings-section';
 export * from './hooks/use-database-status-sync';
 // Settings UI Components
 export * from './logging/logging-settings-section';
+export * from './model-registry/model-registry-settings-section';
 export * from './settings-page-content';
 export * from './settings-page-content';
 export * from './stores/assistant-preferences-store';
@@ -14,6 +15,7 @@ export * from './stores/database-status-store';
 export * from './stores/embedding-preferences-store';
 export * from './stores/import-settings-store';
 export * from './stores/logging-preferences-store';
+export * from './stores/model-registry-store';
 export * from './stores/panel-layout-store';
 export * from './stores/token-preferences-store';
 export * from './stores/vector-preferences-store';

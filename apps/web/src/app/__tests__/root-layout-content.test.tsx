@@ -143,9 +143,9 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('app-config-title')).toHaveTextContent('BrainStrike.ai');
   });
 
-  it('includes two navigation items in the configuration', () => {
+  it('includes three navigation items in the configuration', () => {
     render(<RootLayoutContent />);
-    expect(screen.getByTestId('navigation-items-count')).toHaveTextContent('2');
+    expect(screen.getByTestId('navigation-items-count')).toHaveTextContent('3');
   });
 
   it('shows settings page when navigation callback is triggered', () => {

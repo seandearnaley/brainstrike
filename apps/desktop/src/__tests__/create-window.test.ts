@@ -13,6 +13,10 @@ vi.mock('electron', () => ({
     isPackaged: false,
   },
   BrowserWindow: vi.fn(),
+  Menu: {
+    setApplicationMenu: vi.fn(),
+    buildFromTemplate: vi.fn(),
+  },
 }));
 
 describe('createWindow', () => {

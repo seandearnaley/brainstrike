@@ -1,5 +1,6 @@
 import type { NavigationItem, RootLayoutContentProps } from '@brainstrike/app-shell';
 import {
+  ConnectedPromptManager,
   navigationItems,
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell';
@@ -31,6 +32,7 @@ export default function RootLayoutContent() {
     navigationItems: navigationConfig,
     homePageContent: <HomePageContent />,
     settingsPageContent: <SettingsPageContent />,
+    promptsPageContent: <ConnectedPromptManager />,
     embeddingQueue, // DO NOT REMOVE - See function docstring
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
