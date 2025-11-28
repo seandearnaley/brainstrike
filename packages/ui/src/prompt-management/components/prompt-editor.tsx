@@ -6,16 +6,19 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { ExpandableTextarea } from '../../expandable-textarea';
 import { Input } from '../../input';
 import { Label } from '../../label';
+import { ModelPicker } from '../../model-picker';
+import type { ModelPickerModel, ModelPickerProvider } from '../../model-picker/types';
 import { ScrollArea } from '../../scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../select';
-import type { Category, ModelOption, Prompt } from '../types';
+import type { Category, Prompt } from '../types';
 
 interface PromptEditorProps {
   isOpen: boolean;
   onClose: () => void;
   prompt?: Prompt | null;
   categories: Category[];
-  availableModels?: ModelOption[];
+  availableModels?: ModelPickerModel[];
+  providers?: ModelPickerProvider[];
   onSave: (promptData: Partial<Prompt>) => void;
 }
 
@@ -25,6 +28,7 @@ export function PromptEditor({
   prompt,
   categories,
   availableModels = [],
+  providers = [],
   onSave,
 }: PromptEditorProps) {
   const [title, setTitle] = useState('');
@@ -148,27 +152,15 @@ export function PromptEditor({
 
             <div className="space-y-2">
               <Label>Model</Label>
-              <Select value={model} onValueChange={setModel}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableModels.length > 0 ? (
-                    availableModels.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.name}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <>
-                      <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                      <SelectItem value="gpt-4-turbo">GPT-4 Turbo</SelectItem>
-                      <SelectItem value="claude-3-5-sonnet">Claude 3.5 Sonnet</SelectItem>
-                      <SelectItem value="claude-3-opus">Claude 3 Opus</SelectItem>
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
+              <ModelPicker
+                models={availableModels}
+                providers={providers}
+                value={model}
+                onChange={(id) => setModel(id as string)}
+                modelType="llm"
+                mode="single"
+                placeholder="Select a model..."
+              />
             </div>
 
             <div className="space-y-4">

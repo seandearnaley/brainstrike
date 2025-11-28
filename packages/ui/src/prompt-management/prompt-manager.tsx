@@ -1,17 +1,19 @@
 import { useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { useToast } from '../use-toast';
 import { PromptEditor } from './components/prompt-editor';
 import { PromptList } from './components/prompt-list';
 import { Sidebar } from './components/sidebar';
 import { usePromptStore } from './store';
-import type { ModelOption, Prompt } from './types';
+import type { Prompt } from './types';
 
 interface PromptManagerProps {
-  availableModels?: ModelOption[];
+  availableModels?: ModelPickerModel[];
+  providers?: ModelPickerProvider[];
 }
 
-export function PromptManager({ availableModels }: PromptManagerProps) {
+export function PromptManager({ availableModels, providers }: PromptManagerProps) {
   const {
     prompts = [],
     categories = [],
@@ -153,6 +155,7 @@ export function PromptManager({ availableModels }: PromptManagerProps) {
         }
         categories={categories}
         availableModels={availableModels ?? []}
+        providers={providers ?? []}
         onSave={handleSavePrompt}
       />
     </div>

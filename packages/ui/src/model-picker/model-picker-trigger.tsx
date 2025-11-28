@@ -1,0 +1,69 @@
+import { ChevronsUpDown } from 'lucide-react';
+import * as React from 'react';
+import { Button } from '../button';
+import { cn } from '../lib/utils';
+import { useTheme } from '../theme-provider';
+import type { TriggerRenderProps } from './types';
+import { getProviderColor } from './utils/provider-colors';
+import { getProviderIcon } from './utils/provider-icons';
+
+export const ModelPickerTrigger = React.forwardRef<
+  HTMLButtonElement,
+  TriggerRenderProps & React.ButtonHTMLAttributes<HTMLButtonElement>
+>(({ value, models, providers, placeholder, disabled, className, ...props }, ref) => {
+  const { theme: configuredTheme } = useTheme();
+  const [resolvedTheme, setResolvedTheme] = React.useState<'light' | 'dark'>('light');
+
+  React.useEffect(() => {
+    if (configuredTheme === 'system') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      setResolvedTheme(mediaQuery.matches ? 'dark' : 'light');
+      const handler = (e: MediaQueryListEvent) => setResolvedTheme(e.matches ? 'dark' : 'light');
+      mediaQuery.addEventListener('change', handler);
+      return () => mediaQuery.removeEventListener('change', handler);
+    }
+    setResolvedTheme(configuredTheme);
+    return undefined;
+  }, [configuredTheme]);
+
+  const selectedModels = Array.isArray(value)
+    ? models.filter((m) => value.includes(m.id))
+    : value
+      ? models.filter((m) => m.id === value)
+      : [];
+
+  const firstModel = selectedModels[0];
+  const Icon = firstModel ? getProviderIcon(firstModel.providerId) : null;
+  const providerColor = firstModel
+    ? getProviderColor(firstModel.providerId, resolvedTheme)
+    : undefined;
+
+  return (
+    <Button
+      ref={ref}
+      variant="outline"
+      role="combobox"
+      className={cn('w-full justify-between', className)}
+      disabled={disabled}
+      {...props}
+    >
+      <div className="flex items-center gap-2 truncate">
+        {firstModel ? (
+          <>
+            {Icon && <Icon className="h-4 w-4 shrink-0" style={{ color: providerColor }} />}
+            <span className="truncate">
+              {firstModel.name}
+              {selectedModels.length > 1 && (
+                <span className="ml-1 text-muted-foreground">(+{selectedModels.length - 1})</span>
+              )}
+            </span>
+          </>
+        ) : (
+          <span className="text-muted-foreground">{placeholder ?? 'Select a model...'}</span>
+        )}
+      </div>
+      <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+    </Button>
+  );
+});
+ModelPickerTrigger.displayName = 'ModelPickerTrigger';

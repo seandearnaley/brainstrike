@@ -5,7 +5,7 @@ import { useEffect, useMemo } from 'react';
 
 export function ConnectedPromptManager() {
   const db = usePGliteDatabase();
-  const { models, fetchRegistry } = useModelRegistryStore();
+  const { models, providers, fetchRegistry } = useModelRegistryStore();
 
   useEffect(() => {
     if (db) {
@@ -18,10 +18,16 @@ export function ConnectedPromptManager() {
       .filter((m) => m.isEnabled)
       .map((m) => ({
         id: m.id,
-        name: m.name,
         providerId: m.providerId,
+        name: m.name,
+        description: m.description,
+        capabilities: m.capabilities,
       }));
   }, [models]);
 
-  return <PromptManager availableModels={availableModels} />;
+  const availableProviders = useMemo(() => {
+    return providers.filter((p) => p.isEnabled);
+  }, [providers]);
+
+  return <PromptManager availableModels={availableModels} providers={availableProviders} />;
 }
