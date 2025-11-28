@@ -449,110 +449,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Install system dependencies for Electron
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb
-
-      - name: Install Playwright for Electron (no browsers needed)
+      - name: Install Playwright system dependencies
         run: pnpm exec playwright install-deps
 
       - name: Build desktop application
         run: pnpm run build --filter @brainstrike/desktop
 
-      # Debug diagnostics for CI flakiness investigation (BST-65)
-      - name: Pre-test diagnostics
-        run: |
-          echo "=== BST-65 Debug Diagnostics ==="
-          echo "[HYP-A] NODE_OPTIONS=${NODE_OPTIONS:-<not set>}"
-          echo "[HYP-A] NODE_DEBUG=${NODE_DEBUG:-<not set>}"
-          echo "[HYP-C] DISPLAY=${DISPLAY:-<not set>}"
-          echo "[HYP-C] WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<not set>}"
-          echo "[HYP-D] Platform: $(uname -a)"
-          echo "[HYP-D] Electron binary check:"
-          ls -la node_modules/electron/dist/ 2>/dev/null | head -5 || echo "Electron dist not found"
-          echo "[HYP-D] Electron version:"
-          node -e "console.log(require('electron/package.json').version)" 2>/dev/null || echo "Could not get Electron version"
-          echo "[HYP-B] Ports in use (4200x range):"
-          ss -tlnp 2>/dev/null | grep -E ':42[0-9]{3}' || echo "No ports in 4200x range in use"
-          echo "[HYP-E] Running Electron processes:"
-          ps aux 2>/dev/null | grep -i electron | grep -v grep || echo "No Electron processes running"
-          
-          # HYP-F: Check for missing system libraries
-          echo "[HYP-F] Checking Electron dependencies..."
-          ELECTRON_BIN=$(node -e "console.log(require('electron'))")
-          echo "[HYP-F] Electron binary: $ELECTRON_BIN"
-          if [ -f "$ELECTRON_BIN" ]; then
-            echo "[HYP-F] Missing libraries check:"
-            ldd "$ELECTRON_BIN" 2>&1 | grep -i "not found" || echo "[HYP-F] No missing libraries"
-            
-            # Test if Electron can actually run
-            echo "[HYP-F] Testing Electron execution..."
-            timeout 10 "$ELECTRON_BIN" --version 2>&1 || echo "[HYP-F] Electron execution test failed or timed out"
-          else
-            echo "[HYP-F] Electron binary not found at $ELECTRON_BIN"
-          fi
-          
-          # Check GTK and X11 libraries
-          echo "[HYP-F] Checking for common Electron dependencies:"
-          for lib in libgtk-3 libgbm libxshmfence libasound libatk-bridge; do
-            ldconfig -p 2>/dev/null | grep -i "$lib" | head -1 || echo "[HYP-F] $lib: NOT FOUND"
-          done
-          
-          echo "=== End Diagnostics ==="
-        working-directory: apps/desktop
-
       - name: Run Desktop E2E tests (shard)
-        run: |
-          cd apps/desktop
-          RUN_SALT=${GITHUB_RUN_ID:-${GITHUB_RUN_NUMBER:-$(date +%s)}}
-          echo "Using RUN_SALT=${RUN_SALT} for shard isolation"
-          SHARD=${{ matrix.shardIndex }}
-          RUN_SLOT=$((RUN_SALT % 50))
-          SERVER_NUM=$((99 + SHARD + RUN_SLOT * 10))
-          export RUN_SALT
-
-          # BST-65 Debug: Log computed values
-          echo "[DEBUG][HYP-C] Computed SERVER_NUM=${SERVER_NUM} (from SHARD=${SHARD}, RUN_SLOT=${RUN_SLOT})"
-          echo "[DEBUG][HYP-C] Will use DISPLAY=:${SERVER_NUM}"
-
-          # Clear stale X locks for this display only; avoid cross-run clashes
-          LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
-          if [ -f "$LOCK_FILE" ]; then
-            echo "[DEBUG][HYP-E] Removing stale lock file: $LOCK_FILE"
-            rm -f "$LOCK_FILE"
-          fi
-
-          # Remove only this run's temp user data directories (keeps other runs intact)
-          rm -rf "/tmp/brainstrike-test-user-data-${RUN_SALT}-shard-*" 2>/dev/null || true
-
-          # Manually assign Xvfb server number based on shard index to prevent TCP port collisions
-          # in shared-network environments (like act with network="host") where filesystem locks in /tmp are isolated.
-          # Standard GitHub Runners are isolated VMs so this is safe there too (just explicit).
-          # 
-          # BST-65: Let xvfb-run manage DISPLAY - don't pre-set it
-          # xvfb-run will set DISPLAY to match --server-num automatically
-          echo "[DEBUG][HYP-I] Starting xvfb-run with SERVER_NUM=${SERVER_NUM}"
-          
-          # Add -a flag to find an available display if SERVER_NUM is in use
-          xvfb-run --server-num=$SERVER_NUM --auto-servernum --server-args="-screen 0 1280x960x24 -ac" -- \
-            bash -c '
-              echo "[DEBUG][HYP-I] Inside xvfb-run, DISPLAY=${DISPLAY}"
-              # Verify X server is ready before running tests
-              for i in 1 2 3 4 5; do
-                if xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1; then
-                  echo "[DEBUG][HYP-I] X display ${DISPLAY} is ready after ${i} attempts"
-                  break
-                fi
-                echo "[DEBUG][HYP-I] Waiting for X display ${DISPLAY} (attempt ${i})..."
-                sleep 1
-              done
-              # Run the actual tests
-              env RUN_SALT="'"$RUN_SALT"'" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
-            '
+        uses: coactions/setup-xvfb@v1
+        with:
+          run: |
+            cd apps/desktop
+            # Clean up temp directories from any previous runs
+            rm -rf "/tmp/brainstrike-test-user-data-*" 2>/dev/null || true
+            pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "test"
           CI: "true"
+          RUN_SALT: ${{ github.run_id }}
 
       - name: Bundle blob report (desktop shard)
         if: always()
