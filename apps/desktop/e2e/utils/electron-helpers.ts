@@ -207,8 +207,33 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
   const fs = require('node:fs');
   const { execSync } = require('node:child_process');
 
+  const effectiveDisplay = displayEnv ?? process.env['DISPLAY'];
   console.log('[DEBUG][HYP-F] Checking Electron binary...');
   console.log('[DEBUG][HYP-F] Binary path:', electronBinaryPath);
+  console.log('[DEBUG][HYP-F] Effective DISPLAY:', effectiveDisplay);
+
+  // #region agent log - Hypothesis I: Verify X display is accessible
+  try {
+    console.log('[DEBUG][HYP-I] Checking if X display is accessible...');
+    const xdpyOutput = execSync(`xdpyinfo -display "${effectiveDisplay}" 2>&1 | head -5`, {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    console.log('[DEBUG][HYP-I] X display accessible:', xdpyOutput.trim().split('\n')[0]);
+  } catch (xdpyErr) {
+    console.error('[DEBUG][HYP-I] X DISPLAY NOT ACCESSIBLE:', (xdpyErr as Error).message);
+    // Try to list what Xvfb servers are running
+    try {
+      const psOutput = execSync('ps aux | grep -i xvfb | grep -v grep', {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      console.log('[DEBUG][HYP-I] Running Xvfb processes:', psOutput.trim());
+    } catch {
+      console.log('[DEBUG][HYP-I] No Xvfb processes found');
+    }
+  }
+  // #endregion
 
   try {
     const stats = fs.statSync(electronBinaryPath);

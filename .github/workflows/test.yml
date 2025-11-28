@@ -530,12 +530,26 @@ jobs:
           # in shared-network environments (like act with network="host") where filesystem locks in /tmp are isolated.
           # Standard GitHub Runners are isolated VMs so this is safe there too (just explicit).
           # 
-          # BST-65: Explicitly set DISPLAY to match SERVER_NUM to avoid mismatch with hardcoded fallback
-          export DISPLAY=":${SERVER_NUM}"
-          echo "[DEBUG][HYP-C] DISPLAY explicitly set to ${DISPLAY} before xvfb-run"
+          # BST-65: Let xvfb-run manage DISPLAY - don't pre-set it
+          # xvfb-run will set DISPLAY to match --server-num automatically
+          echo "[DEBUG][HYP-I] Starting xvfb-run with SERVER_NUM=${SERVER_NUM}"
           
-          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24 -ac" -- \
-            env RUN_SALT="$RUN_SALT" DISPLAY=":${SERVER_NUM}" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          # Add -a flag to find an available display if SERVER_NUM is in use
+          xvfb-run --server-num=$SERVER_NUM --auto-servernum --server-args="-screen 0 1280x960x24 -ac" -- \
+            bash -c '
+              echo "[DEBUG][HYP-I] Inside xvfb-run, DISPLAY=${DISPLAY}"
+              # Verify X server is ready before running tests
+              for i in 1 2 3 4 5; do
+                if xdpyinfo -display "${DISPLAY}" >/dev/null 2>&1; then
+                  echo "[DEBUG][HYP-I] X display ${DISPLAY} is ready after ${i} attempts"
+                  break
+                fi
+                echo "[DEBUG][HYP-I] Waiting for X display ${DISPLAY} (attempt ${i})..."
+                sleep 1
+              done
+              # Run the actual tests
+              env RUN_SALT="'"$RUN_SALT"'" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+            '
         env:
           NODE_ENV: "test"
           CI: "true"
