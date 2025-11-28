@@ -198,8 +198,8 @@ importers:
         specifier: ^9.2.1
         version: 9.2.1
       electron:
-        specifier: 38.2.2
-        version: 38.2.2
+        specifier: 38.7.2
+        version: 38.7.2
       electron-builder:
         specifier: ^26.0.20
         version: 26.0.20(electron-builder-squirrel-windows@26.0.20)
@@ -6631,6 +6631,11 @@ packages:
 
   electron@38.2.2:
     resolution: {integrity: sha512-OXSaVNXDlonXDjMRsFNQo1j5tzTKwKXh5/m46IjAFccBcZJZMISI+EjSI07oexIuhvKM8AZLuFuihVn4YjWWrA==}
+    engines: {node: '>= 12.20.55'}
+    hasBin: true
+
+  electron@38.7.2:
+    resolution: {integrity: sha512-BcjR0IHqp3uv4ytVQwW2/9zAWo17Rjwrydn6RS+g+vqhpcPTzmBHDCHKaEcqheSl/7zzKPgFZdvT21BoSfrxRQ==}
     engines: {node: '>= 12.20.55'}
     hasBin: true
 
@@ -15160,7 +15165,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vitest: 4.0.14(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@24.7.0)(@vitest/browser-playwright@4.0.14)(@vitest/ui@4.0.14)(happy-dom@19.0.2)(jiti@1.21.7)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(terser@5.44.1)
+      vitest: 4.0.14(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@24.7.0)(@vitest/browser-playwright@4.0.14)(@vitest/ui@4.0.14)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(terser@5.44.1)
 
   '@vitest/utils@4.0.14':
     dependencies:
@@ -16525,6 +16530,14 @@ snapshots:
       - supports-color
 
   electron@38.2.2:
+    dependencies:
+      '@electron/get': 2.0.3
+      '@types/node': 22.18.8
+      extract-zip: 2.0.1
+    transitivePeerDependencies:
+      - supports-color
+
+  electron@38.7.2:
     dependencies:
       '@electron/get': 2.0.3
       '@types/node': 22.18.8

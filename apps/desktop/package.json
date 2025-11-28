@@ -69,7 +69,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "@vitest/coverage-v8": "^4.0.14",
     "concurrently": "^9.2.1",
-    "electron": "38.2.2",
+    "electron": "38.7.2",
     "electron-builder": "^26.0.20",
     "electron-builder-squirrel-windows": "^26.0.20",
     "jsdom": "^27.0.0",
