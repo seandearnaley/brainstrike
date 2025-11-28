@@ -114,6 +114,18 @@
       "outputs": []
     },
 
+    // --- Browser Test Task (Vitest 4 Browser Mode) --- //
+    "test:browser": {
+      // Browser tests require the package to be built
+      "dependsOn": ["build"],
+      // Browser tests produce screenshots and artifacts
+      "outputs": ["__tests__/__screenshots__/**"],
+      // Browser tests should not be cached due to environment-specific behavior
+      "cache": false,
+      // Show all logs for browser tests
+      "outputLogs": "full"
+    },
+
     // --- Test:Coverage Task --- //
     "test:coverage": {
       // Ensures the package is built before coverage tests are run.

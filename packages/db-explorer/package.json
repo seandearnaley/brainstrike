@@ -39,8 +39,8 @@
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
-    "@brainstrike/queue": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
+    "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
@@ -57,7 +57,7 @@
     "@types/node": "^24.7.0",
     "@types/react": "^19.2.2",
     "jsdom": "^27.0.0",
-    "vitest": "^3.2.4",
+    "vitest": "^4.0.14",
     "zustand": "^5.0.8"
   },
   "license": "ISC"

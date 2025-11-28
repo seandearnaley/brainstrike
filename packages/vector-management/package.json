@@ -34,8 +34,8 @@
   "dependencies": {
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
-    "@brainstrike/queue": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
+    "@brainstrike/queue": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "^0.3.11",
@@ -48,7 +48,7 @@
     "@types/node": "^24.7.0",
     "@types/react": "^19.2.2",
     "jsdom": "^27.0.0",
-    "vitest": "^3.2.4",
+    "vitest": "^4.0.14",
     "zustand": "^5.0.8"
   },
   "license": "ISC"

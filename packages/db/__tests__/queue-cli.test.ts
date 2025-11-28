@@ -39,11 +39,11 @@ describe('queue-cli smoke tests', () => {
       },
     }));
     vi.doMock('../src/queue/job-queue.js', () => ({
-      JobQueue: vi.fn().mockReturnValue({
-        getQueueStats: vi.fn(),
-        requeueFailed: vi.fn(),
-        clear: vi.fn(),
-        prune: vi.fn(),
+      JobQueue: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+        this.getQueueStats = vi.fn();
+        this.requeueFailed = vi.fn();
+        this.clear = vi.fn();
+        this.prune = vi.fn();
       }),
     }));
 
@@ -79,12 +79,12 @@ describe('queue-cli smoke tests', () => {
     vi.doMock('../src/wasm-loader.js', () => ({
       wasmLoader: { createPGlite },
     }));
-    const JobQueueMock = vi.fn().mockImplementation(() => ({
-      getQueueStats,
-      requeueFailed: vi.fn(),
-      clear: vi.fn(),
-      prune: vi.fn(),
-    }));
+    const JobQueueMock = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+      this.getQueueStats = getQueueStats;
+      this.requeueFailed = vi.fn();
+      this.clear = vi.fn();
+      this.prune = vi.fn();
+    });
     vi.doMock('../src/queue/job-queue.js', () => ({
       JobQueue: JobQueueMock,
     }));

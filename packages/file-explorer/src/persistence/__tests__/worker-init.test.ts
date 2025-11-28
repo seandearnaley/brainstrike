@@ -12,10 +12,10 @@ vi.mock('@brainstrike/utils', () => ({
 }));
 
 vi.mock('../worker-storage', () => ({
-  WorkerStorage: vi.fn().mockImplementation(() => ({
-    isWorkerAvailable: true,
-    destroy: vi.fn(),
-  })),
+  WorkerStorage: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+    this.isWorkerAvailable = true;
+    this.destroy = vi.fn();
+  }),
 }));
 
 describe('worker-init', () => {
@@ -56,11 +56,25 @@ describe('worker-init', () => {
     // Ensure process is not defined or is clean
     vi.stubGlobal('process', undefined);
 
-    const result = initWorker(false, true);
+    // Also ensure playwright is not in globalThis (Vitest may inject it)
+    const originalPlaywright =
+      'playwright' in globalThis ? (globalThis as Record<string, unknown>).playwright : undefined;
+    if ('playwright' in globalThis) {
+      (globalThis as Record<string, unknown>).playwright = undefined;
+    }
 
-    expect(result.useWorker).toBe(true);
-    expect(WorkerStorage).toHaveBeenCalled();
-    expect(window.addEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+    try {
+      const result = initWorker(false, true);
+
+      expect(result.useWorker).toBe(true);
+      expect(WorkerStorage).toHaveBeenCalled();
+      expect(window.addEventListener).toHaveBeenCalledWith('beforeunload', expect.any(Function));
+    } finally {
+      // Restore playwright if it was there
+      if (originalPlaywright !== undefined) {
+        (globalThis as Record<string, unknown>).playwright = originalPlaywright;
+      }
+    }
   });
 
   it('does not initialize worker in test environment', () => {
@@ -124,7 +138,7 @@ describe('worker-init', () => {
     });
     vi.stubGlobal('process', undefined);
 
-    // Mock WorkerStorage to throw
+    // Mock WorkerStorage to throw (using function syntax for Vitest 4)
     (WorkerStorage as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
       throw new Error('Worker init failed');
     });

@@ -24,22 +24,22 @@
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "dependencies": {
-    "@brainstrike/utils": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
-    "@brainstrike/types": "workspace:*"
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "optionalDependencies": {
     "chokidar": "^4.0.3"
   },
   "devDependencies": {
-    "@types/node": "^24.7.0",
     "@stryker-mutator/core": "^9.2.0",
     "@stryker-mutator/typescript-checker": "^9.2.0",
     "@stryker-mutator/vitest-runner": "^9.2.0",
+    "@types/node": "^24.7.0",
     "electron": "^38.2.2",
     "jsdom": "^27.0.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.14"
   }
 }

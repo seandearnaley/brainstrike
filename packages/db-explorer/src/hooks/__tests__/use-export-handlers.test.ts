@@ -1,8 +1,13 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
+import type { useToast } from '@brainstrike/ui';
 import { renderHook } from '@testing-library/react';
+import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as csvExportUtils from '../../csv-export-utils';
 import { useExportHandlers } from '../use-export-handlers';
+
+// Type for the toast function from useToast hook
+type ToastFn = ReturnType<typeof useToast>['toast'];
 
 // Mock the CSV export utilities
 vi.mock('../../csv-export-utils', () => ({
@@ -15,12 +20,23 @@ vi.mock('../../csv-export-utils', () => ({
 }));
 
 describe('useExportHandlers', () => {
-  let mockToast: ReturnType<typeof vi.fn>;
+  let mockToast: Mock<ToastFn>;
   let mockLink: HTMLAnchorElement;
   let originalCreateElement: typeof document.createElement;
 
   beforeEach(() => {
-    mockToast = vi.fn();
+    vi.resetAllMocks();
+    // Restore default mock implementations after resetAllMocks clears them
+    vi.mocked(csvExportUtils.createCSVBlob).mockImplementation(
+      (content: string) => new Blob([content], { type: 'text/csv' })
+    );
+    vi.mocked(csvExportUtils.generateChunksCSV).mockReturnValue('chunk,data');
+    vi.mocked(csvExportUtils.generateCSVFilename).mockImplementation(
+      (prefix?: string) => `${prefix ?? 'export'}-export.csv`
+    );
+    vi.mocked(csvExportUtils.generateEmbeddingsCSV).mockReturnValue('embedding,data');
+    vi.mocked(csvExportUtils.generateFilesWithChunksCSV).mockReturnValue('file,data');
+    mockToast = vi.fn() as Mock<ToastFn>;
 
     // Save original createElement
     originalCreateElement = document.createElement.bind(document);

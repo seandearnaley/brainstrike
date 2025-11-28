@@ -1,4 +1,5 @@
 import { TextDecoder } from 'node:util';
+import type { Mock } from 'vitest';
 import { vi } from 'vitest';
 
 // Add TextDecoder to global scope if not already defined
@@ -86,8 +87,26 @@ export function createCircularHandles(): [MockFileSystemHandle, MockFileSystemHa
   return [handle1, handle2];
 }
 
+// Type for mock file handle
+interface MockFile {
+  text: Mock<() => Promise<string>>;
+  size: number;
+  lastModified: number;
+  arrayBuffer: Mock<() => Promise<ArrayBuffer>>;
+  type: string;
+}
+
+interface MockFileHandleType {
+  getFile: Mock<() => Promise<MockFile>>;
+  kind: 'file';
+  name: string;
+  isSameEntry: Mock<(other: FileSystemHandle) => Promise<boolean>>;
+  queryPermission: Mock<() => Promise<'granted'>>;
+  requestPermission: Mock<() => Promise<'granted'>>;
+}
+
 // Common mock implementations
-export const mockFileHandle = {
+export const mockFileHandle: MockFileHandleType = {
   getFile: vi.fn().mockResolvedValue({
     text: vi.fn().mockResolvedValue('test content'),
     size: 100,
@@ -107,7 +126,7 @@ export const mockDirectoryHandle = {
   name: 'test-directory',
 };
 
-export function createMockFileHandle(name: string, content = 'test content') {
+export function createMockFileHandle(name: string, content = 'test content'): MockFileHandleType {
   return {
     kind: 'file',
     name,

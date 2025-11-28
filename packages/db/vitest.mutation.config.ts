@@ -13,11 +13,8 @@ export default defineConfig({
       TEST_PGLITE_MOCK: 'true',
     },
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        singleThread: true,
-      },
-    },
+    // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
+    maxWorkers: 1,
     isolate: true,
     hookTimeout: 30000,
     testTimeout: 30000,

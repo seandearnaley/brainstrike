@@ -15,7 +15,8 @@
     "./biome": "./biome/biome.json",
     "./biome/base": "./biome/biome.json",
     "./tsconfig/*": "./tsconfig/*.json",
-    "./playwright-environment": "./src/playwright-environment.ts"
+    "./playwright-environment": "./src/playwright-environment.ts",
+    "./vitest-browser": "./src/vitest-browser.ts"
   },
   "scripts": {
     "clean": "rm -rf dist .tsbuildinfo",
@@ -24,7 +25,10 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "@vitest/browser-playwright": "^4.0.14",
+    "playwright": "^1.52.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14"
   },
   "license": "ISC",
   "turbo": {

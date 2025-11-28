@@ -272,8 +272,16 @@ export default defineConfig({
     },
     // Coverage consolidated at root vitest.config.ts
     mockReset: true,
-    deps: {
-      inline: ['@brainstrike/types', '@brainstrike/hooks', '@brainstrike/ui', '@brainstrike/utils'],
+    // Vitest 4: deps.inline moved to server.deps.inline
+    server: {
+      deps: {
+        inline: [
+          '@brainstrike/types',
+          '@brainstrike/hooks',
+          '@brainstrike/ui',
+          '@brainstrike/utils',
+        ],
+      },
     },
   },
 });

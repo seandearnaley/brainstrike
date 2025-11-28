@@ -20,36 +20,44 @@ vi.mock('@brainstrike/db', async () => {
 });
 
 // Mock @brainstrike/embeddings
-vi.mock('@brainstrike/embeddings', () => ({
-  EmbeddingProviderFactory: {
-    createProvider: vi.fn().mockResolvedValue({
-      ok: true,
-      value: {
-        embed: vi.fn().mockResolvedValue({
-          ok: true,
-          value: { embedding: new Array(1024).fill(0.1) },
-        }),
-      },
+vi.mock('@brainstrike/embeddings', () => {
+  // Create the mock implementation using function syntax (required for Vitest 4 constructor mocks)
+  const MockSimpleEmbeddingService = vi.fn();
+  MockSimpleEmbeddingService.mockImplementation(function (this: Record<string, unknown>) {
+    Object.assign(this, {
+      initializeWithModel: vi.fn().mockResolvedValue(undefined),
+      generateQueryEmbedding: vi.fn().mockResolvedValue({
+        embedding: new Array(1024).fill(0.1),
+      }),
+      dispose: vi.fn(),
+    });
+  });
+
+  return {
+    EmbeddingProviderFactory: {
+      createProvider: vi.fn().mockResolvedValue({
+        ok: true,
+        value: {
+          embed: vi.fn().mockResolvedValue({
+            ok: true,
+            value: { embedding: new Array(1024).fill(0.1) },
+          }),
+        },
+      }),
+    },
+    isHostedProvider: vi.fn((provider: string) =>
+      ['openai', 'google', 'cohere', 'voyage'].includes(provider)
+    ),
+    parseProviderModelKey: vi.fn((key: string) => {
+      if (key.includes(':')) {
+        const [provider, modelId] = key.split(':');
+        return { provider, modelId };
+      }
+      return null;
     }),
-  },
-  isHostedProvider: vi.fn((provider: string) =>
-    ['openai', 'google', 'cohere', 'voyage'].includes(provider)
-  ),
-  parseProviderModelKey: vi.fn((key: string) => {
-    if (key.includes(':')) {
-      const [provider, modelId] = key.split(':');
-      return { provider, modelId };
-    }
-    return null;
-  }),
-  SimpleEmbeddingService: vi.fn().mockImplementation(() => ({
-    initializeWithModel: vi.fn().mockResolvedValue(undefined),
-    generateQueryEmbedding: vi.fn().mockResolvedValue({
-      embedding: new Array(1024).fill(0.1),
-    }),
-    dispose: vi.fn(),
-  })),
-}));
+    SimpleEmbeddingService: MockSimpleEmbeddingService,
+  };
+});
 
 // Get reference to mocked SimpleEmbeddingService
 const { SimpleEmbeddingService } =

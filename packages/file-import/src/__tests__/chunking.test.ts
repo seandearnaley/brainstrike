@@ -1,23 +1,32 @@
-import type { FileImportResult } from '@brainstrike/db';
+import type { FileChunk, FileImportResult, FileRecord } from '@brainstrike/db';
 import { ChunkingService } from '@brainstrike/db';
 import { countTokensAccurate } from '@brainstrike/utils';
+import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getChunkingStrategy, processChunking, processFileChunking } from '../chunking';
-import type { EnhancedImportProgress } from '../types';
+import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
 
+// Use Partial<FileRecord> for test mocks since we don't need all required fields
 type MockRepository = {
-  findById: ReturnType<typeof vi.fn>;
-  update: ReturnType<typeof vi.fn>;
+  findById: Mock<(id: string) => Promise<Partial<FileRecord> | null>>;
+  update: Mock<(data: Record<string, unknown>) => Promise<void>>;
 };
 
 type MockChunkRepository = {
-  insertMany: ReturnType<typeof vi.fn>;
+  insertMany: Mock<(chunks: unknown[]) => Promise<unknown[]>>;
 };
 
 type MockChunkingService = {
-  chunkContent: ReturnType<typeof vi.fn>;
-  chunkContentStream: ReturnType<typeof vi.fn>;
+  chunkContent: Mock;
+  chunkContentStream: Mock;
 };
+
+// Type for progress update callback
+type ProgressUpdater = (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null;
+type UpdateProgressFn = (updater: ProgressUpdater) => void;
+
+// Type for processEmbeddings callback
+type ProcessEmbeddingsFn = (chunks: FileChunk[], result: EnhancedImportResult) => Promise<void>;
 
 vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual('@brainstrike/db');
@@ -75,7 +84,7 @@ describe('getChunkingStrategy', () => {
 describe('processFileChunking', () => {
   let mockRepository: MockRepository;
   let mockChunkRepository: MockChunkRepository;
-  let mockUpdateProgress: ReturnType<typeof vi.fn>;
+  let mockUpdateProgress: Mock<UpdateProgressFn>;
   let mockChunkingService: MockChunkingService;
 
   beforeEach(() => {
@@ -141,9 +150,11 @@ describe('processFileChunking', () => {
       }),
     };
 
-    (ChunkingService as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      () => mockChunkingService
-    );
+    (ChunkingService as unknown as ReturnType<typeof vi.fn>).mockImplementation(function (
+      this: Record<string, unknown>
+    ) {
+      Object.assign(this, mockChunkingService);
+    });
   });
 
   it('throws error when repository is not available', async () => {
@@ -220,7 +231,7 @@ describe('processFileChunking', () => {
       id: 'file-1',
       name: 'test.txt',
       path: '/test.txt',
-      content: null,
+      // content omitted to test no-content case
     });
 
     const result = await processFileChunking(
@@ -491,9 +502,9 @@ describe('processFileChunking', () => {
 describe('processChunking', () => {
   let mockRepository: MockRepository;
   let mockChunkRepository: MockChunkRepository;
-  let mockUpdateProgress: ReturnType<typeof vi.fn>;
+  let mockUpdateProgress: Mock<UpdateProgressFn>;
   let mockChunkingService: MockChunkingService;
-  let mockProcessEmbeddings: ReturnType<typeof vi.fn>;
+  let mockProcessEmbeddings: Mock<ProcessEmbeddingsFn>;
 
   beforeEach(() => {
     mockRepository = {
@@ -533,9 +544,11 @@ describe('processChunking', () => {
       chunkContentStream: vi.fn(), // Should not be called here by default
     };
 
-    (ChunkingService as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      () => mockChunkingService
-    );
+    (ChunkingService as unknown as ReturnType<typeof vi.fn>).mockImplementation(function (
+      this: Record<string, unknown>
+    ) {
+      Object.assign(this, mockChunkingService);
+    });
   });
 
   it('throws error when repository is not available', async () => {
@@ -623,8 +636,8 @@ describe('processChunking', () => {
     } as EnhancedImportProgress);
 
     expect(progress?.phase).toBe('complete');
-    expect(progress?.chunkingProgress.filesProcessed).toBe(1);
-    expect(progress?.chunkingProgress.totalFiles).toBe(1);
+    expect(progress?.chunkingProgress?.filesProcessed).toBe(1);
+    expect(progress?.chunkingProgress?.totalFiles).toBe(1);
   });
 
   it('skips undefined results in array', async () => {

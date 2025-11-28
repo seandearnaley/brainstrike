@@ -15,11 +15,8 @@ export default defineConfig({
     setupFiles: [],
     testTimeout: 15000, // UI component tests with async operations
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        maxThreads: 4,
-      },
-    },
+    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
+    maxWorkers: 4,
     coverage: {
       enabled: coverageEnabled,
       provider: 'v8',

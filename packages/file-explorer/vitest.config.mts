@@ -9,13 +9,10 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
-    // Use threads with singleThread to avoid Tinypool EPIPE under Node 22 in CI
+    // Use threads with single worker to avoid Tinypool EPIPE under Node 22 in CI
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        singleThread: true,
-      },
-    },
+    // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
+    maxWorkers: 1,
     // Coverage consolidated at root vitest.config.ts
     coverage: {
       enabled: true,
