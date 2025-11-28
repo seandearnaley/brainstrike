@@ -43,7 +43,9 @@ export async function launchElectronApp(
   const app = await startElectron(launchOptions);
 
   console.log('⏳ Waiting for first window...');
-  const window = await app.firstWindow({ timeout: 30000 });
+  // Increased timeout from 30s to 60s for CI environments where Electron
+  // startup can be slower due to resource constraints and parallel shards
+  const window = await app.firstWindow({ timeout: 60000 });
   await window.waitForLoadState('domcontentloaded');
   await setupDialogMocking(app);
   console.log('✅ Electron app launched successfully');
