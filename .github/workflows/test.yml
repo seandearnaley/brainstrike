@@ -463,11 +463,8 @@ jobs:
       - name: Run Desktop E2E tests (shard)
         uses: coactions/setup-xvfb@v1
         with:
-          run: |
-            cd apps/desktop
-            # Clean up temp directories from any previous runs
-            rm -rf "/tmp/brainstrike-test-user-data-*" 2>/dev/null || true
-            pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          run: pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          working-directory: apps/desktop
         env:
           NODE_ENV: "test"
           CI: "true"
