@@ -42,10 +42,16 @@ export default defineConfig({
           name: 'browser',
           globals: true,
           include: ['src/__tests__/**/*.browser.test.{ts,tsx}'],
+          // Output directory for traces and screenshots
+          outputDir: 'test-results',
           browser: {
             enabled: true,
             provider: playwright(),
             instances: [{ browser: 'chromium' }],
+            // Playwright trace: capture only for failing tests in CI
+            trace: process.env['CI'] ? 'retain-on-failure' : 'off',
+            // Capture screenshots on failure for quick visual debugging
+            screenshotFailures: true,
           },
         },
       },
