@@ -49,6 +49,7 @@
     "test:e2e:perf": "cd apps/web && pnpm run test:e2e:perf",
     "test:e2e:ui": "cd apps/web && pnpm run test:e2e:ui",
     "test": "turbo run test --summarize --log-order=grouped --cache-dir=.turbo",
+    "test:browser": "turbo run test:browser --summarize --log-order=grouped --cache-dir=.turbo",
     "test:e2e": "turbo run test:e2e --filter='./apps/*' --concurrency=1",
     "test:fast": "pnpm -r --filter '!@brainstrike/embeddings' run test",
     "type-check": "turbo run type-check --summarize --log-order=grouped --cache-dir=.turbo",
@@ -67,7 +68,8 @@
     "@playwright/test": "^1.56.0",
     "@types/node": "^24.7.0",
     "@typescript-eslint/parser": "^8.46.0",
-    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/browser-playwright": "^4.0.14",
+    "@vitest/coverage-v8": "^4.0.14",
     "babel-plugin-react-compiler": "19.1.0-rc.3",
     "eslint": "^9.37.0",
     "eslint-plugin-react-hooks": "^6.1.1",
@@ -83,7 +85,7 @@
     "typescript": "^5.9.3",
     "vercel": "^48.2.6",
     "vite": "^7.1.9",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.14"
   },
   "packageManager": "pnpm@10.17.0",
   "pnpm": {

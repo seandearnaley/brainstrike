@@ -3,21 +3,31 @@ import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { renderHook } from '@testing-library/react';
+import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useToastManager } from '../use-toast-manager';
 
+// Logger mock type for test purposes - uses generic Mock for variadic logging functions
+type LogFn = Mock<(...args: unknown[]) => void>;
 type MockLogger = {
-  error: ReturnType<typeof vi.fn>;
-  warn: ReturnType<typeof vi.fn>;
-  info: ReturnType<typeof vi.fn>;
-  debug: ReturnType<typeof vi.fn>;
-  trace: ReturnType<typeof vi.fn>;
-  fatal: ReturnType<typeof vi.fn>;
+  error: LogFn;
+  warn: LogFn;
+  info: LogFn;
+  debug: LogFn;
+  trace: LogFn;
+  fatal: LogFn;
 };
 
+// Toast result mock type for test purposes
 type MockToastResult = {
-  toast: ReturnType<typeof vi.fn>;
-  dismiss: ReturnType<typeof vi.fn>;
+  toast: Mock<
+    (props: Record<string, unknown>) => {
+      id: string;
+      dismiss: () => void;
+      update: (props: Record<string, unknown>) => void;
+    }
+  >;
+  dismiss: Mock<(toastId?: string) => void>;
   toasts: [];
 };
 
@@ -41,8 +51,8 @@ vi.mock('@brainstrike/utils', () => ({
 const createLoggerMock = vi.mocked(createLogger);
 
 describe('useToastManager', () => {
-  let mockToast: ReturnType<typeof vi.fn>;
-  let mockDismiss: ReturnType<typeof vi.fn>;
+  let mockToast: MockToastResult['toast'];
+  let mockDismiss: MockToastResult['dismiss'];
   let currentToastResult: MockToastResult;
 
   beforeEach(() => {

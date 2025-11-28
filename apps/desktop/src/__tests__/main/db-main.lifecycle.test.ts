@@ -95,7 +95,9 @@ describe('db-main lifecycle', () => {
     corruptionError.code = 'XX002';
 
     // First call throws corruption error, second succeeds
-    PGliteMock.mockImplementationOnce(() => {
+    // Use function syntax for Vitest 4 constructor mocks (need this reference to prevent arrow conversion)
+    PGliteMock.mockImplementationOnce(function (this: Record<string, unknown>) {
+      Object.assign(this, {}); // Reference this to keep function syntax
       throw corruptionError;
     });
 
@@ -131,7 +133,9 @@ describe('db-main lifecycle', () => {
     corruptionError.code = 'XX002';
 
     // Both attempts fail with corruption
-    PGliteMock.mockImplementation(() => {
+    // Use function syntax for Vitest 4 constructor mocks (need this reference to prevent arrow conversion)
+    PGliteMock.mockImplementation(function (this: Record<string, unknown>) {
+      Object.assign(this, {}); // Reference this to keep function syntax
       throw corruptionError;
     });
 

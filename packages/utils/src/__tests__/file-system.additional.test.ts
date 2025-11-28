@@ -238,18 +238,22 @@ describe('fileSystem', () => {
     });
 
     it('should fall back to arrayBuffer if text() fails', async () => {
-      // Setup TextDecoder mock
+      // Setup TextDecoder mock - Vitest 4 requires class/function for constructor mocks
       const mockDecodedText = 'fallback content';
       const mockDecode = vi.fn().mockReturnValue(mockDecodedText);
-      vi.spyOn(global, 'TextDecoder').mockImplementation(
-        () =>
-          ({
-            decode: mockDecode,
-            encoding: 'utf-8',
-            fatal: false,
-            ignoreBOM: false,
-          }) as TextDecoder
-      );
+
+      // Create a mock class that can be used as a constructor
+      // Use Object.defineProperties to handle read-only properties
+      const MockTextDecoder = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+        Object.defineProperties(this, {
+          encoding: { value: 'utf-8', writable: false },
+          fatal: { value: false, writable: false },
+          ignoreBOM: { value: false, writable: false },
+          decode: { value: mockDecode, writable: false },
+        });
+      });
+
+      vi.stubGlobal('TextDecoder', MockTextDecoder);
 
       // Mock text() to fail and force arrayBuffer() path
       mockFileHandle.getFile = vi.fn().mockResolvedValue({
@@ -261,6 +265,9 @@ describe('fileSystem', () => {
 
       expect(mockDecode).toHaveBeenCalled();
       expect(content).toBe(mockDecodedText);
+
+      // Restore
+      vi.unstubAllGlobals();
     });
 
     it('should throw FileSystemOperationError when both methods fail', async () => {

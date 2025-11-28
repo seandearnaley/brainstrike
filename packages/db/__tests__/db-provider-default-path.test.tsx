@@ -6,11 +6,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@electric-sql/pglite', () => {
   return {
-    PGlite: vi.fn(() => ({
-      query: vi.fn(),
-      exec: vi.fn(),
-      close: vi.fn().mockResolvedValue(undefined),
-    })),
+    PGlite: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+      this.query = vi.fn();
+      this.exec = vi.fn();
+      this.close = vi.fn().mockResolvedValue(undefined);
+    }),
   };
 });
 

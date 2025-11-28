@@ -1,4 +1,5 @@
 import React from 'react';
+import type { Mock } from 'vitest';
 import { vi } from 'vitest';
 
 interface MockComponentProps extends Record<string, unknown> {
@@ -77,7 +78,12 @@ export const resetPreviewPanelPaginationMockState = () => {
   sharedPaginationState = { ...INITIAL_PAGINATION_STATE };
 };
 
-export const createUsePreviewPanelStateMock = () => ({
+interface UsePreviewPanelStateMockReturn {
+  usePreviewPanelState: Mock;
+  formatTokenCount: (tokens: number) => string;
+}
+
+export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn => ({
   usePreviewPanelState: vi.fn(),
   formatTokenCount: (tokens: number) => {
     if (tokens < 1000) {

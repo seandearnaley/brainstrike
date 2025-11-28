@@ -10,15 +10,10 @@ const __dirname = dirname(__filename);
 
 const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
 
+// Vitest 4: use maxWorkers instead of poolOptions
 const poolConfig = {
   pool: 'forks' as const,
-  poolOptions: {
-    forks: {
-      minForks: 1,
-      maxForks: 4,
-      execArgv: ['--max-old-space-size=8192'],
-    },
-  },
+  maxWorkers: 4,
 };
 
 export default defineConfig({

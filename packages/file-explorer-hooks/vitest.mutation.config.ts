@@ -11,11 +11,8 @@ export default defineConfig({
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        singleThread: true,
-      },
-    },
+    // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
+    maxWorkers: 1,
     isolate: true,
     testTimeout: 30000,
   },

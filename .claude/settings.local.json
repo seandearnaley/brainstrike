@@ -148,7 +148,12 @@
       "Bash(do echo \"=== Run $i ===\")",
       "mcp__atlassian__searchJiraIssuesUsingJql",
       "mcp__atlassian__getTransitionsForJiraIssue",
-      "mcp__atlassian__transitionJiraIssue"
+      "mcp__atlassian__transitionJiraIssue",
+      "WebFetch(domain:vitest.dev)",
+      "WebFetch(domain:www.npmjs.com)",
+      "Bash(NODE_DEBUG=module pnpm test:*)",
+      "Bash(for:*)",
+      "Bash(VITEST_MAX_WORKERS=1 pnpm -w test:fast:*)"
     ],
     "deny": [],
     "ask": []

@@ -36,10 +36,10 @@
     "test:coverage": "pnpm -w test:coverage"
   },
   "dependencies": {
-    "@brainstrike/types": "workspace:*",
     "@ai-sdk/anthropic": "^2.0.23",
     "@ai-sdk/google": "^2.0.17",
     "@ai-sdk/openai": "^2.0.44",
+    "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@mastra/core": "^0.20.1",
     "@mastra/mcp": "^0.13.4",
@@ -50,7 +50,7 @@
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.14"
   },
   "turbo": {
     "outputs": [

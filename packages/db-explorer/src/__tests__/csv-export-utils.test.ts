@@ -18,15 +18,19 @@ vi.mock('file-saver', () => ({
   saveAs: vi.fn(),
 }));
 
-// Mock JSZip
+// Mock JSZip - use function syntax for Vitest 4 constructor mocks
 const mockZip = {
   file: vi.fn(),
   generateAsync: vi.fn().mockResolvedValue(new Blob(['mock zip content'])),
 };
 
-vi.mock('jszip', () => ({
-  default: vi.fn(() => mockZip),
-}));
+vi.mock('jszip', () => {
+  const MockJSZip = vi.fn();
+  MockJSZip.mockImplementation(function (this: Record<string, unknown>) {
+    Object.assign(this, mockZip);
+  });
+  return { default: MockJSZip };
+});
 
 describe('CSV Export Utils', () => {
   const mockRecords: FileRecord[] = [

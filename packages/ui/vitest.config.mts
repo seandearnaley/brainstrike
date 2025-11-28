@@ -10,11 +10,8 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     // Use all available cores for faster test execution
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        maxThreads: 4,
-      },
-    },
+    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
+    maxWorkers: 4,
     coverage: {
       // Only include actual source files (not type declarations or dist)
       include: ['src/**/*.{ts,tsx}'],

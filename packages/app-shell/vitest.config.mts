@@ -14,11 +14,8 @@ export default defineConfig({
     hookTimeout: 30000,
     // Use all available cores for faster test execution
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        maxThreads: 4,
-      },
-    },
+    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
+    maxWorkers: 4,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     // Coverage consolidated at root vitest.config.ts
