@@ -266,7 +266,7 @@ jobs:
 
       - name: Install Playwright browsers for Vitest
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install chromium chrome-headless-shell --with-deps
+        run: pnpm exec playwright install chromium chromium-headless-shell --with-deps
 
       - name: Install Playwright system dependencies only
         if: steps.playwright-cache.outputs.cache-hit == 'true'
