@@ -1,6 +1,7 @@
 /// <reference types="vitest" />
 
 import path from 'node:path';
+import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
 /**
@@ -17,8 +18,8 @@ export default defineConfig({
   test: {
     projects: [
       {
-        name: 'unit',
         test: {
+          name: 'unit',
           globals: true,
           environment: 'jsdom',
           include: ['src/__tests__/**/*.test.{ts,tsx}'],
@@ -37,13 +38,13 @@ export default defineConfig({
         },
       },
       {
-        name: 'browser',
         test: {
+          name: 'browser',
           globals: true,
           include: ['src/__tests__/**/*.browser.test.{ts,tsx}'],
           browser: {
             enabled: true,
-            provider: 'playwright',
+            provider: playwright(),
             instances: [{ browser: 'chromium' }],
           },
         },
