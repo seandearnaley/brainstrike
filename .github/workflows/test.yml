@@ -461,10 +461,8 @@ jobs:
         run: pnpm run build --filter @brainstrike/desktop
 
       - name: Run Desktop E2E tests (shard)
-        uses: coactions/setup-xvfb@v1
-        with:
-          run: pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
-          working-directory: apps/desktop
+        working-directory: apps/desktop
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24 -ac" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "test"
           CI: "true"
