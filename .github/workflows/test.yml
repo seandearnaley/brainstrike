@@ -284,6 +284,17 @@ jobs:
       - name: Run browser tests
         run: pnpm run test:browser
 
+      - name: Upload browser test traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-traces
+          path: |
+            packages/*/test-results/**/*.zip
+            packages/*/test-results/**/*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
   # E2E tests run in parallel with sharding
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
