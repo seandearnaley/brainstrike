@@ -449,6 +449,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install system dependencies for Electron
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
       - name: Install Playwright system dependencies
         run: pnpm exec playwright install-deps
 
