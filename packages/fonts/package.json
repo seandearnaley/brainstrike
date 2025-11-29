@@ -13,14 +13,16 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./inter/*": "./src/inter/*"
+    "./inter/*": "./src/inter/*",
+    "./geist/*": "./src/geist/*"
   },
   "files": [
     "dist",
-    "src/inter"
+    "src/inter",
+    "src/geist"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -b . && mkdir -p dist && cp -R src/inter dist/inter",
+    "build": "rm -rf dist && tsc -b . && mkdir -p dist && cp -R src/inter dist/inter && cp -R src/geist dist/geist",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
@@ -30,6 +32,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.7.0",
+    "geist": "^1.5.1",
     "typescript": "^5.9.3"
   },
   "license": "ISC"

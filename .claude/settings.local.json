@@ -161,7 +161,8 @@
       "Bash(COVERAGE=true pnpm --filter @brainstrike/ui test:*)",
       "Bash(COVERAGE=true pnpm test:*)",
       "Bash(node scripts/enforce-coverage.mjs:*)",
-      "Bash(CI=true pnpm --filter @brainstrike/ui test:*)"
+      "Bash(CI=true pnpm --filter @brainstrike/ui test:*)",
+      "Bash(unzip:*)"
     ],
     "deny": [],
     "ask": []
