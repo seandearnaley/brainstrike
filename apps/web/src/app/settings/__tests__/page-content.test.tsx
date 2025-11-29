@@ -16,7 +16,7 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
   return {
     ...actual,
-    EmbeddingSettings: vi.fn(() => <div data-testid="embedding-settings-mock" />),
+    ModelSelectionPage: vi.fn(() => <div data-testid="model-selection-page-mock" />),
   };
 });
 
@@ -88,13 +88,13 @@ describe('Web SettingsPageContent', () => {
     expect(screen.getByText(/No settings matched "missing"/i)).toBeInTheDocument();
   });
 
-  test('renders embedding settings when the category is selected', async () => {
+  test('renders model selection when the category is selected', async () => {
     renderPage();
 
-    fireEvent.click(screen.getByRole('button', { name: /Embedding Models/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Models & Providers/i }));
 
-    const pane = await screen.findByTestId('settings-category-embedding-models');
-    expect(within(pane).getByTestId('embedding-settings-mock')).toBeInTheDocument();
-    expect(window.location.hash).toBe('#settings/embedding-models');
+    const pane = await screen.findByTestId('settings-category-models');
+    expect(within(pane).getByTestId('model-selection-page-mock')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#settings/models');
   });
 });

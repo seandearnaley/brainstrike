@@ -92,10 +92,9 @@ beforeEach(() => {
 
 afterEach(() => {
   const extendedWindow = getWindowWithExtensions();
-  // biome-ignore lint/performance/noDelete: cleanup
-  delete extendedWindow.secrets;
-  // biome-ignore lint/performance/noDelete: cleanup
-  delete extendedWindow.mcp;
+  // Reset to undefined instead of deleting - safer for environments where props may not be configurable
+  extendedWindow.secrets = undefined as unknown as SecretsApi | undefined;
+  extendedWindow.mcp = undefined as unknown as McpApi | undefined;
 });
 
 describe('Desktop SettingsPageContent', () => {
