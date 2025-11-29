@@ -29,29 +29,23 @@ const FilterChip: React.FC<{
 }> = React.memo(({ label, value, icon, variant = 'include' }) => {
   return (
     <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium',
-            'cursor-help transition-colors duration-150',
-            'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
-            // Include filters: primary style (active)
-            variant === 'include' && 'bg-primary text-primary-foreground',
-            // Exclude filters: dark outline with ring in dark mode, muted in light
-            variant === 'exclude' &&
-              'bg-muted text-muted-foreground ring-1 ring-inset ring-border dark:bg-background dark:ring-muted-foreground/50',
-            // Search/quick filter: outline style
-            variant === 'search' &&
-              'bg-muted/50 text-muted-foreground ring-1 ring-inset ring-border',
-            // Regex mode indicator
-            variant === 'regex' && 'bg-secondary text-secondary-foreground'
-          )}
-          aria-label={`${label}: ${value}`}
-        >
-          {icon}
-          <span>{value}</span>
-        </button>
+      <TooltipTrigger
+        className={cn(
+          'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium',
+          'cursor-help transition-colors duration-150',
+          // Include filters: primary style (active)
+          variant === 'include' && 'bg-primary text-primary-foreground',
+          // Exclude filters: dark outline with ring in dark mode, muted in light
+          variant === 'exclude' &&
+            'bg-muted text-muted-foreground ring-1 ring-inset ring-border dark:bg-background dark:ring-muted-foreground/50',
+          // Search/quick filter: outline style
+          variant === 'search' && 'bg-muted/50 text-muted-foreground ring-1 ring-inset ring-border',
+          // Regex mode indicator
+          variant === 'regex' && 'bg-secondary text-secondary-foreground'
+        )}
+      >
+        {icon}
+        <span>{value}</span>
       </TooltipTrigger>
       <TooltipContent>
         <p>{`${label}: ${value}`}</p>
