@@ -21,19 +21,14 @@ import '@assistant-ui/styles/markdown.css';
 import './overrides.css';
 import { Badge } from '../badge';
 import { Button } from '../button';
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from '../select';
+import { ModelPicker } from '../model-picker';
+import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { MarkdownText } from './markdown-text';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
+
+// Re-export types needed by consumers
+export type { ModelPickerModel, ModelPickerProvider };
 
 export interface ProviderConfig {
   id: string;
@@ -77,6 +72,10 @@ export interface AssistantUiPanelProps {
   className?: string;
   providers?: ProviderConfig[];
   providerGroups?: ProviderGroupConfig[];
+  /** Models for the ModelPicker component */
+  pickerModels: ModelPickerModel[];
+  /** Providers for the ModelPicker component */
+  pickerProviders: ModelPickerProvider[];
   selectedProvider?: string;
   selectedModel?: string;
   onModelChange?: (compositeKey: string) => void;
@@ -93,6 +92,8 @@ declare global {
 
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   providerGroups,
+  pickerModels,
+  pickerProviders,
   selectedProvider,
   selectedModel,
   onModelChange,
@@ -155,6 +156,8 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           {hasGroupedProviders && (
             <ProviderModelHeader
               groups={groupedProviders}
+              pickerModels={pickerModels}
+              pickerProviders={pickerProviders}
               selectedProvider={selectedProvider}
               selectedModel={selectedModel}
               onModelChange={onModelChange}
@@ -411,6 +414,8 @@ interface NormalizedProviderGroup {
 
 interface ProviderModelHeaderProps {
   groups: ProviderGroupConfig[];
+  pickerModels: ModelPickerModel[];
+  pickerProviders: ModelPickerProvider[];
   selectedProvider?: string | undefined;
   selectedModel?: string | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
@@ -418,6 +423,8 @@ interface ProviderModelHeaderProps {
 
 const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   groups,
+  pickerModels,
+  pickerProviders,
   selectedProvider,
   selectedModel,
   onModelChange,
@@ -469,32 +476,30 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
     );
   }, [options, modelName, selectedProvider]);
 
-  const [pendingValue, setPendingValue] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!pendingValue) {
-      return;
+  // Build a lookup map from model ID to provider ID for the ModelPicker callback
+  const modelToProviderMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (pickerModels) {
+      for (const model of pickerModels) {
+        map.set(model.id, model.providerId);
+      }
     }
-    const optionMatch = options.find((option) => option.value === pendingValue);
-    if (
-      optionMatch &&
-      optionMatch.provider.id === selectedProvider &&
-      optionMatch.model.id === modelName
-    ) {
-      setPendingValue(null);
-    }
-  }, [options, pendingValue, modelName, selectedProvider]);
+    return map;
+  }, [pickerModels]);
 
-  const selectValue = pendingValue ?? selectedOption?.value ?? '';
-  const placeholder = options.length === 0 ? 'No models enabled' : 'Select a model';
+  // Handle ModelPicker selection - convert model ID to composite key
+  const handleModelPickerChange = useCallback(
+    (modelId: string | string[]) => {
+      const id = Array.isArray(modelId) ? modelId[0] : modelId;
+      if (!id) return;
 
-  const handleSelectChange = useCallback(
-    (value: string) => {
-      setPendingValue(value);
-      // value is composite key: "provider::model"
-      onModelChange?.(value);
+      const providerId = modelToProviderMap.get(id);
+      if (providerId) {
+        // Construct composite key: "provider::model"
+        onModelChange?.(`${providerId}::${id}`);
+      }
     },
-    [onModelChange]
+    [modelToProviderMap, onModelChange]
   );
 
   const summaryProps: ProviderSelectionSummaryProps = {
@@ -507,53 +512,18 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   return (
     <div className="flex-shrink-0 space-y-3 border-b border-border bg-muted/30 px-3 py-3">
       <ProviderSelectionSummary {...summaryProps} />
-      <Select
-        value={selectValue}
-        onValueChange={handleSelectChange}
-        disabled={options.length === 0 || !onModelChange}
-      >
-        <SelectTrigger
-          className="h-9"
-          data-testid="assistant-model-dropdown"
-          aria-label="Select AI model"
-        >
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {normalizedGroups.map((group, groupIndex) => (
-            <div key={`${group.runtime}-${groupIndex}`}>
-              <SelectGroup>
-                <SelectLabel>{group.label}</SelectLabel>
-                {group.providers.flatMap((entry) =>
-                  entry.models.map((model) => {
-                    const value = `${entry.provider.id}::${model.id}`;
-                    return (
-                      <SelectItem
-                        key={value}
-                        value={value}
-                        data-testid={`assistant-model-option-${entry.provider.id}-${model.id}`}
-                      >
-                        <div className="flex flex-col">
-                          <span>{model.label}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {entry.provider.name}
-                          </span>
-                        </div>
-                      </SelectItem>
-                    );
-                  })
-                )}
-              </SelectGroup>
-              {groupIndex < normalizedGroups.length - 1 ? <SelectSeparator /> : null}
-            </div>
-          ))}
-          {normalizedGroups.length === 0 ? (
-            <div className="px-2 py-1 text-xs text-muted-foreground">
-              Enable models in settings to choose them here.
-            </div>
-          ) : null}
-        </SelectContent>
-      </Select>
+      <div data-testid="assistant-model-dropdown">
+        <ModelPicker
+          models={pickerModels}
+          providers={pickerProviders}
+          {...(modelName ? { value: modelName } : {})}
+          onChange={handleModelPickerChange}
+          modelType="llm"
+          mode="single"
+          placeholder={options.length === 0 ? 'No models enabled' : 'Select a model...'}
+          disabled={options.length === 0 || !onModelChange}
+        />
+      </div>
     </div>
   );
 };

@@ -157,7 +157,11 @@
       "Bash(node --experimental-specifier-resolution=node -e:*)",
       "mcp__brightdata__search_engine",
       "mcp__brightdata__scrape_as_markdown",
-      "Bash(CI=true pnpm --filter @brainstrike/preferences test:*)"
+      "Bash(CI=true pnpm --filter @brainstrike/preferences test:*)",
+      "Bash(COVERAGE=true pnpm --filter @brainstrike/ui test:*)",
+      "Bash(COVERAGE=true pnpm test:*)",
+      "Bash(node scripts/enforce-coverage.mjs:*)",
+      "Bash(CI=true pnpm --filter @brainstrike/ui test:*)"
     ],
     "deny": [],
     "ask": []

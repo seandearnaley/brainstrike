@@ -9,7 +9,12 @@ import {
   supportsStandardEmbeddingDimension,
 } from '@brainstrike/agent/client';
 import { useAssistantPreferencesStore } from '@brainstrike/preferences';
-import { AssistantUiPanel, type ProviderGroupConfig } from '@brainstrike/ui/assistant-ui-panel';
+import {
+  AssistantUiPanel,
+  type ModelPickerModel,
+  type ModelPickerProvider,
+  type ProviderGroupConfig,
+} from '@brainstrike/ui/assistant-ui-panel';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 export interface AssistantUiPanelWrapperProps {
@@ -190,6 +195,48 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       );
   }, [configuredProviders, enabledModelsByProvider]);
 
+  // Transform provider groups to ModelPicker-compatible format
+  const pickerProviders = useMemo<ModelPickerProvider[]>(() => {
+    return configuredProviders.map((providerId) => {
+      const definition = getProviderDefinition(providerId);
+      return {
+        id: providerId,
+        name: definition.displayName,
+        icon: null, // Icons are handled by the ModelPicker's internal icon mapping
+      };
+    });
+  }, [configuredProviders]);
+
+  // Transform models to ModelPicker-compatible format (only enabled LLM models)
+  const pickerModels = useMemo<ModelPickerModel[]>(() => {
+    const models: ModelPickerModel[] = [];
+
+    for (const providerId of configuredProviders) {
+      const enabledModels = enabledModelsByProvider[providerId] ?? [];
+      const modelDefinitions = getProviderModelDefinitions(providerId).filter(
+        (model): model is ProviderModelDefinition & { type: 'llm' } => model.type === 'llm'
+      );
+
+      for (const model of modelDefinitions) {
+        // Only include enabled models
+        if (!enabledModels.includes(model.id)) continue;
+
+        models.push({
+          id: model.id,
+          providerId,
+          name: model.label ?? model.id,
+          description: null, // LLM models don't have descriptions in the agent definitions
+          capabilities: {
+            type: 'llm',
+            streaming: model.supportsStreaming ?? false,
+          },
+        });
+      }
+    }
+
+    return models;
+  }, [configuredProviders, enabledModelsByProvider]);
+
   const isProviderReady = Boolean(
     selectedProvider && currentModel && configuredProviders.includes(selectedProvider)
   );
@@ -218,6 +265,8 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   return (
     <AssistantUiPanel
       providerGroups={providerGroups}
+      pickerModels={pickerModels}
+      pickerProviders={pickerProviders}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}
       onModelChange={handleModelChange}
