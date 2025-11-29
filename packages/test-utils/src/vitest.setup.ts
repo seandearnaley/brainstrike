@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom';
 import { Blob as NodeBlob } from 'node:buffer';
 import { readFile } from 'node:fs/promises';
+import { cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { resetStore } from './test-utils';
 
@@ -17,9 +18,10 @@ beforeEach(() => {
   resetStore();
 });
 
-// Global safety: always restore real timers between tests
+// Global safety: always restore real timers and cleanup React between tests
 afterEach(() => {
   vi.useRealTimers();
+  cleanup();
 });
 
 // The import '@testing-library/jest-dom' at the top should handle extending expect.

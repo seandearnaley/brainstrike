@@ -1,5 +1,5 @@
 import os from 'node:os';
-import type { TestUserConfig } from 'vitest/config';
+import type { InlineConfig } from 'vitest/node';
 
 // Determine max workers from env once to satisfy both TS and Biome
 const envMaxStr = process.env['VITEST_MAX_THREADS'] ?? process.env['VITEST_MAX_WORKERS'];
@@ -14,7 +14,7 @@ const defaultMaxWorkers = Math.max(1, Math.min(4, (os.cpus?.().length ?? 2) - 1)
 //   import { testBase } from '@brainstrike/test-utils/vitest.base';
 //   export default defineConfig({ test: { ...testBase, /* package overrides */ } });
 
-export const testBase: TestUserConfig = {
+export const testBase: InlineConfig = {
   globals: true,
   mockReset: true,
   restoreMocks: true,

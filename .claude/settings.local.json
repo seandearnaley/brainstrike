@@ -153,7 +153,10 @@
       "WebFetch(domain:www.npmjs.com)",
       "Bash(NODE_DEBUG=module pnpm test:*)",
       "Bash(for:*)",
-      "Bash(VITEST_MAX_WORKERS=1 pnpm -w test:fast:*)"
+      "Bash(VITEST_MAX_WORKERS=1 pnpm -w test:fast:*)",
+      "Bash(node --experimental-specifier-resolution=node -e:*)",
+      "mcp__brightdata__search_engine",
+      "mcp__brightdata__scrape_as_markdown"
     ],
     "deny": [],
     "ask": []

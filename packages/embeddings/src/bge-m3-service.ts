@@ -50,16 +50,17 @@ export class SimpleEmbeddingService implements EmbeddingService {
     cacheDir?: string
   ): Promise<void> {
     let modelConfig: ModelConfig | null = null;
+    let resolvedKey: string | undefined;
 
     if (typeof modelKeyOrConfig === 'object') {
       modelConfig = modelKeyOrConfig;
     } else {
-      const key = modelKeyOrConfig || ModelRegistryManager.getDefaultModelKey();
-      modelConfig = ModelRegistryManager.getModel(key);
+      resolvedKey = modelKeyOrConfig || ModelRegistryManager.getDefaultModelKey();
+      modelConfig = ModelRegistryManager.getModel(resolvedKey);
     }
 
     if (!modelConfig) {
-      throw new Error('Model configuration not found');
+      throw new Error(`Model '${resolvedKey}' not found in registry`);
     }
 
     const config: Partial<EmbeddingConfig> = {
