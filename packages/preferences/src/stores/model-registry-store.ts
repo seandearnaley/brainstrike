@@ -134,17 +134,21 @@ async function checkDownloadedModels(
   return newDownloadedModels;
 }
 
+const initialState = {
+  providers: [] as DbProvider[],
+  models: [] as DbModel[],
+  isLoading: false,
+  error: null as string | null,
+  modelCacheDir: null as string | null,
+  downloadProgress: {} as Record<string, number>,
+  isDownloading: {} as Record<string, boolean>,
+  downloadedModels: {} as Record<string, boolean>,
+};
+
 export const useModelRegistryStore = create<ModelRegistryState>()(
   persist(
     (set, get) => ({
-      providers: [],
-      models: [],
-      isLoading: false,
-      error: null,
-      modelCacheDir: null,
-      downloadProgress: {},
-      isDownloading: {},
-      downloadedModels: {},
+      ...initialState,
 
       fetchRegistry: async (db: IDatabase) => {
         set({ isLoading: true, error: null });
@@ -251,3 +255,21 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
     }
   )
 );
+
+/**
+ * Reset the model registry store to its initial state.
+ * Only use in tests to ensure a clean starting state between test runs.
+ */
+export function __resetModelRegistryStoreForTests() {
+  try {
+    useModelRegistryStore.setState(initialState);
+    const persistApi = (
+      useModelRegistryStore as unknown as {
+        persist?: { clearStorage?: () => void };
+      }
+    ).persist;
+    persistApi?.clearStorage?.();
+  } catch {
+    // Intentionally silent in tests - if storage fails, state is still reset.
+  }
+}

@@ -20,6 +20,7 @@ import { Check, Download, Folder, Loader2, RefreshCw, Search, Zap } from 'lucide
 import { useEffect, useState } from 'react';
 import { type DbModel, useModelRegistryStore } from '../../stores/model-registry-store';
 import LlmKeysSettings from '../secrets/llm-keys-settings';
+import { filterModels } from './model-filters';
 
 const logger = createLogger('ModelSelectionPage');
 
@@ -368,49 +369,5 @@ function ModelCard({
         </div>
       </div>
     </Card>
-  );
-}
-
-function matchesSearch(model: DbModel, query: string): boolean {
-  return !query || model.name.toLowerCase().includes(query.toLowerCase());
-}
-
-function matchesProvider(model: DbModel, filter: string): boolean {
-  return filter === 'all' || model.providerId === filter;
-}
-
-function matchesType(model: DbModel, filter: string): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'chat') return model.capabilities.type === 'llm';
-  if (filter === 'embedding') return model.capabilities.type === 'embedding';
-  return true;
-}
-
-function matchesStatus(
-  model: DbModel,
-  filter: string,
-  downloadedModels: Record<string, boolean>
-): boolean {
-  if (filter === 'all') return true;
-  const isDownloaded = downloadedModels[model.id];
-  if (filter === 'downloaded') return !!isDownloaded;
-  if (filter === 'remote') return !isDownloaded;
-  return true;
-}
-
-function filterModels(
-  models: DbModel[],
-  searchQuery: string,
-  providerFilter: string,
-  typeFilter: string,
-  statusFilter: string,
-  downloadedModels: Record<string, boolean>
-) {
-  return models.filter(
-    (model) =>
-      matchesSearch(model, searchQuery) &&
-      matchesProvider(model, providerFilter) &&
-      matchesType(model, typeFilter) &&
-      matchesStatus(model, statusFilter, downloadedModels)
   );
 }

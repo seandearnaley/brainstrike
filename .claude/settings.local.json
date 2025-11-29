@@ -156,7 +156,8 @@
       "Bash(VITEST_MAX_WORKERS=1 pnpm -w test:fast:*)",
       "Bash(node --experimental-specifier-resolution=node -e:*)",
       "mcp__brightdata__search_engine",
-      "mcp__brightdata__scrape_as_markdown"
+      "mcp__brightdata__scrape_as_markdown",
+      "Bash(CI=true pnpm --filter @brainstrike/preferences test:*)"
     ],
     "deny": [],
     "ask": []
