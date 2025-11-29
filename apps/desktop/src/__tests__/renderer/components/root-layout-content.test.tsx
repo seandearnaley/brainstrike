@@ -65,6 +65,7 @@ vi.mock('@brainstrike/app-shell', () => ({
       </div>
     </div>
   ),
+  ConnectedPromptManager: () => <div data-testid="connected-prompt-manager" />,
 }));
 
 // Mock the page components to avoid adapter dependencies

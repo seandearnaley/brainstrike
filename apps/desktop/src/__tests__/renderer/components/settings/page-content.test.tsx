@@ -1,18 +1,15 @@
-import {
-  __resetAssistantPreferencesStoreForTests,
-  useAssistantPreferencesStore,
-} from '@brainstrike/preferences';
+import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/preferences';
 import { ThemeProvider } from '@brainstrike/ui';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
 
 type SecretsApi = {
   list: () => Promise<string[]>;
   listStored: () => Promise<string[]>;
-  saveKey: (provider: string, key: string) => Promise<unknown>;
+  saveKey: (provider: string, key: string) => Promise<{ ok?: boolean; error?: string } | undefined>;
   getKey: (provider: string) => Promise<string | null>;
-  deleteKey: (provider: string) => Promise<boolean>;
+  deleteKey: (provider: string) => Promise<void>;
   clearAll?: () => Promise<{ success: boolean; message?: string }>;
 };
 
@@ -53,8 +50,13 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  (globalThis as unknown as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver =
-    originalResizeObserver;
+  if (originalResizeObserver) {
+    (globalThis as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
+      originalResizeObserver;
+  } else {
+    // biome-ignore lint/performance/noDelete: cleanup
+    delete (globalThis as unknown as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
+  }
 });
 
 beforeEach(() => {
@@ -65,7 +67,7 @@ beforeEach(() => {
     listStored: vi.fn().mockResolvedValue([]),
     saveKey: vi.fn().mockResolvedValue(true),
     getKey: vi.fn().mockResolvedValue(null),
-    deleteKey: vi.fn().mockResolvedValue(true),
+    deleteKey: vi.fn().mockResolvedValue(undefined),
   };
 
   const mcp: McpApi = {
@@ -90,25 +92,12 @@ beforeEach(() => {
 
 afterEach(() => {
   const extendedWindow = getWindowWithExtensions();
-  extendedWindow.secrets = undefined;
-  extendedWindow.mcp = undefined;
+  // Reset to undefined instead of deleting - safer for environments where props may not be configurable
+  extendedWindow.secrets = undefined as unknown as SecretsApi | undefined;
+  extendedWindow.mcp = undefined as unknown as McpApi | undefined;
 });
 
 describe('Desktop SettingsPageContent', () => {
-  it('renders categories and shows desktop preferences content', async () => {
-    render(
-      <ThemeProvider>
-        <SettingsPageContent />
-      </ThemeProvider>
-    );
-
-    const desktopButton = await screen.findByRole('button', { name: /Desktop Preferences/i });
-    fireEvent.click(desktopButton);
-    const desktopPane = await screen.findByTestId('settings-category-desktop-preferences');
-    expect(within(desktopPane).getByText(/Secure Provider Credentials/i)).toBeInTheDocument();
-    expect(within(desktopPane).getByText(/Provider API Keys/i)).toBeInTheDocument();
-  }, 60000);
-
   it('navigates to MCP integrations and displays tool management panels', async () => {
     render(
       <ThemeProvider>
@@ -158,122 +147,19 @@ describe('Desktop SettingsPageContent', () => {
     expect(await within(nav).findByRole('button', { name: /Factory Reset/i })).toBeInTheDocument();
   });
 
-  it('renders LLM credentials form fields in Desktop Preferences', async () => {
+  it('renders LLM credentials form fields in Models & Providers', async () => {
     render(
       <ThemeProvider>
         <SettingsPageContent />
       </ThemeProvider>
     );
 
-    const preferencesButton = await screen.findByRole('button', { name: /Desktop Preferences/i });
-    fireEvent.click(preferencesButton);
+    const modelsButton = await screen.findByRole('button', { name: /Models & Providers/i });
+    fireEvent.click(modelsButton);
 
-    expect(await screen.findByLabelText('Provider')).toBeInTheDocument();
+    expect(await screen.findByText(/Provider API Keys/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('Provider')).toBeInTheDocument();
     expect(screen.getByLabelText('API Key')).toBeInTheDocument();
-    expect(await screen.findByText('Saved Providers')).toBeInTheDocument();
-  });
-
-  it('shows model availability controls with search input', async () => {
-    render(
-      <ThemeProvider>
-        <SettingsPageContent />
-      </ThemeProvider>
-    );
-
-    const preferencesButton = await screen.findByRole('button', { name: /Desktop Preferences/i });
-    fireEvent.click(preferencesButton);
-
-    expect(await screen.findByText(/Model Availability/i)).toBeInTheDocument();
-    expect(await screen.findByLabelText('Search models')).toBeInTheDocument();
-  });
-
-  it('renders embedding settings panel when category is selected', async () => {
-    render(
-      <ThemeProvider>
-        <SettingsPageContent />
-      </ThemeProvider>
-    );
-
-    const embeddingButton = await screen.findByRole('button', { name: /Embedding Models/i });
-    fireEvent.click(embeddingButton);
-
-    const pane = await screen.findByTestId('settings-category-embedding-models');
-    expect(within(pane).getByTestId('embedding-settings-mock')).toBeInTheDocument();
-  });
-
-  it('allows toggling model availability for a provider', async () => {
-    render(
-      <ThemeProvider>
-        <SettingsPageContent />
-      </ThemeProvider>
-    );
-
-    const preferencesButton = await screen.findByRole('button', { name: /Desktop Preferences/i });
-    fireEvent.click(preferencesButton);
-
-    const toggle = await screen.findByTestId('model-toggle-openai-gpt-4o-mini');
-    expect(toggle).toHaveAttribute('data-state', 'checked');
-
-    fireEvent.click(toggle);
-
-    const updatedToggle = await screen.findByTestId('model-toggle-openai-gpt-4o-mini');
-    expect(updatedToggle).toHaveAttribute('data-state', 'unchecked');
-    expect(
-      useAssistantPreferencesStore
-        .getState()
-        .enabledModelsByProvider.openai?.includes('gpt-4o-mini')
-    ).toBe(false);
-  });
-
-  it('filters provider models based on search term', async () => {
-    render(
-      <ThemeProvider>
-        <SettingsPageContent />
-      </ThemeProvider>
-    );
-
-    const preferencesButton = await screen.findByRole('button', { name: /Desktop Preferences/i });
-    fireEvent.click(preferencesButton);
-
-    const searchbox = await screen.findByLabelText('Search models');
-    fireEvent.change(searchbox, { target: { value: 'claude' } });
-
-    const anthropicSection = await screen.findByTestId('provider-model-section-anthropic');
-    expect(anthropicSection).toBeInTheDocument();
-    expect(screen.queryByTestId('provider-model-section-openai')).not.toBeInTheDocument();
-
-    fireEvent.change(searchbox, { target: { value: 'no-such-model' } });
-    expect(await screen.findByText(/No providers match the current search/i)).toBeInTheDocument();
-  });
-
-  it('supports bulk enable actions for all models', async () => {
-    render(
-      <ThemeProvider>
-        <SettingsPageContent />
-      </ThemeProvider>
-    );
-
-    const preferencesButton = await screen.findByRole('button', { name: /Desktop Preferences/i });
-    fireEvent.click(preferencesButton);
-
-    const toggle = await screen.findByTestId('model-toggle-openai-gpt-4o-mini');
-    fireEvent.click(toggle);
-    expect(
-      useAssistantPreferencesStore
-        .getState()
-        .enabledModelsByProvider.openai?.includes('gpt-4o-mini')
-    ).toBe(false);
-
-    const enableAll = await screen.findByTestId('enable-all-models');
-    fireEvent.click(enableAll);
-
-    await waitFor(() => {
-      expect(
-        useAssistantPreferencesStore
-          .getState()
-          .enabledModelsByProvider.openai?.includes('gpt-4o-mini')
-      ).toBe(true);
-    });
   });
 });
 vi.mock('@brainstrike/preferences', async (importOriginal) => {
@@ -281,5 +167,14 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
   return {
     ...actual,
     EmbeddingSettings: vi.fn(() => <div data-testid="embedding-settings-mock" />),
+    ModelSelectionPage: vi.fn(() => (
+      <div data-testid="model-selection-page-mock">
+        <h4>Provider API Keys</h4>
+        <label htmlFor="provider-select">Provider</label>
+        <select id="provider-select" aria-label="Provider" />
+        <label htmlFor="api-key-input">API Key</label>
+        <input id="api-key-input" aria-label="API Key" />
+      </div>
+    )),
   };
 });

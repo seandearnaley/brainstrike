@@ -13,10 +13,11 @@ vi.mock('@brainstrike/ui', () => {
   const Input = (props: InputHTMLAttributes<HTMLInputElement>) => <input {...props} />;
   const ThemeSettings = () => <div data-testid="theme-settings" />;
   const cn = (...values: string[]) => values.filter(Boolean).join(' ');
-  return { Input, ThemeSettings, cn };
+  const useToast = vi.fn(() => ({ toast: vi.fn() }));
+  return { Input, ThemeSettings, cn, useToast };
 });
 
-vi.mock('../factory-reset/factory-reset-settings-section', () => ({
+vi.mock('../settings/system/factory-reset-settings-section', () => ({
   FactoryResetSettingsSection: () => (
     <div data-testid="factory-reset-settings-section">Factory Reset Settings</div>
   ),

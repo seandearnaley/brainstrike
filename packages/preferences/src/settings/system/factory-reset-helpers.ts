@@ -34,7 +34,9 @@ async function clearElectronStorage(): Promise<void> {
 
   const w = window as {
     electronAPI?: { storage?: { clear?: () => Promise<void> } };
-    secrets?: { clearAll?: (confirmationToken?: string) => Promise<void> };
+    secrets?: {
+      clearAll?: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
+    };
     settings?: { clearAll?: () => Promise<void> };
   };
 

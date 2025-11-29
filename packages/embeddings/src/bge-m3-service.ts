@@ -11,6 +11,11 @@ import type {
   SimilarityResult,
 } from './types';
 
+export interface DownloadModelOptions {
+  cacheDir?: string;
+  onProgress?: (progress: EmbeddingProgress) => void;
+}
+
 /**
  * A registry-aware embedding service using transformers.js feature-extraction pipeline
  * Supports plug-and-play model switching via JSON manifest
@@ -36,36 +41,46 @@ export class SimpleEmbeddingService implements EmbeddingService {
   }
 
   /**
-   * Initialize with a model key from the registry
+   * Initialize with a model key from the registry OR a full model configuration
    */
   async initializeWithModel(
-    modelKey?: string,
+    modelKeyOrConfig?: string | ModelConfig,
     onProgress?: (progress: EmbeddingProgress) => void,
-    deviceOverride?: 'webgpu' | 'wasm' | 'cpu'
+    deviceOverride?: 'webgpu' | 'wasm' | 'cpu',
+    cacheDir?: string
   ): Promise<void> {
-    const key = modelKey || ModelRegistryManager.getDefaultModelKey();
-    const modelConfig = ModelRegistryManager.getModel(key);
+    let modelConfig: ModelConfig | null = null;
+    let resolvedKey: string | undefined;
+
+    if (typeof modelKeyOrConfig === 'object') {
+      modelConfig = modelKeyOrConfig;
+    } else {
+      resolvedKey = modelKeyOrConfig || ModelRegistryManager.getDefaultModelKey();
+      modelConfig = ModelRegistryManager.getModel(resolvedKey);
+    }
 
     if (!modelConfig) {
-      throw new Error(`Model '${key}' not found in registry`);
+      throw new Error(`Model '${resolvedKey}' not found in registry`);
     }
 
     const config: Partial<EmbeddingConfig> = {
       modelId: modelConfig.id,
       device: deviceOverride || this._config.device || 'webgpu',
       quantized: ModelRegistryManager.shouldQuantize(modelConfig),
+      ...(cacheDir ? { cacheDir } : {}),
     };
 
     this._backend.setTargetDimensions(modelConfig.dimensions);
 
-    this._currentModelKey = key;
+    this._currentModelKey =
+      typeof modelKeyOrConfig === 'string' ? modelKeyOrConfig : modelConfig.id;
     this._currentModelConfig = modelConfig;
 
-    return this.initialize(config, onProgress);
+    return this.initialize({ ...config, modelConfig }, onProgress);
   }
 
   async initialize(
-    config?: Partial<EmbeddingConfig>,
+    config?: Partial<EmbeddingConfig> & { modelConfig?: ModelConfig },
     onProgress?: (progress: EmbeddingProgress) => void
   ): Promise<void> {
     if (this._status === 'initializing') {
@@ -89,7 +104,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       this._config = { ...this._config, ...config };
     }
 
-    const maybeModelConfig = (config as { modelConfig?: ModelConfig | undefined })?.modelConfig;
+    const maybeModelConfig = config?.modelConfig;
     if (maybeModelConfig?.dimensions) {
       this._backend.setTargetDimensions(maybeModelConfig.dimensions);
     } else if (this._currentModelConfig) {
@@ -234,6 +249,34 @@ export class SimpleEmbeddingService implements EmbeddingService {
    */
   static listModels(): Record<string, ModelConfig> {
     return ModelRegistryManager.listModels();
+  }
+
+  /**
+   * Download a model to the cache directory
+   */
+  /**
+   * Download a model to the cache directory
+   */
+  async downloadModel(
+    modelId: string,
+    options?: DownloadModelOptions & { modelConfig?: ModelConfig }
+  ): Promise<void> {
+    // If modelConfig is provided, we can use it to set up any necessary state
+    // For now, TransformersBackend.downloadModel just needs the ID, but this
+    // future-proofs the API and matches the initialize pattern
+    return this._backend.downloadModel(modelId, {
+      ...(options?.cacheDir ? { cacheDir: options.cacheDir } : {}),
+      onProgress: (p) => {
+        if (options?.onProgress && p.status === 'downloading' && p.loaded && p.total) {
+          const progressPercent = Math.round((p.loaded / p.total) * 100);
+          options.onProgress({
+            stage: 'downloading',
+            progress: progressPercent,
+            message: `Downloading ${p.file || 'model'}... ${progressPercent}%`,
+          });
+        }
+      },
+    });
   }
 }
 

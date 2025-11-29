@@ -5,8 +5,8 @@ test.describe('Secrets Settings', () => {
     await homePage.openSettings();
     await expect(window.getByTestId('settings-section')).toBeVisible();
 
-    // Navigate to Desktop Preferences category
-    await window.getByRole('button', { name: /Desktop Preferences/i }).click();
+    // Navigate to Models & Providers category
+    await window.getByRole('button', { name: /Models & Providers/i }).click();
 
     const providerSelect = window.getByTestId('llm-provider');
     await expect(providerSelect).toBeVisible();

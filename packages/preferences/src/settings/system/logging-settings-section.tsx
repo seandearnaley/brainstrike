@@ -19,7 +19,7 @@ import {
 import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
 import { FolderOpen, RefreshCw } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { useLoggingPreferencesStore } from '../stores/logging-preferences-store';
+import { useLoggingPreferencesStore } from '../../stores/logging-preferences-store';
 import { type LogSourceAdapter, LogViewer } from './log-viewer-components/log-viewer';
 
 const LOG_LEVEL_OPTIONS: LogLevel[] = [

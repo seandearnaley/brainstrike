@@ -1,0 +1,331 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __resetModelRegistryStoreForTests,
+  type DbModel,
+  type DbProvider,
+  useModelRegistryStore,
+} from '../stores/model-registry-store';
+
+// Mock @brainstrike/utils logger
+vi.mock('@brainstrike/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      info: vi.fn(),
+      error: vi.fn(),
+      warn: vi.fn(),
+      debug: vi.fn(),
+    }),
+  };
+});
+
+const createMockProvider = (overrides: Partial<DbProvider> = {}): DbProvider => ({
+  id: 'test-provider',
+  name: 'Test Provider',
+  icon: null,
+  isEnabled: true,
+  sortOrder: 0,
+  ...overrides,
+});
+
+const createMockModel = (overrides: Partial<DbModel> = {}): DbModel => ({
+  id: 'test-model',
+  providerId: 'test-provider',
+  name: 'Test Model',
+  description: 'A test model',
+  tagline: 'Test tagline',
+  bestFor: ['testing'],
+  icon: null,
+  isEnabled: true,
+  capabilities: {
+    type: 'embedding',
+    streaming: false,
+    defaultDimension: 768,
+  },
+  parameters: null,
+  sortOrder: 0,
+  ...overrides,
+});
+
+describe('model-registry-store', () => {
+  beforeEach(() => {
+    __resetModelRegistryStoreForTests();
+  });
+
+  describe('initial state', () => {
+    it('has empty providers array', () => {
+      expect(useModelRegistryStore.getState().providers).toEqual([]);
+    });
+
+    it('has empty models array', () => {
+      expect(useModelRegistryStore.getState().models).toEqual([]);
+    });
+
+    it('has isLoading set to false', () => {
+      expect(useModelRegistryStore.getState().isLoading).toBe(false);
+    });
+
+    it('has error set to null', () => {
+      expect(useModelRegistryStore.getState().error).toBe(null);
+    });
+
+    it('has modelCacheDir set to null', () => {
+      expect(useModelRegistryStore.getState().modelCacheDir).toBe(null);
+    });
+
+    it('has empty downloadProgress', () => {
+      expect(useModelRegistryStore.getState().downloadProgress).toEqual({});
+    });
+
+    it('has empty isDownloading', () => {
+      expect(useModelRegistryStore.getState().isDownloading).toEqual({});
+    });
+
+    it('has empty downloadedModels', () => {
+      expect(useModelRegistryStore.getState().downloadedModels).toEqual({});
+    });
+  });
+
+  describe('setModelCacheDir', () => {
+    it('sets the model cache directory', () => {
+      useModelRegistryStore.getState().setModelCacheDir('/custom/path');
+      expect(useModelRegistryStore.getState().modelCacheDir).toBe('/custom/path');
+    });
+
+    it('overwrites previous value', () => {
+      useModelRegistryStore.getState().setModelCacheDir('/first/path');
+      useModelRegistryStore.getState().setModelCacheDir('/second/path');
+      expect(useModelRegistryStore.getState().modelCacheDir).toBe('/second/path');
+    });
+  });
+
+  describe('setDownloadProgress', () => {
+    it('sets download progress for a model', () => {
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 50);
+      expect(useModelRegistryStore.getState().downloadProgress['model-1']).toBe(50);
+    });
+
+    it('sets multiple model progress independently', () => {
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 25);
+      useModelRegistryStore.getState().setDownloadProgress('model-2', 75);
+      expect(useModelRegistryStore.getState().downloadProgress['model-1']).toBe(25);
+      expect(useModelRegistryStore.getState().downloadProgress['model-2']).toBe(75);
+    });
+
+    it('marks model as downloaded when progress reaches 100', () => {
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 100);
+      expect(useModelRegistryStore.getState().downloadedModels['model-1']).toBe(true);
+    });
+
+    it('does not mark model as downloaded for progress less than 100', () => {
+      useModelRegistryStore.getState().setDownloadProgress('model-1', 99);
+      expect(useModelRegistryStore.getState().downloadedModels['model-1']).toBeUndefined();
+    });
+  });
+
+  describe('setDownloading', () => {
+    it('sets downloading state for a model', () => {
+      useModelRegistryStore.getState().setDownloading('model-1', true);
+      expect(useModelRegistryStore.getState().isDownloading['model-1']).toBe(true);
+    });
+
+    it('can set downloading to false', () => {
+      useModelRegistryStore.getState().setDownloading('model-1', true);
+      useModelRegistryStore.getState().setDownloading('model-1', false);
+      expect(useModelRegistryStore.getState().isDownloading['model-1']).toBe(false);
+    });
+
+    it('sets multiple model downloading states independently', () => {
+      useModelRegistryStore.getState().setDownloading('model-1', true);
+      useModelRegistryStore.getState().setDownloading('model-2', false);
+      expect(useModelRegistryStore.getState().isDownloading['model-1']).toBe(true);
+      expect(useModelRegistryStore.getState().isDownloading['model-2']).toBe(false);
+    });
+  });
+
+  describe('fetchRegistry', () => {
+    it('sets isLoading to true while fetching', async () => {
+      const mockDb = {
+        query: vi.fn().mockImplementation(() => new Promise(() => {})), // Never resolves
+      };
+
+      void useModelRegistryStore.getState().fetchRegistry(mockDb as never);
+      expect(useModelRegistryStore.getState().isLoading).toBe(true);
+    });
+
+    it('fetches providers and models from database', async () => {
+      const mockProviderRows = [
+        { id: 'openai', name: 'OpenAI', icon: null, is_enabled: 1, sort_order: 0 },
+      ];
+      const mockModelRows = [
+        {
+          id: 'gpt-4',
+          provider_id: 'openai',
+          name: 'GPT-4',
+          description: 'Advanced LLM',
+          tagline: 'Most capable',
+          best_for: JSON.stringify(['chat', 'code']),
+          icon: null,
+          is_enabled: 1,
+          capabilities: JSON.stringify({ type: 'llm', streaming: true }),
+          parameters: null,
+          sort_order: 0,
+        },
+      ];
+
+      const mockDb = {
+        query: vi
+          .fn()
+          .mockResolvedValueOnce({ rows: mockProviderRows })
+          .mockResolvedValueOnce({ rows: mockModelRows }),
+      };
+
+      await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
+
+      expect(useModelRegistryStore.getState().isLoading).toBe(false);
+      expect(useModelRegistryStore.getState().providers).toHaveLength(1);
+      expect(useModelRegistryStore.getState().providers[0]?.name).toBe('OpenAI');
+      expect(useModelRegistryStore.getState().models).toHaveLength(1);
+      expect(useModelRegistryStore.getState().models[0]?.name).toBe('GPT-4');
+    });
+
+    it('parses JSON fields correctly', async () => {
+      const mockProviderRows = [
+        { id: 'test', name: 'Test', icon: null, is_enabled: true, sort_order: 0 },
+      ];
+      const mockModelRows = [
+        {
+          id: 'model-1',
+          provider_id: 'test',
+          name: 'Test Model',
+          description: 'Test',
+          tagline: null,
+          best_for: ['tag1', 'tag2'], // Already parsed object
+          icon: null,
+          is_enabled: true,
+          capabilities: { type: 'embedding', defaultDimension: 384 }, // Already parsed
+          parameters: { size: '100MB' }, // Already parsed
+          sort_order: 0,
+        },
+      ];
+
+      const mockDb = {
+        query: vi
+          .fn()
+          .mockResolvedValueOnce({ rows: mockProviderRows })
+          .mockResolvedValueOnce({ rows: mockModelRows }),
+      };
+
+      await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
+
+      const model = useModelRegistryStore.getState().models[0];
+      expect(model?.bestFor).toEqual(['tag1', 'tag2']);
+      expect(model?.capabilities.type).toBe('embedding');
+      expect(model?.parameters).toEqual({ size: '100MB' });
+    });
+
+    it('handles fetch error and sets error state', async () => {
+      const mockDb = {
+        query: vi.fn().mockRejectedValue(new Error('Database connection failed')),
+      };
+
+      await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
+
+      expect(useModelRegistryStore.getState().isLoading).toBe(false);
+      expect(useModelRegistryStore.getState().error).toBe('Database connection failed');
+    });
+  });
+
+  describe('toggleModel', () => {
+    it('optimistically updates model enabled state', async () => {
+      const model = createMockModel({ id: 'model-1', isEnabled: false });
+      useModelRegistryStore.setState({ models: [model] });
+
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+      };
+
+      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
+
+      expect(useModelRegistryStore.getState().models[0]?.isEnabled).toBe(true);
+    });
+
+    it('calls database update with correct parameters', async () => {
+      const model = createMockModel({ id: 'model-1', isEnabled: false });
+      useModelRegistryStore.setState({ models: [model] });
+
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+      };
+
+      await useModelRegistryStore.getState().toggleModel(mockDb as never, 'model-1', true);
+
+      expect(mockDb.query).toHaveBeenCalledWith(
+        'UPDATE models SET is_enabled = $1, updated_at = NOW() WHERE id = $2',
+        [true, 'model-1']
+      );
+    });
+  });
+
+  describe('toggleProvider', () => {
+    it('optimistically updates provider enabled state', async () => {
+      const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
+      useModelRegistryStore.setState({ providers: [provider] });
+
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+      };
+
+      await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
+
+      expect(useModelRegistryStore.getState().providers[0]?.isEnabled).toBe(true);
+    });
+
+    it('calls database update with correct parameters', async () => {
+      const provider = createMockProvider({ id: 'provider-1', isEnabled: false });
+      useModelRegistryStore.setState({ providers: [provider] });
+
+      const mockDb = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+      };
+
+      await useModelRegistryStore.getState().toggleProvider(mockDb as never, 'provider-1', true);
+
+      expect(mockDb.query).toHaveBeenCalledWith(
+        'UPDATE providers SET is_enabled = $1, updated_at = NOW() WHERE id = $2',
+        [true, 'provider-1']
+      );
+    });
+  });
+
+  describe('__resetModelRegistryStoreForTests', () => {
+    it('resets all state to initial values', () => {
+      // Set some state
+      useModelRegistryStore.setState({
+        providers: [createMockProvider()],
+        models: [createMockModel()],
+        isLoading: true,
+        error: 'Some error',
+        modelCacheDir: '/custom/path',
+        downloadProgress: { 'model-1': 50 },
+        isDownloading: { 'model-1': true },
+        downloadedModels: { 'model-1': true },
+      });
+
+      // Reset
+      __resetModelRegistryStoreForTests();
+
+      // Verify reset
+      const state = useModelRegistryStore.getState();
+      expect(state.providers).toEqual([]);
+      expect(state.models).toEqual([]);
+      expect(state.isLoading).toBe(false);
+      expect(state.error).toBe(null);
+      expect(state.modelCacheDir).toBe(null);
+      expect(state.downloadProgress).toEqual({});
+      expect(state.isDownloading).toEqual({});
+      expect(state.downloadedModels).toEqual({});
+    });
+  });
+});

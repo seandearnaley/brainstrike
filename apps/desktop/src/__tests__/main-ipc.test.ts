@@ -22,6 +22,10 @@ vi.mock('electron', async () => {
     ipcRenderer,
     BrowserWindow: vi.fn(),
     session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    Menu: {
+      setApplicationMenu: vi.fn(),
+      buildFromTemplate: vi.fn(),
+    },
   };
 });
 

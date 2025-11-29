@@ -1,10 +1,10 @@
 import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { FactoryResetSettingsSection } from '../factory-reset/factory-reset-settings-section';
+import { FactoryResetSettingsSection } from '../settings/system/factory-reset-settings-section';
 
 // Mock the FactoryResetPanel component
-vi.mock('../factory-reset/factory-reset-panel', () => ({
+vi.mock('../settings/system/factory-reset-panel', () => ({
   FactoryResetPanel: () => <div data-testid="factory-reset-panel">Factory Reset Panel</div>,
 }));
 

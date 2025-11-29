@@ -45,6 +45,10 @@ vi.mock('electron', () => ({
   session: mockSession,
   app: mockApp,
   ipcMain: { handle: vi.fn() },
+  Menu: {
+    setApplicationMenu: vi.fn(),
+    buildFromTemplate: vi.fn(),
+  },
 }));
 
 const statSyncMock = vi.fn(() => ({

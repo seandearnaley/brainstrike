@@ -3,31 +3,16 @@ import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createTokenCountingSettingsCategory,
-  EmbeddingSettings,
+  ModelSelectionPage,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences';
 import { Badge } from '@brainstrike/ui';
-import { Cpu, FileCog, Key, Layers } from 'lucide-react';
+import { Cpu, FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
-import { LlmKeysSettings } from './llm-keys';
 import { DesktopLoggingSettings } from './logging-settings';
 import { McpConfigStatus } from './mcp-config-status';
 import { McpToolsPanel } from './mcp-tools-panel';
-
-function DesktopPreferencesCategory() {
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <h3 className="text-lg font-semibold">Secure Provider Credentials</h3>
-        <p className="text-sm text-muted-foreground">
-          Store API keys in the encrypted desktop keychain for OpenAI, Anthropic, Google, and more.
-        </p>
-      </div>
-      <LlmKeysSettings />
-    </div>
-  );
-}
 
 function McpIntegrationsCategory() {
   return (
@@ -49,16 +34,12 @@ function EmbeddingModelsCategory() {
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          Embedding Models
-          <Badge variant="outline">256-1536D</Badge>
-        </h3>
+        <h3 className="text-lg font-semibold flex items-center gap-2">Models & Providers</h3>
         <p className="text-sm text-muted-foreground">
-          Manage which embedding providers are available and choose the active model used for
-          imports, vector search, and assistant memory.
+          Manage AI providers and enable/disable specific models for chat and embeddings.
         </p>
       </div>
-      <EmbeddingSettings />
+      <ModelSelectionPage />
     </div>
   );
 }
@@ -90,16 +71,8 @@ export default function SettingsPageContent() {
       createAppearanceSettingsCategory(),
       createTokenCountingSettingsCategory(),
       {
-        id: 'desktop-preferences',
-        title: 'Desktop Preferences',
-        description: 'Configure local storage and encrypted secrets for the desktop app.',
-        keywords: ['desktop', 'preferences', 'api keys', 'llm', 'encryption', 'credentials'],
-        icon: Key,
-        render: () => <DesktopPreferencesCategory />,
-      },
-      {
         id: 'embedding-models',
-        title: 'Embedding Models',
+        title: 'Models & Providers',
         description: 'Enable embedding providers and choose the active model.',
         keywords: ['embeddings', 'models', 'providers', 'vector'],
         icon: Layers,

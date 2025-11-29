@@ -25,12 +25,12 @@ vi.mock('@brainstrike/ui', () => ({
   useToast: mockUseToast,
 }));
 
-vi.mock('../factory-reset/factory-reset-helpers', () => ({
+vi.mock('../settings/system/factory-reset-helpers', () => ({
   clearPersistentUiState: mockClearPersistentUiState,
 }));
 
 // Import after mocks are set up
-const { FactoryResetPanel } = await import('../factory-reset/factory-reset-panel');
+const { FactoryResetPanel } = await import('../settings/system/factory-reset-panel');
 
 // Mock window.location.reload at the module level
 const mockReload = vi.fn();

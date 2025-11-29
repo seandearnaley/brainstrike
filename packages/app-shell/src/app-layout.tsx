@@ -1,6 +1,6 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
-import { useDatabaseStatusSync } from '@brainstrike/preferences';
+import { GlobalDownloadIndicator, useDatabaseStatusSync } from '@brainstrike/preferences';
 import {
   NavigationSidebar,
   StatusBar,
@@ -33,7 +33,10 @@ export function AppLayout({ children, config, currentPath, onNavigationClick }: 
               <main className="flex-1 h-full overflow-hidden">{children}</main>
             </div>
             {/* Status bar at bottom */}
-            <StatusBar leftContent={<DatabaseStatusItem />} />
+            <StatusBar
+              leftContent={<DatabaseStatusItem />}
+              rightContent={<GlobalDownloadIndicator />}
+            />
           </div>
           <Toaster />
         </FileExplorerProvider>

@@ -19,7 +19,7 @@ import type { StateCreator } from 'zustand';
 import { type PersistOptions, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type PanelTab = 'explorer' | 'settings';
+export type PanelTab = 'explorer' | 'settings' | 'prompts';
 
 export interface PanelLayoutStoreState {
   // Layout

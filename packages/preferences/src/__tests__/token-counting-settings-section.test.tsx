@@ -4,7 +4,10 @@ import {
   __resetTokenPreferencesStoreForTests,
   useTokenPreferencesStore,
 } from '../stores/token-preferences-store';
-import { TokenCountingSettingsSection } from '../token-counting/token-counting-settings-section';
+
+const { TokenCountingSettingsSection } = await import(
+  '../settings/system/token-counting-settings-section'
+);
 
 vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils')>();

@@ -6,6 +6,7 @@ import type { AppShellConfig, NavigationItem } from '../types';
 
 vi.mock('@brainstrike/preferences', () => ({
   useDatabaseStatusSync: () => {},
+  GlobalDownloadIndicator: () => <div data-testid="global-download-indicator" />,
 }));
 
 // Mock the file-explorer-ui package to avoid worker issues

@@ -3,7 +3,7 @@ import { navigationItems } from '../navigation';
 
 describe('navigationItems', () => {
   it('should have the correct number of items', () => {
-    expect(navigationItems).toHaveLength(2);
+    expect(navigationItems).toHaveLength(3);
   });
 
   it('should have the correct properties for Context Explorer', () => {

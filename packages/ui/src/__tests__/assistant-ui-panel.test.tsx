@@ -1,6 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProviderGroupConfig } from '../../src/assistant-ui-panel/assistant-ui-panel';
+import type {
+  ModelPickerModel,
+  ModelPickerProvider,
+  ProviderGroupConfig,
+} from '../../src/assistant-ui-panel/assistant-ui-panel';
 import { AssistantUiPanel } from '../../src/assistant-ui-panel/assistant-ui-panel';
 
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
@@ -17,6 +21,12 @@ vi.mock('../../src/assistant-ui-panel/markdown-text', () => ({
 
 vi.mock('../../src/assistant-ui-panel/tool-fallback', () => ({
   ToolFallback: () => <div data-testid="tool-fallback" />,
+}));
+
+// Mock theme provider for ModelPicker
+vi.mock('../../src/theme-provider', () => ({
+  ThemeProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useTheme: () => ({ theme: 'light', setTheme: vi.fn() }),
 }));
 
 vi.mock('@assistant-ui/react', () => {
@@ -179,10 +189,36 @@ const providerGroups: ProviderGroupConfig[] = [
   },
 ];
 
+// ModelPicker-compatible providers (matching the enabled models in providerGroups)
+const pickerProviders: ModelPickerProvider[] = [
+  { id: 'openai', name: 'OpenAI', icon: null },
+  { id: 'anthropic', name: 'Anthropic', icon: null },
+];
+
+// ModelPicker-compatible models (only enabled models)
+const pickerModels: ModelPickerModel[] = [
+  {
+    id: 'gpt-4o-mini',
+    providerId: 'openai',
+    name: 'GPT-4o Mini',
+    description: null,
+    capabilities: { type: 'llm', streaming: true },
+  },
+  {
+    id: 'claude-3-haiku',
+    providerId: 'anthropic',
+    name: 'Claude 3 Haiku',
+    description: null,
+    capabilities: { type: 'llm', streaming: true },
+  },
+];
+
 const baseProps = {
   providerGroups,
+  pickerModels,
+  pickerProviders,
   selectedProvider: 'openai',
-  selectedModel: 'gpt-4o-mini',
+  selectedModel: 'openai::gpt-4o-mini',
 };
 
 describe('AssistantUiPanel model picker', () => {
@@ -194,47 +230,43 @@ describe('AssistantUiPanel model picker', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the dropdown with enabled models and provider summary', async () => {
+  it('renders the model picker with provider summary', async () => {
     render(<AssistantUiPanel {...baseProps} onModelChange={() => {}} />);
 
+    // Provider summary should show OpenAI
     expect(screen.getAllByText('OpenAI').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('GPT-4o Mini').length).toBeGreaterThan(0);
 
-    const trigger = screen.getByTestId('assistant-model-dropdown');
-    fireEvent.pointerDown(trigger, {
-      pointerId: 1,
-      pointerType: 'mouse',
-    });
-    fireEvent.pointerUp(trigger, { pointerId: 1, pointerType: 'mouse' });
+    // The model name appears in both the summary badge and the ModelPicker trigger
+    const modelTexts = screen.getAllByText('GPT-4o Mini');
+    expect(modelTexts.length).toBeGreaterThan(0);
 
-    expect(
-      await screen.findByTestId('assistant-model-option-openai-gpt-4o-mini')
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId('assistant-model-option-openai-gpt-4o')).not.toBeInTheDocument();
-    expect(
-      await screen.findByTestId('assistant-model-option-anthropic-claude-3-haiku')
-    ).toBeInTheDocument();
+    // The dropdown container should be present
+    const container = screen.getByTestId('assistant-model-dropdown');
+    expect(container).toBeInTheDocument();
+
+    // Verify the ModelPicker trigger (combobox) exists
+    const trigger = screen.getByRole('combobox');
+    expect(trigger).toBeInTheDocument();
   });
 
-  it('invokes model change handler with composite key when selecting a different provider model', async () => {
+  it('invokes model change handler with composite key when selecting a model', async () => {
     const onModelChange = vi.fn();
 
     render(<AssistantUiPanel {...baseProps} onModelChange={onModelChange} />);
 
-    const trigger = screen.getByTestId('assistant-model-dropdown');
-    fireEvent.pointerDown(trigger, {
-      pointerId: 1,
-      pointerType: 'mouse',
-    });
-    fireEvent.pointerUp(trigger, { pointerId: 1, pointerType: 'mouse' });
-    const option = await screen.findByTestId('assistant-model-option-anthropic-claude-3-haiku');
-    fireEvent.pointerDown(option, { pointerId: 1, pointerType: 'mouse' });
-    fireEvent.pointerUp(option, { pointerId: 1, pointerType: 'mouse' });
+    // The ModelPicker uses a button trigger - click to open the popover
+    const trigger = screen.getByRole('combobox');
+    fireEvent.click(trigger);
 
+    // Wait for the popover to open and find the Claude model option
+    const option = await screen.findByText('Claude 3 Haiku');
+    fireEvent.click(option);
+
+    // Should be called with composite key format: "provider::model"
     expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-3-haiku');
   });
 
-  it('disables the dropdown when no models are enabled', () => {
+  it('shows placeholder when no models are enabled', () => {
     const noModelsGroups: ProviderGroupConfig[] = providerGroups.map((group) => ({
       ...group,
       providers: group.providers.map((provider) => ({
@@ -243,10 +275,41 @@ describe('AssistantUiPanel model picker', () => {
       })),
     }));
 
-    render(<AssistantUiPanel providerGroups={noModelsGroups} />);
+    // Provide empty pickerModels - shows the "no models" state
+    render(
+      <AssistantUiPanel
+        providerGroups={noModelsGroups}
+        pickerModels={[]}
+        pickerProviders={pickerProviders}
+      />
+    );
 
     expect(screen.getByText('Select a provider and model to start chatting.')).toBeInTheDocument();
     const trigger = screen.getByTestId('assistant-model-dropdown');
+    expect(trigger).toBeInTheDocument();
+  });
+
+  it('disables the model picker when no models are enabled', () => {
+    const noModelsGroups: ProviderGroupConfig[] = providerGroups.map((group) => ({
+      ...group,
+      providers: group.providers.map((provider) => ({
+        ...provider,
+        models: provider.models.map((model) => ({ ...model, enabled: false })),
+      })),
+    }));
+
+    // Provide empty pickerModels - the picker should be disabled
+    render(
+      <AssistantUiPanel
+        providerGroups={noModelsGroups}
+        pickerModels={[]}
+        pickerProviders={pickerProviders}
+      />
+    );
+
+    expect(screen.getByText('Select a provider and model to start chatting.')).toBeInTheDocument();
+    // The ModelPicker combobox should be disabled when no models available
+    const trigger = screen.getByRole('combobox');
     expect(trigger).toBeDisabled();
   });
 });

@@ -21,6 +21,10 @@ vi.mock('electron', () => ({
     isPackaged: false,
   },
   BrowserWindow: MockBrowserWindow,
+  Menu: {
+    setApplicationMenu: vi.fn(),
+    buildFromTemplate: vi.fn(),
+  },
 }));
 
 describe('createWindow', () => {
@@ -54,7 +58,7 @@ describe('createWindow', () => {
   });
 
   afterEach(() => {
-    process.env['CI'] = undefined;
+    Reflect.deleteProperty(process.env, 'CI');
   });
 
   describe('window creation', () => {
@@ -85,7 +89,7 @@ describe('createWindow', () => {
 
     it('should show window when ready in non-headless mode', async () => {
       existsSyncMock.mockReturnValue(true);
-      process.env['CI'] = undefined;
+      Reflect.deleteProperty(process.env, 'CI');
 
       await createWindow();
 

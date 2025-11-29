@@ -110,6 +110,7 @@ describe('EmbeddingWorkerProvider', () => {
         leaseMs: 30000,
         modelKey: 'bge-m3',
         log: expect.any(Function),
+        onDownloadProgress: expect.any(Function),
       });
 
       await waitFor(
@@ -145,6 +146,7 @@ describe('EmbeddingWorkerProvider', () => {
             leaseMs: 90000,
             modelKey: 'custom-model',
             log: expect.any(Function),
+            onDownloadProgress: expect.any(Function),
           });
         },
         { timeout: 3000 }
@@ -178,6 +180,7 @@ describe('EmbeddingWorkerProvider', () => {
             leaseMs: 60000,
             modelKey: 'undefined',
             log: expect.any(Function),
+            onDownloadProgress: expect.any(Function),
           });
         },
         { timeout: 3000 }
@@ -208,6 +211,7 @@ describe('EmbeddingWorkerProvider', () => {
             leaseMs: 60000, // Falls back when empty or NaN
             modelKey: 'bge-m3',
             log: expect.any(Function),
+            onDownloadProgress: expect.any(Function),
           });
         },
         { timeout: 3000 }
@@ -507,6 +511,7 @@ describe('EmbeddingWorkerProvider', () => {
             leaseMs: 30000,
             modelKey: 'bge-m3',
             log: expect.any(Function),
+            onDownloadProgress: expect.any(Function),
           });
         },
         { timeout: 3000 }

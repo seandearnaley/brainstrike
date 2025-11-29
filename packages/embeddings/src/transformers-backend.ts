@@ -37,6 +37,11 @@ interface ProgressInfo {
   file?: string;
 }
 
+interface DownloadOptions {
+  cacheDir?: string;
+  onProgress?: (progress: ProgressInfo) => void;
+}
+
 // Cache the imported module to avoid duplicate imports across instances
 let transformersModule: TransformersModule | null = null;
 let transformersModulePromise: Promise<TransformersModule> | null = null;
@@ -662,6 +667,38 @@ export class TransformersBackend {
       default:
         return false;
     }
+  }
+
+  /**
+   * explicit download model to cache dir
+   */
+  async downloadModel(modelId: string, options?: DownloadOptions): Promise<void> {
+    if (!this._transformers) {
+      this._transformers = await getTransformersModule();
+    }
+
+    // Set cache dir if provided
+    if (options?.cacheDir && this._transformers) {
+      const transformers = this._transformers as unknown as {
+        env?: { cacheDir?: string; allowLocalModels?: boolean };
+      };
+      if (transformers.env) {
+        transformers.env.cacheDir = options.cacheDir;
+        transformers.env.allowLocalModels = false; // Force download/check from hub
+      }
+    }
+
+    const pipelineConfig: PipelineConfig = {
+      progressCallback: (progress: ProgressInfo) => {
+        if (options?.onProgress) {
+          options.onProgress(progress);
+        }
+      },
+    };
+
+    // We just init the pipeline to trigger download
+    // We don't need to keep it
+    await this._transformers.pipeline('feature-extraction', modelId, pipelineConfig);
   }
 }
 

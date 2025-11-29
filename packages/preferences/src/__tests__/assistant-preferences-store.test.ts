@@ -32,7 +32,7 @@ describe('assistant-preferences-store', () => {
     __resetAssistantPreferencesStoreForTests();
     storeWithPersist.persist?.clearStorage?.();
     vi.restoreAllMocks();
-    const secretTarget = window as Window & { secrets?: { list?: () => Promise<string[]> } };
+    const secretTarget = window as Window & { secrets?: unknown };
     Reflect.deleteProperty(secretTarget, 'secrets');
   });
 
@@ -115,9 +115,14 @@ describe('assistant-preferences-store', () => {
   });
 
   it('resolves available providers from secrets API', async () => {
-    const secretTarget = window as Window & { secrets?: { list?: () => Promise<string[]> } };
+    const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
       list: vi.fn().mockResolvedValue(['openai', 'google', 'unknown-provider']),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
     };
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
@@ -126,9 +131,14 @@ describe('assistant-preferences-store', () => {
   });
 
   it('returns empty providers when secrets API fails', async () => {
-    const secretTarget = window as Window & { secrets?: { list?: () => Promise<string[]> } };
+    const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
       list: vi.fn().mockRejectedValue(new Error('not allowed')),
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listStored: vi.fn(),
+      clearAll: vi.fn(),
     };
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();

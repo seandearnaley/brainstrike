@@ -42,6 +42,7 @@ export * from './loading-fallback';
 export * from './navigation-sidebar';
 export * from './popover';
 export * from './progress';
+export * from './prompt-management';
 export type { PanelLayoutState } from './providers/panel-layout-provider';
 export { PanelLayoutProvider, usePanelLayout } from './providers/panel-layout-provider';
 export type { RouterProviderProps } from './router-provider';

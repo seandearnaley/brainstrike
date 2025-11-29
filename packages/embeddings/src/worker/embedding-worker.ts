@@ -50,6 +50,8 @@ export type EmbeddingWorkerOptions = {
   device?: 'webgpu' | 'wasm' | 'cpu'; // preferred device for transformers backend
   reinitEveryN?: number; // reinitialize service every N successes (default from env or 200)
   forceCpuAfterFailures?: number; // switch to CPU after consecutive failures (default 3)
+  cacheDir?: string; // directory to cache/load models from
+  onDownloadProgress?: (modelId: string, progress: number) => void;
 };
 
 export type EmbeddingWorkerController = {
@@ -392,7 +394,23 @@ async function initializeEmbeddingService(
       // Initialize with the requested model key
       const simpleService = service as SimpleEmbeddingService;
       if (typeof simpleService.initializeWithModel === 'function') {
-        await simpleService.initializeWithModel(registryModelKey, undefined, options.device);
+        // Configure cache dir if provided via options
+        // We need to cast to access the backend or internal config if not exposed
+        // But SimpleEmbeddingService doesn't expose cacheDir in initializeWithModel directly
+        // We might need to extend initializeWithModel or set it on the backend
+
+        // For now, we'll assume we can set it via a side channel or if we modify SimpleEmbeddingService
+        // Let's modify SimpleEmbeddingService to accept cacheDir in config
+        await simpleService.initializeWithModel(
+          registryModelKey,
+          (p) => {
+            if (options.onDownloadProgress && p.progress !== undefined) {
+              options.onDownloadProgress(registryModelKey, p.progress);
+            }
+          },
+          options.device,
+          options.cacheDir
+        );
       } else {
         await service.initialize?.({}, undefined);
       }

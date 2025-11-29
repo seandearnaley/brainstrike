@@ -13,6 +13,7 @@ import { migration011EmbeddingSetMetadata } from './011-embedding-set-metadata.j
 import { migration012FileRecordsEmbeddingSet } from './012-file-records-embedding-set.js';
 import { migration013EmbeddingSetsAllowDuplicates } from './013-embedding-sets-allow-duplicates.js';
 import { migration014DimensionHnswIndexes } from './014-dimension-hnsw-indexes.js';
+import { migration015ModelRegistry } from './015-model-registry.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -32,6 +33,7 @@ export const migrations: Migration[] = [
   migration012FileRecordsEmbeddingSet,
   migration013EmbeddingSetsAllowDuplicates,
   migration014DimensionHnswIndexes,
+  migration015ModelRegistry,
 ];
 
 // Export base migrations (without chunks table) for test environments

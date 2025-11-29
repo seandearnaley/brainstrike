@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LoggingSettingsSection } from '../logging/logging-settings-section';
+import { LoggingSettingsSection } from '../settings/system/logging-settings-section';
 import {
   __resetLoggingPreferencesStoreForTests,
   useLoggingPreferencesStore,
