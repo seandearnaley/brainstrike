@@ -1,4 +1,3 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from '@brainstrike/utils';
@@ -14,40 +13,6 @@ import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const viteLogger = createLogger('WebViteConfig');
-function copyFontsPlugin() {
-  return {
-    name: 'copy-fonts',
-    buildStart() {
-      // Copy fonts from the fonts package to public and dist directories
-      const fontsPackagePath = path.resolve(__dirname, '../../packages/fonts/src/inter');
-      const publicFontsPath = path.resolve(__dirname, 'public/fonts/inter');
-      const distFontsPath = path.resolve(__dirname, 'dist/fonts/inter');
-
-      // Create the public fonts directory if it doesn't exist
-      if (!existsSync(path.resolve(__dirname, 'public/fonts'))) {
-        mkdirSync(path.resolve(__dirname, 'public/fonts'), { recursive: true });
-      }
-      if (!existsSync(publicFontsPath)) {
-        mkdirSync(publicFontsPath, { recursive: true });
-      }
-      if (!existsSync(distFontsPath)) {
-        mkdirSync(distFontsPath, { recursive: true });
-      }
-
-      // Copy font files
-      const fontFiles = ['InterVariable.ttf', 'InterVariable-Italic.ttf'];
-      fontFiles.forEach((file) => {
-        const src = path.join(fontsPackagePath, file);
-        const destPublic = path.join(publicFontsPath, file);
-        const destDist = path.join(distFontsPath, file);
-        if (existsSync(src)) {
-          copyFileSync(src, destPublic);
-          copyFileSync(src, destDist);
-        }
-      });
-    },
-  };
-}
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
@@ -110,7 +75,6 @@ export default defineConfig({
       jsxRuntime: 'automatic',
     }),
     tailwindcss(), // Automatically finds and uses the root tailwind.config.js
-    copyFontsPlugin(),
     ...(wasmPath
       ? [
           viteStaticCopy({

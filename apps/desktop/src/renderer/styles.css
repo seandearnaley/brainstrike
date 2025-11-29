@@ -1,6 +1,10 @@
 /* stylelint-disable */
 /* CSS with PostCSS syntax */
 
+/* Geist fonts via @fontsource-variable */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
 @import "tailwindcss";
 @import "@brainstrike/ui/styles.css";
 @import "@brainstrike/file-explorer-ui/styles.css";
@@ -24,9 +28,9 @@
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    /* Primary: Geist, Fallback: Inter (legacy), then system fonts */
+    /* Primary: Geist Variable via @fontsource, then system fonts */
     font-family:
-      "Geist", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     /* Enhanced OpenType features for premium typography */
     font-feature-settings:
       "kern" 1, /* Kerning - proper letter spacing */
@@ -40,62 +44,25 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
-  /* Monospace elements use Geist Mono */
+  /* Monospace elements use Geist Mono Variable */
   code,
   pre,
   kbd,
   samp,
   .font-mono {
-    font-family: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    font-family:
+      "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
 }
 
 /* ============================================================================
  * GEIST FONTS - 2025 Visual Identity Refresh
  * ============================================================================
+ * Fonts loaded via @fontsource-variable/geist and @fontsource-variable/geist-mono.
  * Geist is designed by Vercel specifically for developer interfaces.
  * Features excellent legibility at small sizes with variable font support.
  * License: SIL Open Font License (OFL-1.1) - free for commercial use.
  */
-
-/* Geist Sans - Primary UI font (variable, 100-900 weights) */
-@font-face {
-  font-family: "Geist";
-  src:
-    url("/fonts/geist/Geist-Variable.woff2") format("woff2-variations"),
-    url("/fonts/geist/Geist-Variable.ttf") format("truetype");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-/* Geist Mono - Monospace font for code (variable, 100-900 weights) */
-@font-face {
-  font-family: "Geist Mono";
-  src:
-    url("/fonts/geist/GeistMono-Variable.woff2") format("woff2-variations"),
-    url("/fonts/geist/GeistMono-Variable.ttf") format("truetype");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-/* Legacy Inter fonts - kept for backwards compatibility during migration */
-@font-face {
-  font-family: "Inter";
-  src: url("/fonts/inter/InterVariable.ttf") format("truetype");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Inter";
-  src: url("/fonts/inter/InterVariable-Italic.ttf") format("truetype");
-  font-weight: 100 900;
-  font-style: italic;
-  font-display: swap;
-}
 
 @custom-variant dark (&:is(.dark *));
 
@@ -107,10 +74,11 @@
    * improved readability and premium feel.
    */
 
-  /* Font Families */
+  /* Font Families - using @fontsource-variable packages */
   --font-sans:
-    "Geist", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
   /* Typography Scale - Sizes */
   --text-display: clamp(2rem, 4vw, 3rem); /* 32-48px - Hero text */

@@ -162,7 +162,9 @@
       "Bash(COVERAGE=true pnpm test:*)",
       "Bash(node scripts/enforce-coverage.mjs:*)",
       "Bash(CI=true pnpm --filter @brainstrike/ui test:*)",
-      "Bash(unzip:*)"
+      "Bash(unzip:*)",
+      "Bash(npm view:*)",
+      "WebFetch(domain:fontsource.org)"
     ],
     "deny": [],
     "ask": []

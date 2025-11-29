@@ -41,10 +41,6 @@ const OVERRIDES = new Map([
     { lines: 10, functions: 0, branches: 0, statements: 10 },
   ],
   [
-    '@brainstrike/fonts',
-    { lines: 50, functions: 50, branches: 40, statements: 50 },
-  ],
-  [
     '@brainstrike/types',
     { lines: 20, functions: 50, branches: 0, statements: 20 },
   ],

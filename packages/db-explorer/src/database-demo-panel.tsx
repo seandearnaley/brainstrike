@@ -457,7 +457,18 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           </Button>
 
           <div className={showSettings ? '' : 'hidden'}>
-            <SettingsPanel importSettings={importSettings} />
+            <SettingsPanel
+              importSettings={importSettings}
+              clearDatabaseProps={{
+                clearAllData,
+                records,
+                chunks,
+                clearing,
+                showClearDialog,
+                setShowClearDialog,
+                onClear: handleClearDatabase,
+              }}
+            />
           </div>
         </div>
 
@@ -488,16 +499,17 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             chunks={filteredChunks}
             exportHandlers={exportHandlers}
           />
-          <ClearDatabaseDialog
-            clearAllData={clearAllData}
-            records={records}
-            chunks={chunks}
-            clearing={clearing}
-            showClearDialog={showClearDialog}
-            setShowClearDialog={setShowClearDialog}
-            onClear={handleClearDatabase}
-          />
         </div>
+
+        {/* Clear Database Dialog - triggered from Import Settings */}
+        <ClearDatabaseDialog
+          records={records}
+          chunks={chunks}
+          clearing={clearing}
+          showClearDialog={showClearDialog}
+          setShowClearDialog={setShowClearDialog}
+          onClear={handleClearDatabase}
+        />
 
         {importFlow.showImportProgress && importFlow.progress && (
           <div className="mt-4">

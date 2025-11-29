@@ -1,4 +1,4 @@
-import type { FileChunk, FileRecord, useClearAllData } from '@brainstrike/db';
+import type { FileChunk, FileRecord } from '@brainstrike/db';
 import {
   Button,
   Dialog,
@@ -7,12 +7,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@brainstrike/ui';
-import { Trash2 } from 'lucide-react';
 
 interface ClearDatabaseDialogProps {
-  clearAllData: ReturnType<typeof useClearAllData>;
   records: FileRecord[];
   chunks: FileChunk[];
   clearing: boolean;
@@ -21,8 +18,11 @@ interface ClearDatabaseDialogProps {
   onClear: () => Promise<void>;
 }
 
+/**
+ * Dialog-only component for confirming database clear.
+ * The trigger button is in SettingsPanel (Import Settings > Danger Zone).
+ */
 export function ClearDatabaseDialog({
-  clearAllData,
   records,
   chunks,
   clearing,
@@ -32,17 +32,6 @@ export function ClearDatabaseDialog({
 }: ClearDatabaseDialogProps) {
   return (
     <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
-      <DialogTrigger asChild>
-        <Button
-          size="sm"
-          variant="destructive"
-          disabled={clearing || !clearAllData || (records.length === 0 && chunks.length === 0)}
-          className="flex items-center gap-1"
-        >
-          <Trash2 className="h-3 w-3" />
-          Clear Database
-        </Button>
-      </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Clear Database</DialogTitle>
