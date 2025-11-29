@@ -23,10 +23,10 @@ describe('NavigationSidebar', () => {
     renderSidebar('/settings');
 
     const activeLink = screen.getByTitle('Settings').closest('a');
-    expect(activeLink).toHaveClass('bg-gray-200 dark:bg-gray-700');
+    expect(activeLink).toHaveClass('bg-sidebar-accent', 'text-sidebar-primary');
 
     const inactiveLink = screen.getByTitle('Context Explorer').closest('a');
-    expect(inactiveLink).not.toHaveClass('bg-gray-200 dark:bg-gray-700');
+    expect(inactiveLink).not.toHaveClass('bg-sidebar-accent', 'text-sidebar-primary');
   });
 
   it('renders icons with correct dimensions', () => {
@@ -45,14 +45,15 @@ describe('NavigationSidebar', () => {
     const sidebar = screen.getByRole('navigation');
     expect(sidebar).toHaveClass(
       'w-16',
-      'bg-gray-100',
-      'dark:bg-gray-800',
+      'bg-sidebar',
       'h-full',
       'flex',
       'flex-col',
       'items-center',
       'py-4',
-      'space-y-4'
+      'space-y-4',
+      'border-r',
+      'border-sidebar-border'
     );
   });
 

@@ -224,7 +224,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         style={style}
       >
         <div
-          className="flex items-center py-1.5 px-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+          className="flex items-center py-1.5 px-2 hover:bg-accent rounded transition-all duration-150"
           style={{ paddingLeft: depth * 24 + 8 }}
         >
           {/* Chevron button with fixed width for consistent alignment */}
@@ -233,7 +233,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
               <button
                 type="button"
                 onClick={handleExpansionClick}
-                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded cursor-pointer transition-colors flex items-center justify-center"
+                className="p-0.5 hover:bg-accent rounded cursor-pointer transition-all duration-150 active:scale-90 flex items-center justify-center"
                 aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
                 data-testid={EXPAND_COLLAPSE_TEST_ID}
               >

@@ -27,7 +27,7 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
   return (
     <nav
       className={cn(
-        'w-16 bg-gray-100 dark:bg-gray-800 h-full flex flex-col items-center py-4 space-y-4',
+        'w-16 bg-sidebar h-full flex flex-col items-center py-4 space-y-4 border-r border-sidebar-border',
         className
       )}
       aria-label={ariaLabel || 'Main navigation'}
@@ -44,8 +44,10 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
               type="button"
               onClick={() => onItemClick(item.path)}
               className={cn(
-                'p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors',
-                currentPath === item.path && 'bg-gray-200 dark:bg-gray-700',
+                'p-2 rounded-md transition-all duration-150',
+                'hover:bg-sidebar-accent active:scale-95',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-1',
+                currentPath === item.path && 'bg-sidebar-accent text-sidebar-primary',
                 'cursor-pointer'
               )}
               title={item.name}
@@ -62,8 +64,10 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
             key={item.name}
             href={item.path}
             className={cn(
-              'p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors',
-              currentPath === item.path && 'bg-gray-200 dark:bg-gray-700'
+              'p-2 rounded-md transition-all duration-150',
+              'hover:bg-sidebar-accent active:scale-95',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-1',
+              currentPath === item.path && 'bg-sidebar-accent text-sidebar-primary'
             )}
             title={item.name}
             aria-label={item.name}
