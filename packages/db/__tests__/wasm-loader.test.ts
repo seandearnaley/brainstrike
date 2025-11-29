@@ -11,10 +11,10 @@ describe('wasmLoader.ensureWasmLoaded', () => {
     vi.unmock('@electric-sql/pglite/vector');
 
     vi.doMock('@electric-sql/pglite', () => {
-      PGliteMock = vi.fn(() => ({
-        query: vi.fn().mockResolvedValue(undefined),
-        close: vi.fn().mockResolvedValue(undefined),
-      }));
+      PGliteMock = vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+        this.query = vi.fn().mockResolvedValue(undefined);
+        this.close = vi.fn().mockResolvedValue(undefined);
+      });
       return { PGlite: PGliteMock };
     });
 
@@ -51,10 +51,10 @@ describe('wasmLoader.ensureWasmLoaded', () => {
 
   it('resets wasmLoadPromise to null after rejection', async () => {
     const error = new Error('load fail');
-    PGliteMock.mockImplementation(() => ({
-      query: vi.fn().mockRejectedValue(error),
-      close: vi.fn().mockResolvedValue(undefined),
-    }));
+    PGliteMock.mockImplementation(function (this: Record<string, unknown>) {
+      this.query = vi.fn().mockRejectedValue(error);
+      this.close = vi.fn().mockResolvedValue(undefined);
+    });
 
     const promise = wasmLoader.ensureWasmLoaded();
     await expect(promise).rejects.toThrowError(error);

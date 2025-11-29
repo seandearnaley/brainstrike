@@ -32,7 +32,11 @@ describe('QueueHud', () => {
       requeueFailed: mockRequeueFailed,
     };
 
-    vi.mocked(JobQueue).mockImplementation(() => mockJobQueue as never);
+    (JobQueue as unknown as ReturnType<typeof vi.fn>).mockImplementation(function (
+      this: Record<string, unknown>
+    ) {
+      Object.assign(this, mockJobQueue);
+    });
   });
 
   it('renders when queue is enabled in browser', () => {

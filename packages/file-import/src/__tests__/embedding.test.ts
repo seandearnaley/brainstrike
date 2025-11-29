@@ -1,18 +1,23 @@
 import type { FileChunk } from '@brainstrike/db';
+import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { initializeEmbeddingService, processChunkEmbedding, processEmbeddings } from '../embedding';
 import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
 
 type MockEmbeddingService = {
-  getStatus: ReturnType<typeof vi.fn>;
-  initializeWithModel: ReturnType<typeof vi.fn>;
-  generateEmbedding: ReturnType<typeof vi.fn>;
-  generateDocEmbedding?: ReturnType<typeof vi.fn>;
+  getStatus: Mock<() => string>;
+  initializeWithModel: Mock<(model: string) => Promise<void>>;
+  generateEmbedding: Mock<(text: string) => Promise<{ embedding: Float32Array }>>;
+  generateDocEmbedding?: Mock<(text: string) => Promise<{ embedding: Float32Array }>>;
 };
 
 type MockChunkRepository = {
-  update: ReturnType<typeof vi.fn>;
+  update: Mock<(data: Record<string, unknown>) => Promise<void>>;
 };
+
+// Type for progress update callback
+type ProgressUpdater = (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null;
+type UpdateProgressFn = (updater: ProgressUpdater) => void;
 
 describe('initializeEmbeddingService', () => {
   let mockEmbeddingService: MockEmbeddingService;
@@ -192,7 +197,7 @@ describe('processEmbeddings', () => {
   let mockResult: EnhancedImportResult;
   let mockChunkRepository: MockChunkRepository;
   let mockEmbeddingService: MockEmbeddingService;
-  let mockUpdateProgress: ReturnType<typeof vi.fn>;
+  let mockUpdateProgress: Mock<UpdateProgressFn>;
 
   beforeEach(() => {
     mockChunks = [

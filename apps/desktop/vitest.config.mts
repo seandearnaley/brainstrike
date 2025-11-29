@@ -14,11 +14,8 @@ export default defineConfig({
     testTimeout: getAdjustedTimeout('uiComponent'),
     // Use threads pool to avoid process forks (prevents EPERM kills in constrained sandboxes)
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        maxThreads: 8,
-      },
-    },
+    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
+    maxWorkers: 8,
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

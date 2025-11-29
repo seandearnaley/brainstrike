@@ -14,11 +14,8 @@ export default defineConfig({
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        maxThreads: 4,
-      },
-    },
+    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
+    maxWorkers: 4,
     // Coverage consolidated at root vitest.config.ts
     coverage: {
       enabled: true,

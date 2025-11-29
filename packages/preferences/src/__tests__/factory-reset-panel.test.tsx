@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockToast = vi.fn();
@@ -36,7 +37,7 @@ const mockReload = vi.fn();
 const originalLocation = window.location;
 
 describe('FactoryResetPanel', () => {
-  let mockConfirm: ReturnType<typeof vi.fn>;
+  let mockConfirm: Mock<(message?: string) => boolean>;
 
   beforeAll(() => {
     // Mock window.location with our custom reload function
@@ -59,7 +60,7 @@ describe('FactoryResetPanel', () => {
     mockClearPersistentUiState.mockResolvedValue();
 
     // Setup window.confirm mock
-    mockConfirm = vi.fn();
+    mockConfirm = vi.fn<(message?: string) => boolean>();
     window.confirm = mockConfirm;
     mockConfirm.mockReturnValue(true);
   });

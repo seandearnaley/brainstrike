@@ -154,14 +154,14 @@ describe('FileExplorerMiddlePanel', () => {
       setSelectedFilesFromList: vi.fn(),
       handleSelectionChange: handleSelectionChangeMock,
       wouldExceedSelectionLimit: vi.fn(),
-    });
+    } as unknown as ReturnType<typeof useSelectionManager>);
 
     performUndoableActionMock = vi.fn();
 
     vi.mocked(useUndoableAction).mockReturnValue({
       performUndoableAction: performUndoableActionMock,
       clearUndoTimeout: vi.fn(),
-    });
+    } as unknown as ReturnType<typeof useUndoableAction>);
   });
 
   it('renders header and preview panel', async () => {

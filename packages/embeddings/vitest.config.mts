@@ -38,12 +38,8 @@ export default defineConfig({
     },
     // Use forks pool with parallelization for better performance
     pool: 'forks',
-    poolOptions: {
-      forks: {
-        minForks: 1,
-        maxForks: 4,
-      },
-    },
+    // Vitest 4: use maxWorkers instead of poolOptions.forks.maxForks
+    maxWorkers: 4,
   },
   resolve: {
     alias: {

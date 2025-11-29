@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileTab } from '../hooks/use-tab-manager';
 import { TabbedFileEditor } from '../tabbed-file-editor';
@@ -10,10 +11,10 @@ describe('TabbedFileEditor', () => {
     activeTabId: string | null;
     fileContents: Record<string, string>;
     loadingFiles: Set<string>;
-    onTabClick: ReturnType<typeof vi.fn>;
-    onTabClose: ReturnType<typeof vi.fn>;
-    onLoadFileContent: ReturnType<typeof vi.fn>;
-    decodeFileSelection: ReturnType<typeof vi.fn>;
+    onTabClick: Mock<(tabId: string) => void>;
+    onTabClose: Mock<(tabId: string) => void>;
+    onLoadFileContent: Mock<(compositeKey: string) => void>;
+    decodeFileSelection: Mock<(compositeKey: string) => { folderId: string; path: string }>;
   };
 
   beforeEach(() => {
@@ -25,10 +26,12 @@ describe('TabbedFileEditor', () => {
       activeTabId: null,
       fileContents: {},
       loadingFiles: new Set<string>(),
-      onTabClick: vi.fn(),
-      onTabClose: vi.fn(),
-      onLoadFileContent: vi.fn(),
-      decodeFileSelection: vi.fn((key) => ({ folderId: 'root', path: key.split(':')[1] })),
+      onTabClick: vi.fn<(tabId: string) => void>(),
+      onTabClose: vi.fn<(tabId: string) => void>(),
+      onLoadFileContent: vi.fn<(compositeKey: string) => void>(),
+      decodeFileSelection: vi.fn<(compositeKey: string) => { folderId: string; path: string }>(
+        (key) => ({ folderId: 'root', path: key.split(':')[1] ?? '' })
+      ),
     };
   });
 

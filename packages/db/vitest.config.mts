@@ -1,35 +1,67 @@
+import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
 /**
- * October 2025 Vitest configuration for @brainstrike/db
+ * November 2025 Vitest 4 configuration for @brainstrike/db
  *
- * All tests now use PGlite snapshot pattern for:
- * - 60-70% faster execution
- * - Consistent CI/local behavior
- * - Proper WASM loading without file:// URL issues
+ * Test projects:
+ * - unit: jsdom-based tests with PGlite mocks (fast, CI-friendly)
+ * - browser: Real browser tests for WASM/IndexedDB validation
  *
- * CI exclusions removed - all tests run in CI with realistic timeouts.
+ * Browser tests use *.browser.test.ts naming convention.
  */
 export default defineConfig({
   test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: ['./vitest.setup.ts'],
-    include: ['__tests__/**/*.test.{ts,tsx}'],
-    exclude: ['node_modules', 'dist'],
-    env: {
-      TEST_PGLITE_MOCK: 'true',
-    },
-    pool: 'threads',
-    poolOptions: {
-      threads: {
-        // DB/WASM interactions require deterministic ordering and avoid races
-        // Keep singleThread to ensure stability across environments/CI
-        singleThread: true,
+    projects: [
+      {
+        test: {
+          name: 'unit',
+          environment: 'jsdom',
+          globals: true,
+          setupFiles: ['./vitest.setup.ts'],
+          include: ['__tests__/**/*.test.{ts,tsx}'],
+          exclude: ['node_modules', 'dist', '**/*.browser.test.{ts,tsx}'],
+          env: {
+            TEST_PGLITE_MOCK: 'true',
+          },
+          pool: 'threads',
+          // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
+          maxWorkers: 1,
+          hookTimeout: 10000,
+          testTimeout: 10000,
+        },
       },
-    },
-    // October 2025: Reduced timeouts with snapshot pattern
-    hookTimeout: 10000, // 10 seconds for hooks (down from 30s)
-    testTimeout: 10000, // 10 seconds for tests (down from 20s)
+      {
+        test: {
+          name: 'browser',
+          include: ['__tests__/**/*.browser.test.{ts,tsx}'],
+          // Output directory for traces and screenshots
+          outputDir: 'test-results',
+          browser: {
+            enabled: true,
+            provider: playwright({
+              launchOptions: {
+                args: process.env['CI']
+                  ? [
+                      '--no-sandbox',
+                      '--disable-dev-shm-usage',
+                      '--disable-setuid-sandbox',
+                      '--disable-features=VizDisplayCompositor',
+                    ]
+                  : [],
+              },
+            }),
+            instances: [{ browser: 'chromium' }],
+            headless: true,
+            // Playwright trace: capture only for failing tests in CI
+            trace: process.env['CI'] ? 'retain-on-failure' : 'off',
+            // Capture screenshots on failure for quick visual debugging
+            screenshotFailures: true,
+          },
+          testTimeout: 30000,
+          hookTimeout: 30000,
+        },
+      },
+    ],
   },
 });

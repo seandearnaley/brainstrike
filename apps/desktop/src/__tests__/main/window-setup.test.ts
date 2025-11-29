@@ -23,7 +23,11 @@ const mockBrowserWindowInstance = {
   show: vi.fn(),
 };
 
-const mockBrowserWindow = vi.fn(() => mockBrowserWindowInstance);
+// Use function syntax for Vitest 4 constructor mocks
+const mockBrowserWindow = vi.fn();
+mockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
+  Object.assign(this, mockBrowserWindowInstance);
+});
 
 const whenReadyMock = vi.fn(() => Promise.resolve());
 
@@ -109,7 +113,14 @@ vi.mock('@brainstrike/utils', async () => {
     },
   };
 });
-vi.mock('electron-store', () => ({ default: vi.fn(() => ({})) }));
+// Use function syntax for Vitest 4 constructor mocks
+vi.mock('electron-store', () => {
+  const MockElectronStore = vi.fn();
+  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
+    Object.assign(this, {});
+  });
+  return { default: MockElectronStore };
+});
 
 describe('window setup', () => {
   beforeEach(() => {
@@ -180,7 +191,10 @@ describe('window setup', () => {
     expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8081');
     expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8082');
     expect(mockBrowserWindowInstance.webContents.openDevTools).toHaveBeenCalled();
-    expect(win).toBe(mockBrowserWindowInstance);
+    // Vitest 4 constructor mocks return `this`, not the original mock object
+    // Verify win has the expected mock functions attached
+    expect(win.loadURL).toBeDefined();
+    expect(win.loadFile).toBeDefined();
   });
 
   it('createWindow production loads renderer/index.html', async () => {

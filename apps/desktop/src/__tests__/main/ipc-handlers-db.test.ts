@@ -39,18 +39,34 @@ vi.mock('../../db-main', () => ({
   handleRuntimeCorruption: vi.fn(),
 }));
 
-vi.mock('@brainstrike/file-system', () => ({
-  ElectronFileSystemAdapter: vi.fn(() => ({})),
-  createFixtureCapableAdapter: (adapter: unknown) => adapter,
-}));
+// Use function syntax for Vitest 4 constructor mocks
+vi.mock('@brainstrike/file-system', () => {
+  const MockAdapter = vi.fn();
+  MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
+    Object.assign(this, {});
+  });
+  return {
+    ElectronFileSystemAdapter: MockAdapter,
+    createFixtureCapableAdapter: (adapter: unknown) => adapter,
+  };
+});
 
-vi.mock('@brainstrike/storage', () => ({
-  ElectronStorageAdapter: vi.fn(() => ({})),
-}));
+vi.mock('@brainstrike/storage', () => {
+  const MockAdapter = vi.fn();
+  MockAdapter.mockImplementation(function (this: Record<string, unknown>) {
+    Object.assign(this, {});
+  });
+  return { ElectronStorageAdapter: MockAdapter };
+});
 
-vi.mock('electron-store', () => ({
-  default: vi.fn(() => ({})),
-}));
+// Use function syntax for Vitest 4 constructor mocks
+vi.mock('electron-store', () => {
+  const MockElectronStore = vi.fn();
+  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
+    Object.assign(this, {});
+  });
+  return { default: MockElectronStore };
+});
 
 import '../../main';
 

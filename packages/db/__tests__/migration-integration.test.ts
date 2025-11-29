@@ -211,8 +211,9 @@ describe('Migration System Integration', () => {
 
       const duration = Date.now() - startTime;
 
-      // Should complete in reasonable time (less than 15 seconds, accounting for CI environment)
-      expect(duration).toBeLessThan(15000);
+      // Should complete in reasonable time (less than 20 seconds, accounting for CI environment variance)
+      // Increased from 15s to 20s to handle GitHub runner performance variability
+      expect(duration).toBeLessThan(20000);
 
       // All migrations should be applied (may be more than 3 if migration 4 is available)
       expect(await runner.getCurrentVersion()).toBeGreaterThanOrEqual(3);

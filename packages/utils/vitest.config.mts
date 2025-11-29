@@ -7,5 +7,8 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
+    // Longer timeout for tiktoken WASM initialization under parallel load
+    testTimeout: 30_000,
+    hookTimeout: 15_000,
   },
 });

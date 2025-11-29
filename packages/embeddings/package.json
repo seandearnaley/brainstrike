@@ -31,10 +31,10 @@
     "test:integration": "VITEST_RUN_INTEGRATION=true vitest run --testNamePattern=\"integration\""
   },
   "dependencies": {
-    "@brainstrike/types": "workspace:*",
-    "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
+    "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/queue": "workspace:*",
+    "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "^3.7.5",
     "glob": "^11.0.3"
@@ -45,7 +45,7 @@
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "vitest": "^4.0.14"
   },
   "peerDependencies": {
     "react": "^19.1.1"

@@ -4,17 +4,20 @@ import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileTree } from '../use-file-tree';
 import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 
+// Logger mock type for test purposes - uses generic Mock for variadic logging functions
+type LogFn = Mock<(...args: unknown[]) => void>;
 type MockLogger = {
-  error: ReturnType<typeof vi.fn>;
-  warn: ReturnType<typeof vi.fn>;
-  info: ReturnType<typeof vi.fn>;
-  debug: ReturnType<typeof vi.fn>;
-  trace: ReturnType<typeof vi.fn>;
-  fatal: ReturnType<typeof vi.fn>;
+  error: LogFn;
+  warn: LogFn;
+  info: LogFn;
+  debug: LogFn;
+  trace: LogFn;
+  fatal: LogFn;
 };
 
 const loggerMock = vi.hoisted<MockLogger>(() => ({

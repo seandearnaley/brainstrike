@@ -1,8 +1,15 @@
+import type { Mock } from 'vitest';
 import { vi } from 'vitest';
 
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown | Promise<unknown>;
 
-export function createIpcMainMock() {
+interface IpcMainMock {
+  handle: Mock<(channel: string, handler: IpcHandler) => void>;
+  removeHandler: Mock<(channel: string) => void>;
+  __invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+}
+
+export function createIpcMainMock(): IpcMainMock {
   const handlers = new Map<string, IpcHandler>();
 
   return {
@@ -18,10 +25,19 @@ export function createIpcMainMock() {
       if (!handler) throw new Error(`No handler for channel: ${channel}`);
       return handler({} as unknown, ...args);
     },
-  } as const;
+  };
 }
 
-export function createIpcRendererMock() {
+interface IpcRendererMock {
+  invoke: Mock<(_channel: string, ..._args: unknown[]) => Promise<unknown>>;
+  on: Mock;
+  once: Mock;
+  removeListener: Mock;
+  removeAllListeners: Mock;
+  send: Mock;
+}
+
+export function createIpcRendererMock(): IpcRendererMock {
   return {
     invoke: vi.fn<(_channel: string, ..._args: unknown[]) => Promise<unknown>>(async () => {
       return undefined as unknown;
@@ -31,16 +47,34 @@ export function createIpcRendererMock() {
     removeListener: vi.fn(),
     removeAllListeners: vi.fn(),
     send: vi.fn(),
-  } as const;
+  };
 }
 
-export function createContextBridgeMock() {
+interface ContextBridgeMock {
+  exposeInMainWorld: Mock;
+}
+
+export function createContextBridgeMock(): ContextBridgeMock {
   return {
     exposeInMainWorld: vi.fn(),
-  } as const;
+  };
 }
 
-export function createAppMock(opts?: { whenReadyResolved?: boolean; documentsPath?: string }) {
+interface AppMock {
+  whenReady: Mock<() => Promise<void>>;
+  getAppPath: Mock<() => string>;
+  getPath: Mock<(key: string) => string>;
+  getVersion: Mock<() => string>;
+  isPackaged: boolean;
+  quit: Mock;
+  on: Mock;
+  once: Mock;
+}
+
+export function createAppMock(opts?: {
+  whenReadyResolved?: boolean;
+  documentsPath?: string;
+}): AppMock {
   const whenReadyResolved = opts?.whenReadyResolved ?? true;
   const whenReadyPromise = whenReadyResolved ? Promise.resolve() : new Promise<void>(() => {});
   const documentsPath = opts?.documentsPath ?? '/mock/documents';
@@ -54,15 +88,22 @@ export function createAppMock(opts?: { whenReadyResolved?: boolean; documentsPat
     quit: vi.fn(),
     on: vi.fn(),
     once: vi.fn(),
-  } as const;
+  };
+}
+
+interface ElectronMocks {
+  app: AppMock;
+  ipcMain: IpcMainMock;
+  ipcRenderer: IpcRendererMock;
+  contextBridge: ContextBridgeMock;
 }
 
 export function installElectronModuleMocks(parts?: {
-  app?: ReturnType<typeof createAppMock>;
-  ipcMain?: ReturnType<typeof createIpcMainMock>;
-  ipcRenderer?: ReturnType<typeof createIpcRendererMock>;
-  contextBridge?: ReturnType<typeof createContextBridgeMock>;
-}) {
+  app?: AppMock;
+  ipcMain?: IpcMainMock;
+  ipcRenderer?: IpcRendererMock;
+  contextBridge?: ContextBridgeMock;
+}): ElectronMocks {
   const app = parts?.app ?? createAppMock();
   const ipcMain = parts?.ipcMain ?? createIpcMainMock();
   const ipcRenderer = parts?.ipcRenderer ?? createIpcRendererMock();
@@ -81,7 +122,11 @@ export function installElectronModuleMocks(parts?: {
     nativeTheme: { shouldUseDarkColors: false },
   }));
 
-  return { app, ipcMain, ipcRenderer, contextBridge } as const;
+  return { app, ipcMain, ipcRenderer, contextBridge };
+}
+
+interface ElectronCjsMocks extends ElectronMocks {
+  restore: () => void;
 }
 
 /**
@@ -89,11 +134,11 @@ export function installElectronModuleMocks(parts?: {
  * Useful for code paths (like preload) that use CJS require.
  */
 export function installElectronCjsMocks(parts?: {
-  app?: ReturnType<typeof createAppMock>;
-  ipcMain?: ReturnType<typeof createIpcMainMock>;
-  ipcRenderer?: ReturnType<typeof createIpcRendererMock>;
-  contextBridge?: ReturnType<typeof createContextBridgeMock>;
-}) {
+  app?: AppMock;
+  ipcMain?: IpcMainMock;
+  ipcRenderer?: IpcRendererMock;
+  contextBridge?: ContextBridgeMock;
+}): ElectronCjsMocks {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const Module = require('node:module');
   const originalLoad = Module._load as (id: string, parent: unknown, isMain?: boolean) => unknown;
@@ -119,5 +164,5 @@ export function installElectronCjsMocks(parts?: {
     Module._load = originalLoad as typeof Module._load;
   };
 
-  return { app, ipcMain, ipcRenderer, contextBridge, restore } as const;
+  return { app, ipcMain, ipcRenderer, contextBridge, restore };
 }

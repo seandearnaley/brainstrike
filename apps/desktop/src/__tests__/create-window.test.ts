@@ -1,18 +1,26 @@
-import fs from 'node:fs';
 import { app, BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWindow } from '../create-window';
 
-vi.mock('node:fs');
+// Hoist mocks for Vitest 4 compatibility
+const { existsSyncMock, MockBrowserWindow } = vi.hoisted(() => ({
+  existsSyncMock: vi.fn(),
+  MockBrowserWindow: vi.fn(),
+}));
+vi.mock('node:fs', () => ({
+  default: { existsSync: existsSyncMock },
+  existsSync: existsSyncMock,
+}));
 vi.mock('@brainstrike/utils', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
   return actual;
 });
+
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,
   },
-  BrowserWindow: vi.fn(),
+  BrowserWindow: MockBrowserWindow,
   Menu: {
     setApplicationMenu: vi.fn(),
     buildFromTemplate: vi.fn(),
@@ -43,16 +51,19 @@ describe('createWindow', () => {
       // biome-ignore lint/suspicious/noExplicitAny: Mock objects in tests need flexible typing
     } as any;
 
-    vi.mocked(BrowserWindow).mockImplementation(() => mockBrowserWindow);
+    // Use function syntax for Vitest 4 constructor mocks
+    MockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
+      Object.assign(this, mockBrowserWindow);
+    });
   });
 
   afterEach(() => {
-    process.env['CI'] = undefined;
+    Reflect.deleteProperty(process.env, 'CI');
   });
 
   describe('window creation', () => {
     it('should create window with correct configuration', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
+      existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
 
       await createWindow();
@@ -77,8 +88,8 @@ describe('createWindow', () => {
     });
 
     it('should show window when ready in non-headless mode', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
-      process.env['CI'] = undefined;
+      existsSyncMock.mockReturnValue(true);
+      Reflect.deleteProperty(process.env, 'CI');
 
       await createWindow();
 
@@ -92,7 +103,7 @@ describe('createWindow', () => {
     });
 
     it('should not show window in headless mode (CI environment)', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
+      existsSyncMock.mockReturnValue(true);
       process.env['CI'] = 'true';
 
       await createWindow();
@@ -102,7 +113,7 @@ describe('createWindow', () => {
     });
 
     it('should not show window in test mode', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
+      existsSyncMock.mockReturnValue(true);
       const originalArgv = process.argv;
       process.argv = [...originalArgv, '--test-mode'];
 
@@ -117,7 +128,7 @@ describe('createWindow', () => {
 
   describe('security configuration', () => {
     it('should configure window open handler', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
+      existsSyncMock.mockReturnValue(true);
 
       await createWindow();
 
@@ -131,7 +142,7 @@ describe('createWindow', () => {
     });
 
     it('should prevent navigation to external URLs', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
+      existsSyncMock.mockReturnValue(true);
 
       await createWindow();
 
@@ -156,7 +167,7 @@ describe('createWindow', () => {
 
   describe('renderer loading', () => {
     it('should load production renderer when packaged', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
+      existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
 
       await createWindow();
@@ -168,7 +179,7 @@ describe('createWindow', () => {
     });
 
     it('should load production renderer when built files exist', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
+      existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
 
       await createWindow();
@@ -180,7 +191,7 @@ describe('createWindow', () => {
     });
 
     it('should connect to dev server when not packaged and no built files', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false);
+      existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
       mockBrowserWindow.loadURL.mockResolvedValue(undefined);
 
@@ -192,7 +203,7 @@ describe('createWindow', () => {
     });
 
     it('should try multiple ports for dev server', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false);
+      existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
 
       // First two ports fail, third succeeds
@@ -210,7 +221,7 @@ describe('createWindow', () => {
     });
 
     it('should throw error if all dev server ports fail', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false);
+      existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
 
       const error = new Error('All ports unavailable');

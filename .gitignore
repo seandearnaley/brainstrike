@@ -152,3 +152,4 @@ icons/.generated/
 .beads/*.db
 
 .pnpm-store/
+packages/db/__tests__/__screenshots__/

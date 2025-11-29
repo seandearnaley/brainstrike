@@ -18,11 +18,8 @@ export default defineConfig({
     setupFiles: ['../test-utils/src/vitest.setup.ts'],
     unstubGlobals: true,
     pool: 'threads',
-    poolOptions: {
-      threads: {
-        maxThreads: 8,
-      },
-    },
+    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
+    maxWorkers: 8,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     coverage: {

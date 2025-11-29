@@ -9,11 +9,15 @@ vi.mock('electron', () => ({
 // Mock fs utils to avoid touching real filesystem
 vi.mock('node:fs', async (importOriginal) => {
   const mod = await importOriginal<typeof import('node:fs')>();
-  return {
-    ...mod,
+  const mocks = {
     existsSync: vi.fn(() => true),
     mkdirSync: vi.fn(),
     rmSync: vi.fn(),
+  };
+  return {
+    ...mod,
+    ...mocks,
+    default: { ...mod.default, ...mocks },
   };
 });
 
