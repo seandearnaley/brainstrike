@@ -74,7 +74,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     expect(lightness).toBeLessThan(20);
   });
 
-  test('should maintain navy theme in dark mode (not pure black)', async ({ page }) => {
+  test('should maintain warm neutral theme in dark mode (not pure black)', async ({ page }) => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await page.getByRole('button', { name: 'Dark' }).click();
     await page.waitForTimeout(200);
@@ -92,15 +92,16 @@ test.describe('Theme CSS Consistency (E2E)', () => {
       };
     });
 
-    // Navy theme should have blue hue (around 220-240)
-    expect(themeValues.hue).toBeGreaterThan(200);
-    expect(themeValues.hue).toBeLessThan(250);
+    // Warm neutral theme should have warm hue (around 25-35, warm brown/orange)
+    expect(themeValues.hue).toBeGreaterThanOrEqual(20);
+    expect(themeValues.hue).toBeLessThanOrEqual(40);
 
-    // Should have saturation (not grayscale)
-    expect(themeValues.saturation).toBeGreaterThan(50);
+    // Should have some saturation (warm tint, not grayscale)
+    expect(themeValues.saturation).toBeGreaterThanOrEqual(5);
+    expect(themeValues.saturation).toBeLessThanOrEqual(15);
 
     // Should be dark but not pure black
-    expect(themeValues.lightness).toBeLessThan(10);
+    expect(themeValues.lightness).toBeLessThan(15);
     expect(themeValues.lightness).toBeGreaterThan(0);
   });
 
@@ -180,7 +181,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
       const background = styles.getPropertyValue('--background').trim();
 
       // Old wrong assistant-ui values: "240 10% 3.9%"
-      // Our correct value: "222.2 84% 4.9%"
+      // Our correct value: "30 8% 9%" (warm neutral dark)
 
       const [hue, saturation] = background.split(' ');
       const hueValue = Number.parseInt(hue ?? '0', 10);
