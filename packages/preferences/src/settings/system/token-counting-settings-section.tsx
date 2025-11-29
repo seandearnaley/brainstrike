@@ -14,7 +14,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   tokenPreferencesSelectors,
   useTokenPreferencesStore,
-} from '../stores/token-preferences-store';
+} from '../../stores/token-preferences-store';
 
 type TokenRuntimeStatus = 'checking' | 'accurate' | 'fallback' | 'disabled';
 

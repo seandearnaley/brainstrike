@@ -18,7 +18,7 @@ export function filterModels(
     filtered = filtered.filter((model) => {
       return (
         model.name.toLowerCase().includes(query) ||
-        (model.description && model.description.toLowerCase().includes(query)) ||
+        model.description?.toLowerCase().includes(query) ||
         model.providerId.toLowerCase().includes(query)
       );
     });

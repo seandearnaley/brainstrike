@@ -1,10 +1,30 @@
-import modelRegistryJson from '../model-registry.json';
 import type { ModelConfig, ModelRegistry } from './types';
+
+/**
+ * Default fallback registry to allow service initialization without external config.
+ * This replaces the static model-registry.json.
+ */
+const DEFAULT_REGISTRY: ModelRegistry = {
+  default: 'jina-code',
+  models: {
+    'jina-code': {
+      id: 'jinaai/jina-embeddings-v2-base-code',
+      name: 'Jina Code (default)',
+      dimensions: 768,
+      quantized: false,
+      description: 'Code-aware embeddings (30+ languages, 8k ctx)',
+      tags: ['code', 'multilingual', 'open-source', 'local'],
+      origin: 'Code-aware',
+      size: '~300MB',
+      contextWindow: 8192,
+    },
+  },
+};
 
 /**
  * Model registry for embedding models
  */
-let registry: ModelRegistry = modelRegistryJson as ModelRegistry;
+let registry: ModelRegistry = DEFAULT_REGISTRY;
 
 /**
  * Get the complete model registry

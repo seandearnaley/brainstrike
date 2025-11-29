@@ -10,6 +10,8 @@ const logger = createLogger('EmbeddingWorkerProvider');
  * The worker runs in the browser context where Web Workers (workerpool) are available.
  * This is REQUIRED for desktop - without it, backfill jobs won't be processed.
  */
+import { useModelRegistryStore } from '@brainstrike/preferences';
+
 // Helper to create worker config
 function createWorkerConfig(
   db: NonNullable<ReturnType<typeof usePGliteDatabase>>
@@ -25,6 +27,11 @@ function createWorkerConfig(
       } else {
         logger.info(msg);
       }
+    },
+    onDownloadProgress: (modelId: string, progress: number) => {
+      const store = useModelRegistryStore.getState();
+      store.setDownloadProgress(modelId, progress);
+      store.setDownloading(modelId, progress < 100);
     },
   };
 }

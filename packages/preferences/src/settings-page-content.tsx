@@ -3,9 +3,9 @@ import type { LucideIcon } from 'lucide-react';
 import { ChevronRight, Palette, Search, Settings, Sigma } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { FactoryResetSettingsSection } from './factory-reset/factory-reset-settings-section';
-import { ModelRegistrySettingsSection } from './model-registry/model-registry-settings-section';
-import { TokenCountingSettingsSection } from './token-counting/token-counting-settings-section';
+import { ModelSelectionPage } from './settings/models/model-selection-page';
+import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
+import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
 
 /**
  * Hash prefix for settings navigation.
@@ -147,6 +147,13 @@ function selectInitialCategory(
   return categories[0]?.id ?? null;
 }
 
+/**
+ * Shared settings page layout.
+ *
+ * Note: The actual settings categories are composed by the consuming application (Desktop or Web).
+ * Be careful when adding new categories here to ensure they are compatible with both platforms,
+ * or use the `categories` prop to inject platform-specific settings.
+ */
 export function SettingsPageContent({
   categories,
   defaultCategoryId,
@@ -385,6 +392,6 @@ export function createModelRegistrySettingsCategory(): SettingsCategory {
     description: 'Manage AI providers and enable/disable specific models.',
     keywords: ['models', 'providers', 'llm', 'embedding', 'openai', 'anthropic', 'google'],
     icon: Settings, // Using Settings icon for now, could import something better like Brain or Cpu
-    render: () => <ModelRegistrySettingsSection />,
+    render: () => <ModelSelectionPage />,
   };
 }

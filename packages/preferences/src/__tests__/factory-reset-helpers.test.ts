@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clearPersistentUiState,
   FALLBACK_INDEXED_DB_NAMES,
-} from '../factory-reset/factory-reset-helpers';
+} from '../settings/system/factory-reset-helpers';
 
 type FakeRequest = {
   onsuccess: ((event: Event) => void) | null;
