@@ -8,13 +8,7 @@ import {
   usePGliteDatabase,
   usePGliteLiveQuery,
 } from '@brainstrike/db';
-import {
-  type EmbeddingProviderType,
-  ModelRegistryManager,
-  parseProviderModelKey,
-  STANDARD_EMBEDDING_DIMENSION,
-} from '@brainstrike/embeddings';
-import { useEmbeddingPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useModelRegistryStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,
@@ -61,92 +55,6 @@ type DatabaseDemoPanelProps = {
 };
 
 const logger = createLogger('DatabaseDemoPanel');
-
-type AvailableModel = {
-  modelKey: string;
-  modelId: string;
-  dimensions: number;
-  distance: 'cosine' | 'l2' | 'ip';
-  provider: string;
-  description?: string;
-  tags?: string[];
-  pricePer1MTokens?: number;
-  origin?: string;
-};
-
-/**
- * Creates a single model object from provider and modelId
- * Extracted to reduce cognitive complexity
- */
-function createModelFromProviderAndId(
-  provider: EmbeddingProviderType,
-  modelId: string,
-  modelRegistry: Record<string, unknown>
-): AvailableModel {
-  const modelKey = provider === 'local' ? modelId : `${provider}::${modelId}`;
-  const modelConfig = modelRegistry[modelKey] as
-    | {
-        dimensions?: number;
-        description?: string;
-        tags?: string[];
-        pricePer1MTokens?: number;
-        origin?: string;
-      }
-    | undefined;
-
-  const dimensions = modelConfig?.dimensions ?? STANDARD_EMBEDDING_DIMENSION;
-
-  const parsed = parseProviderModelKey(modelKey);
-  let providerLabel = 'Local';
-  if (parsed?.provider === 'local') {
-    providerLabel = 'Local';
-  } else if (parsed?.provider) {
-    providerLabel = parsed.provider.charAt(0).toUpperCase() + parsed.provider.slice(1);
-  }
-
-  const model: AvailableModel = {
-    modelKey,
-    modelId,
-    dimensions,
-    distance: 'cosine',
-    provider: providerLabel,
-  };
-
-  if (modelConfig?.description) {
-    model.description = modelConfig.description;
-  }
-  if (modelConfig?.tags) {
-    model.tags = modelConfig.tags;
-  }
-  if (modelConfig?.pricePer1MTokens !== undefined) {
-    model.pricePer1MTokens = modelConfig.pricePer1MTokens;
-  }
-  if (modelConfig?.origin) {
-    model.origin = modelConfig.origin;
-  }
-
-  return model;
-}
-
-/**
- * Builds available models list from enabled models in preferences
- * Extracted to reduce cognitive complexity of DatabaseDemoPanel
- */
-function buildAvailableModelsFromPreferences(
-  enabledModelsByProvider: Record<EmbeddingProviderType, string[]>
-): AvailableModel[] {
-  const models: AvailableModel[] = [];
-  const modelRegistry = ModelRegistryManager.listModels();
-
-  (Object.keys(enabledModelsByProvider) as EmbeddingProviderType[]).forEach((provider) => {
-    const enabledModels = enabledModelsByProvider[provider] ?? [];
-    enabledModels.forEach((modelId) => {
-      models.push(createModelFromProviderAndId(provider, modelId, modelRegistry));
-    });
-  });
-
-  return models;
-}
 
 // Factory reset is now provided via the shared Preferences UI (FactoryResetPanel).
 export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
@@ -236,11 +144,45 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     [embeddingSetRows]
   );
 
-  // Get enabled models from preferences for Create dialog
-  const { enabledModelsByProvider } = useEmbeddingPreferencesStore();
+  // Get enabled models from model registry
+  const { models, providers, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();
+
+  // biome-ignore lint/plugin: Legitimate data loading pattern - fetch registry when db becomes available
+  useEffect(() => {
+    if (dbContext) {
+      void fetchRegistry(dbContext);
+    }
+  }, [dbContext, fetchRegistry]);
   const availableModels = useMemo(
-    () => buildAvailableModelsFromPreferences(enabledModelsByProvider),
-    [enabledModelsByProvider]
+    () =>
+      models
+        .filter((m) => m.isEnabled && m.capabilities.type === 'embedding')
+        .map((m) => ({
+          id: m.providerId === 'local' ? m.id : `${m.providerId}::${m.id}`,
+          providerId: m.providerId,
+          name: m.name,
+          description: m.description,
+          capabilities: m.capabilities,
+          ...(m.parameters && 'pricePer1MTokens' in m.parameters
+            ? {
+                pricePer1MTokensInput: (m.parameters as { pricePer1MTokens: number })
+                  .pricePer1MTokens,
+              }
+            : {}),
+        })),
+    [models]
+  );
+
+  const availableProviders = useMemo(
+    () =>
+      providers
+        .filter((p) => p.isEnabled)
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          icon: p.icon,
+        })),
+    [providers]
   );
 
   const showSettings = useDatabaseDemoStore((s) => s.showSettings);
@@ -558,7 +500,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {/* Create Collection Dialog */}
       {createCollectionOpen && (
         <CreateEmbeddingSetDialog
-          availableModels={availableModels}
+          isLoading={modelsLoading}
+          models={availableModels}
           onOpenChange={setCreateCollectionOpen}
           onSetCreated={(newSetId?: string) => {
             if (newSetId) {
@@ -568,6 +511,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             // Reload collections (SearchCollectionSelector listens to event)
           }}
           open={createCollectionOpen}
+          providers={availableProviders}
           repository={embeddingSetsRepository}
         />
       )}

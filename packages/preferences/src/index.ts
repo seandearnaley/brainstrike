@@ -5,7 +5,7 @@ export * from './embedding/embedding-settings-section';
 export * from './hooks/use-database-status-sync';
 export * from './settings/models/model-registry-settings-section';
 export * from './settings/models/model-selection-page';
-export * from './settings/secrets/llm-keys-settings';
+export * from './settings/secrets/api-keys-settings';
 export * from './settings/system/factory-reset-helpers';
 export * from './settings/system/factory-reset-panel';
 export * from './settings/system/factory-reset-settings-section';

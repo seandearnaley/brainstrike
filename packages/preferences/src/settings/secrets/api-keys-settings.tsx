@@ -22,7 +22,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from 'react';
  *
  * @platform desktop
  */
-export function LlmKeysSettings() {
+export function ApiKeysSettings() {
   const { toast } = useToast();
   const providerDefinitions = useMemo(() => listProviders(), []);
   const providerOptions = useMemo(
@@ -179,4 +179,4 @@ export function LlmKeysSettings() {
   );
 }
 
-export default LlmKeysSettings;
+export default ApiKeysSettings;

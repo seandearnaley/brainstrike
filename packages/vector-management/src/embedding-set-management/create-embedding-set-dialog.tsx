@@ -1,5 +1,4 @@
 import type { EmbeddingSetsRepository } from '@brainstrike/db';
-import { parseProviderModelKey } from '@brainstrike/embeddings';
 import {
   Button,
   Dialog,
@@ -10,11 +9,9 @@ import {
   DialogTitle,
   Input,
   Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  ModelPicker,
+  type ModelPickerModel,
+  type ModelPickerProvider,
   useToast,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
@@ -25,17 +22,9 @@ type CreateEmbeddingSetDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   repository: EmbeddingSetsRepository | null;
-  availableModels: Array<{
-    modelKey: string;
-    modelId: string;
-    dimensions: number;
-    distance: 'cosine' | 'l2' | 'ip';
-    provider: string;
-    description?: string;
-    tags?: string[];
-    pricePer1MTokens?: number;
-    origin?: string;
-  }>;
+  models: ModelPickerModel[];
+  providers: ModelPickerProvider[];
+  isLoading?: boolean;
   onSetCreated?: (setId: string) => void;
 };
 
@@ -84,7 +73,9 @@ export function CreateEmbeddingSetDialog({
   open,
   onOpenChange,
   repository,
-  availableModels,
+  models,
+  providers,
+  isLoading = false,
   onSetCreated,
 }: CreateEmbeddingSetDialogProps) {
   const { toast } = useToast();
@@ -97,8 +88,8 @@ export function CreateEmbeddingSetDialog({
     selectedModel: '',
   });
 
-  const selectedModelInfo = availableModels.find((m) => m.modelKey === formData.selectedModel);
-  const hasModelOptions = availableModels.length > 0;
+  const selectedModelInfo = models.find((m) => m.id === formData.selectedModel);
+  const hasModelOptions = models.length > 0;
 
   useEffect(() => {
     if (!open) {
@@ -110,8 +101,8 @@ export function CreateEmbeddingSetDialog({
     if (!hasModelOptions) {
       return;
     }
-    setFormData((prev) => ({ ...prev, selectedModel: availableModels[0]?.modelKey ?? '' }));
-  }, [open, hasModelOptions, availableModels, formData.selectedModel]);
+    setFormData((prev) => ({ ...prev, selectedModel: models[0]?.id ?? '' }));
+  }, [open, hasModelOptions, models, formData.selectedModel]);
 
   const validateCreateInputs = (): boolean => {
     if (!(repository && selectedModelInfo)) {
@@ -144,11 +135,17 @@ export function CreateEmbeddingSetDialog({
     try {
       const metadata = buildMetadata(formData);
 
+      // Reconstruct modelKey and dimensions from ModelPickerModel
+      const modelKey = selectedModelInfo.id; // id is the modelKey (e.g. "openai::text-embedding-3-small")
+      const modelId = selectedModelInfo.name; // name is the modelId (e.g. "text-embedding-3-small")
+      const dimensions = selectedModelInfo.capabilities.defaultDimension ?? 1536; // Fallback if missing
+      const distance = 'cosine'; // Default for now
+
       const newSet = await repository.getOrCreateSet(
-        selectedModelInfo.modelKey,
-        selectedModelInfo.modelId,
-        selectedModelInfo.dimensions,
-        selectedModelInfo.distance,
+        modelKey,
+        modelId,
+        dimensions,
+        distance,
         metadata
       );
 
@@ -182,37 +179,19 @@ export function CreateEmbeddingSetDialog({
     }
   };
 
-  const formatModelLabel = (model: (typeof availableModels)[number]) => {
-    const parsed = parseProviderModelKey(model.modelKey);
-    let providerLabel = 'Local'; // Default to Local for models without provider prefix
-
-    if (parsed?.provider === 'local') {
-      providerLabel = 'Local';
-    } else if (parsed?.provider) {
-      providerLabel = parsed.provider.charAt(0).toUpperCase() + parsed.provider.slice(1);
-    }
-
-    return `${providerLabel} · ${model.modelId} (${model.dimensions}D ${model.distance})`;
-  };
-
-  const formatModelDescription = (model: (typeof availableModels)[number]) => {
+  const formatModelDescription = (model: ModelPickerModel) => {
     const parts: string[] = [];
 
     // Add cost indicator
-    if (model.pricePer1MTokens !== undefined) {
-      parts.push(`💰 $${model.pricePer1MTokens.toFixed(2)}/1M tokens`);
-    } else {
+    if (model.pricePer1MTokensInput !== undefined) {
+      parts.push(`💰 $${model.pricePer1MTokensInput.toFixed(2)}/1M tokens`);
+    } else if (model.providerId === 'local' || model.providerId === 'transformers') {
       parts.push('🔒 Free (local)');
     }
 
     // Add model description if available
     if (model.description) {
       parts.push(model.description);
-    }
-
-    // Add origin/use case if available
-    if (model.origin) {
-      parts.push(`Best for: ${model.origin.toLowerCase()}`);
     }
 
     return parts.join(' · ');
@@ -230,37 +209,33 @@ export function CreateEmbeddingSetDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {hasModelOptions ? (
+        {hasModelOptions || isLoading ? (
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label className="font-medium text-sm" htmlFor="model">
                 Model Configuration
               </Label>
-              <Select
-                disabled={!hasModelOptions || creating}
-                onValueChange={(value) =>
+              <ModelPicker
+                disabled={!hasModelOptions || creating || isLoading}
+                mode="single"
+                models={models}
+                modelType="embedding"
+                onChange={(value: string | string[]) => {
+                  const modelKey = value as string;
                   setFormData((prev) => ({
                     ...prev,
-                    selectedModel: value,
+                    selectedModel: modelKey,
                     name:
                       prev.name === ''
-                        ? (availableModels.find((m) => m.modelKey === value)?.modelId ?? '')
+                        ? (models.find((m) => m.id === modelKey)?.name ?? '')
                         : prev.name,
-                  }))
-                }
+                  }));
+                }}
+                placeholder={isLoading ? 'Loading models...' : 'Select an embedding model'}
+                providers={providers}
+                searchable={false}
                 value={formData.selectedModel}
-              >
-                <SelectTrigger className="w-full" id="model">
-                  <SelectValue placeholder="Select a model configuration" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableModels.map((model) => (
-                    <SelectItem key={model.modelKey} value={model.modelKey}>
-                      {formatModelLabel(model)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              />
               {selectedModelInfo && (
                 <p className="mt-2 text-muted-foreground text-xs">
                   {formatModelDescription(selectedModelInfo)}

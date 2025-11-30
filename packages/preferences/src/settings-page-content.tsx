@@ -1,9 +1,10 @@
 import { cn, Input, ThemeSettings } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import { ChevronRight, Palette, Search, Settings, Sigma } from 'lucide-react';
+import { ChevronRight, Key, Palette, Search, Settings, Sigma } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { ModelSelectionPage } from './settings/models/model-selection-page';
+import { ApiKeysSettings } from './settings/secrets/api-keys-settings';
 import { FactoryResetSettingsSection } from './settings/system/factory-reset-settings-section';
 import { TokenCountingSettingsSection } from './settings/system/token-counting-settings-section';
 
@@ -393,5 +394,16 @@ export function createModelRegistrySettingsCategory(): SettingsCategory {
     keywords: ['models', 'providers', 'llm', 'embedding', 'openai', 'anthropic', 'google'],
     icon: Settings, // Using Settings icon for now, could import something better like Brain or Cpu
     render: () => <ModelSelectionPage />,
+  };
+}
+
+export function createApiKeysSettingsCategory(): SettingsCategory {
+  return {
+    id: 'api-keys',
+    title: 'API Keys',
+    description: 'Manage API keys for external LLM providers.',
+    keywords: ['api', 'keys', 'secrets', 'credentials', 'openai', 'anthropic', 'google'],
+    icon: Key,
+    render: () => <ApiKeysSettings />,
   };
 }

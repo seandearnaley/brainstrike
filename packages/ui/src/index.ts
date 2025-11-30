@@ -39,6 +39,7 @@ export { useIdeFileEditor } from './layout/ide-layout';
 export * from './lib/utils';
 export * from './lightweight-checkbox';
 export * from './loading-fallback';
+export * from './model-picker';
 export * from './navigation-sidebar';
 export * from './popover';
 export * from './progress';

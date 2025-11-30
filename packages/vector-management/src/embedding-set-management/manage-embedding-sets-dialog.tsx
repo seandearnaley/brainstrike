@@ -14,6 +14,8 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  type ModelPickerModel,
+  type ModelPickerProvider,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
@@ -87,17 +89,7 @@ function createModelFromConfig(
   provider: EmbeddingProviderType,
   modelId: string,
   modelRegistry: Record<string, unknown>
-): {
-  modelKey: string;
-  modelId: string;
-  dimensions: number;
-  distance: 'cosine' | 'l2' | 'ip';
-  provider: string;
-  description?: string;
-  tags?: string[];
-  pricePer1MTokens?: number;
-  origin?: string;
-} {
+): ModelPickerModel {
   const modelKey = provider === 'local' ? modelId : `${provider}::${modelId}`;
   const modelConfig = modelRegistry[modelKey] as
     | {
@@ -111,35 +103,19 @@ function createModelFromConfig(
 
   const dimensions = modelConfig?.dimensions ?? STANDARD_EMBEDDING_DIMENSION;
 
-  const model: {
-    modelKey: string;
-    modelId: string;
-    dimensions: number;
-    distance: 'cosine' | 'l2' | 'ip';
-    provider: string;
-    description?: string;
-    tags?: string[];
-    pricePer1MTokens?: number;
-    origin?: string;
-  } = {
-    modelKey,
-    modelId,
-    dimensions,
-    distance: 'cosine',
-    provider: formatProviderLabel(modelKey),
+  const model: ModelPickerModel = {
+    id: modelKey,
+    providerId: provider,
+    name: modelId,
+    description: modelConfig?.description ?? null,
+    capabilities: {
+      type: 'embedding',
+      defaultDimension: dimensions,
+    },
   };
 
-  if (modelConfig?.description) {
-    model.description = modelConfig.description;
-  }
-  if (modelConfig?.tags) {
-    model.tags = modelConfig.tags;
-  }
   if (modelConfig?.pricePer1MTokens !== undefined) {
-    model.pricePer1MTokens = modelConfig.pricePer1MTokens;
-  }
-  if (modelConfig?.origin) {
-    model.origin = modelConfig.origin;
+    model.pricePer1MTokensInput = modelConfig.pricePer1MTokens;
   }
 
   return model;
@@ -245,17 +221,7 @@ export function ManageEmbeddingSetsDialog({
 
   // Get available models from preferences and model registry
   const availableModels = useMemo(() => {
-    const models: Array<{
-      modelKey: string;
-      modelId: string;
-      dimensions: number;
-      distance: 'cosine' | 'l2' | 'ip';
-      provider: string;
-      description?: string;
-      tags?: string[];
-      pricePer1MTokens?: number;
-      origin?: string;
-    }> = [];
+    const models: ModelPickerModel[] = [];
 
     const modelRegistry = ModelRegistryManager.listModels();
 
@@ -271,6 +237,14 @@ export function ManageEmbeddingSetsDialog({
 
     return models;
   }, [enabledModelsByProvider]);
+
+  const providers = useMemo((): ModelPickerProvider[] => {
+    const uniqueProviders = Array.from(new Set(availableModels.map((m) => m.providerId)));
+    return uniqueProviders.map((p) => ({
+      id: p,
+      name: p.charAt(0).toUpperCase() + p.slice(1),
+    }));
+  }, [availableModels]);
 
   return (
     <>
@@ -419,10 +393,11 @@ export function ManageEmbeddingSetsDialog({
       </Dialog>
 
       <CreateEmbeddingSetDialog
-        availableModels={availableModels}
+        models={availableModels}
         onOpenChange={setCreateDialogOpen}
         onSetCreated={handleSetAction}
         open={createDialogOpen}
+        providers={providers}
         repository={repository}
       />
 

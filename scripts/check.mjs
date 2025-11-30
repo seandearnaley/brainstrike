@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // Lightweight orchestrator for repo checks with timing and clear output.
 // Modes:
-// - default: install, lint-all, build, type-check, test (unit/integration), e2e:functional (web), e2e:desktop
-// - --fast:   install, lint-all, build, type-check, test:fast, e2e:functional (web), e2e:desktop
-// - --full:   lint-all, build, type-check, test:coverage:split, e2e:functional (web), e2e:desktop
+// - default: install, lint-all, build, type-check, test (unit/integration), test:browser, e2e:functional (web), e2e:desktop
+// - --fast:   install, lint-all, build, type-check, test:fast, test:browser, e2e:functional (web), e2e:desktop
+// - --full:   lint-all, build, type-check, test:coverage:split, test:browser, e2e:functional (web), e2e:desktop
 // Flags:
 //   --no-install     Skip pnpm install
 //   --no-e2e         Skip E2E tests
@@ -58,6 +58,9 @@ function stepLabel(cmd) {
   if (cmd.endsWith('test:coverage:split')) {
     return 'test:coverage:split';
   }
+  if (cmd.endsWith('test:browser')) {
+    return 'test:browser';
+  }
   if (cmd.endsWith('test:e2e:functional')) {
     return 'e2e:functional';
   }
@@ -110,6 +113,8 @@ function buildPlan() {
   } else {
     plan.push('pnpm -s run test');
   }
+
+  plan.push('pnpm -s run test:browser');
 
   if (!noE2E) {
     plan.push('pnpm -s run test:e2e:functional');
