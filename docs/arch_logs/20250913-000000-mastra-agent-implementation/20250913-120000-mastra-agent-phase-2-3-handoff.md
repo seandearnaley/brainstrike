@@ -25,7 +25,7 @@ Scope: Web chat UI wiring (Phase 2) + Desktop secrets and local agent IPC (Phase
   - `apps/desktop/src/ipc-secrets.ts`: IPC `secrets:*` handlers (save/get/delete/list).
   - `apps/desktop/src/ipc-agent.ts`: IPC `agent:chat` aggregates chunks from `@brainstrike/agent`.
   - `apps/desktop/src/preload.ts`: exposes `window.secrets` and `window.agent`.
-  - `apps/desktop/src/renderer/components/settings/llm-keys.tsx`: provider keys UI (+ toast for errors).
+  - `apps/desktop/src/renderer/components/settings/page-content.tsx`: Includes model registry settings section and provider keys UI via `@brainstrike/preferences`.
   - `packages/app-shell/src/right-panel.tsx`: conditionally injects desktop transport when `window.agent.chat` exists.
   - Tests: `apps/desktop/src/__tests__/main/secrets.test.ts`, `apps/desktop/src/__tests__/renderer/preload-bridge.test.tsx`, `apps/desktop/e2e/secrets-settings.test.ts`, `apps/desktop/e2e/agent-ipc.test.ts`.
 

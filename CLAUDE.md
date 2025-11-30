@@ -55,8 +55,11 @@ pnpm check  # install → lint → build → type-check → test → e2e
 
 ### Testing & Quality
 ```bash
-# Unit/integration tests across monorepo
+# Unit/integration tests across monorepo (jsdom + browser environments)
 pnpm test
+
+# Browser-specific tests (Playwright)
+pnpm test:browser
 
 # E2E tests with Playwright
 pnpm test:e2e
@@ -74,21 +77,24 @@ pnpm type-check     # TypeScript validation
 ### Monorepo Structure
 - **`apps/web`**: Vite + React 19 web application
 - **`apps/desktop`**: Electron wrapper for native desktop experience
-- **`packages/`**: 27 shared packages with specific purposes
+- **`packages/`**: 28 shared packages with specific purposes
 
 ### Key Packages
 - **`@brainstrike/ui`**: React components based on shadcn/ui + Radix
-- **`@brainstrike/app-shell`**: IDE-style layout system
-- **`@brainstrike/preferences`**: User preferences and settings stores
+- **`@brainstrike/app-shell`**: IDE-style layout system with navigation and panels
+- **`@brainstrike/preferences`**: User preferences and settings stores (including model registry)
 - **`@brainstrike/db-explorer`**: Database exploration and file import UI
 - **`@brainstrike/vector-management`**: Vector/embedding status and queue management
 - **`@brainstrike/file-explorer`**: Core file analysis logic (platform-agnostic)
 - **`@brainstrike/file-system`**: Abstracted file operations with adapters
 - **`@brainstrike/storage`**: Persistent storage with platform adapters
-- **`@brainstrike/agent`**: Mastra AI agent integration
-- **`@brainstrike/embeddings`**: Vector embedding generation
-- **`@brainstrike/db`**: PGlite database operations
+- **`@brainstrike/agent`**: Mastra AI agent integration with streaming support
+- **`@brainstrike/embeddings`**: Vector embedding generation with provider factory
+- **`@brainstrike/embedding-worker`**: Embedding worker runtime for both web and desktop
+- **`@brainstrike/db`**: PGlite database operations with migrations
+- **`@brainstrike/queue`**: Job queue infrastructure for embeddings
 - **`@brainstrike/types`**: Shared TypeScript definitions
+- **`@brainstrike/test-utils`**: Testing utilities and mocks
 
 ### Adapter Pattern
 Critical architectural pattern enabling cross-platform functionality:

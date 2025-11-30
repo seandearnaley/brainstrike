@@ -80,12 +80,12 @@ Vitest 4 Browser Mode allows tests to execute in actual browser environments (Ch
 For the BrainStrike monorepo, the recommended approach is to use Playwright as the provider:
 
 ```bash
-pnpm install -D @vitest/browser @vitest/browser-playwright
+pnpm install -D @vitest/browser-playwright
 ```
 
 **Alternative:** For WebdriverIO provider:
 ```bash
-pnpm install -D @vitest/browser @vitest/browser-webdriver
+pnpm install -D @vitest/browser-webdriver
 ```
 
 ### Configuration
@@ -180,7 +180,7 @@ For BrainStrike's Turborepo structure:
 
 - **Per-Package Configuration:** Each package can have its own `vitest.config.ts`
 - **Shared Configuration:** Consider shared base config in `packages/config`
-- **Turbo Integration:** Ensure `pnpm turbo run test --browser` works correctly
+- **Turbo Integration:** Ensure `pnpm turbo run test:browser` works correctly
 - **Cache Management:** Browser mode may interact with Turborepo caching differently
 
 **Recommended Approach:**
@@ -232,7 +232,7 @@ describe('IndexedDB operations', () => {
   run: npx playwright install --with-deps
 
 - name: Run browser tests
-  run: pnpm turbo run test --filter ./packages/db --browser
+  run: pnpm turbo run test:browser --filter ./packages/db
 ```
 
 ### 4. **Performance Implications**

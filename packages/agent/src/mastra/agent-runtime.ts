@@ -1,6 +1,7 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { createLogger } from '@brainstrike/utils';
-import { Agent, type MastraLanguageModel, type ToolsInput } from '@mastra/core/agent';
+import { Agent, type ToolsInput } from '@mastra/core/agent';
+import type { MastraModelConfig } from '@mastra/core/llm';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../index';
@@ -86,7 +87,7 @@ function instantiateLanguageModel(
   provider: string,
   apiKey: string | undefined,
   modelName: string
-): MastraLanguageModel {
+): MastraModelConfig {
   try {
     return createProvider(provider, apiKey, modelName);
   } catch (error) {

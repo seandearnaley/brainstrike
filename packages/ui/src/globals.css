@@ -286,14 +286,20 @@
  * REDUCED MOTION PREFERENCE
  * ============================================================================
  * Respects users who have requested reduced motion for accessibility.
+ * The !important declarations are intentional - they must override any other
+ * CSS specificity to ensure motion preferences are always respected.
  */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
+    /* biome-ignore lint/complexity/noImportantStyles: Accessibility - must override all specificity */
     animation-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: Accessibility - must override all specificity */
     animation-iteration-count: 1 !important;
+    /* biome-ignore lint/complexity/noImportantStyles: Accessibility - must override all specificity */
     transition-duration: 0.01ms !important;
+    /* biome-ignore lint/complexity/noImportantStyles: Accessibility - must override all specificity */
     scroll-behavior: auto !important;
   }
 }

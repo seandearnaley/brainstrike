@@ -167,6 +167,26 @@ CI details: `.github/workflows/test.yml` runs lint → type‑check → build (w
 - Create a new package under `apps/` or `packages/`, set a unique `name` in its `package.json`, ensure it matches workspace globs, then run `pnpm install` to link.
 - PRs: include tests, keep TypeScript clean, and ensure `pnpm run check` is green locally.
 
+### Dependency Updates
+
+Check for outdated dependencies across all workspaces:
+
+```bash
+pnpm outdated -r
+```
+
+Update a specific dependency in a package:
+
+```bash
+pnpm update <dep> --filter @brainstrike/<pkg>
+```
+
+Update all dependencies (use with caution):
+
+```bash
+pnpm update -r
+```
+
 Helpful docs: `onboarding.md`, `AGENTS.md`, `monorepo-docs.md`.
 
 ---
