@@ -462,7 +462,7 @@ How to toggle:
 - `apps/desktop/`
   - Main: `src/main/secrets.ts` (`safeStorage` + `electron-store`), IPC handlers `secrets:save/get`
   - Preload: `src/preload/index.ts` exposing `window.secrets.saveKey/getKey`
-  - Renderer: settings screen `src/renderer/components/settings/llm-keys.tsx`
+  - Renderer: settings screen via `packages/preferences` with model registry and provider keys sections
   - Local agent invocation: IPC or local HTTP server `src/main/agent-server.ts`
   - MCP: `src/mcp-loader.ts`, `src/ipc-mcp.ts`, `src/preload.ts` exposes `window.mcp`
 
