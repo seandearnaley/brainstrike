@@ -109,6 +109,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
         : '/api/assistant';
   const [api, setApi] = useState<string>(initialApi);
 
+  // biome-ignore lint/plugin: Async API URL resolution on mount - standard initialization
   useEffect(() => {
     const updateApi = async () => {
       try {

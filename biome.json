@@ -371,6 +371,9 @@
       }
     }
   ],
+  "plugins": [
+    "node_modules/@jacobwolf/biome-unnecessary-effect/grit/react-effects.grit"
+  ],
   "vcs": {
     "enabled": false
   }

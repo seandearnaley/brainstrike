@@ -31,6 +31,7 @@ export function useTokenCounting(): TokenCountingState {
   const [reason, setReason] = useState<TokenCountingReason>('preference-disabled');
   const [loading, setLoading] = useState<boolean>(accuratePreference);
 
+  // biome-ignore lint/plugin: Initialize token counting mode based on preference - async initialization
   useEffect(() => {
     let cancelled = false;
 

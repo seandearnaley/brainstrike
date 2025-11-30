@@ -46,6 +46,7 @@ export const useFileLoadingManager = ({
     [loadFileContent]
   );
 
+  // biome-ignore lint/plugin: Reactive file loading - triggers load for newly selected files
   useEffect(() => {
     // Load content for all selected files
     for (const path of selectedFilePaths) {

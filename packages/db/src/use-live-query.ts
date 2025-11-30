@@ -242,6 +242,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const hasKey = !requiresKey || typeof options.key === 'string';
   const enabled = Boolean(options.enabled ?? true) && Boolean(source) && (!requiresKey || hasKey);
 
+  // biome-ignore lint/plugin: Live query subscription management - async data with cleanup
   useEffect(() => {
     let cancelled = false;
     let subscription: LiveSubscription<T> | null = null;

@@ -57,6 +57,7 @@ export function DesktopLoggingSettings() {
     [setPreferences]
   );
 
+  // biome-ignore lint/plugin: Async data fetching with cleanup - standard pattern for loading preferences
   useEffect(() => {
     let cancelled = false;
 

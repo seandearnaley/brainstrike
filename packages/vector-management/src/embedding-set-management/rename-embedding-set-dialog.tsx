@@ -80,6 +80,7 @@ export function RenameEmbeddingSetDialog({
   });
 
   // Initialize form when collection changes
+  // biome-ignore lint/plugin: Sync form data when embedding set changes - controlled form initialization
   useEffect(() => {
     if (embeddingSet) {
       setFormData({

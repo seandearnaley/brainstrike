@@ -529,6 +529,7 @@ export function useFileTree(
 
   // Reset loading state when root directory changes
   // Stryker disable next-line BlockStatement -- abort side-effects verified via integration tests; mutation equivalent at this scope
+  // biome-ignore lint/plugin: Cleanup and reset state on root directory change
   useEffect(() => {
     abortControllerRef.current?.abort();
     // Stryker disable next-line ConditionalExpression, BlockStatement -- loadTree covers the same initialization logic

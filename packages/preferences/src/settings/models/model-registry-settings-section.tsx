@@ -27,6 +27,7 @@ export function ModelRegistrySettingsSection() {
   } = useModelRegistryStore();
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
 
+  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
   useEffect(() => {
     if (db) {
       void fetchRegistry(db);

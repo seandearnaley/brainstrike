@@ -318,6 +318,7 @@ export function useDatabaseDemoData({
 
   void _chunkRepository;
 
+  // biome-ignore lint/plugin: Sync state when database changes - necessary for tracking DB lifecycle
   useEffect(() => {
     if (schemaStateRef.current.db !== database) {
       schemaStateRef.current = {
@@ -617,6 +618,7 @@ export function useDatabaseDemoData({
     void testDatabaseConnection();
   }, [repository, testDatabaseConnection]);
 
+  // biome-ignore lint/plugin: Run registered ping handlers - callback invocation pattern with cleanup
   useEffect(() => {
     if (databasePingHandlers.length === 0) {
       return;

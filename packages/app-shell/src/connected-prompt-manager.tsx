@@ -7,6 +7,7 @@ export function ConnectedPromptManager() {
   const db = usePGliteDatabase();
   const { models, providers, fetchRegistry } = useModelRegistryStore();
 
+  // biome-ignore lint/plugin: Legitimate data loading pattern - fetch registry when db becomes available
   useEffect(() => {
     if (db) {
       void fetchRegistry(db);

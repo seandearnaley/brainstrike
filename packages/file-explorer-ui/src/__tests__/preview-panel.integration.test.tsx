@@ -305,11 +305,11 @@ vi.mock('@brainstrike/hooks', () => {
       const prevTotalPagesRef = useRef(totalPages);
 
       // Reset to first page when total pages decreases or current page is out of bounds
+      // biome-ignore lint/plugin: Intentional state reset on bounds change - matches real hook behavior
       useEffect(() => {
         if (prevTotalPagesRef.current !== totalPages) {
           const prev = prevTotalPagesRef.current;
           prevTotalPagesRef.current = totalPages;
-          // If the page count shrank, snap back to first page to minimize surprises
           if ((prev > totalPages || currentPage >= totalPages) && totalPages > 0) {
             setCurrentPage(0);
           }

@@ -14,8 +14,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     const { registerOpenFileInTab } = useIdeFileEditor();
     const { rootDirectoryHandle, fileContents, loadingFiles, loadFileContent } = useFileExplorer();
 
-    const { tabs, activeTabId, openTab, closeTab, setActiveTab, updateTabContent } =
-      useTabManager();
+    const { tabs, activeTabId, openTab, closeTab, setActiveTab } = useTabManager();
 
     // Handle tab click
     const handleTabClick = useCallback(
@@ -41,15 +40,8 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
       [loadFileContent]
     );
 
-    // Sync tab content with file contents when they load
-    useEffect(() => {
-      for (const tab of tabs) {
-        const content = fileContents[tab.compositeKey];
-        if (content && tab.content !== content) {
-          updateTabContent(tab.id, content);
-        }
-      }
-    }, [tabs, updateTabContent, fileContents]);
+    // NOTE: Tab content is read directly from fileContents in TabbedFileEditor (line 306),
+    // not from tab.content. The sync effect was removed as it maintained unused state.
 
     // Function to open a file in a tab (exposed globally for preview panel to use)
     const handleOpenFileInTab = useCallback(

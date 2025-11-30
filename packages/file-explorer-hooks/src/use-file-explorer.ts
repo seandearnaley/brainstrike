@@ -65,7 +65,7 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
     return paths;
   }, [fileTree, includeFilters, excludeFilters, useRegex, applyFileFilters]);
 
-  // Effect to notify callback when displayedFilePaths changes
+  // biome-ignore lint/plugin: Effect to notify callback when displayedFilePaths changes - controlled parent notification
   useEffect(() => {
     callback(displayedFilePaths);
   }, [displayedFilePaths, callback]);

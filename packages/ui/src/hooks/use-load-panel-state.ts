@@ -26,6 +26,7 @@ export function useLoadPanelState(
   const lastSavedStateRef = useRef<PanelPersistenceState | null>(state);
   const [isHydrated, setIsHydrated] = useState<boolean>(() => !adapter);
 
+  // biome-ignore lint/plugin: Load persisted panel state from adapter - async hydration pattern
   useEffect(() => {
     const loadFromAdapter = async () => {
       if (!adapter) {

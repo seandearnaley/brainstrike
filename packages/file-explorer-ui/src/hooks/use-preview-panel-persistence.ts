@@ -162,7 +162,7 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
     setPreferences((currentPrefs) => ({ ...currentPrefs, ...updates }));
   }, []);
 
-  // Persist preferences when they change
+  // biome-ignore lint/plugin: Persist preferences when they change - intentional debounced persistence
   useEffect(() => {
     if (!isLoading) {
       persist(preferences);

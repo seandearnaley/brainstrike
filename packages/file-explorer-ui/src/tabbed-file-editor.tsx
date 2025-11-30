@@ -87,6 +87,7 @@ export function TabbedFileEditor({
   const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
 
   // Load content for active tab if not already loaded
+  // biome-ignore lint/plugin: Load content for active tab - reactive data loading
   useEffect(() => {
     if (activeTabId) {
       const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -101,6 +102,7 @@ export function TabbedFileEditor({
   }, [activeTabId, tabs, fileContents, loadingFiles, onLoadFileContent]);
 
   // Scroll active tab into view
+  // biome-ignore lint/plugin: DOM scroll effect - runs once on mount
   useEffect(() => {
     if (activeTabRef.current) {
       activeTabRef.current.scrollIntoView({

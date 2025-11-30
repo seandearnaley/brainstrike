@@ -432,6 +432,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     // You can use this to trigger any necessary updates
   }, []);
 
+  // biome-ignore lint/plugin: Sync folder ID with root directory handle - controlled state update
   useEffect(() => {
     if (rootDirectoryHandle) {
       const id = rootDirectoryHandle.name;

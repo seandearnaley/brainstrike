@@ -136,6 +136,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Clear timeout on unmount
+  // biome-ignore lint/plugin: Cleanup timeout on unmount - standard cleanup pattern
   useEffect(
     () => () => {
       if (backfillTimeoutRef.current) {

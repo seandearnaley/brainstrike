@@ -226,6 +226,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   );
 
   // Automatically load content for selected files
+  // biome-ignore lint/plugin: Auto-load content for selected files - reactive data loading
   useEffect(() => {
     const { fileContents, setFileContent } = store.getState();
 

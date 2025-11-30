@@ -52,6 +52,7 @@ export function McpConfigStatus() {
     setError(result.error);
   }, []);
 
+  // biome-ignore lint/plugin: Async data fetching on mount - standard pattern for loading config
   useEffect(() => {
     let mounted = true;
 

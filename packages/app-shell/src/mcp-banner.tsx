@@ -10,6 +10,7 @@ export function McpBanner() {
   const [status, setStatus] = useState<McpStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // biome-ignore lint/plugin: Async data fetching on mount - standard pattern for loading MCP config
   useEffect(() => {
     let mounted = true;
 

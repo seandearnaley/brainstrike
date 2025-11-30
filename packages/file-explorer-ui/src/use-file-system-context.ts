@@ -91,6 +91,7 @@ export function useFileSystem() {
 
   // Sync core hook's restoration to the store (desktop auto-restore)
   // Initial one-way sync only: if the core restored a handle and the store is empty.
+  // biome-ignore lint/plugin: One-time sync from core hook to store - controlled state restoration
   useEffect(() => {
     if (!storedRootDirectoryHandle && coreApi.rootDirectoryHandle) {
       setRootDirectoryHandle(coreApi.rootDirectoryHandle);

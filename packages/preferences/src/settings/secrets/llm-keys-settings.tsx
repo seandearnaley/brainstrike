@@ -34,16 +34,16 @@ export function LlmKeysSettings() {
     [providerDefinitions]
   );
 
-  const [provider, setProvider] = useState<string>(providerOptions[0]?.id ?? 'openai');
+  const [rawProvider, setRawProvider] = useState<string>(providerOptions[0]?.id ?? 'openai');
   const [apiKey, setApiKey] = useState('');
   const [providersWithSecrets, setProvidersWithSecrets] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!providerOptions.some((option) => option.id === provider) && providerOptions[0]) {
-      setProvider(providerOptions[0].id);
-    }
-  }, [providerOptions, provider]);
+  // Derive effective provider - always valid even if options change
+  const provider = useMemo(() => {
+    const isValid = providerOptions.some((option) => option.id === rawProvider);
+    return isValid ? rawProvider : (providerOptions[0]?.id ?? 'openai');
+  }, [providerOptions, rawProvider]);
 
   const selectedProviderName = useMemo(
     () => providerOptions.find((option) => option.id === provider)?.name ?? provider,
@@ -122,7 +122,7 @@ export function LlmKeysSettings() {
           <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-3">
             <div className="space-y-1">
               <Label htmlFor={providerId}>Provider</Label>
-              <Select onValueChange={(value) => setProvider(value)} value={provider}>
+              <Select onValueChange={(value) => setRawProvider(value)} value={provider}>
                 <SelectTrigger data-testid="llm-provider" id={providerId}>
                   <SelectValue placeholder="Select provider" />
                 </SelectTrigger>

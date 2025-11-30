@@ -13,6 +13,7 @@ type TestComponentProps = {
 function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestComponentProps) {
   const { containerRef, range } = useVirtualList(itemCount, rowHeight, { overscan: overscan ?? 0 });
 
+  // biome-ignore lint/plugin: Test helper - notify parent of range updates for assertions
   useLayoutEffect(() => {
     onUpdate(range);
   }, [range, onUpdate]);

@@ -213,6 +213,7 @@ export function ManageEmbeddingSetsDialog({
     }
   }, [db]);
 
+  // biome-ignore lint/plugin: Load sets when dialog opens - standard modal data loading
   useEffect(() => {
     if (open) {
       void loadSets();

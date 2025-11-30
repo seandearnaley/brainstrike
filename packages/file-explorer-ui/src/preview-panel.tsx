@@ -802,6 +802,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Reset to first page when grouping changes
   const prevGroupingConfigRef = useRef(groupingConfig);
+  // biome-ignore lint/plugin: Reset pagination when grouping config changes
   useEffect(() => {
     if (prevGroupingConfigRef.current !== groupingConfig) {
       prevGroupingConfigRef.current = groupingConfig;

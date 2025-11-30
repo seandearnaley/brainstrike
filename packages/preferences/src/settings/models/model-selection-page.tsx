@@ -48,6 +48,7 @@ export function ModelSelectionPage() {
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
+  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
   useEffect(() => {
     if (db) {
       void fetchRegistry(db);
