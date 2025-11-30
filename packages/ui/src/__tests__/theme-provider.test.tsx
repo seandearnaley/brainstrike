@@ -175,7 +175,7 @@ describe('ThemeProvider', () => {
 
   it('handles custom storageKey prop', async () => {
     const customWrapper = ({ children }: { children: ReactNode }) => (
-      <ThemeProvider storageKey="custom-theme-key" storageAdapter={mockStorageAdapter}>
+      <ThemeProvider storageAdapter={mockStorageAdapter} storageKey="custom-theme-key">
         {children}
       </ThemeProvider>
     );

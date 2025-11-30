@@ -3,7 +3,7 @@ import { cn } from './lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table';
 import { TablePagination } from './table-pagination';
 
-export interface DataTableColumn<TData> {
+export type DataTableColumn<TData> = {
   id: string;
   header?: React.ReactNode | ((props: { column: DataTableColumn<TData> }) => React.ReactNode);
   cell: (props: { row: TData; rowIndex: number }) => React.ReactNode;
@@ -11,9 +11,9 @@ export interface DataTableColumn<TData> {
   sortable?: boolean;
   className?: string;
   headerClassName?: string;
-}
+};
 
-export interface DataTableProps<TData> {
+export type DataTableProps<TData> = {
   columns: DataTableColumn<TData>[];
   data: TData[];
   getRowId?: (row: TData, index: number) => string;
@@ -36,7 +36,7 @@ export interface DataTableProps<TData> {
   };
   emptyState?: React.ReactNode;
   className?: string;
-}
+};
 
 export function DataTable<TData>({
   columns,
@@ -60,7 +60,9 @@ export function DataTable<TData>({
 
   // Calculate paginated data
   const paginatedData = React.useMemo(() => {
-    if (!isPaginationEnabled) return data;
+    if (!isPaginationEnabled) {
+      return data;
+    }
     const start = currentPage * pageSize;
     return data.slice(start, start + pageSize);
   }, [data, currentPage, pageSize, isPaginationEnabled]);
@@ -69,7 +71,9 @@ export function DataTable<TData>({
 
   const handleSort = React.useCallback(
     (columnId: string) => {
-      if (!sorting?.enabled) return;
+      if (!sorting?.enabled) {
+        return;
+      }
 
       let newDirection: 'asc' | 'desc' | null = 'asc';
 
@@ -90,7 +94,7 @@ export function DataTable<TData>({
 
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
+      <div className="flex h-32 items-center justify-center text-muted-foreground text-sm">
         {emptyState || 'No data available'}
       </div>
     );
@@ -98,17 +102,17 @@ export function DataTable<TData>({
 
   return (
     <div className={cn('flex flex-col', className)}>
-      <div className="overflow-auto border rounded-md" style={{ maxHeight }}>
+      <div className="overflow-auto rounded-md border" style={{ maxHeight }}>
         <Table>
-          <TableHeader className="sticky top-0 bg-background z-10">
+          <TableHeader className="sticky top-0 z-10 bg-background">
             <TableRow>
               {columns.map((column) => (
                 <TableHead
-                  key={column.id}
                   className={cn(
                     column.headerClassName,
                     sorting?.enabled && column.sortable && 'cursor-pointer select-none'
                   )}
+                  key={column.id}
                   onClick={() => column.sortable && handleSort(column.id)}
                 >
                   {typeof column.header === 'function'
@@ -132,14 +136,14 @@ export function DataTable<TData>({
                 <React.Fragment key={rowId}>
                   <TableRow>
                     {columns.map((column) => (
-                      <TableCell key={column.id} className={column.className}>
+                      <TableCell className={column.className} key={column.id}>
                         {column.cell({ row, rowIndex: index })}
                       </TableCell>
                     ))}
                   </TableRow>
                   {expandable?.enabled && isExpanded && expandable.renderExpandedContent && (
                     <TableRow>
-                      <TableCell colSpan={columns.length} className="p-0">
+                      <TableCell className="p-0" colSpan={columns.length}>
                         {expandable.renderExpandedContent(row)}
                       </TableCell>
                     </TableRow>
@@ -154,9 +158,9 @@ export function DataTable<TData>({
       {isPaginationEnabled && totalPages > 1 && (
         <TablePagination
           currentPage={currentPage}
-          totalPages={totalPages}
-          totalItems={data.length}
           onPageChange={setCurrentPage}
+          totalItems={data.length}
+          totalPages={totalPages}
         />
       )}
     </div>

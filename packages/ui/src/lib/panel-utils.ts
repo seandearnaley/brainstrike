@@ -1,7 +1,9 @@
 import type { PanelPersistenceState } from '../types/panel';
 
 export const validateAndNormalizeSizes = (sizes: number[]): number[] => {
-  if (!sizes || sizes.length === 0) return [];
+  if (!sizes || sizes.length === 0) {
+    return [];
+  }
 
   const validSizes = sizes.map((size) => {
     const num = typeof size === 'number' && !Number.isNaN(size) ? size : 0;
@@ -21,13 +23,10 @@ export const validateAndNormalizeSizes = (sizes: number[]): number[] => {
   return validSizes;
 };
 
-export const statesEqual = (a: PanelPersistenceState | null, b: PanelPersistenceState): boolean => {
-  return (
-    !!a &&
-    a.sizes.length === b.sizes.length &&
-    a.sizes.every((v, i) => v === b.sizes[i]) &&
-    a.showConsole === b.showConsole &&
-    a.showLeftPanel === b.showLeftPanel &&
-    a.showRightPanel === b.showRightPanel
-  );
-};
+export const statesEqual = (a: PanelPersistenceState | null, b: PanelPersistenceState): boolean =>
+  !!a &&
+  a.sizes.length === b.sizes.length &&
+  a.sizes.every((v, i) => v === b.sizes[i]) &&
+  a.showConsole === b.showConsole &&
+  a.showLeftPanel === b.showLeftPanel &&
+  a.showRightPanel === b.showRightPanel;

@@ -21,7 +21,7 @@ export type EmbeddingStatus = 'pending' | 'processing' | 'complete' | 'failed' |
 /**
  * Collection node data
  */
-export interface CollectionData {
+export type CollectionData = {
   name: string;
   description?: string;
   modelId?: string;
@@ -31,12 +31,12 @@ export interface CollectionData {
   embeddingCount: number;
   createdAt?: Date;
   updatedAt?: Date;
-}
+};
 
 /**
  * File node data
  */
-export interface FileData {
+export type FileData = {
   name: string;
   path: string;
   size: number;
@@ -45,28 +45,28 @@ export interface FileData {
   embeddingStatus: EmbeddingStatus;
   embeddingProgress?: number; // 0-100
   importedAt?: Date;
-}
+};
 
 /**
  * Chunk node data
  */
-export interface ChunkData {
+export type ChunkData = {
   index: number;
   content: string;
   tokenCount: number;
   embeddingStatus: EmbeddingStatus;
   metadata?: Record<string, unknown>;
-}
+};
 
 /**
  * Embedding node data (vector representation)
  */
-export interface EmbeddingData {
+export type EmbeddingData = {
   vectorId: string;
   dimensions: number;
   similarity?: number; // For search results
   metadata?: Record<string, unknown>;
-}
+};
 
 /**
  * Union type for all node data types
@@ -81,7 +81,7 @@ export type CollectionTreeNode = TreeNode<BrowserNodeData>;
 /**
  * Filter state for the collection browser
  */
-export interface CollectionBrowserFilters {
+export type CollectionBrowserFilters = {
   /** Text search query */
   searchQuery: string;
   /** Filter by node type */
@@ -90,7 +90,7 @@ export interface CollectionBrowserFilters {
   embeddingStatus: EmbeddingStatus | 'all';
   /** Only show nodes matching search */
   searchMatchesOnly: boolean;
-}
+};
 
 /**
  * Default filter state
@@ -105,7 +105,7 @@ export const DEFAULT_FILTERS: CollectionBrowserFilters = {
 /**
  * Props for the FilterBar component
  */
-export interface FilterBarProps {
+export type FilterBarProps = {
   /** Current filter state */
   filters: CollectionBrowserFilters;
   /** Callback when filters change */
@@ -122,12 +122,12 @@ export interface FilterBarProps {
   resultCount?: number;
   /** Total number of nodes */
   totalCount?: number;
-}
+};
 
 /**
  * Props for the FilterChip component
  */
-export interface FilterChipProps {
+export type FilterChipProps = {
   /** Label to display */
   label: string;
   /** Whether the chip is active/selected */
@@ -138,18 +138,18 @@ export interface FilterChipProps {
   icon?: React.ReactNode;
   /** Whether the chip is disabled */
   disabled?: boolean;
-}
+};
 
 /**
  * Node type configuration for display
  */
-export interface NodeTypeConfig {
+export type NodeTypeConfig = {
   type: CollectionNodeType;
   label: string;
   pluralLabel: string;
   icon: string; // lucide icon name
   color: string; // Tailwind color class
-}
+};
 
 /**
  * Configuration for each node type
@@ -188,12 +188,12 @@ export const NODE_TYPE_CONFIG: Record<CollectionNodeType, NodeTypeConfig> = {
 /**
  * Embedding status configuration for display
  */
-export interface EmbeddingStatusConfig {
+export type EmbeddingStatusConfig = {
   status: EmbeddingStatus | 'all';
   label: string;
   icon: string;
   color: string;
-}
+};
 
 // ============================================================================
 // SEMANTIC SEARCH TYPES
@@ -212,14 +212,14 @@ export type DistanceMetric = 'cosine' | 'l2' | 'ip';
 /**
  * Configuration for semantic search
  */
-export interface SearchConfig {
+export type SearchConfig = {
   /** Similarity threshold (0.0-1.0, default 0.5) */
   threshold: number;
   /** Maximum number of results (default 20) */
   resultLimit: number;
   /** Distance metric for similarity calculation */
   distanceMetric: DistanceMetric;
-}
+};
 
 /**
  * Default search configuration
@@ -233,7 +233,7 @@ export const DEFAULT_SEARCH_CONFIG: SearchConfig = {
 /**
  * Result from a semantic search operation
  */
-export interface SemanticSearchResult {
+export type SemanticSearchResult = {
   /** Tree node ID (e.g., "chunk-abc123") */
   nodeId: string;
   /** Original chunk ID in the database */
@@ -250,12 +250,12 @@ export interface SemanticSearchResult {
   filePath: string;
   /** Embedding set ID this chunk belongs to */
   embeddingSetId?: string;
-}
+};
 
 /**
  * Props for the SearchModeBar component
  */
-export interface SearchModeBarProps {
+export type SearchModeBarProps = {
   /** Current search mode */
   mode: SearchMode;
   /** Callback when mode changes */
@@ -288,12 +288,12 @@ export interface SearchModeBarProps {
   hasSearched?: boolean;
   /** Custom class name */
   className?: string;
-}
+};
 
 /**
  * Props for the SearchConfigPanel component
  */
-export interface SearchConfigPanelProps {
+export type SearchConfigPanelProps = {
   /** Current search configuration */
   config: SearchConfig;
   /** Callback when configuration changes */
@@ -306,7 +306,7 @@ export interface SearchConfigPanelProps {
   collectionDistanceMetric?: DistanceMetric;
   /** Custom class name */
   className?: string;
-}
+};
 
 /**
  * Configuration for embedding status display

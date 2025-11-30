@@ -34,7 +34,9 @@ export async function readFullFileTree(
   for await (const [name, handle] of directoryHandle.entries()) {
     const currentPath = `${parentPath}/${name}`;
     // Use the local shouldIgnorePath function
-    if (shouldIgnorePath(currentPath)) continue;
+    if (shouldIgnorePath(currentPath)) {
+      continue;
+    }
 
     if (handle.kind === 'file') {
       entries.push({

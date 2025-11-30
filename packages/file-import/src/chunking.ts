@@ -16,7 +16,9 @@ export function getChunkingStrategy(
   filePath: string,
   defaultStrategy?: ChunkingStrategy
 ): ChunkingStrategy {
-  if (defaultStrategy) return defaultStrategy;
+  if (defaultStrategy) {
+    return defaultStrategy;
+  }
 
   const extension = fileExplorer.getFileExtension(filePath);
   const codeExtensions = [
@@ -43,12 +45,12 @@ export function getChunkingStrategy(
   return 'sentence';
 }
 
-interface ChunkingDeps {
+type ChunkingDeps = {
   repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
-}
+};
 
-interface ChunkingOptions {
+type ChunkingOptions = {
   chunkingStrategy?: ChunkingStrategy;
   chunkingStrategyExplicit?: boolean;
   chunkSize?: number;
@@ -74,7 +76,7 @@ interface ChunkingOptions {
   // Phase 5: opt-in streaming for large files
   useStreamingForLargeFiles?: boolean;
   streamBatchSize?: number;
-}
+};
 
 type ChunkingProgressSnapshot = {
   filesProcessed: number;
@@ -130,7 +132,9 @@ function createChunkingProgressScheduler(
   return {
     schedule(snapshot: ChunkingProgressSnapshot) {
       pending = snapshot;
-      if (timer) return;
+      if (timer) {
+        return;
+      }
       timer = setTimeout(() => {
         timer = null;
         if (pending) {
@@ -246,7 +250,7 @@ async function prepareChunkingExecution(
 ): Promise<ChunkingPreparation> {
   const repository = deps.repository;
   const chunkRepository = deps.chunkRepository;
-  if (!repository || !chunkRepository) {
+  if (!(repository && chunkRepository)) {
     const error = 'Repository not available';
     logger.error(error, { fileId: result.id });
     throw new Error(error);
@@ -254,7 +258,7 @@ async function prepareChunkingExecution(
 
   const fallbackStrategy = options.chunkingStrategy ?? 'sentence';
 
-  if ((!result.imported && !result.existed) || result.error) {
+  if (!(result.imported || result.existed) || result.error) {
     logger.debug('Skipping file chunking (not imported or has error)', {
       fileId: result.id,
       imported: result.imported,
@@ -265,7 +269,7 @@ async function prepareChunkingExecution(
   }
 
   const fileRecord = await repository.findById(result.id);
-  if (!fileRecord || !fileRecord.content) {
+  if (!fileRecord?.content) {
     logger.warn('File record not found or has no content', {
       fileId: result.id,
       hasRecord: !!fileRecord,
@@ -619,7 +623,7 @@ export async function processChunking(
   }
 ): Promise<EnhancedImportResult[]> {
   const { repository, chunkRepository } = deps;
-  if (!repository || !chunkRepository) {
+  if (!(repository && chunkRepository)) {
     options.updateProgress((prev) => prev);
     throw new Error('Repository not available for chunking');
   }

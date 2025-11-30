@@ -13,7 +13,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: [],
-    testTimeout: 15000, // UI component tests with async operations
+    testTimeout: 15_000, // UI component tests with async operations
     pool: 'threads',
     // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
     maxWorkers: 4,

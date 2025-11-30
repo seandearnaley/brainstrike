@@ -59,9 +59,9 @@ type EmbeddingQueueContextValue = {
 
 const EmbeddingQueueContext = createContext<EmbeddingQueueContextValue | null>(null);
 
-export interface EmbeddingQueueProviderProps {
+export type EmbeddingQueueProviderProps = {
   readonly adapter?: QueueAdapter;
-}
+};
 
 export function EmbeddingQueueProvider({
   children,
@@ -184,9 +184,7 @@ export function EmbeddingQueueProvider({
           throw error;
         }
       },
-      addBulk: async (tasks, opts) => {
-        return Promise.all(tasks.map((task) => wrapped.add(task, opts)));
-      },
+      addBulk: async (tasks, opts) => Promise.all(tasks.map((task) => wrapped.add(task, opts))),
       onProgress(listener) {
         listeners.add(listener);
         return () => listeners.delete(listener);
@@ -208,14 +206,15 @@ export function EmbeddingQueueProvider({
     };
   }, [recordEnqueue, recordFailure, recordProgress, recordSuccess, updateMetrics]);
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       telemetryAggregatorRef.current?.dispose();
-    };
-  }, []);
+    },
+    []
+  );
 
   useEffect(() => {
-    if (!canUseTelemetry || !telemetryAggregatorRef.current) {
+    if (!(canUseTelemetry && telemetryAggregatorRef.current)) {
       return () => {};
     }
     const unsubscribeTelemetry = addQueueTelemetryListener(() => {

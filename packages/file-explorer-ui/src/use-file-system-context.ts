@@ -49,7 +49,9 @@ async function selectDirectoryWithErrorMapping(
   coreApi: ReturnType<typeof useCoreFileSystem>
 ): Promise<DirectoryHandle | null> {
   const { supported, reason } = coreApi.isFileSystemAccessSupported();
-  if (!supported) throw new Error(reason);
+  if (!supported) {
+    throw new Error(reason);
+  }
   try {
     return await coreApi.selectRootDirectory();
   } catch (error) {
@@ -72,9 +74,7 @@ export function useFileSystem() {
   const isFileSystemAccessSupported = (): {
     supported: boolean;
     reason: string;
-  } => {
-    return coreApi.isFileSystemAccessSupported();
-  };
+  } => coreApi.isFileSystemAccessSupported();
 
   const selectRootDirectory = async (): Promise<DirectoryHandle | null> => {
     const handle = await selectDirectoryWithErrorMapping(coreApi);

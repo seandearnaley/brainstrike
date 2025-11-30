@@ -152,9 +152,9 @@ test.describe('Performance: Tree Rendering', () => {
     const explorer = new FileExplorerPage(page);
 
     // Monitor memory usage
-    const initialMemory = await page.evaluate(() => {
-      return (performance as any).memory?.usedJSHeapSize || 0;
-    });
+    const initialMemory = await page.evaluate(
+      () => (performance as any).memory?.usedJSHeapSize || 0
+    );
 
     // Set performance mark before any actions
     await page.evaluate(() => {
@@ -187,9 +187,7 @@ test.describe('Performance: Tree Rendering', () => {
       }
     });
 
-    const finalMemory = await page.evaluate(() => {
-      return (performance as any).memory?.usedJSHeapSize || 0;
-    });
+    const finalMemory = await page.evaluate(() => (performance as any).memory?.usedJSHeapSize || 0);
 
     const memoryIncrease = finalMemory - initialMemory;
 

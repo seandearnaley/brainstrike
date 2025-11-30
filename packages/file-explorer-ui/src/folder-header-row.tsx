@@ -3,17 +3,17 @@ import { getFolderColor } from '@brainstrike/utils';
 import { ArrowDown, ArrowUp, Folder } from 'lucide-react';
 import { memo } from 'react';
 
-export interface FolderHeaderItem {
+export type FolderHeaderItem = {
   folderId: string;
   fileCount: number;
   totalTokens: number;
-}
+};
 
-export interface FolderHeaderRowProps {
+export type FolderHeaderRowProps = {
   item: FolderHeaderItem;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
-}
+};
 
 export const FolderHeaderRow = memo<FolderHeaderRowProps>(function FolderHeaderRow({
   item,
@@ -24,11 +24,11 @@ export const FolderHeaderRow = memo<FolderHeaderRowProps>(function FolderHeaderR
 
   return (
     <button
-      type="button"
-      className="w-full h-full flex items-center gap-3 px-4 py-3 text-left hover:opacity-80 transition-opacity"
-      style={{ backgroundColor: colors.light.bg, color: colors.light.text }}
-      onClick={onToggleCollapse}
+      className="flex h-full w-full items-center gap-3 px-4 py-3 text-left transition-opacity hover:opacity-80"
       data-folder-id={item.folderId}
+      onClick={onToggleCollapse}
+      style={{ backgroundColor: colors.light.bg, color: colors.light.text }}
+      type="button"
     >
       <style>{`
           :global(.dark) [data-folder-id="${item.folderId}"] {
@@ -44,7 +44,7 @@ export const FolderHeaderRow = memo<FolderHeaderRowProps>(function FolderHeaderR
       <div className="flex items-center gap-2 text-xs opacity-80">
         <span>{item.fileCount} files</span>
         {item.totalTokens > 0 && (
-          <Badge variant="secondary" className="text-xs">
+          <Badge className="text-xs" variant="secondary">
             {item.totalTokens.toLocaleString()}
           </Badge>
         )}

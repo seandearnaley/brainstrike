@@ -16,8 +16,16 @@ describe('ConfigDialogContent apply settings', () => {
       <Dialog open>
         <ConfigDialogContent
           filterError="test"
-          onFilterChange={onFilterChange}
+          inlineFixtureSetting={{ available: true, loading: false }}
           onClose={onClose}
+          onFilterChange={onFilterChange}
+          onSettingsChange={onSettingsChange}
+          persistPatch={persistPatch}
+          setDevInlineFixtureEnabled={vi.fn()}
+          setFilters={vi.fn()}
+          setFolderSummaryThreshold={vi.fn()}
+          setIncludeProjectTree={vi.fn()}
+          setMaxSelectionCount={vi.fn()}
           settings={{
             includeFilters: [],
             excludeFilters: [],
@@ -27,15 +35,7 @@ describe('ConfigDialogContent apply settings', () => {
             folderSummaryThreshold: 5,
             devInlineFixtureEnabled: false,
           }}
-          onSettingsChange={onSettingsChange}
-          setMaxSelectionCount={vi.fn()}
           setUseRegex={vi.fn()}
-          setFilters={vi.fn()}
-          setIncludeProjectTree={vi.fn()}
-          setFolderSummaryThreshold={vi.fn()}
-          persistPatch={persistPatch}
-          setDevInlineFixtureEnabled={vi.fn()}
-          inlineFixtureSetting={{ available: true, loading: false }}
         />
       </Dialog>
     );

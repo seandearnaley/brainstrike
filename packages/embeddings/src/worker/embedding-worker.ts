@@ -225,19 +225,27 @@ function isElectronMainProcess(): boolean {
 function readBooleanEnv(key: string): boolean | undefined {
   try {
     const raw = (process as { env?: Record<string, string | undefined> } | undefined)?.env?.[key];
-    if (raw === undefined) return undefined;
+    if (raw === undefined) {
+      return;
+    }
     const normalized = raw.trim().toLowerCase();
-    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
-    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
-    return undefined;
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'no', 'off'].includes(normalized)) {
+      return false;
+    }
+    return;
   } catch (error) {
     workerLogger.debug('Failed to read boolean env flag', { key, error });
-    return undefined;
+    return;
   }
 }
 
 function ensureLocalRuntime(modelResolution: { provider: EmbeddingProviderType }): void {
-  if (modelResolution.provider !== 'local') return;
+  if (modelResolution.provider !== 'local') {
+    return;
+  }
 
   const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
 
@@ -434,7 +442,9 @@ async function initializeEmbeddingService(
       size: 'unknown',
     };
   }
-  if (!modelConfig) throw new Error(`Model config not found for key: ${modelKey}`);
+  if (!modelConfig) {
+    throw new Error(`Model config not found for key: ${modelKey}`);
+  }
 
   return { service, modelConfig };
 }
@@ -639,7 +649,7 @@ export async function startEmbeddingWorker(
   }
 
   async function generateLocalEmbeddings(
-    chunks: Array<NonNullable<Awaited<ReturnType<typeof loadChunk>>>>,
+    chunks: NonNullable<Awaited<ReturnType<typeof loadChunk>>>[],
     expectedDimension: number
   ): Promise<EmbeddingResult[]> {
     if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
@@ -844,10 +854,14 @@ export async function startEmbeddingWorker(
   }
 
   function summarizeErrorMessage(message: string, limit = 4000): string {
-    if (message.length <= limit) return message;
+    if (message.length <= limit) {
+      return message;
+    }
     const separator = ' ...[truncated]... ';
     const available = limit - separator.length;
-    if (available <= 0) return message.slice(0, limit);
+    if (available <= 0) {
+      return message.slice(0, limit);
+    }
 
     const head = Math.floor(available / 2);
     const tail = available - head;
@@ -999,7 +1013,7 @@ export async function startEmbeddingWorker(
 
     const candidateComposite = (() => {
       if (!rawModelKey) {
-        return undefined;
+        return;
       }
       const parsed = parseProviderModelKey(rawModelKey);
       if (parsed) {
@@ -1034,7 +1048,9 @@ export async function startEmbeddingWorker(
     return setInterval(() => {
       Promise.all(
         jobs.map(async (job) => {
-          if (lostJobs.has(job.id)) return;
+          if (lostJobs.has(job.id)) {
+            return;
+          }
           const res = await jq.heartbeat({
             id: job.id,
             leaseToken: job.lease_token,
@@ -1059,19 +1075,27 @@ export async function startEmbeddingWorker(
     const completedJobIds = new Set<string>(completed.map((item) => item.job.id));
 
     try {
-      if (checkLease()) throw new Error('Lease lost during processing');
+      if (checkLease()) {
+        throw new Error('Lease lost during processing');
+      }
 
       await markAlreadyCompleted(completed, completedJobIds);
 
-      if (toProcess.length === 0) return;
+      if (toProcess.length === 0) {
+        return;
+      }
 
       const expectedDimension = await validateBatchDimensions(toProcess);
 
-      if (checkLease()) throw new Error('Lease lost during processing');
+      if (checkLease()) {
+        throw new Error('Lease lost during processing');
+      }
 
       const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
 
-      if (checkLease()) throw new Error('Lease lost during processing');
+      if (checkLease()) {
+        throw new Error('Lease lost during processing');
+      }
 
       const newlyCompleted = await completeBatch(toProcess, embeddings, jobModel);
       for (const id of newlyCompleted) {
@@ -1093,7 +1117,9 @@ export async function startEmbeddingWorker(
     completed: Array<{ job: ClaimedJob }>,
     completedJobIds: Set<string>
   ) {
-    if (completed.length === 0) return;
+    if (completed.length === 0) {
+      return;
+    }
     await Promise.all(
       completed.map((item) => jq.complete({ id: item.job.id, leaseToken: item.job.lease_token }))
     );
@@ -1105,7 +1131,9 @@ export async function startEmbeddingWorker(
   }
 
   async function maybeReinitialize() {
-    if (processedSinceInit < reinitEveryN) return;
+    if (processedSinceInit < reinitEveryN) {
+      return;
+    }
     workerLogger.info(
       `Processed ${processedSinceInit} jobs; performing scheduled reinitialization.`
     );
@@ -1116,7 +1144,9 @@ export async function startEmbeddingWorker(
     jobs: ClaimedJob[]
   ): Promise<ReturnType<typeof resolveJobModel> | null> {
     const firstJob = jobs[0];
-    if (!firstJob) return null;
+    if (!firstJob) {
+      return null;
+    }
     try {
       const payload = assertEmbedChunkJob(firstJob);
       return resolveJobModel(payload);
@@ -1141,7 +1171,9 @@ export async function startEmbeddingWorker(
     return {
       checkLease,
       dispose: () => {
-        if (hb) clearInterval(hb);
+        if (hb) {
+          clearInterval(hb);
+        }
       },
     };
   }
@@ -1166,10 +1198,14 @@ export async function startEmbeddingWorker(
     jobs: ClaimedJob[],
     checkLeaseOverride?: () => boolean
   ): Promise<void> {
-    if (jobs.length === 0) return;
+    if (jobs.length === 0) {
+      return;
+    }
 
     const jobModel = await resolveJobModelOrFail(jobs);
-    if (!jobModel) return;
+    if (!jobModel) {
+      return;
+    }
 
     const lease = createLeaseTracker(jobs, checkLeaseOverride);
 
@@ -1189,7 +1225,9 @@ export async function startEmbeddingWorker(
         const payload = assertEmbedChunkJob(job);
         const model = resolveJobModel(payload);
         const key = `${model.provider}:${model.compositeKey}`;
-        if (!groups.has(key)) groups.set(key, []);
+        if (!groups.has(key)) {
+          groups.set(key, []);
+        }
         groups.get(key)?.push(job);
       } catch (err) {
         // If we can't parse job/model, fail it immediately
@@ -1278,11 +1316,13 @@ export async function startEmbeddingWorker(
       (globalThis as { process?: { env?: Record<string, string | undefined> } })?.process?.env?.[
         'WORKER_METRICS_INTERVAL_MS'
       ] ??
-      30000
+      30_000
   );
   const metricsTimer = setInterval(
     () => {
-      if (!running) return;
+      if (!running) {
+        return;
+      }
       const uptimeMs = Date.now() - metrics.startedAt;
       const avgMs = metrics.jobsProcessed > 0 ? metrics.totalDurationMs / metrics.jobsProcessed : 0;
       log('worker_metrics', {

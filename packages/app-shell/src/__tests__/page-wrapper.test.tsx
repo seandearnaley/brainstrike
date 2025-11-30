@@ -17,7 +17,7 @@ describe('PageWrapper', () => {
 
   it('renders description when provided', () => {
     render(
-      <PageWrapper title="With Description" description="Desc">
+      <PageWrapper description="Desc" title="With Description">
         <span />
       </PageWrapper>
     );
@@ -27,7 +27,7 @@ describe('PageWrapper', () => {
 
   it('applies custom className', () => {
     const { container } = render(
-      <PageWrapper title="Class" className="extra">
+      <PageWrapper className="extra" title="Class">
         <span />
       </PageWrapper>
     );

@@ -12,7 +12,7 @@ describe('formatFileSize', () => {
     expect(formatFileSize(1024)).toBe('1.0 KB');
     expect(formatFileSize(2048)).toBe('2.0 KB');
     expect(formatFileSize(1536)).toBe('1.5 KB');
-    expect(formatFileSize(10240)).toBe('10.0 KB');
+    expect(formatFileSize(10_240)).toBe('10.0 KB');
   });
 
   it('should format megabytes correctly', () => {

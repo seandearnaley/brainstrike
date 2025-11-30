@@ -96,7 +96,7 @@ describe('ImportProgress', () => {
 
   it('renders close button when onClose is provided', () => {
     const onClose = vi.fn();
-    render(<ImportProgress progress={createProgress()} onClose={onClose} />);
+    render(<ImportProgress onClose={onClose} progress={createProgress()} />);
 
     const closeButton = screen.getByRole('button');
     expect(closeButton).toBeInTheDocument();
@@ -113,7 +113,7 @@ describe('ImportProgress', () => {
 
   it('calls onClose when close button is clicked', () => {
     const onClose = vi.fn();
-    render(<ImportProgress progress={createProgress()} onClose={onClose} />);
+    render(<ImportProgress onClose={onClose} progress={createProgress()} />);
 
     const closeButton = screen.getByRole('button');
     fireEvent.click(closeButton);

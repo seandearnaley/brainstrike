@@ -61,12 +61,16 @@ describe('TabbedFileEditor', () => {
       },
     ];
     mockProps.decodeFileSelection.mockImplementation((key) => {
-      if (key === 'file1') return { folderId: 'f', path: '/src/index.ts' };
-      if (key === 'file2') return { folderId: 'f', path: '/src/components/Button.tsx' };
+      if (key === 'file1') {
+        return { folderId: 'f', path: '/src/index.ts' };
+      }
+      if (key === 'file2') {
+        return { folderId: 'f', path: '/src/components/Button.tsx' };
+      }
       return { folderId: 'f', path: 'unknown' };
     });
 
-    render(<TabbedFileEditor {...mockProps} tabs={tabs} activeTabId="root:file1" />);
+    render(<TabbedFileEditor {...mockProps} activeTabId="root:file1" tabs={tabs} />);
 
     const tab1 = screen.getByRole('tab', { name: 'index.ts' });
     const tab2 = screen.getByRole('tab', { name: 'Button.tsx' });
@@ -97,12 +101,16 @@ describe('TabbedFileEditor', () => {
       },
     ];
     mockProps.decodeFileSelection.mockImplementation((key) => {
-      if (key === 'file1') return { folderId: 'f', path: '/src/index.ts' };
-      if (key === 'file2') return { folderId: 'f', path: '/src/app.ts' };
+      if (key === 'file1') {
+        return { folderId: 'f', path: '/src/index.ts' };
+      }
+      if (key === 'file2') {
+        return { folderId: 'f', path: '/src/app.ts' };
+      }
       return { folderId: 'f', path: 'unknown' };
     });
 
-    render(<TabbedFileEditor {...mockProps} tabs={tabs} activeTabId="root:file1" />);
+    render(<TabbedFileEditor {...mockProps} activeTabId="root:file1" tabs={tabs} />);
 
     const panel1 = screen.getByRole('tabpanel', { name: 'index.ts' });
     const panel2 = document.getElementById('panel-root:file2') as HTMLElement;
@@ -134,12 +142,16 @@ describe('TabbedFileEditor', () => {
       },
     ];
     mockProps.decodeFileSelection.mockImplementation((key) => {
-      if (key === 'file1') return { folderId: 'f', path: '/src/index.ts' };
-      if (key === 'file2') return { folderId: 'f', path: '/src/app.ts' };
+      if (key === 'file1') {
+        return { folderId: 'f', path: '/src/index.ts' };
+      }
+      if (key === 'file2') {
+        return { folderId: 'f', path: '/src/app.ts' };
+      }
       return { folderId: 'f', path: 'unknown' };
     });
 
-    render(<TabbedFileEditor {...mockProps} tabs={tabs} activeTabId="root:file1" />);
+    render(<TabbedFileEditor {...mockProps} activeTabId="root:file1" tabs={tabs} />);
 
     const activeTab = screen.getByRole('tab', { name: 'index.ts', selected: true });
     // The active tab's direct container has a border class that makes it visually distinct
@@ -165,12 +177,16 @@ describe('TabbedFileEditor', () => {
       },
     ];
     mockProps.decodeFileSelection.mockImplementation((key) => {
-      if (key === 'file1') return { folderId: 'f', path: '/src/index.ts' };
-      if (key === 'file2') return { folderId: 'f', path: '/src/app.ts' };
+      if (key === 'file1') {
+        return { folderId: 'f', path: '/src/index.ts' };
+      }
+      if (key === 'file2') {
+        return { folderId: 'f', path: '/src/app.ts' };
+      }
       return { folderId: 'f', path: 'unknown' };
     });
 
-    render(<TabbedFileEditor {...mockProps} tabs={tabs} activeTabId="root:file1" />);
+    render(<TabbedFileEditor {...mockProps} activeTabId="root:file1" tabs={tabs} />);
 
     const tab2 = screen.getByRole('tab', { name: 'app.ts' });
     await user.click(tab2);
@@ -190,11 +206,13 @@ describe('TabbedFileEditor', () => {
       },
     ];
     mockProps.decodeFileSelection.mockImplementation((key) => {
-      if (key === 'file1') return { folderId: 'f', path: '/src/index.ts' };
+      if (key === 'file1') {
+        return { folderId: 'f', path: '/src/index.ts' };
+      }
       return { folderId: 'f', path: 'unknown' };
     });
 
-    render(<TabbedFileEditor {...mockProps} tabs={tabs} activeTabId="root:file1" />);
+    render(<TabbedFileEditor {...mockProps} activeTabId="root:file1" tabs={tabs} />);
 
     const closeButton = screen.getByTitle('Close index.ts');
     await user.click(closeButton);
@@ -213,16 +231,18 @@ describe('TabbedFileEditor', () => {
       },
     ];
     mockProps.decodeFileSelection.mockImplementation((key) => {
-      if (key === 'file1') return { folderId: 'f', path: '/src/index.ts' };
+      if (key === 'file1') {
+        return { folderId: 'f', path: '/src/index.ts' };
+      }
       return { folderId: 'f', path: 'unknown' };
     });
 
     render(
       <TabbedFileEditor
         {...mockProps}
-        tabs={tabs}
         activeTabId="root:file1"
         loadingFiles={new Set(['file1'])}
+        tabs={tabs}
       />
     );
 
@@ -245,7 +265,9 @@ describe('TabbedFileEditor', () => {
       },
     ];
     mockProps.decodeFileSelection.mockImplementation((key) => {
-      if (key === 'file1') return { folderId: 'f', path: '/src/index.ts' };
+      if (key === 'file1') {
+        return { folderId: 'f', path: '/src/index.ts' };
+      }
       return { folderId: 'f', path: 'unknown' };
     });
     const fileContents = {
@@ -255,9 +277,9 @@ describe('TabbedFileEditor', () => {
     render(
       <TabbedFileEditor
         {...mockProps}
-        tabs={tabs}
         activeTabId="root:file1"
         fileContents={fileContents}
+        tabs={tabs}
       />
     );
 
@@ -285,9 +307,9 @@ describe('TabbedFileEditor', () => {
     render(
       <TabbedFileEditor
         {...mockProps}
-        tabs={tabs}
         activeTabId="root:file1"
         fileContents={fileContents}
+        tabs={tabs}
       />
     );
 
@@ -315,12 +337,12 @@ describe('TabbedFileEditor', () => {
     mockProps.decodeFileSelection.mockImplementation((_key) => ({ folderId: 'f', path: 'p' }));
 
     const { rerender } = render(
-      <TabbedFileEditor {...mockProps} tabs={tabs} activeTabId="root:file1" />
+      <TabbedFileEditor {...mockProps} activeTabId="root:file1" tabs={tabs} />
     );
     expect(mockProps.onLoadFileContent).toHaveBeenCalledWith('file1');
 
     // Change active tab to file2
-    rerender(<TabbedFileEditor {...mockProps} tabs={tabs} activeTabId="root:file2" />);
+    rerender(<TabbedFileEditor {...mockProps} activeTabId="root:file2" tabs={tabs} />);
 
     expect(mockProps.onLoadFileContent).toHaveBeenCalledWith('file2');
   });
@@ -340,9 +362,9 @@ describe('TabbedFileEditor', () => {
     render(
       <TabbedFileEditor
         {...mockProps}
-        tabs={tabs}
         activeTabId="root:file1"
         loadingFiles={new Set(['file1'])}
+        tabs={tabs}
       />
     );
 
@@ -368,9 +390,9 @@ describe('TabbedFileEditor', () => {
     render(
       <TabbedFileEditor
         {...mockProps}
-        tabs={tabs}
         activeTabId="root:file1"
         fileContents={fileContents}
+        tabs={tabs}
       />
     );
 
@@ -391,7 +413,7 @@ describe('TabbedFileEditor', () => {
     ];
     mockProps.decodeFileSelection.mockImplementation((_key) => ({ folderId: 'f', path: longPath }));
 
-    render(<TabbedFileEditor {...mockProps} tabs={tabs} activeTabId="root:file1" />);
+    render(<TabbedFileEditor {...mockProps} activeTabId="root:file1" tabs={tabs} />);
 
     const tabButton = screen.getByRole('tab', { name: 'ComponentWithReallyLongName.tsx' });
     expect(tabButton.querySelector('span')).toHaveClass('truncate');

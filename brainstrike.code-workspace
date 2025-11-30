@@ -1,15 +1,15 @@
 {
-	"folders": [
-		{
-			"path": "."
-		}
-	],
-	"settings": {
-		"biome.lspBin": "node_modules/@biomejs/biome/bin/biome",
-		"typescript.tsdk": "node_modules/typescript/lib",
-		"typescript.preferences.includePackageJsonAutoImports": "on",
-		"typescript.enablePromptUseWorkspaceTsdk": true,
-		"typescript.workspaceSymbols.scope": "allOpenProjects",
-		"vitest.maximumConfigs": 50
-	}
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "biome.lspBin": "node_modules/@biomejs/biome/bin/biome",
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "typescript.preferences.includePackageJsonAutoImports": "on",
+    "typescript.enablePromptUseWorkspaceTsdk": true,
+    "typescript.workspaceSymbols.scope": "allOpenProjects",
+    "vitest.maximumConfigs": 50
+  }
 }

@@ -9,7 +9,7 @@ const logger = createLogger('useFileCollectionStatus');
  * Database row returned by file status query
  * Uses snake_case to match database column naming
  */
-interface FileStatusRow {
+type FileStatusRow = {
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   file_id: string;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
@@ -24,13 +24,15 @@ interface FileStatusRow {
   other_collections: string | number;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   last_indexed: string | null;
-}
+};
 
 /**
  * Type guard to validate database row has required fields
  */
 function isValidFileStatusRow(row: unknown): row is FileStatusRow {
-  if (typeof row !== 'object' || row === null) return false;
+  if (typeof row !== 'object' || row === null) {
+    return false;
+  }
 
   const r = row as Record<string, unknown>;
   return (

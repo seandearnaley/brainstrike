@@ -45,7 +45,9 @@ async function flushMicrotasks(times = 5): Promise<void> {
 async function waitForPersist(storage: MemoryStorageAdapter): Promise<void> {
   const key = 'file-explorer-storage-v4';
   for (let i = 0; i < 50; i++) {
-    if (storage.getSize() > 0 || storage.has(key)) return;
+    if (storage.getSize() > 0 || storage.has(key)) {
+      return;
+    }
     await flushMicrotasks(1);
   }
 }
@@ -86,7 +88,9 @@ describe('Adapter Integration', () => {
       await hydrationFinished;
 
       const newState = newStore.getState();
-      if (isDev) expect(newState.currentFolderId).toBe('test-folder');
+      if (isDev) {
+        expect(newState.currentFolderId).toBe('test-folder');
+      }
       expect(newState.selectedFilePaths).toBeInstanceOf(Set);
       expect(newState.expandedDirectoryPaths).toBeInstanceOf(Set);
       expect(newState.selectedFilePaths.has('test-folder|@|test-file.txt')).toBe(true);

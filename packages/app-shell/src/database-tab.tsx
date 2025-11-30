@@ -5,13 +5,13 @@ const DatabaseTabChunk = lazy(async () => ({
   default: (await import('./database-tab-chunk')).DatabaseTab,
 }));
 
-interface DatabaseTabProps {
+type DatabaseTabProps = {
   readonly embeddingQueue?: QueueAdapter | null;
-}
+};
 
 export function DatabaseTab({ embeddingQueue = null }: DatabaseTabProps): ReactElement {
   return (
-    <React.Suspense fallback={<div className="text-xs opacity-70 px-2">Loading DB UI…</div>}>
+    <React.Suspense fallback={<div className="px-2 text-xs opacity-70">Loading DB UI…</div>}>
       <DatabaseTabChunk embeddingQueue={embeddingQueue} />
     </React.Suspense>
   );

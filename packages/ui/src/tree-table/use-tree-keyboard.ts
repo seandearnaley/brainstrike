@@ -24,7 +24,7 @@ import type {
 /**
  * Options for the useTreeKeyboard hook.
  */
-export interface UseTreeKeyboardOptions<T> {
+export type UseTreeKeyboardOptions<T> = {
   /** Flattened rows for navigation */
   rows: FlattenedRow<T>[];
   /** All tree nodes (for parent/child lookup) */
@@ -49,7 +49,7 @@ export interface UseTreeKeyboardOptions<T> {
   isTableFocused?: boolean;
   /** Callback when a node should be scrolled into view */
   onScrollToNode?: (nodeId: string) => void;
-}
+};
 
 /**
  * useTreeKeyboard provides full keyboard navigation for TreeTable.
@@ -127,33 +127,41 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   }, [rows, focusedId, onScrollToNode]);
 
   const expandOrMoveRight = React.useCallback(() => {
-    if (!focusedId) return;
+    if (!focusedId) {
+      return;
+    }
 
     const row = rows.find((r) => r.node.id === focusedId);
-    if (!row) return;
+    if (!row) {
+      return;
+    }
 
     const { node, isExpanded } = row;
 
     if (node.hasChildren) {
-      if (!isExpanded) {
-        // Expand the node
-        onToggleExpand(node.id);
-      } else {
+      if (isExpanded) {
         // Already expanded, move to first child
         const firstChildId = getFirstChildNodeId(node, getChildren);
         if (firstChildId) {
           setFocusedId(firstChildId);
           onScrollToNode?.(firstChildId);
         }
+      } else {
+        // Expand the node
+        onToggleExpand(node.id);
       }
     }
   }, [focusedId, rows, onToggleExpand, getChildren, onScrollToNode]);
 
   const collapseOrMoveLeft = React.useCallback(() => {
-    if (!focusedId) return;
+    if (!focusedId) {
+      return;
+    }
 
     const row = rows.find((r) => r.node.id === focusedId);
-    if (!row) return;
+    if (!row) {
+      return;
+    }
 
     const { node, isExpanded } = row;
 
@@ -171,7 +179,9 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   }, [focusedId, rows, nodes, onToggleExpand, getChildren, onScrollToNode]);
 
   const selectFocused = React.useCallback(() => {
-    if (!focusedId || selectionMode === 'none') return;
+    if (!focusedId || selectionMode === 'none') {
+      return;
+    }
 
     if (selectionMode === 'single') {
       onSelect?.(focusedId);
@@ -183,7 +193,9 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   }, [focusedId, selectionMode, onSelect, onMultiSelectChange]);
 
   const toggleFocused = React.useCallback(() => {
-    if (!focusedId || selectionMode !== 'multi') return;
+    if (!focusedId || selectionMode !== 'multi') {
+      return;
+    }
 
     const newSelection = new Set(multiSelectedIds);
     if (newSelection.has(focusedId)) {
@@ -211,10 +223,14 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
   // Extend selection (for Shift+Arrow)
   const extendSelection = React.useCallback(
     (direction: 'up' | 'down') => {
-      if (selectionMode !== 'multi' || !focusedId) return;
+      if (selectionMode !== 'multi' || !focusedId) {
+        return;
+      }
 
       const nextId = getNextVisibleNodeId(rows, focusedId, direction);
-      if (!nextId) return;
+      if (!nextId) {
+        return;
+      }
 
       // If no anchor, set current as anchor
       if (!rangeAnchorRef.current) {
@@ -234,7 +250,9 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
 
   // Select all visible
   const selectAll = React.useCallback(() => {
-    if (selectionMode !== 'multi') return;
+    if (selectionMode !== 'multi') {
+      return;
+    }
 
     const allIds = new Set(rows.map((r) => r.node.id));
     onMultiSelectChange?.(allIds);
@@ -264,7 +282,7 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
 
   const jumpToLast = React.useCallback(() => {
     if (rows.length > 0) {
-      const lastRow = rows[rows.length - 1];
+      const lastRow = rows.at(-1);
       if (lastRow) {
         const lastId = lastRow.node.id;
         setFocusedId(lastId);
@@ -301,7 +319,9 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     setIsActive(true);
     if (!focusedId && rows.length > 0) {
       const firstRow = rows[0];
-      if (firstRow) setFocusedId(firstRow.node.id);
+      if (firstRow) {
+        setFocusedId(firstRow.node.id);
+      }
     }
   }, [focusedId, rows]);
 

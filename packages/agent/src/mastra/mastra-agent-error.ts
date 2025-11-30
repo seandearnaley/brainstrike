@@ -6,11 +6,11 @@ export type MastraAgentErrorCode =
   | 'mastra_agent_unsupported_provider'
   | 'mcp_tool_discovery_timeout';
 
-export interface MastraAgentErrorOptions {
+export type MastraAgentErrorOptions = {
   readonly detail?: string;
   readonly cause?: unknown;
   readonly context?: Record<string, unknown>;
-}
+};
 
 export class MastraAgentError extends Error {
   readonly code: MastraAgentErrorCode;

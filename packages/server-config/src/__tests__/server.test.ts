@@ -40,7 +40,7 @@ describe('server configuration', () => {
     expect(Array.isArray(ports)).toBe(true);
     expect(ports.length).toBeGreaterThan(0);
     expect(ports[0]).toBe(PORT_RANGE.start);
-    expect(ports[ports.length - 1]).toBe(PORT_RANGE.end);
+    expect(ports.at(-1)).toBe(PORT_RANGE.end);
   });
 
   test('getWebPortsToCheck should return array of web ports', () => {
@@ -48,7 +48,7 @@ describe('server configuration', () => {
     expect(Array.isArray(ports)).toBe(true);
     expect(ports.length).toBe(WEB_PORT_RANGE.end - WEB_PORT_RANGE.start + 1);
     expect(ports[0]).toBe(WEB_PORT_RANGE.start);
-    expect(ports[ports.length - 1]).toBe(WEB_PORT_RANGE.end);
+    expect(ports.at(-1)).toBe(WEB_PORT_RANGE.end);
   });
 
   test('getDesktopPortsToCheck should return array of desktop ports', () => {
@@ -56,7 +56,7 @@ describe('server configuration', () => {
     expect(Array.isArray(ports)).toBe(true);
     expect(ports.length).toBe(DESKTOP_PORT_RANGE.end - DESKTOP_PORT_RANGE.start + 1);
     expect(ports[0]).toBe(DESKTOP_PORT_RANGE.start);
-    expect(ports[ports.length - 1]).toBe(DESKTOP_PORT_RANGE.end);
+    expect(ports.at(-1)).toBe(DESKTOP_PORT_RANGE.end);
   });
 
   test('getWebBaseUrl should return correct URL format', () => {

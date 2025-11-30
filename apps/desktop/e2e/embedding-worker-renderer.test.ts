@@ -146,7 +146,7 @@ test.describe('Embedding Worker in Renderer', () => {
   }
 
   test.beforeAll(async ({ electron }) => {
-    test.setTimeout(150000);
+    test.setTimeout(150_000);
     const { window } = await electron.ensureContext();
     const activeWindow = await showDatabaseDemoPanel(window);
     await waitForDatabaseReady(activeWindow);

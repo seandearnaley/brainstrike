@@ -21,7 +21,7 @@ export default defineConfig({
     pool: 'threads',
     // Keep isolation to avoid cross-file state until a deeper audit completes
     isolate: true,
-    testTimeout: 30000,
+    testTimeout: 30_000,
   } as InlineConfig,
   resolve: {
     alias: {

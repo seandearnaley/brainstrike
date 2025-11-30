@@ -44,7 +44,7 @@ describe('FolderBadge', () => {
   });
 
   test('applies custom className when provided', () => {
-    render(<FolderBadge folderId="test-folder" className="custom-class" />);
+    render(<FolderBadge className="custom-class" folderId="test-folder" />);
 
     // Since .closest() might not work as expected in JSDOM, let's check directly
     const badgeElement = screen.getByText('test-folder').parentElement;

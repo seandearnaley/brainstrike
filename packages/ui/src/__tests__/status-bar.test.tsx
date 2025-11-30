@@ -62,8 +62,8 @@ describe('StatusBar', () => {
     it('renders with all slots filled', () => {
       const { container } = render(
         <StatusBar
-          leftContent={<span>Left</span>}
           centerContent={<span>Center</span>}
+          leftContent={<span>Left</span>}
           rightContent={<span>Right</span>}
         />
       );

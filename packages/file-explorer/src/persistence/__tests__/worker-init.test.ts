@@ -30,17 +30,23 @@ describe('worker-init', () => {
 
   afterEach(() => {
     // Restore globals
-    if (originalWindow) global.window = originalWindow;
-    // biome-ignore lint/suspicious/noExplicitAny: cleaning up global mock
-    else (global as any).window = undefined;
+    if (originalWindow) {
+      global.window = originalWindow;
+    } else {
+      (global as any).window = undefined;
+    }
 
-    if (originalNavigator) global.navigator = originalNavigator;
-    // biome-ignore lint/suspicious/noExplicitAny: cleaning up global mock
-    else (global as any).navigator = undefined;
+    if (originalNavigator) {
+      global.navigator = originalNavigator;
+    } else {
+      (global as any).navigator = undefined;
+    }
 
-    if (originalProcess) global.process = originalProcess;
-    // biome-ignore lint/suspicious/noExplicitAny: cleaning up global mock
-    else (global as any).process = undefined;
+    if (originalProcess) {
+      global.process = originalProcess;
+    } else {
+      (global as any).process = undefined;
+    }
   });
 
   it('initializes worker in browser environment when not test/headless/electron', () => {

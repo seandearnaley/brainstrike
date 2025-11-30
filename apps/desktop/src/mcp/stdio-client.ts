@@ -24,7 +24,9 @@ export function createFilesystemClientFromStdio(
     transport: 'stdio',
     dispose: async () => {
       try {
-        if (child) child.kill();
+        if (child) {
+          child.kill();
+        }
       } catch {}
     },
     async callTool(

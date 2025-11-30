@@ -1,9 +1,11 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.3.8/schema.json",
+  "extends": ["ultracite/core", "ultracite/react"],
   "files": {
+    "ignoreUnknown": true,
     "includes": [
-      "apps/**/src/**/*",
-      "packages/**/src/**/*",
+      "apps/**/src/**/*.{ts,tsx,js,jsx}",
+      "packages/**/src/**/*.{ts,tsx,js,jsx}",
       "**/*.config.{ts,mts}",
       "**/*.test.{ts,tsx}",
       "**/e2e/**/*.{ts,tsx}",
@@ -19,71 +21,64 @@
       "!**/blob-report",
       "!**/.stryker-tmp",
       "!**/reports",
-      "!**/*.db"
+      "!**/*.db",
+      "!**/*.json",
+      "!**/*.jsonc",
+      "!**/*.css",
+      "!**/*.md",
+      "!**/*.html",
+      "!.beads",
+      "!.claude",
+      "!.pnpm-store",
+      "!**/*.bundled_*.mjs"
     ]
   },
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
-      "correctness": {
-        "noUnusedVariables": "error",
-        "noUnusedImports": "error",
-        "noUndeclaredVariables": "error",
-        "noUnusedFunctionParameters": "error",
-        "useValidForDirection": "error",
-        "useYield": "error",
-        "noUnreachable": "error",
-        "useHookAtTopLevel": "error",
-        "noReactPropAssignments": "error"
-      },
-      "suspicious": {
-        "noExplicitAny": "error",
-        "noDebugger": "error",
-        "noDuplicateParameters": "error",
-        "noConsole": "error"
-      },
       "style": {
-        "useConst": "error",
-        "noInferrableTypes": "error",
-        "useNodejsImportProtocol": "error",
-        "noParameterAssign": "error",
-        "useAsConstAssertion": "error",
-        "useDefaultParameterLast": "error",
-        "useEnumInitializers": "error",
-        "useSelfClosingElements": "error",
-        "useSingleVarDeclarator": "error",
-        "noUnusedTemplateLiteral": "error",
-        "useNumberNamespace": "error",
-        "noUselessElse": "error",
-        "useNamingConvention": {
-          "level": "error",
-          "options": {
-            "strictCase": false
-          }
-        },
         "useFilenamingConvention": {
           "level": "error",
           "options": {
             "strictCase": true,
             "filenameCases": ["kebab-case"]
           }
-        }
+        },
+        "useNamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": false
+          }
+        },
+        "noNestedTernary": "off",
+        "noParameterProperties": "off",
+        "noExportedImports": "off",
+        "useConsistentMemberAccessibility": "off",
+        "useDefaultSwitchClause": "off"
+      },
+      "suspicious": {
+        "noConsole": "error",
+        "noEmptyBlockStatements": "off",
+        "useAwait": "off",
+        "noBitwiseOperators": "off",
+        "noEvolvingTypes": "off"
       },
       "complexity": {
-        "noExcessiveCognitiveComplexity": "error",
-        "noUselessCatch": "error",
-        "noUselessConstructor": "error",
-        "useLiteralKeys": "off"
+        "useLiteralKeys": "off",
+        "noForEach": "off",
+        "noVoid": "off"
       },
       "performance": {
-        "noDelete": "error"
-      },
-      "security": {
-        "noDangerouslySetInnerHtml": "error"
+        "noBarrelFile": "off",
+        "noNamespaceImport": "off",
+        "useTopLevelRegex": "off"
       },
       "nursery": {
-        "noFloatingPromises": "error"
+        "noFloatingPromises": "error",
+        "noLeakedRender": "off",
+        "noShadow": "off",
+        "noIncrementDecrement": "off",
+        "useMaxParams": "off"
       }
     }
   },
@@ -115,12 +110,6 @@
       "Electron"
     ]
   },
-  "css": {
-    "parser": {
-      "cssModules": false,
-      "tailwindDirectives": true
-    }
-  },
   "overrides": [
     {
       "includes": ["**/__tests__/**", "**/*.test.*", "**/*.stories.*"],
@@ -139,7 +128,9 @@
           },
           "suspicious": {
             "noNonNullAssertedOptionalChain": "off",
-            "noConsole": "off"
+            "noExplicitAny": "off",
+            "noConsole": "off",
+            "noMisplacedAssertion": "off"
           },
           "correctness": {
             "noUnusedVariables": "error",
@@ -147,7 +138,8 @@
             "useParseIntRadix": "error"
           },
           "complexity": {
-            "useLiteralKeys": "off"
+            "useLiteralKeys": "off",
+            "noExcessiveCognitiveComplexity": "off"
           },
           "nursery": {
             "noFloatingPromises": "off"
@@ -173,6 +165,7 @@
             "noEmptyPattern": "off"
           },
           "suspicious": {
+            "noExplicitAny": "off",
             "noConsole": "off"
           }
         }
@@ -204,7 +197,8 @@
         "packages/file-explorer-hooks/**",
         "packages/app-shell/**",
         "packages/preferences/**",
-        "packages/db-explorer/**"
+        "packages/db-explorer/**",
+        "packages/vector-management/**"
       ],
       "linter": {
         "rules": {
@@ -244,7 +238,10 @@
       }
     },
     {
-      "includes": ["packages/ui/src/**", "packages/file-explorer-ui/src/loading-overlay.tsx"],
+      "includes": [
+        "packages/ui/src/**",
+        "packages/file-explorer-ui/src/loading-overlay.tsx"
+      ],
       "linter": {
         "rules": {
           "style": {
@@ -302,11 +299,73 @@
       }
     },
     {
-      "includes": ["**/*.css"],
+      "includes": [
+        "**/tailwind.config.js",
+        "**/tailwind.config.ts",
+        "packages/tailwind-config/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/vitest.setup.ts", "**/vitest.setup.tsx"],
       "linter": {
         "rules": {
           "suspicious": {
-            "noUnknownAtRules": "off"
+            "noExplicitAny": "off",
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.d.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useReactFunctionComponents": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/scripts/**", "scripts/**"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          },
+          "nursery": {
+            "noFloatingPromises": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/workers/**"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "noFloatingPromises": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/queue-telemetry-collector/test/**",
+        "packages/embedding-worker/test/**",
+        "packages/queue/test/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
           }
         }
       }

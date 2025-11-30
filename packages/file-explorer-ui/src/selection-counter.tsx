@@ -13,8 +13,8 @@ export const SelectionCounter: React.FC = memo(() => {
   return (
     <output>
       <Badge
-        variant={selectedCount === maxSelectionCount ? 'destructive' : 'secondary'}
         className="whitespace-nowrap text-xs sm:text-sm"
+        variant={selectedCount === maxSelectionCount ? 'destructive' : 'secondary'}
       >
         <span data-testid="selection-count">{selectedCount}</span>/
         <span data-testid="selection-max">{maxSelectionCount}</span>

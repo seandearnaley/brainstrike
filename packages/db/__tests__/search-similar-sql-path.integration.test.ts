@@ -6,9 +6,11 @@ import { FileChunkRepository } from '../src/repositories/file-chunk-repository.j
 import { wasmLoader } from '../src/wasm-loader.js';
 
 // Utility to build a dense vector of a given dimension with provided entries
-function makeVector(dim: number, entries: Array<[number, number]>): number[] {
+function makeVector(dim: number, entries: [number, number][]): number[] {
   const v = new Array(dim).fill(0);
-  for (const [idx, val] of entries) v[idx] = val;
+  for (const [idx, val] of entries) {
+    v[idx] = val;
+  }
   return v;
 }
 

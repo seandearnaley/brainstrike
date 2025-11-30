@@ -25,7 +25,7 @@ describe('FileStatusBadge', () => {
         totalChunksCount: 5,
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/searchable in this collection/i)).toBeInTheDocument();
       expect(screen.getByText(/5 chunks/i)).toBeInTheDocument();
@@ -38,7 +38,7 @@ describe('FileStatusBadge', () => {
         totalChunksCount: 1,
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/1 chunk$/i)).toBeInTheDocument();
     });
@@ -51,7 +51,7 @@ describe('FileStatusBadge', () => {
         lastIndexedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/last indexed/i)).toBeInTheDocument();
       expect(screen.getByText(/5 minutes ago/i)).toBeInTheDocument();
@@ -65,7 +65,7 @@ describe('FileStatusBadge', () => {
         otherCollectionsCount: 2,
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/also in 2 other collections/i)).toBeInTheDocument();
     });
@@ -78,7 +78,7 @@ describe('FileStatusBadge', () => {
         otherCollectionsCount: 1,
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/also in 1 other collection$/i)).toBeInTheDocument();
     });
@@ -92,7 +92,7 @@ describe('FileStatusBadge', () => {
         totalChunksCount: 5,
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/not yet searchable/i)).toBeInTheDocument();
     });
@@ -104,7 +104,7 @@ describe('FileStatusBadge', () => {
         totalChunksCount: 10,
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/10 chunks created/i)).toBeInTheDocument();
       expect(screen.getByText(/needs indexing/i)).toBeInTheDocument();
@@ -117,7 +117,7 @@ describe('FileStatusBadge', () => {
         totalChunksCount: 1,
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/1 chunk created/i)).toBeInTheDocument();
     });
@@ -131,7 +131,7 @@ describe('FileStatusBadge', () => {
         lastIndexedAt: new Date(Date.now() - 30 * 1000).toISOString(), // 30 seconds ago
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/just now/i)).toBeInTheDocument();
     });
@@ -143,7 +143,7 @@ describe('FileStatusBadge', () => {
         lastIndexedAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(), // 15 minutes ago
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/15 minutes ago/i)).toBeInTheDocument();
     });
@@ -155,7 +155,7 @@ describe('FileStatusBadge', () => {
         lastIndexedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(), // 5 hours ago
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/5 hours ago/i)).toBeInTheDocument();
     });
@@ -167,7 +167,7 @@ describe('FileStatusBadge', () => {
         lastIndexedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // 3 days ago
       });
 
-      render(<FileStatusBadge status={status} activeCollectionName={activeCollectionName} />);
+      render(<FileStatusBadge activeCollectionName={activeCollectionName} status={status} />);
 
       expect(screen.getByText(/3 days ago/i)).toBeInTheDocument();
     });

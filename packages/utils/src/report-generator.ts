@@ -6,12 +6,12 @@ import { generateProjectTreeText } from './tree-generator';
 const logger = createLogger('ReportGenerator');
 
 // File tree processing configuration
-interface FileTreeProcessingConfig {
+type FileTreeProcessingConfig = {
   depth: number;
   rootFolderId: string;
   visitedPaths: Set<string>;
   maxDepth: number;
-}
+};
 
 // Helper function to check if a path should be ignored
 function shouldIgnorePath(pathString: string): boolean {
@@ -188,7 +188,9 @@ async function readFullFileTreeFromAdapter(
     const entries: import('@brainstrike/types').IFileNode[] = [];
 
     for (const node of directoryContents) {
-      if (shouldIgnorePath(node.path)) continue;
+      if (shouldIgnorePath(node.path)) {
+        continue;
+      }
 
       const processedNode = await processFileNode(node, config, fileSystemAdapter, directoryHandle);
 

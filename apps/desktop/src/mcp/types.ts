@@ -7,7 +7,7 @@ export type PendingEntry = {
   onProgress?: (payload: unknown, meta?: { id?: string }) => void;
 };
 
-export interface McpClient {
+export type McpClient = {
   name: string;
   transport: McpServer['transport'];
   dispose: () => Promise<void> | void;
@@ -16,4 +16,4 @@ export interface McpClient {
     params?: Record<string, unknown>,
     opts?: { onProgress?: (payload: unknown, meta?: { id?: string }) => void }
   ) => Promise<unknown>;
-}
+};

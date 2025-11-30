@@ -13,7 +13,9 @@ describe('agent-runtime edge cases', () => {
       await expect(
         createMastraAgentRuntime({ runtime: { apiKey: 'test-key', provider: 'unsupported' } })
       ).rejects.toSatisfy((error: unknown) => {
-        if (!isMastraAgentError(error)) return false;
+        if (!isMastraAgentError(error)) {
+          return false;
+        }
         expect(error.code).toBe('mastra_agent_unsupported_provider');
         expect(error.context).toEqual({ provider: 'unsupported' });
         return true;
@@ -181,7 +183,7 @@ describe('agent-runtime edge cases', () => {
       // The important thing is that the runtime is created without throwing
       expect(runtime).toBeDefined();
       await runtime.dispose();
-    }, 10000);
+    }, 10_000);
 
     it('skips invalid SSE URLs gracefully', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
@@ -305,7 +307,7 @@ describe('agent-runtime edge cases', () => {
       // MCP client may not be defined if connection fails (expected in test environments)
       expect(runtime).toBeDefined();
       await runtime.dispose();
-    }, 10000);
+    }, 10_000);
 
     it('handles sse server with empty headers object', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
@@ -327,7 +329,7 @@ describe('agent-runtime edge cases', () => {
       // MCP client may not be defined if connection fails (expected in test environments)
       expect(runtime).toBeDefined();
       await runtime.dispose();
-    }, 10000);
+    }, 10_000);
 
     it('uses custom model when provided', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
@@ -367,7 +369,7 @@ describe('agent-runtime edge cases', () => {
             },
           ],
         },
-        mcpTimeoutMs: 10000,
+        mcpTimeoutMs: 10_000,
       });
 
       // MCP client may not be defined if connection fails (expected in test environments)

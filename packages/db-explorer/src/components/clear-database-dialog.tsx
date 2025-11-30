@@ -9,14 +9,14 @@ import {
   DialogTitle,
 } from '@brainstrike/ui';
 
-interface ClearDatabaseDialogProps {
+type ClearDatabaseDialogProps = {
   records: FileRecord[];
   chunks: FileChunk[];
   clearing: boolean;
   showClearDialog: boolean;
   setShowClearDialog: (show: boolean) => void;
   onClear: () => Promise<void>;
-}
+};
 
 /**
  * Dialog-only component for confirming database clear.
@@ -31,7 +31,7 @@ export function ClearDatabaseDialog({
   onClear,
 }: ClearDatabaseDialogProps) {
   return (
-    <Dialog open={showClearDialog} onOpenChange={setShowClearDialog}>
+    <Dialog onOpenChange={setShowClearDialog} open={showClearDialog}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Clear Database</DialogTitle>
@@ -41,10 +41,10 @@ export function ClearDatabaseDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setShowClearDialog(false)} disabled={clearing}>
+          <Button disabled={clearing} onClick={() => setShowClearDialog(false)} variant="outline">
             Cancel
           </Button>
-          <Button variant="destructive" onClick={onClear} disabled={clearing}>
+          <Button disabled={clearing} onClick={onClear} variant="destructive">
             {clearing ? 'Clearing...' : 'Clear Database'}
           </Button>
         </DialogFooter>

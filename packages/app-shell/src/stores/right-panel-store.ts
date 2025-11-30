@@ -4,13 +4,13 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 export type RightPanelTab = 'assistant' | 'embeddings' | 'database';
 
-interface RightPanelData {
+type RightPanelData = {
   activeTab: RightPanelTab;
-}
+};
 
-interface RightPanelActions {
+type RightPanelActions = {
   setActiveTab: (tab: RightPanelTab) => void;
-}
+};
 
 export type RightPanelStore = RightPanelData & RightPanelActions;
 

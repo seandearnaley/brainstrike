@@ -249,7 +249,7 @@ describe('DatabaseDemoPanel', () => {
         // Factory Reset was moved to global Preferences; it should not appear in Import Settings
         expect(screen.queryByText('Factory Reset')).not.toBeInTheDocument();
       });
-    }, 10000);
+    }, 10_000);
 
     it('toggles chunking setting', async () => {
       const user = userEvent.setup();
@@ -279,7 +279,7 @@ describe('DatabaseDemoPanel', () => {
       await waitFor(() => {
         expect(chunkingCheckbox).toBeChecked();
       });
-    }, 10000);
+    }, 10_000);
   });
 
   describe('File Import', () => {

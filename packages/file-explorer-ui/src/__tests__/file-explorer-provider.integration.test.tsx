@@ -12,10 +12,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useFileSystem } from '../use-file-system-context';
 
-interface ExposedHooks {
+type ExposedHooks = {
   store: ReturnType<typeof useFileExplorerStoreContext>;
   fs: ReturnType<typeof useFileSystem>;
-}
+};
 
 function HookExposer({ onReady }: { onReady: (hooks: ExposedHooks) => void }) {
   const store = useFileExplorerStoreContext();
@@ -46,7 +46,9 @@ describe('FileExplorerProvider integration', () => {
     );
 
     await waitFor(() => expect(exposure).not.toBeNull());
-    if (!exposure) throw new Error('exposure not ready');
+    if (!exposure) {
+      throw new Error('exposure not ready');
+    }
 
     const { store, fs } = exposure as unknown as ExposedHooks;
     let handle = null as Awaited<ReturnType<typeof fs.selectRootDirectory>> | null;
@@ -54,7 +56,9 @@ describe('FileExplorerProvider integration', () => {
       handle = await fs.selectRootDirectory();
     });
     expect(handle).not.toBeNull();
-    if (!handle) return;
+    if (!handle) {
+      return;
+    }
     expect(handle.name).toBe('mock-root');
     const folderId = store.getState().currentFolderId;
     expect(folderId).toBe('mock-root');
@@ -92,7 +96,9 @@ describe('FileExplorerProvider integration', () => {
     );
 
     await waitFor(() => expect(exposure2).not.toBeNull());
-    if (!exposure2) throw new Error('exposure2 not ready');
+    if (!exposure2) {
+      throw new Error('exposure2 not ready');
+    }
 
     const { store: store2 } = exposure2 as unknown as ExposedHooks;
     vi.useFakeTimers();

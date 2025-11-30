@@ -70,7 +70,7 @@ function createTestQueue(): QueueAdapter {
 
 describe('Embedding queue integration', () => {
   it('records active lifecycle metrics for queue-driven embeddings', async () => {
-    if (!EmbeddingQueueProvider || !useEmbeddingQueue) {
+    if (!(EmbeddingQueueProvider && useEmbeddingQueue)) {
       throw new Error('Embedding queue provider not initialised');
     }
     const useEmbeddingQueueHook = useEmbeddingQueue;

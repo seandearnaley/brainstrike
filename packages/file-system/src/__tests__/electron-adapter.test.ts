@@ -11,7 +11,9 @@ import type { DirectoryHandle, FileHandle } from '../types';
 async function waitForCondition(check: () => boolean, timeoutMs = 1000, intervalMs = 10) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    if (check()) return;
+    if (check()) {
+      return;
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
   throw new Error('waitForCondition timed out');

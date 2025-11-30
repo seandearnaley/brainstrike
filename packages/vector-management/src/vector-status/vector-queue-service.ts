@@ -56,15 +56,15 @@ export type VectorQueueSnapshot = {
   latency: LatencyStats;
 };
 
-export interface VectorQueueDatabase {
+export type VectorQueueDatabase = {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
-}
+};
 
-export interface VectorQueueServiceDependencies {
+export type VectorQueueServiceDependencies = {
   db: VectorQueueDatabase;
   jobQueue: Pick<JobQueue, 'getQueueStats' | 'clear' | 'requeueFailed'>;
   chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet'>;
-}
+};
 
 export type BackfillProgressHandler = (done: number, total: number) => void;
 
@@ -102,13 +102,13 @@ export async function withTransaction(
   }
 }
 
-export interface VectorQueueService {
+export type VectorQueueService = {
   refresh(activeSetId: string | null): Promise<VectorQueueSnapshot>;
   backfill(activeSetId: string, onProgress: BackfillProgressHandler): Promise<QueueCounts>;
   retryFailed(limit: number): Promise<void>;
   clearQueue(states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>): Promise<void>;
   wipeQueue(): Promise<void>;
-}
+};
 
 export function createVectorQueueService(
   dependencies: VectorQueueServiceDependencies
@@ -432,7 +432,7 @@ export function calculateLatency(
     .map((row) => {
       const startedAt = Date.parse(row.runAt);
       const finishedAt = Date.parse(row.updatedAt);
-      if (!Number.isFinite(startedAt) || !Number.isFinite(finishedAt)) {
+      if (!(Number.isFinite(startedAt) && Number.isFinite(finishedAt))) {
         return 0;
       }
       return Math.max(0, finishedAt - startedAt);

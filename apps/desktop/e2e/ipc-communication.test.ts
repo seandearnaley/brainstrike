@@ -7,9 +7,9 @@ test.describe('IPC Communication', () => {
   });
 
   test('should have electron API available', async ({ window }) => {
-    const hasElectronAPI = await window.evaluate(() => {
-      return typeof (window as { electronAPI?: unknown }).electronAPI !== 'undefined';
-    });
+    const hasElectronAPI = await window.evaluate(
+      () => typeof (window as { electronAPI?: unknown }).electronAPI !== 'undefined'
+    );
 
     expect(hasElectronAPI).toBe(true);
   });
@@ -158,7 +158,7 @@ test.describe('IPC Communication', () => {
 
     expect(heavyOperationTest.success).toBe(true);
     expect(heavyOperationTest.allCorrect).toBe(true);
-    expect(heavyOperationTest.duration).toBeLessThan(15000);
+    expect(heavyOperationTest.duration).toBeLessThan(15_000);
   });
 
   test('should handle concurrent IPC calls', async ({ window }) => {

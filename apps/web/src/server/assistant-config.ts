@@ -15,7 +15,9 @@ export type AssistantProviderConfig = {
 
 function readEnvVar(name: ApiKeyEnvVar): string | undefined {
   const raw = process.env[name];
-  if (typeof raw !== 'string') return undefined;
+  if (typeof raw !== 'string') {
+    return;
+  }
   const trimmed = raw.trim();
   return trimmed.length > 0 ? trimmed : undefined;
 }

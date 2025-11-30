@@ -11,6 +11,7 @@ type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 const isBrowserEnvironment =
   typeof window !== 'undefined' && typeof window.document !== 'undefined';
 
+// biome-ignore lint/style/noEnum: Widely used enum with string values - refactoring would be breaking change
 export enum LogLevel {
   TRACE = 'trace',
   DEBUG = 'debug',
@@ -49,30 +50,30 @@ const METHOD_BY_LEVEL: Partial<Record<LogLevel, LogMethodName>> = {
   [LogLevel.FATAL]: 'fatal',
 };
 
-export interface ConsoleTransportConfig {
+export type ConsoleTransportConfig = {
   enabled?: boolean;
   level?: LogLevel;
   destination?: number | string;
   target?: string;
   options?: Record<string, unknown>;
-}
+};
 
-export interface FileTransportConfig {
+export type FileTransportConfig = {
   enabled?: boolean;
   destination: string;
   level?: LogLevel;
   mkdir?: boolean;
   append?: boolean;
   options?: Record<string, unknown>;
-}
+};
 
-export interface CustomTransportConfig {
+export type CustomTransportConfig = {
   target: string;
   level?: LogLevel;
   options?: Record<string, unknown>;
-}
+};
 
-export interface LoggerConfig {
+export type LoggerConfig = {
   level?: LogLevel;
   enableInProduction?: boolean;
   prefix?: string;
@@ -84,37 +85,37 @@ export interface LoggerConfig {
   customTransports?: readonly CustomTransportConfig[];
   browser?: BrowserLoggerOptions;
   redactPaths?: readonly string[];
-}
+};
 
-export interface LogRecord {
+export type LogRecord = {
   level: LogLevel;
   scope?: string;
   message?: string;
   timestamp: number;
   args: readonly unknown[];
   bindings: Record<string, unknown>;
-}
+};
 
 export type LogListener = (record: LogRecord) => void;
 
-interface NormalizedConsoleConfig {
+type NormalizedConsoleConfig = {
   enabled: boolean;
   level?: LogLevel;
   destination?: number | string;
   target?: string;
   options: Record<string, unknown>;
-}
+};
 
-interface NormalizedFileConfig {
+type NormalizedFileConfig = {
   enabled: boolean;
   destination: string;
   level?: LogLevel;
   mkdir: boolean;
   append: boolean;
   options: Record<string, unknown>;
-}
+};
 
-interface InternalLoggerConfig {
+type InternalLoggerConfig = {
   explicitLevel?: LogLevel;
   enableInProduction: boolean;
   prefix?: string;
@@ -126,7 +127,7 @@ interface InternalLoggerConfig {
   customTransports: readonly CustomTransportConfig[];
   browser?: BrowserLoggerOptions;
   redactPaths?: readonly string[];
-}
+};
 
 let internalConfig: InternalLoggerConfig = createDefaultConfig();
 let rootLogger: PinoLogger | undefined;
@@ -151,7 +152,7 @@ function createDefaultConfig(): InternalLoggerConfig {
 function parseEnvLogLevel(): LogLevel | undefined {
   const envLevel = typeof process !== 'undefined' ? process.env?.['LOG_LEVEL'] : undefined;
   if (!envLevel) {
-    return undefined;
+    return;
   }
 
   const upperLevel = envLevel.toUpperCase() as keyof typeof LogLevel;
@@ -215,7 +216,7 @@ function mergeFileConfig(
   next?: FileTransportConfig | false
 ): NormalizedFileConfig | undefined {
   if (next === false) {
-    return undefined;
+    return;
   }
 
   if (!next) {
@@ -604,14 +605,14 @@ export function fatal(...args: unknown[]): void {
   logInternal(LogLevel.FATAL, undefined, args);
 }
 
-export interface ScopedLogger {
+export type ScopedLogger = {
   trace: (...args: unknown[]) => void;
   debug: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
   fatal: (...args: unknown[]) => void;
-}
+};
 
 const loggerCache = new Map<string, ScopedLogger>();
 

@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { Category, Prompt, PromptFilter, PromptRevision } from './types';
 
-interface PromptState {
+type PromptState = {
   prompts: Prompt[];
   categories: Category[];
   filter: PromptFilter;
@@ -24,7 +24,7 @@ interface PromptState {
   setFilter: (filter: Partial<PromptFilter>) => void;
   setSelectedPromptId: (id: string | null) => void;
   toggleSidebar: () => void;
-}
+};
 
 const DEFAULT_CATEGORIES: Category[] = [
   { id: 'general', name: 'General', color: '#64748b', icon: 'Box' },
@@ -85,7 +85,9 @@ export const usePromptStore = create<PromptState>()(
 
       addRevision: (promptId, revisionData) => {
         const prompt = get().prompts.find((p) => p.id === promptId);
-        if (!prompt) return;
+        if (!prompt) {
+          return;
+        }
 
         const newRevision: PromptRevision = {
           ...revisionData,

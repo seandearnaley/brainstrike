@@ -171,9 +171,9 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
       <div data-testid="model-selection-page-mock">
         <h4>Provider API Keys</h4>
         <label htmlFor="provider-select">Provider</label>
-        <select id="provider-select" aria-label="Provider" />
+        <select aria-label="Provider" id="provider-select" />
         <label htmlFor="api-key-input">API Key</label>
-        <input id="api-key-input" aria-label="API Key" />
+        <input aria-label="API Key" id="api-key-input" />
       </div>
     )),
   };

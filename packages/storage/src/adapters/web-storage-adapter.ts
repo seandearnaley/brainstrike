@@ -1,7 +1,7 @@
 import type { StorageAdapter } from '../types';
 
 export class WebStorageAdapter implements StorageAdapter {
-  private storage: Storage;
+  private readonly storage: Storage;
 
   constructor(storage: Storage = localStorage) {
     this.storage = storage;

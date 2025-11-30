@@ -3,12 +3,12 @@ import type { ModelPickerProvider } from './types';
 import { getProviderColor } from './utils/provider-colors';
 import { getProviderIcon } from './utils/provider-icons';
 
-interface ModelPickerGroupProps {
+type ModelPickerGroupProps = {
   provider: ModelPickerProvider;
   children: React.ReactNode;
   theme?: 'light' | 'dark';
   modelCount?: number;
-}
+};
 
 export function ModelPickerGroup({
   provider,
@@ -21,19 +21,19 @@ export function ModelPickerGroup({
 
   return (
     <Command.Group
+      className="overflow-hidden p-1 text-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:text-xs"
       heading={
         <div
-          className="flex items-center gap-2 px-2 py-1.5 text-xs font-medium text-muted-foreground bg-muted/5 sticky top-0 z-10 backdrop-blur-sm border-l-2"
+          className="sticky top-0 z-10 flex items-center gap-2 border-l-2 bg-muted/5 px-2 py-1.5 font-medium text-muted-foreground text-xs backdrop-blur-sm"
           style={{ borderLeftColor: color }}
         >
           <Icon className="h-3 w-3" style={{ color }} />
           <span>{provider.name}</span>
           {modelCount !== undefined && (
-            <span className="ml-auto text-[10px] bg-muted px-1.5 rounded-full">{modelCount}</span>
+            <span className="ml-auto rounded-full bg-muted px-1.5 text-[10px]">{modelCount}</span>
           )}
         </div>
       }
-      className="overflow-hidden p-1 text-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground"
     >
       {children}
     </Command.Group>

@@ -1,6 +1,6 @@
 export type EmbeddingDistance = 'cosine' | 'l2' | 'ip';
 
-export interface EmbeddingSet {
+export type EmbeddingSet = {
   id: string;
   modelKey: string;
   modelId: string;
@@ -12,4 +12,4 @@ export interface EmbeddingSet {
   description?: string;
   tags?: string; // Stored as comma-separated string in DB
   category?: string;
-}
+};

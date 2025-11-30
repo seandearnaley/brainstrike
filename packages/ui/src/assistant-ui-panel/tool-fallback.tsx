@@ -43,7 +43,7 @@ const resolveDisplayStatus = (status: ToolStatus, hasResult: boolean): DisplaySt
 
 const resolveErrorMessage = (status: ToolStatus, result: ToolResult): string | undefined => {
   if (!isIncompleteStatus(status)) {
-    return undefined;
+    return;
   }
 
   if (typeof status.error === 'string') {
@@ -119,22 +119,22 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
       <div className="flex items-center gap-2 px-4 py-3">
         {statusIcon}
         <div className="flex-grow">
-          <p className={`text-sm font-medium ${isError ? 'text-destructive' : ''}`}>
+          <p className={`font-medium text-sm ${isError ? 'text-destructive' : ''}`}>
             <span className="font-semibold">{toolName}</span>
             {' • '}
             <span className="text-xs">{statusText}</span>
           </p>
           {isError && errorMessage && (
-            <p className="mt-1 text-xs text-destructive">{errorMessage}</p>
+            <p className="mt-1 text-destructive text-xs">{errorMessage}</p>
           )}
         </div>
         {showDetails && (
           <Button
-            variant="ghost"
-            size="icon"
+            aria-label={isCollapsed ? 'Expand details' : 'Collapse details'}
             className="size-8"
             onClick={() => setIsCollapsed((prev) => !prev)}
-            aria-label={isCollapsed ? 'Expand details' : 'Collapse details'}
+            size="icon"
+            variant="ghost"
           >
             {isCollapsed ? <ChevronDown className="size-4" /> : <ChevronUp className="size-4" />}
           </Button>
@@ -145,13 +145,13 @@ export const ToolFallback: ToolCallMessagePartComponent = ({
         <div className="flex flex-col gap-2 border-t pt-2">
           {argsText && (
             <div className="px-4 py-2">
-              <p className="mb-1 text-xs font-medium text-muted-foreground">Arguments:</p>
+              <p className="mb-1 font-medium text-muted-foreground text-xs">Arguments:</p>
               <pre className="whitespace-pre-wrap text-xs">{argsText}</pre>
             </div>
           )}
           {hasResult && !isError && (
             <div className="border-t border-dashed px-4 py-2">
-              <p className="mb-1 text-xs font-medium text-muted-foreground">Result:</p>
+              <p className="mb-1 font-medium text-muted-foreground text-xs">Result:</p>
               <pre className="whitespace-pre-wrap text-xs">{formattedResult}</pre>
             </div>
           )}

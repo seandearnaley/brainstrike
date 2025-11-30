@@ -76,7 +76,7 @@ const DEFAULT_EXCLUDE_PATTERNS = [
 /**
  * Configuration for the CLI tool
  */
-interface EmbedCodeConfig {
+type EmbedCodeConfig = {
   /** Root directory to scan for code files */
   rootDir: string;
   /** Model key from registry to use for embeddings */
@@ -97,12 +97,12 @@ interface EmbedCodeConfig {
   chunkOverlap?: number;
   /** Verbose logging */
   verbose?: boolean;
-}
+};
 
 /**
  * Represents an embedded code chunk
  */
-interface CodeEmbedding {
+type CodeEmbedding = {
   /** Unique identifier for the chunk */
   id: string;
   /** File path relative to root */
@@ -123,14 +123,14 @@ interface CodeEmbedding {
   model: string;
   /** Timestamp when embedding was created */
   timestamp: string;
-}
+};
 
 /**
  * CLI tool for embedding code files
  */
 export class CodeEmbeddingCLI {
-  private service: SimpleEmbeddingService;
-  private config: EmbedCodeConfig;
+  private readonly service: SimpleEmbeddingService;
+  private readonly config: EmbedCodeConfig;
 
   constructor(config: EmbedCodeConfig) {
     this.config = {
@@ -235,13 +235,15 @@ export class CodeEmbeddingCLI {
         chunks.push({
           content: chunkLines.join('\n'),
           startLine: startLine + 1, // 1-based line numbers
-          endLine: endLine,
+          endLine,
         });
       }
 
       // Move start position with overlap
       startLine = endLine - overlap;
-      if (startLine >= endLine) break;
+      if (startLine >= endLine) {
+        break;
+      }
     }
 
     return chunks;
@@ -328,9 +330,13 @@ export class CodeEmbeddingCLI {
     const embeddings: CodeEmbedding[] = [];
     for (let i = 0; i < chunks.length; i++) {
       const chunk = chunks[i];
-      if (!chunk) continue;
+      if (!chunk) {
+        continue;
+      }
       const embedding = await this.embedChunk(file, language, chunk, i, chunks.length);
-      if (embedding) embeddings.push(embedding);
+      if (embedding) {
+        embeddings.push(embedding);
+      }
     }
     return embeddings;
   }
@@ -523,7 +529,9 @@ function parseArguments(args: string[]): EmbedCodeConfig | null {
   // Parse command line arguments
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
-    if (!arg) continue;
+    if (!arg) {
+      continue;
+    }
 
     const nextArg = args[i + 1];
 

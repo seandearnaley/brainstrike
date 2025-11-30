@@ -5,7 +5,7 @@
 declare module 'react-helmet-async' {
   import type { Component, ReactNode } from 'react';
 
-  export interface HelmetProps {
+  export type HelmetProps = {
     async?: boolean;
     base?: Record<string, unknown>;
     bodyAttributes?: Record<string, unknown>;
@@ -14,24 +14,24 @@ declare module 'react-helmet-async' {
     encodeSpecialCharacters?: boolean;
     htmlAttributes?: Record<string, unknown>;
     onChangeClientState?: (newState: unknown, addedTags: unknown, removedTags: unknown) => void;
-    link?: Array<Record<string, unknown>>;
-    meta?: Array<Record<string, unknown>>;
-    noscript?: Array<Record<string, unknown>>;
-    script?: Array<Record<string, unknown>>;
-    style?: Array<Record<string, unknown>>;
+    link?: Record<string, unknown>[];
+    meta?: Record<string, unknown>[];
+    noscript?: Record<string, unknown>[];
+    script?: Record<string, unknown>[];
+    style?: Record<string, unknown>[];
     title?: string;
     titleAttributes?: Record<string, unknown>;
     titleTemplate?: string;
     prioritizeSeoTags?: boolean;
     children?: ReactNode;
-  }
+  };
 
   export class Helmet extends Component<HelmetProps> {}
 
-  export interface ProviderProps {
+  export type ProviderProps = {
     context?: unknown;
     children?: ReactNode;
-  }
+  };
 
   export class HelmetProvider extends Component<ProviderProps> {}
 

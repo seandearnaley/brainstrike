@@ -22,7 +22,9 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
 
         takeSnapshot: (label: string) => {
           const memory = performance.memory;
-          if (!memory || !window.__memoryProfiler) return;
+          if (!(memory && window.__memoryProfiler)) {
+            return;
+          }
 
           const snapshot: MemorySnapshot = {
             label,
@@ -45,15 +47,21 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
         },
 
         getAnalysis: () => {
-          if (!window.__memoryProfiler) return { error: 'Memory profiler not available' };
+          if (!window.__memoryProfiler) {
+            return { error: 'Memory profiler not available' };
+          }
 
           const snapshots = window.__memoryProfiler.snapshots;
-          if (snapshots.length < 2) return { error: 'Need at least 2 snapshots' };
+          if (snapshots.length < 2) {
+            return { error: 'Need at least 2 snapshots' };
+          }
 
           const first = snapshots[0];
-          const last = snapshots[snapshots.length - 1];
+          const last = snapshots.at(-1);
 
-          if (!first || !last) return { error: 'Missing snapshot data' };
+          if (!(first && last)) {
+            return { error: 'Missing snapshot data' };
+          }
 
           return {
             memoryGrowthMB: last.usedMB - first.usedMB,
@@ -62,7 +70,7 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
             canvasGrowth: last.canvasElements - first.canvasElements,
             imgGrowth: last.imgElements - first.imgElements,
             svgGrowth: last.svgElements - first.svgElements,
-            snapshots: snapshots,
+            snapshots,
           };
         },
       };
@@ -160,7 +168,9 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
     for (let i = 1; i < analysis.snapshots.length; i++) {
       const prev = analysis.snapshots[i - 1];
       const curr = analysis.snapshots[i];
-      if (!prev || !curr) continue;
+      if (!(prev && curr)) {
+        continue;
+      }
       const growthMB = curr.usedMB - prev.usedMB;
 
       if (Math.abs(growthMB) > 5) {
@@ -191,7 +201,9 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
     for (let i = 1; i < analysis.snapshots.length; i++) {
       const prev = analysis.snapshots[i - 1];
       const curr = analysis.snapshots[i];
-      if (!prev || !curr) continue;
+      if (!(prev && curr)) {
+        continue;
+      }
       const growth = curr.usedMB - prev.usedMB;
 
       if (growth > biggestJump.growth) {

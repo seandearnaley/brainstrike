@@ -27,20 +27,20 @@ declare module '@brainstrike/app-shell/settings-page-content' {
   /**
    * See: packages/app-shell/src/settings-page-content.tsx
    */
-  export interface SettingsCategory {
+  export type SettingsCategory = {
     id: string;
     title: string;
     description?: string;
     keywords?: string[];
     icon?: React.ComponentType<{ className?: string }>;
     render: () => React.ReactNode;
-  }
+  };
 
-  export interface SettingsPageContentProps {
+  export type SettingsPageContentProps = {
     categories: SettingsCategory[];
     defaultCategoryId?: string;
     searchPlaceholder?: string;
-  }
+  };
 
   export const SettingsPageContent: React.ComponentType<SettingsPageContentProps>;
   export function createAppearanceSettingsCategory(): SettingsCategory;
@@ -53,19 +53,19 @@ declare module '@brainstrike/app-shell' {
    */
   export const navigationItems: unknown;
   export const RootLayoutContent: React.ComponentType;
-  export interface SettingsCategory {
+  export type SettingsCategory = {
     id: string;
     title: string;
     description?: string;
     keywords?: string[];
     icon?: React.ComponentType<{ className?: string }>;
     render: () => React.ReactNode;
-  }
-  export interface SettingsPageContentProps {
+  };
+  export type SettingsPageContentProps = {
     categories: SettingsCategory[];
     defaultCategoryId?: string;
     searchPlaceholder?: string;
-  }
+  };
   export const SettingsPageContent: React.ComponentType<SettingsPageContentProps>;
   export function createAppearanceSettingsCategory(): SettingsCategory;
 }

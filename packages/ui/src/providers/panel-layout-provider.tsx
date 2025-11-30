@@ -7,13 +7,13 @@ import type { PanelPersistenceState } from '../types/panel';
 
 export type PanelLayoutState = PanelPersistenceState;
 
-export interface PanelLayoutProviderProps {
+export type PanelLayoutProviderProps = {
   children: ReactNode;
   initialState?: PanelLayoutState;
   adapter?: PanelPersistenceAdapter | null;
   controlledState?: PanelLayoutState;
   onChange?: (state: PanelLayoutState) => void;
-}
+};
 
 interface PanelLayoutContextValue extends PanelLayoutState {
   setState: (state: PanelLayoutState) => void;
@@ -33,7 +33,7 @@ export function PanelLayoutProvider({
   onChange,
 }: PanelLayoutProviderProps) {
   // Phase 2: In dev, require adapter for uncontrolled mode
-  if (!controlledState && !adapter && isDevEnv()) {
+  if (!(controlledState || adapter) && isDevEnv()) {
     throw new Error(
       '[PanelLayoutProvider] Missing persistence adapter for uncontrolled mode. ' +
         'Provide LocalStoragePanelPersistenceAdapter or ElectronPanelPersistenceAdapter, ' +
@@ -64,7 +64,9 @@ export function PanelLayoutProvider({
 
     const setState = (next: PanelLayoutState) => {
       last.current = next;
-      if (onChange) onChange(next);
+      if (onChange) {
+        onChange(next);
+      }
       if (!controlledState) {
         uncontrolled.saveLayout(
           next.sizes,

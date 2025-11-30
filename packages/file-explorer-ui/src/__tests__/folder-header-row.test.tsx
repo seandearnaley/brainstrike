@@ -8,8 +8,8 @@ describe('FolderHeaderRow', () => {
     const onToggle = vi.fn();
     render(
       <FolderHeaderRow
-        item={{ folderId: 'folderA', fileCount: 3, totalTokens: 100 }}
         isCollapsed={false}
+        item={{ folderId: 'folderA', fileCount: 3, totalTokens: 100 }}
         onToggleCollapse={onToggle}
       />
     );

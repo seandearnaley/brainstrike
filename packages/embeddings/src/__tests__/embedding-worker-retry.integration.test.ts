@@ -64,13 +64,17 @@ class FlakyEmbeddingService implements EmbeddingService {
 
 async function waitFor(
   fn: () => Promise<boolean>,
-  timeoutMs = 15000,
+  timeoutMs = 15_000,
   intervalMs = 50
 ): Promise<void> {
   const start = Date.now();
   while (true) {
-    if (await fn()) return;
-    if (Date.now() - start > timeoutMs) throw new Error('Timeout waiting for condition');
+    if (await fn()) {
+      return;
+    }
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('Timeout waiting for condition');
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
@@ -132,4 +136,4 @@ describe('embedding-worker retries and backoff', () => {
   });
 });
 // Increase timeouts to reduce flakiness under workspace-wide runs
-vi.setConfig({ hookTimeout: 30000, testTimeout: 30000 });
+vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });

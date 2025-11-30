@@ -35,7 +35,7 @@ test.describe('Application Layout', () => {
     await expect(home.settingsHeading).not.toBeVisible();
 
     // Ensure Settings button is enabled, then click
-    await expect(home.settingsNavButton).toBeEnabled({ timeout: 10000 });
+    await expect(home.settingsNavButton).toBeEnabled({ timeout: 10_000 });
     await home.settingsNavButton.click();
 
     // Verify the Settings page content is visible and Context Explorer is not
@@ -43,7 +43,7 @@ test.describe('Application Layout', () => {
     await expect(home.contextExplorerHeading).not.toBeVisible();
 
     // Ensure Context Explorer button is enabled, then click to navigate back
-    await expect(home.contextExplorerNavButton).toBeEnabled({ timeout: 10000 });
+    await expect(home.contextExplorerNavButton).toBeEnabled({ timeout: 10_000 });
     await home.contextExplorerNavButton.click();
 
     // Verify Context Explorer is active again

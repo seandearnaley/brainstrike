@@ -44,7 +44,9 @@ function createSearchableText(node: IFileNode): string {
 }
 
 function shouldInclude(text: string, includes: string[], excludes: string[]): boolean {
-  if (excludes.some((e) => text.includes(e))) return false;
+  if (excludes.some((e) => text.includes(e))) {
+    return false;
+  }
   return includes.length === 0 || includes.some((i) => text.includes(i));
 }
 
@@ -59,8 +61,12 @@ function filterNodeByPatterns(
     const filteredChildren = children
       .map((c) => filterNodeByPatterns(c, includes, excludes))
       .filter(Boolean) as IFileNode[];
-    if (filteredChildren.length > 0) return { ...node, children: filteredChildren };
-    if (shouldInclude(text, includes, excludes)) return { ...node, children: [] };
+    if (filteredChildren.length > 0) {
+      return { ...node, children: filteredChildren };
+    }
+    if (shouldInclude(text, includes, excludes)) {
+      return { ...node, children: [] };
+    }
     return null;
   }
   return shouldInclude(text, includes, excludes) ? node : null;
@@ -197,7 +203,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {
-    if (!filterError) return null;
+    if (!filterError) {
+      return null;
+    }
     return new Error(filterError);
   }, [filterError]);
 
@@ -212,7 +220,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   const inlineFixtureSetting = useMemo(() => {
     if (!inlineFixtureAvailable) {
-      return undefined;
+      return;
     }
     return {
       available: inlineFixtureAvailable,
@@ -222,7 +230,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   // Local filtering utility modeled after hooks/use-quick-filter
   const quickFilteredTree = useMemo(() => {
-    if (!quickFilter.trim()) return stableFileTree;
+    if (!quickFilter.trim()) {
+      return stableFileTree;
+    }
     const { includes, excludes } = parseFilterString(quickFilter);
     return filterTreeByPatterns(stableFileTree, includes, excludes);
   }, [quickFilter, stableFileTree]);
@@ -240,7 +250,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const displayedFileList = useMemo(() => Array.from(displayedFiles), [displayedFiles]);
 
   const handleRefresh = useCallback(async () => {
-    if (!rootDirectoryHandle) return;
+    if (!rootDirectoryHandle) {
+      return;
+    }
 
     setIsRefreshing(true);
     try {
@@ -292,7 +304,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   }, [showToast]);
 
   const enableInlineFixture = useCallback(async () => {
-    if (!fixtureAdapter) return;
+    if (!fixtureAdapter) {
+      return;
+    }
     const handle = await fixtureAdapter.loadInlineFixture();
     if (handle && setRootDirectoryHandle) {
       // Setting the root directory handle will automatically trigger the file tree to load
@@ -301,7 +315,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   }, [fixtureAdapter, setRootDirectoryHandle]);
 
   const disableInlineFixture = useCallback(async () => {
-    if (!fixtureAdapter) return;
+    if (!fixtureAdapter) {
+      return;
+    }
     await fixtureAdapter.clearInlineFixture();
     clearRootDirectoryRef.current?.();
   }, [fixtureAdapter]);
@@ -333,14 +349,14 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const prevTargetStateRef = useRef<boolean | null>(null);
 
   useEffect(() => {
-    if (!fixtureAdapter || !inlineFixtureAvailable) {
+    if (!(fixtureAdapter && inlineFixtureAvailable)) {
       if (devInlineFixtureEnabled) {
         setDevInlineFixtureEnabled(false);
       }
       return;
     }
 
-    if (!hasAppliedInitialFixtureRef.current && !devInlineFixtureEnabled) {
+    if (!(hasAppliedInitialFixtureRef.current || devInlineFixtureEnabled)) {
       return;
     }
 
@@ -450,10 +466,14 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   return (
     <FileExplorerErrorBoundary>
-      <div className="h-full grid grid-rows-[auto_1fr_auto]">
+      <div className="grid h-full grid-rows-[auto_1fr_auto]">
         <LoadingOverlay
-          isLoading={isLoading}
+          cancellable={cancellable}
+          className="z-50"
+          isCancelling={isCancelling}
           isInitialLoad={isInitialLoad}
+          isLoading={isLoading}
+          onCancel={handleCancelOperation}
           progressState={
             loadingProgress ?? {
               loaded: 0,
@@ -461,51 +481,47 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               phase: 'counting' as const,
             }
           }
-          cancellable={cancellable}
-          onCancel={handleCancelOperation}
-          isCancelling={isCancelling}
-          className="z-50"
         />
 
         {/* Fixed Header */}
         <div className="shrink-0">
           <FileExplorerToolbar
+            clearQuickFilter={clearQuickFilter}
+            filterError={filterError}
+            isLoading={isLoading}
+            maxSelectionCount={maxSelectionCount}
             onDirectorySelect={handleDirectorySelect}
             onFilterChange={handleFilterChange}
-            filterError={filterError}
             quickFilter={quickFilter}
-            setQuickFilter={setQuickFilter}
-            clearQuickFilter={clearQuickFilter}
-            isLoading={isLoading}
             rootDirectoryHandle={rootDirectoryHandle}
             selectedCount={safeSelectedFilesList.length}
-            maxSelectionCount={maxSelectionCount}
+            setQuickFilter={setQuickFilter}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
           />
           <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
           <FilterStatus
-            includeFilters={includeFilters}
             excludeFilters={excludeFilters}
-            useRegex={useRegex}
+            includeFilters={includeFilters}
             quickFilter={quickFilter}
+            useRegex={useRegex}
           />
         </div>
 
         {/* Scrollable Middle Content */}
-        <div className="relative flex-1 min-h-0">
+        <div className="relative min-h-0 flex-1">
           {/* Fixed buttons overlay - outside scrollable area */}
           {rootDirectoryHandle && (
-            <div className="absolute top-2 right-6 flex items-center gap-1 z-20">
+            <div className="absolute top-2 right-6 z-20 flex items-center gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
-                    data-testid="refresh-button-small"
-                    onClick={handleRefresh}
-                    disabled={isLoading || isRefreshing}
                     aria-label="Refresh"
+                    className="h-7 w-7 bg-background/80 shadow-sm backdrop-blur-sm"
+                    data-testid="refresh-button-small"
+                    disabled={isLoading || isRefreshing}
+                    onClick={handleRefresh}
+                    size="icon"
+                    variant="ghost"
                   >
                     <RefreshCw className={cn('h-3.5 w-3.5', { 'animate-spin': isRefreshing })} />
                   </Button>
@@ -517,13 +533,13 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
-                    data-testid="expand-all-button-small"
-                    onClick={expandAll}
-                    disabled={isLoading || isRefreshing}
                     aria-label="Expand All"
+                    className="h-7 w-7 bg-background/80 shadow-sm backdrop-blur-sm"
+                    data-testid="expand-all-button-small"
+                    disabled={isLoading || isRefreshing}
+                    onClick={expandAll}
+                    size="icon"
+                    variant="ghost"
                   >
                     <ChevronsDown className="h-3.5 w-3.5" />
                   </Button>
@@ -535,13 +551,13 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
-                    data-testid="collapse-all-button-small"
-                    onClick={collapseAll}
-                    disabled={isLoading || isRefreshing}
                     aria-label="Collapse All"
+                    className="h-7 w-7 bg-background/80 shadow-sm backdrop-blur-sm"
+                    data-testid="collapse-all-button-small"
+                    disabled={isLoading || isRefreshing}
+                    onClick={collapseAll}
+                    size="icon"
+                    variant="ghost"
                   >
                     <ChevronsUp className="h-3.5 w-3.5" />
                   </Button>
@@ -554,36 +570,36 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           )}
 
           {/* Scrollable content */}
-          <div className="overflow-y-auto h-full">
+          <div className="h-full overflow-y-auto">
             <Suspense fallback={<LoadingFallback />}>
               <FileExplorerSidebar
+                currentFolderId={currentFolderId}
+                filterError={filterErrorAsError}
+                isInitialLoad={isInitialLoad}
+                isLoading={isLoading}
+                loadingFiles={loadingFiles}
+                onTreeRender={handleTreeRender}
+                quickFilteredTree={quickFilteredTree}
                 rootDirectoryHandle={rootDirectoryHandle}
                 treeError={error}
-                filterError={filterErrorAsError}
-                quickFilteredTree={quickFilteredTree}
-                loadingFiles={loadingFiles}
-                isLoading={isLoading}
-                isInitialLoad={isInitialLoad}
-                currentFolderId={currentFolderId}
-                onTreeRender={handleTreeRender}
               />
             </Suspense>
           </div>
         </div>
 
         {/* Fixed Footer */}
-        <div className="shrink-0 px-4 py-3 border-t bg-gradient-to-t from-muted/20 to-transparent">
+        <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent px-4 py-3">
           <Suspense fallback={<LoadingFallback />}>
             <ActionButtons
-              displayedFiles={displayedFileList}
-              selectedFiles={safeSelectedFilesList}
-              maxSelectionCount={maxSelectionCount}
               currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
-              setSelectedFiles={safeSetSelectedFilesFromList}
+              displayedFiles={displayedFileList}
               encodeFileSelection={encodeFileSelection}
-              onSelectionLimitExceeded={() => {}}
-              onDownloadReport={handleDownloadReport}
+              maxSelectionCount={maxSelectionCount}
               onCopyReport={handleCopyReport}
+              onDownloadReport={handleDownloadReport}
+              onSelectionLimitExceeded={() => {}}
+              selectedFiles={safeSelectedFilesList}
+              setSelectedFiles={safeSetSelectedFilesFromList}
             />
           </Suspense>
         </div>

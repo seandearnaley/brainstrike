@@ -3,7 +3,7 @@ import type React from 'react';
 import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { Button } from '../button';
 
-interface RightPanelProps {
+type RightPanelProps = {
   panelRef: React.RefObject<ImperativePanelHandle | null>;
   content: React.ReactNode;
   hideButtonRef: React.RefObject<HTMLButtonElement | null>;
@@ -11,7 +11,7 @@ interface RightPanelProps {
   defaultSize: number;
   onCollapse: () => void;
   onExpand: (size?: number) => void;
-}
+};
 
 export function RightPanel({
   panelRef,
@@ -24,40 +24,40 @@ export function RightPanel({
 }: RightPanelProps) {
   return (
     <>
-      <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
+      <PanelResizeHandle className="w-1 bg-border transition-colors hover:bg-border/80" />
       <Panel
-        ref={panelRef}
-        id="right-panel"
-        data-panel-id="right-panel"
-        order={3}
-        defaultSize={defaultSize}
-        minSize={15}
-        maxSize={60}
-        collapsible
+        className="bg-background"
         collapsedSize={0}
+        collapsible
+        data-panel-id="right-panel"
+        defaultSize={defaultSize}
+        id="right-panel"
+        maxSize={60}
+        minSize={15}
         onCollapse={onCollapse}
         onExpand={onExpand}
-        className="bg-background"
+        order={3}
+        ref={panelRef}
       >
-        <div className="h-full border-l border-border">
-          <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
+        <div className="h-full border-border border-l">
+          <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
             <div className="flex items-center gap-2">
               <PanelRight className="h-4 w-4" />
-              <span className="text-sm font-medium">Panel</span>
+              <span className="font-medium text-sm">Panel</span>
             </div>
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={onHide}
               aria-label="Hide right panel"
+              className="h-6 w-6"
               data-testid="hide-right-panel"
+              onClick={onHide}
               ref={hideButtonRef}
+              size="icon"
+              variant="ghost"
             >
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
-          <div className="h-[calc(100%-2.5rem)] overflow-hidden flex flex-col">{content}</div>
+          <div className="flex h-[calc(100%-2.5rem)] flex-col overflow-hidden">{content}</div>
         </div>
       </Panel>
     </>

@@ -18,4 +18,4 @@ export const DEFAULT_EMBEDDING_DIMENSION = LEGACY_DEFAULT_EMBEDDING_DIMENSION;
  * halfvec supports more (16000) but we're using standard vector type.
  * See: https://github.com/pgvector/pgvector#vector
  */
-export const MAX_EMBEDDING_DIMENSION = 2_000;
+export const MAX_EMBEDDING_DIMENSION = 2000;

@@ -136,7 +136,7 @@ export default defineConfig({
     command: config.isCI ? 'pnpm run start' : 'pnpm run dev',
     url: serverURL,
     reuseExistingServer: !config.isCI,
-    timeout: 60000, // 1 minute timeout for server startup
+    timeout: 60_000, // 1 minute timeout for server startup
     stderr: 'pipe',
     stdout: 'pipe',
   },

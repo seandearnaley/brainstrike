@@ -3,12 +3,12 @@ import { useLayoutEffect } from 'react';
 import { describe, expect, it } from 'vitest';
 import { useVirtualList } from '../use-virtual-list';
 
-interface TestComponentProps {
+type TestComponentProps = {
   itemCount: number;
   rowHeight: number;
   overscan?: number;
   onUpdate: (range: { start: number; end: number }) => void;
-}
+};
 
 function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestComponentProps) {
   const { containerRef, range } = useVirtualList(itemCount, rowHeight, { overscan: overscan ?? 0 });
@@ -19,6 +19,7 @@ function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestCompone
 
   return (
     <div
+      data-testid="container"
       ref={(element) => {
         if (element) {
           Object.defineProperty(element, 'clientHeight', { value: 50 });
@@ -27,7 +28,6 @@ function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestCompone
           (containerRef as { current: HTMLDivElement | null }).current = element;
         }
       }}
-      data-testid="container"
     />
   );
 }
@@ -38,9 +38,9 @@ describe('useVirtualList', () => {
     render(
       <TestComponent
         itemCount={100}
-        rowHeight={10}
-        overscan={2}
         onUpdate={(r) => updates.push(r)}
+        overscan={2}
+        rowHeight={10}
       />
     );
 
@@ -51,14 +51,14 @@ describe('useVirtualList', () => {
       fireEvent.scroll(container);
     });
 
-    const last = updates[updates.length - 1];
+    const last = updates.at(-1);
     expect(last).toEqual({ start: 8, end: 17 });
   });
 
   it('clamps overscan within bounds', () => {
     const updates: { start: number; end: number }[] = [];
     render(
-      <TestComponent itemCount={20} rowHeight={10} overscan={3} onUpdate={(r) => updates.push(r)} />
+      <TestComponent itemCount={20} onUpdate={(r) => updates.push(r)} overscan={3} rowHeight={10} />
     );
 
     const container = screen.getByTestId('container');
@@ -68,14 +68,14 @@ describe('useVirtualList', () => {
       fireEvent.scroll(container);
     });
 
-    const last = updates[updates.length - 1];
+    const last = updates.at(-1);
     expect(last).toEqual({ start: 16, end: 19 });
   });
 
   it('updates range once on initial mount', () => {
     const updates: { start: number; end: number }[] = [];
     render(
-      <TestComponent itemCount={10} rowHeight={10} overscan={1} onUpdate={(r) => updates.push(r)} />
+      <TestComponent itemCount={10} onUpdate={(r) => updates.push(r)} overscan={1} rowHeight={10} />
     );
 
     const container = screen.getByTestId('container');
@@ -83,7 +83,7 @@ describe('useVirtualList', () => {
     // flush effects
     act(() => {});
 
-    const last = updates[updates.length - 1];
+    const last = updates.at(-1);
     expect(last).toEqual({ start: 0, end: 6 });
   });
 });

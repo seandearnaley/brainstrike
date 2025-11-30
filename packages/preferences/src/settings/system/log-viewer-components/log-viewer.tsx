@@ -31,15 +31,15 @@ import {
   sortLogRecords,
 } from './log-utils';
 
-export interface LogSourceAdapter {
+export type LogSourceAdapter = {
   getInitialRecords?: () => Promise<readonly LogRecord[]>;
   subscribe?: (handler: (records: readonly LogRecord[]) => void) => () => void;
-}
+};
 
-interface LogViewerProps {
+type LogViewerProps = {
   logSource: LogSourceAdapter | undefined;
   toast: ReturnType<typeof useToast>['toast'];
-}
+};
 
 const LOG_LEVEL_OPTIONS: LogLevel[] = [
   LogLevel.TRACE,
@@ -68,7 +68,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
   // Let's stick to showing everything in one long scrollable list as requested ("render a lot of rows").
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
-    pageSize: 10000, // Large default for virtualization
+    pageSize: 10_000, // Large default for virtualization
   });
 
   useEffect(() => {
@@ -135,13 +135,15 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     });
   }, [globalFilter, logLevelFilter, logRecords]);
 
-  const tableData = useMemo<LogRecordRow[]>(() => {
-    return filteredRecords.map((record) => ({
-      ...record,
-      serializedArgs: serializeArgs(record.args),
-      flattenedBindings: JSON.stringify(record.bindings ?? {}),
-    }));
-  }, [filteredRecords]);
+  const tableData = useMemo<LogRecordRow[]>(
+    () =>
+      filteredRecords.map((record) => ({
+        ...record,
+        serializedArgs: serializeArgs(record.args),
+        flattenedBindings: JSON.stringify(record.bindings ?? {}),
+      })),
+    [filteredRecords]
+  );
 
   const columns = useMemo<ColumnDef<LogRecordRow>[]>(
     () => [
@@ -149,7 +151,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         accessorKey: 'timestamp',
         header: 'Time',
         cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => (
-          <span className="text-xs text-muted-foreground font-mono">
+          <span className="font-mono text-muted-foreground text-xs">
             {formatLogTimestamp(getValue() as number)}
           </span>
         ),
@@ -166,8 +168,8 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
               : LogLevel.INFO;
           return (
             <Badge
+              className="h-5 px-1.5 py-0 font-bold text-[10px] uppercase tracking-wider"
               variant={getLevelBadgeVariant(level)}
-              className="text-[10px] px-1.5 py-0 h-5 uppercase tracking-wider font-bold"
             >
               {level}
             </Badge>
@@ -181,9 +183,9 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
           const scope = getValue() as string | undefined;
           return scope ? (
-            <span className="text-xs font-medium text-primary/80">[{scope}]</span>
+            <span className="font-medium text-primary/80 text-xs">[{scope}]</span>
           ) : (
-            <span className="text-xs text-muted-foreground/30">—</span>
+            <span className="text-muted-foreground/30 text-xs">—</span>
           );
         },
         size: 140,
@@ -194,7 +196,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
           const message = getValue() as string | undefined;
           return (
-            <div className="truncate text-xs text-foreground/90 font-medium" title={message ?? ''}>
+            <div className="truncate font-medium text-foreground/90 text-xs" title={message ?? ''}>
               {message || <span className="text-muted-foreground/30">—</span>}
             </div>
           );
@@ -208,13 +210,13 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
           const payload = getValue() as string;
           return payload ? (
             <code
-              className="block max-w-xs truncate text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded border border-border/20 font-mono"
+              className="block max-w-xs truncate rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
               title={payload}
             >
               {payload}
             </code>
           ) : (
-            <span className="text-xs text-muted-foreground/30">—</span>
+            <span className="text-muted-foreground/30 text-xs">—</span>
           );
         },
         size: 250,
@@ -227,13 +229,13 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
           const parsed = bindings && bindings !== '{}' ? bindings : null;
           return parsed ? (
             <code
-              className="block max-w-xs truncate text-[10px] text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded border border-border/20 font-mono"
+              className="block max-w-xs truncate rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
               title={parsed}
             >
               {parsed}
             </code>
           ) : (
-            <span className="text-xs text-muted-foreground/30">—</span>
+            <span className="text-muted-foreground/30 text-xs">—</span>
           );
         },
         size: 200,
@@ -320,36 +322,36 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
   }
 
   return (
-    <Card className="flex flex-col overflow-hidden border-border/60 shadow-sm h-[600px] transition-all duration-300 hover:shadow-md">
-      <CardHeader className="pb-3 border-b border-border/40 bg-muted/10">
-        <CardTitle className="text-lg font-semibold tracking-tight">Log Viewer</CardTitle>
+    <Card className="flex h-[600px] flex-col overflow-hidden border-border/60 shadow-sm transition-all duration-300 hover:shadow-md">
+      <CardHeader className="border-border/40 border-b bg-muted/10 pb-3">
+        <CardTitle className="font-semibold text-lg tracking-tight">Log Viewer</CardTitle>
         <CardDescription className="text-xs">
           Real-time application logs and diagnostics.
         </CardDescription>
       </CardHeader>
 
       <LogToolbar
-        logLevelFilter={logLevelFilter}
-        onLevelChange={setLogLevelFilter}
-        logLevelItems={logLevelItems}
-        globalFilter={globalFilter}
-        onSearchChange={setGlobalFilter}
         autoScroll={autoScroll}
-        onAutoScrollChange={setAutoScroll}
-        table={table}
-        rowsCount={filteredRecords.length}
-        logsLoading={logsLoading}
-        onExport={handleExportLogs}
-        onRefresh={handleRefreshLogs}
         canRefresh={Boolean(logSource.getInitialRecords)}
+        globalFilter={globalFilter}
+        logLevelFilter={logLevelFilter}
+        logLevelItems={logLevelItems}
+        logsLoading={logsLoading}
+        onAutoScrollChange={setAutoScroll}
+        onExport={handleExportLogs}
+        onLevelChange={setLogLevelFilter}
+        onRefresh={handleRefreshLogs}
+        onSearchChange={setGlobalFilter}
+        rowsCount={filteredRecords.length}
+        table={table}
       />
 
-      <CardContent className="flex-1 p-0 overflow-hidden flex flex-col relative">
-        <LogList table={table} rows={rows} logsLoading={logsLoading} autoScroll={autoScroll} />
-        <div className="absolute bottom-0 right-0 left-0 h-6 bg-gradient-to-t from-background to-transparent pointer-events-none opacity-50" />
+      <CardContent className="relative flex flex-1 flex-col overflow-hidden p-0">
+        <LogList autoScroll={autoScroll} logsLoading={logsLoading} rows={rows} table={table} />
+        <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t from-background to-transparent opacity-50" />
       </CardContent>
 
-      <div className="px-4 py-2 border-t border-border/40 bg-muted/20 text-[10px] text-muted-foreground flex justify-between items-center">
+      <div className="flex items-center justify-between border-border/40 border-t bg-muted/20 px-4 py-2 text-[10px] text-muted-foreground">
         <span>
           Total: {logRecords.length} | Filtered: {filteredRecords.length}
         </span>

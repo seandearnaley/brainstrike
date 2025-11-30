@@ -8,13 +8,13 @@ const DEFAULT_MODELS: Record<string, string> = {
   openrouter: 'gpt-4o-mini',
 } as const;
 
-export interface AssistantMockOptions {
+export type AssistantMockOptions = {
   readonly provider?: string;
   readonly apiKey?: string;
   readonly message?: string;
   readonly variant?: 'simple' | 'detailed';
   readonly models?: Record<string, string>;
-}
+};
 
 const defaultOptions: Required<AssistantMockOptions> = {
   provider: 'openai',
@@ -66,8 +66,12 @@ export async function setupAssistantMock(
       const encoder = new TextEncoder();
 
       const resolveUrl = (input: RequestInfo | URL): string => {
-        if (typeof input === 'string') return input;
-        if (input instanceof Request) return input.url;
+        if (typeof input === 'string') {
+          return input;
+        }
+        if (input instanceof Request) {
+          return input.url;
+        }
         return String(input);
       };
 

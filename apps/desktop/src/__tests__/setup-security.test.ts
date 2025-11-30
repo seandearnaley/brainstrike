@@ -82,7 +82,6 @@ describe('setupSecurity', () => {
       responseHeaders: {
         'X-Frame-Options': ['DENY'],
       },
-      // biome-ignore lint/suspicious/noExplicitAny: Test mocks require flexible typing for Electron interfaces
     } as any;
 
     const callback = vi.fn();
@@ -114,7 +113,6 @@ describe('setupSecurity', () => {
       timestamp: Date.now(),
       statusLine: 'HTTP/1.1 200 OK',
       statusCode: 200,
-      // biome-ignore lint/suspicious/noExplicitAny: Test mocks require flexible typing for Electron interfaces
     } as any;
     const callback = vi.fn();
 

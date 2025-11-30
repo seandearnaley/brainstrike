@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   computeInitialBatchSize,
   l2Normalize,
@@ -27,19 +27,15 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       const vector = Float32Array.from([0.0001, 0.0001]);
       const normalized = l2Normalize(vector);
 
-      const magnitude = Math.sqrt(
-        normalized.reduce((sum, value) => sum + value * value, 0)
-      );
+      const magnitude = Math.sqrt(normalized.reduce((sum, value) => sum + value * value, 0));
       expect(magnitude).toBeCloseTo(1, 5);
     });
 
     it('should handle very large values', () => {
-      const vector = Float32Array.from([1000000, 2000000]);
+      const vector = Float32Array.from([1_000_000, 2_000_000]);
       const normalized = l2Normalize(vector);
 
-      const magnitude = Math.sqrt(
-        normalized.reduce((sum, value) => sum + value * value, 0)
-      );
+      const magnitude = Math.sqrt(normalized.reduce((sum, value) => sum + value * value, 0));
       expect(magnitude).toBeCloseTo(1, 5);
     });
 
@@ -47,9 +43,7 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       const vector = Float32Array.from([-3, -4]);
       const normalized = l2Normalize(vector);
 
-      const magnitude = Math.sqrt(
-        normalized.reduce((sum, value) => sum + value * value, 0)
-      );
+      const magnitude = Math.sqrt(normalized.reduce((sum, value) => sum + value * value, 0));
       expect(magnitude).toBeCloseTo(1);
 
       // Direction should be preserved
@@ -61,9 +55,7 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       const vector = Float32Array.from([3, -4, 5]);
       const normalized = l2Normalize(vector);
 
-      const magnitude = Math.sqrt(
-        normalized.reduce((sum, value) => sum + value * value, 0)
-      );
+      const magnitude = Math.sqrt(normalized.reduce((sum, value) => sum + value * value, 0));
       expect(magnitude).toBeCloseTo(1);
     });
 
@@ -131,7 +123,7 @@ describe('Embedding Worker - Enhanced Coverage', () => {
 
     it('should cap at 16 for very large dimensions', () => {
       expect(computeInitialBatchSize(1000)).toBeLessThanOrEqual(16);
-      expect(computeInitialBatchSize(10000)).toBeLessThanOrEqual(16);
+      expect(computeInitialBatchSize(10_000)).toBeLessThanOrEqual(16);
     });
 
     it('should return reasonable batch size for common dimensions', () => {
@@ -172,9 +164,7 @@ describe('Embedding Worker - Enhanced Coverage', () => {
 
       expect(vectors).toHaveLength(100);
       vectors.forEach((vector) => {
-        const magnitude = Math.sqrt(
-          vector.reduce((sum, value) => sum + value * value, 0)
-        );
+        const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
         expect(magnitude).toBeCloseTo(1, 5);
       });
     });
@@ -189,9 +179,7 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       expect(vectors).toHaveLength(2);
       // First vector is zero, will be NaN after normalization
       // Second vector should be normalized
-      const magnitude1 = Math.sqrt(
-        vectors[1].reduce((sum, value) => sum + value * value, 0)
-      );
+      const magnitude1 = Math.sqrt(vectors[1].reduce((sum, value) => sum + value * value, 0));
       expect(magnitude1).toBeCloseTo(1, 5);
     });
 
@@ -208,9 +196,7 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       const [normalized] = vectorsFromPipelineOutput(vector, 1536);
 
       expect(normalized).toHaveLength(1536);
-      const magnitude = Math.sqrt(
-        normalized.reduce((sum, value) => sum + value * value, 0)
-      );
+      const magnitude = Math.sqrt(normalized.reduce((sum, value) => sum + value * value, 0));
       expect(magnitude).toBeCloseTo(1, 5);
     });
 
@@ -223,9 +209,7 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       const vectors = vectorsFromPipelineOutput(output, 3);
 
       vectors.forEach((vector) => {
-        const magnitude = Math.sqrt(
-          vector.reduce((sum, value) => sum + value * value, 0)
-        );
+        const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
         expect(magnitude).toBeCloseTo(1, 5);
       });
     });
@@ -238,9 +222,7 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       const vectors = vectorsFromPipelineOutput(output, 2);
 
       vectors.forEach((vector) => {
-        const magnitude = Math.sqrt(
-          vector.reduce((sum, value) => sum + value * value, 0)
-        );
+        const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
         expect(magnitude).toBeCloseTo(1, 5);
       });
     });

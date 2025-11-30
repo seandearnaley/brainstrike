@@ -1,3 +1,4 @@
+'use strict';
 // @ts-check
 const config = {
   plugins: ['@stryker-mutator/vitest-runner', '@stryker-mutator/typescript-checker'],
@@ -16,7 +17,7 @@ const config = {
   coverageAnalysis: 'perTest',
   concurrency: 2,
   reporters: ['html', 'clear-text', 'progress'],
-  timeoutMS: 120000,
+  timeoutMS: 120_000,
   htmlReporter: {
     fileName: 'reports/mutation/file-system/index.html',
   },

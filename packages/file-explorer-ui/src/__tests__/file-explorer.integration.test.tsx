@@ -73,7 +73,7 @@ describe('File Explorer Integration Tests', () => {
   it('should render file tree and handle folder expansion', async () => {
     render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
-        <FileTree fileTree={mockFiles} loadingFiles={new Set()} folderId="test-folder" />
+        <FileTree fileTree={mockFiles} folderId="test-folder" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -90,7 +90,7 @@ describe('File Explorer Integration Tests', () => {
 
     render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
-        <FileTree fileTree={mockFiles} loadingFiles={new Set()} folderId="test-folder" />
+        <FileTree fileTree={mockFiles} folderId="test-folder" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -106,23 +106,23 @@ describe('File Explorer Integration Tests', () => {
     const { container } = render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
         <div className="flex">
-          <FileTree fileTree={mockFiles} loadingFiles={new Set()} folderId="test-folder" />
+          <FileTree fileTree={mockFiles} folderId="test-folder" loadingFiles={new Set()} />
           <PreviewPanel
-            selectedFiles={new Set(['test-folder:/package.json'])}
-            fileContents={{}}
-            loadingFiles={new Set()}
-            onSelectionChange={() => {}}
             decodeFileSelection={(key: string) => {
               const [folderId, path] = key.split(':');
               return { folderId: folderId!, path: path! };
             }}
+            fileContents={{}}
+            loadingFiles={new Set()}
+            onSelectionChange={() => {}}
+            performUndoableAction={() => {}}
+            selectedFiles={new Set(['test-folder:/package.json'])}
             tokenCounting={{
               mode: 'accurate',
               reason: null,
               loading: false,
               countTokens: async () => 100,
             }}
-            performUndoableAction={() => {}}
           />
         </div>
       </FileExplorerTestWrapper>
@@ -140,7 +140,7 @@ describe('File Explorer Integration Tests', () => {
 
     render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
-        <FileTree fileTree={mockFiles} loadingFiles={new Set()} folderId="test-folder" />
+        <FileTree fileTree={mockFiles} folderId="test-folder" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -158,7 +158,7 @@ describe('File Explorer Integration Tests', () => {
 
     render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
-        <FileTree fileTree={mockFiles} loadingFiles={new Set()} folderId="test-folder" />
+        <FileTree fileTree={mockFiles} folderId="test-folder" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -178,7 +178,7 @@ describe('File Explorer Integration Tests', () => {
 
     render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
-        <FileTree fileTree={mockFiles} loadingFiles={new Set()} folderId="test-folder" />
+        <FileTree fileTree={mockFiles} folderId="test-folder" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -194,7 +194,7 @@ describe('File Explorer Integration Tests', () => {
   it('should handle file filtering and search', async () => {
     render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
-        <FileTree fileTree={mockFiles} loadingFiles={new Set()} folderId="test-folder" />
+        <FileTree fileTree={mockFiles} folderId="test-folder" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -206,7 +206,7 @@ describe('File Explorer Integration Tests', () => {
   it('should handle file operations errors gracefully', async () => {
     render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
-        <FileTree fileTree={mockFiles} loadingFiles={new Set()} folderId="test-folder" />
+        <FileTree fileTree={mockFiles} folderId="test-folder" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 

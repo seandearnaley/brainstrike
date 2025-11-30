@@ -36,9 +36,7 @@ export function registerMcpIpcHandlers() {
     return last;
   });
 
-  ipcMain.handle('mcp:config:getPath', async (): Promise<string> => {
-    return await getMcpConfigPath();
-  });
+  ipcMain.handle('mcp:config:getPath', async (): Promise<string> => await getMcpConfigPath());
 
   ipcMain.handle(
     'mcp:config:setPath',
@@ -99,7 +97,9 @@ export function registerMcpIpcHandlers() {
   ipcMain.handle(
     'mcp:config:watch',
     async (_e: IpcMainInvokeEvent): Promise<{ watching: boolean }> => {
-      if (unwatch) return { watching: true };
+      if (unwatch) {
+        return { watching: true };
+      }
       const w = await watchMcpConfig((cfg) => {
         last = cfg;
         // Hot-reload clients on config change
@@ -171,9 +171,7 @@ export function registerMcpIpcHandlers() {
     await saveToolPreferencesIfNeeded();
   });
 
-  ipcMain.handle('mcp:tools:getStats', async () => {
-    return mcpToolRegistry.getStats();
-  });
+  ipcMain.handle('mcp:tools:getStats', async () => mcpToolRegistry.getStats());
 
   // Discover tools when config changes; saved preferences are applied after discovery completes
   void discoverMcpToolsOnStartup();
@@ -223,7 +221,7 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
         apiKey: credentials.apiKey,
       },
       mcpConfig: config,
-      mcpTimeoutMs: 10000, // 10 second timeout for discovery
+      mcpTimeoutMs: 10_000, // 10 second timeout for discovery
     });
 
     // Tools are now registered in the global registry
@@ -250,7 +248,7 @@ async function resolveDiscoveryCredentials(): Promise<
     const secrets = getSecretsService();
     const providers = await secrets.listProviders();
     for (const candidate of providers) {
-      if (!candidate || !isSupportedProvider(candidate)) {
+      if (!(candidate && isSupportedProvider(candidate))) {
         continue;
       }
       const key = await secrets.getKey(candidate);
@@ -268,7 +266,7 @@ async function resolveDiscoveryCredentials(): Promise<
     return { provider: 'openai', apiKey: envKey };
   }
 
-  return undefined;
+  return;
 }
 
 async function saveToolPreferencesIfNeeded(): Promise<void> {
@@ -278,7 +276,9 @@ async function saveToolPreferencesIfNeeded(): Promise<void> {
     const disabledTools: string[] = [];
 
     for (const [, tools] of Object.entries(allTools)) {
-      if (!Array.isArray(tools)) continue;
+      if (!Array.isArray(tools)) {
+        continue;
+      }
       for (const tool of tools) {
         if (tool.enabled) {
           enabledTools.push(tool.id);

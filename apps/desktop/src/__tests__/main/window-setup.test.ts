@@ -18,7 +18,9 @@ const mockBrowserWindowInstance = {
     openDevTools: vi.fn(),
   },
   once: vi.fn((event: string, handler: () => void) => {
-    if (event === 'ready-to-show') handler();
+    if (event === 'ready-to-show') {
+      handler();
+    }
   }),
   show: vi.fn(),
 };

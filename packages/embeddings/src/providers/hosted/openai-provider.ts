@@ -42,13 +42,13 @@ const OPENAI_MODELS: Record<string, ModelConfig> = {
   },
 };
 
-export interface OpenAIEmbeddingProviderOptions {
+export type OpenAIEmbeddingProviderOptions = {
   readonly modelId: string;
   readonly targetDimensions: number;
   readonly apiKey?: string;
   readonly fetch?: FetchLike;
   readonly endpoint?: string;
-}
+};
 
 export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   readonly runtime = 'hosted' as const;
@@ -168,7 +168,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   ): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
     const payload = (await response.json()) as OpenAIEmbeddingResponse;
 
-    if (!payload.data || !Array.isArray(payload.data) || payload.data.length === 0) {
+    if (!(payload.data && Array.isArray(payload.data)) || payload.data.length === 0) {
       return {
         ok: false,
         error: {
@@ -219,7 +219,7 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
 
     const output: EmbeddingOutput = {
       embedding: firstEmbedding,
-      embeddings: embeddings,
+      embeddings,
       dimensions: firstEmbedding.length,
       modelId,
       provider: 'openai',
@@ -278,7 +278,7 @@ function normalizeApiKey(value: string | undefined): string | null {
 
 function parseRetryAfter(headerValue: string | null): number | undefined {
   if (!headerValue) {
-    return undefined;
+    return;
   }
   const numeric = Number(headerValue);
   if (Number.isFinite(numeric)) {
@@ -289,13 +289,13 @@ function parseRetryAfter(headerValue: string | null): number | undefined {
     const delta = parsed - Date.now();
     return delta > 0 ? Math.round(delta / 1000) : undefined;
   }
-  return undefined;
+  return;
 }
 
 async function safeJson(response: Response): Promise<unknown | undefined> {
   try {
     return await response.json();
   } catch {
-    return undefined;
+    return;
   }
 }

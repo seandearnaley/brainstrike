@@ -31,7 +31,9 @@ const isBrowserLike = () =>
     typeof (self as { importScripts?: unknown }).importScripts === 'function');
 
 function tryCreateEncoder(factory: EncoderFactory | undefined, input: string): EncodeFn | null {
-  if (!factory) return null;
+  if (!factory) {
+    return null;
+  }
   try {
     const encoder = factory(input);
     return (text: string) => encoder.encode(text);
@@ -68,7 +70,7 @@ async function instantiateBrowserEncoder(): Promise<EncodeFn | null> {
   const wasmBinary = await fetchWasmBinary(wasmUrlModule);
   const encoderConfig = extractEncoderConfig(encoderModuleRaw);
 
-  if (!initFn || !encoderCtor || !encoderConfig) {
+  if (!(initFn && encoderCtor && encoderConfig)) {
     throw new Error('tiktoken lite modules missing expected exports');
   }
 
@@ -116,7 +118,9 @@ function extractEncoderConfig(module: Record<string, unknown>): {
   patStr: string;
 } | null {
   const payload = module['default'] as Record<string, unknown> | undefined;
-  if (!payload) return null;
+  if (!payload) {
+    return null;
+  }
 
   const bpeRanks = payload['bpe_ranks'];
   const specialTokens = payload['special_tokens'];
@@ -180,7 +184,9 @@ export async function supportsAccurateTokenCounting(): Promise<boolean> {
  * bindings are unavailable (e.g., unsupported runtime or transient load failure).
  */
 export async function countTokensAccurate(text: string): Promise<number> {
-  if (!text) return 0;
+  if (!text) {
+    return 0;
+  }
   const encoder = await resolveEncoder();
   if (!encoder) {
     return countTokensHeuristic(text);
@@ -232,11 +238,11 @@ export function formatTokenCount(count: number): string {
     return `${count} tokens`;
   }
 
-  if (count < 1000000) {
+  if (count < 1_000_000) {
     return `${(count / 1000).toFixed(1)}K tokens`;
   }
 
-  return `${(count / 1000000).toFixed(1)}M tokens`;
+  return `${(count / 1_000_000).toFixed(1)}M tokens`;
 }
 
 /**
@@ -247,7 +253,9 @@ export function formatTokenCount(count: number): string {
  * @returns Total token count for all texts
  */
 export async function calculateGroupTokens(texts: string[]): Promise<number> {
-  if (texts.length === 0) return 0;
+  if (texts.length === 0) {
+    return 0;
+  }
   const encoder = await resolveEncoder();
   if (!encoder) {
     return texts.reduce((total, text) => total + countTokensHeuristic(text), 0);
@@ -274,7 +282,7 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
  */
 export function estimateTokenCost(inputTokens: number, outputTokens = 0): number {
   // Current GPT-4 rates as of March 2025: $10/1M input, $30/1M output tokens
-  const inputCost = inputTokens * 0.00001; // $0.01 per 1K tokens
-  const outputCost = outputTokens * 0.00003; // $0.03 per 1K tokens
+  const inputCost = inputTokens * 0.000_01; // $0.01 per 1K tokens
+  const outputCost = outputTokens * 0.000_03; // $0.03 per 1K tokens
   return inputCost + outputCost;
 }

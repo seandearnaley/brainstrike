@@ -3,6 +3,7 @@ import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
+import type { LoggingPreferences } from '@brainstrike/utils';
 import {
   applyLoggingPreferences,
   createLogger,
@@ -39,7 +40,7 @@ initializeLogging({
   level: rendererLevel,
   consoleLevel: rendererLevel,
   appName: 'brainstrike-desktop',
-  appVersion: import.meta.env.VITE_APP_VERSION ?? 'desktop-renderer',
+  appVersion: import.meta.env['VITE_APP_VERSION'] ?? 'desktop-renderer',
   baseBindings: {
     mode: import.meta.env.MODE,
     userAgent: window.navigator.userAgent,
@@ -85,7 +86,7 @@ const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((stat
 });
 
 const unsubscribeLoggingEvents =
-  window.logging?.onPreferencesUpdated?.((preferences) => {
+  window.logging?.onPreferencesUpdated?.((preferences: LoggingPreferences) => {
     useLoggingPreferencesStore.getState().setPreferences(preferences);
   }) ?? null;
 
@@ -98,20 +99,20 @@ if (import.meta.hot) {
 }
 
 const telemetryEndpoint =
-  import.meta.env.VITE_QUEUE_TELEMETRY_ENDPOINT ??
+  import.meta.env['VITE_QUEUE_TELEMETRY_ENDPOINT'] ??
   (import.meta.env.DEV ? 'http://localhost:4130/queue-telemetry' : undefined);
 const rendererTelemetrySink =
   typeof window !== 'undefined' && telemetryEndpoint
     ? initializeQueueTelemetrySink({
         endpoint: telemetryEndpoint,
-        ...(import.meta.env.VITE_QUEUE_TELEMETRY_API_KEY
-          ? { apiKey: import.meta.env.VITE_QUEUE_TELEMETRY_API_KEY }
+        ...(import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY']
+          ? { apiKey: import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY'] }
           : {}),
         runtime: 'electron-renderer',
         metadata: {
           app: 'desktop-renderer',
           mode: import.meta.env.MODE,
-          version: import.meta.env.VITE_APP_VERSION ?? 'desktop-renderer',
+          version: import.meta.env['VITE_APP_VERSION'] ?? 'desktop-renderer',
         },
       })
     : null;
@@ -140,6 +141,7 @@ if (rendererTelemetrySink) {
 }
 
 declare global {
+  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
     __BRAINSTRIKE_READY__?: boolean;
@@ -168,10 +170,10 @@ function App() {
 
   if (!dbPath) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex h-screen items-center justify-center">
         <div className="text-center">
-          <div className="text-lg font-semibold">Initializing Database...</div>
-          <div className="text-sm text-muted-foreground mt-2">
+          <div className="font-semibold text-lg">Initializing Database...</div>
+          <div className="mt-2 text-muted-foreground text-sm">
             Setting up PGlite with persistent storage
           </div>
         </div>
@@ -180,7 +182,7 @@ function App() {
   }
 
   return (
-    <DbProvider useElectronIPC={true} dbPath={dbPath}>
+    <DbProvider dbPath={dbPath} useElectronIPC={true}>
       <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
         <RootLayoutContent />
       </AdaptersProvider>

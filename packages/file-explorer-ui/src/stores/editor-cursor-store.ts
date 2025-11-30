@@ -3,21 +3,21 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type Key = string; // compositeKey (folderId:path)
 
-export interface CursorSelection {
+export type CursorSelection = {
   cursor: number; // caret index in content
   selectionStart: number;
   selectionEnd: number;
-}
+};
 
-interface EditorCursorData {
+type EditorCursorData = {
   selections: Record<Key, CursorSelection | undefined>;
-}
+};
 
-interface EditorCursorActions {
+type EditorCursorActions = {
   setSelection: (key: Key, sel: CursorSelection) => void;
   getSelection: (key: Key) => CursorSelection | undefined;
   clear: (key?: Key) => void;
-}
+};
 
 export type EditorCursorStore = EditorCursorData & EditorCursorActions;
 
@@ -28,19 +28,25 @@ const storage = createJSONStorage(() => {
   return {
     getItem: (k: string) => {
       try {
-        if (typeof localStorage !== 'undefined') return localStorage.getItem(k);
+        if (typeof localStorage !== 'undefined') {
+          return localStorage.getItem(k);
+        }
       } catch {}
       return memory.get(k) ?? null;
     },
     setItem: (k: string, v: string) => {
       try {
-        if (typeof localStorage !== 'undefined') return localStorage.setItem(k, v);
+        if (typeof localStorage !== 'undefined') {
+          return localStorage.setItem(k, v);
+        }
       } catch {}
       memory.set(k, v);
     },
     removeItem: (k: string) => {
       try {
-        if (typeof localStorage !== 'undefined') return localStorage.removeItem(k);
+        if (typeof localStorage !== 'undefined') {
+          return localStorage.removeItem(k);
+        }
       } catch {}
       memory.delete(k);
     },

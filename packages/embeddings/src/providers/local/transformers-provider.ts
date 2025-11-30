@@ -13,8 +13,8 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
   readonly runtime = 'browser' as const;
   readonly provider = 'local' as const;
 
-  private service: SimpleEmbeddingService;
-  private modelKey: string;
+  private readonly service: SimpleEmbeddingService;
+  private readonly modelKey: string;
   private expectedDimensions: number | null = null;
 
   /**
@@ -25,7 +25,7 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
    */
   constructor(
     modelKey: string,
-    private deviceOverride?: 'webgpu' | 'wasm' | 'cpu'
+    private readonly deviceOverride?: 'webgpu' | 'wasm' | 'cpu'
   ) {
     this.service = new SimpleEmbeddingService();
     this.modelKey = modelKey;
@@ -107,8 +107,8 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
       // Map to new output format
       const output: EmbeddingOutput = {
         embedding: embeddings[0] ?? [],
-        embeddings: embeddings,
-        dimensions: dimensions,
+        embeddings,
+        dimensions,
         modelId: input.modelId,
         provider: 'local',
       };
@@ -183,9 +183,15 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
     const status = this.service.getStatus();
 
     // Map service status to provider status
-    if (status === 'idle') return 'idle';
-    if (status === 'initializing' || status === 'downloading') return 'initializing';
-    if (status === 'ready') return 'ready';
+    if (status === 'idle') {
+      return 'idle';
+    }
+    if (status === 'initializing' || status === 'downloading') {
+      return 'initializing';
+    }
+    if (status === 'ready') {
+      return 'ready';
+    }
     return 'error';
   }
 

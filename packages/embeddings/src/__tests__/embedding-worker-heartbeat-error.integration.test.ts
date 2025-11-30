@@ -125,7 +125,9 @@ describe('embedding-worker: heartbeat error logging', () => {
       if (logs.some((l) => l.msg === 'worker_heartbeat_error')) {
         sawHeartbeatError = true;
       }
-      if (res.rows[0] && res.rows[0].state === 'succeeded') break;
+      if (res.rows[0] && res.rows[0].state === 'succeeded') {
+        break;
+      }
       await new Promise((r) => setTimeout(r, 20));
     }
     expect(sawHeartbeatError).toBe(true);

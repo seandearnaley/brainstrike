@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('electron', () => {
-  return {
-    safeStorage: {
-      decryptString: (buf: Buffer) => `dec:${buf.toString('utf-8')}`,
-      isEncryptionAvailable: () => true,
-    },
-    app: { getPath: () => '/tmp' },
-  } as unknown as typeof import('electron');
-});
+vi.mock(
+  'electron',
+  () =>
+    ({
+      safeStorage: {
+        decryptString: (buf: Buffer) => `dec:${buf.toString('utf-8')}`,
+        isEncryptionAvailable: () => true,
+      },
+      app: { getPath: () => '/tmp' },
+    }) as unknown as typeof import('electron')
+);
 
 import { applyDecryptionToEnv, applyDecryptionToHeaders } from '../mcp-loader';
 

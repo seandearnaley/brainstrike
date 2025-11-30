@@ -64,7 +64,7 @@ async function pumpChunks(
   res: http.ServerResponse,
   abortState: { aborted: boolean }
 ): Promise<void> {
-  while (!abortState.aborted && !res.destroyed) {
+  while (!(abortState.aborted || res.destroyed)) {
     const { done, value } = await reader.read();
     if (done || abortState.aborted || res.destroyed) {
       break;
@@ -94,10 +94,12 @@ export async function pumpReadableToResponse(
     } catch {}
   };
   try {
-    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
     await pumpChunks(reader, res, abortState);
   } catch (error) {
-    if (!abortState.aborted && !res.destroyed) {
+    if (!(abortState.aborted || res.destroyed)) {
       logger.error('Stream pipeline failed', { error });
     }
   } finally {
@@ -107,6 +109,8 @@ export async function pumpReadableToResponse(
     try {
       res.end();
     } catch {}
-    if (signal) signal.removeEventListener?.('abort', onAbort as EventListener);
+    if (signal) {
+      signal.removeEventListener?.('abort', onAbort as EventListener);
+    }
   }
 }

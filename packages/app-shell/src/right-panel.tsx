@@ -11,7 +11,7 @@ import {
   useRightPanelStore,
 } from './stores/right-panel-store';
 
-interface RightPanelProps {
+type RightPanelProps = {
   /**
    * CRITICAL: The app-specific embedding queue from RootLayoutContent.
    *
@@ -20,7 +20,7 @@ interface RightPanelProps {
    * MUST be passed through to DatabaseTab! Without it, embedding operations will fail.
    */
   embeddingQueue?: QueueAdapter | null;
-}
+};
 
 /**
  * Right panel containing Assistant, Embeddings, and Database tabs.
@@ -33,41 +33,41 @@ export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactEle
   const setActiveTab = useRightPanelStore((state) => state.setActiveTab);
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex h-full flex-col">
       <Tabs
-        value={activeTab}
+        className="flex min-h-0 flex-1 flex-col"
         onValueChange={(value) => setActiveTab((value as RightPanelTab) ?? 'assistant')}
-        className="flex-1 flex flex-col min-h-0"
+        value={activeTab}
       >
-        <TabsList className="grid grid-cols-4 mx-2 mt-2 mb-2 flex-shrink-0">
-          <TabsTrigger value="assistant" className="flex items-center gap-1">
+        <TabsList className="mx-2 mt-2 mb-2 grid flex-shrink-0 grid-cols-4">
+          <TabsTrigger className="flex items-center gap-1" value="assistant">
             <MessageCircle className="h-3 w-3" />
             <span className="hidden sm:inline">Assistant</span>
           </TabsTrigger>
-          <TabsTrigger value="embeddings" className="flex items-center gap-1">
+          <TabsTrigger className="flex items-center gap-1" value="embeddings">
             <Brain className="h-3 w-3" />
             <span className="hidden sm:inline">Embed</span>
           </TabsTrigger>
-          <TabsTrigger value="database" className="flex items-center gap-1">
+          <TabsTrigger className="flex items-center gap-1" value="database">
             <Database className="h-3 w-3" />
             <span className="hidden sm:inline">DB</span>
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 px-2 flex flex-col min-h-0">
+        <div className="flex min-h-0 flex-1 flex-col px-2">
           <TabsContent
-            value="assistant"
+            className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
             forceMount
-            className="flex-1 min-h-0 data-[state=inactive]:hidden flex flex-col"
+            value="assistant"
           >
             <AssistantTab />
           </TabsContent>
 
-          <TabsContent value="embeddings" className="flex-1 mt-0 overflow-y-auto min-h-0">
+          <TabsContent className="mt-0 min-h-0 flex-1 overflow-y-auto" value="embeddings">
             <EmbeddingsTab />
           </TabsContent>
 
-          <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
+          <TabsContent className="mt-0 min-h-0 flex-1 overflow-y-auto" value="database">
             {/* CRITICAL: Pass embeddingQueue to DatabaseTab
                 This ensures VectorStatusWithDialog gets the app's embedding queue */}
             <DatabaseTab embeddingQueue={embeddingQueue} />

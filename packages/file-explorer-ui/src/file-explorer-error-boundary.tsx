@@ -24,9 +24,11 @@ class FileExplorerErrorBoundaryInner extends ErrorBoundary {
   declare props: FileExplorerErrorBoundaryProps;
   declare state: ErrorBoundaryState;
 
-  private handleCopyErrorDetails = () => {
+  private readonly handleCopyErrorDetails = () => {
     const { error, errorInfo } = this.state;
-    if (!error) return;
+    if (!error) {
+      return;
+    }
 
     const errorDetails = `
 Error: ${error.name}
@@ -48,7 +50,9 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
 
   private getErrorTypeInfo() {
     const { error } = this.state;
-    if (!error) return null;
+    if (!error) {
+      return null;
+    }
 
     let icon = AlertTriangle;
     let color = 'text-red-500';
@@ -63,7 +67,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
       message = `Failed to load file '${fileError.path}': ${fileError.message}`;
       color = 'text-orange-500';
       actions = (
-        <div className="flex gap-2 mt-2">
+        <div className="mt-2 flex gap-2">
           <Button onClick={this.handleReset} variant="outline">
             Retry Loading
           </Button>
@@ -79,7 +83,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
       message = `Failed to load ${concurrentError.failedPaths.length} files: ${concurrentError.message}`;
       color = 'text-purple-500';
       actions = (
-        <Button onClick={this.handleReset} variant="outline" className="mt-2">
+        <Button className="mt-2" onClick={this.handleReset} variant="outline">
           Retry with Fewer Concurrent Operations
         </Button>
       );
@@ -90,7 +94,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
       message = `Refresh partially failed: ${partialError.successCount} succeeded, ${partialError.failCount} failed`;
       color = 'text-yellow-500';
       actions = (
-        <Button onClick={this.handleReset} variant="outline" className="mt-2">
+        <Button className="mt-2" onClick={this.handleReset} variant="outline">
           Retry Failed Operations
         </Button>
       );
@@ -116,37 +120,37 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
     const Icon = info?.icon || AlertTriangle;
 
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6 bg-background/95 backdrop-blur-xs">
-        <div className="w-full max-w-md bg-card border rounded-lg shadow-lg overflow-hidden">
-          <div className="p-4 border-b bg-muted/30">
+      <div className="flex h-full flex-col items-center justify-center bg-background/95 p-6 backdrop-blur-xs">
+        <div className="w-full max-w-md overflow-hidden rounded-lg border bg-card shadow-lg">
+          <div className="border-b bg-muted/30 p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <Icon className={`h-6 w-6 mr-2 ${info?.color ?? 'text-red-500'}`} />
-                <h2 className="text-xl font-bold">{info?.displayTitle ?? 'Error'}</h2>
+                <Icon className={`mr-2 h-6 w-6 ${info?.color ?? 'text-red-500'}`} />
+                <h2 className="font-bold text-xl">{info?.displayTitle ?? 'Error'}</h2>
               </div>
-              <Button variant="ghost" size="icon" onClick={this.handleReset} title="Dismiss">
+              <Button onClick={this.handleReset} size="icon" title="Dismiss" variant="ghost">
                 <X className="h-4 w-4" />
               </Button>
             </div>
           </div>
 
           <div className="p-4">
-            <p className="text-destructive mb-4">{info?.message ?? error?.message}</p>
+            <p className="mb-4 text-destructive">{info?.message ?? error?.message}</p>
             {info?.actions}
-            <div className="flex flex-wrap gap-2 mt-4">
-              <Button onClick={this.handleReload} className="flex items-center">
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button className="flex items-center" onClick={this.handleReload}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Reload Page
               </Button>
-              <Button onClick={this.handleReset} variant="outline" className="flex items-center">
+              <Button className="flex items-center" onClick={this.handleReset} variant="outline">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Go Back
               </Button>
               {details && (
                 <Button
+                  className="flex items-center"
                   onClick={this.toggleDetails}
                   variant="outline"
-                  className="flex items-center"
                 >
                   <Bug className="mr-2 h-4 w-4" />
                   {detailsVisible ? 'Hide' : 'Show'} Details
@@ -154,9 +158,9 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
               )}
               {details && (
                 <Button
+                  className="flex items-center"
                   onClick={this.handleCopyErrorDetails}
                   variant="outline"
-                  className="flex items-center"
                 >
                   Copy Details
                 </Button>
@@ -165,9 +169,9 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
           </div>
 
           {detailsVisible && details && (
-            <div className="p-4 border-t bg-muted/20">
-              <h3 className="font-semibold mb-2">Error Details</h3>
-              <ScrollArea className="bg-muted p-2 rounded text-sm font-mono max-h-60">
+            <div className="border-t bg-muted/20 p-4">
+              <h3 className="mb-2 font-semibold">Error Details</h3>
+              <ScrollArea className="max-h-60 rounded bg-muted p-2 font-mono text-sm">
                 <p>
                   <strong>Name:</strong> {error?.name}
                 </p>
@@ -177,7 +181,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
                 {error?.stack && (
                   <div className="mt-2">
                     <strong>Stack:</strong>
-                    <pre className="whitespace-pre-wrap text-xs mt-1 text-muted-foreground">
+                    <pre className="mt-1 whitespace-pre-wrap text-muted-foreground text-xs">
                       {error.stack}
                     </pre>
                   </div>
@@ -185,7 +189,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
                 {errorInfo?.componentStack && (
                   <div className="mt-2">
                     <strong>Component Stack:</strong>
-                    <pre className="whitespace-pre-wrap text-xs mt-1 text-muted-foreground">
+                    <pre className="mt-1 whitespace-pre-wrap text-muted-foreground text-xs">
                       {errorInfo.componentStack}
                     </pre>
                   </div>

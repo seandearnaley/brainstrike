@@ -52,7 +52,7 @@ describe('embedding-constants', () => {
     });
 
     it('should be 2000 (pgvector vector type limit)', () => {
-      expect(MAX_EMBEDDING_DIMENSION).toBe(2_000);
+      expect(MAX_EMBEDDING_DIMENSION).toBe(2000);
     });
 
     it('should be a positive integer', () => {
@@ -76,7 +76,7 @@ describe('embedding-constants', () => {
       // pgvector's vector type supports up to 2000 dimensions
       // halfvec supports more (16000) but we use standard vector
       // See: https://github.com/pgvector/pgvector#vector
-      expect(MAX_EMBEDDING_DIMENSION).toBe(2_000);
+      expect(MAX_EMBEDDING_DIMENSION).toBe(2000);
       expect(MAX_EMBEDDING_DIMENSION).toBeLessThan(16_000);
     });
   });

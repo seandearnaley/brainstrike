@@ -3,23 +3,23 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type ContextKey = string; // e.g., folderId, file path, or compositeKey
 
-export interface InspectorFields {
+export type InspectorFields = {
   // Example fields; add/extend as inspector grows
   includeInReport: boolean;
   summaryLevel: number; // e.g., 1..10
   note: string;
-}
+};
 
-interface InspectorData {
+type InspectorData = {
   byContext: Record<ContextKey, InspectorFields | undefined>;
-}
+};
 
-interface InspectorActions {
+type InspectorActions = {
   setFields: (ctx: ContextKey, fields: InspectorFields) => void;
   updateFields: (ctx: ContextKey, patch: Partial<InspectorFields>) => void;
   getFields: (ctx: ContextKey) => InspectorFields | undefined;
   clear: (ctx?: ContextKey) => void;
-}
+};
 
 export type InspectorViewStore = InspectorData & InspectorActions;
 
@@ -30,19 +30,25 @@ const storage = createJSONStorage(() => {
   return {
     getItem: (k: string) => {
       try {
-        if (typeof localStorage !== 'undefined') return localStorage.getItem(k);
+        if (typeof localStorage !== 'undefined') {
+          return localStorage.getItem(k);
+        }
       } catch {}
       return memory.get(k) ?? null;
     },
     setItem: (k: string, v: string) => {
       try {
-        if (typeof localStorage !== 'undefined') return localStorage.setItem(k, v);
+        if (typeof localStorage !== 'undefined') {
+          return localStorage.setItem(k, v);
+        }
       } catch {}
       memory.set(k, v);
     },
     removeItem: (k: string) => {
       try {
-        if (typeof localStorage !== 'undefined') return localStorage.removeItem(k);
+        if (typeof localStorage !== 'undefined') {
+          return localStorage.removeItem(k);
+        }
       } catch {}
       memory.delete(k);
     },

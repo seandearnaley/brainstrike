@@ -58,7 +58,7 @@ describe('DbProvider integration', () => {
         expect(result.current).toBeDefined();
       },
       {
-        timeout: 10000, // Reduced from 30s with snapshot pattern
+        timeout: 10_000, // Reduced from 30s with snapshot pattern
       }
     );
 
@@ -71,5 +71,5 @@ describe('DbProvider integration', () => {
     await repo.create(record);
     const found = await repo.findById(record.id);
     expect(found).toEqual(record);
-  }, 15000); // Reduced timeout with snapshot pattern
+  }, 15_000); // Reduced timeout with snapshot pattern
 });

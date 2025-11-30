@@ -3,9 +3,9 @@ import { Button, Label, useToast } from '@brainstrike/ui';
 import { useCallback, useState } from 'react';
 import { clearPersistentUiState } from './factory-reset-helpers';
 
-export interface FactoryResetPanelProps {
+export type FactoryResetPanelProps = {
   doFactoryReset?: (() => Promise<void>) | null;
-}
+};
 
 export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelProps) {
   const { toast } = useToast();
@@ -13,10 +13,13 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
   const [running, setRunning] = useState(false);
 
   const handleClick = useCallback(async () => {
+    // biome-ignore lint/suspicious/noAlert: Intentional use of confirm for destructive action
     const ok = window.confirm(
       'Factory Reset will wipe all data (files, chunks, embedding sets, job queue), dispose embeddings, and reload the database. Continue?'
     );
-    if (!ok) return;
+    if (!ok) {
+      return;
+    }
 
     try {
       setRunning(true);
@@ -46,28 +49,28 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
   }, [doFactoryReset, providerFactoryReset, toast]);
 
   return (
-    <div className="border rounded-md p-3 bg-destructive/5 space-y-1">
-      <Label className="text-xs text-destructive">Factory Reset</Label>
+    <div className="space-y-1 rounded-md border bg-destructive/5 p-3">
+      <Label className="text-destructive text-xs">Factory Reset</Label>
       <p className="text-[11px] text-muted-foreground">
         Clears all files, embeddings, queues, and local preferences. The app will reload after the
         reset completes.
       </p>
       <Button
-        size="sm"
-        variant="destructive"
-        className="h-6 mt-1"
-        onClick={handleClick}
+        className="mt-1 h-6"
         data-testid="factory-reset-button"
         disabled={running}
+        onClick={handleClick}
+        size="sm"
+        variant="destructive"
       >
         Factory Reset Brainstrike
       </Button>
-      {!(doFactoryReset ?? providerFactoryReset) ? (
-        <p className="text-xs text-muted-foreground mt-1">
+      {(doFactoryReset ?? providerFactoryReset) ? null : (
+        <p className="mt-1 text-muted-foreground text-xs">
           Database-level reset is unavailable, so this will only clear the UI state before
           reloading.
         </p>
-      ) : null}
+      )}
     </div>
   );
 }

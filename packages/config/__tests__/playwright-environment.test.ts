@@ -30,12 +30,21 @@ describe('playwright-environment helpers', () => {
     expect(detectEnvironment().isGitHubActions).toBe(true);
 
     // Restore
-    if (typeof origCI === 'string') process.env['CI'] = origCI;
-    else Reflect.deleteProperty(process.env, 'CI');
-    if (typeof origGH === 'string') process.env['GITHUB_ACTIONS'] = origGH;
-    else Reflect.deleteProperty(process.env, 'GITHUB_ACTIONS');
-    if (typeof origCodex === 'string') process.env['CODEX_ENV'] = origCodex;
-    else Reflect.deleteProperty(process.env, 'CODEX_ENV');
+    if (typeof origCI === 'string') {
+      process.env['CI'] = origCI;
+    } else {
+      Reflect.deleteProperty(process.env, 'CI');
+    }
+    if (typeof origGH === 'string') {
+      process.env['GITHUB_ACTIONS'] = origGH;
+    } else {
+      Reflect.deleteProperty(process.env, 'GITHUB_ACTIONS');
+    }
+    if (typeof origCodex === 'string') {
+      process.env['CODEX_ENV'] = origCodex;
+    } else {
+      Reflect.deleteProperty(process.env, 'CODEX_ENV');
+    }
   });
 
   it('computes worker count and retries per env', () => {

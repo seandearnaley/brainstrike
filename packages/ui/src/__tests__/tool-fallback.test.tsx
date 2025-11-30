@@ -18,7 +18,7 @@ describe('ToolFallback', () => {
 
   describe('Running State', () => {
     it('displays running status with spinner', () => {
-      render(<ToolFallback {...mockBaseProps} status={{ type: 'running' }} result={undefined} />);
+      render(<ToolFallback {...mockBaseProps} result={undefined} status={{ type: 'running' }} />);
 
       expect(screen.getByText(/testTool/)).toBeInTheDocument();
       expect(screen.getByText(/Running/)).toBeInTheDocument();
@@ -31,8 +31,8 @@ describe('ToolFallback', () => {
       render(
         <ToolFallback
           {...mockBaseProps}
-          status={{ type: 'complete' }}
           result={{ data: 'success' }}
+          status={{ type: 'complete' }}
         />
       );
 
@@ -45,9 +45,9 @@ describe('ToolFallback', () => {
       render(
         <ToolFallback
           {...mockBaseProps}
-          status={{ type: 'complete' }}
           argsText='{"input":"test value"}'
           result={{ data: 'result value' }}
+          status={{ type: 'complete' }}
         />
       );
 
@@ -70,9 +70,9 @@ describe('ToolFallback', () => {
       render(
         <ToolFallback
           {...mockBaseProps}
-          status={{ type: 'complete' }}
           argsText='{"input":"test"}'
           result="success"
+          status={{ type: 'complete' }}
         />
       );
 
@@ -127,12 +127,12 @@ describe('ToolFallback', () => {
       render(
         <ToolFallback
           {...mockBaseProps}
+          result="Database connection failed"
           status={{
             type: 'incomplete',
             reason: 'error',
             error: { code: 500 },
           }}
-          result="Database connection failed"
         />
       );
 
@@ -177,12 +177,12 @@ describe('ToolFallback', () => {
       render(
         <ToolFallback
           {...mockBaseProps}
+          argsText='{"param":"value"}'
           status={{
             type: 'incomplete',
             reason: 'error',
             error: 'Failed to execute',
           }}
-          argsText='{"param":"value"}'
         />
       );
 
@@ -205,8 +205,8 @@ describe('ToolFallback', () => {
         <ToolFallback
           {...mockBaseProps}
           argsText=""
-          status={{ type: 'complete' }}
           result="success"
+          status={{ type: 'complete' }}
         />
       );
 
@@ -219,8 +219,8 @@ describe('ToolFallback', () => {
         <ToolFallback
           {...mockBaseProps}
           argsText=""
-          status={{ type: 'complete' }}
           result={undefined}
+          status={{ type: 'complete' }}
         />
       );
 
@@ -232,8 +232,8 @@ describe('ToolFallback', () => {
       render(
         <ToolFallback
           {...mockBaseProps}
-          status={{ type: 'complete' }}
           result={{ complex: { nested: 'value' } }}
+          status={{ type: 'complete' }}
         />
       );
 
@@ -247,8 +247,8 @@ describe('ToolFallback', () => {
       render(
         <ToolFallback
           {...mockBaseProps}
-          status={{ type: 'complete' }}
           result="Simple string result"
+          status={{ type: 'complete' }}
         />
       );
 
@@ -263,9 +263,9 @@ describe('ToolFallback', () => {
       render(
         <ToolFallback
           {...mockBaseProps}
-          status={{ type: 'complete' }}
           argsText='{"test":"value"}'
           result="success"
+          status={{ type: 'complete' }}
         />
       );
 
@@ -278,9 +278,9 @@ describe('ToolFallback', () => {
       render(
         <ToolFallback
           {...mockBaseProps}
-          status={{ type: 'complete' }}
           argsText='{"test":"value"}'
           result="success"
+          status={{ type: 'complete' }}
         />
       );
 

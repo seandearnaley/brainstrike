@@ -72,12 +72,12 @@ type ElectronLiveQueryRefreshPayload = {
   limit?: number;
 };
 
-interface ElectronLiveBridge {
+type ElectronLiveBridge = {
   start<T>(options: ElectronLiveQueryStartOptions): Promise<ElectronLiveQueryStartResult<T>>;
   stop(id: number): Promise<void>;
   refresh(payload: ElectronLiveQueryRefreshPayload): Promise<void>;
   onUpdate(callback: (payload: ElectronLiveQueryUpdate<unknown>) => void): () => void;
-}
+};
 
 type LiveSource =
   | { kind: 'pglite'; live: LiveNamespace }
@@ -257,7 +257,9 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     }
 
     const handleUpdate = (results: LiveQueryResults<T>) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       setRows((options.select ? options.select(results.rows) : results.rows) as T[]);
     };
 
@@ -291,7 +293,9 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
         setLoading(false);
       })
       .catch((err) => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         const normalized = err instanceof Error ? err : new Error(String(err));
         setError(normalized);
         setRows([]);

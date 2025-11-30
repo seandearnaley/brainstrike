@@ -10,13 +10,13 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type EnabledModelsMap = Record<SupportedProvider, string[]>;
 
-interface AssistantPreferencesData {
+type AssistantPreferencesData = {
   selectedModel: string | null; // Composite key: "provider::model"
   modelsByProvider: Record<SupportedProvider, string>;
   enabledModelsByProvider: EnabledModelsMap;
-}
+};
 
-interface AssistantPreferencesActions {
+type AssistantPreferencesActions = {
   setModel: (compositeKey: string) => void;
   clearModel: () => void;
   setModelEnabled: (provider: SupportedProvider, model: string, enabled: boolean) => void;
@@ -29,7 +29,7 @@ interface AssistantPreferencesActions {
   getSelectedProvider: () => SupportedProvider | null;
   getEnabledModels: (provider: SupportedProvider) => string[];
   getAvailableProviders: () => Promise<SupportedProvider[]>;
-}
+};
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
@@ -128,7 +128,7 @@ function enableModelForProvider(
   }
 
   const selectedModel = state.modelsByProvider[provider];
-  if (!selectedModel || !nextEnabled.includes(selectedModel)) {
+  if (!(selectedModel && nextEnabled.includes(selectedModel))) {
     const preferred = resolvePreferredModel(provider, nextEnabled);
     if (preferred) {
       updates.modelsByProvider = {
@@ -148,7 +148,7 @@ function disableModelForProvider(
 ): Partial<Store> | undefined {
   const currentEnabled = ensureEnabledModels(state.enabledModelsByProvider, provider);
   if (!currentEnabled.includes(model)) {
-    return undefined;
+    return;
   }
 
   const nextEnabled = orderByProviderCanonicalList(
@@ -243,7 +243,7 @@ export const useAssistantPreferencesStore = create<Store>()(
       setModel: (compositeKey) =>
         set((state) => {
           const [provider, model] = compositeKey.split('::');
-          if (!provider || !model) {
+          if (!(provider && model)) {
             return state;
           }
 
@@ -307,9 +307,7 @@ export const useAssistantPreferencesStore = create<Store>()(
           return result;
         }),
 
-      getSelectedModel: () => {
-        return get().selectedModel;
-      },
+      getSelectedModel: () => get().selectedModel,
 
       getSelectedProvider: () => {
         const { selectedModel } = get();
@@ -335,7 +333,9 @@ export const useAssistantPreferencesStore = create<Store>()(
           }
 
           const savedProviders = await w.secrets.list();
-          if (!Array.isArray(savedProviders)) return [];
+          if (!Array.isArray(savedProviders)) {
+            return [];
+          }
 
           const supportedProviders: SupportedProvider[] = SUPPORTED_PROVIDERS;
           return supportedProviders.filter((p) => savedProviders.includes(p));
@@ -355,7 +355,7 @@ export const useAssistantPreferencesStore = create<Store>()(
       }),
       migrate: (persistedState, version) => {
         if (!persistedState) {
-          return undefined;
+          return;
         }
 
         if (version >= STORE_VERSION) {

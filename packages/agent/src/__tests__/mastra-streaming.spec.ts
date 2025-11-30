@@ -45,71 +45,67 @@ vi.mock('@ai-sdk/google', () => ({
   createGoogleGenerativeAI: () => (modelId: string) => ({ modelId, provider: 'google' }),
 }));
 
-vi.mock('@mastra/core/agent', () => {
-  return {
-    Agent: class {
-      static reset() {
-        agentInstances.length = 0;
-      }
+vi.mock('@mastra/core/agent', () => ({
+  Agent: class {
+    static reset() {
+      agentInstances.length = 0;
+    }
 
-      config: { tools: Record<string, unknown> };
-      tools: Record<string, unknown>;
+    config: { tools: Record<string, unknown> };
+    tools: Record<string, unknown>;
+    model?: { modelId: string; provider?: string } | undefined;
+
+    constructor(config: {
+      tools?: Record<string, unknown>;
       model?: { modelId: string; provider?: string } | undefined;
+    }) {
+      const tools = (config.tools ?? {}) as Record<string, unknown>;
+      this.config = { tools };
+      this.tools = tools;
+      this.model = config.model;
+      agentInstances.push(this);
+    }
 
-      constructor(config: {
-        tools?: Record<string, unknown>;
-        model?: { modelId: string; provider?: string } | undefined;
-      }) {
-        const tools = (config.tools ?? {}) as Record<string, unknown>;
-        this.config = { tools };
-        this.tools = tools;
-        this.model = config.model;
-        agentInstances.push(this);
-      }
+    async stream() {
+      const stream = new ReadableStream({
+        start(controller) {
+          for (const part of streamParts) {
+            controller.enqueue(part);
+          }
+          controller.close();
+        },
+      });
+      return {
+        fullStream: stream,
+      } as { fullStream: ReadableStream<unknown> };
+    }
 
-      async stream() {
-        const stream = new ReadableStream({
-          start(controller) {
-            for (const part of streamParts) {
-              controller.enqueue(part);
-            }
-            controller.close();
-          },
-        });
-        return {
-          fullStream: stream,
-        } as { fullStream: ReadableStream<unknown> };
-      }
+    __setTools(tools: Record<string, unknown>) {
+      this.tools = tools;
+    }
+  },
+}));
 
-      __setTools(tools: Record<string, unknown>) {
-        this.tools = tools;
-      }
-    },
-  };
-});
+vi.mock('@mastra/mcp', () => ({
+  MCPClient: class {
+    options: unknown;
 
-vi.mock('@mastra/mcp', () => {
-  return {
-    MCPClient: class {
-      options: unknown;
+    constructor(options: unknown) {
+      this.options = options;
+      mcpInstances.push(this);
+    }
 
-      constructor(options: unknown) {
-        this.options = options;
-        mcpInstances.push(this);
-      }
+    async getTools() {
+      return {
+        'remote tool': { id: 'remote tool', description: 'remote' },
+      } satisfies Record<string, { id: string; description: string }>;
+    }
 
-      async getTools() {
-        return {
-          'remote tool': { id: 'remote tool', description: 'remote' },
-        } satisfies Record<string, { id: string; description: string }>;
-      }
-
-      async disconnect() {
-        return undefined;
-      }
-    },
-  };
-});
+    async disconnect() {
+      return;
+    }
+  },
+}));
 
 describe('mastra streaming integration', () => {
   beforeEach(() => {
@@ -167,8 +163,12 @@ describe('mastra streaming integration', () => {
     const toolEvents: Array<{ type: string; name?: string; status?: string }> = [];
     let finished = false;
     for await (const chunk of iterator) {
-      if (chunk.type === 'tool-event') toolEvents.push(chunk);
-      if (chunk.type === 'message-finish') finished = true;
+      if (chunk.type === 'tool-event') {
+        toolEvents.push(chunk);
+      }
+      if (chunk.type === 'message-finish') {
+        finished = true;
+      }
     }
 
     expect(toolEvents[0]).toMatchObject({

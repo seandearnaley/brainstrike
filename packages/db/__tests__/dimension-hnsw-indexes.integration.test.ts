@@ -99,7 +99,7 @@ describe('Dimension HNSW Index Helpers', () => {
     });
 
     it('should not error when dropping non-existent index', async () => {
-      await dropDimensionIndex(db, 99999); // Should not throw
+      await dropDimensionIndex(db, 99_999); // Should not throw
     });
   });
 

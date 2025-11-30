@@ -4,7 +4,7 @@ import { Input } from '../../src/input';
 
 describe('Input', () => {
   it('renders with given type and placeholder', () => {
-    render(<Input type="email" placeholder="Email" />);
+    render(<Input placeholder="Email" type="email" />);
     const input = screen.getByPlaceholderText('Email');
     expect(input).toHaveAttribute('type', 'email');
   });

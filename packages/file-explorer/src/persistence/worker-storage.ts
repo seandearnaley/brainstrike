@@ -9,42 +9,42 @@ import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('worker-storage');
 
-export interface WorkerMessage {
+export type WorkerMessage = {
   id: string;
   type: 'save' | 'load' | 'remove';
   key?: string | undefined;
   value?: unknown;
-}
+};
 
-export interface WorkerResponse {
+export type WorkerResponse = {
   id: string;
   type: 'success' | 'error';
   result?: unknown;
   error?: string;
-}
+};
 
-export interface StorageRequest {
+export type StorageRequest = {
   id: string;
   type: 'storage_request';
   operation: 'setItem' | 'getItem' | 'removeItem';
   key: string;
   value?: string;
   opId?: number;
-}
+};
 
 export class WorkerStorage {
   private worker: Worker | null = null;
   private messageId = 0;
-  private pendingRequests = new Map<
+  private readonly pendingRequests = new Map<
     string,
     {
       resolve: (value: unknown) => void;
       reject: (reason?: unknown) => void;
     }
   >();
-  private activeSaveOps = new Map<string, number>();
-  private timeouts = new Map<string, ReturnType<typeof setTimeout>>();
-  private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly activeSaveOps = new Map<string, number>();
+  private readonly timeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor() {
     this.initializeWorker();
@@ -69,7 +69,9 @@ export class WorkerStorage {
   }
 
   private registerWorkerListeners() {
-    if (!this.worker) return;
+    if (!this.worker) {
+      return;
+    }
 
     this.worker.addEventListener('message', this.handleWorkerMessage.bind(this));
     this.worker.addEventListener('error', this.handleWorkerError.bind(this));
@@ -249,7 +251,9 @@ export class WorkerStorage {
       logger.error('Worker getItem failed:', error);
       // Fallback to direct localStorage access
       const rawValue = localStorage.getItem(key);
-      if (!rawValue) return null;
+      if (!rawValue) {
+        return null;
+      }
 
       try {
         return JSON.parse(rawValue) as T;

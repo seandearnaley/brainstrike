@@ -70,7 +70,6 @@ describe('Embedding Worker - Terminal Errors', () => {
 
   beforeEach(async () => {
     const pglite = await wasmLoader.createPGlite('memory://terminal-error-test');
-    // biome-ignore lint/suspicious/noExplicitAny: PGlite type mismatch with migration runner
     await migrate(pglite as any);
     db = pglite as unknown as IDatabase;
     jq = new JobQueue(db);
@@ -80,7 +79,9 @@ describe('Embedding Worker - Terminal Errors', () => {
   });
 
   afterEach(async () => {
-    if (worker) await worker.stop();
+    if (worker) {
+      await worker.stop();
+    }
   });
 
   it('should immediately fail jobs with terminal errors', async () => {
@@ -130,7 +131,9 @@ describe('Embedding Worker - Terminal Errors', () => {
     expect(jobs.rows.length).toBe(1);
     const job = jobs.rows[0];
 
-    if (!job) throw new Error('Job not found');
+    if (!job) {
+      throw new Error('Job not found');
+    }
     expect(job.state).toBe('failed');
     expect(job.error).toContain('status 400');
     // Should be 1 attempt (the one that failed terminally)

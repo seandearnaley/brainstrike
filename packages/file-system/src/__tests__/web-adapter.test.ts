@@ -191,7 +191,9 @@ describe('WebFileSystemAdapter', () => {
       const second = entriesList[1];
       expect(first).toBeDefined();
       expect(second).toBeDefined();
-      if (!first || !second) throw new Error('unreachable');
+      if (!(first && second)) {
+        throw new Error('unreachable');
+      }
       expect(first.type).toBe('directory');
       expect(first.name).toBe('sub');
       expect(second.type).toBe('file');

@@ -8,9 +8,11 @@ import * as React from 'react';
 export const DirectoryStatus: React.FC<{
   rootDirectoryHandle: DirectoryHandle | null;
 }> = React.memo(({ rootDirectoryHandle }) => {
-  if (!rootDirectoryHandle) return null;
+  if (!rootDirectoryHandle) {
+    return null;
+  }
   return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground px-2 py-2 border-b">
+    <div className="flex items-center gap-2 border-b px-2 py-2 text-muted-foreground text-sm">
       <span>{FileExplorerStrings.status.currentDirectory}</span>
       <FolderBadge folderId={rootDirectoryHandle.name} />
     </div>
@@ -31,15 +33,15 @@ const FilterChip: React.FC<{
     <Tooltip>
       <TooltipTrigger
         className={cn(
-          'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium',
+          'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium text-xs',
           'cursor-help transition-colors duration-150',
           // Include filters: primary style (active)
           variant === 'include' && 'bg-primary text-primary-foreground',
           // Exclude filters: dark outline with ring in dark mode, muted in light
           variant === 'exclude' &&
-            'bg-muted text-muted-foreground ring-1 ring-inset ring-border dark:bg-background dark:ring-muted-foreground/50',
+            'bg-muted text-muted-foreground ring-1 ring-border ring-inset dark:bg-background dark:ring-muted-foreground/50',
           // Search/quick filter: outline style
-          variant === 'search' && 'bg-muted/50 text-muted-foreground ring-1 ring-inset ring-border',
+          variant === 'search' && 'bg-muted/50 text-muted-foreground ring-1 ring-border ring-inset',
           // Regex mode indicator
           variant === 'regex' && 'bg-secondary text-secondary-foreground'
         )}
@@ -62,41 +64,43 @@ export const FilterStatus: React.FC<{
 }> = React.memo(({ includeFilters, excludeFilters, useRegex, quickFilter }) => {
   const hasFilters = includeFilters.length > 0 || excludeFilters.length > 0 || quickFilter;
 
-  if (!hasFilters) return null;
+  if (!hasFilters) {
+    return null;
+  }
 
   return (
-    <div className="flex items-center gap-1.5 flex-wrap px-2 py-2 border-b">
+    <div className="flex flex-wrap items-center gap-1.5 border-b px-2 py-2">
       {includeFilters.map((filter) => (
         <FilterChip
+          icon={<Check className="h-3 w-3" />}
           key={`include-${filter}`}
           label={FileExplorerStrings.status.includeFilters}
           value={filter}
-          icon={<Check className="h-3 w-3" />}
           variant="include"
         />
       ))}
       {excludeFilters.map((filter) => (
         <FilterChip
+          icon={<X className="h-3 w-3" />}
           key={`exclude-${filter}`}
           label={FileExplorerStrings.status.excludeFilters}
           value={filter}
-          icon={<X className="h-3 w-3" />}
           variant="exclude"
         />
       ))}
       {quickFilter && (
         <FilterChip
+          icon={<Search className="h-3 w-3" />}
           label={FileExplorerStrings.status.quickFilter}
           value={quickFilter}
-          icon={<Search className="h-3 w-3" />}
           variant="search"
         />
       )}
       {useRegex && (
         <FilterChip
+          icon={<Code className="h-3 w-3" />}
           label={FileExplorerStrings.status.regexMode}
           value="regex"
-          icon={<Code className="h-3 w-3" />}
           variant="regex"
         />
       )}

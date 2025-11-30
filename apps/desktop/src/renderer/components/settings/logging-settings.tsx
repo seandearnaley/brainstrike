@@ -61,14 +61,18 @@ export function DesktopLoggingSettings() {
     let cancelled = false;
 
     const finishWithPayload = (payload: LoggingSettingsPayload) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       mapPayload(payload);
       setError(null);
       setLoading(false);
     };
 
     const finishWithError = (err: unknown) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       setLoading(false);
@@ -147,7 +151,7 @@ export function DesktopLoggingSettings() {
           <CardDescription>Loading logging preferences…</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-muted-foreground">Fetching saved logging preferences…</div>
+          <div className="text-muted-foreground text-sm">Fetching saved logging preferences…</div>
         </CardContent>
       </Card>
     );
@@ -161,7 +165,7 @@ export function DesktopLoggingSettings() {
           <CardDescription>Logging configuration is unavailable.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="text-sm text-destructive">{error}</div>
+          <div className="text-destructive text-sm">{error}</div>
         </CardContent>
       </Card>
     );
@@ -169,14 +173,14 @@ export function DesktopLoggingSettings() {
 
   return (
     <LoggingSettingsSection
-      runtime="electron-renderer"
       busy={syncing}
       fileCapabilities={fileCapabilities}
+      logSource={logSource}
       onCommitPreferences={commitPreferences}
-      onSelectLogDestination={selectDestination}
       onOpenLogDestination={openDestination}
       onResetPreferences={resetPreferences}
-      logSource={logSource}
+      onSelectLogDestination={selectDestination}
+      runtime="electron-renderer"
     />
   );
 }

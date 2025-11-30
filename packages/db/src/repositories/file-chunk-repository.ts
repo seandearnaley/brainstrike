@@ -18,7 +18,7 @@ import {
 } from './_shared.js';
 
 // Type definition for database row returned by PGlite
-interface FileChunkRow {
+type FileChunkRow = {
   id: string;
   file_record_id: string;
   chunk_index: number;
@@ -34,7 +34,7 @@ interface FileChunkRow {
   embedding_hash?: string | null;
   created_at: string;
   updated_at: string;
-}
+};
 
 // Type for search result rows with additional fields
 interface FileChunkSearchRow extends FileChunkRow {
@@ -43,16 +43,16 @@ interface FileChunkSearchRow extends FileChunkRow {
 }
 
 // Type for stats query rows
-interface FileChunkStatsRow {
+type FileChunkStatsRow = {
   total_chunks: string;
   chunks_with_embeddings: string;
   average_token_count: string;
   chunk_type: string;
   type_count: string;
-}
+};
 
 export class FileChunkRepository {
-  constructor(private db: PGlite) {}
+  constructor(private readonly db: PGlite) {}
 
   async findById(id: string): Promise<FileChunk | null> {
     const result = await this.db.query(
@@ -191,7 +191,9 @@ export class FileChunkRepository {
     tx: Pick<PGlite, 'query'>,
     chunks: FileChunkInsert[]
   ): Promise<FileChunk[]> {
-    if (chunks.length === 0) return [];
+    if (chunks.length === 0) {
+      return [];
+    }
 
     // Validate all embeddings before processing
     for (const chunk of chunks) {
@@ -354,7 +356,7 @@ export class FileChunkRepository {
       ).process?.env;
       const rawProbes = Number(envObj?.['IVFFLAT_PROBES'] ?? '0');
       if (Number.isFinite(rawProbes) && rawProbes > 0) {
-        const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10000));
+        const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10_000));
         await this.db.query(`SET LOCAL ivfflat.probes = ${probes}`);
       }
     } catch {
@@ -452,7 +454,9 @@ export class FileChunkRepository {
     totalChunks: number;
     chunksWithEmbeddingsForSet: number;
   }> {
-    if (!embeddingSetId) throw new Error('embeddingSetId is required');
+    if (!embeddingSetId) {
+      throw new Error('embeddingSetId is required');
+    }
     const totalRes = await this.db.query<{ count: string }>(
       'SELECT COUNT(*)::text as count FROM file_chunks'
     );
@@ -563,7 +567,7 @@ export class FileChunkRepository {
   }
 
   private appendSimpleUpdates(builder: UpdateBuilder, chunk: FileChunkUpdate): void {
-    const simpleFields: Array<[unknown, string]> = [
+    const simpleFields: [unknown, string][] = [
       [chunk.content, 'content'],
       [chunk.contentHash, 'content_hash'],
       [chunk.tokenCount, 'token_count'],
@@ -608,9 +612,9 @@ export class FileChunkRepository {
       chunkType: row.chunk_type,
       chunkSize: row.chunk_size,
       ...(embedding && { embedding }),
-      ...(row.embedding_set_id != null && { embeddingSetId: row.embedding_set_id }),
-      ...(row.embedding_updated_at != null && { embeddingUpdatedAt: row.embedding_updated_at }),
-      ...(row.embedding_hash != null && { embeddingHash: row.embedding_hash }),
+      ...(row.embedding_set_id !== null && { embeddingSetId: row.embedding_set_id }),
+      ...(row.embedding_updated_at !== null && { embeddingUpdatedAt: row.embedding_updated_at }),
+      ...(row.embedding_hash !== null && { embeddingHash: row.embedding_hash }),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

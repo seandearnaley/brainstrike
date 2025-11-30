@@ -3,7 +3,7 @@ import type React from 'react';
 import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { Button } from '../button';
 
-interface ConsolePanelProps {
+type ConsolePanelProps = {
   panelRef: React.RefObject<ImperativePanelHandle | null>;
   content: React.ReactNode;
   hideButtonRef: React.RefObject<HTMLButtonElement | null>;
@@ -11,7 +11,7 @@ interface ConsolePanelProps {
   defaultSize: number;
   onCollapse: () => void;
   onExpand: (size?: number) => void;
-}
+};
 
 export function ConsolePanel({
   panelRef,
@@ -24,35 +24,35 @@ export function ConsolePanel({
 }: ConsolePanelProps) {
   return (
     <>
-      <PanelResizeHandle className="h-1 bg-border hover:bg-border/80 transition-colors" />
+      <PanelResizeHandle className="h-1 bg-border transition-colors hover:bg-border/80" />
       <Panel
-        ref={panelRef}
-        id="console-panel"
-        data-panel-id="console-panel"
-        order={2}
-        defaultSize={defaultSize}
-        minSize={15}
-        maxSize={80}
-        collapsible
+        className="bg-background"
         collapsedSize={0}
+        collapsible
+        data-panel-id="console-panel"
+        defaultSize={defaultSize}
+        id="console-panel"
+        maxSize={80}
+        minSize={15}
         onCollapse={onCollapse}
         onExpand={onExpand}
-        className="bg-background"
+        order={2}
+        ref={panelRef}
       >
-        <div className="h-full border-t border-border">
-          <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
+        <div className="h-full border-border border-t">
+          <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4" />
-              <span className="text-sm font-medium">File Editor</span>
+              <span className="font-medium text-sm">File Editor</span>
             </div>
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={onHide}
               aria-label="Close File Editor"
+              className="h-6 w-6"
               data-testid="hide-console-panel"
+              onClick={onHide}
               ref={hideButtonRef}
+              size="icon"
+              variant="ghost"
             >
               <X className="h-4 w-4" />
             </Button>

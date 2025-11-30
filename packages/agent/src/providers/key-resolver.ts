@@ -46,5 +46,5 @@ export function resolveProviderApiKey(
     }
   }
 
-  return undefined;
+  return;
 }

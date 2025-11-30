@@ -27,7 +27,7 @@ describe('WasmLoader coverage tests', () => {
     // Verify they're the same promise (singleton behavior)
     // Using toStrictEqual because Vitest has issues with Promise identity checks
     expect(promise1).toStrictEqual(promise2);
-  }, 10000);
+  }, 10_000);
 
   it('createPGlite creates functional database instances', async () => {
     // October 2025: Use in-memory database for fast CI tests
@@ -45,7 +45,7 @@ describe('WasmLoader coverage tests', () => {
     expect(result.rows[0]).toEqual({ test: 1 });
 
     await db.close();
-  }, 10000);
+  }, 10_000);
 
   it('creates multiple independent memory instances', async () => {
     // October 2025: Verify multiple memory databases can be created independently
@@ -68,5 +68,5 @@ describe('WasmLoader coverage tests', () => {
 
     await db1.close();
     await db2.close();
-  }, 10000);
+  }, 10_000);
 });

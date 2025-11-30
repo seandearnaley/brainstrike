@@ -3,7 +3,7 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { QueueHud, VectorStatusWithDialog } from '@brainstrike/vector-management';
 import type React from 'react';
 
-interface DatabaseTabProps {
+type DatabaseTabProps = {
   /**
    * CRITICAL: The embedding queue from the app layer.
    *
@@ -23,7 +23,7 @@ interface DatabaseTabProps {
    * - Database operations will use wrong queue instance
    */
   embeddingQueue?: QueueAdapter | null;
-}
+};
 
 /**
  * Database tab chunk component showing database demo panel, vector status, and queue HUD.

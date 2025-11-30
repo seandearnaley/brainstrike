@@ -2,13 +2,14 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export function expandHome(p: string): string {
-  if (p.startsWith('~/'))
+  if (p.startsWith('~/')) {
     return path.join(
       (process.env['HOME'] as string | undefined) ||
         (process.env['USERPROFILE'] as string | undefined) ||
         '',
       p.slice(2)
     );
+  }
   return p;
 }
 
@@ -18,7 +19,7 @@ export function normalizeRootDir(dir: string): string {
 
 export function isPathInsideRoot(rootDir: string, candidate: string): boolean {
   const relative = path.relative(rootDir, candidate);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  return relative === '' || !(relative.startsWith('..') || path.isAbsolute(relative));
 }
 
 export type ResolvedPathResult = { ok: true; path: string } | { ok: false; error: string };
@@ -54,8 +55,12 @@ export async function resolvePathWithinRoot(
 }
 
 export function resolveBaseDirFromArgs(args?: string[]): string | null {
-  if (!args || args.length === 0) return null;
-  const candidate = args[args.length - 1];
-  if (!candidate) return null;
+  if (!args || args.length === 0) {
+    return null;
+  }
+  const candidate = args.at(-1);
+  if (!candidate) {
+    return null;
+  }
   return expandHome(candidate);
 }

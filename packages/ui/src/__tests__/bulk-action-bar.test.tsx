@@ -39,10 +39,10 @@ describe('BulkActionBar', () => {
   it('renders nothing when no items are selected', () => {
     const { container } = render(
       <BulkActionBar
-        selectedIds={new Set()}
-        nodeTypes={new Map()}
         actions={mockActions}
+        nodeTypes={new Map()}
         onClearSelection={mockClearSelection}
+        selectedIds={new Set()}
       />
     );
 
@@ -52,10 +52,10 @@ describe('BulkActionBar', () => {
   it('renders selection count and summary', () => {
     render(
       <BulkActionBar
-        selectedIds={new Set(['file-1', 'file-2', 'chunk-1'])}
-        nodeTypes={mockNodeTypes}
         actions={mockActions}
+        nodeTypes={mockNodeTypes}
         onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1', 'file-2', 'chunk-1'])}
       />
     );
 
@@ -66,10 +66,10 @@ describe('BulkActionBar', () => {
   it('renders action buttons', () => {
     render(
       <BulkActionBar
-        selectedIds={new Set(['file-1'])}
-        nodeTypes={mockNodeTypes}
         actions={mockActions}
+        nodeTypes={mockNodeTypes}
         onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
       />
     );
 
@@ -82,10 +82,10 @@ describe('BulkActionBar', () => {
 
     render(
       <BulkActionBar
-        selectedIds={selectedIds}
-        nodeTypes={mockNodeTypes}
         actions={mockActions}
+        nodeTypes={mockNodeTypes}
         onClearSelection={mockClearSelection}
+        selectedIds={selectedIds}
       />
     );
 
@@ -97,10 +97,10 @@ describe('BulkActionBar', () => {
   it('calls onClearSelection when clear button is clicked', () => {
     render(
       <BulkActionBar
-        selectedIds={new Set(['file-1'])}
-        nodeTypes={mockNodeTypes}
         actions={mockActions}
+        nodeTypes={mockNodeTypes}
         onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
       />
     );
 
@@ -127,10 +127,10 @@ describe('BulkActionBar', () => {
     // Select only files - should only show Embed
     const { rerender } = render(
       <BulkActionBar
-        selectedIds={new Set(['file-1'])}
-        nodeTypes={mockNodeTypes}
         actions={actionsWithTypeFilter}
+        nodeTypes={mockNodeTypes}
         onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
       />
     );
 
@@ -140,10 +140,10 @@ describe('BulkActionBar', () => {
     // Select chunks - should show Chunk Only
     rerender(
       <BulkActionBar
-        selectedIds={new Set(['chunk-1'])}
-        nodeTypes={mockNodeTypes}
         actions={actionsWithTypeFilter}
+        nodeTypes={mockNodeTypes}
         onClearSelection={mockClearSelection}
+        selectedIds={new Set(['chunk-1'])}
       />
     );
 
@@ -163,10 +163,10 @@ describe('BulkActionBar', () => {
 
     render(
       <BulkActionBar
-        selectedIds={new Set(['file-1'])}
-        nodeTypes={mockNodeTypes}
         actions={actionsNoFilter}
+        nodeTypes={mockNodeTypes}
         onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
       />
     );
 
@@ -186,10 +186,10 @@ describe('BulkActionBar', () => {
 
     render(
       <BulkActionBar
-        selectedIds={new Set(['file-1'])}
-        nodeTypes={mockNodeTypes}
         actions={actionsWithDisabled}
+        nodeTypes={mockNodeTypes}
         onClearSelection={mockClearSelection}
+        selectedIds={new Set(['file-1'])}
       />
     );
 

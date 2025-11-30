@@ -1,16 +1,18 @@
-import * as React from 'react';
+import type * as React from 'react';
 // import * as ProgressPrimitive from '@radix-ui/react-progress'; // Removed: Unused
 import { cn } from './lib/utils';
 
-const Progress = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & {
-    value?: number;
-  }
->(({ className, value, ...props }, ref) => (
+const Progress = ({
+  className,
+  value,
+  ref,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement> & {
+  value?: number;
+} & { ref?: React.RefObject<HTMLDivElement | null> }) => (
   <div
-    ref={ref}
     className={cn('relative h-2 w-full overflow-hidden rounded-full bg-secondary', className)}
+    ref={ref}
     {...props}
   >
     <div
@@ -20,7 +22,7 @@ const Progress = React.forwardRef<
       }}
     />
   </div>
-));
+);
 Progress.displayName = 'Progress';
 
 export { Progress };

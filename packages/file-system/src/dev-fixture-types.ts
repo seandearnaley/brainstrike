@@ -1,8 +1,8 @@
-export interface FixtureTree {
+export type FixtureTree = {
   [name: string]: string | FixtureTree;
-}
+};
 
-export interface FixtureDefinition {
+export type FixtureDefinition = {
   name: string;
   tree: FixtureTree;
-}
+};

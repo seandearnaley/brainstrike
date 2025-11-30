@@ -18,8 +18,8 @@ function McpIntegrationsCategory() {
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <h3 className="text-lg font-semibold">Model Context Protocol</h3>
-        <p className="text-sm text-muted-foreground">
+        <h3 className="font-semibold text-lg">Model Context Protocol</h3>
+        <p className="text-muted-foreground text-sm">
           Inspect the current MCP configuration, change the config file, and manage discovered
           tools.
         </p>
@@ -34,8 +34,8 @@ function EmbeddingModelsCategory() {
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <h3 className="text-lg font-semibold flex items-center gap-2">Models & Providers</h3>
-        <p className="text-sm text-muted-foreground">
+        <h3 className="flex items-center gap-2 font-semibold text-lg">Models & Providers</h3>
+        <p className="text-muted-foreground text-sm">
           Manage AI providers and enable/disable specific models for chat and embeddings.
         </p>
       </div>
@@ -48,16 +48,16 @@ function EmbeddingWorkerCategory() {
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
+        <h3 className="flex items-center gap-2 font-semibold text-lg">
           Embedding Worker
           <Badge variant="secondary">experimental</Badge>
         </h3>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Monitor the embedding job queue and inspect vector store connectivity without leaving the
           settings screen.
         </p>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <QueueHud />
         <VectorStatusWithDialog />
       </div>
@@ -110,7 +110,7 @@ export default function SettingsPageContent() {
   return (
     <>
       <title>BrainStrike Desktop - Settings</title>
-      <meta name="description" content="BrainStrike Desktop Settings" />
+      <meta content="BrainStrike Desktop Settings" name="description" />
 
       <SettingsLayout categories={categories} defaultCategoryId="appearance" />
     </>

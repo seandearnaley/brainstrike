@@ -53,7 +53,7 @@ describe('OptimizedFileTree', () => {
   it('renders file tree container with correct attributes', () => {
     render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -65,7 +65,7 @@ describe('OptimizedFileTree', () => {
   it('renders file tree with correct role and label', () => {
     render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -82,9 +82,9 @@ describe('OptimizedFileTree', () => {
       <FileExplorerTestWrapper>
         <OptimizedFileTree
           fileTree={mockFileTree}
+          folderId="root"
           loadingFiles={new Set()}
           onRender={mockOnRender}
-          folderId="root"
         />
       </FileExplorerTestWrapper>
     );
@@ -95,7 +95,7 @@ describe('OptimizedFileTree', () => {
   it('renders empty tree when fileTree is empty', () => {
     render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={[]} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={[]} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -107,7 +107,7 @@ describe('OptimizedFileTree', () => {
   it('applies correct classes to tree container', () => {
     render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -120,7 +120,7 @@ describe('OptimizedFileTree', () => {
 
     render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} loadingFiles={loadingFiles} folderId="root" />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={loadingFiles} />
       </FileExplorerTestWrapper>
     );
 
@@ -130,7 +130,7 @@ describe('OptimizedFileTree', () => {
   it('handles folderId changes', () => {
     const { rerender } = render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -138,7 +138,7 @@ describe('OptimizedFileTree', () => {
 
     rerender(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} loadingFiles={new Set()} folderId="other" />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="other" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -148,7 +148,7 @@ describe('OptimizedFileTree', () => {
   it('applies performance optimization styles', () => {
     render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -160,7 +160,7 @@ describe('OptimizedFileTree', () => {
   it('does not call onRender when not provided', () => {
     render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -170,7 +170,7 @@ describe('OptimizedFileTree', () => {
   it('handles fileTree updates', () => {
     const { rerender } = render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -191,7 +191,7 @@ describe('OptimizedFileTree', () => {
 
     rerender(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={newFileTree} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={newFileTree} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -226,7 +226,7 @@ describe('OptimizedFileTree', () => {
 
     render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={treeWithInvisible} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={treeWithInvisible} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 
@@ -273,7 +273,7 @@ describe('OptimizedFileTree', () => {
 
     render(
       <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={nestedTree} loadingFiles={new Set()} folderId="root" />
+        <OptimizedFileTree fileTree={nestedTree} folderId="root" loadingFiles={new Set()} />
       </FileExplorerTestWrapper>
     );
 

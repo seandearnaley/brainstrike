@@ -1,14 +1,14 @@
 import type { IFileNode } from '@brainstrike/types';
 import { Checkbox, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 
-interface NodeCheckboxProps {
+type NodeCheckboxProps = {
   node: IFileNode;
   checked: boolean | 'indeterminate';
   disabled: boolean;
   onSelect: () => void;
   wouldExceedLimit: boolean;
   maxSelectionCount: number;
-}
+};
 
 export function NodeCheckbox({
   node,
@@ -23,17 +23,17 @@ export function NodeCheckbox({
       <TooltipTrigger asChild>
         <div className="flex items-center">
           <Checkbox
-            id={node.path}
+            aria-label={`Select ${node.name}`}
             checked={checked}
-            disabled={disabled}
             className="mr-2"
+            disabled={disabled}
+            id={node.path}
             onClick={(e) => {
               e.stopPropagation();
               if (!disabled) {
                 onSelect();
               }
             }}
-            aria-label={`Select ${node.name}`}
           />
         </div>
       </TooltipTrigger>

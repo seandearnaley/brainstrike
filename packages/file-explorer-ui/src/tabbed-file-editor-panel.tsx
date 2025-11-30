@@ -5,9 +5,9 @@ import { useTabManager } from './hooks/use-tab-manager';
 import { TabbedFileEditor } from './tabbed-file-editor';
 import { useFileExplorer } from './use-file-explorer-context';
 
-export interface TabbedFileEditorPanelProps {
+export type TabbedFileEditorPanelProps = {
   className?: string;
-}
+};
 
 export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
   function TabbedFileEditorPanel({ className }) {
@@ -60,7 +60,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
         openTab(path, uniqueTabId, compositeKey);
 
         // Load content if not already loaded or loading
-        if (!fileContents[compositeKey] && !loadingFiles.has(compositeKey)) {
+        if (!(fileContents[compositeKey] || loadingFiles.has(compositeKey))) {
           void loadFileContent(compositeKey);
         }
       },
@@ -75,14 +75,14 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     return (
       <div className={className}>
         <TabbedFileEditor
-          tabs={tabs}
           activeTabId={activeTabId}
+          decodeFileSelection={decodeFileSelection}
           fileContents={fileContents}
           loadingFiles={loadingFiles}
+          onLoadFileContent={handleLoadFileContent}
           onTabClick={handleTabClick}
           onTabClose={handleTabClose}
-          onLoadFileContent={handleLoadFileContent}
-          decodeFileSelection={decodeFileSelection}
+          tabs={tabs}
         />
       </div>
     );

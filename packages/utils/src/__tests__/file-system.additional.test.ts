@@ -56,7 +56,7 @@ describe('fileSystem', () => {
         text: vi.fn().mockResolvedValue('test content'),
         arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(10)),
         size: 100,
-        lastModified: 1234567890,
+        lastModified: 1_234_567_890,
       }),
     } as unknown as FileSystemFileHandle;
   });
@@ -296,7 +296,7 @@ describe('fileSystem', () => {
         selectionState: 'unchecked',
         rootFolderId: 'root',
         size: 100,
-        lastModified: 1234567890,
+        lastModified: 1_234_567_890,
       });
     });
 

@@ -31,19 +31,19 @@ export const FilterChip = React.memo(function FilterChip({
 }: FilterChipProps) {
   return (
     <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
+      aria-pressed={active}
       className={cn(
-        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium',
+        'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium text-xs',
         'transition-colors duration-150',
         'focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1',
-        'disabled:opacity-50 disabled:cursor-not-allowed',
+        'disabled:cursor-not-allowed disabled:opacity-50',
         active
           ? 'bg-primary text-primary-foreground'
           : 'bg-muted text-muted-foreground hover:bg-muted/80'
       )}
-      aria-pressed={active}
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
     >
       {icon}
       <span>{label}</span>

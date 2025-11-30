@@ -38,11 +38,11 @@ export function useDocumentCount(activeCollectionId: string | null): number | un
 
   return useMemo(() => {
     if (!activeCollectionId) {
-      return undefined;
+      return;
     }
     if (error) {
       logger.error('Failed to fetch document count', { error });
-      return undefined;
+      return;
     }
     const row = rows[0];
     if (!row) {

@@ -53,6 +53,7 @@ vi.mock('@brainstrike/ui', () => ({
   StatusBar: ({ leftContent }: { leftContent?: React.ReactNode }) => (
     <div data-testid="status-bar">{leftContent}</div>
   ),
+  // biome-ignore lint/style/useReactFunctionComponents: Class component needed for ErrorBoundary mock
   ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {
     override render() {
       return <div data-testid="error-boundary">{this.props.children}</div>;

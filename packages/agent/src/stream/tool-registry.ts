@@ -1,20 +1,20 @@
 import { cloneJsonSafe } from './json';
 
-export interface ToolCallControllerLike {
+export type ToolCallControllerLike = {
   argsText: { append: (text: string) => void };
   setResponse: (options: { result: unknown; isError: boolean }) => void;
   close: () => void;
-}
+};
 
-export interface ToolRegistryEntry<TController extends ToolCallControllerLike> {
+export type ToolRegistryEntry<TController extends ToolCallControllerLike> = {
   controller: TController;
   name: string;
-}
+};
 
-export interface ToolRegistry<TController extends ToolCallControllerLike> {
+export type ToolRegistry<TController extends ToolCallControllerLike> = {
   byKey: Map<string, ToolRegistryEntry<TController>>;
   nameToKeys: Map<string, string[]>;
-}
+};
 
 let toolKeyCounter = 0;
 
@@ -32,7 +32,9 @@ export function startToolCall<TController extends ToolCallControllerLike>(
 ): void {
   const key = extractCallId(payload) ?? nextSyntheticToolKey(name);
   registerToolController(registry, key, name, controller);
-  if (payload === undefined || payload === null) return;
+  if (payload === undefined || payload === null) {
+    return;
+  }
   try {
     controller.argsText.append(JSON.stringify(cloneJsonSafe(payload), null, 2));
   } catch {
@@ -46,10 +48,14 @@ export function recordToolProgress<TController extends ToolCallControllerLike>(
   payload: unknown
 ): string | undefined {
   const resolved = resolveToolEntry(registry, name, payload);
-  if (!resolved) return undefined;
+  if (!resolved) {
+    return;
+  }
   const [, entry] = resolved;
   const line = formatProgressLine(payload);
-  if (!line) return undefined;
+  if (!line) {
+    return;
+  }
   entry.controller.argsText.append(`\n${line}`);
   return line;
 }
@@ -61,7 +67,9 @@ export function completeToolCall<TController extends ToolCallControllerLike>(
   payload: unknown
 ): void {
   const resolved = resolveToolEntry(registry, name, payload);
-  if (!resolved) return;
+  if (!resolved) {
+    return;
+  }
   const [key, entry] = resolved;
   entry.controller.setResponse({
     result: cloneJsonSafe(payload ?? null),
@@ -86,7 +94,9 @@ export function clearToolRegistry<TController extends ToolCallControllerLike>(
 }
 
 function extractCallId(payload: unknown): string | undefined {
-  if (!payload || typeof payload !== 'object') return undefined;
+  if (!payload || typeof payload !== 'object') {
+    return;
+  }
   const record = payload as Record<string, unknown>;
   const candidates = [record['callId'], record['toolCallId'], record['id']];
   for (const candidate of candidates) {
@@ -101,7 +111,7 @@ function extractCallId(payload: unknown): string | undefined {
       return nestedId;
     }
   }
-  return undefined;
+  return;
 }
 
 function nextSyntheticToolKey(name: string): string {
@@ -127,9 +137,13 @@ function resolveToolEntry<TController extends ToolCallControllerLike>(
   payload: unknown
 ): [string, ToolRegistryEntry<TController>] | undefined {
   const key = resolveToolKey(registry, name, payload);
-  if (!key) return undefined;
+  if (!key) {
+    return;
+  }
   const entry = registry.byKey.get(key);
-  if (!entry) return undefined;
+  if (!entry) {
+    return;
+  }
   return [key, entry];
 }
 
@@ -144,7 +158,7 @@ function resolveToolKey<TController extends ToolCallControllerLike>(
   }
   const queue = registry.nameToKeys.get(name);
   if (!queue || queue.length === 0) {
-    return undefined;
+    return;
   }
   for (let i = queue.length - 1; i >= 0; i -= 1) {
     const candidate = queue[i];
@@ -152,7 +166,7 @@ function resolveToolKey<TController extends ToolCallControllerLike>(
       return candidate;
     }
   }
-  return undefined;
+  return;
 }
 
 function releaseToolEntry<TController extends ToolCallControllerLike>(
@@ -160,19 +174,27 @@ function releaseToolEntry<TController extends ToolCallControllerLike>(
   key: string
 ): void {
   const entry = registry.byKey.get(key);
-  if (!entry) return;
+  if (!entry) {
+    return;
+  }
   registry.byKey.delete(key);
   const queue = registry.nameToKeys.get(entry.name);
-  if (!queue) return;
+  if (!queue) {
+    return;
+  }
   const idx = queue.lastIndexOf(key);
-  if (idx >= 0) queue.splice(idx, 1);
+  if (idx >= 0) {
+    queue.splice(idx, 1);
+  }
   if (queue.length === 0) {
     registry.nameToKeys.delete(entry.name);
   }
 }
 
 function formatProgressLine(payload: unknown): string | undefined {
-  if (!payload || typeof payload !== 'object') return undefined;
+  if (!payload || typeof payload !== 'object') {
+    return;
+  }
   const record = payload as Record<string, unknown>;
   const step = typeof record['step'] === 'string' ? record['step'] : undefined;
   const percent =

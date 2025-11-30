@@ -33,11 +33,11 @@ describe('PreviewTableRow', () => {
       <table>
         <tbody>
           <PreviewTableRow
-            item={mockItem}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={mockItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -66,11 +66,11 @@ describe('PreviewTableRow', () => {
       <table>
         <tbody>
           <PreviewTableRow
-            item={mockItem}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={partialVisibility}
+            isSelected={false}
+            item={mockItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -89,11 +89,11 @@ describe('PreviewTableRow', () => {
       <table>
         <tbody>
           <PreviewTableRow
-            item={mockItem}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={mockItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -112,11 +112,11 @@ describe('PreviewTableRow', () => {
       <table>
         <tbody>
           <PreviewTableRow
-            item={mockItem}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={mockItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -135,10 +135,10 @@ describe('PreviewTableRow', () => {
       <table>
         <tbody>
           <PreviewTableRow
-            item={mockItem}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
             columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={mockItem}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -158,11 +158,11 @@ describe('PreviewTableRow', () => {
       <table>
         <tbody>
           <PreviewTableRow
-            item={itemWithoutTokens}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={itemWithoutTokens}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -180,11 +180,11 @@ describe('PreviewTableRow', () => {
       <table>
         <tbody>
           <PreviewTableRow
-            item={itemWithoutSize}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={itemWithoutSize}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -209,11 +209,11 @@ describe('PreviewTableRow', () => {
       <table>
         <tbody>
           <PreviewTableRow
-            item={rootFileItem}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={rootFileItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -228,11 +228,11 @@ describe('PreviewTableRow', () => {
       <table>
         <tbody>
           <PreviewTableRow
-            item={mockItem}
-            isSelected={true}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={defaultColumnVisibility}
+            isSelected={true}
+            item={mockItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -243,17 +243,17 @@ describe('PreviewTableRow', () => {
   });
 
   it('formats large token counts correctly', () => {
-    const largeTokenItem = { ...mockItem, tokens: 1500000 };
+    const largeTokenItem = { ...mockItem, tokens: 1_500_000 };
 
     render(
       <table>
         <tbody>
           <PreviewTableRow
-            item={largeTokenItem}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={largeTokenItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -263,17 +263,17 @@ describe('PreviewTableRow', () => {
   });
 
   it('formats file sizes in KB correctly', () => {
-    const largeFileItem = { ...mockItem, size: 10240 };
+    const largeFileItem = { ...mockItem, size: 10_240 };
 
     render(
       <table>
         <tbody>
           <PreviewTableRow
-            item={largeFileItem}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={largeFileItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>
@@ -288,18 +288,21 @@ describe('PreviewTableRow', () => {
 
     render(
       <table>
+        {/* biome-ignore lint/a11y/noNoninteractiveElementInteractions: Testing click propagation */}
         <tbody
           onClick={rowClickHandler}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') rowClickHandler();
+            if (e.key === 'Enter' || e.key === ' ') {
+              rowClickHandler();
+            }
           }}
         >
           <PreviewTableRow
-            item={mockItem}
-            isSelected={false}
-            onToggleSelection={mockOnToggleSelection}
-            onFileClick={mockOnFileClick}
             columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={mockItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
           />
         </tbody>
       </table>

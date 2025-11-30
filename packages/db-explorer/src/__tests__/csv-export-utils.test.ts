@@ -529,7 +529,9 @@ describe('CSV Export Utils', () => {
     it('should extract values correctly from records', () => {
       const record = mockRecords[0];
       expect(record).toBeDefined();
-      if (!record) return;
+      if (!record) {
+        return;
+      }
 
       expect(DEFAULT_FILE_RECORD_COLUMNS[0]?.getValue(record)).toBe('1');
       expect(DEFAULT_FILE_RECORD_COLUMNS[1]?.getValue(record)).toBe('test.txt');

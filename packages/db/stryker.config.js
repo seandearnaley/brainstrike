@@ -7,16 +7,11 @@ const config = {
     configFile: 'vitest.mutation.config.ts',
   },
   checkers: ['typescript'],
-  mutate: [
-    'src/**/*.ts',
-    '!src/**/*.test.ts',
-    '!src/**/__tests__/**',
-    '!src/**/__mocks__/**',
-  ],
+  mutate: ['src/**/*.ts', '!src/**/*.test.ts', '!src/**/__tests__/**', '!src/**/__mocks__/**'],
   coverageAnalysis: 'perTest',
   concurrency: 2,
   reporters: ['html', 'clear-text', 'progress'],
-  timeoutMS: 120000,
+  timeoutMS: 120_000,
   htmlReporter: {
     fileName: 'reports/mutation/db/index.html',
   },

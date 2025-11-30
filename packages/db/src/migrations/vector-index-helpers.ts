@@ -42,7 +42,9 @@ export async function dropExistingVectorIndexes(db: Pick<PGlite, 'exec'>): Promi
 export async function createVectorIndexes(db: PGlite): Promise<void> {
   try {
     const hasVector = await db.query("SELECT 1 as one FROM pg_extension WHERE extname = 'vector'");
-    if (!hasVector.rows?.length) return;
+    if (!hasVector.rows?.length) {
+      return;
+    }
   } catch {
     return;
   }

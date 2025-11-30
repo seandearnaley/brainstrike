@@ -63,7 +63,7 @@ function getSupportedHostedProvider(
   ) {
     return provider;
   }
-  return undefined;
+  return;
 }
 
 function canonicalizeModelKey(
@@ -100,7 +100,9 @@ function cacheEmbeddingSet(targetSetId: string, modelKey: string): void {
 }
 
 function dispatchEmbeddingSetUpdateEvent(id: string): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined') {
+    return;
+  }
   try {
     window.dispatchEvent(new CustomEvent('brainstrike:embedding-set-updated', { detail: { id } }));
   } catch {
@@ -108,7 +110,7 @@ function dispatchEmbeddingSetUpdateEvent(id: string): void {
   }
 }
 
-export interface EmbeddingJobQueuePort {
+export type EmbeddingJobQueuePort = {
   enqueueBatch(
     chunks: FileChunk[],
     fileRecordId: string,
@@ -121,30 +123,30 @@ export interface EmbeddingJobQueuePort {
       dimensionParameter?: ProviderDimensionParameter | null;
     }
   ): Promise<void>;
-}
+};
 
-export interface SqlExecutorPort {
+export type SqlExecutorPort = {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
   runInTransaction?<T>(fn: (tx: IDatabase) => Promise<T>): Promise<T>;
-}
+};
 
-export interface BaseImportRunnerRequest<TFileNode = unknown> {
+export type BaseImportRunnerRequest<TFileNode = unknown> = {
   selectedFilePaths: Set<string>;
   fileTree: TFileNode[];
   fileContents: Record<string, string>;
   onProgress: (progress: ImportProgress) => void;
-}
+};
 
 export type BaseImportRunner<TFileNode = unknown> = (
   request: BaseImportRunnerRequest<TFileNode>
 ) => Promise<FileImportResult[]>;
 
-interface ChunkingDependencies {
+type ChunkingDependencies = {
   repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
-}
+};
 
-interface ChunkingConfiguration {
+type ChunkingConfiguration = {
   enabled: boolean;
   deps: ChunkingDependencies;
   strategy?: ChunkingStrategy;
@@ -155,9 +157,9 @@ interface ChunkingConfiguration {
   streamBatchSize?: number;
   tokenTrueSizing?: boolean;
   tokenLimit?: number;
-}
+};
 
-interface EmbeddingConfiguration {
+type EmbeddingConfiguration = {
   enabled: boolean;
   model?: string;
   provider?: EmbeddingProviderType;
@@ -165,21 +167,21 @@ interface EmbeddingConfiguration {
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
   resolveTargetEmbeddingSetId?: () => string | null | undefined;
   onResolvedTargetSetId?: (id: string) => void;
-}
+};
 
 type EmbeddingDistance = 'cosine' | 'l2' | 'ip';
 
-interface ProgressHandlers {
+type ProgressHandlers = {
   update: (updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null) => void;
   emit?: (progress: EnhancedImportProgress) => void;
-}
+};
 
-interface RunEnhancedImportPorts {
+type RunEnhancedImportPorts = {
   embeddingQueue?: EmbeddingJobQueuePort | null;
   sql?: SqlExecutorPort | null;
-}
+};
 
-interface RunEnhancedImportParams<TFileNode = unknown> {
+type RunEnhancedImportParams<TFileNode = unknown> = {
   request: {
     selectedFilePaths: Set<string>;
     fileTree: TFileNode[];
@@ -192,7 +194,7 @@ interface RunEnhancedImportParams<TFileNode = unknown> {
   progressHandlers: ProgressHandlers;
   processChunkingImpl?: typeof processChunking;
   processEmbeddingsImpl?: typeof processEmbeddings;
-}
+};
 
 function toEnhancedImportProgress(progress: ImportProgress): EnhancedImportProgress {
   return {
@@ -209,7 +211,7 @@ async function resolveModelKeyFromTargetSet(
   sql: SqlExecutorPort | null | undefined
 ): Promise<string | undefined> {
   if (!sql) {
-    return undefined;
+    return;
   }
 
   const cachedEntry = embeddingSetCache.get(targetSetId);
@@ -224,7 +226,7 @@ async function resolveModelKeyFromTargetSet(
     );
     const fetchedModelKey = result.rows[0]?.modelKey;
     if (!fetchedModelKey) {
-      return undefined;
+      return;
     }
 
     const canonical = canonicalizeProviderModelKey(fetchedModelKey) ?? {
@@ -235,18 +237,18 @@ async function resolveModelKeyFromTargetSet(
     cacheEmbeddingSet(targetSetId, canonical.composite);
     return canonical.composite;
   } catch {
-    return undefined;
+    return;
   }
 }
 
-interface EnsureEmbeddingSetParams {
+type EnsureEmbeddingSetParams = {
   modelKey: string;
   modelId: string;
   dimensions: number;
   distance: EmbeddingDistance;
   preferredId?: string | undefined;
   provider: EmbeddingProviderType;
-}
+};
 
 async function ensureEmbeddingSet(
   sql: SqlExecutorPort | null | undefined,
@@ -315,7 +317,7 @@ async function resolvePreferredSet(
   provider: EmbeddingProviderType
 ): Promise<string | undefined> {
   if (!preferredId) {
-    return undefined;
+    return;
   }
 
   try {
@@ -330,7 +332,7 @@ async function resolvePreferredSet(
     );
     const row = result.rows[0];
     if (!row) {
-      return undefined;
+      return;
     }
 
     const rowDimensions = Number(row.dimensions ?? 0);
@@ -363,7 +365,7 @@ async function resolvePreferredSet(
     });
   }
 
-  return undefined;
+  return;
 }
 
 async function findMatchingSet(
@@ -398,7 +400,7 @@ async function findMatchingSet(
     }>(query, [...candidates, dimensions, distance]);
     const row = result.rows[0];
     if (!row) {
-      return undefined;
+      return;
     }
     if (row.modelKey !== modelKey) {
       await sql.query('UPDATE embedding_sets SET model_key = $1 WHERE id = $2', [modelKey, row.id]);
@@ -481,14 +483,14 @@ async function resolveEnabledEmbeddingModel(
       [resolved.targetSetId]
     );
     const preferredKey = preferredRow.rows[0]?.modelKey;
-    if (!preferredKey) {
-      resolved.targetSetId = null;
-    } else {
+    if (preferredKey) {
       const canonicalPreferred =
         canonicalizeProviderModelKey(preferredKey, config.provider)?.composite ?? preferredKey;
       if (canonicalPreferred !== compositeKey) {
         resolved.targetSetId = null;
       }
+    } else {
+      resolved.targetSetId = null;
     }
   }
 
@@ -506,7 +508,7 @@ async function attachLocalModelMetadata(
   config: EmbeddingConfiguration,
   ports: RunEnhancedImportPorts | undefined
 ): Promise<void> {
-  if (!resolved.modelId || !resolved.modelKey) {
+  if (!(resolved.modelId && resolved.modelKey)) {
     return;
   }
 
@@ -602,7 +604,7 @@ async function determineCompositeModelKey(
     const key = await resolveModelKeyFromTargetSet(targetSetId, sql ?? null);
     return key ? canonicalizeProviderModelKey(key, providerHint)?.composite : undefined;
   }
-  return undefined;
+  return;
 }
 
 function determineTargetDimension(
@@ -619,7 +621,7 @@ async function ensureAndEmitEmbeddingSet(params: {
   config: EmbeddingConfiguration;
 }): Promise<void> {
   const { sql, resolved, modelConfig, config } = params;
-  if (!resolved.modelKey || !resolved.targetDimension) {
+  if (!(resolved.modelKey && resolved.targetDimension)) {
     return;
   }
 
@@ -649,7 +651,7 @@ async function ensureAndEmitEmbeddingSet(params: {
   dispatchEmbeddingSetUpdateEvent(finalSetId);
 }
 
-interface ChunkingOptionsConfig {
+type ChunkingOptionsConfig = {
   chunking: ChunkingConfiguration;
   queuePort: EmbeddingJobQueuePort | null;
   runInTransaction: SqlExecutorPort['runInTransaction'] | undefined;
@@ -662,7 +664,7 @@ interface ChunkingOptionsConfig {
   dimensionParameter?: ProviderDimensionParameter;
   update: ProgressHandlers['update'];
   processEmbeddingsImpl: typeof processEmbeddings;
-}
+};
 
 function buildChunkingOptions(
   config: ChunkingOptionsConfig

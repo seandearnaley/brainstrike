@@ -5,7 +5,7 @@ const logger = createLogger('EmbeddingQueueTelemetrySink');
 
 export type QueueTelemetryRuntime = 'browser' | 'electron-renderer' | 'electron-main';
 
-export interface QueueTelemetrySinkOptions {
+export type QueueTelemetrySinkOptions = {
   readonly endpoint: string;
   readonly apiKey?: string;
   readonly headers?: Record<string, string>;
@@ -15,12 +15,12 @@ export interface QueueTelemetrySinkOptions {
   readonly maxBatchSize?: number;
   readonly useSendBeacon?: boolean;
   readonly enableInTest?: boolean;
-}
+};
 
-export interface QueueTelemetrySink {
+export type QueueTelemetrySink = {
   flush(): Promise<void>;
   dispose(): Promise<void>;
-}
+};
 
 function resolveDefaultRuntime(): QueueTelemetryRuntime {
   if (typeof window === 'undefined') {
@@ -132,7 +132,7 @@ export function initializeQueueTelemetrySink(
     headers: customHeaders,
     runtime = resolveDefaultRuntime(),
     metadata,
-    flushIntervalMs = 5_000,
+    flushIntervalMs = 5000,
     maxBatchSize = 20,
     useSendBeacon,
     enableInTest = false,

@@ -82,6 +82,7 @@ class MockErrorEvent extends Event {
 // TODO: These tests have intermittent failures due to Worker mock timing issues
 // that pre-date the Vitest 4 upgrade. The mock setup needs to be revisited
 // to properly handle addEventListener and message passing.
+// biome-ignore lint/suspicious/noSkippedTests: Known flaky tests awaiting mock refactor
 describe.skip('WorkerStorage', () => {
   let originalWorker: typeof Worker | undefined;
   let mockWorker: MockWorker;
@@ -448,7 +449,7 @@ describe.skip('WorkerStorage', () => {
       const promise = storage.getItem('test');
 
       // Fast-forward past timeout (30 seconds)
-      vi.advanceTimersByTime(31000);
+      vi.advanceTimersByTime(31_000);
 
       // Should fall back to localStorage after timeout
       const result = await promise;
@@ -525,7 +526,7 @@ describe.skip('WorkerStorage', () => {
             mockWorker.onmessage(
               new MessageEvent('message', {
                 data: {
-                  id: id,
+                  id,
                   type: 'success',
                   result: responses[id],
                 },

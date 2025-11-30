@@ -18,12 +18,12 @@ import {
 
 type TokenRuntimeStatus = 'checking' | 'accurate' | 'fallback' | 'disabled';
 
-interface StatusMetadata {
+type StatusMetadata = {
   label: string;
   description: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   variant: 'secondary' | 'outline' | 'destructive';
-}
+};
 
 const STATUS_METADATA: Record<TokenRuntimeStatus, StatusMetadata> = {
   checking: {
@@ -106,8 +106,8 @@ export function TokenCountingSettingsSection() {
       <CardContent className="space-y-5">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <Label className="text-sm font-medium">Use WASM tokenizer (recommended)</Label>
-            <p className="text-sm text-muted-foreground">
+            <Label className="font-medium text-sm">Use WASM tokenizer (recommended)</Label>
+            <p className="text-muted-foreground text-sm">
               When enabled, BrainStrike loads tiktoken in WebAssembly for accurate token counting.
             </p>
           </div>
@@ -118,11 +118,11 @@ export function TokenCountingSettingsSection() {
         </div>
 
         <div className="flex items-start gap-3 rounded-md border p-3">
-          <Badge variant={status.variant} className="flex items-center gap-1">
+          <Badge className="flex items-center gap-1" variant={status.variant}>
             <Icon className={runtimeStatus === 'checking' ? 'size-3.5 animate-spin' : 'size-3.5'} />
             {status.label}
           </Badge>
-          <p className="text-sm text-muted-foreground flex-1">{status.description}</p>
+          <p className="flex-1 text-muted-foreground text-sm">{status.description}</p>
         </div>
       </CardContent>
     </Card>

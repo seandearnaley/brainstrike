@@ -47,9 +47,9 @@ describe('FilterBar', () => {
       render(
         <FilterBar
           filters={createFilters()}
-          onFiltersChange={() => {}}
-          onExpandAll={() => {}}
           onCollapseAll={() => {}}
+          onExpandAll={() => {}}
+          onFiltersChange={() => {}}
         />
       );
 
@@ -98,7 +98,7 @@ describe('FilterBar', () => {
 
     it('applies custom className', () => {
       const { container } = render(
-        <FilterBar filters={createFilters()} onFiltersChange={() => {}} className="custom-class" />
+        <FilterBar className="custom-class" filters={createFilters()} onFiltersChange={() => {}} />
       );
 
       expect(container.firstChild).toHaveClass('custom-class');
@@ -285,9 +285,9 @@ describe('FilterBar', () => {
       render(
         <FilterBar
           filters={createFilters()}
-          onFiltersChange={() => {}}
-          onExpandAll={handleExpand}
           onCollapseAll={() => {}}
+          onExpandAll={handleExpand}
+          onFiltersChange={() => {}}
         />
       );
 
@@ -301,9 +301,9 @@ describe('FilterBar', () => {
       render(
         <FilterBar
           filters={createFilters()}
-          onFiltersChange={() => {}}
-          onExpandAll={() => {}}
           onCollapseAll={handleCollapse}
+          onExpandAll={() => {}}
+          onFiltersChange={() => {}}
         />
       );
 

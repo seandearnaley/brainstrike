@@ -95,7 +95,7 @@ describe('FileExplorerSidebar', () => {
     const filterError = new Error('Filter error');
     act(() => {
       renderWithProviders(
-        <FileExplorerSidebar {...defaultProps} treeError={treeError} filterError={filterError} />
+        <FileExplorerSidebar {...defaultProps} filterError={filterError} treeError={treeError} />
       );
     });
 

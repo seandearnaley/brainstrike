@@ -1,21 +1,21 @@
 import type { RefObject } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
 
-export interface VirtualRange {
+export type VirtualRange = {
   start: number;
   end: number;
-}
+};
 
-export interface UseVirtualListOptions {
+export type UseVirtualListOptions = {
   overscan?: number;
-}
+};
 
-export interface UseVirtualListReturn {
+export type UseVirtualListReturn = {
   containerRef: RefObject<HTMLDivElement | null>;
   range: VirtualRange;
   offset: number;
   totalHeight: number;
-}
+};
 
 export function useVirtualList(
   itemCount: number,
@@ -29,7 +29,9 @@ export function useVirtualList(
 
   useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) {
+      return;
+    }
 
     const handleScroll = () => {
       const scrollTop = container.scrollTop;

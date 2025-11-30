@@ -24,14 +24,14 @@ exec('pnpm exec lefthook install', (error, stdout, stderr) => {
     console.warn('This is not critical - git hooks will not be available');
     return;
   }
-  
+
   if (stderr) {
     console.warn(`⚠️  Lefthook warning: ${stderr}`);
   }
-  
+
   if (stdout) {
     console.log(`✅ ${stdout.trim()}`);
   }
-  
+
   console.log('✅ Lefthook git hooks installed successfully');
-}); 
+});

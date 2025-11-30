@@ -4,7 +4,7 @@ import { HomePage } from '../page-objects/home-page';
 import { waitForAppLoad } from './layout-helpers';
 import { type FileTree, mockBrowserApis } from './mock-fs';
 
-export interface ExplorerBootstrapOptions {
+export type ExplorerBootstrapOptions = {
   /**
    * Mocked file system tree that will be exposed through the File System Access API.
    */
@@ -28,7 +28,7 @@ export interface ExplorerBootstrapOptions {
    * Enabled by default to mirror prior test flows.
    */
   reloadAfterClear?: boolean;
-}
+};
 
 /**
  * Bootstraps the file explorer by mocking the file system, navigating to the app,

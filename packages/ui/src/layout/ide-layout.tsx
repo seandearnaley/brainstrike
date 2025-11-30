@@ -16,10 +16,10 @@ import { RightPanel } from './right-panel';
 const logger = createLogger('IdeLayout');
 
 // Context for sharing file editor functionality between main content and console
-interface FileEditorContextValue {
+type FileEditorContextValue = {
   openFileInTab: ((compositeKey: string) => void) | undefined;
   registerOpenFileInTab: (fn: (compositeKey: string) => void) => void;
-}
+};
 
 const IdeFileEditorContext = createContext<FileEditorContextValue>({
   openFileInTab: undefined,
@@ -34,7 +34,9 @@ function syncPanelState(
   shouldShow: boolean,
   hasContent: boolean
 ): (() => void) | undefined {
-  if (!hasContent || !panel) return;
+  if (!(hasContent && panel)) {
+    return;
+  }
 
   const frameId = requestAnimationFrame(() => {
     try {
@@ -42,10 +44,8 @@ function syncPanelState(
         if (panel.isCollapsed()) {
           panel.expand();
         }
-      } else {
-        if (panel.isExpanded()) {
-          panel.collapse();
-        }
+      } else if (panel.isExpanded()) {
+        panel.collapse();
       }
     } catch (error) {
       if (isDevEnv()) {
@@ -75,21 +75,24 @@ function usePanelEffects(
   rightPanelContent?: React.ReactNode,
   consoleContent?: React.ReactNode
 ) {
-  useEffect(() => {
-    return syncPanelState(leftPanelRef.current, showLeftPanel, !!leftPanelContent);
-  }, [showLeftPanel, leftPanelContent, leftPanelRef]);
+  useEffect(
+    () => syncPanelState(leftPanelRef.current, showLeftPanel, !!leftPanelContent),
+    [showLeftPanel, leftPanelContent, leftPanelRef]
+  );
 
-  useEffect(() => {
-    return syncPanelState(rightPanelRef.current, showRightPanel, !!rightPanelContent);
-  }, [showRightPanel, rightPanelContent, rightPanelRef]);
+  useEffect(
+    () => syncPanelState(rightPanelRef.current, showRightPanel, !!rightPanelContent),
+    [showRightPanel, rightPanelContent, rightPanelRef]
+  );
 
-  useEffect(() => {
-    return syncPanelState(consolePanelRef.current, showConsole, !!consoleContent);
-  }, [showConsole, consoleContent, consolePanelRef]);
+  useEffect(
+    () => syncPanelState(consolePanelRef.current, showConsole, !!consoleContent),
+    [showConsole, consoleContent, consolePanelRef]
+  );
 }
 
 // Layout handler configuration
-interface LayoutHandlerConfig {
+type LayoutHandlerConfig = {
   leftPanelContent?: React.ReactNode;
   rightPanelContent?: React.ReactNode;
   consoleContent?: React.ReactNode;
@@ -105,7 +108,7 @@ interface LayoutHandlerConfig {
     showLeftPanel?: boolean,
     showRightPanel?: boolean
   ) => void;
-}
+};
 
 // Helper to determine panel visibility state
 function getPanelVisibilityState(config: LayoutHandlerConfig) {
@@ -153,16 +156,36 @@ function calculateHorizontalSizes(
 
 function buildLayoutHandlerConfig(config: LayoutHandlerConfig): LayoutHandlerConfig {
   const cfg: LayoutHandlerConfig = {};
-  if (config.leftPanelContent !== undefined) cfg.leftPanelContent = config.leftPanelContent;
-  if (config.rightPanelContent !== undefined) cfg.rightPanelContent = config.rightPanelContent;
-  if (config.consoleContent !== undefined) cfg.consoleContent = config.consoleContent;
-  if (typeof config.showLeftPanel === 'boolean') cfg.showLeftPanel = config.showLeftPanel;
-  if (typeof config.showRightPanel === 'boolean') cfg.showRightPanel = config.showRightPanel;
-  if (typeof config.showConsole === 'boolean') cfg.showConsole = config.showConsole;
-  if (config.safeLeftSize !== undefined) cfg.safeLeftSize = config.safeLeftSize;
-  if (config.safeRightSize !== undefined) cfg.safeRightSize = config.safeRightSize;
-  if (config.safeConsoleSize !== undefined) cfg.safeConsoleSize = config.safeConsoleSize;
-  if (config.saveLayout) cfg.saveLayout = config.saveLayout;
+  if (config.leftPanelContent !== undefined) {
+    cfg.leftPanelContent = config.leftPanelContent;
+  }
+  if (config.rightPanelContent !== undefined) {
+    cfg.rightPanelContent = config.rightPanelContent;
+  }
+  if (config.consoleContent !== undefined) {
+    cfg.consoleContent = config.consoleContent;
+  }
+  if (typeof config.showLeftPanel === 'boolean') {
+    cfg.showLeftPanel = config.showLeftPanel;
+  }
+  if (typeof config.showRightPanel === 'boolean') {
+    cfg.showRightPanel = config.showRightPanel;
+  }
+  if (typeof config.showConsole === 'boolean') {
+    cfg.showConsole = config.showConsole;
+  }
+  if (config.safeLeftSize !== undefined) {
+    cfg.safeLeftSize = config.safeLeftSize;
+  }
+  if (config.safeRightSize !== undefined) {
+    cfg.safeRightSize = config.safeRightSize;
+  }
+  if (config.safeConsoleSize !== undefined) {
+    cfg.safeConsoleSize = config.safeConsoleSize;
+  }
+  if (config.saveLayout) {
+    cfg.saveLayout = config.saveLayout;
+  }
   return cfg;
 }
 
@@ -186,7 +209,9 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
 
   const handleHorizontalLayout = useCallback(
     (newSizes: number[]) => {
-      if (!stableConfig.saveLayout) return;
+      if (!stableConfig.saveLayout) {
+        return;
+      }
 
       const [newLeftSize, newRightSize] = calculateHorizontalSizes(newSizes, stableConfig);
       stableConfig.saveLayout(
@@ -201,7 +226,9 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
 
   const handleVerticalLayout = useCallback(
     (newSizes: number[]) => {
-      if (!stableConfig.saveLayout) return;
+      if (!stableConfig.saveLayout) {
+        return;
+      }
 
       if (stableConfig.showConsole && stableConfig.consoleContent && newSizes.length >= 2) {
         const consoleSize = newSizes[1] ?? stableConfig.safeConsoleSize ?? 20;
@@ -256,7 +283,9 @@ function createPanelHandler(
 
   return {
     onCollapse: () => {
-      if (isInitialRenderRef.current) return;
+      if (isInitialRenderRef.current) {
+        return;
+      }
 
       switch (panelType) {
         case 'left':
@@ -272,7 +301,9 @@ function createPanelHandler(
       }
     },
     onExpand: (size?: number) => {
-      if (isInitialRenderRef.current) return;
+      if (isInitialRenderRef.current) {
+        return;
+      }
 
       const newSize =
         typeof size === 'number'
@@ -378,13 +409,13 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
   return fallback;
 }
 
-export interface IdeLayoutProps {
+export type IdeLayoutProps = {
   children: React.ReactNode;
   leftPanelContent?: React.ReactNode;
   rightPanelContent?: React.ReactNode;
   consoleContent?: React.ReactNode;
   className?: string;
-}
+};
 
 export const IdeLayout = React.memo(function IdeLayout({
   children,
@@ -407,9 +438,10 @@ export const IdeLayout = React.memo(function IdeLayout({
   useEffect(() => {
     // Check if all panels are initialized
     const checkPanelsInitialized = () => {
-      const hasLeftPanel = !leftPanelContent || !showLeftPanel || leftPanelRef.current !== null;
-      const hasRightPanel = !rightPanelContent || !showRightPanel || rightPanelRef.current !== null;
-      const hasConsolePanel = !consoleContent || !showConsole || consolePanelRef.current !== null;
+      const hasLeftPanel = !(leftPanelContent && showLeftPanel) || leftPanelRef.current !== null;
+      const hasRightPanel =
+        !(rightPanelContent && showRightPanel) || rightPanelRef.current !== null;
+      const hasConsolePanel = !(consoleContent && showConsole) || consolePanelRef.current !== null;
 
       return hasLeftPanel && hasRightPanel && hasConsolePanel;
     };
@@ -538,17 +570,17 @@ export const IdeLayout = React.memo(function IdeLayout({
 
   return (
     <IdeFileEditorContext.Provider value={fileEditorContextValue}>
-      <div className={cn('h-full flex-1 flex flex-col', className)}>
+      <div className={cn('flex h-full flex-1 flex-col', className)}>
         <PanelGroup direction="horizontal" onLayout={handleHorizontalLayout}>
           {!showLeftPanel && leftPanelContent && (
-            <div className="flex items-center justify-center p-2 border-r border-border bg-muted/30">
+            <div className="flex items-center justify-center border-border border-r bg-muted/30 p-2">
               <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={handleShowLeftPanel}
                 aria-label="Show explorer"
+                className="h-6 w-6"
                 data-testid="show-left-panel"
+                onClick={handleShowLeftPanel}
+                size="icon"
+                variant="ghost"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -556,36 +588,36 @@ export const IdeLayout = React.memo(function IdeLayout({
           )}
           {showLeftPanel && leftPanelContent && (
             <LeftPanel
-              panelRef={leftPanelRef}
               content={leftPanelContent}
+              defaultSize={safeLeftSize}
               hideButtonRef={hideExplorerButtonRef}
               onHide={handleHideLeftPanel}
-              defaultSize={safeLeftSize}
+              panelRef={leftPanelRef}
               {...leftPanelHandlers}
             />
           )}
 
-          <Panel id="middle-panel" data-panel-id="middle-panel" order={2} minSize={30}>
+          <Panel data-panel-id="middle-panel" id="middle-panel" minSize={30} order={2}>
             <PanelGroup direction="vertical" onLayout={handleVerticalLayout}>
               <Panel
-                id="main-content-panel"
-                data-panel-id="main-content-panel"
-                order={1}
-                minSize={30}
                 className="bg-background"
+                data-panel-id="main-content-panel"
+                id="main-content-panel"
+                minSize={30}
+                order={1}
               >
                 <div className="h-full">{children}</div>
               </Panel>
 
               {!showConsole && consoleContent && (
-                <div className="flex items-center justify-center py-1 border-t border-border bg-muted/30">
+                <div className="flex items-center justify-center border-border border-t bg-muted/30 py-1">
                   <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6"
-                    onClick={handleShowConsole}
                     aria-label="Show File Editor"
+                    className="h-6"
                     data-testid="show-console-panel"
+                    onClick={handleShowConsole}
+                    size="sm"
+                    variant="ghost"
                   >
                     <Terminal className="h-4 w-4" />
                     <span className="ml-2 text-xs">Show File Editor</span>
@@ -594,11 +626,11 @@ export const IdeLayout = React.memo(function IdeLayout({
               )}
               {showConsole && consoleContent && (
                 <ConsolePanel
-                  panelRef={consolePanelRef}
                   content={consoleContent}
+                  defaultSize={safeConsoleSize}
                   hideButtonRef={hideConsoleButtonRef}
                   onHide={handleConsoleClose}
-                  defaultSize={safeConsoleSize}
+                  panelRef={consolePanelRef}
                   {...consolePanelHandlers}
                 />
               )}
@@ -606,14 +638,14 @@ export const IdeLayout = React.memo(function IdeLayout({
           </Panel>
 
           {!showRightPanel && rightPanelContent && (
-            <div className="flex items-center justify-center p-2 border-l border-border bg-muted/30">
+            <div className="flex items-center justify-center border-border border-l bg-muted/30 p-2">
               <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={handleShowRightPanel}
                 aria-label="Show right panel"
+                className="h-6 w-6"
                 data-testid="show-right-panel"
+                onClick={handleShowRightPanel}
+                size="icon"
+                variant="ghost"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -621,11 +653,11 @@ export const IdeLayout = React.memo(function IdeLayout({
           )}
           {showRightPanel && rightPanelContent && (
             <RightPanel
-              panelRef={rightPanelRef}
               content={rightPanelContent}
+              defaultSize={safeRightSize}
               hideButtonRef={hideRightPanelButtonRef}
               onHide={handleHideRightPanel}
-              defaultSize={safeRightSize}
+              panelRef={rightPanelRef}
               {...rightPanelHandlers}
             />
           )}

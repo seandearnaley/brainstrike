@@ -67,7 +67,9 @@ function filterTreeIterative(
 
   function handleExit(frame: Frame): void {
     const searchable = createSearchableText(frame.node);
-    if (isNodeExcluded(searchable, excludes)) return;
+    if (isNodeExcluded(searchable, excludes)) {
+      return;
+    }
 
     const included = isNodeIncluded(searchable, includes);
     const processed = processDirectoryNode(frame.node, included, frame.tempChildren ?? []);
@@ -78,7 +80,9 @@ function filterTreeIterative(
 
   for (let i = nodes.length - 1; i >= 0; i -= 1) {
     const item = nodes[i];
-    if (item) stack.push({ node: item, state: 'enter', parentChildren: result });
+    if (item) {
+      stack.push({ node: item, state: 'enter', parentChildren: result });
+    }
   }
 
   while (stack.length > 0) {
@@ -105,7 +109,9 @@ export function useQuickFilter(fileTree: IFileNode[]) {
   const debouncedFilter = useDebouncedValue(quickFilter, 150);
 
   const applyQuickFilter = useCallback((nodes: IFileNode[], filter: string): IFileNode[] => {
-    if (!filter.trim()) return nodes;
+    if (!filter.trim()) {
+      return nodes;
+    }
 
     const { includes, excludes } = parseFilterString(filter);
     return filterTreeIterative(nodes, includes, excludes);

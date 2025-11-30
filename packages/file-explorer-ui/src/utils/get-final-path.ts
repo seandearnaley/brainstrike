@@ -6,6 +6,4 @@ export const getFinalPath = (
   directoryHandle: DirectoryHandle,
   entry: IFileNode,
   relativePath: string
-): string => {
-  return finalPath(directoryHandle.platform, entry.path, relativePath);
-};
+): string => finalPath(directoryHandle.platform, entry.path, relativePath);

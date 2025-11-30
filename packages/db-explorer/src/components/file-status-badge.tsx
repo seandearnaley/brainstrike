@@ -3,10 +3,10 @@ import { AlertCircle, CheckCircle, Info } from 'lucide-react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
 import { formatDate } from '../utils/format';
 
-interface FileStatusBadgeProps {
+type FileStatusBadgeProps = {
   status: FileCollectionStatus;
   activeCollectionName: string;
-}
+};
 
 /**
  * Formats relative time from ISO string
@@ -15,16 +15,24 @@ function formatRelativeTime(isoString: string): string {
   const date = new Date(isoString);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
+  const diffMins = Math.floor(diffMs / 60_000);
 
-  if (diffMins < 1) return 'just now';
-  if (diffMins < 60) return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+  if (diffMins < 1) {
+    return 'just now';
+  }
+  if (diffMins < 60) {
+    return `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+  }
 
   const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  if (diffHours < 24) {
+    return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+  }
 
   const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  if (diffDays < 7) {
+    return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  }
 
   return formatDate(isoString);
 }
@@ -34,20 +42,20 @@ function formatRelativeTime(isoString: string): string {
  */
 function SearchableStatusDisplay({ status }: { status: FileCollectionStatus }) {
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <Badge variant="default" className="text-xs">
-        <CheckCircle className="h-3 w-3 mr-1" />
+    <div className="flex flex-wrap items-center gap-2">
+      <Badge className="text-xs" variant="default">
+        <CheckCircle className="mr-1 h-3 w-3" />
         Searchable in this collection
       </Badge>
 
       {status.searchableChunksCount > 0 && (
-        <span className="text-xs text-muted-foreground">
+        <span className="text-muted-foreground text-xs">
           {status.searchableChunksCount} chunk{status.searchableChunksCount === 1 ? '' : 's'}
         </span>
       )}
 
       {status.lastIndexedAt && (
-        <span className="text-xs text-muted-foreground">
+        <span className="text-muted-foreground text-xs">
           • Last indexed {formatRelativeTime(status.lastIndexedAt)}
         </span>
       )}
@@ -56,8 +64,8 @@ function SearchableStatusDisplay({ status }: { status: FileCollectionStatus }) {
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Badge variant="outline" className="text-xs cursor-help">
-                <Info className="h-3 w-3 mr-1" />
+              <Badge className="cursor-help text-xs" variant="outline">
+                <Info className="mr-1 h-3 w-3" />
                 Also in {status.otherCollectionsCount} other collection
                 {status.otherCollectionsCount === 1 ? '' : 's'}
               </Badge>
@@ -86,9 +94,9 @@ function NotSearchableStatusDisplay({
   activeCollectionName: string;
 }) {
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <Badge variant="secondary" className="text-xs">
-        <AlertCircle className="h-3 w-3 mr-1" />
+    <div className="flex flex-wrap items-center gap-2">
+      <Badge className="text-xs" variant="secondary">
+        <AlertCircle className="mr-1 h-3 w-3" />
         Not yet searchable
       </Badge>
 
@@ -96,7 +104,7 @@ function NotSearchableStatusDisplay({
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="text-xs text-muted-foreground cursor-help">
+              <span className="cursor-help text-muted-foreground text-xs">
                 {status.totalChunksCount} chunk{status.totalChunksCount === 1 ? '' : 's'} created •
                 Needs indexing
               </span>
@@ -132,5 +140,5 @@ export function FileStatusBadge({ status, activeCollectionName }: FileStatusBadg
     return <SearchableStatusDisplay status={status} />;
   }
 
-  return <NotSearchableStatusDisplay status={status} activeCollectionName={activeCollectionName} />;
+  return <NotSearchableStatusDisplay activeCollectionName={activeCollectionName} status={status} />;
 }

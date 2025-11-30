@@ -36,9 +36,15 @@ type FeatureExtractor = FeatureExtractionPipeline &
  */
 function getMaxLengthForModel(modelId: string): number {
   const id = modelId.toLowerCase();
-  if (id.includes('bge-m3')) return 8192;
-  if (id.includes('minilm')) return 512;
-  if (id.includes('jina')) return 8192;
+  if (id.includes('bge-m3')) {
+    return 8192;
+  }
+  if (id.includes('minilm')) {
+    return 512;
+  }
+  if (id.includes('jina')) {
+    return 8192;
+  }
   // Safe default for most sentence transformer models
   return 512;
 }
@@ -364,7 +370,7 @@ function adjustStateOnError(state: EmbeddingState, context: EmbeddingContext): b
 
 function serializeErrorCause(error: unknown): string | undefined {
   if (error === undefined || error === null) {
-    return undefined;
+    return;
   }
   if (error instanceof Error) {
     // Include stack trace if available for debugging

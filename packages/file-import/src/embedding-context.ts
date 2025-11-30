@@ -4,14 +4,14 @@
  * improving retrieval accuracy for queries like "code in utils.ts" or
  * "installation section".
  */
-export interface ChunkContext {
+export type ChunkContext = {
   /** File path relative to project root (e.g., "src/utils/helpers.ts") */
   filePath?: string;
   /** Heading path for markdown files (e.g., "Getting Started > Installation") */
   headingPath?: string;
   /** Programming language detected from file extension */
   language?: string;
-}
+};
 
 /**
  * Build embedding text with contextual metadata prepended.
@@ -81,7 +81,7 @@ export function extractHeadingPath(content: string): string | undefined {
 
       // Pop headings of same or higher level (lower number = higher in hierarchy)
       while (headingStack.length > 0) {
-        const last = headingStack[headingStack.length - 1];
+        const last = headingStack.at(-1);
         if (last && last.level >= level) {
           headingStack.pop();
         } else {
@@ -94,7 +94,7 @@ export function extractHeadingPath(content: string): string | undefined {
   }
 
   if (headingStack.length === 0) {
-    return undefined;
+    return;
   }
 
   return headingStack.map((h) => h.text).join(' > ');
@@ -108,7 +108,9 @@ export function extractHeadingPath(content: string): string | undefined {
  */
 export function detectLanguage(filePath: string): string | undefined {
   const ext = filePath.split('.').pop()?.toLowerCase();
-  if (!ext) return undefined;
+  if (!ext) {
+    return;
+  }
 
   const languageMap: Record<string, string> = {
     // JavaScript/TypeScript

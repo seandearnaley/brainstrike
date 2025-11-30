@@ -323,7 +323,7 @@ class TestClass {
       const result = await chunkingService.chunkContent(content, 'file1', {
         strategy: 'recursive',
         fileName: 'extreme.ts',
-        maxTokens: 99999,
+        maxTokens: 99_999,
         overlap: 9999,
       });
 
@@ -526,7 +526,6 @@ class TestClass {
       // Test with an invalid strategy (TypeScript won't catch this in tests due to any casting)
       await expect(
         chunkingService.chunkContent('test content', 'file1', {
-          // biome-ignore lint/suspicious/noExplicitAny: Intentionally testing invalid strategy
           strategy: 'invalid' as any,
           fileName: 'test.txt',
         })
@@ -567,7 +566,7 @@ class TestClass {
       const { maxTokens, overlap } = invokeAdjust(chunkingService, 'function foo() {}', {
         strategy: 'sentence',
         fileName: 'foo.ts',
-        maxTokens: 10000,
+        maxTokens: 10_000,
         overlap: 5000,
       });
 

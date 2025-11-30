@@ -16,14 +16,16 @@ export function GlobalDownloadIndicator() {
   }
 
   const activeId = activeDownloads[0];
-  if (!activeId) return null;
+  if (!activeId) {
+    return null;
+  }
   const progress = downloadProgress[activeId] || 0;
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground min-w-[150px]">
+    <div className="flex min-w-[150px] items-center gap-2 text-muted-foreground text-xs">
       <Download className="h-3 w-3 animate-pulse" />
-      <span className="truncate max-w-[100px]">Downloading model...</span>
-      <Progress value={progress} className="h-1.5 w-16" />
+      <span className="max-w-[100px] truncate">Downloading model...</span>
+      <Progress className="h-1.5 w-16" value={progress} />
       <span className="w-8 text-right">{progress}%</span>
     </div>
   );

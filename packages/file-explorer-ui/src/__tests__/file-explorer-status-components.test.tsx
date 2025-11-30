@@ -29,8 +29,8 @@ describe('FilterStatus', () => {
     render(
       <TooltipProvider>
         <FilterStatus
-          includeFilters={['*.ts']}
           excludeFilters={['*.test.ts']}
+          includeFilters={['*.ts']}
           quickFilter="bar"
           useRegex={true}
         />
@@ -45,7 +45,7 @@ describe('FilterStatus', () => {
   it('returns null when no filters are active', () => {
     const { container } = render(
       <TooltipProvider>
-        <FilterStatus includeFilters={[]} excludeFilters={[]} quickFilter="" useRegex={false} />
+        <FilterStatus excludeFilters={[]} includeFilters={[]} quickFilter="" useRegex={false} />
       </TooltipProvider>
     );
     expect(container.firstChild).toBeNull();

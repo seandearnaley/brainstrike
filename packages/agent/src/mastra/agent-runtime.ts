@@ -17,7 +17,7 @@ import {
 import { mapMastraToolEvent } from './tool-event-mapper';
 import { sanitizeTools } from './tool-sanitizer';
 
-export interface MastraAgentRuntimeOptions {
+export type MastraAgentRuntimeOptions = {
   instructions?: string;
   model?: string;
   runtime?: RuntimeData;
@@ -26,19 +26,21 @@ export interface MastraAgentRuntimeOptions {
   // Optional timeout (ms) for initial MCP tool discovery
   mcpTimeoutMs?: number;
   resolved?: ResolvedRuntimeConfiguration;
-}
+};
 
-export interface MastraAgentRuntime {
+export type MastraAgentRuntime = {
   agent: Agent;
   mcpClient?: MCPClient;
   dispose: () => Promise<void>;
   toolNameMap: Map<string, string>;
-}
+};
 
 const logger = createLogger('MastraAgent');
 
 function toMastraServerMap(config: McpConfig | undefined): MCPClientOptions['servers'] {
-  if (!config || !Array.isArray(config.servers)) return {};
+  if (!(config && Array.isArray(config.servers))) {
+    return {};
+  }
 
   const map: Record<string, MCPClientOptions['servers'][string]> = {};
 
@@ -48,8 +50,12 @@ function toMastraServerMap(config: McpConfig | undefined): MCPClientOptions['ser
     env?: Record<string, string> | undefined
   ): { command: string; args?: string[]; env?: Record<string, string> } => {
     const entry: { command: string; args?: string[]; env?: Record<string, string> } = { command };
-    if (Array.isArray(args) && args.length > 0) entry.args = args;
-    if (env && Object.keys(env).length > 0) entry.env = env;
+    if (Array.isArray(args) && args.length > 0) {
+      entry.args = args;
+    }
+    if (env && Object.keys(env).length > 0) {
+      entry.env = env;
+    }
     return entry;
   };
 
@@ -64,19 +70,23 @@ function toMastraServerMap(config: McpConfig | undefined): MCPClientOptions['ser
       }
       return entry;
     } catch {
-      return undefined;
+      return;
     }
   };
 
   for (const server of config.servers) {
-    if (!server?.name) continue;
+    if (!server?.name) {
+      continue;
+    }
     if (server.transport === 'stdio') {
       map[server.name] = buildStdio(server.command, server.args, server.env);
       continue;
     }
     if (server.transport === 'sse') {
       const entry = buildSse(server.url, server.headers);
-      if (entry) map[server.name] = entry;
+      if (entry) {
+        map[server.name] = entry;
+      }
     }
   }
 
@@ -239,10 +249,10 @@ function readTripwireReason(part: unknown): string | undefined {
   return candidate.tripwireReason ?? candidate.payload?.tripwireReason;
 }
 
-interface ProcessStreamPartResult {
+type ProcessStreamPartResult = {
   chunks: StreamChunk[];
   finished: boolean;
-}
+};
 
 function processMastraStreamPart(
   part: unknown,
@@ -311,10 +321,10 @@ function processMastraStreamPart(
   }
 }
 
-interface RuntimeInitializationResult {
+type RuntimeInitializationResult = {
   runtime: MastraAgentRuntime;
   sanitizedNameMap?: Map<string, string>;
-}
+};
 
 async function initializeMastraRuntime(
   options: MastraAgentRuntimeOptions,
@@ -344,19 +354,19 @@ async function initializeMastraRuntime(
   }
 }
 
-interface StreamIterationParams {
+type StreamIterationParams = {
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   messages: AgentMessage[];
   sanitizedNameMap?: Map<string, string>;
-}
+};
 
-interface StreamGeneratorParams {
+type StreamGeneratorParams = {
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   stream: NodeReadableStream<unknown> | ReadableStream<unknown>;
   sanitizedNameMap?: Map<string, string>;
-}
+};
 
 async function* streamChunksFromMastra({
   runtime,

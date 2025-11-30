@@ -45,7 +45,7 @@ const playwrightConfig: PlaywrightTestConfig = {
 
   // Expect timeout for assertions
   expect: {
-    timeout: 10000,
+    timeout: 10_000,
   },
 
   use: {

@@ -27,13 +27,17 @@ function createAsyncStream(chunks: StreamChunk[]): AsyncIterable<StreamChunk> {
 
 async function readResponse(response: Response): Promise<string[]> {
   const body = response.body as ReadableStream<Uint8Array> | null;
-  if (!body) return [];
+  if (!body) {
+    return [];
+  }
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     if (value && value.length > 0) {
       buffer += decoder.decode(value, { stream: true });
     }
@@ -215,7 +219,9 @@ describe('AssistantDataStreamSession', () => {
 
     const response = session.createResponse();
     const body = response.body as ReadableStream<Uint8Array> | null;
-    if (!body) throw new Error('body is null');
+    if (!body) {
+      throw new Error('body is null');
+    }
 
     const reader = body.getReader();
 
@@ -255,7 +261,9 @@ describe('AssistantDataStreamSession', () => {
 
     const response = session.createResponse();
     const body = response.body as ReadableStream<Uint8Array> | null;
-    if (!body) throw new Error('body is null');
+    if (!body) {
+      throw new Error('body is null');
+    }
 
     const reader = body.getReader();
 
@@ -293,7 +301,9 @@ describe('AssistantDataStreamSession', () => {
 
     const body1 = response1.body as ReadableStream<Uint8Array> | null;
     const body2 = response2.body as ReadableStream<Uint8Array> | null;
-    if (!body1 || !body2) throw new Error('body is null');
+    if (!(body1 && body2)) {
+      throw new Error('body is null');
+    }
 
     const reader1 = body1.getReader();
     const reader2 = body2.getReader();
@@ -348,7 +358,9 @@ describe('AssistantDataStreamSession', () => {
     // Read first chunk to generate event ID
     const response = session.createResponse();
     const body = response.body as ReadableStream<Uint8Array> | null;
-    if (!body) throw new Error('body is null');
+    if (!body) {
+      throw new Error('body is null');
+    }
     const reader = body.getReader();
     await reader.read();
     await reader.cancel();

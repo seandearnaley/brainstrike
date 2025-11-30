@@ -1,13 +1,13 @@
 import type { IFileNode } from '@brainstrike/types';
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '../types';
 
-export interface MockFileEntry {
+export type MockFileEntry = {
   name: string;
   type: 'file' | 'directory';
   content?: string;
   size?: number;
   children?: Record<string, MockFileEntry>;
-}
+};
 
 // Navigation helper functions
 function navigateToPath(
@@ -42,7 +42,9 @@ function addEntryToPath(
 
   for (let i = 0; i < pathParts.length - 1; i++) {
     const part = pathParts[i];
-    if (!part) continue;
+    if (!part) {
+      continue;
+    }
 
     if (!current[part]) {
       current[part] = {
@@ -54,7 +56,7 @@ function addEntryToPath(
     current = current[part].children ?? {};
   }
 
-  const fileName = pathParts[pathParts.length - 1];
+  const fileName = pathParts.at(-1);
   if (fileName) {
     current[fileName] = entry;
   }

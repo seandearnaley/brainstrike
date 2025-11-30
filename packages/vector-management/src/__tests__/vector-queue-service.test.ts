@@ -28,11 +28,11 @@ describe('vector-queue-service', () => {
           return {
             rows: [
               {
-                runAt: new Date(now - 1_000).toISOString(),
+                runAt: new Date(now - 1000).toISOString(),
                 updatedAt: new Date(now).toISOString(),
               },
               {
-                runAt: new Date(now - 2_000).toISOString(),
+                runAt: new Date(now - 2000).toISOString(),
                 updatedAt: new Date(now - 500).toISOString(),
               },
             ],
@@ -122,7 +122,7 @@ describe('vector-queue-service', () => {
     const selectQuery = queries.find((entry) => entry.sql.includes('FROM file_chunks'));
     const insertQuery = queries.find((entry) => entry.sql.includes('INSERT INTO job_queue'));
 
-    if (!metadataQuery || !selectQuery || !insertQuery) {
+    if (!(metadataQuery && selectQuery && insertQuery)) {
       throw new Error('Expected metadata, select, and insert queries');
     }
 

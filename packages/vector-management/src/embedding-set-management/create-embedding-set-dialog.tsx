@@ -21,7 +21,7 @@ import { createLogger } from '@brainstrike/utils';
 import { useEffect, useState } from 'react';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
-interface CreateEmbeddingSetDialogProps {
+type CreateEmbeddingSetDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   repository: EmbeddingSetsRepository | null;
@@ -37,7 +37,7 @@ interface CreateEmbeddingSetDialogProps {
     origin?: string;
   }>;
   onSetCreated?: (setId: string) => void;
-}
+};
 
 // Helper to build metadata object with only non-empty fields
 function buildMetadata(formData: {
@@ -101,14 +101,20 @@ export function CreateEmbeddingSetDialog({
   const hasModelOptions = availableModels.length > 0;
 
   useEffect(() => {
-    if (!open) return;
-    if (formData.selectedModel) return;
-    if (!hasModelOptions) return;
+    if (!open) {
+      return;
+    }
+    if (formData.selectedModel) {
+      return;
+    }
+    if (!hasModelOptions) {
+      return;
+    }
     setFormData((prev) => ({ ...prev, selectedModel: availableModels[0]?.modelKey ?? '' }));
   }, [open, hasModelOptions, availableModels, formData.selectedModel]);
 
   const validateCreateInputs = (): boolean => {
-    if (!repository || !selectedModelInfo) {
+    if (!(repository && selectedModelInfo)) {
       toast({
         title: 'Error',
         description: 'Invalid configuration',
@@ -130,7 +136,7 @@ export function CreateEmbeddingSetDialog({
   };
 
   const handleCreate = async () => {
-    if (!validateCreateInputs() || !repository || !selectedModelInfo) {
+    if (!(validateCreateInputs() && repository && selectedModelInfo)) {
       return;
     }
 
@@ -213,7 +219,7 @@ export function CreateEmbeddingSetDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Create Search Collection</DialogTitle>
@@ -227,11 +233,10 @@ export function CreateEmbeddingSetDialog({
         {hasModelOptions ? (
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="model" className="text-sm font-medium">
+              <Label className="font-medium text-sm" htmlFor="model">
                 Model Configuration
               </Label>
               <Select
-                value={formData.selectedModel}
                 disabled={!hasModelOptions || creating}
                 onValueChange={(value) =>
                   setFormData((prev) => ({
@@ -243,8 +248,9 @@ export function CreateEmbeddingSetDialog({
                         : prev.name,
                   }))
                 }
+                value={formData.selectedModel}
               >
-                <SelectTrigger id="model" className="w-full">
+                <SelectTrigger className="w-full" id="model">
                   <SelectValue placeholder="Select a model configuration" />
                 </SelectTrigger>
                 <SelectContent>
@@ -256,85 +262,85 @@ export function CreateEmbeddingSetDialog({
                 </SelectContent>
               </Select>
               {selectedModelInfo && (
-                <p className="text-xs text-muted-foreground mt-2">
+                <p className="mt-2 text-muted-foreground text-xs">
                   {formatModelDescription(selectedModelInfo)}
                 </p>
               )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="name" className="text-sm font-medium">
+              <Label className="font-medium text-sm" htmlFor="name">
                 Name <span className="text-destructive">*</span>
               </Label>
               <Input
+                disabled={creating}
                 id="name"
+                onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="e.g., Code Embeddings, General Purpose, etc."
                 value={formData.name}
-                onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                disabled={creating}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description" className="text-sm font-medium">
+              <Label className="font-medium text-sm" htmlFor="description">
                 Description
               </Label>
               <Input
+                disabled={creating}
                 id="description"
+                onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
                 placeholder="Describe the purpose of this collection"
                 value={formData.description}
-                onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                disabled={creating}
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="tags" className="text-sm font-medium">
+              <Label className="font-medium text-sm" htmlFor="tags">
                 Tags
               </Label>
               <Input
+                disabled={creating}
                 id="tags"
+                onChange={(e) => setFormData((prev) => ({ ...prev, tags: e.target.value }))}
                 placeholder="Comma-separated tags (e.g., code, programming, analysis)"
                 value={formData.tags}
-                onChange={(e) => setFormData((prev) => ({ ...prev, tags: e.target.value }))}
-                disabled={creating}
               />
-              <p className="text-xs text-muted-foreground">Use commas to separate multiple tags</p>
+              <p className="text-muted-foreground text-xs">Use commas to separate multiple tags</p>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="category" className="text-sm font-medium">
+              <Label className="font-medium text-sm" htmlFor="category">
                 Category
               </Label>
               <Input
+                disabled={creating}
                 id="category"
+                onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
                 placeholder="e.g., development, documentation, general-text"
                 value={formData.category}
-                onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
-                disabled={creating}
               />
             </div>
           </div>
         ) : (
-          <div className="rounded-md border border-dashed bg-muted/30 text-sm text-muted-foreground py-6 px-4">
+          <div className="rounded-md border border-dashed bg-muted/30 px-4 py-6 text-muted-foreground text-sm">
             Enable at least one embedding model in Settings to create a collection.
           </div>
         )}
 
         <DialogFooter>
           <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
             disabled={creating}
+            onClick={() => onOpenChange(false)}
             type="button"
+            variant="outline"
           >
             Cancel
           </Button>
           <Button
-            onClick={handleCreate}
             disabled={
               creating || !hasModelOptions || !formData.selectedModel || !formData.name.trim()
             }
+            onClick={handleCreate}
             type="button"
           >
             {creating ? 'Creating...' : 'Create Collection'}

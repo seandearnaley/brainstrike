@@ -199,7 +199,7 @@ describe('crypto-utils', () => {
         writable: true,
       });
 
-      const largeContent = 'a'.repeat(10000);
+      const largeContent = 'a'.repeat(10_000);
       const result = await generateContentHash(largeContent);
 
       expect(result).toMatch(/^[0-9a-f]{32}$/);

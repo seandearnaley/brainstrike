@@ -1,15 +1,15 @@
 import type React from 'react';
 
-export interface ProviderConfig {
+export type ProviderConfig = {
   id: string;
   name: string;
   models: readonly string[];
   defaultModel: string;
-}
+};
 
 export type ProviderRuntimeCategory = 'hosted' | 'gateway' | 'local' | 'browser';
 
-export interface ProviderModelOptionConfig {
+export type ProviderModelOptionConfig = {
   id: string;
   label: string;
   type: 'llm' | 'embedding';
@@ -17,9 +17,9 @@ export interface ProviderModelOptionConfig {
   default?: boolean;
   supportsStreaming?: boolean;
   supportsStandardDimension?: boolean;
-}
+};
 
-export interface ProviderOptionConfig {
+export type ProviderOptionConfig = {
   id: string;
   name: string;
   runtime: ProviderRuntimeCategory;
@@ -30,15 +30,15 @@ export interface ProviderOptionConfig {
     supportsStandardEmbeddingDimension: boolean;
   };
   models: ProviderModelOptionConfig[];
-}
+};
 
-export interface ProviderGroupConfig {
+export type ProviderGroupConfig = {
   runtime: ProviderRuntimeCategory;
   label: string;
   providers: ProviderOptionConfig[];
-}
+};
 
-export interface AssistantUiPanelProps {
+export type AssistantUiPanelProps = {
   className?: string;
   providers?: ProviderConfig[];
   providerGroups?: ProviderGroupConfig[];
@@ -49,6 +49,6 @@ export interface AssistantUiPanelProps {
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   disabled?: boolean;
   disabledReason?: string;
-}
+};
 
 export declare const AssistantUiPanel: React.FC<AssistantUiPanelProps>;

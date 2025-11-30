@@ -16,7 +16,7 @@ import type { CSSProperties } from 'react';
 import { memo, useCallback, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
-interface OptimizedFileTreeRowProps {
+type OptimizedFileTreeRowProps = {
   node: IFileNode;
   depth: number;
   isExpanded: boolean;
@@ -26,7 +26,7 @@ interface OptimizedFileTreeRowProps {
   folderId: string;
   style?: CSSProperties;
   children?: React.ReactNode;
-}
+};
 
 const ROW_HEIGHT = 32;
 
@@ -36,7 +36,9 @@ const areOptimizedFileTreeRowPropsEqual = (
   nextProps: OptimizedFileTreeRowProps
 ): boolean => {
   // Fast path: if it's the same object reference, they're equal
-  if (prevProps === nextProps) return true;
+  if (prevProps === nextProps) {
+    return true;
+  }
 
   // Compare critical props that affect rendering
   if (
@@ -53,7 +55,9 @@ const areOptimizedFileTreeRowPropsEqual = (
   // Compare style props (only the ones we care about)
   const prevTop = prevProps.style?.top;
   const nextTop = nextProps.style?.top;
-  if (prevTop !== nextTop) return false;
+  if (prevTop !== nextTop) {
+    return false;
+  }
 
   // Compare callback props (reference equality)
   if (
@@ -92,7 +96,9 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     );
 
     const folderInfo = useMemo(() => {
-      if (node.type !== 'directory') return null;
+      if (node.type !== 'directory') {
+        return null;
+      }
       return fileExplorer.getFolderFileCount(node);
     }, [node]);
 
@@ -132,7 +138,9 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       if (node.type === 'file') {
         return !isFileSelected && selectedFilePaths.size >= maxSelectionCount;
       }
-      if (!folderInfo) return false;
+      if (!folderInfo) {
+        return false;
+      }
       const unselectedCount = folderInfo.count - selectedCountInDir;
       return selectedFilePaths.size + unselectedCount > maxSelectionCount;
     }, [
@@ -150,7 +158,9 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         onToggleFileSelection(node.path);
         return;
       }
-      if (allFilePaths.length === 0) return;
+      if (allFilePaths.length === 0) {
+        return;
+      }
       const isFullySelected = selectedCountInDir === allFilePaths.length;
       if (!isFullySelected) {
         const unselectedPaths = allFilePaths.filter(
@@ -196,20 +206,20 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       if (isLoading) {
         return (
           <Loader2
-            size={16}
-            className="text-blue-500 dark:text-blue-400 animate-spin"
             aria-label={`Loading ${node.name}`}
+            className="animate-spin text-blue-500 dark:text-blue-400"
+            size={16}
           />
         );
       }
       if (node.type === 'file') {
-        return <FileIcon size={16} className="text-gray-500 dark:text-gray-400" />;
+        return <FileIcon className="text-gray-500 dark:text-gray-400" size={16} />;
       }
       if (node.type === 'directory') {
         return isExpanded ? (
-          <FolderOpen size={16} className="text-blue-500 dark:text-blue-400" />
+          <FolderOpen className="text-blue-500 dark:text-blue-400" size={16} />
         ) : (
-          <Folder size={16} className="text-blue-500 dark:text-blue-400" />
+          <Folder className="text-blue-500 dark:text-blue-400" size={16} />
         );
       }
       return null;
@@ -217,25 +227,25 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
 
     return (
       <div
+        aria-expanded={node.type === 'directory' ? isExpanded : undefined}
         className="list-none"
         role="treeitem"
-        aria-expanded={node.type === 'directory' ? isExpanded : undefined}
-        tabIndex={0}
         style={style}
+        tabIndex={0}
       >
         <div
-          className="flex items-center py-1.5 px-2 hover:bg-accent rounded transition-all duration-150"
+          className="flex items-center rounded px-2 py-1.5 transition-all duration-150 hover:bg-accent"
           style={{ paddingLeft: depth * 24 + 8 }}
         >
           {/* Chevron button with fixed width for consistent alignment */}
-          <div className="w-4 flex justify-center mr-2">
+          <div className="mr-2 flex w-4 justify-center">
             {node.type === 'directory' && (
               <button
-                type="button"
-                onClick={handleExpansionClick}
-                className="p-0.5 hover:bg-accent rounded cursor-pointer transition-all duration-150 active:scale-90 flex items-center justify-center"
                 aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
+                className="flex cursor-pointer items-center justify-center rounded p-0.5 transition-all duration-150 hover:bg-accent active:scale-90"
                 data-testid={EXPAND_COLLAPSE_TEST_ID}
+                onClick={handleExpansionClick}
+                type="button"
               >
                 {isExpanded ? (
                   <ChevronDown className="h-3 w-3" />
@@ -248,32 +258,32 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
 
           {/* Optimized Checkbox with precise alignment */}
           <div
-            className="flex items-center justify-center w-4 mr-2"
+            className="mr-2 flex w-4 items-center justify-center"
             title={
               wouldExceedLimit ? `Cannot select more than ${maxSelectionCount} files` : undefined
             }
           >
             <LightweightCheckbox
-              id={node.path}
-              checked={checkboxState}
-              disabled={wouldExceedLimit}
-              className="h-4 w-4"
-              onCheckedChange={handleCheckboxChange}
               aria-label={`Select ${node.name}`}
+              checked={checkboxState}
+              className="h-4 w-4"
+              disabled={wouldExceedLimit}
+              id={node.path}
+              onCheckedChange={handleCheckboxChange}
             />
           </div>
 
           {/* File/folder icon with consistent sizing */}
-          <div className="flex items-center justify-center w-4 mr-2">{renderIcon()}</div>
+          <div className="mr-2 flex w-4 items-center justify-center">{renderIcon()}</div>
 
           {/* File/folder name and additional icons */}
-          <div className="flex items-center flex-1 min-w-0">
+          <div className="flex min-w-0 flex-1 items-center">
             {node.isSymbolicLink && (
-              <Link2Icon className="mr-1.5 h-4 w-4 text-blue-500 flex-shrink-0" />
+              <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
             )}
             <span className="truncate text-sm leading-4">{node.name}</span>
             {node.type === 'directory' && node.isDepthTruncated && (
-              <MoreHorizontalIcon className="ml-1.5 h-4 w-4 text-gray-500 flex-shrink-0" />
+              <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
             )}
           </div>
         </div>

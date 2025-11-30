@@ -37,10 +37,10 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
       ...rest
     }: ComponentPropsWithoutRef<'button'> & { variant?: string; size?: string }) => (
       <button
-        onClick={onClick}
-        data-variant={variant}
         className={className}
         data-size={size}
+        data-variant={variant}
+        onClick={onClick}
         title={title}
         type="button"
         {...rest}

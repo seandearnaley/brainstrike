@@ -6,7 +6,7 @@ export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled
 
 export type JobType = 'embed_chunk';
 
-export interface JobRow {
+export type JobRow = {
   id: string;
   queue: string;
   job_type: string;
@@ -23,7 +23,7 @@ export interface JobRow {
   error?: string | null;
   created_at: string;
   updated_at: string;
-}
+};
 
 export interface Job extends Omit<JobRow, 'job_type' | 'payload' | 'run_at' | 'leased_until'> {
   jobType: JobType;
@@ -66,45 +66,45 @@ function computeElapsedMs(startIso: string, endIso: string): number | null {
   return null;
 }
 
-export interface EnqueueParams {
+export type EnqueueParams = {
   queue: string;
   jobType: JobType;
   payload: unknown;
   dedupeKey?: string;
   runAt?: string; // ISO string; defaults to now
   maxAttempts?: number; // defaults to configured
-}
+};
 
-export interface ClaimParams {
+export type ClaimParams = {
   queue: string;
   leaseMs: number;
   now?: string; // ISO string; defaults to now
   workerId?: string;
-}
+};
 
-export interface HeartbeatParams {
+export type HeartbeatParams = {
   id: string;
   leaseToken: string;
   extendMs: number;
-}
+};
 
-export interface CompleteParams {
+export type CompleteParams = {
   id: string;
   leaseToken: string;
-}
+};
 
-export interface FailParams {
+export type FailParams = {
   id: string;
   leaseToken: string;
   error: string;
   backoffMs?: number;
   terminal?: boolean;
-}
+};
 
 export class JobQueue {
   constructor(
-    private db: IDatabase,
-    private defaults: { maxAttempts?: number } = {}
+    private readonly db: IDatabase,
+    private readonly defaults: { maxAttempts?: number } = {}
   ) {}
 
   withDb(db: IDatabase): JobQueue {
@@ -165,7 +165,9 @@ export class JobQueue {
       ]
     );
 
-    if (!inserted.rows[0]) throw new Error('Failed to insert job');
+    if (!inserted.rows[0]) {
+      throw new Error('Failed to insert job');
+    }
     const job = fromRow(inserted.rows[0]);
     const isNewEnqueue = job.id === id;
 
@@ -313,7 +315,9 @@ export class JobQueue {
       params.id,
     ]);
     const row = current.rows[0];
-    if (!row) return null;
+    if (!row) {
+      return null;
+    }
 
     const attempts = row.attempts ?? 0;
     const now = new Date();
@@ -421,7 +425,9 @@ export class JobQueue {
   }
 
   async prune(states: JobState[], olderThanIso: string): Promise<number> {
-    if (!olderThanIso) throw new Error('olderThanIso is required');
+    if (!olderThanIso) {
+      throw new Error('olderThanIso is required');
+    }
     const placeholders = states.map((_, i) => `$${i + 2}`).join(',');
     const res = await this.db.query<{ count: string }>(
       `WITH del AS (
@@ -471,10 +477,18 @@ export class JobQueue {
     >();
     for (const c of counts) {
       const entry = queues.get(c.queue) ?? { queued: 0, running: 0, failed: 0, succeeded: 0 };
-      if (c.state === 'queued') entry.queued += c.count;
-      if (c.state === 'running') entry.running += c.count;
-      if (c.state === 'failed') entry.failed += c.count;
-      if (c.state === 'succeeded') entry.succeeded += c.count;
+      if (c.state === 'queued') {
+        entry.queued += c.count;
+      }
+      if (c.state === 'running') {
+        entry.running += c.count;
+      }
+      if (c.state === 'failed') {
+        entry.failed += c.count;
+      }
+      if (c.state === 'succeeded') {
+        entry.succeeded += c.count;
+      }
       queues.set(c.queue, entry);
     }
 

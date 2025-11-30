@@ -15,7 +15,7 @@ export type { CollectionSortDirection, CollectionSortKey, CollectionSortState, S
 /**
  * Persisted data for the CollectionBrowserView
  */
-interface CollectionBrowserData {
+type CollectionBrowserData = {
   /** Expanded node IDs in the tree */
   expandedIds: string[];
   /** Currently selected node ID */
@@ -43,12 +43,12 @@ interface CollectionBrowserData {
   searchConfigDistanceMetric: DistanceMetric;
   /** Whether the search config panel is expanded */
   searchConfigExpanded: boolean;
-}
+};
 
 /**
  * Actions for the CollectionBrowserView store
  */
-interface CollectionBrowserActions {
+type CollectionBrowserActions = {
   /** Set expanded node IDs */
   setExpandedIds: (ids: string[]) => void;
   /** Toggle a single node's expansion */
@@ -88,7 +88,7 @@ interface CollectionBrowserActions {
   setSearchConfigExpanded: (expanded: boolean) => void;
   /** Reset all state to defaults */
   reset: () => void;
-}
+};
 
 export type CollectionBrowserStore = CollectionBrowserData & CollectionBrowserActions;
 
@@ -125,8 +125,12 @@ const storage = createJSONStorage(() => createSafeStorageAdapter());
 function getNextSortDirection(
   current: CollectionSortDirection | null
 ): CollectionSortDirection | null {
-  if (current === null) return 'asc';
-  if (current === 'asc') return 'desc';
+  if (current === null) {
+    return 'asc';
+  }
+  if (current === 'asc') {
+    return 'desc';
+  }
   return null;
 }
 

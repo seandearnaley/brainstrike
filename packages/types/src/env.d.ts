@@ -1,9 +1,9 @@
 declare global {
   namespace NodeJS {
-    interface ProcessEnv {
+    type ProcessEnv = {
       readonly NODE_ENV?: 'development' | 'production' | 'test';
       readonly PORT?: string;
-    }
+    };
   }
 }
 

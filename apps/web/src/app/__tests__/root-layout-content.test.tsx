@@ -27,7 +27,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 
 let capturedOnNavigationClick: ((path: string) => void) | undefined;
 
-interface MockAppLayoutProps {
+type MockAppLayoutProps = {
   children: React.ReactNode;
   config: {
     title: string;
@@ -35,14 +35,14 @@ interface MockAppLayoutProps {
   };
   currentPath: string;
   onNavigationClick?: (path: string) => void;
-}
+};
 
-interface MockAppConfig {
+type MockAppConfig = {
   title: string;
   description: string;
   themeStorageKey: string;
   navigationItems: unknown[];
-}
+};
 
 // Mock the app-shell package
 vi.mock('@brainstrike/app-shell', async (importOriginal) => {
@@ -52,7 +52,7 @@ vi.mock('@brainstrike/app-shell', async (importOriginal) => {
     AppLayout: ({ children, config, currentPath, onNavigationClick }: MockAppLayoutProps) => {
       capturedOnNavigationClick = onNavigationClick;
       return (
-        <div data-testid="app-layout" data-current-path={currentPath}>
+        <div data-current-path={currentPath} data-testid="app-layout">
           <div data-testid="app-config-title">{config.title}</div>
           <div data-testid="navigation-items-count">{config.navigationItems.length}</div>
           {children}
@@ -92,8 +92,8 @@ vi.mock('@brainstrike/app-shell', async (importOriginal) => {
       return (
         <div data-testid="file-explorer-provider">
           <div
-            data-testid="app-layout"
             data-current-path={activeTab === 'explorer' ? '/' : '/settings'}
+            data-testid="app-layout"
           >
             <div data-testid="app-config-title">BrainStrike.ai</div>
             <div data-testid="navigation-items-count">{navigationItems.length}</div>

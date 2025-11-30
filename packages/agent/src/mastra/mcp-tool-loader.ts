@@ -10,13 +10,13 @@ const logger = createLogger('MastraAgentMcpTools');
 
 const DEFAULT_MCP_TIMEOUT_MS = 5000;
 
-export interface CollectCombinedToolsOptions {
+export type CollectCombinedToolsOptions = {
   sanitizedLocalTools: ToolsInput | undefined;
   mcpClient: MCPClient | undefined;
   mcpConfig: McpConfig | undefined;
   toolNameMap: Map<string, string>;
   timeoutOverrideMs: number | undefined;
-}
+};
 
 type McpServerConfig = NonNullable<McpConfig['servers']>[number];
 
@@ -31,7 +31,7 @@ export async function collectCombinedTools({
 }: CollectCombinedToolsOptions): Promise<ToolsInput> {
   const combined: ToolsInput = sanitizedLocalTools ? { ...sanitizedLocalTools } : {};
 
-  if (!mcpClient || !mcpConfig) {
+  if (!(mcpClient && mcpConfig)) {
     return combined;
   }
 
@@ -77,7 +77,7 @@ function collectServerTools(
   serverName: string | undefined
 ): ToolsInput | undefined {
   if (!serverName) {
-    return undefined;
+    return;
   }
 
   const normalized = serverName.toLowerCase();
@@ -99,7 +99,7 @@ function registerServerTools(
   serverTools: ToolsInput
 ): ToolsInput | undefined {
   if (!server.name) {
-    return undefined;
+    return;
   }
 
   const filterConfig = server.enabledTools ? { enabledTools: server.enabledTools } : undefined;
@@ -109,7 +109,9 @@ function registerServerTools(
 }
 
 function resolveMcpTimeoutMs(value: number | undefined): number {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value;
+  }
   return DEFAULT_MCP_TIMEOUT_MS;
 }
 
@@ -118,8 +120,8 @@ async function fetchMcpToolsWithTimeout(
   toolNameMap: Map<string, string>,
   timeoutMs: number
 ): Promise<ToolsInput | undefined> {
-  const withTimeout = async <T>(p: Promise<T>, ms: number): WithTimeout<T> => {
-    return await new Promise<T>((resolve, reject) => {
+  const withTimeout = async <T>(p: Promise<T>, ms: number): WithTimeout<T> =>
+    await new Promise<T>((resolve, reject) => {
       const t = setTimeout(
         () =>
           reject(createMastraAgentError('mcp_tool_discovery_timeout', { detail: `timeout_${ms}` })),
@@ -133,7 +135,6 @@ async function fetchMcpToolsWithTimeout(
         reject(err);
       });
     });
-  };
 
   try {
     const toolsFromClient = (await withTimeout(mcpClient.getTools(), timeoutMs)) as ToolsInput;
@@ -145,6 +146,6 @@ async function fetchMcpToolsWithTimeout(
       reason,
       timeoutMs,
     });
-    return undefined;
+    return;
   }
 }

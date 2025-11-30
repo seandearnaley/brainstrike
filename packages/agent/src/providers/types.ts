@@ -61,7 +61,9 @@ export const PROVIDER_DEFAULT_MODELS: Record<SupportedProvider, string> =
   );
 
 export function isSupportedProvider(provider: string | undefined): provider is SupportedProvider {
-  if (!provider) return false;
+  if (!provider) {
+    return false;
+  }
   return SUPPORTED_PROVIDERS.includes(provider as SupportedProvider);
 }
 
@@ -83,7 +85,7 @@ export function getProviderDefaultModel(provider: SupportedProvider | string): s
   if (isSupportedProvider(provider)) {
     return PROVIDER_DEFAULT_MODELS[provider];
   }
-  return undefined;
+  return;
 }
 
 export function isValidModelForProvider(

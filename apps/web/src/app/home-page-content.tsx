@@ -20,10 +20,10 @@ export default function HomePageContent() {
     <>
       <Helmet>
         <title>BrainStrike.ai - Home</title>
-        <meta name="description" content="BrainStrike.ai Home Dashboard" />
+        <meta content="BrainStrike.ai Home Dashboard" name="description" />
       </Helmet>
       <Suspense
-        fallback={<div className="flex items-center justify-center h-full">Loading...</div>}
+        fallback={<div className="flex h-full items-center justify-center">Loading...</div>}
       >
         <WebFileExplorer />
       </Suspense>

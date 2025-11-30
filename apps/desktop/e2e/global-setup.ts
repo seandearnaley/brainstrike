@@ -9,7 +9,9 @@ async function globalSetup(_config: FullConfig) {
   console.log('🔧 Setting up Electron E2E tests...');
 
   // Build the Electron app before running tests (skip in CI since it's already built)
-  if (!process.env.CI) {
+  if (process.env['CI']) {
+    console.log('🚀 Skipping build in CI (already built)');
+  } else {
     console.log('📦 Building Electron app...');
     try {
       await execAsync('pnpm build', { cwd: process.cwd() });
@@ -18,8 +20,6 @@ async function globalSetup(_config: FullConfig) {
       console.error('❌ Failed to build Electron app:', error);
       throw error;
     }
-  } else {
-    console.log('🚀 Skipping build in CI (already built)');
   }
 
   // Ensure the main process file exists

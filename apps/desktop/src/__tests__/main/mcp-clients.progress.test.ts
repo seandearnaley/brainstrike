@@ -50,7 +50,9 @@ describe('mcp-clients (sse progress)', () => {
         streams.push(res);
         req.on('close', () => {
           const idx = streams.indexOf(res);
-          if (idx >= 0) streams.splice(idx, 1);
+          if (idx >= 0) {
+            streams.splice(idx, 1);
+          }
         });
         return;
       }
@@ -59,7 +61,9 @@ describe('mcp-clients (sse progress)', () => {
     });
     await new Promise<void>((resolve) => server.listen(0, () => resolve()));
     const addr = server.address();
-    if (typeof addr === 'object' && addr && 'port' in addr) port = addr.port as number;
+    if (typeof addr === 'object' && addr && 'port' in addr) {
+      port = addr.port as number;
+    }
   });
 
   afterAll(async () => {

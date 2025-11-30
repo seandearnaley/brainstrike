@@ -37,7 +37,7 @@ initializeLogging({
   level: defaultLevel,
   consoleLevel: defaultLevel,
   appName: 'brainstrike-web',
-  appVersion: import.meta.env.VITE_APP_VERSION ?? 'dev',
+  appVersion: import.meta.env['VITE_APP_VERSION'] ?? 'dev',
   baseBindings: {
     mode: import.meta.env.MODE,
   },
@@ -75,20 +75,20 @@ if (import.meta.hot) {
 }
 
 const telemetryEndpoint =
-  import.meta.env.VITE_QUEUE_TELEMETRY_ENDPOINT ??
+  import.meta.env['VITE_QUEUE_TELEMETRY_ENDPOINT'] ??
   (import.meta.env.DEV ? 'http://localhost:4130/queue-telemetry' : undefined);
 const telemetrySink =
   typeof window !== 'undefined' && telemetryEndpoint
     ? initializeQueueTelemetrySink({
         endpoint: telemetryEndpoint,
-        ...(import.meta.env.VITE_QUEUE_TELEMETRY_API_KEY
-          ? { apiKey: import.meta.env.VITE_QUEUE_TELEMETRY_API_KEY }
+        ...(import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY']
+          ? { apiKey: import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY'] }
           : {}),
         runtime: 'browser',
         metadata: {
           app: 'web',
           mode: import.meta.env.MODE,
-          version: import.meta.env.VITE_APP_VERSION ?? 'dev',
+          version: import.meta.env['VITE_APP_VERSION'] ?? 'dev',
         },
       })
     : null;

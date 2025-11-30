@@ -75,7 +75,9 @@ describe('ipc-mcp handlers', () => {
     registerMcpIpcHandlers();
     // Ensure clean state for module-level watcher
     const unwatchHandler = handlers.get('mcp:config:unwatch');
-    if (unwatchHandler) await unwatchHandler();
+    if (unwatchHandler) {
+      await unwatchHandler();
+    }
   });
 
   afterEach(() => {
@@ -118,7 +120,9 @@ describe('ipc-mcp handlers', () => {
       mockedLoad.mockResolvedValue(mockConfig as never);
 
       const handler = handlers.get('mcp:config:get');
-      if (!handler) throw new Error('handler not registered');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
       const result = await handler();
 
       expect(loadMcpConfig).toHaveBeenCalled();
@@ -139,7 +143,9 @@ describe('ipc-mcp handlers', () => {
       mockedDispose.mockResolvedValue(undefined as never);
 
       const handler = handlers.get('mcp:config:get');
-      if (!handler) throw new Error('handler not registered');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
       const result = await handler();
 
       expect(loadMcpConfig).toHaveBeenCalled();
@@ -167,7 +173,9 @@ describe('ipc-mcp handlers', () => {
         .mockResolvedValueOnce(mockConfig2 as never);
 
       const handler = handlers.get('mcp:config:get');
-      if (!handler) throw new Error('handler not registered');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
 
       const result1 = (await handler()) as LoadResult;
       expect(result1.config?.servers[0].name).toBe('test1');
@@ -184,7 +192,9 @@ describe('ipc-mcp handlers', () => {
       mockedWatch.mockResolvedValue(mockWatcher as never);
 
       const handler = handlers.get('mcp:config:watch');
-      if (!handler) throw new Error('handler not registered');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
       const result = await handler({});
 
       expect(watchMcpConfig).toHaveBeenCalledWith(expect.any(Function));
@@ -198,7 +208,9 @@ describe('ipc-mcp handlers', () => {
 
       const handler = handlers.get('mcp:config:watch');
 
-      if (!handler) throw new Error('handler not registered');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
       await handler({});
       await handler({});
 
@@ -214,7 +226,9 @@ describe('ipc-mcp handlers', () => {
       }, mockWatcher);
 
       const handler = handlers.get('mcp:config:watch');
-      if (!handler) throw new Error('handler not registered');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
       await handler({});
 
       // Simulate config change
@@ -224,7 +238,9 @@ describe('ipc-mcp handlers', () => {
         config: { servers: [{ transport: 'stdio', name: 'updated', command: 'cmd' }] },
       };
 
-      if (!watchCallback) throw new Error('watch callback not set');
+      if (!watchCallback) {
+        throw new Error('watch callback not set');
+      }
       watchCallback(newConfig);
 
       expect(initClients).toHaveBeenCalledWith(newConfig.config);
@@ -242,7 +258,9 @@ describe('ipc-mcp handlers', () => {
       mockedDispose.mockResolvedValue(undefined as never);
 
       const handler = handlers.get('mcp:config:watch');
-      if (!handler) throw new Error('handler not registered');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
       await handler({});
 
       // Simulate config removal
@@ -251,7 +269,9 @@ describe('ipc-mcp handlers', () => {
         exists: false,
       };
 
-      if (!watchCallback) throw new Error('watch callback not set');
+      if (!watchCallback) {
+        throw new Error('watch callback not set');
+      }
       watchCallback(invalidConfig);
 
       expect(initClients).not.toHaveBeenCalled();
@@ -267,7 +287,9 @@ describe('ipc-mcp handlers', () => {
       }, mockWatcher);
 
       const watchHandler = handlers.get('mcp:config:watch');
-      if (!watchHandler) throw new Error('watch handler not registered');
+      if (!watchHandler) {
+        throw new Error('watch handler not registered');
+      }
       await watchHandler({});
 
       const newConfig = {
@@ -276,14 +298,18 @@ describe('ipc-mcp handlers', () => {
         config: { servers: [{ transport: 'stdio', name: 'watched', command: 'cmd' }] },
       };
 
-      if (!watchCallback) throw new Error('watch callback not set');
+      if (!watchCallback) {
+        throw new Error('watch callback not set');
+      }
       watchCallback(newConfig);
 
       // Now get config should return the watched version
       const mockedLoad = vi.mocked(loadMcpConfig);
       mockedLoad.mockResolvedValue(newConfig as never);
       const getHandler = handlers.get('mcp:config:get');
-      if (!getHandler) throw new Error('get handler not registered');
+      if (!getHandler) {
+        throw new Error('get handler not registered');
+      }
       const result = await getHandler();
 
       expect(result).toEqual(newConfig);
@@ -298,12 +324,16 @@ describe('ipc-mcp handlers', () => {
 
       // Start watching first
       const watchHandler = handlers.get('mcp:config:watch');
-      if (!watchHandler) throw new Error('watch handler not registered');
+      if (!watchHandler) {
+        throw new Error('watch handler not registered');
+      }
       await watchHandler({});
 
       // Then stop watching
       const unwatchHandler = handlers.get('mcp:config:unwatch');
-      if (!unwatchHandler) throw new Error('unwatch handler not registered');
+      if (!unwatchHandler) {
+        throw new Error('unwatch handler not registered');
+      }
       const result = await unwatchHandler();
 
       expect(mockWatcher.close).toHaveBeenCalled();
@@ -312,7 +342,9 @@ describe('ipc-mcp handlers', () => {
 
     it('should handle unwatch when not watching', async () => {
       const handler = handlers.get('mcp:config:unwatch');
-      if (!handler) throw new Error('handler not registered');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
       const result = await handler();
 
       expect(result).toEqual({ watching: false });
@@ -331,12 +363,16 @@ describe('ipc-mcp handlers', () => {
       const unwatchHandler = handlers.get('mcp:config:unwatch');
 
       // First watch
-      if (!watchHandler) throw new Error('watch handler not registered');
+      if (!watchHandler) {
+        throw new Error('watch handler not registered');
+      }
       await watchHandler({});
       expect(watchMcpConfig).toHaveBeenCalledTimes(1);
 
       // Unwatch
-      if (!unwatchHandler) throw new Error('unwatch handler not registered');
+      if (!unwatchHandler) {
+        throw new Error('unwatch handler not registered');
+      }
       await unwatchHandler();
       expect(mockWatcher1.close).toHaveBeenCalled();
 
@@ -353,7 +389,9 @@ describe('ipc-mcp handlers', () => {
       const watchHandler = handlers.get('mcp:config:watch');
       const unwatchHandler = handlers.get('mcp:config:unwatch');
 
-      if (!watchHandler || !unwatchHandler) throw new Error('handlers not registered');
+      if (!(watchHandler && unwatchHandler)) {
+        throw new Error('handlers not registered');
+      }
       await watchHandler({});
       await unwatchHandler();
 
@@ -377,7 +415,9 @@ describe('ipc-mcp handlers', () => {
 
       // Start watching
       const watchHandler = handlers.get('mcp:config:watch');
-      if (!watchHandler) throw new Error('watch handler not registered');
+      if (!watchHandler) {
+        throw new Error('watch handler not registered');
+      }
       await watchHandler({});
 
       // Simulate multiple config changes
@@ -398,7 +438,9 @@ describe('ipc-mcp handlers', () => {
         config: { servers: [{ transport: 'stdio', name: 'server2', command: 'cmd2' }] },
       };
 
-      if (!watchCallback) throw new Error('watch callback not set');
+      if (!watchCallback) {
+        throw new Error('watch callback not set');
+      }
       watchCallback(config1);
       expect(initClients).toHaveBeenLastCalledWith(config1.config);
 
@@ -410,7 +452,9 @@ describe('ipc-mcp handlers', () => {
 
       // Stop watching
       const unwatchHandler = handlers.get('mcp:config:unwatch');
-      if (!unwatchHandler) throw new Error('unwatch handler not registered');
+      if (!unwatchHandler) {
+        throw new Error('unwatch handler not registered');
+      }
       await unwatchHandler();
 
       expect(mockWatcher.close).toHaveBeenCalled();
@@ -431,7 +475,9 @@ describe('ipc-mcp handlers', () => {
 
       const getHandler = handlers.get('mcp:config:get');
       const watchHandler = handlers.get('mcp:config:watch');
-      if (!getHandler || !watchHandler) throw new Error('handlers not registered');
+      if (!(getHandler && watchHandler)) {
+        throw new Error('handlers not registered');
+      }
 
       const result1 = await getHandler();
       expect(result1).toEqual(mockConfig);

@@ -18,7 +18,7 @@ const rateLimitState = new Map<string, RateLimitEntry>();
 // zod schemas for `{ messages, data }`
 const TextPartSchema = z.object({
   type: z.literal('text'),
-  text: z.string().min(1).max(16000),
+  text: z.string().min(1).max(16_000),
 });
 const ToolPartSchema = z.object({
   type: z.string().regex(/^tool-/),
@@ -133,7 +133,9 @@ function resolveClientIdentifier(req: Request): string {
   const forwarded = req.headers.get('x-forwarded-for');
   if (forwarded) {
     const first = forwarded.split(',')[0]?.trim();
-    if (first) return first;
+    if (first) {
+      return first;
+    }
   }
   const realIp = req.headers.get('x-real-ip');
   if (realIp && realIp.trim().length > 0) {

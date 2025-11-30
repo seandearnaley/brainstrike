@@ -43,7 +43,7 @@ async function connectToDevServer(win: BrowserWindow) {
       await win.loadURL(`http://localhost:${port}`);
       return;
     } catch (error) {
-      if (port === devPorts[devPorts.length - 1]) {
+      if (port === devPorts.at(-1)) {
         throw error;
       }
     }

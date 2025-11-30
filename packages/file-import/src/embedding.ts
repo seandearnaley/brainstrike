@@ -11,7 +11,7 @@ export async function initializeEmbeddingService(
   embeddingService: SimpleEmbeddingService | null,
   model: string | undefined
 ): Promise<boolean> {
-  if (!embeddingService || !model) {
+  if (!(embeddingService && model)) {
     logger.warn('Cannot initialize embedding service: service or model not provided', {
       hasService: !!embeddingService,
       model,
@@ -47,7 +47,7 @@ export async function processChunkEmbedding(
   embeddingService: SimpleEmbeddingService | null,
   context?: ChunkContext
 ): Promise<boolean> {
-  if (!embeddingService || !chunkRepository) {
+  if (!(embeddingService && chunkRepository)) {
     logger.warn('Cannot process chunk embedding: service or repository not available', {
       hasService: !!embeddingService,
       hasRepository: !!chunkRepository,
@@ -138,7 +138,9 @@ async function processChunksLoop(
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
-    if (!chunk) continue;
+    if (!chunk) {
+      continue;
+    }
 
     updateProgress((prev) =>
       prev
@@ -162,7 +164,9 @@ async function processChunksLoop(
       targetEmbeddingSetId
     );
 
-    if (success) chunksWithEmbeddings++;
+    if (success) {
+      chunksWithEmbeddings++;
+    }
 
     if (i < chunks.length - 1) {
       await new Promise((resolve) => setTimeout(resolve, CHUNKING_CONFIG.embeddingProcessingDelay));
@@ -184,7 +188,7 @@ export async function processEmbeddings(
   // Optional: tag embeddings to a specific set id when writing inline (web fallback)
   targetEmbeddingSetId?: string
 ): Promise<void> {
-  if (!embeddingService || !chunkRepository || !embeddingModel) {
+  if (!(embeddingService && chunkRepository && embeddingModel)) {
     logger.warn('Skipping embeddings: missing required dependencies', {
       hasService: !!embeddingService,
       hasRepository: !!chunkRepository,

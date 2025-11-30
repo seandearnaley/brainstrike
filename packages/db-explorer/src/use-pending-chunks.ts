@@ -14,16 +14,16 @@ function derivePendingChunkIds(rows: PendingRow[], activeSetId: string): Set<str
   }, new Set<string>());
 }
 
-export interface UsePendingChunksOptions {
+export type UsePendingChunksOptions = {
   database: ReturnType<typeof usePGliteDatabase>;
   resolveActiveSetId?: () => string | null | undefined;
   intervalMs?: number;
-}
+};
 
-export interface UsePendingChunksResult {
+export type UsePendingChunksResult = {
   pendingChunkIds: Set<string>;
   refreshPendingChunks: () => Promise<void>;
-}
+};
 
 const logger = createLogger('usePendingChunks');
 
@@ -43,7 +43,9 @@ export function usePendingChunks({
   }, []);
 
   const resetPendingChunks = useCallback(() => {
-    if (isMountedRef.current) setPendingChunkIds(new Set<string>());
+    if (isMountedRef.current) {
+      setPendingChunkIds(new Set<string>());
+    }
   }, []);
 
   const fetchPending = useCallback(async () => {
@@ -62,7 +64,9 @@ export function usePendingChunks({
       const res = await database.query<PendingRow>(
         "SELECT dedupe_key AS \"dedupeKey\" FROM job_queue WHERE queue = 'embeddings' AND state IN ('queued','running')"
       );
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) {
+        return;
+      }
 
       const ids = derivePendingChunkIds(res.rows, activeSetId);
       setPendingChunkIds(ids);
@@ -80,13 +84,15 @@ export function usePendingChunks({
     let canceled = false;
 
     const runFetch = async () => {
-      if (canceled) return;
+      if (canceled) {
+        return;
+      }
       await fetchPending();
     };
 
     void runFetch();
 
-    if (intervalMs == null || intervalMs <= 0) {
+    if (intervalMs === null || intervalMs <= 0) {
       return () => {
         canceled = true;
       };

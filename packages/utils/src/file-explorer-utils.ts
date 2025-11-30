@@ -9,15 +9,21 @@ export const fileExplorer = {
    * Gets all file paths in a directory recursively
    */
   getAllFilePathsInDirectory(node: IFileNode): string[] {
-    if (node.type === 'file') return [node.path];
-    if (!node.children) return [];
+    if (node.type === 'file') {
+      return [node.path];
+    }
+    if (!node.children) {
+      return [];
+    }
 
     const allPaths: string[] = [];
     const stack = [...node.children];
 
     while (stack.length > 0) {
       const currentNode = stack.pop();
-      if (!currentNode) continue;
+      if (!currentNode) {
+        continue;
+      }
 
       if (currentNode.type === 'file') {
         allPaths.push(currentNode.path);
@@ -37,7 +43,9 @@ export const fileExplorer = {
 
     while (queue.length > 0) {
       const node = queue.shift();
-      if (!node) continue;
+      if (!node) {
+        continue;
+      }
 
       if (node.path === path) {
         // If rootFolderId is provided, ensure it matches
@@ -67,8 +75,12 @@ export const fileExplorer = {
    * Counts files in a directory node
    */
   getFolderFileCount(node: IFileNode): { count: number; isComplete: boolean } {
-    if (node.type === 'file') return { count: 1, isComplete: true };
-    if (!node.children) return { count: 0, isComplete: true };
+    if (node.type === 'file') {
+      return { count: 1, isComplete: true };
+    }
+    if (!node.children) {
+      return { count: 0, isComplete: true };
+    }
 
     let totalCount = 0;
     let isComplete = true;
@@ -136,7 +148,9 @@ function memoizeByNode<T extends object, R>(fn: (arg: T) => R) {
   const cache = new WeakMap<T, R>();
   return (arg: T): R => {
     const cached = cache.get(arg);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) {
+      return cached;
+    }
     const result = fn(arg);
     cache.set(arg, result);
     return result;

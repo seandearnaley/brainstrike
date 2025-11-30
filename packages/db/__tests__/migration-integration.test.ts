@@ -8,7 +8,7 @@ import { wasmLoader } from '../src/wasm-loader.js';
 describe('Migration System Integration', () => {
   let db: PGlite;
   let runner: MigrationRunner;
-  const TEST_TIMEOUT = 60000;
+  const TEST_TIMEOUT = 60_000;
 
   // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
   // Note: Don't run app migrations - tests will run them as part of the test
@@ -29,7 +29,7 @@ describe('Migration System Integration', () => {
   describe('full migration workflow', () => {
     it(
       'should run all migrations and create working database schema',
-      { timeout: 30000 },
+      { timeout: 30_000 },
       async () => {
         await runner.initialize();
         await runner.up(migrations);
@@ -166,7 +166,9 @@ describe('Migration System Integration', () => {
       async () => {
         await runner.initialize();
         const firstMigration = migrations[0];
-        if (!firstMigration) throw new Error('No migrations available');
+        if (!firstMigration) {
+          throw new Error('No migrations available');
+        }
         await runner.runMigration(firstMigration); // Initial schema
 
         // Create test data
@@ -213,7 +215,7 @@ describe('Migration System Integration', () => {
 
       // Should complete in reasonable time (less than 20 seconds, accounting for CI environment variance)
       // Increased from 15s to 20s to handle GitHub runner performance variability
-      expect(duration).toBeLessThan(20000);
+      expect(duration).toBeLessThan(20_000);
 
       // All migrations should be applied (may be more than 3 if migration 4 is available)
       expect(await runner.getCurrentVersion()).toBeGreaterThanOrEqual(3);

@@ -146,8 +146,8 @@ test.describe('Real-World Performance Validation', () => {
     await page.goto('/');
     await waitForAppLoad(page);
 
-    const getMemoryUsage = async () => {
-      return await page.evaluate(() => {
+    const getMemoryUsage = async () =>
+      await page.evaluate(() => {
         const memory = (performance as any).memory;
         if (!memory) {
           return { used: 0, total: 0, usedMB: 0 };
@@ -158,7 +158,6 @@ test.describe('Real-World Performance Validation', () => {
           usedMB: Math.round(memory.usedJSHeapSize / 1024 / 1024),
         };
       });
-    };
 
     console.log('🧪 Testing memory management (LRU cache validation)');
 
@@ -190,7 +189,9 @@ test.describe('Real-World Performance Validation', () => {
       }
       // Encourage cleanup before measuring baseline
       await page.evaluate(() => {
-        if ((window as any).gc) (window as any).gc();
+        if ((window as any).gc) {
+          (window as any).gc();
+        }
       });
       await page.waitForTimeout(200);
     } catch {}
@@ -409,7 +410,7 @@ test.describe('Real-World Performance Validation', () => {
     // These verify that our fixes improved overall responsiveness
 
     // Page should load in reasonable time
-    expect(pageLoadTime).toBeLessThan(10000); // Max 10 seconds for page load
+    expect(pageLoadTime).toBeLessThan(10_000); // Max 10 seconds for page load
 
     // Interactions should be snappy
     if (interactionTimes.length > 0) {
@@ -458,7 +459,9 @@ test.describe('Real-World Performance Validation', () => {
 
       // Safe timing calculations that handle missing or zero values
       const safeCalculation = (end: number, start: number) => {
-        if (!end || !start || end === 0 || start === 0) return 0;
+        if (!(end && start) || end === 0 || start === 0) {
+          return 0;
+        }
         const result = end - start;
         return Number.isNaN(result) || result < 0 ? 0 : result;
       };
@@ -503,7 +506,7 @@ test.describe('Real-World Performance Validation', () => {
     // All metrics should be within reasonable bounds
     // Only test pageLoad if it's actually measured (not 0)
     if (metrics.pageLoad > 0) {
-      expect(metrics.pageLoad).toBeLessThan(15000); // 15 seconds max
+      expect(metrics.pageLoad).toBeLessThan(15_000); // 15 seconds max
     } else {
       console.warn('⚠️  Page load timing not available, skipping pageLoad assertion');
     }
@@ -511,7 +514,7 @@ test.describe('Real-World Performance Validation', () => {
 
     // Only test domContentLoaded if it's actually measured (not 0)
     if (metrics.domContentLoaded > 0) {
-      expect(metrics.domContentLoaded).toBeLessThan(10000); // 10 seconds max
+      expect(metrics.domContentLoaded).toBeLessThan(10_000); // 10 seconds max
     } else {
       console.warn(
         '⚠️  DOM content loaded timing not available, skipping domContentLoaded assertion'

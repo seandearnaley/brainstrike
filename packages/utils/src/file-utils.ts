@@ -160,7 +160,9 @@ const FILE_SIZE_UNITS = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'
  * @returns A formatted file size string (e.g., "1.5 KB").
  */
 export function formatFileSize(bytes: number, decimals = 1): string {
-  if (bytes <= 0) return '0 Bytes';
+  if (bytes <= 0) {
+    return '0 Bytes';
+  }
 
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;

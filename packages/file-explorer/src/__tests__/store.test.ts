@@ -48,7 +48,9 @@ describe('createFileExplorerStore with custom adapter', () => {
     store.getState().setCurrentFolderId('foo');
     // Wait until persisted using storage adapter without sleeping
     for (let i = 0; i < 100; i++) {
-      if (adapter.getSize() > 0) break;
+      if (adapter.getSize() > 0) {
+        break;
+      }
       await new Promise((resolve) => process.nextTick(resolve));
     }
 

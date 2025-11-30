@@ -1,14 +1,14 @@
 import type { LoggingPreferences } from '@brainstrike/utils';
 
-export interface LoggingCapabilities {
+export type LoggingCapabilities = {
   runtime: 'electron';
   fileLoggingSupported: boolean;
   canSelectDestination: boolean;
   defaultDestination: string | null;
   reason?: string | null;
-}
+};
 
-export interface LoggingSettingsPayload {
+export type LoggingSettingsPayload = {
   preferences: LoggingPreferences;
   capabilities: LoggingCapabilities;
-}
+};

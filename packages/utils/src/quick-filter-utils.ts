@@ -1,7 +1,7 @@
-export interface FilterPatterns {
+export type FilterPatterns = {
   includes: string[];
   excludes: string[];
-}
+};
 
 /**
  * Parses a quick filter string into include and exclude patterns.

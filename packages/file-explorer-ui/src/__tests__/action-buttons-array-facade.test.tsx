@@ -13,15 +13,15 @@ describe('ActionButtonsArrayFacade', () => {
 
     render(
       <ActionButtonsArrayFacade
-        displayedFiles={displayed}
-        selectedFiles={selected}
-        maxSelectionCount={10}
         currentFolderId={'folder'}
-        setSelectedFiles={setSelectedFiles}
+        displayedFiles={displayed}
         encodeFileSelection={(folder, p) => `${folder}:${p}`}
-        onSelectionLimitExceeded={() => {}}
-        onDownloadReport={() => {}}
+        maxSelectionCount={10}
         onCopyReport={() => {}}
+        onDownloadReport={() => {}}
+        onSelectionLimitExceeded={() => {}}
+        selectedFiles={selected}
+        setSelectedFiles={setSelectedFiles}
       />
     );
 

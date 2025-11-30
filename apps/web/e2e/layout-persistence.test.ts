@@ -155,7 +155,9 @@ test.describe('IDE Layout Persistence', () => {
 
       // Get the resize handle position
       const handleBox = await resizeHandle.boundingBox();
-      if (!handleBox) throw new Error('Resize handle not found');
+      if (!handleBox) {
+        throw new Error('Resize handle not found');
+      }
 
       // Drag to resize (move right to make panel wider)
       await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
@@ -390,12 +392,16 @@ test.describe('IDE Layout Persistence', () => {
 
       // Get viewport width for calculations
       const viewportSize = page.viewportSize();
-      if (!viewportSize) throw new Error('Viewport size not available');
+      if (!viewportSize) {
+        throw new Error('Viewport size not available');
+      }
 
       // Try to resize panel to very small size (should be constrained to minimum)
       const resizeHandle = page.locator('[data-panel-resize-handle-enabled="true"]').first();
       const handleBox = await resizeHandle.boundingBox();
-      if (!handleBox) throw new Error('Resize handle not found');
+      if (!handleBox) {
+        throw new Error('Resize handle not found');
+      }
 
       // Drag to a moderately small size first (not extreme to avoid collapse)
       await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
@@ -433,7 +439,9 @@ test.describe('IDE Layout Persistence', () => {
 
       // Try to resize panel to very large size (should be constrained to maximum)
       const newHandleBox = await resizeHandle.boundingBox();
-      if (!newHandleBox) throw new Error('Resize handle not found after expand');
+      if (!newHandleBox) {
+        throw new Error('Resize handle not found after expand');
+      }
 
       await page.mouse.move(
         newHandleBox.x + newHandleBox.width / 2,

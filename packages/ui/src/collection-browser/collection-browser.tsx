@@ -46,7 +46,9 @@ import { useCollectionTree } from './use-collection-tree';
  * @returns Shortened path string
  */
 export function shortenPath(path: string, maxLength = 50): string {
-  if (!path || path.length <= maxLength) return path;
+  if (!path || path.length <= maxLength) {
+    return path;
+  }
 
   // Replace common home directory patterns with ~
   const homePatterns = [/^\/Users\/[^/]+/, /^\/home\/[^/]+/, /^C:\\Users\\[^\\]+/i];
@@ -100,7 +102,7 @@ const SORT_KEY_TO_COLUMN: Record<CollectionSortKey, string> = {
 /**
  * Props for the CollectionBrowser component
  */
-export interface CollectionBrowserProps {
+export type CollectionBrowserProps = {
   /** Input data for the tree */
   data: CollectionTreeInput;
   /** Called when a node is selected */
@@ -154,13 +156,15 @@ export interface CollectionBrowserProps {
   isSearching?: boolean;
   /** Whether a semantic search has been executed at least once */
   hasSearched?: boolean;
-}
+};
 
 /**
  * Format file size for display
  */
 function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
+  if (bytes === 0) {
+    return '0 B';
+  }
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -190,14 +194,16 @@ function NodeIcon({ type }: { type: string }) {
  */
 function StatusBadge({ status }: { status: string }) {
   const config = EMBEDDING_STATUS_CONFIG[status as keyof typeof EMBEDDING_STATUS_CONFIG];
-  if (!config || status === 'all') return null;
+  if (!config || status === 'all') {
+    return null;
+  }
 
   return (
     <Badge
+      className="text-xs"
       variant={
         status === 'complete' ? 'default' : status === 'failed' ? 'destructive' : 'secondary'
       }
-      className="text-xs"
     >
       {config.label}
     </Badge>
@@ -362,7 +368,9 @@ export function CollectionBrowser({
   // Auto-expand nodes when search query changes to reveal matches
   React.useEffect(() => {
     const queryChanged = filters.searchQuery !== prevSearchQuery.current;
-    if (!queryChanged) return;
+    if (!queryChanged) {
+      return;
+    }
 
     prevSearchQuery.current = filters.searchQuery;
     const shouldExpand = filters.searchQuery && searchExpandIds.size > 0;
@@ -377,11 +385,15 @@ export function CollectionBrowser({
   // Auto-expand nodes when semantic search results arrive
   React.useEffect(() => {
     // Skip if not in semantic mode or no results
-    if (!isSemanticMode || !semanticResults) return;
+    if (!(isSemanticMode && semanticResults)) {
+      return;
+    }
 
     // Only expand when results length changes (new results arrived)
     const resultsChanged = prevSemanticResultsLength.current !== semanticResults.length;
-    if (!resultsChanged) return;
+    if (!resultsChanged) {
+      return;
+    }
 
     prevSemanticResultsLength.current = semanticResults.length;
 
@@ -502,7 +514,9 @@ export function CollectionBrowser({
 
   // Convert hierarchical sort state to TreeTable's column-based format
   const treeTableSortState: SortState | undefined = React.useMemo(() => {
-    if (!sortState) return undefined;
+    if (!sortState) {
+      return;
+    }
     const columnId = SORT_KEY_TO_COLUMN[sortState.key];
     return { columnId, direction: sortState.direction };
   }, [sortState]);
@@ -510,7 +524,9 @@ export function CollectionBrowser({
   // Handle sort changes from TreeTable and convert to CollectionSortState
   const handleTreeTableSortChange = React.useCallback(
     (columnId: string, direction: SortDirection) => {
-      if (!onSortChange) return;
+      if (!onSortChange) {
+        return;
+      }
 
       if (direction === null) {
         onSortChange(null);
@@ -543,27 +559,27 @@ export function CollectionBrowser({
 
           return (
             <TooltipProvider delayDuration={300}>
-              <div className="flex items-center gap-2 min-w-0 max-w-full overflow-hidden">
+              <div className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden">
                 <NodeIcon type={type} />
                 <div className="min-w-0 flex-1 overflow-hidden">
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="font-medium truncate cursor-default">{displayName}</div>
+                      <div className="cursor-default truncate font-medium">{displayName}</div>
                     </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-xs">
+                    <TooltipContent className="max-w-xs" side="top">
                       {displayName}
                     </TooltipContent>
                   </Tooltip>
                   {subtitle && (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <div className="text-xs text-muted-foreground truncate cursor-default">
+                        <div className="cursor-default truncate text-muted-foreground text-xs">
                           {subtitle}
                         </div>
                       </TooltipTrigger>
                       <TooltipContent
-                        side="bottom"
                         className="max-w-md break-all font-mono text-xs"
+                        side="bottom"
                       >
                         {subtitleTooltip}
                       </TooltipContent>
@@ -582,8 +598,12 @@ export function CollectionBrowser({
         sortable: true,
         accessorFn: (node) => {
           const { data: nodeData, type } = node;
-          if (type === 'file') return (nodeData as FileData).embeddingStatus;
-          if (type === 'chunk') return (nodeData as ChunkData).embeddingStatus;
+          if (type === 'file') {
+            return (nodeData as FileData).embeddingStatus;
+          }
+          if (type === 'chunk') {
+            return (nodeData as ChunkData).embeddingStatus;
+          }
           return '';
         },
         cell: ({ node }) => {
@@ -604,38 +624,46 @@ export function CollectionBrowser({
         sortable: true,
         accessorFn: (node) => {
           const { data: nodeData, type } = node;
-          if (type === 'file') return (nodeData as FileData).size;
-          if (type === 'chunk') return (nodeData as ChunkData).tokenCount;
-          if (type === 'embedding') return (nodeData as EmbeddingData).dimensions;
-          if (type === 'collection') return (nodeData as CollectionData).embeddingCount;
+          if (type === 'file') {
+            return (nodeData as FileData).size;
+          }
+          if (type === 'chunk') {
+            return (nodeData as ChunkData).tokenCount;
+          }
+          if (type === 'embedding') {
+            return (nodeData as EmbeddingData).dimensions;
+          }
+          if (type === 'collection') {
+            return (nodeData as CollectionData).embeddingCount;
+          }
           return 0;
         },
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
           if (type === 'file') {
             return (
-              <span className="text-sm text-muted-foreground">
+              <span className="text-muted-foreground text-sm">
                 {formatFileSize((nodeData as FileData).size)}
               </span>
             );
           }
           if (type === 'chunk') {
             return (
-              <span className="text-sm text-muted-foreground">
+              <span className="text-muted-foreground text-sm">
                 {(nodeData as ChunkData).tokenCount} tokens
               </span>
             );
           }
           if (type === 'embedding') {
             return (
-              <span className="text-sm text-muted-foreground">
+              <span className="text-muted-foreground text-sm">
                 {(nodeData as EmbeddingData).dimensions}d
               </span>
             );
           }
           if (type === 'collection') {
             return (
-              <span className="text-sm text-muted-foreground">
+              <span className="text-muted-foreground text-sm">
                 {(nodeData as CollectionData).embeddingCount} embeddings
               </span>
             );
@@ -655,7 +683,7 @@ export function CollectionBrowser({
             const collData = nodeData as CollectionData;
             return (
               <div
-                className="text-xs text-muted-foreground truncate"
+                className="truncate text-muted-foreground text-xs"
                 title={`${collData.modelId} • ${collData.dimensions}d`}
               >
                 {collData.modelId} • {collData.dimensions}d
@@ -669,7 +697,7 @@ export function CollectionBrowser({
                 ? `${fileData.chunkCount} chunks (${fileData.embeddingProgress}%)`
                 : `${fileData.chunkCount} chunks`;
             return (
-              <div className="text-xs text-muted-foreground truncate" title={text}>
+              <div className="truncate text-muted-foreground text-xs" title={text}>
                 {text}
               </div>
             );
@@ -695,7 +723,7 @@ export function CollectionBrowser({
 
         // Show placeholder when no score (before search or no results)
         if (score === undefined) {
-          return <span className="text-xs text-muted-foreground/50">—</span>;
+          return <span className="text-muted-foreground/50 text-xs">—</span>;
         }
 
         const percentage = Math.round(score * 100);
@@ -704,13 +732,13 @@ export function CollectionBrowser({
         return (
           <div className="flex items-center gap-2">
             <Progress
-              value={percentage}
               className={cn('h-2 w-12 flex-shrink-0', isDirectMatch ? 'bg-primary/20' : 'bg-muted')}
+              value={percentage}
             />
             <span
               className={cn(
-                'text-xs font-mono tabular-nums whitespace-nowrap',
-                isDirectMatch ? 'text-primary font-medium' : 'text-muted-foreground'
+                'whitespace-nowrap font-mono text-xs tabular-nums',
+                isDirectMatch ? 'font-medium text-primary' : 'text-muted-foreground'
               )}
             >
               {percentage}%
@@ -753,53 +781,53 @@ export function CollectionBrowser({
         className={cn('flex items-center justify-center bg-background', className)}
         style={{ height }}
       >
-        <div className="text-sm text-muted-foreground">Loading...</div>
+        <div className="text-muted-foreground text-sm">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className={cn('flex flex-col bg-background relative', className)} style={{ height }}>
+    <div className={cn('relative flex flex-col bg-background', className)} style={{ height }}>
       {showFilterBar && (
         <FilterBar
           filters={filters}
-          onFiltersChange={setFilters}
-          onExpandAll={handleExpandAll}
           onCollapseAll={handleCollapseAll}
+          onExpandAll={handleExpandAll}
+          onFiltersChange={setFilters}
           resultCount={filteredCount}
           totalCount={totalCount}
         />
       )}
 
-      <div className="flex-1 overflow-hidden relative">
+      <div className="relative flex-1 overflow-hidden">
         {/* Search loading overlay */}
         {isSearching && (
-          <div className="absolute inset-0 bg-background/50 flex items-center justify-center z-10">
-            <div className="text-sm text-muted-foreground">Searching...</div>
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/50">
+            <div className="text-muted-foreground text-sm">Searching...</div>
           </div>
         )}
 
         <TreeTable
-          nodes={nodes}
           columns={columns}
           expandedIds={expandedIds}
+          nodes={nodes}
+          onSelect={handleSelect}
           onToggleExpand={handleToggleExpand}
           selectedId={selectedId}
-          onSelect={handleSelect}
           selectionMode={multiSelectEnabled ? 'multi' : 'single'}
           {...(multiSelectEnabled
             ? {
-                multiSelectedIds: multiSelectedIds,
+                multiSelectedIds,
                 onMultiSelectChange: handleMultiSelectChange,
               }
             : {})}
-          highlightedIds={highlightedIds}
-          onRowDoubleClick={handleDoubleClick}
-          onRowContextMenu={handleContextMenu}
-          emptyState={
-            <div className="text-sm text-muted-foreground p-4">{displayEmptyMessage}</div>
-          }
           ariaLabel="Collection browser"
+          emptyState={
+            <div className="p-4 text-muted-foreground text-sm">{displayEmptyMessage}</div>
+          }
+          highlightedIds={highlightedIds}
+          onRowContextMenu={handleContextMenu}
+          onRowDoubleClick={handleDoubleClick}
           rowHeight={48}
           {...(treeTableSortState ? { sortState: treeTableSortState } : {})}
           {...(onSortChange ? { onSortChange: handleTreeTableSortChange } : {})}
@@ -808,12 +836,12 @@ export function CollectionBrowser({
 
       {/* Bulk Action Bar - floating at the bottom when items are selected */}
       {multiSelectEnabled && showBulkActionBar && multiSelectedIds.size > 0 && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
+        <div className="-translate-x-1/2 absolute bottom-4 left-1/2 z-20">
           <BulkActionBar
-            selectedIds={multiSelectedIds}
-            nodeTypes={nodeTypeMap}
             actions={bulkActions}
+            nodeTypes={nodeTypeMap}
             onClearSelection={handleClearSelection}
+            selectedIds={multiSelectedIds}
           />
         </div>
       )}

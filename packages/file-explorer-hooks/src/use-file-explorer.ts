@@ -7,9 +7,9 @@ import { useFileContentLoading } from './use-file-content-loading';
 import { useFileSystem } from './use-file-system';
 import { useFileTree } from './use-file-tree';
 
-export interface UseFileExplorerParams {
+export type UseFileExplorerParams = {
   onDisplayedFilePathsChange?: (paths: Set<string>) => void;
-}
+};
 
 export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams = {}) {
   // Stabilize callback to avoid dependency churn - memoize the function itself
@@ -58,7 +58,9 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
       : [];
     const paths = new Set<string>();
     for (const node of nodes) {
-      if (node && typeof node.path === 'string') paths.add(node.path);
+      if (node && typeof node.path === 'string') {
+        paths.add(node.path);
+      }
     }
     return paths;
   }, [fileTree, includeFilters, excludeFilters, useRegex, applyFileFilters]);
@@ -83,7 +85,9 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
   const loadFileContentCb = useCallback(
     async (path: string) => {
       const folderId = rootDirectoryHandle?.name;
-      if (!folderId) return;
+      if (!folderId) {
+        return;
+      }
       const key = encodeFileSelection(folderId, path);
       return handleFileContentLoading([key]);
     },

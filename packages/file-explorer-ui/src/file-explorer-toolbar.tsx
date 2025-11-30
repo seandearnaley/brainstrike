@@ -6,7 +6,7 @@ import * as React from 'react';
 import FileExplorerConfig from './file-explorer-config';
 import { FileFilterBar } from './file-filter-bar';
 
-interface FileExplorerToolbarProps {
+type FileExplorerToolbarProps = {
   onDirectorySelect: () => Promise<void>;
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   filterError: string | null;
@@ -21,7 +21,7 @@ interface FileExplorerToolbarProps {
     available: boolean;
     loading: boolean;
   };
-}
+};
 
 const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
   ({
@@ -36,43 +36,41 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
     selectedCount,
     maxSelectionCount,
     inlineFixtureSetting,
-  }) => {
-    return (
-      <div className="flex flex-col gap-2 px-2 py-2 border-b">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              data-testid="select-root-button"
-              onClick={onDirectorySelect}
-              disabled={isLoading}
-            >
-              <Folder className="h-4 w-4 mr-2" />
-              {FileExplorerStrings.selectRoot}
-            </Button>
-            <FileExplorerConfig
-              filterError={filterError}
-              onFilterChange={onFilterChange}
-              {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
-            />
-          </div>
-          <output>
-            <Badge
-              variant={selectedCount === maxSelectionCount ? 'destructive' : 'secondary'}
-              className="whitespace-nowrap text-xs sm:text-sm"
-            >
-              <span data-testid="selection-count">{selectedCount}</span>/
-              <span data-testid="selection-max">{maxSelectionCount}</span>
-            </Badge>
-          </output>
+  }) => (
+    <div className="flex flex-col gap-2 border-b px-2 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Button
+            data-testid="select-root-button"
+            disabled={isLoading}
+            onClick={onDirectorySelect}
+            size="sm"
+            variant="outline"
+          >
+            <Folder className="mr-2 h-4 w-4" />
+            {FileExplorerStrings.selectRoot}
+          </Button>
+          <FileExplorerConfig
+            filterError={filterError}
+            onFilterChange={onFilterChange}
+            {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
+          />
         </div>
-        {rootDirectoryHandle && (
-          <FileFilterBar value={quickFilter} onChange={setQuickFilter} onClear={clearQuickFilter} />
-        )}
+        <output>
+          <Badge
+            className="whitespace-nowrap text-xs sm:text-sm"
+            variant={selectedCount === maxSelectionCount ? 'destructive' : 'secondary'}
+          >
+            <span data-testid="selection-count">{selectedCount}</span>/
+            <span data-testid="selection-max">{maxSelectionCount}</span>
+          </Badge>
+        </output>
       </div>
-    );
-  }
+      {rootDirectoryHandle && (
+        <FileFilterBar onChange={setQuickFilter} onClear={clearQuickFilter} value={quickFilter} />
+      )}
+    </div>
+  )
 );
 
 FileExplorerToolbar.displayName = 'FileExplorerToolbar';

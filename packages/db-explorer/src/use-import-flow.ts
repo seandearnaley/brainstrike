@@ -11,7 +11,7 @@ import { useEnhancedFileImportService } from './enhanced-file-import-service';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 import { getActiveEmbeddingSetId } from './vector-preferences';
 
-export interface UseImportFlowOptions {
+export type UseImportFlowOptions = {
   importSettings: {
     enableChunking: boolean;
     chunkingStrategy: ChunkingStrategy;
@@ -28,9 +28,9 @@ export interface UseImportFlowOptions {
   ) => void;
   embeddingQueue?: QueueAdapter | null;
   resolveActiveCollectionId?: () => string | null;
-}
+};
 
-export interface UseImportFlowResult {
+export type UseImportFlowResult = {
   handleImportClick: () => void;
   isImporting: boolean;
   progress: EnhancedImportProgress | null;
@@ -38,7 +38,7 @@ export interface UseImportFlowResult {
   setShowImportProgress: (show: boolean) => void;
   selectedFileCount: number;
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
-}
+};
 
 export function useImportFlow({
   importSettings,

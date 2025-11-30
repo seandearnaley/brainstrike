@@ -15,13 +15,12 @@ export function filterModels(
   // Filter by search query
   if (searchQuery.trim()) {
     const query = searchQuery.toLowerCase().trim();
-    filtered = filtered.filter((model) => {
-      return (
+    filtered = filtered.filter(
+      (model) =>
         model.name.toLowerCase().includes(query) ||
         model.description?.toLowerCase().includes(query) ||
         model.providerId.toLowerCase().includes(query)
-      );
-    });
+    );
   }
 
   return filtered;

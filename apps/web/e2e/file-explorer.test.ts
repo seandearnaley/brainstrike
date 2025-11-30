@@ -49,7 +49,7 @@ test.describe('File Explorer', () => {
     });
 
     test('should show action buttons in disabled state initially', async () => {
-      await expect(explorer.downloadReportButton).toBeVisible({ timeout: 10000 });
+      await expect(explorer.downloadReportButton).toBeVisible({ timeout: 10_000 });
       await expect(explorer.downloadReportButton).toBeDisabled();
       await expect(explorer.copyReportButton).toBeVisible();
       await expect(explorer.copyReportButton).toBeDisabled();
@@ -62,7 +62,7 @@ test.describe('File Explorer', () => {
     test('should allow downloading a report with multiple file selections', async ({ page }) => {
       await explorer.selectRoot();
 
-      await expect(explorer.filterInput).toBeVisible({ timeout: 10000 });
+      await expect(explorer.filterInput).toBeVisible({ timeout: 10_000 });
       await expect(explorer.noDirectoryText).not.toBeVisible();
 
       const file1Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' });
@@ -90,13 +90,13 @@ test.describe('File Explorer', () => {
   });
 
   test.describe('filtering', () => {
-    interface FilterScenario {
+    type FilterScenario = {
       title: string;
       query: string;
       expectedVisible: string[];
       expectedHidden: string[];
       before?: (ctx: { page: Page; explorer: FileExplorerPage }) => Promise<void>;
-    }
+    };
 
     const tree: FileTree = {
       'Button.tsx': null,
@@ -129,12 +129,12 @@ test.describe('File Explorer', () => {
     test.beforeEach(async ({ page }) => {
       explorer = await bootstrapFileExplorer(page, bootstrapOptions);
 
-      await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15000 });
-      await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15_000 });
 
       await explorer.selectRoot();
 
-      await expect(explorer.filterInput).toBeVisible({ timeout: 10000 });
+      await expect(explorer.filterInput).toBeVisible({ timeout: 10_000 });
       await expect(explorer.noDirectoryText).not.toBeVisible();
       await expect(explorer.fileTree).toBeVisible();
     });
@@ -191,7 +191,7 @@ test.describe('File Explorer', () => {
   });
 
   test.describe('settings persistence', () => {
-    interface SettingsScenario {
+    type SettingsScenario = {
       name: string;
       tree: FileTree;
       options?: Partial<ExplorerBootstrapOptions>;
@@ -200,7 +200,7 @@ test.describe('File Explorer', () => {
         explorer: FileExplorerPage;
         openDialog: () => Promise<Locator>;
       }) => Promise<void>;
-    }
+    };
 
     const settingsScenarios: SettingsScenario[] = [
       {

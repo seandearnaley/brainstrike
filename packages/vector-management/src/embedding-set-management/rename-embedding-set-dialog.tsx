@@ -14,13 +14,13 @@ import {
 import { createLogger } from '@brainstrike/utils';
 import { useEffect, useState } from 'react';
 
-interface RenameEmbeddingSetDialogProps {
+type RenameEmbeddingSetDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   repository: EmbeddingSetsRepository | null;
   embeddingSet: EmbeddingSet | null;
   onSetRenamed?: (setId: string) => void;
-}
+};
 
 // Helper to build metadata object with only non-empty fields
 function buildMetadata(formData: {
@@ -92,7 +92,7 @@ export function RenameEmbeddingSetDialog({
   }, [embeddingSet]);
 
   const validateInputs = (): boolean => {
-    if (!repository || !embeddingSet) {
+    if (!(repository && embeddingSet)) {
       toast({
         title: 'Error',
         description: 'Invalid configuration',
@@ -114,7 +114,7 @@ export function RenameEmbeddingSetDialog({
   };
 
   const handleUpdate = async () => {
-    if (!validateInputs() || !repository || !embeddingSet) {
+    if (!(validateInputs() && repository && embeddingSet)) {
       return;
     }
 
@@ -157,7 +157,7 @@ export function RenameEmbeddingSetDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Edit Search Collection</DialogTitle>
@@ -168,79 +168,79 @@ export function RenameEmbeddingSetDialog({
 
         <div className="space-y-4 py-4">
           <div className="space-y-2">
-            <Label className="text-sm font-medium text-muted-foreground">Model Configuration</Label>
+            <Label className="font-medium text-muted-foreground text-sm">Model Configuration</Label>
             <div className="rounded-md border bg-muted/30 p-3 text-sm">
               <div className="font-medium">{embeddingSet.modelId}</div>
-              <div className="text-xs text-muted-foreground mt-1">
+              <div className="mt-1 text-muted-foreground text-xs">
                 {embeddingSet.dimensions}D · {embeddingSet.distance} · {embeddingSet.modelKey}
               </div>
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-name" className="text-sm font-medium">
+            <Label className="font-medium text-sm" htmlFor="edit-name">
               Name <span className="text-destructive">*</span>
             </Label>
             <Input
+              disabled={updating}
               id="edit-name"
+              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
               placeholder="e.g., Code Embeddings, General Purpose, etc."
               value={formData.name}
-              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-              disabled={updating}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-description" className="text-sm font-medium">
+            <Label className="font-medium text-sm" htmlFor="edit-description">
               Description
             </Label>
             <Input
+              disabled={updating}
               id="edit-description"
+              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
               placeholder="Describe the purpose of this collection"
               value={formData.description}
-              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-              disabled={updating}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-tags" className="text-sm font-medium">
+            <Label className="font-medium text-sm" htmlFor="edit-tags">
               Tags
             </Label>
             <Input
+              disabled={updating}
               id="edit-tags"
+              onChange={(e) => setFormData((prev) => ({ ...prev, tags: e.target.value }))}
               placeholder="Comma-separated tags (e.g., code, programming, analysis)"
               value={formData.tags}
-              onChange={(e) => setFormData((prev) => ({ ...prev, tags: e.target.value }))}
-              disabled={updating}
             />
-            <p className="text-xs text-muted-foreground">Use commas to separate multiple tags</p>
+            <p className="text-muted-foreground text-xs">Use commas to separate multiple tags</p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="edit-category" className="text-sm font-medium">
+            <Label className="font-medium text-sm" htmlFor="edit-category">
               Category
             </Label>
             <Input
+              disabled={updating}
               id="edit-category"
+              onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
               placeholder="e.g., development, documentation, general-text"
               value={formData.category}
-              onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
-              disabled={updating}
             />
           </div>
         </div>
 
         <DialogFooter>
           <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
             disabled={updating}
+            onClick={() => onOpenChange(false)}
             type="button"
+            variant="outline"
           >
             Cancel
           </Button>
-          <Button onClick={handleUpdate} disabled={updating || !formData.name.trim()} type="button">
+          <Button disabled={updating || !formData.name.trim()} onClick={handleUpdate} type="button">
             {updating ? 'Updating...' : 'Save Changes'}
           </Button>
         </DialogFooter>

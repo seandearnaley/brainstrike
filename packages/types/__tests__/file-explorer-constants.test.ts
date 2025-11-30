@@ -400,9 +400,8 @@ describe('file-explorer-constants', () => {
     });
 
     it('should allow checking if a path should be ignored', () => {
-      const shouldIgnore = (pathSegment: string) => {
-        return IGNORED_PATHS.some((ignored) => pathSegment.includes(ignored));
-      };
+      const shouldIgnore = (pathSegment: string) =>
+        IGNORED_PATHS.some((ignored) => pathSegment.includes(ignored));
 
       expect(shouldIgnore('project/node_modules/package')).toBe(true);
       expect(shouldIgnore('project/.git/config')).toBe(true);
@@ -410,13 +409,10 @@ describe('file-explorer-constants', () => {
     });
 
     it('should allow validating folder summary threshold', () => {
-      const validateThreshold = (value: number) => {
-        return (
-          Number.isInteger(value) &&
-          value >= MIN_FOLDER_SUMMARY_THRESHOLD &&
-          value <= MAX_FOLDER_SUMMARY_THRESHOLD
-        );
-      };
+      const validateThreshold = (value: number) =>
+        Number.isInteger(value) &&
+        value >= MIN_FOLDER_SUMMARY_THRESHOLD &&
+        value <= MAX_FOLDER_SUMMARY_THRESHOLD;
 
       expect(validateThreshold(500)).toBe(true);
       expect(validateThreshold(-1)).toBe(false);
@@ -425,13 +421,8 @@ describe('file-explorer-constants', () => {
     });
 
     it('should allow validating selection count', () => {
-      const validateSelectionCount = (value: number) => {
-        return (
-          Number.isInteger(value) &&
-          value >= MIN_MAX_SELECTION_COUNT &&
-          value <= MAX_SELECTION_COUNT
-        );
-      };
+      const validateSelectionCount = (value: number) =>
+        Number.isInteger(value) && value >= MIN_MAX_SELECTION_COUNT && value <= MAX_SELECTION_COUNT;
 
       expect(validateSelectionCount(50)).toBe(true);
       expect(validateSelectionCount(0)).toBe(false);

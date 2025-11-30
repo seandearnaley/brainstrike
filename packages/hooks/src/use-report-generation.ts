@@ -5,7 +5,7 @@ import {
 } from '@brainstrike/workers/report-generation-worker';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
-interface UseReportGenerationProps {
+type UseReportGenerationProps = {
   selectedFiles: Set<string>;
   fileContents: { [path: string]: string };
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | undefined;
@@ -15,7 +15,7 @@ interface UseReportGenerationProps {
   useRegex: boolean;
   includeProjectTree: boolean;
   folderSummaryThreshold: number;
-}
+};
 
 export function useReportGeneration({
   selectedFiles,

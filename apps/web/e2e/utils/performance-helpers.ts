@@ -2,33 +2,33 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 
-export interface PerformanceMetric {
+export type PerformanceMetric = {
   name: string;
   value: number;
   threshold: number;
   unit: string;
   timestamp: number;
   passed: boolean;
-}
+};
 
-export interface MemoryInfo {
+export type MemoryInfo = {
   used: number;
   total: number;
   limit: number;
-}
+};
 
-export interface RenderMetrics {
+export type RenderMetrics = {
   totalRenders: number;
   averageRenderTime: number;
   maxRenderTime: number;
   renderTimes: number[];
-}
+};
 
 /**
  * Get current memory usage from the browser
  */
-export const getMemoryUsage = async (page: Page): Promise<MemoryInfo> => {
-  return await page.evaluate(() => {
+export const getMemoryUsage = async (page: Page): Promise<MemoryInfo> =>
+  await page.evaluate(() => {
     const memory = (performance as any).memory;
     return {
       used: memory?.usedJSHeapSize || 0,
@@ -36,7 +36,6 @@ export const getMemoryUsage = async (page: Page): Promise<MemoryInfo> => {
       limit: memory?.jsHeapSizeLimit || 0,
     };
   });
-};
 
 /**
  * Measure the time taken for a function to execute
@@ -122,15 +121,14 @@ export const installRenderTracker = async (page: Page) => {
 /**
  * Get render metrics from the browser
  */
-export const getRenderMetrics = async (page: Page): Promise<RenderMetrics> => {
-  return await page.evaluate(() => {
+export const getRenderMetrics = async (page: Page): Promise<RenderMetrics> =>
+  await page.evaluate(() => {
     const tracker = (window as any).__renderTracker;
     if (!tracker) {
       throw new Error('Render tracker not installed. Call installRenderTracker() first.');
     }
     return tracker.getRenderMetrics();
   });
-};
 
 /**
  * Force garbage collection if available

@@ -4,11 +4,10 @@
 // This file exists so that package managers can safely create the bin during install,
 // before the TypeScript sources are compiled into dist/.
 
-import { pathToFileURL } from 'node:url';
-import { createRequire } from 'node:module';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

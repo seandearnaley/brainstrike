@@ -8,13 +8,13 @@ import { BGE_M3_CONFIG, FALLBACK_MODEL_CONFIG } from './types';
 const logger = createLogger('TransformersBackend');
 
 // Type definitions for transformers.js
-interface TransformersModule {
+type TransformersModule = {
   pipeline: (
     task: string,
     model: string,
     config: PipelineConfig
   ) => Promise<FeatureExtractionPipeline>;
-}
+};
 
 type FeatureExtractionPipeline = (
   text: string,
@@ -23,24 +23,24 @@ type FeatureExtractionPipeline = (
   data: Float32Array;
 }>;
 
-interface PipelineConfig {
+type PipelineConfig = {
   quantized?: boolean;
   device?: string;
   dtype?: string;
   progressCallback?: (progress: ProgressInfo) => void;
-}
+};
 
-interface ProgressInfo {
+type ProgressInfo = {
   status: string;
   loaded?: number;
   total?: number;
   file?: string;
-}
+};
 
-interface DownloadOptions {
+type DownloadOptions = {
   cacheDir?: string;
   onProgress?: (progress: ProgressInfo) => void;
-}
+};
 
 // Cache the imported module to avoid duplicate imports across instances
 let transformersModule: TransformersModule | null = null;
@@ -447,7 +447,9 @@ export class TransformersBackend {
         const dtype = this.resolveDTypeForDevice(fallbackDevice, this._quantized);
         this._selectedDType = dtype;
         const cfg: PipelineConfig = { device: fallbackDevice, dtype };
-        if (typeof this._quantized === 'boolean') cfg.quantized = this._quantized;
+        if (typeof this._quantized === 'boolean') {
+          cfg.quantized = this._quantized;
+        }
         this._pipeline = await this._transformers.pipeline('feature-extraction', modelId, cfg);
         output = await this._pipeline(text, {
           pooling: 'mean',
@@ -515,7 +517,7 @@ export class TransformersBackend {
         kind: 'embed',
         id: this.createTaskId(),
         model: modelId,
-        texts: texts,
+        texts,
         ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
         targetDimension,
         deviceHint: this.resolveDeviceHint(),
@@ -525,7 +527,9 @@ export class TransformersBackend {
 
       if (!response.vectors || response.vectors.length === 0) {
         // If input was empty, return empty
-        if (texts.length === 0) return [];
+        if (texts.length === 0) {
+          return [];
+        }
         throw new Error('Embedding worker returned no vectors');
       }
 
@@ -704,9 +708,15 @@ export class TransformersBackend {
 
 function getMaxLengthFromModelId(modelId: string): number {
   const id = modelId.toLowerCase();
-  if (id.includes('bge-m3')) return BGE_M3_CONFIG.maxLength;
-  if (id.includes('minilm')) return FALLBACK_MODEL_CONFIG.maxLength;
-  if (id.includes('jina')) return 8192; // Jina v2/v3 typically support long contexts for code
+  if (id.includes('bge-m3')) {
+    return BGE_M3_CONFIG.maxLength;
+  }
+  if (id.includes('minilm')) {
+    return FALLBACK_MODEL_CONFIG.maxLength;
+  }
+  if (id.includes('jina')) {
+    return 8192; // Jina v2/v3 typically support long contexts for code
+  }
   // Sensible default for many sentence transformers on Web
   return 512;
 }

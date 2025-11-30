@@ -7,25 +7,25 @@ export const fileContentCacheLogger = logger;
  * LRU Cache for file contents with automatic eviction based on memory limits
  */
 
-export interface CacheEntry {
+export type CacheEntry = {
   content: string;
   timestamp: number;
   lastAccessed: number;
   size: number; // in bytes
   accessOrder: number;
-}
+};
 
-export interface CacheStats {
+export type CacheStats = {
   totalSize: number;
   entryCount: number;
   hitRate: number;
   evictionCount: number;
-}
+};
 
 export class FileContentCache {
-  private cache = new Map<string, CacheEntry>();
-  private maxSizeBytes: number;
-  private maxEntries: number;
+  private readonly cache = new Map<string, CacheEntry>();
+  private readonly maxSizeBytes: number;
+  private readonly maxEntries: number;
   private hits = 0;
   private misses = 0;
   private evictions = 0;
@@ -51,7 +51,7 @@ export class FileContentCache {
       return entry.content;
     }
     this.misses++;
-    return undefined;
+    return;
   }
 
   /**

@@ -32,7 +32,7 @@ export interface EnhancedImportProgress extends ImportProgress {
   };
 }
 
-export interface EnhancedImportResult {
+export type EnhancedImportResult = {
   id: string;
   imported: boolean;
   existed: boolean;
@@ -40,4 +40,4 @@ export interface EnhancedImportResult {
   chunksCreated: number;
   chunksWithEmbeddings?: number;
   chunkingStrategy?: ChunkingStrategy;
-}
+};

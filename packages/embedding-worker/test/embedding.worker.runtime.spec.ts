@@ -6,8 +6,9 @@ const transferMock = vi.fn(function TransferStub<T>(value: T) {
   return value;
 });
 const pipelineMock = vi.fn();
-const registeredHandlers: { runEmbedding?: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess> } =
-  {};
+const registeredHandlers: {
+  runEmbedding?: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess>;
+} = {};
 
 class MockTensor {
   readonly data: Float32Array;
@@ -24,7 +25,9 @@ class MockTensor {
 }
 
 vi.mock('workerpool', () => ({
-  worker: (handlers: { runEmbedding: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess> }) => {
+  worker: (handlers: {
+    runEmbedding: (payload: EmbedWorkerRequest) => Promise<EmbedWorkerSuccess>;
+  }) => {
     registeredHandlers.runEmbedding = handlers.runEmbedding;
   },
   workerEmit: workerEmitMock,

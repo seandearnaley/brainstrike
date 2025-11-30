@@ -111,20 +111,20 @@ function Sparkline({
 
   return (
     <svg
-      role="img"
       aria-label={ariaLabel}
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
       className={['block', className ?? ''].filter(Boolean).join(' ')}
+      height={height}
+      role="img"
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
     >
       <polyline
         fill="none"
+        points={points.join(' ')}
         stroke="currentColor"
-        strokeWidth={strokeWidth}
         strokeLinecap="round"
         strokeLinejoin="round"
-        points={points.join(' ')}
+        strokeWidth={strokeWidth}
       />
     </svg>
   );
@@ -151,35 +151,35 @@ function WorkerControls({
 
   return (
     <>
-      {!workerLocalRunning ? (
+      {workerLocalRunning ? (
         <Button
-          size="sm"
-          variant={startingWorker ? 'outline' : 'secondary'}
-          disabled={!db || startingWorker}
-          onClick={onStartWorker}
-          className="text-[10px] h-6 px-1.5 w-full"
-          aria-label="Start embedding worker"
-        >
-          {startingWorker ? 'Starting…' : 'Start'}
-        </Button>
-      ) : (
-        <Button
+          aria-label="Stop embedding worker"
+          className="h-6 w-full px-1.5 text-[10px]"
+          onClick={onStopWorker}
           size="sm"
           variant="outline"
-          onClick={onStopWorker}
-          className="text-[10px] h-6 px-1.5 w-full"
-          aria-label="Stop embedding worker"
         >
           Stop
         </Button>
+      ) : (
+        <Button
+          aria-label="Start embedding worker"
+          className="h-6 w-full px-1.5 text-[10px]"
+          disabled={!db || startingWorker}
+          onClick={onStartWorker}
+          size="sm"
+          variant={startingWorker ? 'outline' : 'secondary'}
+        >
+          {startingWorker ? 'Starting…' : 'Start'}
+        </Button>
       )}
       <Button
-        size="sm"
-        variant="outline"
+        aria-label="Reset embedding worker"
+        className="h-6 w-full px-1.5 text-[10px]"
         disabled={!db || startingWorker}
         onClick={onResetWorker}
-        className="text-[10px] h-6 px-1.5 w-full"
-        aria-label="Reset embedding worker"
+        size="sm"
+        variant="outline"
       >
         Reset
       </Button>
@@ -228,15 +228,15 @@ function BackfillButton({
 
   return (
     <Button
-      size="sm"
-      variant="outline"
+      aria-label={ariaLabel}
+      className="h-6 w-full px-1.5 text-[10px]"
       disabled={isDisabled}
       onClick={() => {
         void onBackfill();
       }}
+      size="sm"
       title={resolvedTitle}
-      className="text-[10px] h-6 px-1.5 w-full"
-      aria-label={ariaLabel}
+      variant="outline"
     >
       {backfilling
         ? backfillProgress
@@ -265,35 +265,35 @@ function QueueControls({
   return (
     <>
       <Button
-        size="sm"
-        variant="outline"
+        aria-label="Retry failed jobs"
+        className="h-6 w-full px-1.5 text-[10px]"
         disabled={!hasDb || queueCounts.failed === 0}
         onClick={onRetryFailed}
-        className="text-[10px] h-6 px-1.5 w-full"
-        aria-label="Retry failed jobs"
+        size="sm"
         title="Requeue the most recent failed jobs (up to 20)"
+        variant="outline"
       >
         Retry
       </Button>
       <Button
-        size="sm"
-        variant="outline"
+        aria-label="Clear queue"
+        className="h-6 w-full px-1.5 text-[10px]"
         disabled={!hasDb}
         onClick={onClearQueue}
-        className="text-[10px] h-6 px-1.5 w-full"
-        aria-label="Clear queue"
+        size="sm"
         title="Clear failed (and queued if present) items in the embeddings queue"
+        variant="outline"
       >
         Clear
       </Button>
       <Button
-        size="sm"
-        variant="destructive"
+        aria-label="Wipe queue"
+        className="h-6 w-full px-1.5 text-[10px]"
         disabled={!hasDb}
         onClick={onWipeQueue}
-        className="text-[10px] h-6 px-1.5 w-full"
-        aria-label="Wipe queue"
+        size="sm"
         title="Delete all job_queue records for embeddings (all states)"
+        variant="destructive"
       >
         Wipe
       </Button>
@@ -311,27 +311,41 @@ function getWorkerStatus(
 ): 'disabled' | 'initializing' | 'running' | 'error' {
   const isWeb =
     typeof window !== 'undefined' && !(window as { electronAPI?: unknown })?.electronAPI;
-  if (!queueEnabled) return 'disabled';
-  if (queueCounts.failed > 0 || startWorkerError) return 'error';
-  if (startingWorker) return 'initializing';
-  if (workerLocalRunning || queueCounts.running > 0 || throughput > 0) return 'running';
+  if (!queueEnabled) {
+    return 'disabled';
+  }
+  if (queueCounts.failed > 0 || startWorkerError) {
+    return 'error';
+  }
+  if (startingWorker) {
+    return 'initializing';
+  }
+  if (workerLocalRunning || queueCounts.running > 0 || throughput > 0) {
+    return 'running';
+  }
   return isWeb ? 'disabled' : 'initializing';
 }
 
 function isQueueEnabled(): boolean {
   try {
     // Prefer runtime detection in browsers to avoid build-time env false positives
-    if (typeof window !== 'undefined') return true;
+    if (typeof window !== 'undefined') {
+      return true;
+    }
     // @ts-expect-error process may not exist in browser
     const v = process?.env?.EMBED_QUEUE_ENABLED;
-    if (typeof v !== 'undefined') return String(v).toLowerCase() === 'true';
+    if (typeof v !== 'undefined') {
+      return String(v).toLowerCase() === 'true';
+    }
     return false;
   } catch {
     return typeof window !== 'undefined';
   }
 }
 function isElectronRenderer(): boolean {
-  if (typeof window === 'undefined') return false;
+  if (typeof window === 'undefined') {
+    return false;
+  }
   const w = window as unknown as { electronAPI?: unknown };
   return !!w.electronAPI;
 }
@@ -386,7 +400,9 @@ function useActiveEmbeddingSet() {
 
   // Re-read from global context when it changes externally
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined') {
+      return;
+    }
 
     const handler = (event: Event) => {
       const custom = event as CustomEvent<{ id?: string }>;
@@ -419,7 +435,7 @@ function useActiveCollectionMeta(
   useEffect(() => {
     let cancelled = false;
 
-    if (!db || !activeId) {
+    if (!(db && activeId)) {
       setMeta(null);
       return () => {
         cancelled = true;
@@ -455,7 +471,9 @@ function useActiveCollectionMeta(
             GROUP BY s.id, s.name, s.model_id`,
           [activeId]
         );
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         const row = result.rows[0];
         if (!row) {
           setMeta(null);
@@ -483,9 +501,9 @@ function useActiveCollectionMeta(
   return meta;
 }
 
-interface VectorStatusWithDbProps {
+type VectorStatusWithDbProps = {
   queueAdapter?: QueueAdapter | null;
-}
+};
 
 export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbProps = {}) {
   const queueEnabled = isQueueEnabled();
@@ -508,9 +526,9 @@ export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbPr
   );
 }
 
-interface VectorStatusWithDbContentProps {
+type VectorStatusWithDbContentProps = {
   queueEnabled: boolean;
-}
+};
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This component coordinates queue telemetry, worker controls, and renderer-only state in one place so the vector HUD stays consistent. Splitting further would scatter tightly-coupled hooks and make bugs harder to trace.
 function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentProps) {
@@ -552,7 +570,9 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   }, [chunkRepository, db, vectorEnabled]);
 
   const service = useMemo(() => {
-    if (!db || !coverageRepository) return null;
+    if (!(db && coverageRepository)) {
+      return null;
+    }
     return createVectorQueueService({
       db,
       jobQueue: new JobQueue(db),
@@ -609,17 +629,18 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
 
   const content = (
     <Card>
-      <CardHeader className="py-1.5 px-3 border-b">
+      <CardHeader className="border-b px-3 py-1.5">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-xs font-medium">Vector Status</CardTitle>
+          <CardTitle className="font-medium text-xs">Vector Status</CardTitle>
           <div className="flex items-center gap-1">
             <Badge
+              className="h-4 px-1 py-0 text-[9px]"
               variant={vectorEnabled ? 'default' : 'outline'}
-              className="text-[9px] py-0 px-1 h-4"
             >
               {vectorEnabled ? 'PG: ON' : 'PG: OFF'}
             </Badge>
             <Badge
+              className="h-4 px-1 py-0 text-[9px]"
               variant={
                 workerStatus === 'running'
                   ? 'default'
@@ -627,21 +648,20 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
                     ? 'destructive'
                     : 'secondary'
               }
-              className="text-[9px] py-0 px-1 h-4"
             >
               {workerStatus === 'running' ? '● RUN' : workerStatus === 'error' ? '✕ ERR' : '○ OFF'}
             </Badge>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="py-2 px-3 text-xs space-y-2">
+      <CardContent className="space-y-2 px-3 py-2 text-xs">
         <div className="flex items-center justify-between rounded-md border border-dashed bg-muted/40 px-2 py-1">
-          <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+          <div className="font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
             Active Collection
           </div>
           {activeId ? (
             <div className="flex items-center gap-2">
-              <Badge variant="secondary" className="text-[10px] py-0 px-2">
+              <Badge className="px-2 py-0 text-[10px]" variant="secondary">
                 {activeCollectionMeta?.name ?? 'Resolving…'}
               </Badge>
               <span className="text-[10px] text-muted-foreground">
@@ -661,11 +681,11 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-1">
             <input
-              type="checkbox"
-              className="h-3 w-3"
               checked={verboseOrtLogs}
+              className="h-3 w-3"
               onChange={(e) => setVerboseOrtLogs(e.target.checked)}
               title="Enable verbose ONNX Runtime logs in console"
+              type="checkbox"
             />
             <span className="text-[10px] text-muted-foreground">Verbose ORT logs</span>
           </label>
@@ -677,7 +697,9 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
                   getRuntimeStats?: () => { epFallbackSeen: number; inferenceCount: number };
                 };
                 const s = anyTB.getRuntimeStats?.();
-                if (!s || s.inferenceCount === 0) return ' n/a';
+                if (!s || s.inferenceCount === 0) {
+                  return ' n/a';
+                }
                 return s.epFallbackSeen > 0 ? ' webgpu+wasm' : ' pure';
               } catch {
                 return ' n/a';
@@ -686,86 +708,86 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
+          <Label className="font-medium text-[9px] text-muted-foreground uppercase tracking-wider">
             Pref
           </Label>
           <select
             aria-label="Preferred device"
-            className="h-7 text-[11px] border rounded px-1"
-            value={devicePref}
+            className="h-7 rounded border px-1 text-[11px]"
             onChange={(e) => setDevicePref(e.target.value as 'auto' | 'webgpu' | 'wasm' | 'cpu')}
+            value={devicePref}
           >
             <option value="auto">Auto</option>
             <option value="webgpu">WebGPU</option>
             <option value="wasm">WASM (CPU)</option>
             <option value="cpu">CPU (maps to WASM)</option>
           </select>
-          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
+          <Label className="font-medium text-[9px] text-muted-foreground uppercase tracking-wider">
             Reinit
           </Label>
           <input
-            type="number"
-            className="h-7 w-16 text-[11px] border rounded px-1"
+            className="h-7 w-16 rounded border px-1 text-[11px]"
+            max={10_000}
             min={50}
-            max={10000}
-            step={50}
-            value={reinitEveryN}
             onChange={(e) => setReinitEveryN(Number(e.target.value) || 0)}
+            step={50}
             title="Reinitialize model every N chunks"
+            type="number"
+            value={reinitEveryN}
           />
-          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
+          <Label className="font-medium text-[9px] text-muted-foreground uppercase tracking-wider">
             CPU after
           </Label>
           <input
-            type="number"
-            className="h-7 w-16 text-[11px] border rounded px-1"
-            min={1}
+            className="h-7 w-16 rounded border px-1 text-[11px]"
             max={20}
-            step={1}
-            value={forceCpuAfterFailures}
+            min={1}
             onChange={(e) => setForceCpuAfterFailures(Number(e.target.value) || 1)}
+            step={1}
             title="Switch to CPU/WASM after N consecutive failures"
+            type="number"
+            value={forceCpuAfterFailures}
           />
         </div>
         <div className="grid grid-cols-3 gap-1">
           <WorkerControls
             db={db}
-            workerLocalRunning={workerControls.workerLocalRunning}
-            startingWorker={workerControls.startingWorker}
+            onResetWorker={workerControls.resetWorker}
             onStartWorker={workerControls.startWorker}
             onStopWorker={workerControls.stopWorker}
-            onResetWorker={workerControls.resetWorker}
+            startingWorker={workerControls.startingWorker}
+            workerLocalRunning={workerControls.workerLocalRunning}
           />
         </div>
         <div className="grid grid-cols-2 gap-1">
           <BackfillButton
             activeId={activeId}
             activeLabel={activeCollectionMeta?.name ?? null}
-            hasDb={hasDb}
             backfilling={queueState.backfilling}
             backfillProgress={queueState.backfillProgress}
-            onBackfill={queueState.backfillActiveSet}
             coverage={queueState.coverage}
+            hasDb={hasDb}
+            onBackfill={queueState.backfillActiveSet}
             queueCounts={queueState.queueCounts}
           />
           <QueueControls
             hasDb={hasDb}
-            queueCounts={queueState.queueCounts}
-            onRetryFailed={() => queueState.retryFailed()}
             onClearQueue={() => queueState.clearQueue()}
+            onRetryFailed={() => queueState.retryFailed()}
             onWipeQueue={() => queueState.wipeQueue()}
+            queueCounts={queueState.queueCounts}
           />
         </div>
-        <div className="grid grid-cols-4 gap-2 pt-1 border-t">
+        <div className="grid grid-cols-4 gap-2 border-t pt-1">
           <div>
             <div className="text-[9px] text-muted-foreground">Coverage</div>
-            <div className="text-[11px] font-medium">
+            <div className="font-medium text-[11px]">
               {queueState.coverage.withSet}/{queueState.coverage.total}
             </div>
           </div>
           <div>
             <div className="text-[9px] text-muted-foreground">Queue</div>
-            <div className="text-[11px] font-medium">
+            <div className="font-medium text-[11px]">
               {queueState.queueCounts.queued}/{queueState.queueCounts.running}/
               {queueState.queueCounts.failed}
             </div>
@@ -777,22 +799,22 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             <div className="flex items-center justify-between text-[9px] text-muted-foreground">
               <span>Jobs/min</span>
               <Sparkline
-                values={throughputTrend}
                 ariaLabel="Queue throughput trend"
-                width={56}
-                height={16}
                 className="text-emerald-500 dark:text-emerald-400"
+                height={16}
+                values={throughputTrend}
+                width={56}
               />
             </div>
-            <div className="text-[11px] font-medium">{formatPerMinute(queueState.throughput)}</div>
+            <div className="font-medium text-[11px]">{formatPerMinute(queueState.throughput)}</div>
             <div className="flex items-center justify-between text-[9px] text-muted-foreground">
               <span>Errors (1m): {queueState.recentErrorCount}</span>
               <Sparkline
-                values={errorTrend}
                 ariaLabel="Queue error trend"
-                width={56}
-                height={12}
                 className="text-destructive"
+                height={12}
+                values={errorTrend}
+                width={56}
               />
             </div>
           </div>
@@ -800,14 +822,14 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             <div className="flex items-center justify-between text-[9px] text-muted-foreground">
               <span>Latency (ms)</span>
               <Sparkline
-                values={latencyTrend}
                 ariaLabel="Queue latency trend"
-                width={56}
-                height={12}
                 className="text-sky-500 dark:text-sky-400"
+                height={12}
+                values={latencyTrend}
+                width={56}
               />
             </div>
-            <div className="text-[11px] font-medium">
+            <div className="font-medium text-[11px]">
               P50 {formatLatencyMs(queueState.latencyStats.p50Ms)}
             </div>
             <div className="text-[9px] text-muted-foreground">
@@ -818,9 +840,9 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
         </div>
         {(workerControls.startWorkerError || queueState.lastError) && (
           <div
-            className="p-1 bg-destructive/10 border border-destructive/20 rounded text-[10px] text-destructive break-words"
-            role="alert"
             aria-live="polite"
+            className="break-words rounded border border-destructive/20 bg-destructive/10 p-1 text-[10px] text-destructive"
+            role="alert"
           >
             {workerControls.startWorkerError ?? queueState.lastError}
           </div>
@@ -837,25 +859,25 @@ export function VectorStatus() {
   const device = useMemo(() => TransformersBackend.getBestDevice(), []);
   return (
     <Card>
-      <CardHeader className="py-1.5 px-3 border-b">
+      <CardHeader className="border-b px-3 py-1.5">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-xs font-medium">Vector Status</CardTitle>
+          <CardTitle className="font-medium text-xs">Vector Status</CardTitle>
           <div className="flex items-center gap-1">
-            <Badge variant={'outline'} className="text-[9px] py-0 px-1 h-4">
+            <Badge className="h-4 px-1 py-0 text-[9px]" variant={'outline'}>
               pgvector: off
             </Badge>
-            <Badge variant={'secondary'} className="text-[9px] py-0 px-1 h-4">
+            <Badge className="h-4 px-1 py-0 text-[9px]" variant={'secondary'}>
               worker: disabled
             </Badge>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="py-2 px-3 text-xs">
+      <CardContent className="px-3 py-2 text-xs">
         <div className="flex items-center gap-2">
-          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
+          <Label className="font-medium text-[9px] text-muted-foreground uppercase tracking-wider">
             Device:
           </Label>
-          <Badge variant="outline" className="text-[10px] py-0.5 px-1.5">
+          <Badge className="px-1.5 py-0.5 text-[10px]" variant="outline">
             {device}
           </Badge>
         </div>

@@ -42,13 +42,13 @@ const VOYAGE_MODELS: Record<string, ModelConfig> = {
   },
 };
 
-export interface VoyageEmbeddingProviderOptions {
+export type VoyageEmbeddingProviderOptions = {
   readonly modelId: string;
   readonly inputType?: 'document' | 'query';
   readonly apiKey?: string;
   readonly fetch?: FetchLike;
   readonly endpoint?: string;
-}
+};
 
 export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
   readonly runtime = 'hosted' as const;
@@ -86,7 +86,9 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
 
   async embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
     const validationError = this.validateBeforeEmbed();
-    if (validationError) return validationError;
+    if (validationError) {
+      return validationError;
+    }
 
     try {
       const response = await this.makeEmbeddingRequest(input.text);
@@ -180,7 +182,7 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
   ): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
     const payload = (await response.json()) as VoyageEmbeddingResponse;
 
-    if (!payload.data || !Array.isArray(payload.data) || payload.data.length === 0) {
+    if (!(payload.data && Array.isArray(payload.data)) || payload.data.length === 0) {
       return {
         ok: false,
         error: {
@@ -220,7 +222,7 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
 
     const output: EmbeddingOutput = {
       embedding: embeddings[0] ?? [], // For backward compatibility
-      embeddings: embeddings,
+      embeddings,
       dimensions: embeddings[0]?.length ?? 0,
       modelId,
       provider: 'voyage',
@@ -269,7 +271,7 @@ function normalizeApiKey(value: string | undefined): string | null {
 
 function parseRetryAfter(headerValue: string | null): number | undefined {
   if (!headerValue) {
-    return undefined;
+    return;
   }
   const numeric = Number(headerValue);
   if (Number.isFinite(numeric)) {
@@ -280,13 +282,13 @@ function parseRetryAfter(headerValue: string | null): number | undefined {
     const delta = parsed - Date.now();
     return delta > 0 ? Math.round(delta / 1000) : undefined;
   }
-  return undefined;
+  return;
 }
 
 async function safeJson(response: Response): Promise<unknown | undefined> {
   try {
     return await response.json();
   } catch {
-    return undefined;
+    return;
   }
 }

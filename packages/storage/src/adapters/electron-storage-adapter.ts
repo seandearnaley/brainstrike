@@ -21,7 +21,7 @@ export class ElectronStorageAdapter implements StorageAdapter {
 
         // Safety check: never use empty or relative paths that would write to cwd
         // This prevents test artifacts from leaking into the source tree
-        if (!userDataPath || !path.isAbsolute(userDataPath) || userDataPath === process.cwd()) {
+        if (!(userDataPath && path.isAbsolute(userDataPath)) || userDataPath === process.cwd()) {
           this.cache = {};
           return;
         }

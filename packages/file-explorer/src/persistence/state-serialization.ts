@@ -51,7 +51,9 @@ export function mergeState(
     );
   }
   if (!persisted) {
-    if (shouldLog) logger.debug('Merge - No persisted state, returning current initial state.');
+    if (shouldLog) {
+      logger.debug('Merge - No persisted state, returning current initial state.');
+    }
     return current;
   }
 

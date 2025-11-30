@@ -1,12 +1,10 @@
 import { FileExplorerStrings } from '@brainstrike/types';
 
-export const FileExplorerHeader: React.FC = () => {
-  return (
-    <header className="p-4 border-b bg-gradient-to-b from-background/60 to-background">
-      <h1 className="text-xl font-semibold tracking-tight">{FileExplorerStrings.title}</h1>
-      <p className="text-sm text-muted-foreground mt-1">
-        Navigate and select files to include in your project
-      </p>
-    </header>
-  );
-};
+export const FileExplorerHeader: React.FC = () => (
+  <header className="border-b bg-gradient-to-b from-background/60 to-background p-4">
+    <h1 className="font-semibold text-xl tracking-tight">{FileExplorerStrings.title}</h1>
+    <p className="mt-1 text-muted-foreground text-sm">
+      Navigate and select files to include in your project
+    </p>
+  </header>
+);

@@ -3,7 +3,7 @@ import type React from 'react';
 import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { Button } from '../button';
 
-interface LeftPanelProps {
+type LeftPanelProps = {
   panelRef: React.RefObject<ImperativePanelHandle | null>;
   content: React.ReactNode;
   hideButtonRef: React.RefObject<HTMLButtonElement | null>;
@@ -11,7 +11,7 @@ interface LeftPanelProps {
   defaultSize: number;
   onCollapse: () => void;
   onExpand: (size?: number) => void;
-}
+};
 
 export function LeftPanel({
   panelRef,
@@ -25,33 +25,33 @@ export function LeftPanel({
   return (
     <>
       <Panel
-        ref={panelRef}
-        id="left-panel"
-        data-panel-id="left-panel"
-        order={1}
-        defaultSize={defaultSize}
-        minSize={15}
-        maxSize={50}
-        collapsible
+        className="bg-background"
         collapsedSize={0}
+        collapsible
+        data-panel-id="left-panel"
+        defaultSize={defaultSize}
+        id="left-panel"
+        maxSize={50}
+        minSize={15}
         onCollapse={onCollapse}
         onExpand={onExpand}
-        className="bg-background"
+        order={1}
+        ref={panelRef}
       >
         <div className="h-full">
-          <div className="flex items-center justify-between px-2 py-2 border-b border-border bg-muted/30">
+          <div className="flex items-center justify-between border-border border-b bg-muted/30 px-2 py-2">
             <div className="flex items-center gap-2">
               <PanelLeft className="h-4 w-4" />
-              <span className="text-sm font-medium">Explorer</span>
+              <span className="font-medium text-sm">Explorer</span>
             </div>
             <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={onHide}
               aria-label="Hide explorer"
+              className="h-6 w-6"
               data-testid="hide-left-panel"
+              onClick={onHide}
               ref={hideButtonRef}
+              size="icon"
+              variant="ghost"
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
@@ -59,7 +59,7 @@ export function LeftPanel({
           <div className="h-[calc(100%-2.5rem)]">{content}</div>
         </div>
       </Panel>
-      <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
+      <PanelResizeHandle className="w-1 bg-border transition-colors hover:bg-border/80" />
     </>
   );
 }

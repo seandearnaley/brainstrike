@@ -8,7 +8,6 @@ describe('JobQueue Race Condition', () => {
 
   beforeEach(async () => {
     const pglite = await wasmLoader.createPGlite('memory://race-test');
-    // biome-ignore lint/suspicious/noExplicitAny: PGlite type mismatch with migration runner
     await migrate(pglite as any);
     db = pglite as unknown as IDatabase;
     jq = new JobQueue(db);

@@ -21,7 +21,7 @@ import { Download, FileText } from 'lucide-react';
 import * as React from 'react';
 import { useCallback } from 'react';
 
-export interface ActionButtonsProps {
+export type ActionButtonsProps = {
   displayedFiles: Set<string>;
   selectedFilePaths: Set<string>;
   maxSelectionCount: number;
@@ -31,7 +31,7 @@ export interface ActionButtonsProps {
   onSelectionLimitExceeded?: () => void;
   onDownloadReport: () => void;
   onCopyReport: () => void;
-}
+};
 
 export const ActionButtons = React.memo(
   ({
@@ -47,7 +47,9 @@ export const ActionButtons = React.memo(
   }: ActionButtonsProps) => {
     // Handles selecting files up to the max limit
     const handleSelectAll = useCallback(() => {
-      if (!currentFolderId) return;
+      if (!currentFolderId) {
+        return;
+      }
       const filesToSelect = Array.from(displayedFiles)
         .slice(0, maxSelectionCount)
         .map((path) => encodeFileSelection(currentFolderId, path))
@@ -75,38 +77,42 @@ export const ActionButtons = React.memo(
     const canSelectAll = displayedFiles.size <= maxSelectionCount;
 
     const getButtonText = () => {
-      if (hasSelectedFiles) return 'Deselect All';
-      if (!hasDisplayedFiles) return 'Select All';
+      if (hasSelectedFiles) {
+        return 'Deselect All';
+      }
+      if (!hasDisplayedFiles) {
+        return 'Select All';
+      }
       return canSelectAll ? 'Select All' : `Select ${maxSelectionCount}`;
     };
 
     return (
       <div className="@container/buttons flex gap-2">
         <Button
-          variant="outline"
-          onClick={hasSelectedFiles ? handleDeselectAll : handleSelectAll}
+          className="flex h-8 items-center gap-1"
           disabled={!hasDisplayedFiles}
-          className="flex items-center gap-1 h-8"
+          onClick={hasSelectedFiles ? handleDeselectAll : handleSelectAll}
+          variant="outline"
         >
           {getButtonText()}
         </Button>
         <Button
-          variant="outline"
-          onClick={onDownloadReport}
+          className="flex h-8 items-center gap-1"
           disabled={!hasSelectedFiles}
-          className="flex items-center gap-1 h-8"
+          onClick={onDownloadReport}
+          variant="outline"
         >
-          <Download className="size-3.5 hidden @md/buttons:block" />
+          <Download className="@md/buttons:block hidden size-3.5" />
           <span>Download Report</span>
         </Button>
         <Button
-          variant="outline"
-          onClick={onCopyReport}
+          className="flex h-8 items-center gap-1"
           disabled={!hasSelectedFiles}
-          className="flex items-center gap-1 h-8"
+          onClick={onCopyReport}
+          variant="outline"
         >
-          <FileText className="size-3.5 hidden @md/buttons:block" />
-          <span className="hidden @sm/buttons:inline">Copy Report</span>
+          <FileText className="@md/buttons:block hidden size-3.5" />
+          <span className="@sm/buttons:inline hidden">Copy Report</span>
           <span className="@sm/buttons:hidden">Copy</span>
         </Button>
       </div>

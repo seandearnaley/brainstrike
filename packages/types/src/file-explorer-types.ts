@@ -6,7 +6,7 @@
  */
 
 // Helper types for serialization
-export interface SerializedFolderState {
+export type SerializedFolderState = {
   selectedFilePaths: string[];
   expandedDirectoryPaths: string[];
   includeFilters: string[];
@@ -21,9 +21,9 @@ export interface SerializedFolderState {
   maxSelectionCount: number;
   lastActiveTab: string;
   lastAccessed: number;
-}
+};
 
-export interface SerializedState {
+export type SerializedState = {
   currentFolderId: string | null;
   folderStates: Record<string, SerializedFolderState>;
   folderAccessOrder: string[];
@@ -42,9 +42,9 @@ export interface SerializedState {
   lastActiveTab: string;
   quickFilter: string;
   devInlineFixtureEnabled: boolean;
-}
+};
 
-export interface FolderState {
+export type FolderState = {
   selectedFilePaths: Set<string>;
   expandedDirectoryPaths: Set<string>;
   includeFilters: string[];
@@ -59,10 +59,10 @@ export interface FolderState {
   maxSelectionCount: number;
   lastActiveTab: string;
   lastAccessed: number;
-}
+};
 
 // Data types
-export interface FileExplorerData {
+export type FileExplorerData = {
   currentFolderId: string | null;
   folderStates: Record<string, FolderState>;
   folderAccessOrder: string[];
@@ -87,14 +87,14 @@ export interface FileExplorerData {
   quickFilter: string;
   /** Whether the inline dev fixture should be used instead of native FS access. */
   devInlineFixtureEnabled: boolean;
-}
+};
 
-export interface CacheStats {
+export type CacheStats = {
   totalSize: number;
   entryCount: number;
   hitRate: number;
   evictionCount: number;
-}
+};
 
 // Store interface extends data with actions
 export interface FileExplorerState extends FileExplorerData {

@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp } from 'lucide-react';
 import { memo, type ReactNode, useCallback } from 'react';
 import { Checkbox } from './checkbox';
 
-interface TableGroupHeaderProps {
+type TableGroupHeaderProps = {
   groupKey: string | number;
   groupLabel: string;
   isCollapsed: boolean;
@@ -13,7 +13,7 @@ interface TableGroupHeaderProps {
   icon?: ReactNode;
   stats?: ReactNode;
   colSpan?: number;
-}
+};
 
 export const TableGroupHeader = memo<TableGroupHeaderProps>(function TableGroupHeaderComponent({
   groupLabel,
@@ -39,27 +39,27 @@ export const TableGroupHeader = memo<TableGroupHeaderProps>(function TableGroupH
   const checkboxState = isPartiallySelected ? 'indeterminate' : isFullySelected;
 
   return (
-    <tr className="bg-muted/50 border-b-2 border-muted-foreground/20">
-      <td className="p-4 w-12">
+    <tr className="border-muted-foreground/20 border-b-2 bg-muted/50">
+      <td className="w-12 p-4">
         <Checkbox
+          aria-label={`Select all items in group ${groupLabel}`}
           checked={checkboxState}
           onCheckedChange={handleSelectionChange}
           onClick={(e) => e.stopPropagation()}
-          aria-label={`Select all items in group ${groupLabel}`}
         />
       </td>
       <td className="p-4" colSpan={colSpan}>
         <button
-          type="button"
-          className="flex items-center gap-2 text-sm font-medium text-foreground hover:text-primary transition-colors w-full text-left"
-          onClick={onToggleCollapse}
           aria-expanded={!isCollapsed}
           aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} group ${groupLabel}`}
+          className="flex w-full items-center gap-2 text-left font-medium text-foreground text-sm transition-colors hover:text-primary"
+          onClick={onToggleCollapse}
+          type="button"
         >
           {isCollapsed ? <ArrowUp className="size-4" /> : <ArrowDown className="size-4" />}
           {icon}
           <span>{groupLabel}</span>
-          {stats && <div className="flex gap-4 ml-auto text-xs text-muted-foreground">{stats}</div>}
+          {stats && <div className="ml-auto flex gap-4 text-muted-foreground text-xs">{stats}</div>}
         </button>
       </td>
     </tr>

@@ -252,7 +252,7 @@ describe('VoyageEmbeddingProvider', () => {
     });
 
     it('should handle 429 rate limit error with date Retry-After', async () => {
-      const futureDate = new Date(Date.now() + 60000).toUTCString();
+      const futureDate = new Date(Date.now() + 60_000).toUTCString();
       const mockResponse = new Response(
         JSON.stringify({ error: { message: 'Rate limit exceeded' } }),
         {

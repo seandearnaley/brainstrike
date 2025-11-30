@@ -90,36 +90,36 @@ function TreeTableRowInner<T>(
 
   return (
     <TableRow
-      ref={combinedRef}
-      onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
-      onContextMenu={handleContextMenu}
-      style={style}
+      aria-selected={isSelected}
       className={cn(
         'cursor-pointer transition-colors',
         isSelected && 'bg-accent',
         isHighlighted && !isSelected && 'bg-yellow-50 dark:bg-yellow-950/20',
-        isFocused && 'ring-2 ring-inset ring-primary',
+        isFocused && 'ring-2 ring-primary ring-inset',
         !matchesFilter && 'opacity-50',
         className
       )}
+      data-depth={node.depth}
+      data-focused={isFocused}
+      data-highlighted={isHighlighted}
       data-index={virtualIndex}
       data-node-id={node.id}
       data-node-type={node.type}
-      data-depth={node.depth}
       data-selected={isSelected}
-      data-highlighted={isHighlighted}
-      data-focused={isFocused}
-      aria-selected={isSelected}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      onDoubleClick={handleDoubleClick}
+      ref={combinedRef}
+      style={style}
       tabIndex={isFocused ? 0 : -1}
     >
       {columns.map((column, columnIndex) => (
         <TreeTableCell
-          key={column.id}
-          row={row}
           column={column}
           columnIndex={columnIndex}
+          key={column.id}
           onExpandClick={handleExpandClick}
+          row={row}
         />
       ))}
     </TableRow>
@@ -130,12 +130,12 @@ function TreeTableRowInner<T>(
  * TreeTableCell renders a single cell, with special handling for the first column
  * which includes indentation and the expand/collapse toggle.
  */
-interface TreeTableCellProps<T> {
+type TreeTableCellProps<T> = {
   row: FlattenedRow<T>;
   column: TreeTableColumn<T>;
   columnIndex: number;
   onExpandClick: (event: React.MouseEvent) => void;
-}
+};
 
 function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTableCellProps<T>) {
   const { node, isExpanded, isSelected, isHighlighted, index } = row;
@@ -157,17 +157,17 @@ function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTable
       <TableCell className={cn('p-0', column.className)}>
         <div className="flex items-center">
           {/* Indentation spacer */}
-          <span style={{ width: node.depth * INDENT_WIDTH }} className="flex-shrink-0" />
+          <span className="flex-shrink-0" style={{ width: node.depth * INDENT_WIDTH }} />
 
           {/* Expand/Collapse toggle or spacer */}
           {node.hasChildren ? (
             <Button
-              variant="ghost"
-              size="sm"
-              onClick={onExpandClick}
-              className="h-6 w-6 p-0 flex-shrink-0"
-              aria-label={isExpanded ? 'Collapse' : 'Expand'}
               aria-expanded={isExpanded}
+              aria-label={isExpanded ? 'Collapse' : 'Expand'}
+              className="h-6 w-6 flex-shrink-0 p-0"
+              onClick={onExpandClick}
+              size="sm"
+              variant="ghost"
             >
               {node.isLoading ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -183,7 +183,7 @@ function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTable
           )}
 
           {/* Cell content */}
-          <div className="flex-1 min-w-0 px-2">{cellContent}</div>
+          <div className="min-w-0 flex-1 px-2">{cellContent}</div>
         </div>
       </TableCell>
     );
@@ -197,6 +197,7 @@ function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTable
  * Memoized TreeTableRow to prevent unnecessary re-renders.
  * Only re-renders when the row's visual state changes.
  */
+// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for memo + ref pattern
 export const TreeTableRow = React.memo(React.forwardRef(TreeTableRowInner)) as <T>(
   props: TreeTableRowProps<T> & { ref?: React.Ref<HTMLTableRowElement> }
 ) => React.ReactElement;

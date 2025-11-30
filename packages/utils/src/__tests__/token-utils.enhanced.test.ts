@@ -31,7 +31,7 @@ describe('Token Utilities - Enhanced Coverage', () => {
     });
 
     it('should handle very long text', async () => {
-      const longText = 'a'.repeat(10000);
+      const longText = 'a'.repeat(10_000);
       const result = await countTokensAccurate(longText);
       expect(result).toBeGreaterThan(0);
       expect(typeof result).toBe('number');
@@ -70,9 +70,9 @@ describe('Token Utilities - Enhanced Coverage', () => {
     });
 
     it('should handle very long text', () => {
-      const longText = 'a'.repeat(1000000);
+      const longText = 'a'.repeat(1_000_000);
       const result = countTokensHeuristic(longText);
-      expect(result).toBe(250000); // 1M chars / 4 = 250K tokens
+      expect(result).toBe(250_000); // 1M chars / 4 = 250K tokens
     });
   });
 
@@ -84,8 +84,8 @@ describe('Token Utilities - Enhanced Coverage', () => {
     it('should handle boundary values', () => {
       expect(formatTokenCount(999)).toBe('999 tokens');
       expect(formatTokenCount(1000)).toBe('1.0K tokens');
-      expect(formatTokenCount(999999)).toBe('1000.0K tokens');
-      expect(formatTokenCount(1000000)).toBe('1.0M tokens');
+      expect(formatTokenCount(999_999)).toBe('1000.0K tokens');
+      expect(formatTokenCount(1_000_000)).toBe('1.0M tokens');
     });
 
     it('should handle fractional K values correctly', () => {
@@ -94,12 +94,12 @@ describe('Token Utilities - Enhanced Coverage', () => {
     });
 
     it('should handle fractional M values correctly', () => {
-      expect(formatTokenCount(1234567)).toBe('1.2M tokens');
-      expect(formatTokenCount(9876543)).toBe('9.9M tokens');
+      expect(formatTokenCount(1_234_567)).toBe('1.2M tokens');
+      expect(formatTokenCount(9_876_543)).toBe('9.9M tokens');
     });
 
     it('should handle very large numbers', () => {
-      expect(formatTokenCount(999999999)).toBe('1000.0M tokens');
+      expect(formatTokenCount(999_999_999)).toBe('1000.0M tokens');
     });
   });
 
@@ -155,7 +155,7 @@ describe('Token Utilities - Enhanced Coverage', () => {
     });
 
     it('should handle very large token counts', () => {
-      const result = estimateTokenCost(10000000, 5000000);
+      const result = estimateTokenCost(10_000_000, 5_000_000);
       // 10M input * $0.01/1K = $100
       // 5M output * $0.03/1K = $150
       // Total = $250
@@ -169,7 +169,7 @@ describe('Token Utilities - Enhanced Coverage', () => {
 
     it('should handle 1 token', () => {
       const result = estimateTokenCost(1, 1);
-      expect(result).toBeCloseTo(0.00004, 5); // 0.00001 + 0.00003
+      expect(result).toBeCloseTo(0.000_04, 5); // 0.00001 + 0.00003
     });
   });
 

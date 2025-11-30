@@ -8,12 +8,12 @@ import { type EmbeddingWorkerController, startEmbeddingWorker } from '../worker/
 class LargeDimensionProvider {
   async embed(input: { text: string | string[]; modelId: string }) {
     const count = Array.isArray(input.text) ? input.text.length : 1;
-    const embeddings = Array(count).fill(new Array(3072).fill(0.1));
+    const embeddings = new Array(count).fill(new Array(3072).fill(0.1));
     return {
       ok: true,
       value: {
         embedding: embeddings[0],
-        embeddings: embeddings,
+        embeddings,
         dimensions: 3072,
         modelId: input.modelId,
         provider: 'openai',
@@ -55,7 +55,6 @@ describe('Embedding Worker Dimensions', () => {
     });
 
     const pglite = await wasmLoader.createPGlite('memory://dim-test');
-    // biome-ignore lint/suspicious/noExplicitAny: PGlite type mismatch
     await migrate(pglite as any);
     db = pglite as unknown as IDatabase;
     jq = new JobQueue(db);
@@ -75,7 +74,9 @@ describe('Embedding Worker Dimensions', () => {
   });
 
   afterEach(async () => {
-    if (worker) await worker.stop();
+    if (worker) {
+      await worker.stop();
+    }
     vi.restoreAllMocks();
   });
 

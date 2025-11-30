@@ -28,7 +28,9 @@ export function useLoadPanelState(
 
   useEffect(() => {
     const loadFromAdapter = async () => {
-      if (!adapter) return;
+      if (!adapter) {
+        return;
+      }
       try {
         const stored = await adapter.load();
         if (stored) {

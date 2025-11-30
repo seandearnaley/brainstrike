@@ -55,7 +55,7 @@ describe('db-main lazy-load getDatabase', () => {
     vi.clearAllMocks();
     process.env['NODE_ENV'] = 'test';
     existsSyncMock.mockReturnValue(true);
-    mkdirSyncMock.mockImplementation(() => undefined);
+    mkdirSyncMock.mockImplementation(() => {});
   });
 
   it('lazy-loads database on first getDatabase call when uninitialized', async () => {

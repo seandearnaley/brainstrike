@@ -9,24 +9,24 @@ import {
   type FileReadRequest,
 } from '@brainstrike/workers/file-content-worker';
 
-export interface FileContentProcessor {
+export type FileContentProcessor = {
   processFiles(
     requests: FileContentRequest[],
     onProgress?: (event: { key: string; loaded: number; total: number }) => void
   ): Promise<Record<string, string>>;
-}
+};
 
-export interface FileContentRequest {
+export type FileContentRequest = {
   compositeKey: string;
   fileNode: IFileNode;
   fileSystemAdapter: FileSystemAdapter;
-}
+};
 
 /**
  * Worker-based file content processor for production use
  */
 export class WorkerFileContentProcessor implements FileContentProcessor {
-  private worker: FileContentWorker;
+  private readonly worker: FileContentWorker;
 
   constructor(fileSystemAdapter: FileSystemAdapter, concurrency = 3) {
     this.worker = createFileContentWorker({

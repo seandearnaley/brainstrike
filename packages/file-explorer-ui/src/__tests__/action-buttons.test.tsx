@@ -143,10 +143,7 @@ describe('ActionButtons', () => {
       const props = getProps({
         displayedFiles: new Set(['file1.txt', 'file2.txt']),
         // Bypass TS: simulate bug by returning undefined as string
-        encodeFileSelection: (() => undefined) as unknown as (
-          folderId: string,
-          path: string
-        ) => string,
+        encodeFileSelection: (() => {}) as unknown as (folderId: string, path: string) => string,
         setSelectedFiles,
       });
       const user = userEvent.setup();

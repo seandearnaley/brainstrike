@@ -65,7 +65,7 @@ const COLLECTIONS_WITH_COUNTS_QUERY = `
   ORDER BY s.created_at DESC
 `.trim();
 
-interface SearchCollectionSelectorProps {
+type SearchCollectionSelectorProps = {
   /**
    * The database instance for querying collections
    */
@@ -90,7 +90,7 @@ interface SearchCollectionSelectorProps {
    * Callback to open the create collection dialog
    */
   onCreateCollection: () => void;
-}
+};
 
 /**
  * SearchCollectionSelector - User-friendly collection selector for Database Explorer
@@ -120,26 +120,36 @@ export function SearchCollectionSelector({
     enabled: Boolean(db),
   });
 
-  const collections = useMemo<EmbeddingSetWithDocumentCount[]>(() => {
-    return rawCollections.map((row) => {
-      const set: EmbeddingSetWithDocumentCount = {
-        id: row.id,
-        modelKey: row.modelKey,
-        modelId: row.modelId,
-        dimensions: row.dimensions,
-        distance: row.distance as 'cosine' | 'l2' | 'ip',
-        createdAt: row.createdAt,
-        documentCount: Number(row.documentCount ?? 0),
-      };
+  const collections = useMemo<EmbeddingSetWithDocumentCount[]>(
+    () =>
+      rawCollections.map((row) => {
+        const set: EmbeddingSetWithDocumentCount = {
+          id: row.id,
+          modelKey: row.modelKey,
+          modelId: row.modelId,
+          dimensions: row.dimensions,
+          distance: row.distance as 'cosine' | 'l2' | 'ip',
+          createdAt: row.createdAt,
+          documentCount: Number(row.documentCount ?? 0),
+        };
 
-      if (row.name) set.name = row.name;
-      if (row.description) set.description = row.description;
-      if (row.tags) set.tags = row.tags;
-      if (row.category) set.category = row.category;
+        if (row.name) {
+          set.name = row.name;
+        }
+        if (row.description) {
+          set.description = row.description;
+        }
+        if (row.tags) {
+          set.tags = row.tags;
+        }
+        if (row.category) {
+          set.category = row.category;
+        }
 
-      return set;
-    });
-  }, [rawCollections]);
+        return set;
+      }),
+    [rawCollections]
+  );
 
   useEffect(() => {
     if (!liveError) {
@@ -179,14 +189,14 @@ export function SearchCollectionSelector({
   const hasCollections = collections.length > 0;
 
   return (
-    <div className="space-y-2 pb-4 border-b">
+    <div className="space-y-2 border-b pb-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Label className="text-sm font-medium">Search Collection</Label>
+          <Label className="font-medium text-sm">Search Collection</Label>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <HelpCircle className="h-4 w-4 text-muted-foreground cursor-help" />
+                <HelpCircle className="h-4 w-4 cursor-help text-muted-foreground" />
               </TooltipTrigger>
               <TooltipContent className="max-w-[300px]">
                 <p className="text-sm">
@@ -200,21 +210,21 @@ export function SearchCollectionSelector({
         </div>
         <div className="flex gap-2">
           <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs gap-1"
+            className="h-7 gap-1 px-2 text-xs"
             onClick={onCreateCollection}
+            size="sm"
             title="Create new collection"
+            variant="ghost"
           >
             <Plus className="h-3.5 w-3.5" />
             Create
           </Button>
           <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs gap-1"
+            className="h-7 gap-1 px-2 text-xs"
             onClick={onManageCollections}
+            size="sm"
             title="Manage all collections"
+            variant="ghost"
           >
             <Settings2 className="h-3.5 w-3.5" />
             Manage
@@ -224,9 +234,9 @@ export function SearchCollectionSelector({
 
       <div className="space-y-2">
         <Select
-          value={activeCollectionId ?? ''}
-          onValueChange={(value) => onCollectionChange(value || null)}
           disabled={!hasCollections || loading}
+          onValueChange={(value) => onCollectionChange(value || null)}
+          value={activeCollectionId ?? ''}
         >
           <SelectTrigger className="w-full">
             <SelectValue
@@ -247,7 +257,7 @@ export function SearchCollectionSelector({
         </Select>
 
         {activeCollection && (
-          <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+          <div className="flex items-center justify-between px-1 text-muted-foreground text-xs">
             <div>
               <span className="font-medium">{activeCollection.modelId}</span>
               {' · '}
@@ -259,12 +269,12 @@ export function SearchCollectionSelector({
           </div>
         )}
 
-        {!hasCollections && !loading && (
+        {!(hasCollections || loading) && (
           <div className="rounded-md border border-dashed bg-muted/20 p-3 text-center">
-            <p className="text-sm text-muted-foreground mb-2">
+            <p className="mb-2 text-muted-foreground text-sm">
               No collections yet. Create your first collection to start searching files.
             </p>
-            <Button variant="outline" size="sm" onClick={onCreateCollection} className="gap-2">
+            <Button className="gap-2" onClick={onCreateCollection} size="sm" variant="outline">
               <Plus className="h-4 w-4" />
               Create First Collection
             </Button>

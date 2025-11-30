@@ -136,7 +136,7 @@ describe('initializeQueueTelemetrySink', () => {
     const sink = initializeQueueTelemetrySink({
       endpoint: 'https://example.com/telemetry',
       maxBatchSize: 3,
-      flushIntervalMs: 10000,
+      flushIntervalMs: 10_000,
       useSendBeacon: false,
       enableInTest: true,
     });
@@ -366,7 +366,7 @@ describe('initializeQueueTelemetrySink', () => {
   it('should flush on dispose', async () => {
     const sink = initializeQueueTelemetrySink({
       endpoint: 'https://example.com/telemetry',
-      flushIntervalMs: 10000, // Long interval
+      flushIntervalMs: 10_000, // Long interval
       useSendBeacon: false,
       enableInTest: true,
     });
@@ -391,13 +391,14 @@ describe('initializeQueueTelemetrySink', () => {
 
   it('should not flush when already flushing', async () => {
     let resolveFlush: (() => void) | undefined;
-    fetchSpy.mockImplementation(() => {
-      return new Promise((resolve) => {
-        resolveFlush = () => {
-          resolve({ ok: true, status: 200 });
-        };
-      });
-    });
+    fetchSpy.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFlush = () => {
+            resolve({ ok: true, status: 200 });
+          };
+        })
+    );
     beaconSpy.mockReturnValue(false);
 
     const sink = initializeQueueTelemetrySink({
@@ -586,7 +587,7 @@ describe('initializeQueueTelemetrySink', () => {
     await sink?.dispose();
 
     // Advance timers beyond flush interval
-    await vi.advanceTimersByTimeAsync(10000);
+    await vi.advanceTimersByTimeAsync(10_000);
 
     // Should only have called flush once (on dispose), not on timer
     expect(fetchSpy).toHaveBeenCalledTimes(1);

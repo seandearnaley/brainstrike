@@ -5,17 +5,17 @@ import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Progress } from './progress';
 
-export interface ImportProgress {
+export type ImportProgress = {
   total: number;
   completed: number;
   current?: string;
   errors: Array<{ file: string; error: string }>;
-}
+};
 
-interface ImportProgressProps {
+type ImportProgressProps = {
   progress: ImportProgress;
   onClose?: () => void;
-}
+};
 
 export function ImportProgress({ progress, onClose }: ImportProgressProps) {
   const [showErrors, setShowErrors] = useState(false);
@@ -29,16 +29,16 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
     <Card className="w-full max-w-md">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
             {isComplete ? (
               <CheckCircle className="h-4 w-4 text-green-600" />
             ) : (
-              <div className="h-4 w-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             )}
             Import Progress
           </CardTitle>
           {onClose && (
-            <Button variant="ghost" size="sm" onClick={onClose} className="h-6 w-6 p-0">
+            <Button className="h-6 w-6 p-0" onClick={onClose} size="sm" variant="ghost">
               <X className="h-3 w-3" />
             </Button>
           )}
@@ -52,18 +52,18 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
             <span>{percentage}%</span>
           </div>
 
-          <Progress value={percentage} className="h-2" />
+          <Progress className="h-2" value={percentage} />
 
           {current && (
-            <div className="text-xs text-muted-foreground truncate">Current: {current}</div>
+            <div className="truncate text-muted-foreground text-xs">Current: {current}</div>
           )}
 
           <div className="flex gap-2">
-            <Badge variant="outline" className="text-xs">
+            <Badge className="text-xs" variant="outline">
               {completed - errors.length} imported
             </Badge>
             {hasErrors && (
-              <Badge variant="destructive" className="text-xs">
+              <Badge className="text-xs" variant="destructive">
                 {errors.length} errors
               </Badge>
             )}
@@ -74,31 +74,31 @@ export function ImportProgress({ progress, onClose }: ImportProgressProps) {
       {hasErrors && (
         <CardContent className="pt-0">
           <Button
-            variant="ghost"
-            size="sm"
+            className="h-auto w-full justify-start p-2"
             onClick={() => setShowErrors(!showErrors)}
-            className="h-auto p-2 justify-start w-full"
+            size="sm"
+            variant="ghost"
           >
             {showErrors ? (
-              <ChevronDown className="h-3 w-3 mr-2" />
+              <ChevronDown className="mr-2 h-3 w-3" />
             ) : (
-              <ChevronRight className="h-3 w-3 mr-2" />
+              <ChevronRight className="mr-2 h-3 w-3" />
             )}
-            <AlertTriangle className="h-3 w-3 mr-2 text-amber-600" />
+            <AlertTriangle className="mr-2 h-3 w-3 text-amber-600" />
             <span className="text-xs">
               View {errors.length} error{errors.length !== 1 ? 's' : ''}
             </span>
           </Button>
 
           {showErrors && (
-            <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+            <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
               {errors.map((error) => (
                 <div
+                  className="rounded border-destructive border-l-2 bg-destructive/10 p-2 text-xs"
                   key={`${error.file}-${error.error}`}
-                  className="text-xs p-2 bg-destructive/10 rounded border-l-2 border-destructive"
                 >
-                  <div className="font-medium truncate">{error.file}</div>
-                  <div className="text-muted-foreground mt-1">{error.error}</div>
+                  <div className="truncate font-medium">{error.file}</div>
+                  <div className="mt-1 text-muted-foreground">{error.error}</div>
                 </div>
               ))}
             </div>

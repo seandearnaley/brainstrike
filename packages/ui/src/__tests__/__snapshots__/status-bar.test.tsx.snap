@@ -3,7 +3,7 @@
 exports[`StatusBar > Snapshots > renders empty status bar 1`] = `
 <output
   aria-live="polite"
-  class="h-6 flex items-center justify-between px-2 bg-muted/50 border-t border-border text-xs text-muted-foreground"
+  class="flex h-6 items-center justify-between px-2 border-border border-t bg-muted/50 text-muted-foreground text-xs"
   data-testid="status-bar"
 >
   <div
@@ -20,7 +20,7 @@ exports[`StatusBar > Snapshots > renders empty status bar 1`] = `
 exports[`StatusBar > Snapshots > renders with all slots filled 1`] = `
 <output
   aria-live="polite"
-  class="h-6 flex items-center justify-between px-2 bg-muted/50 border-t border-border text-xs text-muted-foreground"
+  class="flex h-6 items-center justify-between px-2 border-border border-t bg-muted/50 text-muted-foreground text-xs"
   data-testid="status-bar"
 >
   <div

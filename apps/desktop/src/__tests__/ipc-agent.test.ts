@@ -80,7 +80,7 @@ describe('registerAgentIpcHandlers', () => {
           type: 'message-finish';
           finishReason: 'stop';
           usage: { promptTokens: number; completionTokens: number };
-          path: ReadonlyArray<number>;
+          path: readonly number[];
         };
 
     let chatHandler: (

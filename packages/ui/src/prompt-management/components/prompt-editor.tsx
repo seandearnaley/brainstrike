@@ -12,7 +12,7 @@ import { ScrollArea } from '../../scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../select';
 import type { Category, Prompt } from '../types';
 
-interface PromptEditorProps {
+type PromptEditorProps = {
   isOpen: boolean;
   onClose: () => void;
   prompt?: Prompt | null;
@@ -20,7 +20,7 @@ interface PromptEditorProps {
   availableModels?: ModelPickerModel[];
   providers?: ModelPickerProvider[];
   onSave: (promptData: Partial<Prompt>) => void;
-}
+};
 
 export function PromptEditor({
   isOpen,
@@ -86,51 +86,51 @@ export function PromptEditor({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-2 border-b border-border/50">
-          <DialogTitle className="text-xl font-bold flex items-center gap-2">
+    <Dialog onOpenChange={(open) => !open && onClose()} open={isOpen}>
+      <DialogContent className="flex h-[80vh] max-w-4xl flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="border-border/50 border-b p-6 pb-2">
+          <DialogTitle className="flex items-center gap-2 font-bold text-xl">
             {prompt ? 'Edit Prompt' : 'Create New Prompt'}
             {prompt && (
-              <Badge variant="outline" className="ml-2 font-normal text-xs">
+              <Badge className="ml-2 font-normal text-xs" variant="outline">
                 v{prompt.revisions.length + 1}
               </Badge>
             )}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 flex overflow-hidden">
+        <div className="flex flex-1 overflow-hidden">
           {/* Main Editor Area */}
-          <div className="flex-1 flex flex-col p-6 gap-4 overflow-y-auto">
+          <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6">
             <div className="space-y-2">
               <Label htmlFor="title">Title</Label>
               <Input
+                className="font-medium text-lg"
                 id="title"
-                value={title}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
                 placeholder="e.g., Code Refactoring Assistant"
-                className="text-lg font-medium"
+                value={title}
               />
             </div>
 
-            <div className="space-y-2 flex-1 flex flex-col min-h-[200px]">
+            <div className="flex min-h-[200px] flex-1 flex-col space-y-2">
               <Label htmlFor="content">Prompt Content</Label>
               <ExpandableTextarea
+                className="flex-1 resize-none bg-muted/30 p-4 font-mono text-sm leading-relaxed"
                 id="content"
-                value={content}
+                minRows={10}
                 onChange={(e) => setContent(e as unknown as string)}
                 placeholder="Enter your system prompt here..."
-                className="flex-1 font-mono text-sm leading-relaxed resize-none p-4 bg-muted/30"
-                minRows={10}
+                value={content}
               />
             </div>
           </div>
 
           {/* Sidebar Settings */}
-          <div className="w-80 border-l border-border/50 bg-muted/10 p-6 flex flex-col gap-6 overflow-y-auto">
+          <div className="flex w-80 flex-col gap-6 overflow-y-auto border-border/50 border-l bg-muted/10 p-6">
             <div className="space-y-2">
               <Label>Category</Label>
-              <Select value={categoryId} onValueChange={setCategoryId}>
+              <Select onValueChange={setCategoryId} value={categoryId}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
@@ -139,7 +139,7 @@ export function PromptEditor({
                     <SelectItem key={category.id} value={category.id}>
                       <div className="flex items-center gap-2">
                         <div
-                          className="w-2 h-2 rounded-full"
+                          className="h-2 w-2 rounded-full"
                           style={{ backgroundColor: category.color }}
                         />
                         {category.name}
@@ -153,89 +153,89 @@ export function PromptEditor({
             <div className="space-y-2">
               <Label>Model</Label>
               <ModelPicker
+                mode="single"
                 models={availableModels}
+                modelType="llm"
+                onChange={(id) => setModel(id as string)}
+                placeholder="Select a model..."
                 providers={providers}
                 value={model}
-                onChange={(id) => setModel(id as string)}
-                modelType="llm"
-                mode="single"
-                placeholder="Select a model..."
               />
             </div>
 
             <div className="space-y-4">
               <div className="flex justify-between">
                 <Label>Temperature</Label>
-                <span className="text-xs text-muted-foreground">{temperature}</span>
+                <span className="text-muted-foreground text-xs">{temperature}</span>
               </div>
               <input
-                type="range"
-                min="0"
+                className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-secondary accent-primary"
                 max="2"
-                step="0.1"
-                value={temperature}
+                min="0"
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                   setTemperature(Number.parseFloat(e.target.value))
                 }
-                className="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer accent-primary"
+                step="0.1"
+                type="range"
+                value={temperature}
               />
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Lower values are more deterministic, higher values are more creative.
               </p>
             </div>
 
             <div className="space-y-2">
               <Label>Tags</Label>
-              <div className="flex flex-wrap gap-2 mb-2">
+              <div className="mb-2 flex flex-wrap gap-2">
                 {tags.map((tag) => (
                   <Badge
+                    className="flex h-6 items-center gap-1 py-0.5 pr-1 pl-2"
                     key={tag}
                     variant="secondary"
-                    className="pl-2 pr-1 py-0.5 h-6 flex items-center gap-1"
                   >
                     {tag}
                     <button
-                      type="button"
-                      onClick={() => removeTag(tag)}
                       className="hover:text-destructive"
+                      onClick={() => removeTag(tag)}
+                      type="button"
                     >
-                      <X className="w-3 h-3" />
+                      <X className="h-3 w-3" />
                     </button>
                   </Badge>
                 ))}
               </div>
               <div className="flex gap-2">
                 <Input
-                  value={tagInput}
+                  className="h-8 text-sm"
                   onChange={(e) => setTagInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && addTag()}
                   placeholder="Add tag..."
-                  className="h-8 text-sm"
+                  value={tagInput}
                 />
                 <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={addTag}
                   className="h-8 w-8 p-0"
+                  onClick={addTag}
+                  size="sm"
+                  type="button"
+                  variant="outline"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Plus className="h-4 w-4" />
                 </Button>
               </div>
             </div>
 
             {prompt && prompt.revisions.length > 0 && (
-              <div className="space-y-2 pt-4 border-t border-border/50">
+              <div className="space-y-2 border-border/50 border-t pt-4">
                 <Label className="flex items-center gap-2">
-                  <History className="w-4 h-4" />
+                  <History className="h-4 w-4" />
                   History
                 </Label>
                 <ScrollArea className="h-[150px]">
                   <div className="space-y-2">
                     {prompt.revisions.map((rev, i) => (
                       <div
+                        className="flex items-center justify-between rounded border border-border/50 bg-background p-2 text-xs"
                         key={rev.id}
-                        className="text-xs p-2 rounded bg-background border border-border/50 flex justify-between items-center"
                       >
                         <div>
                           <div className="font-medium">v{prompt.revisions.length - i}</div>
@@ -244,13 +244,13 @@ export function PromptEditor({
                           </div>
                         </div>
                         <Button
+                          className="h-6 w-6"
+                          size="icon"
+                          title="Restore"
                           type="button"
                           variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          title="Restore"
                         >
-                          <RotateCcw className="w-3 h-3" />
+                          <RotateCcw className="h-3 w-3" />
                         </Button>
                       </div>
                     ))}
@@ -261,12 +261,12 @@ export function PromptEditor({
           </div>
         </div>
 
-        <DialogFooter className="p-4 border-t border-border/50 bg-muted/10">
-          <Button type="button" variant="outline" onClick={onClose}>
+        <DialogFooter className="border-border/50 border-t bg-muted/10 p-4">
+          <Button onClick={onClose} type="button" variant="outline">
             Cancel
           </Button>
-          <Button type="button" onClick={handleSave} className="gap-2">
-            <Save className="w-4 h-4" />
+          <Button className="gap-2" onClick={handleSave} type="button">
+            <Save className="h-4 w-4" />
             Save Prompt
           </Button>
         </DialogFooter>

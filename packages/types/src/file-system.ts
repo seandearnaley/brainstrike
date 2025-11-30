@@ -11,7 +11,7 @@ export type SelectionState = 'checked' | 'unchecked' | 'indeterminate';
 /**
  * Represents a file or directory in the file system
  */
-export interface IFileNode {
+export type IFileNode = {
   name: string;
   path: string;
   type: FileNodeType;
@@ -25,25 +25,25 @@ export interface IFileNode {
   lastModified?: number;
   isSymbolicLink?: boolean;
   isDepthTruncated?: boolean;
-}
+};
 
 /**
  * Options for file filtering
  */
-export interface FileFilterOptions {
+export type FileFilterOptions = {
   includeFilters: string[];
   excludeFilters: string[];
   useRegex: boolean;
-}
+};
 
 /**
  * Result of a file tree operation
  */
-export interface FileTreeResult {
+export type FileTreeResult = {
   nodes: IFileNode[];
   isComplete: boolean;
   error?: Error;
-}
+};
 
 /**
  * File System API types - Global augmentations need careful handling in packages.
@@ -52,37 +52,39 @@ export interface FileTreeResult {
  * For now, including them here, but watch for TS errors.
  */
 declare global {
+  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     showDirectoryPicker(): Promise<FileSystemDirectoryHandle>;
   }
 
+  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface FileSystemDirectoryHandle {
     entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
   }
 }
 
 // Cross-package compatible handle types used by stores and UI
-export interface DirectoryHandle {
+export type DirectoryHandle = {
   path: string;
   name: string;
   kind: 'directory';
   platform: 'web' | 'electron';
   _internal?: unknown;
-}
+};
 
-export interface FileHandle {
+export type FileHandle = {
   path: string;
   name: string;
   kind: 'file';
   size?: number;
   platform: 'web' | 'electron';
   _internal?: unknown;
-}
+};
 
 /**
  * Options that influence how adapters enumerate directories.
  */
-export interface DirectoryReadOptions {
+export type DirectoryReadOptions = {
   /**
    * When false, adapters may skip expensive metadata calls (size/lastModified).
    * Defaults to true for backward compatibility.
@@ -93,18 +95,18 @@ export interface DirectoryReadOptions {
    * Values <= 0 or non-finite are treated as "unlimited".
    */
   concurrency?: number;
-}
+};
 
-export interface FileSystemChange {
+export type FileSystemChange = {
   type: 'added' | 'removed' | 'modified';
   path: string;
   kind: 'file' | 'directory';
-}
+};
 
 /**
  * Platform-agnostic adapter contract implemented by web/electron shims.
  */
-export interface FileSystemAdapter {
+export type FileSystemAdapter = {
   requestDirectoryAccess(): Promise<DirectoryHandle>;
   readDirectory(handle: DirectoryHandle, options?: DirectoryReadOptions): Promise<IFileNode[]>;
   readFile(handle: FileHandle): Promise<string>;
@@ -114,4 +116,4 @@ export interface FileSystemAdapter {
     callback: (changes: FileSystemChange[]) => void
   ): () => void;
   restoreLastFolder?(): Promise<DirectoryHandle | null>;
-}
+};

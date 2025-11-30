@@ -4,12 +4,12 @@ import type { StoreApi, UseBoundStore } from 'zustand';
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
 
-export interface DirectoryExpansionActions {
+export type DirectoryExpansionActions = {
   setExpandedPaths: (paths: ReadonlySet<string>) => void;
   toggleDirectoryExpansion: (path: string) => void;
   expandAllDirectories: (fileTree: IFileNode[]) => void;
   collapseAllDirectories: () => void;
-}
+};
 
 export const createDirectoryExpansionActions = (
   set: SetState<FileExplorerState>,

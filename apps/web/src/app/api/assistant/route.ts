@@ -32,7 +32,7 @@ export async function POST(req: Request): Promise<Response> {
   const agentMessages = convertAssistantUiMessages(rawMessages);
 
   const provider = resolveAssistantProviderConfig();
-  if (!provider.enabled || !provider.apiKey) {
+  if (!(provider.enabled && provider.apiKey)) {
     return new Response(
       JSON.stringify({
         error: 'assistant_disabled',

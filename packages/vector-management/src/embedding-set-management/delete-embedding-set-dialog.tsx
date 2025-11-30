@@ -13,13 +13,13 @@ import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import { useState } from 'react';
 
-interface DeleteEmbeddingSetDialogProps {
+type DeleteEmbeddingSetDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   db: PGlite | null;
   embeddingSet: (EmbeddingSet & { chunkCount: number }) | null;
   onSetDeleted?: (setId: string) => void;
-}
+};
 
 const logger = createLogger('DeleteEmbeddingSetDialog');
 
@@ -34,7 +34,7 @@ export function DeleteEmbeddingSetDialog({
   const [deleting, setDeleting] = useState(false);
 
   const handleDelete = async () => {
-    if (!db || !embeddingSet) {
+    if (!(db && embeddingSet)) {
       toast({
         title: 'Error',
         description: 'Invalid configuration',
@@ -87,7 +87,7 @@ export function DeleteEmbeddingSetDialog({
   const hasChunks = embeddingSet.chunkCount > 0;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Delete Search Collection</DialogTitle>
@@ -98,19 +98,19 @@ export function DeleteEmbeddingSetDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
-          <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 space-y-3">
+          <div className="space-y-3 rounded-md border border-destructive/50 bg-destructive/10 p-4">
             <div>
               <div className="font-medium text-sm">Search Collection</div>
-              <div className="text-sm mt-1">{setName}</div>
-              <div className="text-xs text-muted-foreground mt-1">
+              <div className="mt-1 text-sm">{setName}</div>
+              <div className="mt-1 text-muted-foreground text-xs">
                 {embeddingSet.modelId} · {embeddingSet.dimensions}D · {embeddingSet.distance}
               </div>
             </div>
 
             {hasChunks && (
-              <div className="pt-3 border-t border-destructive/20">
-                <div className="font-medium text-sm text-destructive">Warning</div>
-                <div className="text-sm mt-1">
+              <div className="border-destructive/20 border-t pt-3">
+                <div className="font-medium text-destructive text-sm">Warning</div>
+                <div className="mt-1 text-sm">
                   This collection contains{' '}
                   <span className="font-semibold">{embeddingSet.chunkCount.toLocaleString()}</span>{' '}
                   embedded chunks. Deleting this collection will remove all these embeddings from
@@ -120,7 +120,7 @@ export function DeleteEmbeddingSetDialog({
             )}
           </div>
 
-          <div className="text-sm text-muted-foreground">
+          <div className="text-muted-foreground text-sm">
             {hasChunks ? (
               <p>
                 The file records will remain in the database, but you will need to re-embed them if
@@ -134,14 +134,14 @@ export function DeleteEmbeddingSetDialog({
 
         <DialogFooter>
           <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
             disabled={deleting}
+            onClick={() => onOpenChange(false)}
             type="button"
+            variant="outline"
           >
             Cancel
           </Button>
-          <Button variant="destructive" onClick={handleDelete} disabled={deleting} type="button">
+          <Button disabled={deleting} onClick={handleDelete} type="button" variant="destructive">
             {deleting ? 'Deleting...' : 'Delete Collection'}
           </Button>
         </DialogFooter>

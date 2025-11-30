@@ -34,12 +34,12 @@ describe('NodeCheckbox', () => {
   it('renders checkbox with correct label', () => {
     render(
       <NodeCheckboxWrapper
-        node={mockNode}
         checked={false}
         disabled={false}
+        maxSelectionCount={100}
+        node={mockNode}
         onSelect={mockOnSelect}
         wouldExceedLimit={false}
-        maxSelectionCount={100}
       />
     );
 
@@ -50,12 +50,12 @@ describe('NodeCheckbox', () => {
   it('renders checked state correctly', () => {
     render(
       <NodeCheckboxWrapper
-        node={mockNode}
         checked={true}
         disabled={false}
+        maxSelectionCount={100}
+        node={mockNode}
         onSelect={mockOnSelect}
         wouldExceedLimit={false}
-        maxSelectionCount={100}
       />
     );
 
@@ -66,12 +66,12 @@ describe('NodeCheckbox', () => {
   it('renders indeterminate state correctly', () => {
     render(
       <NodeCheckboxWrapper
-        node={mockNode}
         checked="indeterminate"
         disabled={false}
+        maxSelectionCount={100}
+        node={mockNode}
         onSelect={mockOnSelect}
         wouldExceedLimit={false}
-        maxSelectionCount={100}
       />
     );
 
@@ -84,12 +84,12 @@ describe('NodeCheckbox', () => {
 
     render(
       <NodeCheckboxWrapper
-        node={mockNode}
         checked={false}
         disabled={false}
+        maxSelectionCount={100}
+        node={mockNode}
         onSelect={mockOnSelect}
         wouldExceedLimit={false}
-        maxSelectionCount={100}
       />
     );
 
@@ -104,12 +104,12 @@ describe('NodeCheckbox', () => {
 
     render(
       <NodeCheckboxWrapper
-        node={mockNode}
         checked={false}
         disabled={true}
+        maxSelectionCount={100}
+        node={mockNode}
         onSelect={mockOnSelect}
         wouldExceedLimit={false}
-        maxSelectionCount={100}
       />
     );
 
@@ -124,12 +124,12 @@ describe('NodeCheckbox', () => {
 
     render(
       <NodeCheckboxWrapper
-        node={mockNode}
         checked={false}
         disabled={true}
+        maxSelectionCount={50}
+        node={mockNode}
         onSelect={mockOnSelect}
         wouldExceedLimit={true}
-        maxSelectionCount={50}
       />
     );
 
@@ -143,12 +143,12 @@ describe('NodeCheckbox', () => {
   it('does not show tooltip when would not exceed limit', () => {
     render(
       <NodeCheckboxWrapper
-        node={mockNode}
         checked={false}
         disabled={false}
+        maxSelectionCount={100}
+        node={mockNode}
         onSelect={mockOnSelect}
         wouldExceedLimit={false}
-        maxSelectionCount={100}
       />
     );
 
@@ -161,19 +161,21 @@ describe('NodeCheckbox', () => {
 
     render(
       <button
-        type="button"
         onClick={parentClickHandler}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') parentClickHandler();
+          if (e.key === 'Enter' || e.key === ' ') {
+            parentClickHandler();
+          }
         }}
+        type="button"
       >
         <NodeCheckboxWrapper
-          node={mockNode}
           checked={false}
           disabled={false}
+          maxSelectionCount={100}
+          node={mockNode}
           onSelect={mockOnSelect}
           wouldExceedLimit={false}
-          maxSelectionCount={100}
         />
       </button>
     );
@@ -188,12 +190,12 @@ describe('NodeCheckbox', () => {
   it('renders with correct id attribute', () => {
     render(
       <NodeCheckboxWrapper
-        node={mockNode}
         checked={false}
         disabled={false}
+        maxSelectionCount={100}
+        node={mockNode}
         onSelect={mockOnSelect}
         wouldExceedLimit={false}
-        maxSelectionCount={100}
       />
     );
 
@@ -206,12 +208,12 @@ describe('NodeCheckbox', () => {
 
     render(
       <NodeCheckboxWrapper
-        node={mockNode}
         checked={false}
         disabled={true}
+        maxSelectionCount={1000}
+        node={mockNode}
         onSelect={mockOnSelect}
         wouldExceedLimit={true}
-        maxSelectionCount={1000}
       />
     );
 
@@ -225,12 +227,12 @@ describe('NodeCheckbox', () => {
   it('renders checkbox with disabled state', () => {
     render(
       <NodeCheckboxWrapper
-        node={mockNode}
         checked={false}
         disabled={true}
+        maxSelectionCount={100}
+        node={mockNode}
         onSelect={mockOnSelect}
         wouldExceedLimit={false}
-        maxSelectionCount={100}
       />
     );
 

@@ -27,10 +27,10 @@ vi.mock('@tanstack/react-virtual', () => ({
 }));
 
 // Test data types
-interface TestData {
+type TestData = {
   name: string;
   size?: number;
-}
+};
 
 // Helper to create test nodes
 function createTestNode(
@@ -68,9 +68,9 @@ describe('TreeTable', () => {
     it('renders empty state when no nodes', () => {
       render(
         <TreeTable
-          nodes={[]}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={[]}
           onToggleExpand={() => {}}
         />
       );
@@ -81,11 +81,11 @@ describe('TreeTable', () => {
     it('renders custom empty state', () => {
       render(
         <TreeTable
-          nodes={[]}
           columns={testColumns}
-          expandedIds={new Set()}
-          onToggleExpand={() => {}}
           emptyState={<div>No files found</div>}
+          expandedIds={new Set()}
+          nodes={[]}
+          onToggleExpand={() => {}}
         />
       );
 
@@ -100,9 +100,9 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={nodes}
           onToggleExpand={() => {}}
         />
       );
@@ -127,9 +127,9 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={[createTestNode('1', 'Test')]}
           columns={columns}
           expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
           onToggleExpand={() => {}}
         />
       );
@@ -141,9 +141,9 @@ describe('TreeTable', () => {
     it('applies treegrid role', () => {
       render(
         <TreeTable
-          nodes={[createTestNode('1', 'Test')]}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
           onToggleExpand={() => {}}
         />
       );
@@ -154,11 +154,11 @@ describe('TreeTable', () => {
     it('renders with custom aria-label', () => {
       render(
         <TreeTable
-          nodes={[createTestNode('1', 'Test')]}
+          ariaLabel="Custom tree table"
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
           onToggleExpand={() => {}}
-          ariaLabel="Custom tree table"
         />
       );
 
@@ -172,9 +172,9 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={nodes}
           onToggleExpand={() => {}}
         />
       );
@@ -188,9 +188,9 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set(['1'])}
+          nodes={nodes}
           onToggleExpand={() => {}}
         />
       );
@@ -205,9 +205,9 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={nodes}
           onToggleExpand={handleToggle}
         />
       );
@@ -226,9 +226,9 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set(['1'])}
+          nodes={nodes}
           onToggleExpand={() => {}}
         />
       );
@@ -245,9 +245,9 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={nodes}
           onToggleExpand={() => {}}
         />
       );
@@ -264,17 +264,19 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={nodes}
+          onSelect={handleSelect}
           onToggleExpand={() => {}}
           selectionMode="single"
-          onSelect={handleSelect}
         />
       );
 
       const row = screen.getByText('File 1').closest('tr');
-      if (row) fireEvent.click(row);
+      if (row) {
+        fireEvent.click(row);
+      }
 
       expect(handleSelect).toHaveBeenCalledWith('1');
     });
@@ -285,17 +287,19 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={nodes}
+          onSelect={handleSelect}
           onToggleExpand={() => {}}
           selectionMode="none"
-          onSelect={handleSelect}
         />
       );
 
       const row = screen.getByText('File 1').closest('tr');
-      if (row) fireEvent.click(row);
+      if (row) {
+        fireEvent.click(row);
+      }
 
       expect(handleSelect).not.toHaveBeenCalled();
     });
@@ -305,9 +309,9 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={nodes}
           onToggleExpand={() => {}}
           selectedId="1"
         />
@@ -326,18 +330,20 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
+          multiSelectedIds={new Set(['1'])}
+          nodes={nodes}
+          onMultiSelectChange={handleMultiSelect}
           onToggleExpand={() => {}}
           selectionMode="multi"
-          multiSelectedIds={new Set(['1'])}
-          onMultiSelectChange={handleMultiSelect}
         />
       );
 
       const row2 = screen.getByText('File 2').closest('tr');
-      if (row2) fireEvent.click(row2, { ctrlKey: true });
+      if (row2) {
+        fireEvent.click(row2, { ctrlKey: true });
+      }
 
       expect(handleMultiSelect).toHaveBeenCalled();
       const firstCall = handleMultiSelect.mock.calls[0];
@@ -354,11 +360,11 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
-          onToggleExpand={() => {}}
           highlightedIds={new Set(['1'])}
+          nodes={nodes}
+          onToggleExpand={() => {}}
         />
       );
 
@@ -380,12 +386,12 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={[createTestNode('1', 'Test')]}
           columns={columns}
           expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onSortChange={() => {}}
           onToggleExpand={() => {}}
           sortState={{ columnId: 'name', direction: 'asc' }}
-          onSortChange={() => {}}
         />
       );
 
@@ -405,11 +411,11 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={[createTestNode('1', 'Test')]}
           columns={columns}
           expandedIds={new Set()}
-          onToggleExpand={() => {}}
+          nodes={[createTestNode('1', 'Test')]}
           onSortChange={handleSort}
+          onToggleExpand={() => {}}
         />
       );
 
@@ -432,12 +438,12 @@ describe('TreeTable', () => {
 
       const { rerender } = render(
         <TreeTable
-          nodes={[createTestNode('1', 'Test')]}
           columns={columns}
           expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onSortChange={handleSort}
           onToggleExpand={() => {}}
           sortState={{ columnId: 'name', direction: 'asc' }}
-          onSortChange={handleSort}
         />
       );
 
@@ -449,12 +455,12 @@ describe('TreeTable', () => {
       // Rerender with desc to test next cycle
       rerender(
         <TreeTable
-          nodes={[createTestNode('1', 'Test')]}
           columns={columns}
           expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
+          onSortChange={handleSort}
           onToggleExpand={() => {}}
           sortState={{ columnId: 'name', direction: 'desc' }}
-          onSortChange={handleSort}
         />
       );
 
@@ -470,16 +476,18 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
-          onToggleExpand={() => {}}
+          nodes={nodes}
           onRowDoubleClick={handleDoubleClick}
+          onToggleExpand={() => {}}
         />
       );
 
       const row = screen.getByText('File 1').closest('tr');
-      if (row) fireEvent.doubleClick(row);
+      if (row) {
+        fireEvent.doubleClick(row);
+      }
 
       expect(handleDoubleClick).toHaveBeenCalledWith('1', expect.objectContaining({ id: '1' }));
     });
@@ -490,16 +498,18 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
-          onToggleExpand={() => {}}
+          nodes={nodes}
           onRowContextMenu={handleContextMenu}
+          onToggleExpand={() => {}}
         />
       );
 
       const row = screen.getByText('File 1').closest('tr');
-      if (row) fireEvent.contextMenu(row);
+      if (row) {
+        fireEvent.contextMenu(row);
+      }
 
       expect(handleContextMenu).toHaveBeenCalledWith(
         '1',
@@ -513,11 +523,11 @@ describe('TreeTable', () => {
     it('applies className to container', () => {
       render(
         <TreeTable
-          nodes={[createTestNode('1', 'Test')]}
+          className="custom-class"
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={[createTestNode('1', 'Test')]}
           onToggleExpand={() => {}}
-          className="custom-class"
         />
       );
 
@@ -530,9 +540,9 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={nodes}
           onToggleExpand={() => {}}
           rowClassName="custom-row"
         />
@@ -550,9 +560,9 @@ describe('TreeTable', () => {
 
       render(
         <TreeTable
-          nodes={nodes}
           columns={testColumns}
           expandedIds={new Set()}
+          nodes={nodes}
           onToggleExpand={() => {}}
           rowClassName={(node) => `row-${node.type}`}
         />

@@ -13,30 +13,30 @@ const PROGRESS_BATCH_SIZE = 25;
 // Default batch size for incremental directory loading
 const DEFAULT_BATCH_SIZE = 100;
 
-export interface LoadingProgressState {
+export type LoadingProgressState = {
   loaded: number;
   total: number;
   currentPath?: string;
   phase: 'counting' | 'loading';
-}
+};
 
-export interface UseFileTreeOptions {
+export type UseFileTreeOptions = {
   batchSize?: number;
-}
+};
 
-interface ProcessingStats {
+type ProcessingStats = {
   successCount: number;
   failCount: number;
-}
+};
 
-interface StackItem {
+type StackItem = {
   handle: DirectoryHandle;
   parent: IFileNode[];
   isRoot: boolean;
   path: string;
-}
+};
 
-interface ProcessingContext {
+type ProcessingContext = {
   rootFolderId: string;
   batchSize: number;
   fileSystemAdapter: ReturnType<typeof useAdapters>['fileSystemAdapter'];
@@ -56,7 +56,7 @@ interface ProcessingContext {
   setFileTree: (nodes: IFileNode[]) => void;
   sortFileNodes: (nodes: IFileNode[]) => IFileNode[];
   rootNodesRef: React.MutableRefObject<IFileNode[]>;
-}
+};
 
 export function useFileTree(
   rootDirectoryHandle: DirectoryHandle | null,
@@ -92,18 +92,24 @@ export function useFileTree(
   const { fileSystemAdapter } = useAdapters();
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const sortFileNodes = useCallback((nodes: IFileNode[]): IFileNode[] => {
-    return [...nodes].sort((a, b) => {
-      if (a.type !== b.type) {
-        if (a.type === 'directory') return -1;
-        if (b.type === 'directory') return 1;
-      }
-      return a.name.localeCompare(b.name, undefined, {
-        numeric: true,
-        sensitivity: 'base',
-      });
-    });
-  }, []);
+  const sortFileNodes = useCallback(
+    (nodes: IFileNode[]): IFileNode[] =>
+      [...nodes].sort((a, b) => {
+        if (a.type !== b.type) {
+          if (a.type === 'directory') {
+            return -1;
+          }
+          if (b.type === 'directory') {
+            return 1;
+          }
+        }
+        return a.name.localeCompare(b.name, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+      }),
+    []
+  );
 
   const updateProgress = useCallback((path?: string) => {
     progressRef.current.loaded += 1;
@@ -356,7 +362,9 @@ export function useFileTree(
         }
 
         const stackItem = stack.pop();
-        if (!stackItem) continue;
+        if (!stackItem) {
+          continue;
+        }
 
         let entries: IFileNode[];
         try {
@@ -535,7 +543,9 @@ export function useFileTree(
 
   const refreshTree = useCallback(async () => {
     // Stryker disable next-line ConditionalExpression -- guard is mirrored inside loadTree and mutations are behaviourally noop
-    if (!rootDirectoryHandle) return;
+    if (!rootDirectoryHandle) {
+      return;
+    }
     abortControllerRef.current?.abort();
     // Stryker disable next-line AssignmentOperator -- the counter is an internal debug hook and not observable in tests yet
     refreshTrigger.current += 1;

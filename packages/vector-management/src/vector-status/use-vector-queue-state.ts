@@ -10,20 +10,20 @@ import {
 
 export type BackfillProgress = { done: number; total: number } | null;
 
-export interface UseVectorQueueStateParams {
+export type UseVectorQueueStateParams = {
   service: VectorQueueService | null;
   activeEmbeddingSetId: string | null;
   shouldAutoBackfill: boolean;
-}
+};
 
-export interface TelemetryTrendPoint {
+export type TelemetryTrendPoint = {
   readonly timestamp: number;
   readonly throughput: number;
   readonly latencyP95: number;
   readonly errorCount: number;
-}
+};
 
-export interface UseVectorQueueStateResult {
+export type UseVectorQueueStateResult = {
   coverage: { total: number; withSet: number };
   queueCounts: QueueCounts;
   throughput: number;
@@ -37,7 +37,7 @@ export interface UseVectorQueueStateResult {
   retryFailed: (limit?: number) => Promise<void>;
   clearQueue: () => Promise<void>;
   wipeQueue: () => Promise<void>;
-}
+};
 
 const DEFAULT_COVERAGE: { total: number; withSet: number } = { total: 0, withSet: 0 };
 const DEFAULT_QUEUE_COUNTS: QueueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
@@ -136,13 +136,14 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Clear timeout on unmount
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       if (backfillTimeoutRef.current) {
         clearTimeout(backfillTimeoutRef.current);
       }
-    };
-  }, []);
+    },
+    []
+  );
 
   const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
     query: QUEUE_COUNTS_QUERY,
@@ -288,7 +289,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [metrics]);
 
   const backfillActiveSet = useCallback(async () => {
-    if (!service || !activeEmbeddingSetId) return;
+    if (!(service && activeEmbeddingSetId)) {
+      return;
+    }
     setBackfilling(true);
     setBackfillProgress(null);
     try {
@@ -310,11 +313,21 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [service, activeEmbeddingSetId]);
 
   useEffect(() => {
-    if (!shouldAutoBackfill || !activeEmbeddingSetId) return;
-    if (backfilling) return;
-    if (!coverage.total) return;
-    if (coverage.withSet >= coverage.total) return;
-    if (autoBackfillRef.current === activeEmbeddingSetId) return;
+    if (!(shouldAutoBackfill && activeEmbeddingSetId)) {
+      return;
+    }
+    if (backfilling) {
+      return;
+    }
+    if (!coverage.total) {
+      return;
+    }
+    if (coverage.withSet >= coverage.total) {
+      return;
+    }
+    if (autoBackfillRef.current === activeEmbeddingSetId) {
+      return;
+    }
 
     autoBackfillRef.current = activeEmbeddingSetId;
     void backfillActiveSet();
@@ -329,7 +342,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
 
   const retryFailed = useCallback(
     async (limit = 20) => {
-      if (!service) return;
+      if (!service) {
+        return;
+      }
       try {
         await service.retryFailed(limit);
       } catch {
@@ -340,7 +355,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   );
 
   const clearQueue = useCallback(async () => {
-    if (!service) return;
+    if (!service) {
+      return;
+    }
     try {
       await service.clearQueue(['failed']);
     } catch {
@@ -349,7 +366,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [service]);
 
   const wipeQueue = useCallback(async () => {
-    if (!service) return;
+    if (!service) {
+      return;
+    }
     try {
       await service.wipeQueue();
     } catch {

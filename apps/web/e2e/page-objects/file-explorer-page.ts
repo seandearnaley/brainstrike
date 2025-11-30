@@ -53,6 +53,6 @@ export class FileExplorerPage {
 
     // Wait for the tree to be visible with a longer timeout
     // This should work for both regular and performance tests
-    await expect(this.fileTree).toBeVisible({ timeout: 30000 });
+    await expect(this.fileTree).toBeVisible({ timeout: 30_000 });
   }
 }

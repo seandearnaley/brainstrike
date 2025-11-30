@@ -106,15 +106,15 @@ export type Result<T, E = EmbeddingProviderError> =
 /**
  * Input for embedding generation
  */
-export interface EmbeddingInput {
+export type EmbeddingInput = {
   text: string | string[];
   modelId: string;
-}
+};
 
 /**
  * Output from embedding generation
  */
-export interface EmbeddingOutput {
+export type EmbeddingOutput = {
   embedding: number[];
   embeddings?: number[][];
   dimensions: number;
@@ -124,4 +124,4 @@ export interface EmbeddingOutput {
     inputTokens: number;
     totalTokens?: number;
   };
-}
+};

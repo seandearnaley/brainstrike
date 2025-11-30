@@ -1,4 +1,4 @@
-export interface Prompt {
+export type Prompt = {
   id: string;
   title: string;
   content: string;
@@ -18,34 +18,34 @@ export interface Prompt {
   isFavorite: boolean;
   createdAt: number;
   updatedAt: number;
-}
+};
 
-export interface PromptRevision {
+export type PromptRevision = {
   id: string;
   content: string;
   timestamp: number;
   note?: string;
   modelSettings?: Prompt['modelSettings'];
-}
+};
 
-export interface Category {
+export type Category = {
   id: string;
   name: string;
   color: string;
   icon: string;
   description?: string;
-}
+};
 
-export interface ModelOption {
+export type ModelOption = {
   id: string;
   name: string;
   providerId: string;
-}
+};
 
-export interface PromptFilter {
+export type PromptFilter = {
   search: string;
   categoryId?: string | null;
   tags: string[];
   rating?: number;
   favoritesOnly: boolean;
-}
+};

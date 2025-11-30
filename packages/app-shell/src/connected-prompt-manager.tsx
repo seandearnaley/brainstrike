@@ -13,21 +13,21 @@ export function ConnectedPromptManager() {
     }
   }, [db, fetchRegistry]);
 
-  const availableModels = useMemo(() => {
-    return models
-      .filter((m) => m.isEnabled)
-      .map((m) => ({
-        id: m.id,
-        providerId: m.providerId,
-        name: m.name,
-        description: m.description,
-        capabilities: m.capabilities,
-      }));
-  }, [models]);
+  const availableModels = useMemo(
+    () =>
+      models
+        .filter((m) => m.isEnabled)
+        .map((m) => ({
+          id: m.id,
+          providerId: m.providerId,
+          name: m.name,
+          description: m.description,
+          capabilities: m.capabilities,
+        })),
+    [models]
+  );
 
-  const availableProviders = useMemo(() => {
-    return providers.filter((p) => p.isEnabled);
-  }, [providers]);
+  const availableProviders = useMemo(() => providers.filter((p) => p.isEnabled), [providers]);
 
   return <PromptManager availableModels={availableModels} providers={availableProviders} />;
 }

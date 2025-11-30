@@ -140,7 +140,7 @@ describe('ElectronStorageAdapter', () => {
   });
 
   it('should handle very long values', async () => {
-    const longValue = 'x'.repeat(10000);
+    const longValue = 'x'.repeat(10_000);
     await adapter.setItem('long', longValue);
     expect(await adapter.getItem('long')).toBe(longValue);
   });

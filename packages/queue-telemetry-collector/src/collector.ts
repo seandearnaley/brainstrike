@@ -6,17 +6,17 @@ import { createLogger } from '@brainstrike/utils';
 const DEFAULT_COLLECTOR_PATH = '/queue-telemetry';
 const DEFAULT_MAX_BODY_BYTES = 256_000;
 const DEFAULT_MAX_STORED_BATCHES = 100;
-const WAIT_FOR_BATCH_TIMEOUT_MS = 5_000;
+const WAIT_FOR_BATCH_TIMEOUT_MS = 5000;
 
-export interface QueueTelemetryBatch {
+export type QueueTelemetryBatch = {
   readonly runtime: QueueTelemetryRuntime;
   readonly sentAt: Date;
   readonly receivedAt: Date;
   readonly events: readonly QueueTelemetryEvent[];
   readonly metadata: Readonly<Record<string, unknown>> | null;
-}
+};
 
-export interface QueueTelemetryCollectorOptions {
+export type QueueTelemetryCollectorOptions = {
   readonly host?: string;
   readonly port?: number;
   readonly path?: string;
@@ -24,9 +24,9 @@ export interface QueueTelemetryCollectorOptions {
   readonly maxBodyBytes?: number;
   readonly maxStoredBatches?: number;
   readonly onBatch?: (batch: QueueTelemetryBatch) => Promise<void> | void;
-}
+};
 
-export interface QueueTelemetryCollector {
+export type QueueTelemetryCollector = {
   start(): Promise<void>;
   stop(): Promise<void>;
   isRunning(): boolean;
@@ -34,7 +34,7 @@ export interface QueueTelemetryCollector {
   listBatches(): readonly QueueTelemetryBatch[];
   clearBatches(): void;
   nextBatch(options?: { readonly timeoutMs?: number }): Promise<QueueTelemetryBatch>;
-}
+};
 
 type BatchListener = (batch: QueueTelemetryBatch) => void;
 
@@ -156,16 +156,13 @@ export function createQueueTelemetryCollector(
 
   type ValidationError = { status: number; message: string };
 
-  const isValidationError = (value: unknown): value is ValidationError => {
-    return (
-      typeof value === 'object' &&
-      value !== null &&
-      'status' in value &&
-      'message' in value &&
-      typeof (value as { status?: unknown }).status === 'number' &&
-      typeof (value as { message?: unknown }).message === 'string'
-    );
-  };
+  const isValidationError = (value: unknown): value is ValidationError =>
+    typeof value === 'object' &&
+    value !== null &&
+    'status' in value &&
+    'message' in value &&
+    typeof (value as { status?: unknown }).status === 'number' &&
+    typeof (value as { message?: unknown }).message === 'string';
 
   const validateMethod = (method: string | undefined): ValidationError | null => {
     if (method === 'POST') {

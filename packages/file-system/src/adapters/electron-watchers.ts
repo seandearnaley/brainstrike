@@ -11,7 +11,9 @@ export function startFsWatch(
 ): () => void {
   try {
     const native = fs.watch(handle.path, { recursive: false }, (ev, filename) => {
-      if (!filename) return;
+      if (!filename) {
+        return;
+      }
       const full = path.join(handle.path, filename);
       const exists = fs.existsSync(full);
       let isDir = false;

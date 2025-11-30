@@ -104,7 +104,9 @@ describe('Folder State Actions', () => {
     const idKey = 'newId';
     const newState = state.folderStates[idKey];
     expect(newState).toBeDefined();
-    if (!newState) throw new Error('Expected folder state to be defined');
+    if (!newState) {
+      throw new Error('Expected folder state to be defined');
+    }
     expect(newState.selectedFilePaths.size).toBe(0);
     expect(newState.expandedDirectoryPaths.size).toBe(0);
     expect(newState.useRegex).toBe(false);

@@ -65,12 +65,12 @@ describe('ModelPicker', () => {
     });
 
     it('renders with custom placeholder', () => {
-      render(<ModelPicker models={models} providers={providers} placeholder="Choose your model" />);
+      render(<ModelPicker models={models} placeholder="Choose your model" providers={providers} />);
       expect(screen.getByText('Choose your model')).toBeInTheDocument();
     });
 
     it('renders in disabled state', () => {
-      render(<ModelPicker models={models} providers={providers} disabled />);
+      render(<ModelPicker disabled models={models} providers={providers} />);
       const trigger = screen.getByRole('combobox');
       expect(trigger).toBeDisabled();
     });
@@ -83,7 +83,7 @@ describe('ModelPicker', () => {
     });
 
     it('renders with custom className', () => {
-      render(<ModelPicker models={models} providers={providers} className="custom-class" />);
+      render(<ModelPicker className="custom-class" models={models} providers={providers} />);
       const trigger = screen.getByRole('combobox');
       expect(trigger).toHaveClass('custom-class');
     });
@@ -92,7 +92,7 @@ describe('ModelPicker', () => {
   describe('selection', () => {
     it('selects an option in single mode', () => {
       const onChange = vi.fn();
-      render(<ModelPicker models={models} providers={providers} onChange={onChange} />);
+      render(<ModelPicker models={models} onChange={onChange} providers={providers} />);
       fireEvent.click(screen.getByText('Select a model...'));
       fireEvent.click(screen.getByText('GPT-4'));
       expect(onChange).toHaveBeenCalledWith('gpt-4');
@@ -106,7 +106,7 @@ describe('ModelPicker', () => {
     it('handles multi-select mode - adds selection', () => {
       const onChange = vi.fn();
       render(
-        <ModelPicker models={models} providers={providers} mode="multi" onChange={onChange} />
+        <ModelPicker mode="multi" models={models} onChange={onChange} providers={providers} />
       );
       fireEvent.click(screen.getByRole('combobox'));
       fireEvent.click(screen.getByText('GPT-4'));
@@ -114,7 +114,7 @@ describe('ModelPicker', () => {
     });
 
     it('handles multi-select with existing value', () => {
-      render(<ModelPicker models={models} providers={providers} mode="multi" value={['gpt-4']} />);
+      render(<ModelPicker mode="multi" models={models} providers={providers} value={['gpt-4']} />);
       // Trigger should show the selected model
       expect(screen.getByText('GPT-4')).toBeInTheDocument();
     });
@@ -123,11 +123,11 @@ describe('ModelPicker', () => {
       const onChange = vi.fn();
       render(
         <ModelPicker
-          models={models}
-          providers={providers}
           mode="multi"
-          value={['gpt-4']}
+          models={models}
           onChange={onChange}
+          providers={providers}
+          value={['gpt-4']}
         />
       );
       fireEvent.click(screen.getByRole('combobox'));
@@ -138,9 +138,9 @@ describe('ModelPicker', () => {
     it('displays count for multiple selections', () => {
       render(
         <ModelPicker
+          mode="multi"
           models={models}
           providers={providers}
-          mode="multi"
           value={['gpt-4', 'claude-3']}
         />
       );
@@ -151,21 +151,21 @@ describe('ModelPicker', () => {
 
   describe('filtering', () => {
     it('filters models by type when modelType is llm', () => {
-      render(<ModelPicker models={models} providers={providers} modelType="llm" />);
+      render(<ModelPicker models={models} modelType="llm" providers={providers} />);
       fireEvent.click(screen.getByRole('combobox'));
       expect(screen.getByText('GPT-4')).toBeInTheDocument();
       expect(screen.queryByText('Text Embedding')).not.toBeInTheDocument();
     });
 
     it('filters models by type when modelType is embedding', () => {
-      render(<ModelPicker models={models} providers={providers} modelType="embedding" />);
+      render(<ModelPicker models={models} modelType="embedding" providers={providers} />);
       fireEvent.click(screen.getByRole('combobox'));
       expect(screen.getByText('Text Embedding')).toBeInTheDocument();
       expect(screen.queryByText('GPT-4')).not.toBeInTheDocument();
     });
 
     it('shows all models when modelType is all', () => {
-      render(<ModelPicker models={models} providers={providers} modelType="all" />);
+      render(<ModelPicker models={models} modelType="all" providers={providers} />);
       fireEvent.click(screen.getByRole('combobox'));
       expect(screen.getByText('GPT-4')).toBeInTheDocument();
       expect(screen.getByText('Text Embedding')).toBeInTheDocument();
@@ -246,7 +246,7 @@ describe('ModelPicker', () => {
           models={models}
           providers={providers}
           renderTrigger={({ placeholder }) => (
-            <button type="button" data-testid="custom-trigger">
+            <button data-testid="custom-trigger" type="button">
               {placeholder}
             </button>
           )}
@@ -259,12 +259,12 @@ describe('ModelPicker', () => {
       const renderTrigger = vi.fn().mockReturnValue(<button type="button">Custom</button>);
       render(
         <ModelPicker
-          models={models}
-          providers={providers}
-          value="gpt-4"
-          placeholder="Select"
           disabled
+          models={models}
+          placeholder="Select"
+          providers={providers}
           renderTrigger={renderTrigger}
+          value="gpt-4"
         />
       );
       expect(renderTrigger).toHaveBeenCalledWith(
@@ -296,7 +296,7 @@ describe('ModelPicker', () => {
     });
 
     it('shows model count per provider', () => {
-      render(<ModelPicker models={models} providers={providers} modelType="llm" />);
+      render(<ModelPicker models={models} modelType="llm" providers={providers} />);
       fireEvent.click(screen.getByRole('combobox'));
       // OpenAI has 2 LLM models
       expect(screen.getByText('2')).toBeInTheDocument();

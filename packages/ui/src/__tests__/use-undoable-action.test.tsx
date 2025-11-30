@@ -65,7 +65,7 @@ describe('useUndoableAction', () => {
         {
           actionName: 'Test Action',
           itemDescription: 'Test item',
-          duration: 10000,
+          duration: 10_000,
           onUndo: vi.fn(),
         }
       );
@@ -73,7 +73,7 @@ describe('useUndoableAction', () => {
 
     expect(mockToast).toHaveBeenCalledWith(
       expect.objectContaining({
-        duration: 10000,
+        duration: 10_000,
       })
     );
   });

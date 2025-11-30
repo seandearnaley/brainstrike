@@ -1,11 +1,11 @@
 import React, { type ComponentType, type ReactElement, type ReactNode } from 'react';
 import { cn } from './lib/utils';
 
-export interface NavigationItem {
+export type NavigationItem = {
   name: string;
   icon: ComponentType<{ className?: string }>;
   path: string;
-}
+};
 
 export interface NavigationSidebarProps extends React.HTMLAttributes<HTMLElement> {
   items: NavigationItem[];
@@ -26,11 +26,11 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
 }: NavigationSidebarProps): ReactElement {
   return (
     <nav
+      aria-label={ariaLabel || 'Main navigation'}
       className={cn(
-        'w-16 bg-sidebar h-full flex flex-col items-center py-4 space-y-4 border-r border-sidebar-border',
+        'flex h-full w-16 flex-col items-center space-y-4 border-sidebar-border border-r bg-sidebar py-4',
         className
       )}
-      aria-label={ariaLabel || 'Main navigation'}
       {...props}
     >
       {items.map((item) => {
@@ -40,20 +40,20 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
         if (onItemClick) {
           return (
             <button
-              key={item.name}
-              type="button"
-              onClick={() => onItemClick(item.path)}
+              aria-label={item.name}
               className={cn(
-                'p-2 rounded-md transition-all duration-150',
+                'rounded-md p-2 transition-all duration-150',
                 'hover:bg-sidebar-accent active:scale-95',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-1',
                 currentPath === item.path && 'bg-sidebar-accent text-sidebar-primary',
                 'cursor-pointer'
               )}
+              key={item.name}
+              onClick={() => onItemClick(item.path)}
               title={item.name}
-              aria-label={item.name}
+              type="button"
             >
-              <Icon className="w-6 h-6" />
+              <Icon className="h-6 w-6" />
             </button>
           );
         }
@@ -61,18 +61,18 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
         // Default behavior: render as link
         return (
           <a
-            key={item.name}
-            href={item.path}
+            aria-label={item.name}
             className={cn(
-              'p-2 rounded-md transition-all duration-150',
+              'rounded-md p-2 transition-all duration-150',
               'hover:bg-sidebar-accent active:scale-95',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-1',
               currentPath === item.path && 'bg-sidebar-accent text-sidebar-primary'
             )}
+            href={item.path}
+            key={item.name}
             title={item.name}
-            aria-label={item.name}
           >
-            <Icon className="w-6 h-6" />
+            <Icon className="h-6 w-6" />
           </a>
         );
       })}

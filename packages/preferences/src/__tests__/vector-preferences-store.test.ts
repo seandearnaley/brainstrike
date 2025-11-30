@@ -53,7 +53,7 @@ describe('vector-preferences-store', () => {
     expect(persistApi).toBeDefined();
     const options = persistApi?.getOptions?.();
     expect(options?.storage).toBeDefined();
-    if (!persistApi || !options?.storage || !options.name) {
+    if (!(persistApi && options?.storage && options.name)) {
       throw new Error('persist storage unavailable for test');
     }
 

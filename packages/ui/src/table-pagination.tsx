@@ -1,14 +1,14 @@
 import { memo } from 'react';
 import { Button } from './button';
 
-interface TablePaginationProps {
+type TablePaginationProps = {
   currentPage: number;
   totalPages: number;
   totalItems: number;
   onPageChange: (page: number) => void;
   pageInfo?: string;
   maxPageButtons?: number;
-}
+};
 
 export const TablePagination = memo<TablePaginationProps>(function TablePaginationComponent({
   currentPage,
@@ -52,35 +52,35 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   }
 
   return (
-    <div className="flex items-center justify-between p-3 border-t bg-background">
-      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+    <div className="flex items-center justify-between border-t bg-background p-3">
+      <div className="flex items-center gap-4 text-muted-foreground text-sm">
         <span>
           Page {currentPage + 1} of {totalPages}
           {pageInfo ? ` ${pageInfo}` : ` (${totalItems} total items)`}
         </span>
       </div>
       <div className="flex items-center space-x-2">
-        <Button variant="outline" size="sm" onClick={goToPreviousPage} disabled={currentPage === 0}>
+        <Button disabled={currentPage === 0} onClick={goToPreviousPage} size="sm" variant="outline">
           Previous
         </Button>
         <div className="flex items-center space-x-1">
           {getPageNumbers().map((pageNum) => (
             <Button
+              className="h-8 w-8 p-0"
               key={pageNum}
-              variant={pageNum === currentPage ? 'default' : 'outline'}
-              size="sm"
               onClick={() => onPageChange(pageNum)}
-              className="w-8 h-8 p-0"
+              size="sm"
+              variant={pageNum === currentPage ? 'default' : 'outline'}
             >
               {pageNum + 1}
             </Button>
           ))}
         </div>
         <Button
-          variant="outline"
-          size="sm"
-          onClick={goToNextPage}
           disabled={currentPage === totalPages - 1}
+          onClick={goToNextPage}
+          size="sm"
+          variant="outline"
         >
           Next
         </Button>

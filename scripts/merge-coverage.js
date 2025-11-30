@@ -9,7 +9,9 @@ function main() {
 
   // Simple logger honoring --quiet
   const info = (...msg) => {
-    if (!quiet) console.log(...msg);
+    if (!quiet) {
+      console.log(...msg);
+    }
   };
 
   // Determine roots to search for coverage files. Accepts any number of
@@ -40,7 +42,9 @@ function main() {
   };
 
   info('Searching coverage under:', searchRoots.join(', '));
-  for (const root of searchRoots) walk(path.resolve(root));
+  for (const root of searchRoots) {
+    walk(path.resolve(root));
+  }
   info('Found coverage reports:', files.length);
   if (!files.length) {
     console.error('No coverage-final.json files found. Nothing to merge.');

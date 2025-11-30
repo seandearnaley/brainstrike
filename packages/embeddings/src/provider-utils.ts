@@ -3,10 +3,10 @@ import type { EmbeddingProviderType } from './provider-types';
 const PROVIDER_SEPARATOR = '::';
 const LEGACY_SEPARATOR = ':';
 
-export interface ParsedProviderModel {
+export type ParsedProviderModel = {
   provider: EmbeddingProviderType;
   modelId: string;
-}
+};
 
 export function formatProviderModelKey(provider: EmbeddingProviderType, modelId: string): string {
   return `${provider}${PROVIDER_SEPARATOR}${modelId}`;
@@ -21,7 +21,7 @@ export function parseProviderModelKey(
 
   if (composite.includes(PROVIDER_SEPARATOR)) {
     const [provider, modelId] = composite.split(PROVIDER_SEPARATOR);
-    if (!provider || !modelId) {
+    if (!(provider && modelId)) {
       return null;
     }
     return {

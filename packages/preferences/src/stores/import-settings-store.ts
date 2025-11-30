@@ -4,7 +4,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { useTokenPreferencesStore } from './token-preferences-store';
 
-interface ImportSettingsData {
+type ImportSettingsData = {
   enableChunking: boolean;
   chunkingStrategy: ChunkingStrategy;
   chunkingStrategyExplicit: boolean;
@@ -12,16 +12,16 @@ interface ImportSettingsData {
   chunkOverlap: number;
   tokenTrueSizing: boolean;
   chunkTokenLimit: number;
-}
+};
 
-interface ImportSettingsActions {
+type ImportSettingsActions = {
   setEnableChunking: (v: boolean) => void;
   setChunkingStrategy: (v: ChunkingStrategy) => void;
   setChunkSize: (n: number) => void;
   setChunkOverlap: (n: number) => void;
   setTokenTrueSizing: (v: boolean) => void;
   setChunkTokenLimit: (n: number) => void;
-}
+};
 
 export type ImportSettingsStore = ImportSettingsData & ImportSettingsActions;
 
@@ -57,7 +57,7 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
         set({ tokenTrueSizing: next });
       },
       setChunkTokenLimit: (n) =>
-        set({ chunkTokenLimit: Math.max(512, Math.min(16384, Math.floor(n) || 512)) }),
+        set({ chunkTokenLimit: Math.max(512, Math.min(16_384, Math.floor(n) || 512)) }),
     }),
     {
       name: STORE_NAME,
@@ -65,7 +65,9 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
       storage,
       migrate: (state, version) => {
         const snapshot = state as Partial<ImportSettingsStore> | undefined;
-        if (!snapshot) return snapshot;
+        if (!snapshot) {
+          return snapshot;
+        }
         let next: Partial<ImportSettingsStore> = { ...snapshot };
         if (version < 2) {
           next = {
@@ -80,7 +82,7 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
               typeof next.tokenTrueSizing === 'boolean' ? next.tokenTrueSizing : true,
             chunkTokenLimit:
               typeof next.chunkTokenLimit === 'number'
-                ? Math.max(512, Math.min(16384, Math.floor(next.chunkTokenLimit)))
+                ? Math.max(512, Math.min(16_384, Math.floor(next.chunkTokenLimit)))
                 : 4096,
           };
         }

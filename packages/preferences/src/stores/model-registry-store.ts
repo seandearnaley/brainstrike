@@ -5,15 +5,15 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 
 const logger = createLogger('ModelRegistryStore');
 
-export interface DbProvider {
+export type DbProvider = {
   id: string;
   name: string;
   icon: string | null;
   isEnabled: boolean;
   sortOrder: number;
-}
+};
 
-export interface DbModel {
+export type DbModel = {
   id: string;
   providerId: string;
   name: string;
@@ -29,9 +29,9 @@ export interface DbModel {
   };
   parameters: Record<string, unknown> | null;
   sortOrder: number;
-}
+};
 
-interface ModelRegistryState {
+type ModelRegistryState = {
   providers: DbProvider[];
   models: DbModel[];
   isLoading: boolean;
@@ -49,10 +49,10 @@ interface ModelRegistryState {
   setDownloadProgress: (modelId: string, progress: number) => void;
   setDownloading: (modelId: string, isDownloading: boolean) => void;
   downloadedModels: Record<string, boolean>;
-}
+};
 
 // Raw DB types
-interface RawProvider {
+type RawProvider = {
   id: string;
   name: string;
   icon: string | null;
@@ -60,9 +60,9 @@ interface RawProvider {
   is_enabled: number | boolean;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   sort_order: number;
-}
+};
 
-interface RawModel {
+type RawModel = {
   id: string;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   provider_id: string;
@@ -78,7 +78,7 @@ interface RawModel {
   parameters: string | object | null;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   sort_order: number;
-}
+};
 
 function parseDbModel(row: RawModel): DbModel {
   return {
@@ -111,7 +111,7 @@ async function checkDownloadedModels(
     }
   ).electronAPI;
 
-  if (!electronAPI?.fileSystem?.exists || !modelCacheDir) {
+  if (!(electronAPI?.fileSystem?.exists && modelCacheDir)) {
     return currentDownloadedModels;
   }
 

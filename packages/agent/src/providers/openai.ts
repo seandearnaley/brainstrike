@@ -1,10 +1,10 @@
 import type { AgentMessage, AgentMessagePartText, StreamChunk, StreamIterator } from '../index';
 
-export interface OpenAIStreamRuntime {
+export type OpenAIStreamRuntime = {
   apiKey: string;
   model?: string;
   signal?: AbortSignal | null | undefined;
-}
+};
 
 function toChatMessages(
   messages: AgentMessage[]
@@ -42,14 +42,18 @@ function parseSSELines(chunk: string): { deltas: string[]; done: boolean } {
   let done = false;
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line.startsWith('data:')) continue;
+    if (!line.startsWith('data:')) {
+      continue;
+    }
     const data = line.slice(5).trim();
     if (data === '[DONE]') {
       done = true;
       break;
     }
     const delta = emitDeltaFromData(data);
-    if (delta) deltas.push(delta);
+    if (delta) {
+      deltas.push(delta);
+    }
   }
   return { deltas, done };
 }
@@ -99,7 +103,9 @@ async function* readDeltasFromStream(
       for (const delta of parsed.deltas) {
         yield delta;
       }
-      if (parsed.done) return;
+      if (parsed.done) {
+        return;
+      }
     }
   }
 
@@ -130,7 +136,7 @@ export async function toOpenAIStream(
     signal: (runtime.signal ?? null) as AbortSignal | null,
   });
 
-  if (!res.ok || !res.body) {
+  if (!(res.ok && res.body)) {
     const errText = await res.text().catch(() => '');
     async function* errIter(): AsyncIterableIterator<StreamChunk> {
       yield { type: 'text-delta', value: `\n[provider_error ${res.status}] ${errText}` };

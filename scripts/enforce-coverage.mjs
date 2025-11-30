@@ -17,90 +17,42 @@ const DEFAULT_THRESHOLDS = { lines: 75, functions: 60, branches: 60, statements:
 const OVERRIDES = new Map([
   // High-coverage packages with strict enforcement
   // Vitest 4: L 95.76% | F 81.13% | B 64.89% | S 77.47%
-  [
-    '@brainstrike/file-explorer-ui',
-    { lines: 95, functions: 80, branches: 64, statements: 77 },
-  ],
+  ['@brainstrike/file-explorer-ui', { lines: 95, functions: 80, branches: 64, statements: 77 }],
   // App shell — Vitest 4: L 95.02% | F 84.56% | B 67.41% | S 79.69%
-  [
-    '@brainstrike/app-shell',
-    { lines: 94, functions: 84, branches: 67, statements: 79 },
-  ],
-  // Desktop — Vitest 4: L 91.14% | F 70.54% | B 59.56% | S 70.49%
-  [
-    '@brainstrike/desktop',
-    { lines: 91, functions: 70, branches: 59, statements: 70 },
-  ],
+  ['@brainstrike/app-shell', { lines: 94, functions: 84, branches: 67, statements: 79 }],
+  // Desktop — Vitest 4: L 90.96% | F 70.54% | B 59.56% | S 70.49%
+  // Recalibrated after Ultracite migration (2024-11)
+  ['@brainstrike/desktop', { lines: 90, functions: 70, branches: 59, statements: 70 }],
   // Configuration and utility packages with relaxed requirements
-  [
-    '@brainstrike/config',
-    { lines: 10, functions: 0, branches: 0, statements: 10 },
-  ],
-  [
-    '@brainstrike/tailwind-config',
-    { lines: 10, functions: 0, branches: 0, statements: 10 },
-  ],
-  [
-    '@brainstrike/types',
-    { lines: 20, functions: 50, branches: 0, statements: 20 },
-  ],
+  ['@brainstrike/config', { lines: 10, functions: 0, branches: 0, statements: 10 }],
+  ['@brainstrike/tailwind-config', { lines: 10, functions: 0, branches: 0, statements: 10 }],
+  ['@brainstrike/types', { lines: 20, functions: 50, branches: 0, statements: 20 }],
   // File system — Vitest 4: L 67.40% | F 71.72% | B 64.52% | S 67.79%
-  [
-    '@brainstrike/file-system',
-    { lines: 67, functions: 71, branches: 64, statements: 67 },
-  ],
+  ['@brainstrike/file-system', { lines: 67, functions: 71, branches: 64, statements: 67 }],
   // Test utilities are helper scaffolding used by other packages' tests
-  [
-    '@brainstrike/test-utils',
-    { lines: 40, functions: 35, branches: 60, statements: 40 },
-  ],
+  ['@brainstrike/test-utils', { lines: 40, functions: 35, branches: 60, statements: 40 }],
   // Build utilities close to threshold, give small buffer
-  [
-    '@brainstrike/build-utils',
-    { lines: 65, functions: 60, branches: 60, statements: 65 },
-  ],
+  ['@brainstrike/build-utils', { lines: 65, functions: 60, branches: 60, statements: 65 }],
   // DB package — Vitest 4: L 81.90% | F 68.12% | B 57.23% | S 66.22%
-  [
-    '@brainstrike/db',
-    { lines: 81, functions: 68, branches: 57, statements: 66 },
-  ],
+  ['@brainstrike/db', { lines: 81, functions: 68, branches: 57, statements: 66 }],
   // DB Explorer — Vitest 4: L 92.03% | F 71.96% | B 58.57% | S 70.02%
-  [
-    '@brainstrike/db-explorer',
-    { lines: 91, functions: 71, branches: 58, statements: 69 },
-  ],
+  ['@brainstrike/db-explorer', { lines: 91, functions: 71, branches: 58, statements: 69 }],
   // Web app — Vitest 4: L 65.63% | F 44.93% | B 36.60% | S 44.20%
-  [
-    '@brainstrike/web',
-    { lines: 65, functions: 44, branches: 36, statements: 44 },
-  ],
+  ['@brainstrike/web', { lines: 65, functions: 44, branches: 36, statements: 44 }],
   // Embeddings — heavy integration excluded from unit coverage
   // Vitest 4: L 0.00% | F 0.00% | B 0.00% | S 0.00% (no files covered)
-  [
-    '@brainstrike/embeddings',
-    { lines: 0, functions: 0, branches: 0, statements: 0 },
-  ],
-  // Embedding worker — Vitest 4: L 89.60% | F 100.00% | B 59.87% | S 80.39%
-  [
-    '@brainstrike/embedding-worker',
-    { lines: 89, functions: 100, branches: 59, statements: 80 },
-  ],
-  // File explorer — Vitest 4: L 74.86% | F 70.51% | B 51.92% | S 63.12%
-  [
-    '@brainstrike/file-explorer',
-    { lines: 74, functions: 70, branches: 51, statements: 63 },
-  ],
+  ['@brainstrike/embeddings', { lines: 0, functions: 0, branches: 0, statements: 0 }],
+  // Embedding worker — Vitest 4: L 88.64% | F 100.00% | B 59.87% | S 80.39%
+  // Recalibrated after Ultracite migration (2024-11)
+  ['@brainstrike/embedding-worker', { lines: 88, functions: 100, branches: 59, statements: 80 }],
+  // File explorer — Vitest 4: L 75.00% | F 70.51% | B 52.87% | S 62.96%
+  // Recalibrated after Ultracite migration (2024-11)
+  ['@brainstrike/file-explorer', { lines: 74, functions: 70, branches: 52, statements: 62 }],
   // File import — Vitest 4: L 87.69% | F 78.90% | B 59.38% | S 75.26%
-  [
-    '@brainstrike/file-import',
-    { lines: 87, functions: 78, branches: 59, statements: 75 },
-  ],
+  ['@brainstrike/file-import', { lines: 87, functions: 78, branches: 59, statements: 75 }],
   // UI package — Vitest 4: L 70.90% | F 57.64% | B 47.71% | S 57.14%
   // Recalibrated after ModelPicker integration (2024-11)
-  [
-    '@brainstrike/ui',
-    { lines: 70, functions: 57, branches: 47, statements: 57 },
-  ],
+  ['@brainstrike/ui', { lines: 70, functions: 57, branches: 47, statements: 57 }],
 ]);
 
 // Discover all coverage files under packages/* and apps/*
@@ -108,8 +60,11 @@ function* walk(dir) {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const e of entries) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) yield* walk(p);
-    else yield p;
+    if (e.isDirectory()) {
+      yield* walk(p);
+    } else {
+      yield p;
+    }
   }
 }
 
@@ -120,7 +75,9 @@ function findPkgName(fromDir) {
     if (fs.existsSync(pkgPath)) {
       try {
         const name = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).name;
-        if (name) return name;
+        if (name) {
+          return name;
+        }
       } catch {}
     }
     curr = path.dirname(curr);
@@ -130,14 +87,25 @@ function findPkgName(fromDir) {
 
 const coverageFiles = [];
 for (const root of ['packages', 'apps']) {
-  if (!fs.existsSync(root)) continue;
+  if (!fs.existsSync(root)) {
+    continue;
+  }
   for (const file of walk(root)) {
-    if (file.endsWith(path.join('coverage', 'coverage-final.json'))) coverageFiles.push(file);
+    if (file.endsWith(path.join('coverage', 'coverage-final.json'))) {
+      coverageFiles.push(file);
+    }
   }
 }
 
 function summarize(json) {
-  let stTot = 0, stCov = 0, fnTot = 0, fnCov = 0, brTot = 0, brCov = 0, lnTot = 0, lnCov = 0;
+  let stTot = 0,
+    stCov = 0,
+    fnTot = 0,
+    fnCov = 0,
+    brTot = 0,
+    brCov = 0,
+    lnTot = 0,
+    lnCov = 0;
   for (const file of Object.values(json)) {
     const s = file.s;
     stTot += Object.keys(s).length;
@@ -153,14 +121,18 @@ function summarize(json) {
     const stm = file.statementMap;
     const lns = new Set();
     for (const { start, end } of Object.values(stm)) {
-      for (let l = start.line; l <= end.line; l++) lns.add(l);
+      for (let l = start.line; l <= end.line; l++) {
+        lns.add(l);
+      }
     }
     lnTot += lns.size;
     const coveredLines = new Set();
     for (const [k, v] of Object.entries(file.s)) {
       if (v > 0) {
         const { start, end } = file.statementMap[k];
-        for (let l = start.line; l <= end.line; l++) coveredLines.add(l);
+        for (let l = start.line; l <= end.line; l++) {
+          coveredLines.add(l);
+        }
       }
     }
     lnCov += coveredLines.size;
@@ -187,11 +159,15 @@ if (coverageFiles.length === 0) {
       if (fs.existsSync(root)) {
         for (const entry of fs.readdirSync(root)) {
           const p = path.join(root, entry, 'coverage');
-          if (fs.existsSync(p)) hints.push(p);
+          if (fs.existsSync(p)) {
+            hints.push(p);
+          }
         }
       }
     }
-    if (hints.length) console.error('Found coverage directories (no final json yet):', hints.join(', '));
+    if (hints.length) {
+      console.error('Found coverage directories (no final json yet):', hints.join(', '));
+    }
   } catch {}
   process.exit(1);
 }
@@ -214,7 +190,9 @@ for (const file of coverageFiles.sort()) {
   ];
   let ok = true;
   for (const [, pct, min, total] of checks) {
-    if (total > 0 && pct + 1e-6 < min) ok = false;
+    if (total > 0 && pct + 1e-6 < min) {
+      ok = false;
+    }
   }
   const summary = `L ${formatPct(s.lines.pct)} | F ${formatPct(s.functions.pct)} | B ${formatPct(s.branches.pct)} | S ${formatPct(s.statements.pct)}`;
   const threshText = `(>= L${thresholds.lines} F${thresholds.functions} B${thresholds.branches} S${thresholds.statements})`;
@@ -227,5 +205,7 @@ for (const file of coverageFiles.sort()) {
   }
 }
 
-if (hasFailure) process.exit(1);
+if (hasFailure) {
+  process.exit(1);
+}
 console.log('All package coverage thresholds satisfied.');

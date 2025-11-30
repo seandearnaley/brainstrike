@@ -17,10 +17,10 @@ import {
 } from '@brainstrike/ui/assistant-ui-panel';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 
-export interface AssistantUiPanelWrapperProps {
+export type AssistantUiPanelWrapperProps = {
   className?: string;
   initialProviders?: SupportedProvider[];
-}
+};
 
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   hosted: 'Hosted',
@@ -54,7 +54,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const selectModelForProvider = useCallback(
     (provider: SupportedProvider) => {
       const enabledModels = enabledModelsByProvider[provider] ?? [];
-      if (enabledModels.length === 0) return;
+      if (enabledModels.length === 0) {
+        return;
+      }
 
       const defaultModel = getProviderDefaultModel(provider);
       const modelToSelect =
@@ -74,7 +76,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       }
 
       const providers = await getAvailableProviders();
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       setConfiguredProviders(providers);
     };
 
@@ -138,7 +142,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   const handleModelToggle = useCallback(
     (providerId: string, modelId: string, enabled: boolean) => {
-      if (!isSupportedProvider(providerId)) return;
+      if (!isSupportedProvider(providerId)) {
+        return;
+      }
       setModelEnabled(providerId, modelId, enabled);
     },
     [setModelEnabled]
@@ -174,7 +180,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       }));
 
       const group = groups.get(runtime);
-      if (!group) continue;
+      if (!group) {
+        continue;
+      }
 
       group.providers.push({
         id: providerId,
@@ -219,7 +227,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
       for (const model of modelDefinitions) {
         // Only include enabled models
-        if (!enabledModels.includes(model.id)) continue;
+        if (!enabledModels.includes(model.id)) {
+          continue;
+        }
 
         models.push({
           id: model.id,
@@ -259,19 +269,19 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     if (!currentModel) {
       return 'Select a model for the chosen provider to continue.';
     }
-    return undefined;
+    return;
   }, [configuredProviders, selectedProvider, enabledModelsByProvider, currentModel]);
 
   return (
     <AssistantUiPanel
-      providerGroups={providerGroups}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
+      providerGroups={providerGroups}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}
+      disabled={!isProviderReady}
       onModelChange={handleModelChange}
       onModelToggle={handleModelToggle}
-      disabled={!isProviderReady}
       {...(disabledReason ? { disabledReason } : {})}
     />
   );

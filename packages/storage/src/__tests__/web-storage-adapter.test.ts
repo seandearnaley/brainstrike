@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { WebStorageAdapter } from '../adapters/web-storage-adapter';
 
 class MockStorage implements Storage {
-  private store = new Map<string, string>();
+  private readonly store = new Map<string, string>();
 
   get length(): number {
     return this.store.size;

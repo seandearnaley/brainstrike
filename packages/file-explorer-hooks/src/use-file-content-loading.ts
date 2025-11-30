@@ -10,17 +10,17 @@ import {
 
 const MAX_CONCURRENT_LOADS = 3; // Reduced to prevent main thread saturation and WorkerStorage timeouts
 
-interface UseFileContentLoadingReturn {
+type UseFileContentLoadingReturn = {
   fileContents: { [compositeKey: string]: string };
   isLoading: boolean;
   error: Error | null;
   handleFileContentLoading: (compositeKeys: string[]) => Promise<void>;
   clearFileContents: (compositeKeys: string[]) => void;
-}
+};
 
-export interface UseFileContentLoadingOptions {
+export type UseFileContentLoadingOptions = {
   processor?: FileContentProcessor;
-}
+};
 
 export function useFileContentLoading(
   fileTree: IFileNode[],
@@ -50,7 +50,7 @@ export function useFileContentLoading(
       }
 
       const { folderId, path } = decodeFileSelection(compositeKey);
-      if (!folderId || !fileTree.length) {
+      if (!(folderId && fileTree.length)) {
         return null;
       }
 
@@ -89,7 +89,9 @@ export function useFileContentLoading(
         const requests: FileContentRequest[] = [];
         for (const key of compositeKeys) {
           const req = await prepareFileRequest(key);
-          if (req) requests.push(req);
+          if (req) {
+            requests.push(req);
+          }
         }
 
         if (requests.length === 0) {

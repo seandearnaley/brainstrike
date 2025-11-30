@@ -173,9 +173,10 @@ describe('EmbeddingsPanel - Simple Coverage Tests', () => {
       render(<EmbeddingsPanel />);
 
       expect(
-        screen.getByText((_content, element) => {
-          return element?.textContent === 'Downloads ~300MB model for local inference';
-        })
+        screen.getByText(
+          (_content, element) =>
+            element?.textContent === 'Downloads ~300MB model for local inference'
+        )
       ).toBeInTheDocument();
     });
   });

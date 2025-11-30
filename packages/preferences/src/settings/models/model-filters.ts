@@ -18,9 +18,15 @@ export function matchesProvider(model: DbModel, filter: string): boolean {
  * Check if a model matches a type filter (chat/embedding)
  */
 export function matchesType(model: DbModel, filter: string): boolean {
-  if (filter === 'all') return true;
-  if (filter === 'chat') return model.capabilities.type === 'llm';
-  if (filter === 'embedding') return model.capabilities.type === 'embedding';
+  if (filter === 'all') {
+    return true;
+  }
+  if (filter === 'chat') {
+    return model.capabilities.type === 'llm';
+  }
+  if (filter === 'embedding') {
+    return model.capabilities.type === 'embedding';
+  }
   return true;
 }
 
@@ -32,10 +38,16 @@ export function matchesStatus(
   filter: string,
   downloadedModels: Record<string, boolean>
 ): boolean {
-  if (filter === 'all') return true;
+  if (filter === 'all') {
+    return true;
+  }
   const isDownloaded = downloadedModels[model.id];
-  if (filter === 'downloaded') return !!isDownloaded;
-  if (filter === 'remote') return !isDownloaded;
+  if (filter === 'downloaded') {
+    return !!isDownloaded;
+  }
+  if (filter === 'remote') {
+    return !isDownloaded;
+  }
   return true;
 }
 

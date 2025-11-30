@@ -13,7 +13,9 @@ describe('ChunkingService (streaming)', () => {
       fileName: 'doc.md',
     });
     const chunks = [] as string[];
-    for await (const ch of it) chunks.push(ch.content);
+    for await (const ch of it) {
+      chunks.push(ch.content);
+    }
     expect(chunks.length).toBeGreaterThan(0);
     const hasFence = chunks.some((c) => c.includes('```') && c.includes('add('));
     expect(hasFence).toBe(true);
@@ -49,7 +51,9 @@ describe('ChunkingService (streaming)', () => {
     const firstTwo: string[] = [];
     for await (const ch of it) {
       firstTwo.push(ch.content);
-      if (firstTwo.length === 2) break;
+      if (firstTwo.length === 2) {
+        break;
+      }
     }
     expect(firstTwo.length).toBe(2);
   });
@@ -63,7 +67,9 @@ describe('ChunkingService (streaming)', () => {
       fileName: 'text.txt',
       tokenCounter: async (t) => t.split(/\s+/).filter(Boolean).length,
     });
-    for await (const ch of it) counts.push(ch.tokenCount);
+    for await (const ch of it) {
+      counts.push(ch.tokenCount);
+    }
     expect(counts.length).toBeGreaterThan(0);
     const wordCount = text.split(/\s+/).filter(Boolean).length;
     expect(counts[0]).toBe(wordCount);
@@ -87,7 +93,9 @@ describe('ChunkingService (streaming)', () => {
     let seen = 0;
     for await (const _ of it) {
       seen += 1;
-      if (seen >= 2) break;
+      if (seen >= 2) {
+        break;
+      }
     }
     expect(calls).toBeGreaterThan(0);
   });

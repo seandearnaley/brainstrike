@@ -183,6 +183,6 @@ test.describe('Performance Validation - Simple Tests', () => {
     }
 
     // The test is valuable regardless - it gives us timing data
-    expect(loadTime).toBeLessThan(30000); // 30 second timeout for basic functionality
+    expect(loadTime).toBeLessThan(30_000); // 30 second timeout for basic functionality
   });
 });

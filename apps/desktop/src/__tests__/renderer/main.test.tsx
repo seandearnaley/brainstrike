@@ -69,5 +69,5 @@ describe('renderer main entry', () => {
     const renderArg = mockRender.mock.calls[0]?.[0];
     expect(renderArg).toBeDefined();
     expect(isReactElement(renderArg)).toBe(true);
-  }, 30000); // Increased timeout for CI - dynamic import of main.tsx loads entire app
+  }, 30_000); // Increased timeout for CI - dynamic import of main.tsx loads entire app
 });

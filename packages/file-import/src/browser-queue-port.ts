@@ -102,7 +102,7 @@ function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
   };
 }
 
-export interface QueueProgressEventDetail {
+export type QueueProgressEventDetail = {
   readonly queue: 'embeddings';
   readonly chunkId: string;
   readonly status: 'queued' | 'completed' | 'error';
@@ -115,7 +115,7 @@ export interface QueueProgressEventDetail {
   readonly lastError: string | null;
   readonly elapsedMs?: number;
   readonly errorMessage?: string;
-}
+};
 
 export function createBrowserEmbeddingQueuePort({
   queue,

@@ -15,7 +15,7 @@ vi.mock('@brainstrike/db', () => ({
 
 vi.mock('@brainstrike/ui', () => ({
   Button: ({ children, onClick, disabled, ...props }: React.ComponentProps<'button'>) => (
-    <button onClick={onClick} disabled={disabled} {...props}>
+    <button disabled={disabled} onClick={onClick} {...props}>
       {children}
     </button>
   ),

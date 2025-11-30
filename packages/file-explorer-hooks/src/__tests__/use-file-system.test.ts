@@ -32,7 +32,9 @@ describe('useFileSystem', () => {
         { wrapper: AdaptersTestWrapper }
       );
       expect(result.current).toBeDefined();
-      if (!result.current) throw new Error('result.current is undefined');
+      if (!result.current) {
+        throw new Error('result.current is undefined');
+      }
       const { supported, reason } = result.current.isFileSystemAccessSupported();
       expect(supported).toBe(true);
       expect(reason).toBe('');
@@ -50,7 +52,9 @@ describe('useFileSystem', () => {
         { wrapper: AdaptersTestWrapper }
       );
       expect(result.current).toBeDefined();
-      if (!result.current) throw new Error('result.current is undefined');
+      if (!result.current) {
+        throw new Error('result.current is undefined');
+      }
       const { supported, reason } = result.current.isFileSystemAccessSupported();
       expect(supported).toBe(true); // The adapter pattern always returns true for supported
       expect(reason).toBe('');
@@ -66,7 +70,9 @@ describe('useFileSystem', () => {
         { wrapper: AdaptersTestWrapper }
       );
       expect(result.current).toBeDefined();
-      if (!result.current) throw new Error('result.current is undefined');
+      if (!result.current) {
+        throw new Error('result.current is undefined');
+      }
       const { supported, reason } = result.current.isFileSystemAccessSupported();
       expect(supported).toBe(true); // The adapter pattern always returns true for supported
       expect(reason).toBe('');

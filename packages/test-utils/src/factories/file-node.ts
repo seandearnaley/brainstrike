@@ -1,7 +1,7 @@
 import type { FileNodeType, IFileNode, SelectionState } from '@brainstrike/types';
 import { vi } from 'vitest';
 
-interface BaseNodeOptions {
+type BaseNodeOptions = {
   name: string;
   path: string;
   depth?: number;
@@ -10,7 +10,7 @@ interface BaseNodeOptions {
   isVisible?: boolean;
   children?: IFileNode[];
   handle?: FileSystemFileHandle | FileSystemDirectoryHandle;
-}
+};
 
 export function createFileNode({
   name = 'test.txt',

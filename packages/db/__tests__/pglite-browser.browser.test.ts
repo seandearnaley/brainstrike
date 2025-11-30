@@ -52,7 +52,7 @@ describe('PGlite Browser Mode POC', () => {
 
   // Skip PGlite tests until WASM bundling issue is resolved
   // The environment validation tests above prove browser mode works correctly
-  describe.skip('PGlite in-memory operations', () => {
+  describe('PGlite in-memory operations', () => {
     it('should create an in-memory PGlite instance', async () => {
       // In-memory mode avoids IndexedDB persistence complexity
       db = new PGlite();
@@ -151,7 +151,7 @@ describe('PGlite Browser Mode POC', () => {
     });
   });
 
-  describe.skip('WASM performance baseline', () => {
+  describe('WASM performance baseline', () => {
     it('should complete 100 inserts in reasonable time', async () => {
       db = new PGlite();
       await db.waitReady;
@@ -167,7 +167,7 @@ describe('PGlite Browser Mode POC', () => {
       console.log(`100 inserts completed in ${elapsed.toFixed(2)}ms`);
 
       // Should complete within 10 seconds (generous for CI)
-      expect(elapsed).toBeLessThan(10000);
+      expect(elapsed).toBeLessThan(10_000);
 
       const count = await db.query<{ count: string }>('SELECT COUNT(*) as count FROM perf_test');
       expect(Number.parseInt(count.rows[0].count, 10)).toBe(100);

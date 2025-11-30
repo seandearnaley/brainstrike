@@ -55,7 +55,7 @@ function generateFallbackHash(content: string): string {
   for (let i = 0; i < content.length; i++) {
     const char = content.charCodeAt(i);
     hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32bit integer
+    hash &= hash; // Convert to 32bit integer
   }
 
   // Convert to hex and pad to simulate SHA-256 length (but much shorter)

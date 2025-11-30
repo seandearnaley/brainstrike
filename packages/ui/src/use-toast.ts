@@ -44,9 +44,9 @@ type Action =
       toastId?: ToasterToast['id'];
     };
 
-interface State {
+type State = {
   toasts: ToasterToast[];
-}
+};
 
 export const reducer = (state: State, action: Action): State => {
   switch (action.type) {
@@ -133,7 +133,7 @@ function toast({ ...props }: Toast) {
   });
 
   return {
-    id: id,
+    id,
     dismiss,
     update,
   };

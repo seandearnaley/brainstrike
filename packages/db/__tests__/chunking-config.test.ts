@@ -22,7 +22,7 @@ describe('CHUNKING_CONFIG', () => {
   });
 
   it('should have correct very large content thresholds', () => {
-    expect(CHUNKING_CONFIG.veryLargeContentThreshold).toBe(100000);
+    expect(CHUNKING_CONFIG.veryLargeContentThreshold).toBe(100_000);
     expect(CHUNKING_CONFIG.veryLargeMaxTokens).toBe(1000);
     expect(CHUNKING_CONFIG.veryLargeOverlap).toBe(100);
   });

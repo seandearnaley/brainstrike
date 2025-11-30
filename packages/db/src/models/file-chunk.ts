@@ -1,4 +1,4 @@
-export interface FileChunk {
+export type FileChunk = {
   id: string;
   fileRecordId: string;
   chunkIndex: number;
@@ -13,9 +13,9 @@ export interface FileChunk {
   embeddingHash?: string;
   createdAt: string;
   updatedAt: string;
-}
+};
 
-export interface FileChunkInsert {
+export type FileChunkInsert = {
   id: string;
   fileRecordId: string;
   chunkIndex: number;
@@ -30,9 +30,9 @@ export interface FileChunkInsert {
   embeddingHash?: string;
   createdAt: string;
   updatedAt: string;
-}
+};
 
-export interface FileChunkUpdate {
+export type FileChunkUpdate = {
   id: string;
   content?: string;
   contentHash?: string;
@@ -44,18 +44,18 @@ export interface FileChunkUpdate {
   embeddingUpdatedAt?: string;
   embeddingHash?: string;
   updatedAt: string;
-}
+};
 
-export interface ChunkSearchResult {
+export type ChunkSearchResult = {
   chunk: FileChunk;
   similarity: number;
   rank: number;
-}
+};
 
-export interface ChunkSearchOptions {
+export type ChunkSearchOptions = {
   limit?: number;
   threshold?: number;
   fileRecordId?: string;
   chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
   embeddingSetId?: string;
-}
+};

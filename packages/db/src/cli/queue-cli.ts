@@ -109,7 +109,9 @@ async function executeRequeue(jq: JobQueue, queue?: string, limit = 20) {
 }
 
 function sanitizeStates(states?: string[]): JobState[] | undefined {
-  if (!states || states.length === 0) return undefined;
+  if (!states || states.length === 0) {
+    return;
+  }
   const allowed: JobState[] = ['queued', 'running', 'succeeded', 'failed', 'canceled', 'expired'];
   return states.filter((s): s is JobState => (allowed as string[]).includes(s));
 }

@@ -2,21 +2,21 @@ import type { IFileNode } from '@brainstrike/types';
 import { fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
 import { useCallback, useMemo, useState } from 'react';
 
-export interface UseFileTreeNodeSelectionProps {
+export type UseFileTreeNodeSelectionProps = {
   node: IFileNode;
   folderId: string;
   selectedFilePaths: Set<string>;
   maxSelectionCount: number;
   onToggleFileSelection: (path: string) => void;
-}
+};
 
-export interface FolderInfo {
+export type FolderInfo = {
   count: number;
   isComplete: boolean;
   selectedCount: number;
-}
+};
 
-export interface UseFileTreeNodeSelectionReturn {
+export type UseFileTreeNodeSelectionReturn = {
   checkboxState: boolean | 'indeterminate';
   folderInfo: FolderInfo | null;
   showSelectionDialog: boolean;
@@ -24,7 +24,7 @@ export interface UseFileTreeNodeSelectionReturn {
   handleNodeSelection: () => void;
   wouldExceedLimit: boolean;
   getAllFilePaths: (dirNode: IFileNode) => string[];
-}
+};
 
 export function useFileTreeNodeSelection({
   node,
@@ -36,7 +36,9 @@ export function useFileTreeNodeSelection({
   const [showSelectionDialog, setShowSelectionDialog] = useState(false);
 
   const getAllFilePaths = useCallback((dirNode: IFileNode): string[] => {
-    if (dirNode.type !== 'directory') return [];
+    if (dirNode.type !== 'directory') {
+      return [];
+    }
     return (
       dirNode.children?.reduce((paths: string[], child: IFileNode) => {
         if (child.type === 'file') {
@@ -72,7 +74,9 @@ export function useFileTreeNodeSelection({
     }
 
     const allFilePaths = getAllFilePaths(node);
-    if (allFilePaths.length === 0) return;
+    if (allFilePaths.length === 0) {
+      return;
+    }
 
     const { count } = fileExplorer.getFolderFileCount(node);
     const selectedCount = getSelectedCount(allFilePaths);
@@ -83,14 +87,14 @@ export function useFileTreeNodeSelection({
       return;
     }
 
-    if (!isFullySelected) {
+    if (isFullySelected) {
+      selectPaths(allFilePaths);
+    } else {
       const unselectedPaths = allFilePaths.filter(
         (path) => !(folderId && isPathSelectedInFolder(selectedFilePaths, folderId, path))
       );
       const availableSlots = maxSelectionCount - selectedFilePaths.size;
       selectPaths(unselectedPaths.slice(0, availableSlots));
-    } else {
-      selectPaths(allFilePaths);
     }
   }, [
     node,
@@ -122,7 +126,9 @@ export function useFileTreeNodeSelection({
   }, [node, getAllFilePaths, getSelectedCount, selectedFilePaths, folderId]);
 
   const folderInfo = useMemo(() => {
-    if (node.type !== 'directory') return null;
+    if (node.type !== 'directory') {
+      return null;
+    }
     const { count, isComplete } = fileExplorer.getFolderFileCount(node);
     const selectedCount = getSelectedCount(getAllFilePaths(node));
     return { count, isComplete, selectedCount } as FolderInfo;
@@ -135,7 +141,9 @@ export function useFileTreeNodeSelection({
         selectedFilePaths.size >= maxSelectionCount
       );
     }
-    if (!folderInfo) return false;
+    if (!folderInfo) {
+      return false;
+    }
 
     const unselectedCount = folderInfo.count - folderInfo.selectedCount;
     return selectedFilePaths.size + unselectedCount > maxSelectionCount;

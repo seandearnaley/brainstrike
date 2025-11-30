@@ -9,7 +9,7 @@ import { FilterChip } from '../collection-browser/filter-chip';
 describe('FilterChip', () => {
   describe('rendering', () => {
     it('renders with label', () => {
-      render(<FilterChip label="Files" active={false} onClick={() => {}} />);
+      render(<FilterChip active={false} label="Files" onClick={() => {}} />);
 
       expect(screen.getByText('Files')).toBeInTheDocument();
     });
@@ -17,10 +17,10 @@ describe('FilterChip', () => {
     it('renders with icon', () => {
       render(
         <FilterChip
-          label="Files"
           active={false}
+          icon={<File className="h-3 w-3" data-testid="file-icon" />}
+          label="Files"
           onClick={() => {}}
-          icon={<File data-testid="file-icon" className="h-3 w-3" />}
         />
       );
 
@@ -28,7 +28,7 @@ describe('FilterChip', () => {
     });
 
     it('renders as button with type="button"', () => {
-      render(<FilterChip label="Test" active={false} onClick={() => {}} />);
+      render(<FilterChip active={false} label="Test" onClick={() => {}} />);
 
       const button = screen.getByRole('button');
       expect(button).toHaveAttribute('type', 'button');
@@ -37,13 +37,13 @@ describe('FilterChip', () => {
 
   describe('accessibility', () => {
     it('has aria-pressed=true when active', () => {
-      render(<FilterChip label="Files" active={true} onClick={() => {}} />);
+      render(<FilterChip active={true} label="Files" onClick={() => {}} />);
 
       expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true');
     });
 
     it('has aria-pressed=false when inactive', () => {
-      render(<FilterChip label="Files" active={false} onClick={() => {}} />);
+      render(<FilterChip active={false} label="Files" onClick={() => {}} />);
 
       expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false');
     });
@@ -51,7 +51,7 @@ describe('FilterChip', () => {
 
   describe('styling', () => {
     it('applies active styling when active', () => {
-      render(<FilterChip label="Files" active={true} onClick={() => {}} />);
+      render(<FilterChip active={true} label="Files" onClick={() => {}} />);
 
       const button = screen.getByRole('button');
       expect(button).toHaveClass('bg-primary');
@@ -59,7 +59,7 @@ describe('FilterChip', () => {
     });
 
     it('applies inactive styling when not active', () => {
-      render(<FilterChip label="Files" active={false} onClick={() => {}} />);
+      render(<FilterChip active={false} label="Files" onClick={() => {}} />);
 
       const button = screen.getByRole('button');
       expect(button).toHaveClass('bg-muted');
@@ -67,7 +67,7 @@ describe('FilterChip', () => {
     });
 
     it('applies disabled styling when disabled', () => {
-      render(<FilterChip label="Files" active={false} onClick={() => {}} disabled />);
+      render(<FilterChip active={false} disabled label="Files" onClick={() => {}} />);
 
       const button = screen.getByRole('button');
       expect(button).toBeDisabled();
@@ -78,7 +78,7 @@ describe('FilterChip', () => {
   describe('interaction', () => {
     it('calls onClick when clicked', () => {
       const handleClick = vi.fn();
-      render(<FilterChip label="Files" active={false} onClick={handleClick} />);
+      render(<FilterChip active={false} label="Files" onClick={handleClick} />);
 
       fireEvent.click(screen.getByRole('button'));
 
@@ -87,7 +87,7 @@ describe('FilterChip', () => {
 
     it('does not call onClick when disabled', () => {
       const handleClick = vi.fn();
-      render(<FilterChip label="Files" active={false} onClick={handleClick} disabled />);
+      render(<FilterChip active={false} disabled label="Files" onClick={handleClick} />);
 
       fireEvent.click(screen.getByRole('button'));
 

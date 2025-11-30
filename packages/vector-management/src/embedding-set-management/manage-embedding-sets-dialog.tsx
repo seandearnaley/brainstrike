@@ -29,13 +29,13 @@ type EmbeddingSetWithStats = EmbeddingSet & {
   lastEmbeddedAt: string | null;
 };
 
-interface ManageEmbeddingSetsDialogProps {
+type ManageEmbeddingSetsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   db: PGlite | null;
   repository: EmbeddingSetsRepository | null;
   onSetSelected?: (setId: string) => void;
-}
+};
 
 // Helper function to map database row to EmbeddingSetWithStats
 function mapRowToSet(row: {
@@ -129,11 +129,18 @@ function createModelFromConfig(
     provider: formatProviderLabel(modelKey),
   };
 
-  if (modelConfig?.description) model.description = modelConfig.description;
-  if (modelConfig?.tags) model.tags = modelConfig.tags;
-  if (modelConfig?.pricePer1MTokens !== undefined)
+  if (modelConfig?.description) {
+    model.description = modelConfig.description;
+  }
+  if (modelConfig?.tags) {
+    model.tags = modelConfig.tags;
+  }
+  if (modelConfig?.pricePer1MTokens !== undefined) {
     model.pricePer1MTokens = modelConfig.pricePer1MTokens;
-  if (modelConfig?.origin) model.origin = modelConfig.origin;
+  }
+  if (modelConfig?.origin) {
+    model.origin = modelConfig.origin;
+  }
 
   return model;
 }
@@ -158,7 +165,9 @@ export function ManageEmbeddingSetsDialog({
   const { enabledModelsByProvider } = useEmbeddingPreferencesStore();
 
   const loadSets = useCallback(async () => {
-    if (!db) return;
+    if (!db) {
+      return;
+    }
 
     setLoading(true);
     try {
@@ -264,8 +273,8 @@ export function ManageEmbeddingSetsDialog({
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-[700px] max-h-[80vh] flex flex-col">
+      <Dialog onOpenChange={onOpenChange} open={open}>
+        <DialogContent className="flex max-h-[80vh] flex-col sm:max-w-[700px]">
           <DialogHeader>
             <div className="flex items-center justify-between">
               <div>
@@ -275,7 +284,7 @@ export function ManageEmbeddingSetsDialog({
                   unique vector repository.
                 </DialogDescription>
               </div>
-              <Button onClick={handleCreateSet} size="sm" className="gap-2">
+              <Button className="gap-2" onClick={handleCreateSet} size="sm">
                 <Plus className="h-4 w-4" />
                 New Collection
               </Button>
@@ -284,13 +293,13 @@ export function ManageEmbeddingSetsDialog({
 
           <div className="flex-1 overflow-auto py-4">
             {loading ? (
-              <div className="text-center py-8 text-sm text-muted-foreground">Loading sets...</div>
+              <div className="py-8 text-center text-muted-foreground text-sm">Loading sets...</div>
             ) : sets.length === 0 ? (
-              <div className="text-center py-8 border rounded-lg border-dashed">
-                <div className="text-sm text-muted-foreground mb-4">
+              <div className="rounded-lg border border-dashed py-8 text-center">
+                <div className="mb-4 text-muted-foreground text-sm">
                   No collections yet. Create your first collection to get started.
                 </div>
-                <Button onClick={handleCreateSet} variant="outline" size="sm" className="gap-2">
+                <Button className="gap-2" onClick={handleCreateSet} size="sm" variant="outline">
                   <Plus className="h-4 w-4" />
                   Create First Collection
                 </Button>
@@ -299,20 +308,20 @@ export function ManageEmbeddingSetsDialog({
               <div className="space-y-3">
                 {sets.map((set) => (
                   <div
+                    className="rounded-lg border p-4 transition-colors hover:bg-muted/50"
                     key={set.id}
-                    className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
                   >
                     <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0 space-y-2">
+                      <div className="min-w-0 flex-1 space-y-2">
                         <div>
-                          <div className="font-medium text-sm flex items-center gap-2">
+                          <div className="flex items-center gap-2 font-medium text-sm">
                             {set.name ?? set.modelId}
-                            <Badge variant="outline" className="text-[10px] font-normal">
+                            <Badge className="font-normal text-[10px]" variant="outline">
                               {formatProviderLabel(set.modelKey)}
                             </Badge>
                           </div>
                           {set.description && (
-                            <div className="text-xs text-muted-foreground mt-1">
+                            <div className="mt-1 text-muted-foreground text-xs">
                               {set.description}
                             </div>
                           )}
@@ -349,9 +358,9 @@ export function ManageEmbeddingSetsDialog({
                               const trimmedTag = tag.trim();
                               return (
                                 <Badge
+                                  className="py-0 text-[10px]"
                                   key={trimmedTag}
                                   variant="secondary"
-                                  className="text-[10px] py-0"
                                 >
                                   {trimmedTag}
                                 </Badge>
@@ -361,23 +370,23 @@ export function ManageEmbeddingSetsDialog({
                         )}
                       </div>
 
-                      <div className="flex gap-1 flex-shrink-0">
+                      <div className="flex flex-shrink-0 gap-1">
                         <Button
-                          variant="ghost"
-                          size="sm"
                           className="h-8 w-8 p-0"
                           onClick={() => handleEditSet(set)}
+                          size="sm"
                           title="Edit metadata"
+                          variant="ghost"
                         >
                           <Pencil className="h-4 w-4" />
                           <span className="sr-only">Edit</span>
                         </Button>
                         <Button
-                          variant="ghost"
-                          size="sm"
                           className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                           onClick={() => handleDeleteSet(set)}
+                          size="sm"
                           title="Delete set"
+                          variant="ghost"
                         >
                           <Trash2 className="h-4 w-4" />
                           <span className="sr-only">Delete</span>
@@ -386,15 +395,15 @@ export function ManageEmbeddingSetsDialog({
                     </div>
 
                     {onSetSelected && (
-                      <div className="mt-3 pt-3 border-t">
+                      <div className="mt-3 border-t pt-3">
                         <Button
-                          variant="outline"
-                          size="sm"
+                          className="w-full"
                           onClick={() => {
                             onSetSelected(set.id);
                             onOpenChange(false);
                           }}
-                          className="w-full"
+                          size="sm"
+                          variant="outline"
                         >
                           Set as Active
                         </Button>
@@ -409,27 +418,27 @@ export function ManageEmbeddingSetsDialog({
       </Dialog>
 
       <CreateEmbeddingSetDialog
-        open={createDialogOpen}
-        onOpenChange={setCreateDialogOpen}
-        repository={repository}
         availableModels={availableModels}
+        onOpenChange={setCreateDialogOpen}
         onSetCreated={handleSetAction}
+        open={createDialogOpen}
+        repository={repository}
       />
 
       <RenameEmbeddingSetDialog
-        open={renameDialogOpen}
-        onOpenChange={setRenameDialogOpen}
-        repository={repository}
         embeddingSet={selectedSet}
+        onOpenChange={setRenameDialogOpen}
         onSetRenamed={handleSetAction}
+        open={renameDialogOpen}
+        repository={repository}
       />
 
       <DeleteEmbeddingSetDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
         db={db}
         embeddingSet={selectedSet}
+        onOpenChange={setDeleteDialogOpen}
         onSetDeleted={handleSetAction}
+        open={deleteDialogOpen}
       />
     </>
   );

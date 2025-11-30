@@ -36,7 +36,9 @@ function createMockDb({ sets, chunks }: { sets: EmbeddingSetRow[]; chunks: FileC
   function selectChunkCounts<T>(): { rows: T[] } {
     const counts = new Map<string, number>();
     for (const chunk of state.chunks) {
-      if (!chunk.embedding_set_id) continue;
+      if (!chunk.embedding_set_id) {
+        continue;
+      }
       counts.set(chunk.embedding_set_id, (counts.get(chunk.embedding_set_id) ?? 0) + 1);
     }
     const rows = Array.from(counts.entries()).map(([embeddingSetId, count]) => ({

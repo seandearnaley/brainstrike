@@ -111,9 +111,9 @@ describe('useDatabaseErrorBoundary', () => {
       const successResult = { data: 'test' };
       const operation = vi.fn().mockResolvedValue(successResult);
 
-      const response = await act(async () => {
-        return await result.current.executeWithErrorBoundary(operation);
-      });
+      const response = await act(
+        async () => await result.current.executeWithErrorBoundary(operation)
+      );
 
       expect(response).toEqual(successResult);
       expect(mockToast).not.toHaveBeenCalled();
@@ -182,7 +182,8 @@ describe('useDatabaseErrorBoundary', () => {
 
       await act(async () => {
         await result.current.executeWithErrorBoundary(async () => {
-          throw 'string error'; // eslint-disable-line no-throw-literal
+          // biome-ignore lint/style/useThrowOnlyError: Intentionally testing non-Error throws
+          throw 'string error';
         });
       });
 
@@ -275,12 +276,13 @@ describe('useDatabaseErrorBoundary', () => {
         { operation: vi.fn().mockResolvedValue({ id: 3 }), name: 'Op3' },
       ];
 
-      const response = await act(async () => {
-        return await result.current.executeMultipleOperations(operations, setLoading, {
-          successTitle: 'All Done',
-          successMessage: 'All operations completed',
-        });
-      });
+      const response = await act(
+        async () =>
+          await result.current.executeMultipleOperations(operations, setLoading, {
+            successTitle: 'All Done',
+            successMessage: 'All operations completed',
+          })
+      );
 
       expect(response).toEqual({
         results: [{ id: 1 }, { id: 2 }, { id: 3 }],
@@ -303,12 +305,13 @@ describe('useDatabaseErrorBoundary', () => {
         { operation: vi.fn().mockResolvedValue({ id: 3 }), name: 'Op3' },
       ];
 
-      const response = await act(async () => {
-        return await result.current.executeMultipleOperations(operations, setLoading, {
-          partialSuccessTitle: 'Partial Success',
-          partialSuccessMessage: 'Some operations completed',
-        });
-      });
+      const response = await act(
+        async () =>
+          await result.current.executeMultipleOperations(operations, setLoading, {
+            partialSuccessTitle: 'Partial Success',
+            partialSuccessMessage: 'Some operations completed',
+          })
+      );
 
       expect(response).toEqual({
         results: [{ id: 1 }, null, { id: 3 }],
@@ -337,9 +340,9 @@ describe('useDatabaseErrorBoundary', () => {
         { operation: op3, name: 'Op3' },
       ];
 
-      const response = await act(async () => {
-        return await result.current.executeMultipleOperations(operations, setLoading);
-      });
+      const response = await act(
+        async () => await result.current.executeMultipleOperations(operations, setLoading)
+      );
 
       expect(response.failedCount).toBe(1);
       expect(response.results).toHaveLength(2); // Op3 not executed
@@ -361,9 +364,9 @@ describe('useDatabaseErrorBoundary', () => {
         { operation: vi.fn().mockRejectedValue(new Error('Failed 2')), name: 'Op2' },
       ];
 
-      const response = await act(async () => {
-        return await result.current.executeMultipleOperations(operations, setLoading);
-      });
+      const response = await act(
+        async () => await result.current.executeMultipleOperations(operations, setLoading)
+      );
 
       expect(response.allSucceeded).toBe(false);
       expect(response.failedCount).toBe(2);

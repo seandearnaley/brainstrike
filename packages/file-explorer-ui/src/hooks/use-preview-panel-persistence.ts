@@ -9,23 +9,23 @@ const SAVE_DEBOUNCE_MS = 250;
 const logger = createLogger('PreviewPanelPersistence');
 
 // Define specific column visibility keys
-export interface ColumnVisibility {
+export type ColumnVisibility = {
   checkbox: boolean;
   rootFolderId: boolean;
   path: boolean;
   type: boolean;
   tokens: boolean;
   size: boolean;
-}
+};
 
-export interface PreviewPanelPreferences<T = Record<string, unknown>> {
+export type PreviewPanelPreferences<T = Record<string, unknown>> = {
   columnVisibility: ColumnVisibility;
   sortField: keyof T;
   sortDirection: 'asc' | 'desc';
   groupingConfig: string;
   collapsedGroups: string[]; // Array of group keys
   pageSize: number;
-}
+};
 
 function columnsMatch(a: ColumnVisibility, b: ColumnVisibility): boolean {
   return (
@@ -39,28 +39,36 @@ function columnsMatch(a: ColumnVisibility, b: ColumnVisibility): boolean {
 }
 
 function arraysMatch(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false;
+  if (a.length !== b.length) {
+    return false;
+  }
   for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
+    if (a[i] !== b[i]) {
+      return false;
+    }
   }
   return true;
 }
 
-export interface UsePreviewPanelPersistenceOptions<T = Record<string, unknown>> {
+export type UsePreviewPanelPersistenceOptions<T = Record<string, unknown>> = {
   defaultColumnVisibility: ColumnVisibility;
   defaultSortField: keyof T;
   defaultSortDirection: 'asc' | 'desc';
   defaultGroupingConfig: string;
   defaultPageSize: number;
-}
+};
 
 export function preferencesEqual<T>(
   a: PreviewPanelPreferences<T> | null,
   b: PreviewPanelPreferences<T> | null
 ): boolean {
-  if (a === null || b === null) return a === b;
+  if (a === null || b === null) {
+    return a === b;
+  }
 
-  if (!columnsMatch(a.columnVisibility, b.columnVisibility)) return false;
+  if (!columnsMatch(a.columnVisibility, b.columnVisibility)) {
+    return false;
+  }
 
   if (
     a.sortField !== b.sortField ||

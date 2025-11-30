@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+'use strict';
 /**
  * Best-effort static scanner for risky React hook patterns.
  * Flags:
@@ -10,10 +11,7 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
-const TARGET_DIRS = [
-  'packages/file-explorer-hooks/src',
-  'packages/file-explorer-ui/src',
-];
+const TARGET_DIRS = ['packages/file-explorer-hooks/src', 'packages/file-explorer-ui/src'];
 
 const EXTENSIONS = new Set(['.ts', '.tsx']);
 
@@ -24,7 +22,9 @@ function walk(dir) {
   const stack = [dir];
   while (stack.length) {
     const cur = stack.pop();
-    if (!cur) continue;
+    if (!cur) {
+      continue;
+    }
     const entries = fs.readdirSync(cur, { withFileTypes: true });
     for (const e of entries) {
       const p = path.join(cur, e.name);
@@ -44,7 +44,8 @@ function scan(code) {
   const normalized = code.replace(/\r\n?/g, '\n');
 
   // Hooks inside array callbacks
-  const arrayCbPattern = /(map|filter|reduce|forEach)\s*\(([^)]*)\)\s*\{[\s\S]*?use[A-Z][A-Za-z]*\(/g;
+  const arrayCbPattern =
+    /(map|filter|reduce|forEach)\s*\(([^)]*)\)\s*\{[\s\S]*?use[A-Z][A-Za-z]*\(/g;
   if (arrayCbPattern.test(normalized)) {
     warnings.push('Hook call inside array callback (map/filter/reduce/forEach)');
   }
@@ -68,23 +69,27 @@ function scan(code) {
 let hadIssues = false;
 for (const rel of TARGET_DIRS) {
   const dir = path.join(ROOT, rel);
-  if (!fs.existsSync(dir)) continue;
+  if (!fs.existsSync(dir)) {
+    continue;
+  }
   for (const file of walk(dir)) {
     const code = fs.readFileSync(file, 'utf8');
     const issues = scan(code);
     if (issues.length) {
       hadIssues = true;
       console.log(`\n[hooks-scan] ${path.relative(ROOT, file)}`);
-      for (const i of issues) console.log(`  - ${i}`);
+      for (const i of issues) {
+        console.log(`  - ${i}`);
+      }
     }
   }
 }
 
 if (hadIssues) {
-  console.error('\n[hooks-scan] Potential risky hook patterns found. Please refactor before enabling full compiler.');
+  console.error(
+    '\n[hooks-scan] Potential risky hook patterns found. Please refactor before enabling full compiler.'
+  );
   process.exit(1);
 } else {
   console.log('[hooks-scan] No risky hook patterns detected in scanned directories.');
 }
-
-

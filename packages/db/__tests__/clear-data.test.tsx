@@ -33,8 +33,8 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
 
   return {
     query: baseQuery,
-    exec: vi.fn(async () => undefined),
-    close: vi.fn(async () => undefined),
+    exec: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
     ...overrides,
   };
 }
@@ -115,7 +115,9 @@ describe('Database clearing functionality', () => {
       );
 
       const clearResult = await result.current.clearData?.();
-      if (!clearResult) throw new Error('Clear function returned undefined');
+      if (!clearResult) {
+        throw new Error('Clear function returned undefined');
+      }
 
       expect(clearResult).toEqual({
         deletedFiles: 0,
@@ -161,7 +163,9 @@ describe('Database clearing functionality', () => {
       );
 
       const clearResult = await result.current.clearData?.();
-      if (!clearResult) throw new Error('Clear function returned undefined');
+      if (!clearResult) {
+        throw new Error('Clear function returned undefined');
+      }
 
       expect(clearResult).toEqual({
         deletedFiles: 5,
@@ -197,7 +201,9 @@ describe('Database clearing functionality', () => {
         { timeout: 5000 }
       );
 
-      if (!result.current.clearData) throw new Error('Clear function is null');
+      if (!result.current.clearData) {
+        throw new Error('Clear function is null');
+      }
       await expect(result.current.clearData()).rejects.toThrow('Transaction failed');
     });
 
@@ -252,7 +258,9 @@ describe('Database clearing functionality', () => {
       );
 
       // Should fail and not partially clear data
-      if (!result.current.clearData) throw new Error('Clear function is null');
+      if (!result.current.clearData) {
+        throw new Error('Clear function is null');
+      }
       await expect(result.current.clearData()).rejects.toThrow('Delete chunks failed');
       expect(mockTransaction).toHaveBeenCalled();
     });

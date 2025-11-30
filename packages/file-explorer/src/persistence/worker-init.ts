@@ -1,10 +1,10 @@
 import { createLogger } from '@brainstrike/utils';
 import { WorkerStorage } from './worker-storage';
 
-export interface WorkerInitResult {
+export type WorkerInitResult = {
   workerStorage: WorkerStorage | null;
   useWorker: boolean;
-}
+};
 
 const logger = createLogger('Persistence');
 
@@ -32,9 +32,15 @@ function isElectronEnvironment(): boolean {
 }
 
 function getEnvironmentReason(isTest: boolean, isElectron: boolean, isHeadless: boolean): string {
-  if (isTest) return 'test environment';
-  if (isElectron) return 'Electron environment';
-  if (isHeadless) return 'headless/CI environment';
+  if (isTest) {
+    return 'test environment';
+  }
+  if (isElectron) {
+    return 'Electron environment';
+  }
+  if (isHeadless) {
+    return 'headless/CI environment';
+  }
   return 'SSR environment';
 }
 

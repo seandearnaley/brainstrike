@@ -135,7 +135,7 @@ describe('EmbeddingProviderFactory', () => {
       process.env[OPENAI_ENV_KEY] = 'test-openai-key';
       EmbeddingProviderFactory.clearHostedApiKeyCache('openai');
 
-      const mockEmbedding = Array(DEFAULT_EMBEDDING_DIMENSION).fill(0.1);
+      const mockEmbedding = new Array(DEFAULT_EMBEDDING_DIMENSION).fill(0.1);
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -187,7 +187,7 @@ describe('EmbeddingProviderFactory', () => {
       EmbeddingProviderFactory.clearHostedApiKeyCache('google');
 
       const targetDimensions = 768;
-      const mockEmbedding = Array(targetDimensions).fill(0.05);
+      const mockEmbedding = new Array(targetDimensions).fill(0.05);
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -239,7 +239,7 @@ describe('EmbeddingProviderFactory', () => {
       process.env['COHERE_API_KEY'] = 'test-cohere-key';
       EmbeddingProviderFactory.clearHostedApiKeyCache('cohere');
 
-      const mockEmbedding = Array(1024).fill(0.1);
+      const mockEmbedding = new Array(1024).fill(0.1);
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
@@ -281,7 +281,7 @@ describe('EmbeddingProviderFactory', () => {
       process.env['VOYAGE_API_KEY'] = 'test-voyage-key';
       EmbeddingProviderFactory.clearHostedApiKeyCache('voyage');
 
-      const mockEmbedding = Array(1024).fill(0.1);
+      const mockEmbedding = new Array(1024).fill(0.1);
       const fetchMock = vi.fn().mockResolvedValue({
         ok: true,
         status: 200,

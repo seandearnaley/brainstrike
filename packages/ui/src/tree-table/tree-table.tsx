@@ -141,7 +141,9 @@ export function TreeTable<T>({
 
   // ResizeObserver for container sizing
   React.useEffect(() => {
-    if (!parentRef.current) return;
+    if (!parentRef.current) {
+      return;
+    }
 
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -194,11 +196,15 @@ export function TreeTable<T>({
   const handleRangeSelect = React.useCallback(
     (nodeId: string) => {
       const lastSelected = Array.from(multiSelectedIds).pop();
-      if (!lastSelected) return;
+      if (!lastSelected) {
+        return;
+      }
 
       const fromIndex = rows.findIndex((r) => r.node.id === lastSelected);
       const toIndex = rows.findIndex((r) => r.node.id === nodeId);
-      if (fromIndex === -1 || toIndex === -1) return;
+      if (fromIndex === -1 || toIndex === -1) {
+        return;
+      }
 
       const start = Math.min(fromIndex, toIndex);
       const end = Math.max(fromIndex, toIndex);
@@ -227,7 +233,9 @@ export function TreeTable<T>({
     (nodeId: string, event: React.MouseEvent) => {
       keyboard.actions.setFocus(nodeId);
 
-      if (selectionMode === 'none') return;
+      if (selectionMode === 'none') {
+        return;
+      }
       if (selectionMode === 'single') {
         onSelect?.(nodeId);
         return;
@@ -278,7 +286,9 @@ export function TreeTable<T>({
   // Handle sort click
   const handleSortClick = React.useCallback(
     (columnId: string) => {
-      if (!onSortChange) return;
+      if (!onSortChange) {
+        return;
+      }
 
       const currentDirection = sortState?.columnId === columnId ? sortState.direction : null;
       let newDirection: 'asc' | 'desc' | null = 'asc';
@@ -321,15 +331,14 @@ export function TreeTable<T>({
 
   // Calculate padding for virtual space
   const paddingTop = virtualItems.length > 0 ? (virtualItems[0]?.start ?? 0) : 0;
-  const paddingBottom =
-    virtualItems.length > 0 ? totalSize - (virtualItems[virtualItems.length - 1]?.end ?? 0) : 0;
+  const paddingBottom = virtualItems.length > 0 ? totalSize - (virtualItems.at(-1)?.end ?? 0) : 0;
 
   // Empty state
   if (nodes.length === 0) {
     return (
       <div
         className={cn(
-          'flex items-center justify-center h-32 text-sm text-muted-foreground',
+          'flex h-32 items-center justify-center text-muted-foreground text-sm',
           className
         )}
       >
@@ -340,30 +349,30 @@ export function TreeTable<T>({
 
   return (
     <div
-      ref={parentRef}
-      className={cn('overflow-auto border rounded-md', className)}
-      style={{ maxHeight, height: '100%' }}
-      onKeyDown={keyboard.onKeyDown}
-      tabIndex={0}
-      role="treegrid"
       aria-label={ariaLabel}
+      className={cn('overflow-auto rounded-md border', className)}
+      onKeyDown={keyboard.onKeyDown}
+      ref={parentRef}
+      role="treegrid"
+      style={{ maxHeight, height: '100%' }}
+      tabIndex={0}
     >
       <Table>
-        <TableHeader className="sticky top-0 bg-background z-10">
+        <TableHeader className="sticky top-0 z-10 bg-background">
           <TableRow>
             {columns.map((column) => (
               <TableHead
-                key={column.id}
                 className={cn(
                   column.headerClassName,
                   column.sortable && onSortChange && 'cursor-pointer select-none'
                 )}
+                key={column.id}
+                onClick={() => column.sortable && handleSortClick(column.id)}
                 style={{
                   width: column.width,
                   minWidth: column.minWidth,
                   maxWidth: column.maxWidth,
                 }}
-                onClick={() => column.sortable && handleSortClick(column.id)}
               >
                 <div className="flex items-center gap-1">
                   {column.header ?? column.id}
@@ -393,20 +402,22 @@ export function TreeTable<T>({
           {/* Virtual rows */}
           {virtualItems.map((virtualRow) => {
             const row = rows[virtualRow.index];
-            if (!row) return null;
+            if (!row) {
+              return null;
+            }
 
             return (
               <TreeTableRow
-                key={row.node.id}
-                row={row}
-                columns={columns}
-                onToggleExpand={onToggleExpand}
-                onClick={handleRowClick}
-                onDoubleClick={handleRowDoubleClick}
-                onContextMenu={handleRowContextMenu}
                 className={getRowClassName(row.node)}
+                columns={columns}
                 isFocused={keyboard.state.focusedId === row.node.id}
+                key={row.node.id}
                 measureRef={measureRow}
+                onClick={handleRowClick}
+                onContextMenu={handleRowContextMenu}
+                onDoubleClick={handleRowDoubleClick}
+                onToggleExpand={onToggleExpand}
+                row={row}
                 virtualIndex={virtualRow.index}
               />
             );

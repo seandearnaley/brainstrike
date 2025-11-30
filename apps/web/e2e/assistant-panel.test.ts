@@ -50,7 +50,7 @@ test.describe('Assistant panel (assistant-ui default)', () => {
 
     // State should persist across tab switches (allow time after navigation)
     await expect(viewport.getByText(/Mock response from tests/i).first()).toBeVisible({
-      timeout: 10000,
+      timeout: 10_000,
     });
   });
 });

@@ -88,7 +88,7 @@ function loadAgentClient(): AgentClientModule | null {
 
   cachedAgentClient = null;
 
-  if (!cachedAgentClient && !fallbackNotified) {
+  if (!(cachedAgentClient || fallbackNotified)) {
     fallbackNotified = true;
     logger.warn(
       'Falling back to static provider metadata. Run "pnpm --filter @brainstrike/agent build" to restore @brainstrike/agent/client outputs.'

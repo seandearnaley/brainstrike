@@ -21,7 +21,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 export type PanelTab = 'explorer' | 'settings' | 'prompts';
 
-export interface PanelLayoutStoreState {
+export type PanelLayoutStoreState = {
   // Layout
   sizes: [number, number, number];
   showLeftPanel: boolean;
@@ -38,7 +38,7 @@ export interface PanelLayoutStoreState {
   toggleConsole: () => void;
   setActiveTab: (tab: PanelTab) => void;
   setState: (next: Partial<PanelLayoutStoreState>) => void;
-}
+};
 
 const DEFAULT_STATE: Omit<
   PanelLayoutStoreState,
@@ -94,7 +94,9 @@ function persistOptions(
     storage: {
       getItem: async (name: string) => {
         const raw = await storage.getItem(name);
-        if (!raw) return null;
+        if (!raw) {
+          return null;
+        }
         try {
           return JSON.parse(raw);
         } catch {
@@ -131,7 +133,9 @@ const g = globalThis as unknown as Record<string, unknown>;
 type BoundStore = ReturnType<ReturnType<typeof create<PanelLayoutStoreState>>>;
 
 function isValidStore(candidate: unknown): candidate is BoundStore & { [k: string]: unknown } {
-  if (!candidate || typeof candidate !== 'function') return false;
+  if (!candidate || typeof candidate !== 'function') {
+    return false;
+  }
   const fn = candidate as unknown as {
     getState?: unknown;
     setState?: unknown;
@@ -161,7 +165,9 @@ export const usePanelLayoutStore = singleton as BoundStore;
 
 // Local helper (duplicated from UI package to avoid private imports)
 function normalizeSizes(sizes: number[]): number[] {
-  if (!sizes || sizes.length === 0) return [];
+  if (!sizes || sizes.length === 0) {
+    return [];
+  }
 
   const clamped = sizes.map((size) => {
     const num = typeof size === 'number' && !Number.isNaN(size) ? size : 0;
@@ -169,7 +175,11 @@ function normalizeSizes(sizes: number[]): number[] {
   });
 
   const total = clamped.reduce((sum, size) => sum + size, 0);
-  if (total === 0) return clamped.map(() => 100 / clamped.length);
-  if (total > 100) return clamped.map((s) => (s / total) * 100);
+  if (total === 0) {
+    return clamped.map(() => 100 / clamped.length);
+  }
+  if (total > 100) {
+    return clamped.map((s) => (s / total) * 100);
+  }
   return clamped;
 }

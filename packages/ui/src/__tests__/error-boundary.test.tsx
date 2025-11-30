@@ -31,10 +31,10 @@ vi.mock('../button', () => ({
     size?: string;
   }) => (
     <button
-      onClick={onClick}
-      data-variant={variant}
       className={className}
       data-size={size}
+      data-variant={variant}
+      onClick={onClick}
       title={title}
       type="button"
       {...rest}

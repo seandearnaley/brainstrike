@@ -68,9 +68,8 @@ describe('useFileTree (context version)', () => {
     const handle = await mockAdapter.requestDirectoryAccess();
 
     // Create a wrapper function that passes the mock adapter
-    const TestWrapper = ({ children }: { children: ReactNode }) => {
-      return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-    };
+    const TestWrapper = ({ children }: { children: ReactNode }) =>
+      FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
     const { result } = renderHook(() => useFileTree(handle), {
       wrapper: TestWrapper,
@@ -94,9 +93,8 @@ describe('useFileTree (context version)', () => {
       mockAdapter.setMockFileSystem(mockFS);
       const handle = await mockAdapter.requestDirectoryAccess();
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -135,9 +133,8 @@ describe('useFileTree (context version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -203,9 +200,8 @@ describe('useFileTree (context version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -245,9 +241,8 @@ describe('useFileTree (context version)', () => {
       // Mock the adapter to throw a non-Error
       vi.spyOn(mockAdapter, 'readDirectory').mockRejectedValueOnce('String error');
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -276,9 +271,8 @@ describe('useFileTree (context version)', () => {
       // Mock console.error to avoid test output pollution
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -316,9 +310,8 @@ describe('useFileTree (context version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -347,9 +340,8 @@ describe('useFileTree (context version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -375,9 +367,8 @@ describe('useFileTree (context version)', () => {
       // Simulate electron platform
       handle.platform = 'electron';
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -398,9 +389,8 @@ describe('useFileTree (context version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -417,9 +407,8 @@ describe('useFileTree (context version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -440,9 +429,8 @@ describe('useFileTree (context version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -470,9 +458,8 @@ describe('useFileTree (context version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -501,9 +488,8 @@ describe('useFileTree (context version)', () => {
       // First simulate an error by making readDirectory fail
       vi.spyOn(mockAdapter, 'readDirectory').mockRejectedValueOnce(new Error('Test error'));
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,
@@ -531,9 +517,8 @@ describe('useFileTree (context version)', () => {
 
       const handle = await mockAdapter.requestDirectoryAccess();
 
-      const TestWrapper = ({ children }: { children: ReactNode }) => {
-        return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
-      };
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
       const { result } = renderHook(() => useFileTree(handle), {
         wrapper: TestWrapper,

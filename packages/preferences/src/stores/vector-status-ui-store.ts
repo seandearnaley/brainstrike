@@ -2,13 +2,13 @@ import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-interface VectorStatusUIData {
+type VectorStatusUIData = {
   activeEmbeddingSetId: string | null;
-}
+};
 
-interface VectorStatusUIActions {
+type VectorStatusUIActions = {
   setActiveEmbeddingSetId: (id: string | null) => void;
-}
+};
 
 export type VectorStatusUIStore = VectorStatusUIData & VectorStatusUIActions;
 

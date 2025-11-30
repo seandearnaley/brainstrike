@@ -6,13 +6,11 @@ import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
 test.describe('Performance: Memory Usage', () => {
   // Helper to create file with specific content size
-  const createFileWithSize = (sizeKB: number): string => {
-    return 'x'.repeat(sizeKB * 1024);
-  };
+  const createFileWithSize = (sizeKB: number): string => 'x'.repeat(sizeKB * 1024);
 
   // Helper to get memory usage
-  const getMemoryUsage = async (page: any) => {
-    return await page.evaluate(() => {
+  const getMemoryUsage = async (page: any) =>
+    await page.evaluate(() => {
       const memory = (performance as any).memory;
       return {
         used: memory?.usedJSHeapSize || 0,
@@ -20,7 +18,6 @@ test.describe('Performance: Memory Usage', () => {
         limit: memory?.jsHeapSizeLimit || 0,
       };
     });
-  };
 
   test.beforeEach(async () => {
     // Proper setup: mockBrowserApis first, then home.goto(), then home.expectLoaded()

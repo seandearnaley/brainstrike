@@ -5,10 +5,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 
 beforeAll(() => {
   // JSDOM does not implement hasPointerCapture
-  // biome-ignore lint/suspicious/noExplicitAny: mocking DOM API for tests
   (Element.prototype as any).hasPointerCapture = () => false;
   // JSDOM does not implement scrollIntoView
-  // biome-ignore lint/suspicious/noExplicitAny: mocking DOM API for tests
   (Element.prototype as any).scrollIntoView = () => {};
 });
 

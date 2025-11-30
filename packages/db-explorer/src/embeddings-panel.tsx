@@ -82,17 +82,19 @@ const formatInitializationError = (error: unknown, modelName: string): string =>
   return error.message;
 };
 
-interface ModelInfoProps {
+type ModelInfoProps = {
   modelConfig: ModelConfig | undefined;
   isDefault: boolean;
-}
+};
 
 const ModelInfo = ({ modelConfig, isDefault }: ModelInfoProps) => {
-  if (!modelConfig) return null;
+  if (!modelConfig) {
+    return null;
+  }
 
   return (
-    <div className="p-2 bg-muted/30 rounded text-xs">
-      <div className="grid grid-cols-2 gap-2 mb-2">
+    <div className="rounded bg-muted/30 p-2 text-xs">
+      <div className="mb-2 grid grid-cols-2 gap-2">
         <div>
           <p className="font-medium">Model:</p>
           <p className="text-muted-foreground">{modelConfig.name}</p>
@@ -114,7 +116,7 @@ const ModelInfo = ({ modelConfig, isDefault }: ModelInfoProps) => {
       </div>
       {!isDefault && (
         <div className="mt-2 flex items-center gap-1">
-          <Badge variant="secondary" className="text-xs">
+          <Badge className="text-xs" variant="secondary">
             Non-default
           </Badge>
         </div>
@@ -123,7 +125,7 @@ const ModelInfo = ({ modelConfig, isDefault }: ModelInfoProps) => {
   );
 };
 
-interface SimilarityInterfaceProps {
+type SimilarityInterfaceProps = {
   status: EmbeddingStatus;
   text1: string;
   text2: string;
@@ -133,7 +135,7 @@ interface SimilarityInterfaceProps {
   onText2Change: (value: string) => void;
   onCalculate: () => void;
   onDispose: () => void;
-}
+};
 
 const SimilarityInterface = ({
   status,
@@ -165,59 +167,59 @@ const SimilarityInterface = ({
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <Label htmlFor="text1" className="text-xs">
+        <Label className="text-xs" htmlFor="text1">
           Text 1:
         </Label>
         <Input
-          id="text1"
-          value={text1}
-          onChange={(e) => onText1Change(e.target.value)}
           className="text-xs"
-          placeholder="Enter first text..."
           disabled={status === 'processing'}
+          id="text1"
+          onChange={(e) => onText1Change(e.target.value)}
+          placeholder="Enter first text..."
+          value={text1}
         />
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="text2" className="text-xs">
+        <Label className="text-xs" htmlFor="text2">
           Text 2:
         </Label>
         <Input
-          id="text2"
-          value={text2}
-          onChange={(e) => onText2Change(e.target.value)}
           className="text-xs"
-          placeholder="Enter second text..."
           disabled={status === 'processing'}
+          id="text2"
+          onChange={(e) => onText2Change(e.target.value)}
+          placeholder="Enter second text..."
+          value={text2}
         />
       </div>
 
       <Button
-        onClick={onCalculate}
-        size="sm"
         className="w-full gap-2"
         disabled={status === 'processing' || !text1.trim() || !text2.trim()}
+        onClick={onCalculate}
+        size="sm"
       >
-        <Cpu className="w-3 h-3" />
+        <Cpu className="h-3 w-3" />
         {status === 'processing' ? 'Processing...' : 'Calculate Similarity'}
       </Button>
 
       {similarity !== null && (
-        <div className="p-2 bg-blue-50 border border-blue-200 rounded">
-          <div className="flex items-center justify-between mb-1">
+        <div className="rounded border border-blue-200 bg-blue-50 p-2">
+          <div className="mb-1 flex items-center justify-between">
             <p className="font-medium">Similarity Score:</p>
             <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleCopySimilarity}
               className="h-auto p-1"
+              onClick={handleCopySimilarity}
+              size="sm"
               title="Copy similarity score"
+              variant="ghost"
             >
-              <Copy className="w-3 h-3" />
+              <Copy className="h-3 w-3" />
             </Button>
           </div>
-          <p className="text-lg font-bold text-blue-600">{(similarity * 100).toFixed(1)}%</p>
-          <p className="text-muted-foreground mt-1">
+          <p className="font-bold text-blue-600 text-lg">{(similarity * 100).toFixed(1)}%</p>
+          <p className="mt-1 text-muted-foreground">
             {similarity > 0.7
               ? 'Very similar'
               : similarity > 0.5
@@ -227,15 +229,15 @@ const SimilarityInterface = ({
                   : 'Not very similar'}
           </p>
           {selectedDevice && (
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="mt-1 text-muted-foreground text-xs">
               Computed on: {selectedDevice.toUpperCase()}
             </p>
           )}
         </div>
       )}
 
-      <Button onClick={onDispose} size="sm" variant="outline" className="w-full gap-2">
-        <Square className="w-3 h-3" />
+      <Button className="w-full gap-2" onClick={onDispose} size="sm" variant="outline">
+        <Square className="h-3 w-3" />
         Dispose Model
       </Button>
     </div>
@@ -305,48 +307,49 @@ export function EmbeddingsPanel() {
   // Ensure the embedding service is disposed when the panel unmounts
   // to prevent leaking GPU/CPU resources across navigation or tab hides.
   // The store's dispose() is idempotent and safe to call when idle.
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       void dispose();
-    };
-  }, [dispose]);
+    },
+    [dispose]
+  );
 
   return (
     <Card className="h-full">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Brain className="w-4 h-4" />
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Brain className="h-4 w-4" />
               Text Embeddings
             </CardTitle>
             <CardDescription className="text-xs">
               Generate embeddings and calculate text similarity
             </CardDescription>
           </div>
-          <Badge variant={getStatusColor(status)} className="text-xs">
+          <Badge className="text-xs" variant={getStatusColor(status)}>
             {getStatusText(status)}
           </Badge>
         </div>
       </CardHeader>
 
-      <CardContent className="text-xs space-y-3">
+      <CardContent className="space-y-3 text-xs">
         {/* Model Selector */}
         {status === 'idle' && (
           <div className="space-y-2">
-            <Label htmlFor="model-select" className="text-xs">
+            <Label className="text-xs" htmlFor="model-select">
               Select Model:
             </Label>
             <Select
-              value={selectedModel}
               onValueChange={(value) => handleModelChange(value as ModelKey)}
+              value={selectedModel}
             >
-              <SelectTrigger id="model-select" className="text-xs">
+              <SelectTrigger className="text-xs" id="model-select">
                 <SelectValue placeholder="Select a model" />
               </SelectTrigger>
               <SelectContent>
                 {Object.entries(AVAILABLE_MODELS).map(([key, model]) => (
-                  <SelectItem key={key} value={key} className="text-xs">
+                  <SelectItem className="text-xs" key={key} value={key}>
                     <div>
                       <div className="font-medium">{model.name}</div>
                       <div className="text-muted-foreground text-xs">{model.description}</div>
@@ -359,7 +362,7 @@ export function EmbeddingsPanel() {
               </SelectContent>
             </Select>
             {AVAILABLE_MODELS[selectedModel]?.quantized && (
-              <div className="p-2 bg-orange-50 border border-orange-200 rounded text-xs">
+              <div className="rounded border border-orange-200 bg-orange-50 p-2 text-xs">
                 <p className="font-medium text-orange-800">Note:</p>
                 <p className="text-orange-700">
                   This model uses quantization for stability in browsers.
@@ -371,14 +374,14 @@ export function EmbeddingsPanel() {
 
         {/* Model Info */}
         <ModelInfo
-          modelConfig={AVAILABLE_MODELS[selectedModel]}
           isDefault={selectedModel === DEFAULT_MODEL_KEY}
+          modelConfig={AVAILABLE_MODELS[selectedModel]}
         />
 
         {/* Error Display */}
         {error && (
-          <div className="p-2 bg-red-50 border border-red-200 rounded flex items-start gap-2">
-            <AlertCircle className="w-3 h-3 text-red-500 mt-0.5 flex-shrink-0" />
+          <div className="flex items-start gap-2 rounded border border-red-200 bg-red-50 p-2">
+            <AlertCircle className="mt-0.5 h-3 w-3 flex-shrink-0 text-red-500" />
             <div>
               <p className="font-medium text-red-800">Error:</p>
               <p className="text-red-700">{error}</p>
@@ -389,8 +392,8 @@ export function EmbeddingsPanel() {
         {/* Initialization */}
         {status === 'idle' && (
           <div className="space-y-2">
-            <Button onClick={handleInitialize} size="sm" className="w-full gap-2">
-              <Zap className="w-3 h-3" />
+            <Button className="w-full gap-2" onClick={handleInitialize} size="sm">
+              <Zap className="h-3 w-3" />
               Initialize Model
             </Button>
             <p className="text-muted-foreground text-xs">
@@ -406,28 +409,28 @@ export function EmbeddingsPanel() {
               <span>{progressMessage || 'Loading...'}</span>
               <span>{progress.toFixed(0)}%</span>
             </div>
-            <Progress value={progress} className="h-1" />
+            <Progress className="h-1" value={progress} />
           </div>
         )}
 
         {/* Main Interface */}
         {(status === 'ready' || status === 'processing') && (
           <SimilarityInterface
+            similarity={similarity}
             status={status}
             text1={text1}
             text2={text2}
-            similarity={similarity}
             {...(selectedDevice && { selectedDevice })}
-            onText1Change={setText1}
-            onText2Change={setText2}
             onCalculate={handleCalculateSimilarity}
             onDispose={handleDispose}
+            onText1Change={setText1}
+            onText2Change={setText2}
           />
         )}
 
         {/* Info */}
-        <div className="p-2 bg-muted/30 rounded text-xs">
-          <p className="font-medium mb-1">About {AVAILABLE_MODELS[selectedModel]?.name}:</p>
+        <div className="rounded bg-muted/30 p-2 text-xs">
+          <p className="mb-1 font-medium">About {AVAILABLE_MODELS[selectedModel]?.name}:</p>
           <ul className="space-y-1 text-muted-foreground">
             {AVAILABLE_MODELS[selectedModel]?.tags.map((tag) => (
               <li key={tag}>• {tag}</li>

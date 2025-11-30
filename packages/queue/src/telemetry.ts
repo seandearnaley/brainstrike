@@ -2,7 +2,7 @@ export type QueueTelemetryAdapter = 'workerpool' | 'pqueue' | 'custom';
 
 export type QueueTelemetryEventType = 'enqueue' | 'complete' | 'error';
 
-export interface QueueTelemetryEvent {
+export type QueueTelemetryEvent = {
   readonly timestamp: number;
   readonly adapter: QueueTelemetryAdapter;
   readonly event: QueueTelemetryEventType;
@@ -14,7 +14,7 @@ export interface QueueTelemetryEvent {
   readonly pending?: number;
   readonly errorMessage?: string;
   readonly metadata?: Record<string, unknown>;
-}
+};
 
 export type QueueTelemetryListener = (event: QueueTelemetryEvent) => void;
 
@@ -37,14 +37,14 @@ export function addQueueTelemetryListener(listener: QueueTelemetryListener): () 
   };
 }
 
-export interface QueueTelemetrySnapshot {
+export type QueueTelemetrySnapshot = {
   readonly events: readonly QueueTelemetryEvent[];
   readonly throughputPerMinute: number;
   readonly averageLatencyMs: number | null;
   readonly latencyP50Ms: number | null;
   readonly latencyP95Ms: number | null;
   readonly errorCount: number;
-}
+};
 
 function computePercentile(values: readonly number[], percentile: number): number | null {
   if (values.length === 0) {
@@ -55,7 +55,7 @@ function computePercentile(values: readonly number[], percentile: number): numbe
   return sorted[index] ?? null;
 }
 
-export function createQueueTelemetryAggregator(windowMs = 60_000, maxEvents = 5_000) {
+export function createQueueTelemetryAggregator(windowMs = 60_000, maxEvents = 5000) {
   const events: QueueTelemetryEvent[] = [];
 
   const prune = (now: number) => {

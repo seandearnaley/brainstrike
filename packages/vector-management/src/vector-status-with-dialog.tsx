@@ -1,7 +1,7 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { VectorStatusWithDb } from './vector-status';
 
-export interface VectorStatusWithDialogProps {
+export type VectorStatusWithDialogProps = {
   /**
    * CRITICAL: The embedding queue adapter from the app layer.
    *
@@ -21,7 +21,7 @@ export interface VectorStatusWithDialogProps {
    * breaking the integration with the app's embedding system.
    */
   queueAdapter?: QueueAdapter | null;
-}
+};
 
 /**
  * Wrapper component for VectorStatusWithDb.

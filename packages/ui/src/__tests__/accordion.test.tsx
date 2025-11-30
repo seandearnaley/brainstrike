@@ -7,7 +7,7 @@ describe('Accordion', () => {
   it('toggles content visibility when trigger clicked', async () => {
     const user = userEvent.setup();
     render(
-      <Accordion type="single" collapsible>
+      <Accordion collapsible type="single">
         <AccordionItem value="item1">
           <AccordionTrigger>Item 1</AccordionTrigger>
           <AccordionContent>Content 1</AccordionContent>
@@ -22,7 +22,7 @@ describe('Accordion', () => {
 
   it('applies custom class to AccordionItem', () => {
     render(
-      <Accordion type="single" collapsible>
+      <Accordion collapsible type="single">
         <AccordionItem className="custom" value="item1">
           <AccordionTrigger>Trigger</AccordionTrigger>
           <AccordionContent>Content</AccordionContent>

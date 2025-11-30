@@ -18,10 +18,10 @@ const IMPORT_PROCESS_LABEL = 'Import Process';
 const BINARY_FILE_ERROR_MESSAGE = 'Binary file - only text files are supported';
 
 function isContentAccessible(content: string): boolean {
-  return (
-    !content.startsWith('Error accessing file') &&
-    !content.includes('Binary file') &&
-    !content.includes('not accessible')
+  return !(
+    content.startsWith('Error accessing file') ||
+    content.includes('Binary file') ||
+    content.includes('not accessible')
   );
 }
 
@@ -109,7 +109,7 @@ async function readTextFile(
     throw new FileImportError('unsupported-content', BINARY_FILE_ERROR_MESSAGE);
   }
 
-  if (!fileContent.isTextExtension(extension) && !fileContent.isTextContent(content)) {
+  if (!(fileContent.isTextExtension(extension) || fileContent.isTextContent(content))) {
     throw new FileImportError('unsupported-content', BINARY_FILE_ERROR_MESSAGE);
   }
 

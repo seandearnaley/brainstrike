@@ -19,7 +19,7 @@ import MaxSelectionCountSetting from './max-selection-count-setting';
 import UseRegexSetting from './use-regex-setting';
 
 // Types
-interface FileExplorerSettings {
+type FileExplorerSettings = {
   includeFilters: string[];
   excludeFilters: string[];
   useRegex: boolean;
@@ -27,16 +27,16 @@ interface FileExplorerSettings {
   includeProjectTree: boolean;
   folderSummaryThreshold: number;
   devInlineFixtureEnabled: boolean;
-}
+};
 
-interface FileExplorerConfigProps {
+type FileExplorerConfigProps = {
   filterError: string | null;
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   inlineFixtureSetting?: {
     available: boolean;
     loading: boolean;
   };
-}
+};
 
 const logger = createLogger('FileExplorerConfig');
 export const fileExplorerConfigLogger = logger;
@@ -145,38 +145,38 @@ const ConfigDialogContent: React.FC<{
 
   return (
     <div>
-      <div className="from-primary/5 to-card bg-gradient-to-t p-4 rounded-t-lg border-b bg-card text-foreground">
-        <DialogTitle className="text-lg font-semibold leading-none tracking-tight">
+      <div className="rounded-t-lg border-b bg-card bg-gradient-to-t from-primary/5 to-card p-4 text-foreground">
+        <DialogTitle className="font-semibold text-lg leading-none tracking-tight">
           File Explorer Configuration
         </DialogTitle>
-        <DialogDescription className="text-sm text-muted-foreground mt-1">
+        <DialogDescription className="mt-1 text-muted-foreground text-sm">
           Customize behavior and appearance
         </DialogDescription>
       </div>
-      <div className="@container p-4 flex flex-col gap-4 bg-card text-foreground">
+      <div className="@container flex flex-col gap-4 bg-card p-4 text-foreground">
         <div className="grid @md/settings:grid-cols-2 gap-4">
           <MaxSelectionCountSetting
-            value={settings.maxSelectionCount}
             onChange={(value) => onSettingsChange('maxSelectionCount', value)}
+            value={settings.maxSelectionCount}
           />
           <FolderSummaryThresholdSetting
-            value={settings.folderSummaryThreshold}
             onChange={(value) => onSettingsChange('folderSummaryThreshold', value)}
+            value={settings.folderSummaryThreshold}
           />
         </div>
         <FileExtensionFilter
-          includeFilters={settings.includeFilters}
           excludeFilters={settings.excludeFilters}
-          onFilterChange={(newInclude: string[], newExclude: string[]) => {
-            onSettingsChange('includeFilters', newInclude);
-            onSettingsChange('excludeFilters', newExclude);
-          }}
+          filterError={filterError}
+          includeFilters={settings.includeFilters}
           onDraftChange={(newInclude: string[], newExclude: string[]) => {
             onSettingsChange('includeFilters', newInclude);
             onSettingsChange('excludeFilters', newExclude);
           }}
+          onFilterChange={(newInclude: string[], newExclude: string[]) => {
+            onSettingsChange('includeFilters', newInclude);
+            onSettingsChange('excludeFilters', newExclude);
+          }}
           useRegex={settings.useRegex}
-          filterError={filterError}
         />
         <div className="grid @md/settings:grid-cols-2 gap-4">
           <UseRegexSetting
@@ -195,11 +195,11 @@ const ConfigDialogContent: React.FC<{
             onChange={handleInlineFixtureToggle}
           />
         )}
-        <div className="flex justify-end pt-2 border-t mt-2">
+        <div className="mt-2 flex justify-end border-t pt-2">
           <Button
             data-testid="apply-settings-button"
-            onClick={handleApplySettings}
             disabled={inlineFixtureSetting?.loading}
+            onClick={handleApplySettings}
           >
             Apply Settings
           </Button>
@@ -252,7 +252,9 @@ const ConfigDialogContainer: React.FC<
 
   // Ensure dialog reflects hydrated store values when opened
   React.useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      return;
+    }
     // Use hydrated store values as the single source of truth
     setSettings((prev) => ({
       includeFilters: selectors.includeFilters ?? prev.includeFilters,
@@ -275,14 +277,14 @@ const ConfigDialogContainer: React.FC<
   ]);
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog onOpenChange={setIsOpen} open={isOpen}>
       <DialogTrigger asChild>
         <Button
-          variant="outline"
-          size="sm"
           aria-label="Open settings"
-          data-testid="settings-button"
           className="flex gap-2"
+          data-testid="settings-button"
+          size="sm"
+          variant="outline"
         >
           <Settings className="size-4" data-testid="settings-icon" />
           <span className="hidden md:inline">Settings</span>
@@ -290,22 +292,22 @@ const ConfigDialogContainer: React.FC<
       </DialogTrigger>
       {isOpen && (
         <DialogContent
-          className="w-full max-w-sm p-0 rounded-md border bg-card text-foreground"
+          className="w-full max-w-sm rounded-md border bg-card p-0 text-foreground"
           data-testid="settings-dialog"
         >
           <ConfigDialogContent
             filterError={filterError}
-            onFilterChange={onFilterChange}
             onClose={() => setIsOpen(false)}
-            settings={settings}
+            onFilterChange={onFilterChange}
             onSettingsChange={handleSettingChange}
-            setMaxSelectionCount={actions.setMaxSelectionCount}
-            setUseRegex={actions.setUseRegex}
-            setFilters={actions.setFilters}
-            setIncludeProjectTree={actions.setIncludeProjectTree}
-            setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
             persistPatch={persistPatch}
             setDevInlineFixtureEnabled={actions.setDevInlineFixtureEnabled}
+            setFilters={actions.setFilters}
+            setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
+            setIncludeProjectTree={actions.setIncludeProjectTree}
+            setMaxSelectionCount={actions.setMaxSelectionCount}
+            settings={settings}
+            setUseRegex={actions.setUseRegex}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
           />
         </DialogContent>
@@ -396,7 +398,9 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
     const persistPatch = async (patch: Partial<FileExplorerSettings>) => {
       try {
         const storageInfo = getStorage();
-        if (!storageInfo) return;
+        if (!storageInfo) {
+          return;
+        }
 
         const { storage, name } = storageInfo;
         const currentJson = await storage.getItem(name);
@@ -412,8 +416,17 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
 
     return (
       <ConfigDialogContainer
+        actions={{
+          setMaxSelectionCount,
+          setUseRegex,
+          setFilters,
+          setIncludeProjectTree,
+          setFolderSummaryThreshold,
+          setDevInlineFixtureEnabled,
+        }}
         filterError={filterError}
         onFilterChange={onFilterChange}
+        persistPatch={persistPatch}
         selectors={{
           includeFilters,
           excludeFilters,
@@ -423,15 +436,6 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
           folderSummaryThreshold,
           devInlineFixtureEnabled,
         }}
-        actions={{
-          setMaxSelectionCount,
-          setUseRegex,
-          setFilters,
-          setIncludeProjectTree,
-          setFolderSummaryThreshold,
-          setDevInlineFixtureEnabled,
-        }}
-        persistPatch={persistPatch}
         {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
       />
     );

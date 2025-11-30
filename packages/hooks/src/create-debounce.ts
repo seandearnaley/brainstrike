@@ -7,7 +7,9 @@ export function createDebounce<Args extends unknown[]>(
 
   const run = (...args: Args) => {
     latestArgs = args;
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
     timer = setTimeout(async () => {
       if (latestArgs) {
         try {

@@ -121,7 +121,7 @@ export default defineConfig({
             return 'vendor';
           }
           // Explicitly return undefined for other modules to keep them in the default chunk
-          return undefined;
+          return;
         },
       },
     },
@@ -278,7 +278,9 @@ async function createApiMiddleware(mode: 'dev' | 'preview') {
         return;
       }
 
-      if (req.method !== 'POST') return next();
+      if (req.method !== 'POST') {
+        return next();
+      }
 
       const bodyStr = await readBody(req);
       const body = JSON.parse(bodyStr || '{}');
