@@ -33,7 +33,7 @@
   "dependencies": {
     "@brainstrike/types": "workspace:*",
     "@huggingface/transformers": "^3.8.0",
-    "workerpool": "^9.1.2"
+    "workerpool": "^10.0.1"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

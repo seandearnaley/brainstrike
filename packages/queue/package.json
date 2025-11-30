@@ -31,8 +31,8 @@
     "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "^3.8.0",
-    "p-queue": "^7.4.1",
-    "workerpool": "^9.1.2"
+    "p-queue": "^9.0.1",
+    "workerpool": "^10.0.1"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",

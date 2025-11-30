@@ -29,14 +29,14 @@
     "@brainstrike/utils": "workspace:*"
   },
   "optionalDependencies": {
-    "chokidar": "^4.0.3"
+    "chokidar": "^5.0.0"
   },
   "devDependencies": {
     "@stryker-mutator/core": "^9.4.0",
     "@stryker-mutator/typescript-checker": "^9.4.0",
     "@stryker-mutator/vitest-runner": "^9.4.0",
     "@types/node": "^24.10.1",
-    "electron": "^38.7.2",
+    "electron": "^39.2.4",
     "jsdom": "^27.2.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",

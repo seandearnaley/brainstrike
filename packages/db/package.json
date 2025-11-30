@@ -35,7 +35,7 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "^0.3.14",
-    "@langchain/textsplitters": "^0.1.0"
+    "@langchain/textsplitters": "^1.0.1"
   },
   "peerDependencies": {
     "react": "^19.1.1",
