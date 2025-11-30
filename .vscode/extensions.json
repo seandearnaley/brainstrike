@@ -1,5 +1,7 @@
 {
     "recommendations": [
-        "bierner.markdown-mermaid"
+        "bierner.markdown-mermaid",
+        "bradlc.vscode-tailwindcss",
+        "biomejs.biome"
     ]
 }

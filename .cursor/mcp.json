@@ -32,12 +32,9 @@
           "--watch"
         ]
       },
-      "chrome-devtools": {
+      "ultracite": {
         "command": "npx",
-        "args": [
-          "-y",
-          "chrome-devtools-mcp@latest"
-        ]
+        "args": ["-y", "mcp-remote", "https://www.ultracite.ai/api/mcp/mcp"]
       }
     }
   }
