@@ -97,7 +97,14 @@ describe('embedding-worker retries and backoff', () => {
     await db.query(
       `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [embeddingSetId, 'local::jina-code', 'jina-code', 768, 'cosine', now]
+      [
+        embeddingSetId,
+        'local::jina-code',
+        'jinaai/jina-embeddings-v2-base-code',
+        768,
+        'cosine',
+        now,
+      ]
     );
 
     await db.query(
@@ -120,7 +127,7 @@ describe('embedding-worker retries and backoff', () => {
       db: db as unknown as IDatabase,
       concurrency: 1,
       leaseMs: 1000,
-      modelKey: 'jina-code',
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FlakyEmbeddingService(),
     });
 

@@ -1,4 +1,6 @@
+import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { calculateCosineSimilarity } from './embedding-math';
+// ModelRegistryManager is used for legacy static methods - prefer database lookup
 import { ModelRegistryManager } from './model-registry';
 import { TransformersBackend } from './transformers-backend';
 import type {
@@ -17,8 +19,8 @@ export type DownloadModelOptions = {
 };
 
 /**
- * A registry-aware embedding service using transformers.js feature-extraction pipeline
- * Supports plug-and-play model switching via JSON manifest
+ * Embedding service using transformers.js feature-extraction pipeline.
+ * Model configuration must be provided via initializeWithModel() from database.
  */
 export class SimpleEmbeddingService implements EmbeddingService {
   private readonly _backend: TransformersBackend;
@@ -30,18 +32,19 @@ export class SimpleEmbeddingService implements EmbeddingService {
   constructor() {
     this._backend = new TransformersBackend();
 
-    // Initialize with default model from registry
-    const defaultModel = ModelRegistryManager.getDefaultModel();
+    // Default config - will be overwritten by initializeWithModel()
     this._config = {
-      modelId: defaultModel.id,
+      modelId: 'jinaai/jina-embeddings-v2-base-code', // Default HuggingFace ID
       device: 'webgpu',
-      quantized: ModelRegistryManager.shouldQuantize(defaultModel),
+      quantized: false,
     };
-    this._backend.setTargetDimensions(defaultModel.dimensions);
+    this._backend.setTargetDimensions(DEFAULT_EMBEDDING_DIMENSION);
   }
 
   /**
-   * Initialize with a model key from the registry OR a full model configuration
+   * Initialize with a model configuration or key.
+   * Prefer passing ModelConfig from database. String keys use legacy static registry.
+   * @param modelKeyOrConfig - ModelConfig object (preferred) or string key (legacy/deprecated)
    */
   async initializeWithModel(
     modelKeyOrConfig?: string | ModelConfig,
@@ -53,8 +56,10 @@ export class SimpleEmbeddingService implements EmbeddingService {
     let resolvedKey: string | undefined;
 
     if (typeof modelKeyOrConfig === 'object') {
+      // Preferred path: ModelConfig from database
       modelConfig = modelKeyOrConfig;
     } else {
+      // Legacy path: lookup from static registry (deprecated)
       resolvedKey = modelKeyOrConfig || ModelRegistryManager.getDefaultModelKey();
       modelConfig = ModelRegistryManager.getModel(resolvedKey);
     }
@@ -63,10 +68,13 @@ export class SimpleEmbeddingService implements EmbeddingService {
       throw new Error(`Model '${resolvedKey}' not found in registry`);
     }
 
+    // Determine if quantization should be used (768D or smaller models benefit from quantization)
+    const shouldQuantize = modelConfig.dimensions <= 768 && !modelConfig.quantized;
+
     const config: Partial<EmbeddingConfig> = {
       modelId: modelConfig.id,
       device: deviceOverride || this._config.device || 'webgpu',
-      quantized: ModelRegistryManager.shouldQuantize(modelConfig),
+      quantized: shouldQuantize,
       ...(cacheDir ? { cacheDir } : {}),
     };
 
@@ -210,7 +218,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
   }
 
   /**
-   * Static method to get the default model key
+   * Static method to get the default model key.
+   * @deprecated Use database lookup for model configuration.
    */
   static getDefaultModelKey(): string {
     return ModelRegistryManager.getDefaultModelKey();
@@ -218,13 +227,15 @@ export class SimpleEmbeddingService implements EmbeddingService {
 
   /**
    * Instance proxy: get the model registry
+   * @deprecated Use database lookup for model configuration.
    */
   getRegistry() {
     return SimpleEmbeddingService.getRegistry();
   }
 
   /**
-   * Static method to get the model registry
+   * Static method to get the model registry.
+   * @deprecated Use database lookup for model configuration.
    */
   static getRegistry() {
     return ModelRegistryManager.getRegistry();
@@ -238,14 +249,16 @@ export class SimpleEmbeddingService implements EmbeddingService {
   }
 
   /**
-   * Static method to get a specific model configuration
+   * Static method to get a specific model configuration.
+   * @deprecated Use database lookup for model configuration.
    */
   static getModelConfig(key: string): ModelConfig | null {
     return ModelRegistryManager.getModel(key);
   }
 
   /**
-   * Static method to list all available models from registry
+   * Static method to list all available models from registry.
+   * @deprecated Use database lookup for model list.
    */
   static listModels(): Record<string, ModelConfig> {
     return ModelRegistryManager.listModels();

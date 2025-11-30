@@ -58,7 +58,7 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
       const models = SimpleEmbeddingService.listModels();
 
       // Test that smaller models (≤768D) force quantization
-      const jinaCode = models['jina-code'];
+      const jinaCode = models['jinaai/jina-embeddings-v2-base-code'];
       expect(jinaCode).toBeDefined();
       expect(ModelRegistryManager.shouldQuantize(jinaCode!)).toBe(true);
 
@@ -87,7 +87,7 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
         expect(progressCalled).toBe(true);
 
         const currentModel = service.getCurrentModelKey();
-        expect(currentModel).toBe('jina-code');
+        expect(currentModel).toBe('jinaai/jina-embeddings-v2-base-code');
       },
       LONG_TIMEOUT
     );
@@ -100,7 +100,7 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
 
         // Find a small model for faster testing
         const smallModel =
-          modelKeys.find((key) => models[key]!.dimensions <= 384) || 'all-MiniLM-L6-v2';
+          modelKeys.find((key) => models[key]!.dimensions <= 384) || 'Xenova/all-MiniLM-L6-v2';
 
         if (models[smallModel]) {
           await service.initializeWithModel(smallModel);
@@ -125,7 +125,7 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
     it(
       'should prevent model switching without disposal',
       async () => {
-        await service.initializeWithModel('all-MiniLM-L6-v2');
+        await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
 
         await expect(service.initializeWithModel('bge-small-en-v1.5')).rejects.toThrow(
           'Cannot switch models without disposing first'
@@ -138,7 +138,7 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
   describe('Embedding Generation', () => {
     beforeEach(async () => {
       // Use smallest model for faster tests
-      await service.initializeWithModel('all-MiniLM-L6-v2');
+      await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
     }, LONG_TIMEOUT);
 
     it('should generate embeddings for text', async () => {
@@ -189,7 +189,7 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
       'should handle code embeddings with Jina model',
       async () => {
         await service.dispose();
-        await service.initializeWithModel('jina-code');
+        await service.initializeWithModel('jinaai/jina-embeddings-v2-base-code');
 
         const codeSnippet = `
 function calculateSum(a: number, b: number): number {
@@ -208,7 +208,7 @@ function calculateSum(a: number, b: number): number {
 
   describe('Similarity Calculations', () => {
     beforeEach(async () => {
-      await service.initializeWithModel('all-MiniLM-L6-v2');
+      await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
     }, LONG_TIMEOUT);
 
     it('should calculate high similarity for identical texts', async () => {
@@ -249,7 +249,7 @@ function calculateSum(a: number, b: number): number {
 
   describe('Code-Specific Embedding Tests', () => {
     beforeEach(async () => {
-      await service.initializeWithModel('jina-code');
+      await service.initializeWithModel('jinaai/jina-embeddings-v2-base-code');
     }, LONG_TIMEOUT);
 
     it('should achieve high similarity for semantically similar code', async () => {
@@ -335,7 +335,7 @@ async function fetchUserData(userId) {
     it(
       'should handle disposal and reinitialization',
       async () => {
-        await service.initializeWithModel('all-MiniLM-L6-v2');
+        await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
         expect(service.getStatus()).toBe('ready');
 
         await service.dispose();
@@ -353,7 +353,7 @@ async function fetchUserData(userId) {
     it(
       'should handle multiple dispose calls safely',
       async () => {
-        await service.initializeWithModel('all-MiniLM-L6-v2');
+        await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
 
         await service.dispose();
         await service.dispose(); // Should not throw
@@ -372,7 +372,7 @@ async function fetchUserData(userId) {
     it(
       'should handle empty text input',
       async () => {
-        await service.initializeWithModel('all-MiniLM-L6-v2');
+        await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
 
         const result = await service.generateEmbedding('');
         expect(result).toBeDefined();
@@ -384,7 +384,7 @@ async function fetchUserData(userId) {
     it(
       'should handle very long text input',
       async () => {
-        await service.initializeWithModel('all-MiniLM-L6-v2');
+        await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
 
         const longText = 'test '.repeat(1000); // 5000 characters
         const result = await service.generateEmbedding(longText);

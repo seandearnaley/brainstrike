@@ -26,7 +26,7 @@ describe('EmbeddingProviderFactory', () => {
       const config: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -44,7 +44,7 @@ describe('EmbeddingProviderFactory', () => {
       const config: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
         quantization: 'q8',
       };
 
@@ -60,7 +60,7 @@ describe('EmbeddingProviderFactory', () => {
       const config: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result1 = await EmbeddingProviderFactory.createProvider(config);
@@ -79,13 +79,13 @@ describe('EmbeddingProviderFactory', () => {
       const config1: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const config2: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'bge-base-en-v1.5',
+        modelId: 'Xenova/bge-base-en-v1.5',
       };
 
       const result1 = await EmbeddingProviderFactory.createProvider(config1);
@@ -327,14 +327,18 @@ describe('EmbeddingProviderFactory', () => {
       const config: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const createResult = await EmbeddingProviderFactory.createProvider(config);
       expect(createResult.ok).toBe(true);
 
       // Default quantization is 'default'
-      const cached = EmbeddingProviderFactory.getCachedProvider('local', 'jina-code', 'default');
+      const cached = EmbeddingProviderFactory.getCachedProvider(
+        'local',
+        'jinaai/jina-embeddings-v2-base-code',
+        'default'
+      );
       expect(cached).toBeDefined();
 
       if (createResult.ok) {
@@ -351,19 +355,23 @@ describe('EmbeddingProviderFactory', () => {
       const config: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       await EmbeddingProviderFactory.createProvider(config);
 
       const removed = await EmbeddingProviderFactory.removeProvider(
         'local',
-        'jina-code',
+        'jinaai/jina-embeddings-v2-base-code',
         'default'
       );
       expect(removed).toBe(true);
 
-      const cached = EmbeddingProviderFactory.getCachedProvider('local', 'jina-code', 'default');
+      const cached = EmbeddingProviderFactory.getCachedProvider(
+        'local',
+        'jinaai/jina-embeddings-v2-base-code',
+        'default'
+      );
       expect(cached).toBeUndefined();
     });
 
@@ -380,13 +388,13 @@ describe('EmbeddingProviderFactory', () => {
       const config1: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const config2: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'bge-base-en-v1.5',
+        modelId: 'Xenova/bge-base-en-v1.5',
       };
 
       await EmbeddingProviderFactory.createProvider(config1);
@@ -406,13 +414,13 @@ describe('EmbeddingProviderFactory', () => {
       const config1: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const config2: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'bge-base-en-v1.5',
+        modelId: 'Xenova/bge-base-en-v1.5',
       };
 
       await EmbeddingProviderFactory.createProvider(config1);
@@ -424,8 +432,8 @@ describe('EmbeddingProviderFactory', () => {
       expect(stats.providers).toHaveLength(2);
       expect(stats.providers).toEqual(
         expect.arrayContaining([
-          { provider: 'local', modelId: 'jina-code', variant: 'default' },
-          { provider: 'local', modelId: 'bge-base-en-v1.5', variant: 'default' },
+          { provider: 'local', modelId: 'jinaai/jina-embeddings-v2-base-code', variant: 'default' },
+          { provider: 'local', modelId: 'Xenova/bge-base-en-v1.5', variant: 'default' },
         ])
       );
     });
@@ -434,13 +442,13 @@ describe('EmbeddingProviderFactory', () => {
       const config1: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const config2: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
         quantization: 'q8',
       };
 
@@ -456,8 +464,16 @@ describe('EmbeddingProviderFactory', () => {
       }
 
       // Verify both are in cache with different keys
-      const cached1 = EmbeddingProviderFactory.getCachedProvider('local', 'jina-code', 'default');
-      const cached2 = EmbeddingProviderFactory.getCachedProvider('local', 'jina-code', 'q8');
+      const cached1 = EmbeddingProviderFactory.getCachedProvider(
+        'local',
+        'jinaai/jina-embeddings-v2-base-code',
+        'default'
+      );
+      const cached2 = EmbeddingProviderFactory.getCachedProvider(
+        'local',
+        'jinaai/jina-embeddings-v2-base-code',
+        'q8'
+      );
 
       expect(cached1).toBeDefined();
       expect(cached2).toBeDefined();
@@ -467,8 +483,8 @@ describe('EmbeddingProviderFactory', () => {
       expect(stats.size).toBe(2);
       expect(stats.providers).toEqual(
         expect.arrayContaining([
-          { provider: 'local', modelId: 'jina-code', variant: 'default' },
-          { provider: 'local', modelId: 'jina-code', variant: 'q8' },
+          { provider: 'local', modelId: 'jinaai/jina-embeddings-v2-base-code', variant: 'default' },
+          { provider: 'local', modelId: 'jinaai/jina-embeddings-v2-base-code', variant: 'q8' },
         ])
       );
     });
@@ -479,7 +495,7 @@ describe('EmbeddingProviderFactory', () => {
       const config: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);
@@ -500,7 +516,7 @@ describe('EmbeddingProviderFactory', () => {
       const config: EmbeddingProviderConfig = {
         runtime: 'browser',
         provider: 'local',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result = await EmbeddingProviderFactory.createProvider(config);

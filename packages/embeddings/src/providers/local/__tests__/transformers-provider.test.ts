@@ -12,7 +12,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
 
   beforeEach(() => {
     // Create a new provider instance for each test
-    provider = new TransformersEmbeddingProvider('jina-code');
+    provider = new TransformersEmbeddingProvider('jinaai/jina-embeddings-v2-base-code');
   });
 
   afterEach(async () => {
@@ -64,7 +64,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
     it('auto-initializes if not ready', async () => {
       const input: EmbeddingInput = {
         text: 'hello world',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result = await provider.embed(input);
@@ -74,7 +74,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
         expect(result.value.embedding).toBeDefined();
         expect(Array.isArray(result.value.embedding)).toBe(true);
         expect(result.value.embedding.length).toBeGreaterThan(0);
-        expect(result.value.modelId).toBe('jina-code');
+        expect(result.value.modelId).toBe('jinaai/jina-embeddings-v2-base-code');
         expect(result.value.provider).toBe('local');
         expect(result.value.dimensions).toBe(result.value.embedding.length);
       }
@@ -85,7 +85,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
 
       const input: EmbeddingInput = {
         text: 'test embedding generation',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result = await provider.embed(input);
@@ -94,7 +94,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       if (result.ok) {
         expect(result.value.embedding).toBeDefined();
         expect(result.value.embedding.length).toBe(DEFAULT_EMBEDDING_DIMENSION);
-        expect(result.value.modelId).toBe('jina-code');
+        expect(result.value.modelId).toBe('jinaai/jina-embeddings-v2-base-code');
         expect(result.value.provider).toBe('local');
       }
     });
@@ -104,7 +104,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
 
       const input: EmbeddingInput = {
         text: 'consistent test',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result1 = await provider.embed(input);
@@ -124,12 +124,12 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
 
       const input1: EmbeddingInput = {
         text: 'first text',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const input2: EmbeddingInput = {
         text: 'second text',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result1 = await provider.embed(input1);
@@ -149,7 +149,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
 
       const input: EmbeddingInput = {
         text: '',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result = await provider.embed(input);
@@ -183,7 +183,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
         if (result.error.type === 'dimension_mismatch') {
           expect(result.error.expected).toBe(DEFAULT_EMBEDDING_DIMENSION);
           expect(result.error.received).toBe(wrongDimension);
-          expect(result.error.modelId).toBe('jina-code');
+          expect(result.error.modelId).toBe('jinaai/jina-embeddings-v2-base-code');
         }
       }
     });
@@ -193,7 +193,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
 
       const input: EmbeddingInput = {
         text: 'validation test',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result = await provider.embed(input);
@@ -233,7 +233,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
 
   describe('model information', () => {
     it('returns model info for valid model', () => {
-      const modelInfo = provider.getModelInfo('jina-code');
+      const modelInfo = provider.getModelInfo('jinaai/jina-embeddings-v2-base-code');
 
       expect(modelInfo).toBeDefined();
       if (modelInfo) {
@@ -304,7 +304,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
 
       const input: EmbeddingInput = {
         text: 'test',
-        modelId: 'jina-code',
+        modelId: 'jinaai/jina-embeddings-v2-base-code',
       };
 
       const result = await provider.embed(input);
@@ -325,9 +325,18 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
 
   describe('device override', () => {
     it('accepts device override in constructor', () => {
-      const webgpuProvider = new TransformersEmbeddingProvider('jina-code', 'webgpu');
-      const wasmProvider = new TransformersEmbeddingProvider('jina-code', 'wasm');
-      const cpuProvider = new TransformersEmbeddingProvider('jina-code', 'cpu');
+      const webgpuProvider = new TransformersEmbeddingProvider(
+        'jinaai/jina-embeddings-v2-base-code',
+        'webgpu'
+      );
+      const wasmProvider = new TransformersEmbeddingProvider(
+        'jinaai/jina-embeddings-v2-base-code',
+        'wasm'
+      );
+      const cpuProvider = new TransformersEmbeddingProvider(
+        'jinaai/jina-embeddings-v2-base-code',
+        'cpu'
+      );
 
       expect(webgpuProvider).toBeDefined();
       expect(wasmProvider).toBeDefined();
@@ -345,7 +354,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
 
       const modelKey = provider.getCurrentModelKey();
 
-      expect(modelKey).toBe('jina-code');
+      expect(modelKey).toBe('jinaai/jina-embeddings-v2-base-code');
     });
   });
 });

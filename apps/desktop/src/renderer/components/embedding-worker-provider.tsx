@@ -46,6 +46,7 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
       return;
     }
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Worker lifecycle with error handling requires multiple branches
     const startWorker = async () => {
       if (startingRef.current || controllerRef.current) {
         return;
@@ -60,7 +61,14 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
         controllerRef.current = controller;
         logger.info('Embedding worker started successfully');
       } catch (error) {
-        logger.error('Failed to start embedding worker:', error);
+        // Error objects don't serialize to JSON - extract message and stack explicitly
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        logger.error('Failed to start embedding worker', {
+          message: errorMessage,
+          stack: errorStack,
+          name: error instanceof Error ? error.name : 'Unknown',
+        });
       } finally {
         startingRef.current = false;
       }

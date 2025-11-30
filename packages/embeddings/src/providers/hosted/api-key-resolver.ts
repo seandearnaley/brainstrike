@@ -1,6 +1,6 @@
-import type { EmbeddingProviderType } from '../../provider-types';
+import type { HostedProviderType } from '../../provider-types';
 
-type HostedProvider = Exclude<EmbeddingProviderType, 'local'>;
+type HostedProvider = HostedProviderType;
 
 const ENV_KEYS: Record<HostedProvider, readonly string[]> = {
   openai: [

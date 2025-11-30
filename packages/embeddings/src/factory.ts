@@ -3,7 +3,8 @@ import type { IEmbeddingProvider } from './interfaces/provider';
 import type {
   EmbeddingProviderConfig,
   EmbeddingProviderError,
-  EmbeddingProviderType,
+  HostedProviderType,
+  LocalProviderType,
   Result,
 } from './provider-types';
 import {
@@ -22,10 +23,10 @@ const logger = createLogger('EmbeddingProviderFactory');
  * Custom error for missing API keys that preserves provider information
  */
 class MissingApiKeyError extends Error {
-  readonly provider: Exclude<EmbeddingProviderType, 'local'>;
+  readonly provider: HostedProviderType;
   readonly errorType = 'missing_api_key' as const;
 
-  constructor(provider: Exclude<EmbeddingProviderType, 'local'>) {
+  constructor(provider: HostedProviderType) {
     super(`Missing API key for ${provider} provider`);
     this.provider = provider;
     this.name = 'MissingApiKeyError';
@@ -106,7 +107,7 @@ export class EmbeddingProviderFactory {
         ok: false,
         error: {
           type: 'model_load_failed',
-          provider: config.provider as 'local',
+          provider: config.provider as LocalProviderType,
           modelId: config.modelId,
           reason: error instanceof Error ? error.message : String(error),
         },

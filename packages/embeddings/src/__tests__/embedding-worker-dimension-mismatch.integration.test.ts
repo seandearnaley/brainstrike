@@ -64,7 +64,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
     const controller384 = await startEmbeddingWorker({
       db: db as unknown as IDatabase,
       concurrency: 1,
-      modelKey: 'all-MiniLM-L6-v2', // 384D model
+      modelKey: 'Xenova/all-MiniLM-L6-v2', // 384D model
     });
     expect(controller384).toBeDefined();
     await controller384.stop();
@@ -83,7 +83,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
     const controller = await startEmbeddingWorker({
       db: db as unknown as IDatabase,
       concurrency: 1,
-      modelKey: 'jina-code',
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
     });
     expect(controller).toBeDefined();
     await controller.stop();
@@ -92,7 +92,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
     const controller2 = await startEmbeddingWorker({
       db: db as unknown as IDatabase,
       concurrency: 1,
-      modelKey: 'bge-base-en-v1.5',
+      modelKey: 'Xenova/bge-base-en-v1.5',
     });
     expect(controller2).toBeDefined();
     await controller2.stop();
@@ -108,7 +108,14 @@ describe('embedding-worker: dimension mismatch handling', () => {
     await db.query(
       `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [embeddingSetId, 'local::jina-code', 'jina-code', 768, 'cosine', now]
+      [
+        embeddingSetId,
+        'local::jina-code',
+        'jinaai/jina-embeddings-v2-base-code',
+        768,
+        'cosine',
+        now,
+      ]
     );
 
     await db.query(
@@ -132,7 +139,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
       db: db as unknown as IDatabase,
       concurrency: 1,
       leaseMs: 1000,
-      modelKey: 'jina-code',
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new WrongDimService(),
     });
 
@@ -164,7 +171,14 @@ describe('embedding-worker: dimension mismatch handling', () => {
     await db.query(
       `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [embeddingSetId, 'local::jina-code', 'jina-code', 768, 'cosine', now]
+      [
+        embeddingSetId,
+        'local::jina-code',
+        'jinaai/jina-embeddings-v2-base-code',
+        768,
+        'cosine',
+        now,
+      ]
     );
 
     await db.query(
@@ -188,7 +202,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
       db: db as unknown as IDatabase,
       concurrency: 1,
       leaseMs: 1000,
-      modelKey: 'jina-code', // 768D model
+      modelKey: 'jinaai/jina-embeddings-v2-base-code', // 768D model
     });
 
     // Wait for job completion

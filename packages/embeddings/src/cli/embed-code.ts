@@ -156,7 +156,7 @@ export class CodeEmbeddingCLI {
 
     this.log(`Initializing embedding service with model: ${model.name}`);
 
-    await this.service.initializeWithModel(modelKey, (progress: EmbeddingProgress) => {
+    await this.service.initializeWithModel(model, (progress: EmbeddingProgress) => {
       if (this.config.verbose) {
         this.log(`${progress.stage}: ${progress.message} (${progress.progress?.toFixed(1)}%)`);
       }

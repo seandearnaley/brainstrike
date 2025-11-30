@@ -5,11 +5,11 @@ import type { ModelConfig, ModelRegistry } from './types';
  * This replaces the static model-registry.json.
  */
 const DEFAULT_REGISTRY: ModelRegistry = {
-  default: 'jina-code',
+  default: 'jinaai/jina-embeddings-v2-base-code',
   models: {
-    'jina-code': {
+    'jinaai/jina-embeddings-v2-base-code': {
       id: 'jinaai/jina-embeddings-v2-base-code',
-      name: 'Jina Code (default)',
+      name: 'Jina Code v2 (default)',
       dimensions: 768,
       quantized: false,
       description: 'Code-aware embeddings (30+ languages, 8k ctx)',
@@ -18,19 +18,30 @@ const DEFAULT_REGISTRY: ModelRegistry = {
       size: '~300MB',
       contextWindow: 8192,
     },
-    'jina-v3': {
+    'Xenova/jina-embeddings-v2-base-en': {
+      id: 'Xenova/jina-embeddings-v2-base-en',
+      name: 'Jina English v2',
+      dimensions: 768,
+      quantized: false,
+      description: 'General English embeddings with long context (8k tokens)',
+      tags: ['english', 'long-context', 'open-source', 'local'],
+      origin: 'General text',
+      size: '~130MB',
+      contextWindow: 8192,
+    },
+    'jinaai/jina-embeddings-v3': {
       id: 'jinaai/jina-embeddings-v3',
-      name: 'Jina v3',
+      name: 'Jina v3 (experimental)',
       dimensions: 1024,
       quantized: false,
       description:
-        'Latest Jina model with task-specific adapters (89 languages, 256-1024D flexible)',
-      tags: ['multilingual', 'flexible-dimensions', 'open-source', 'local'],
+        'Latest Jina model with task-specific adapters (89 languages). Note: transformers.js support may be limited.',
+      tags: ['multilingual', 'flexible-dimensions', 'open-source', 'local', 'experimental'],
       origin: 'General text',
       size: '~570MB',
       contextWindow: 8192,
     },
-    'all-MiniLM-L6-v2': {
+    'Xenova/all-MiniLM-L6-v2': {
       id: 'Xenova/all-MiniLM-L6-v2',
       name: 'all-MiniLM-L6-v2',
       dimensions: 384,
@@ -41,7 +52,7 @@ const DEFAULT_REGISTRY: ModelRegistry = {
       size: '~23MB',
       contextWindow: 512,
     },
-    'bge-small-en-v1.5': {
+    'Xenova/bge-small-en-v1.5': {
       id: 'Xenova/bge-small-en-v1.5',
       name: 'BGE-Small-EN-v1.5',
       dimensions: 384,
@@ -52,7 +63,7 @@ const DEFAULT_REGISTRY: ModelRegistry = {
       size: '~67MB',
       contextWindow: 512,
     },
-    'bge-base-en-v1.5': {
+    'Xenova/bge-base-en-v1.5': {
       id: 'Xenova/bge-base-en-v1.5',
       name: 'BGE-Base-EN-v1.5',
       dimensions: 768,
@@ -63,7 +74,7 @@ const DEFAULT_REGISTRY: ModelRegistry = {
       size: '~130MB',
       contextWindow: 512,
     },
-    'bge-large-en-v1.5': {
+    'Xenova/bge-large-en-v1.5': {
       id: 'Xenova/bge-large-en-v1.5',
       name: 'BGE-Large-EN-v1.5',
       dimensions: 1024,
@@ -192,18 +203,56 @@ export function listModels(): Record<string, ModelConfig> {
 }
 
 /**
- * Get a specific model configuration
- * Supports both local models (e.g., "xenova/bge-small") and hosted providers (e.g., "openai::text-embedding-3-small")
+ * Local provider types that should be looked up in the local models registry
  */
+const LOCAL_PROVIDER_PREFIXES = ['local', 'transformers'] as const;
+
+/**
+ * Get a specific model configuration
+ * Supports:
+ * - Local models by registry key (e.g., "jina-code", "all-MiniLM-L6-v2")
+ * - Local models by HuggingFace ID (e.g., "Xenova/all-MiniLM-L6-v2")
+ * - Local provider composite keys (e.g., "transformers::Xenova/all-MiniLM-L6-v2", "local::jina-code")
+ * - Hosted providers (e.g., "openai::text-embedding-3-small")
+ * @deprecated Use database lookup for model configuration
+ */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Multiple lookup strategies require branching
 export function getModel(key: string): ModelConfig | null {
-  // Check local models first
+  // Check local models by key first
   if (registry.models[key]) {
     return registry.models[key];
   }
 
-  // Check hosted providers (format: "provider::modelId")
+  // Check local models by their HuggingFace ID (the `id` field)
+  // This handles cases where the full model ID is used instead of the registry key
+  for (const [_registryKey, model] of Object.entries(registry.models)) {
+    if (model.id === key) {
+      return model;
+    }
+  }
+
+  // Check composite keys (format: "provider::modelId")
   if (key.includes('::')) {
     const [provider, modelId] = key.split('::');
+
+    // Handle local provider composite keys (e.g., "transformers::Xenova/all-MiniLM-L6-v2")
+    if (
+      provider &&
+      LOCAL_PROVIDER_PREFIXES.includes(provider as (typeof LOCAL_PROVIDER_PREFIXES)[number])
+    ) {
+      // Look up by the modelId part (could be registry key or HuggingFace ID)
+      if (modelId && registry.models[modelId]) {
+        return registry.models[modelId];
+      }
+      // Also check by HuggingFace ID
+      for (const [_registryKey, model] of Object.entries(registry.models)) {
+        if (model.id === modelId) {
+          return model;
+        }
+      }
+    }
+
+    // Handle hosted provider composite keys
     const hostedProvider = registry.hosted?.[provider as keyof typeof registry.hosted];
     if (hostedProvider && modelId && hostedProvider[modelId]) {
       const config = hostedProvider[modelId];
@@ -240,17 +289,49 @@ export function getDefaultModel(): ModelConfig {
 
 /**
  * Check if a model exists in the registry
- * Supports both local models and hosted providers (format: "provider::modelId")
+ * Supports:
+ * - Local models by registry key (e.g., "jina-code", "all-MiniLM-L6-v2")
+ * - Local models by HuggingFace ID (e.g., "Xenova/all-MiniLM-L6-v2")
+ * - Local provider composite keys (e.g., "transformers::Xenova/all-MiniLM-L6-v2", "local::jina-code")
+ * - Hosted providers (e.g., "openai::text-embedding-3-small")
+ * @deprecated Use database lookup for model existence check
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Multiple lookup strategies require branching
 export function hasModel(key: string): boolean {
-  // Check local models first
+  // Check local models by key first
   if (key in registry.models) {
     return true;
   }
 
-  // Check hosted providers (format: "provider::modelId")
+  // Check local models by their HuggingFace ID (the `id` field)
+  for (const model of Object.values(registry.models)) {
+    if (model.id === key) {
+      return true;
+    }
+  }
+
+  // Check composite keys (format: "provider::modelId")
   if (key.includes('::')) {
     const [provider, modelId] = key.split('::');
+
+    // Handle local provider composite keys (e.g., "transformers::Xenova/all-MiniLM-L6-v2")
+    if (
+      provider &&
+      LOCAL_PROVIDER_PREFIXES.includes(provider as (typeof LOCAL_PROVIDER_PREFIXES)[number])
+    ) {
+      // Check by modelId (registry key)
+      if (modelId && modelId in registry.models) {
+        return true;
+      }
+      // Check by HuggingFace ID
+      for (const model of Object.values(registry.models)) {
+        if (model.id === modelId) {
+          return true;
+        }
+      }
+    }
+
+    // Handle hosted provider composite keys
     const hostedProvider = registry.hosted?.[provider as keyof typeof registry.hosted];
     return !!(hostedProvider && modelId && hostedProvider[modelId]);
   }

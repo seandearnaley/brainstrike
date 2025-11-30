@@ -34,26 +34,69 @@ describe('Model Registry Tests', () => {
 
     it('should have jina-code as default model', () => {
       const defaultKey = ModelRegistryManager.getDefaultModelKey();
-      expect(defaultKey).toBe('jina-code');
+      expect(defaultKey).toBe('jinaai/jina-embeddings-v2-base-code');
 
       const defaultModel = ModelRegistryManager.getDefaultModel();
       expect(defaultModel.id).toBe('jinaai/jina-embeddings-v2-base-code');
-      expect(defaultModel.name).toBe('Jina Code (default)');
+      expect(defaultModel.name).toBe('Jina Code v2 (default)');
       expect(defaultModel.dimensions).toBe(768);
       expect(defaultModel.tags).toContain('code');
     });
 
     it('should get specific model configurations', () => {
-      const jinaModel = ModelRegistryManager.getModel('jina-code');
+      const jinaModel = ModelRegistryManager.getModel('jinaai/jina-embeddings-v2-base-code');
       expect(jinaModel).toBeDefined();
       expect(jinaModel?.id).toBe('jinaai/jina-embeddings-v2-base-code');
 
-      const miniLM = ModelRegistryManager.getModel('all-MiniLM-L6-v2');
+      const miniLM = ModelRegistryManager.getModel('Xenova/all-MiniLM-L6-v2');
       expect(miniLM).toBeDefined();
       expect(miniLM?.dimensions).toBe(384);
 
       const nonExistent = ModelRegistryManager.getModel('non-existent');
       expect(nonExistent).toBeNull();
+    });
+
+    it('should get model configurations by HuggingFace ID', () => {
+      // Lookup by full HuggingFace model ID (the `id` field in registry)
+      const miniLM = ModelRegistryManager.getModel('Xenova/all-MiniLM-L6-v2');
+      expect(miniLM).toBeDefined();
+      expect(miniLM?.id).toBe('Xenova/all-MiniLM-L6-v2');
+      expect(miniLM?.dimensions).toBe(384);
+
+      const jinaCode = ModelRegistryManager.getModel('jinaai/jina-embeddings-v2-base-code');
+      expect(jinaCode).toBeDefined();
+      expect(jinaCode?.id).toBe('jinaai/jina-embeddings-v2-base-code');
+      expect(jinaCode?.dimensions).toBe(768);
+
+      // Verify hasModel also works with HuggingFace IDs
+      expect(ModelRegistryManager.hasModel('Xenova/all-MiniLM-L6-v2')).toBe(true);
+      expect(ModelRegistryManager.hasModel('jinaai/jina-embeddings-v2-base-code')).toBe(true);
+      expect(ModelRegistryManager.hasModel('Xenova/nonexistent-model')).toBe(false);
+    });
+
+    it('should get model configurations by local provider composite keys', () => {
+      // Lookup by transformers::HuggingFaceID format (as stored in database)
+      const miniLM = ModelRegistryManager.getModel('transformers::Xenova/all-MiniLM-L6-v2');
+      expect(miniLM).toBeDefined();
+      expect(miniLM?.id).toBe('Xenova/all-MiniLM-L6-v2');
+      expect(miniLM?.dimensions).toBe(384);
+
+      // Lookup by local::HuggingFaceId format
+      const jinaCode = ModelRegistryManager.getModel('local::jinaai/jina-embeddings-v2-base-code');
+      expect(jinaCode).toBeDefined();
+      expect(jinaCode?.id).toBe('jinaai/jina-embeddings-v2-base-code');
+
+      // Lookup by transformers::HuggingFaceId format
+      const bgeSmall = ModelRegistryManager.getModel('transformers::Xenova/bge-small-en-v1.5');
+      expect(bgeSmall).toBeDefined();
+      expect(bgeSmall?.id).toBe('Xenova/bge-small-en-v1.5');
+
+      // Verify hasModel also works with local provider composite keys
+      expect(ModelRegistryManager.hasModel('transformers::Xenova/all-MiniLM-L6-v2')).toBe(true);
+      expect(ModelRegistryManager.hasModel('local::jinaai/jina-embeddings-v2-base-code')).toBe(
+        true
+      );
+      expect(ModelRegistryManager.hasModel('transformers::nonexistent-model')).toBe(false);
     });
 
     it('should get hosted provider model configurations', () => {
@@ -82,8 +125,8 @@ describe('Model Registry Tests', () => {
     });
 
     it('should check model existence', () => {
-      expect(ModelRegistryManager.hasModel('jina-code')).toBe(true);
-      expect(ModelRegistryManager.hasModel('all-MiniLM-L6-v2')).toBe(true);
+      expect(ModelRegistryManager.hasModel('jinaai/jina-embeddings-v2-base-code')).toBe(true);
+      expect(ModelRegistryManager.hasModel('Xenova/all-MiniLM-L6-v2')).toBe(true);
       expect(ModelRegistryManager.hasModel('non-existent')).toBe(false);
     });
 
@@ -102,7 +145,7 @@ describe('Model Registry Tests', () => {
     it('should filter models by tag', () => {
       const codeModels = ModelRegistryManager.getModelsByTag('code');
       expect(Object.keys(codeModels).length).toBeGreaterThan(0);
-      expect(codeModels['jina-code']).toBeDefined();
+      expect(codeModels['jinaai/jina-embeddings-v2-base-code']).toBeDefined();
 
       const englishModels = ModelRegistryManager.getModelsByTag('english');
       expect(Object.keys(englishModels).length).toBeGreaterThan(0);
@@ -115,12 +158,12 @@ describe('Model Registry Tests', () => {
       const models = ModelRegistryManager.listModels();
 
       // Test jina-code (768D, should force quantization)
-      const jinaCode = models['jina-code'];
+      const jinaCode = models['jinaai/jina-embeddings-v2-base-code'];
       expect(jinaCode).toBeDefined();
       expect(ModelRegistryManager.shouldQuantize(jinaCode!)).toBe(false);
 
       // Test all-MiniLM-L6-v2 (384D, should force quantization)
-      const miniLM = models['all-MiniLM-L6-v2'];
+      const miniLM = models['Xenova/all-MiniLM-L6-v2'];
       expect(miniLM).toBeDefined();
       expect(ModelRegistryManager.shouldQuantize(miniLM!)).toBe(false);
 
@@ -182,7 +225,7 @@ describe('Model Registry Tests', () => {
 
       // Restore original registry
       ModelRegistryManager.updateRegistry(originalRegistry);
-      expect(ModelRegistryManager.getDefaultModelKey()).toBe('jina-code');
+      expect(ModelRegistryManager.getDefaultModelKey()).toBe('jinaai/jina-embeddings-v2-base-code');
     });
   });
 
@@ -192,14 +235,16 @@ describe('Model Registry Tests', () => {
       expect(models).toBeDefined();
 
       const defaultKey = SimpleEmbeddingService.getDefaultModelKey();
-      expect(defaultKey).toBe('jina-code');
+      expect(defaultKey).toBe('jinaai/jina-embeddings-v2-base-code');
 
-      const jinaConfig = SimpleEmbeddingService.getModelConfig('jina-code');
+      const jinaConfig = SimpleEmbeddingService.getModelConfig(
+        'jinaai/jina-embeddings-v2-base-code'
+      );
       expect(jinaConfig).toBeDefined();
-      expect(jinaConfig?.name).toBe('Jina Code (default)');
+      expect(jinaConfig?.name).toBe('Jina Code v2 (default)');
 
       const registry = SimpleEmbeddingService.getRegistry();
-      expect(registry.default).toBe('jina-code');
+      expect(registry.default).toBe('jinaai/jina-embeddings-v2-base-code');
       expect(registry.models).toBeDefined();
     });
   });

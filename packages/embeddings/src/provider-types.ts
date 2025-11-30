@@ -8,8 +8,35 @@ export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 
 /**
  * Supported embedding provider types
+ * Note: 'transformers' is an alias for 'local' (both use transformers.js in the browser)
+ * The database uses 'transformers' as the provider_id for local models
  */
-export type EmbeddingProviderType = 'local' | 'openai' | 'google' | 'cohere' | 'voyage';
+export type EmbeddingProviderType =
+  | 'local'
+  | 'transformers'
+  | 'openai'
+  | 'google'
+  | 'cohere'
+  | 'voyage';
+
+/**
+ * Local provider types that run in the browser via transformers.js
+ */
+export type LocalProviderType = 'local' | 'transformers';
+
+/**
+ * Hosted provider types that require API keys
+ */
+export type HostedProviderType = Exclude<EmbeddingProviderType, LocalProviderType>;
+
+/**
+ * Check if a provider type is a local (browser-based) provider
+ */
+export function isLocalProviderType(
+  provider: EmbeddingProviderType
+): provider is LocalProviderType {
+  return provider === 'local' || provider === 'transformers';
+}
 
 /**
  * Provider runtime classification
@@ -65,28 +92,28 @@ export type EmbeddingProviderError =
     }
   | {
       type: 'api_error';
-      provider: Exclude<EmbeddingProviderType, 'local'>;
+      provider: HostedProviderType;
       statusCode: number;
       message: string;
     }
   | {
       type: 'model_load_failed';
-      provider: 'local';
+      provider: LocalProviderType;
       modelId: string;
       reason: string;
     }
   | {
       type: 'missing_api_key';
-      provider: Exclude<EmbeddingProviderType, 'local'>;
+      provider: HostedProviderType;
     }
   | {
       type: 'network_error';
-      provider: Exclude<EmbeddingProviderType, 'local'>;
+      provider: HostedProviderType;
       originalError: Error;
     }
   | {
       type: 'rate_limit_exceeded';
-      provider: Exclude<EmbeddingProviderType, 'local'>;
+      provider: HostedProviderType;
       retryAfter?: number;
     }
   | {
