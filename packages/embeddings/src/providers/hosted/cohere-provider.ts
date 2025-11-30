@@ -42,13 +42,13 @@ const COHERE_MODELS: Record<string, ModelConfig> = {
   },
 };
 
-export interface CohereEmbeddingProviderOptions {
+export type CohereEmbeddingProviderOptions = {
   readonly modelId: string;
   readonly inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
   readonly apiKey?: string;
   readonly fetch?: FetchLike;
   readonly endpoint?: string;
-}
+};
 
 export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
   readonly runtime = 'hosted' as const;
@@ -233,7 +233,7 @@ function normalizeApiKey(value: string | undefined): string | null {
 
 function parseRetryAfter(headerValue: string | null): number | undefined {
   if (!headerValue) {
-    return undefined;
+    return;
   }
   const numeric = Number(headerValue);
   if (Number.isFinite(numeric)) {
@@ -244,13 +244,13 @@ function parseRetryAfter(headerValue: string | null): number | undefined {
     const delta = parsed - Date.now();
     return delta > 0 ? Math.round(delta / 1000) : undefined;
   }
-  return undefined;
+  return;
 }
 
 async function safeJson(response: Response): Promise<unknown | undefined> {
   try {
     return await response.json();
   } catch {
-    return undefined;
+    return;
   }
 }

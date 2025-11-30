@@ -29,22 +29,44 @@ const BOLD = '\u001b[1m';
 const RESET = '\u001b[0m';
 
 function banner(msg) {
-  if (!verbose) return;
+  if (!verbose) {
+    return;
+  }
   console.log(`${BLUE}${BOLD}› ${msg}${RESET}`);
 }
 
 function stepLabel(cmd) {
   // Short labels for summary
-  if (cmd.includes('install')) return 'install';
-  if (cmd.includes('lint-all')) return 'lint-all';
-  if (cmd === 'pnpm -s run build') return 'build';
-  if (cmd === 'pnpm -s run type-check') return 'type-check';
-  if (cmd.endsWith('test')) return 'test';
-  if (cmd.endsWith('test:fast')) return 'test:fast';
-  if (cmd.endsWith('test:coverage:split')) return 'test:coverage:split';
-  if (cmd.endsWith('test:e2e:functional')) return 'e2e:functional';
-  if (cmd.endsWith('test:e2e:desktop')) return 'e2e:desktop';
-  if (cmd.endsWith('setup:headless')) return 'setup:headless';
+  if (cmd.includes('install')) {
+    return 'install';
+  }
+  if (cmd.includes('lint-all')) {
+    return 'lint-all';
+  }
+  if (cmd === 'pnpm -s run build') {
+    return 'build';
+  }
+  if (cmd === 'pnpm -s run type-check') {
+    return 'type-check';
+  }
+  if (cmd.endsWith('test')) {
+    return 'test';
+  }
+  if (cmd.endsWith('test:fast')) {
+    return 'test:fast';
+  }
+  if (cmd.endsWith('test:coverage:split')) {
+    return 'test:coverage:split';
+  }
+  if (cmd.endsWith('test:e2e:functional')) {
+    return 'e2e:functional';
+  }
+  if (cmd.endsWith('test:e2e:desktop')) {
+    return 'e2e:desktop';
+  }
+  if (cmd.endsWith('setup:headless')) {
+    return 'setup:headless';
+  }
   return cmd;
 }
 
@@ -70,8 +92,12 @@ async function run(cmd) {
 function buildPlan() {
   const plan = [];
 
-  if (headless) plan.push('pnpm -s run setup:headless');
-  if (!noInstall && !isFull) plan.push('pnpm -s install');
+  if (headless) {
+    plan.push('pnpm -s run setup:headless');
+  }
+  if (!(noInstall || isFull)) {
+    plan.push('pnpm -s install');
+  }
 
   plan.push('pnpm -s run lint-all');
   plan.push('pnpm -s run build');
@@ -97,7 +123,9 @@ async function main() {
   const startedAll = performance.now();
   const steps = buildPlan();
   console.log(`${BOLD}Running ${steps.length} step(s):${RESET}`);
-  for (const s of steps) console.log(`  - ${s}`);
+  for (const s of steps) {
+    console.log(`  - ${s}`);
+  }
   console.log('');
 
   const results = [];
@@ -112,7 +140,9 @@ async function main() {
     console.log(`${RED}${BOLD}Check failed${RESET} after ${YELLOW}${totalMs} ms${RESET}`);
     if (results.length) {
       console.log(`${BOLD}Completed steps:${RESET}`);
-      for (const r of results) console.log(`  - ${r.label} (${r.ms} ms)`);
+      for (const r of results) {
+        console.log(`  - ${r.label} (${r.ms} ms)`);
+      }
     }
     process.exit(typeof err.code === 'number' ? err.code : 1);
   }
@@ -121,9 +151,9 @@ async function main() {
   console.log('');
   console.log(`${GREEN}${BOLD}All checks passed${RESET} in ${YELLOW}${totalMs} ms${RESET}`);
   console.log(`${BOLD}Step timings:${RESET}`);
-  for (const r of results) console.log(`  - ${r.label} (${r.ms} ms)`);
+  for (const r of results) {
+    console.log(`  - ${r.label} (${r.ms} ms)`);
+  }
 }
 
 main();
-
-

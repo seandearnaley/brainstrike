@@ -14,9 +14,9 @@ function LayoutHarness() {
       }}
     >
       <IdeLayout
+        consoleContent={<div>Console</div>}
         leftPanelContent={<div>Left</div>}
         rightPanelContent={<div>Right</div>}
-        consoleContent={<div>Console</div>}
       >
         <div>Main</div>
       </IdeLayout>

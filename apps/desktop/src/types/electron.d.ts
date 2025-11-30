@@ -4,20 +4,21 @@ import type { PanelPersistenceState } from '@brainstrike/ui';
 import type { LogRecord, LoggingPreferences } from '@brainstrike/utils';
 import type { LoggingSettingsPayload } from '../logging-shared';
 
-interface QueryResult {
+type QueryResult = {
   rows: unknown[];
   fields?: { name: string; dataType: string }[];
-}
+};
 
-interface ElectronLiveQueryResults {
+type ElectronLiveQueryResults = {
   rows: unknown[];
   totalCount?: number;
   offset?: number;
   limit?: number;
-}
+};
 
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
+  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     electronAPI: {
       storage: {

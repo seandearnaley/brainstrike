@@ -17,14 +17,20 @@ export type NormalizedProgress = {
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: normalization accepts diverse shapes
 export function normalizeProgressPayload(input: unknown): NormalizedProgress {
   const out: NormalizedProgress = { raw: input };
-  if (!input || typeof input !== 'object') return out;
+  if (!input || typeof input !== 'object') {
+    return out;
+  }
   const obj = input as Record<string, unknown>;
 
   // Step/message mapping
   const step = (obj['step'] ?? obj['phase'] ?? obj['stage']) as unknown;
-  if (typeof step === 'string' && step.trim()) out.step = step.trim();
+  if (typeof step === 'string' && step.trim()) {
+    out.step = step.trim();
+  }
   const msg = (obj['message'] ?? obj['note'] ?? obj['status']) as unknown;
-  if (!out.step && typeof msg === 'string' && msg.trim()) out.note = msg.trim();
+  if (!out.step && typeof msg === 'string' && msg.trim()) {
+    out.note = msg.trim();
+  }
 
   // Percent mapping
   const percent = (obj['percent'] ?? obj['pct']) as unknown;
@@ -50,15 +56,23 @@ export function normalizeProgressPayload(input: unknown): NormalizedProgress {
     total > 0
   ) {
     out.percent = clamp01To100((done / total) * 100);
-    if (!out.note) out.note = `${Math.floor(done)}/${Math.floor(total)}`;
+    if (!out.note) {
+      out.note = `${Math.floor(done)}/${Math.floor(total)}`;
+    }
   }
 
   return out;
 }
 
 function clamp01To100(n: number): number {
-  if (!Number.isFinite(n)) return undefined as unknown as number;
-  if (n < 0) return 0;
-  if (n > 100) return 100;
+  if (!Number.isFinite(n)) {
+    return undefined as unknown as number;
+  }
+  if (n < 0) {
+    return 0;
+  }
+  if (n > 100) {
+    return 100;
+  }
   return Math.round(n * 10) / 10; // 1 decimal
 }

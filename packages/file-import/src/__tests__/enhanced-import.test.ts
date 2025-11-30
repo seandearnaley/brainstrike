@@ -349,14 +349,13 @@ describe('runEnhancedImport', () => {
     // Verify SQL port is used to query embedding sets
     expect(sqlPortQuery).toHaveBeenCalled();
     // Verify that a model key lookup query was made
-    const calls = sqlPortQuery.mock.calls as Array<[string, unknown[]?]>;
-    const lookupCall = calls.find(([statement]) => {
-      return (
+    const calls = sqlPortQuery.mock.calls as [string, unknown[]?][];
+    const lookupCall = calls.find(
+      ([statement]) =>
         typeof statement === 'string' &&
         statement.includes('model_key IN') &&
         statement.includes('embedding_sets')
-      );
-    });
+    );
     expect(lookupCall).toBeDefined();
     // Verify embeddings implementation was called with expected parameters
     expect(embeddingsImpl).toHaveBeenCalled();

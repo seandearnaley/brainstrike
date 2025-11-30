@@ -100,9 +100,7 @@ export function createFileContentActions(
       set({ fileContents: {} });
     },
 
-    getFileContentCacheStats: () => {
-      return fileContentCache.getStats();
-    },
+    getFileContentCacheStats: () => fileContentCache.getStats(),
 
     evictOldFileContents: (count = 10) => {
       fileContentCache.evictOldest(count);

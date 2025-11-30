@@ -83,8 +83,12 @@ describe('ipc-handlers filesystem endpoints', () => {
     expect(fsAdapter.requestDirectoryAccess).toHaveBeenCalled();
     expect(result).toMatchObject({ id: 'real-dir' });
 
-    if (prevElectronTest !== undefined) process.env['ELECTRON_IS_E2E_TEST'] = prevElectronTest;
-    if (prevNodeEnv !== undefined) process.env['NODE_ENV'] = prevNodeEnv;
+    if (prevElectronTest !== undefined) {
+      process.env['ELECTRON_IS_E2E_TEST'] = prevElectronTest;
+    }
+    if (prevNodeEnv !== undefined) {
+      process.env['NODE_ENV'] = prevNodeEnv;
+    }
   });
 
   it('fs:readDirectory returns canned listing for mock handle', async () => {

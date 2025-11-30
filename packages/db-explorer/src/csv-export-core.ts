@@ -52,8 +52,12 @@ export function generateCSVFilename(prefix = 'export', extension = 'csv'): strin
  * Format bytes to human-readable size
  */
 export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
@@ -61,7 +65,9 @@ export function formatFileSize(bytes: number): string {
  * Format ISO date string to readable format
  */
 export function formatDate(isoString: string | undefined): string {
-  if (!isoString) return '';
+  if (!isoString) {
+    return '';
+  }
   try {
     return new Date(isoString).toLocaleString();
   } catch {
@@ -73,17 +79,19 @@ export function formatDate(isoString: string | undefined): string {
  * Truncates content to specified character limit
  */
 export function truncateContent(content: string | undefined, maxLength: number): string {
-  if (!content) return '';
+  if (!content) {
+    return '';
+  }
   return content.length > maxLength ? `${content.substring(0, maxLength)}...` : content;
 }
 
 /**
  * Column configuration for CSV export
  */
-export interface CSVColumn<T = unknown> {
+export type CSVColumn<T = unknown> = {
   header: string;
   getValue: (record: T) => string | number | undefined | null;
-}
+};
 
 /**
  * Generates CSV content from an array of records

@@ -13,25 +13,25 @@ import {
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useState } from 'react';
 
-interface McpTool {
+type McpTool = {
   id: string;
   serverName: string;
   description?: string;
   inputSchema?: unknown;
   enabled: boolean;
   discoveredAt: number;
-}
+};
 
-interface McpToolsByServer {
+type McpToolsByServer = {
   [serverName: string]: McpTool[];
-}
+};
 
-interface ToolStats {
+type ToolStats = {
   total: number;
   enabled: number;
   disabled: number;
   servers: number;
-}
+};
 
 export function McpToolsPanel() {
   const [tools, setTools] = useState<McpToolsByServer>({});
@@ -186,26 +186,26 @@ export function McpToolsPanel() {
         {hasTools && (
           <div className="flex gap-2">
             <Input
-              type="text"
-              placeholder="Search tools..."
-              value={searchQuery}
+              className="h-8 text-xs"
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="text-xs h-8"
+              placeholder="Search tools..."
+              type="text"
+              value={searchQuery}
             />
-            <Button size="sm" variant="outline" onClick={handleResetAll} disabled={loading}>
+            <Button disabled={loading} onClick={handleResetAll} size="sm" variant="outline">
               Reset All
             </Button>
           </div>
         )}
 
-        {!hasTools && !loading && (
-          <div className="text-xs text-muted-foreground py-4 text-center">
+        {!(hasTools || loading) && (
+          <div className="py-4 text-center text-muted-foreground text-xs">
             No MCP tools discovered. Configure MCP servers to enable tools.
           </div>
         )}
 
         {loading && (
-          <div className="text-xs text-muted-foreground py-4 text-center">Loading tools...</div>
+          <div className="py-4 text-center text-muted-foreground text-xs">Loading tools...</div>
         )}
 
         {hasTools && (
@@ -218,28 +218,28 @@ export function McpToolsPanel() {
                 };
 
                 return (
-                  <div key={serverName} className="space-y-2">
+                  <div className="space-y-2" key={serverName}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <h3 className="text-xs font-semibold">{serverName}</h3>
-                        <Badge variant="outline" className="text-[9px] px-1 py-0">
+                        <h3 className="font-semibold text-xs">{serverName}</h3>
+                        <Badge className="px-1 py-0 text-[9px]" variant="outline">
                           {serverStats.enabled}/{serverStats.total}
                         </Badge>
                       </div>
                       <div className="flex gap-1">
                         <Button
+                          className="h-6 px-2 text-[10px]"
+                          onClick={() => handleEnableAllServer(serverName)}
                           size="sm"
                           variant="ghost"
-                          className="h-6 text-[10px] px-2"
-                          onClick={() => handleEnableAllServer(serverName)}
                         >
                           Enable All
                         </Button>
                         <Button
+                          className="h-6 px-2 text-[10px]"
+                          onClick={() => handleDisableAllServer(serverName)}
                           size="sm"
                           variant="ghost"
-                          className="h-6 text-[10px] px-2"
-                          onClick={() => handleDisableAllServer(serverName)}
                         >
                           Disable All
                         </Button>
@@ -249,29 +249,29 @@ export function McpToolsPanel() {
                     <div className="space-y-1">
                       {serverTools.map((tool) => (
                         <div
+                          className="flex items-center justify-between gap-2 rounded border border-border/50 p-2 transition-colors hover:border-border"
                           key={tool.id}
-                          className="flex items-center justify-between gap-2 p-2 rounded border border-border/50 hover:border-border transition-colors"
                         >
-                          <div className="flex-1 min-w-0">
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <code className="text-[10px] font-mono">{tool.id}</code>
+                              <code className="font-mono text-[10px]">{tool.id}</code>
                               <Badge
+                                className="px-1 py-0 text-[8px]"
                                 variant={tool.enabled ? 'default' : 'secondary'}
-                                className="text-[8px] px-1 py-0"
                               >
                                 {tool.enabled ? 'enabled' : 'disabled'}
                               </Badge>
                             </div>
                             {tool.description && (
-                              <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                              <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
                                 {tool.description}
                               </p>
                             )}
                           </div>
                           <Switch
                             checked={tool.enabled}
-                            onCheckedChange={() => handleToggleTool(tool.id, tool.enabled)}
                             className="data-[state=checked]:bg-primary"
+                            onCheckedChange={() => handleToggleTool(tool.id, tool.enabled)}
                           />
                         </div>
                       ))}

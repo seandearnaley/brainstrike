@@ -191,7 +191,9 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         );
         const settled = await Promise.allSettled(works);
         for (const r of settled) {
-          if (r.status === 'fulfilled' && r.value) nodes.push(r.value);
+          if (r.status === 'fulfilled' && r.value) {
+            nodes.push(r.value);
+          }
         }
       } else {
         nodes.push(

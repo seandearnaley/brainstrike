@@ -2,13 +2,13 @@ import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-interface TokenPreferencesData {
+type TokenPreferencesData = {
   accurateCounting: boolean;
-}
+};
 
-interface TokenPreferencesActions {
+type TokenPreferencesActions = {
   setAccurateCounting: (enabled: boolean) => void;
-}
+};
 
 export type TokenPreferencesStore = TokenPreferencesData & TokenPreferencesActions;
 

@@ -4,7 +4,7 @@
  * This file is used to generate the CSP for the web application.
  */
 
-interface CSPDirectives {
+type CSPDirectives = {
   'default-src': string[];
   'script-src': string[];
   'worker-src': string[];
@@ -16,7 +16,7 @@ interface CSPDirectives {
   'base-uri': string[];
   'form-action': string[];
   'frame-ancestors': string[];
-}
+};
 
 type Environment = 'development' | 'production';
 

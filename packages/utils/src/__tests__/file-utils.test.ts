@@ -77,7 +77,7 @@ describe('file-utils', () => {
     });
 
     it('respects decimal places parameter', () => {
-      const size = 1.23456 * 1024 * 1024; // ~1.23 MB
+      const size = 1.234_56 * 1024 * 1024; // ~1.23 MB
       expect(formatFileSize(size, 0)).toBe('1 MB');
       expect(formatFileSize(size, 1)).toBe('1.2 MB');
       expect(formatFileSize(size, 2)).toBe('1.23 MB');

@@ -5,7 +5,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import type { FileTab } from './hooks/use-tab-manager';
 import { useEditorViewStateStore } from './stores/editor-view-state-store';
 
-interface TabbedFileEditorProps {
+type TabbedFileEditorProps = {
   tabs: FileTab[];
   activeTabId: string | null;
   fileContents: { [compositeKey: string]: string };
@@ -14,7 +14,7 @@ interface TabbedFileEditorProps {
   onTabClose: (tabId: string) => void;
   onLoadFileContent: (compositeKey: string) => void;
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
-}
+};
 
 function buildContentNode(opts: {
   isLoading: boolean;
@@ -40,8 +40,8 @@ function buildContentNode(opts: {
   } = opts;
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full text-muted-foreground">
-        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 h-5 w-5 animate-spin" />
         Loading file content...
       </div>
     );
@@ -51,15 +51,15 @@ function buildContentNode(opts: {
   }
   return (
     <pre
-      ref={isActive ? activeContentRef : null}
-      onScroll={(e) => handleContentScroll(tab.compositeKey, e)}
-      className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-auto font-mono h-full"
+      className="h-full overflow-auto whitespace-pre-wrap rounded-md bg-muted p-3 font-mono text-sm"
       data-truncated={truncated ? 'true' : 'false'}
+      onScroll={(e) => handleContentScroll(tab.compositeKey, e)}
+      ref={isActive ? activeContentRef : null}
     >
       {content.startsWith('File not accessible') ? (
         <div className="text-amber-600 dark:text-amber-400">
           <p>{content}</p>
-          <p className="text-sm text-muted-foreground mt-2">
+          <p className="mt-2 text-muted-foreground text-sm">
             To access this file, please open the folder again using the folder icon button. This is
             a security measure of your browser.
           </p>
@@ -87,6 +87,7 @@ export function TabbedFileEditor({
   const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
 
   // Load content for active tab if not already loaded
+  // biome-ignore lint/plugin: Load content for active tab - reactive data loading
   useEffect(() => {
     if (activeTabId) {
       const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -101,6 +102,7 @@ export function TabbedFileEditor({
   }, [activeTabId, tabs, fileContents, loadingFiles, onLoadFileContent]);
 
   // Scroll active tab into view
+  // biome-ignore lint/plugin: DOM scroll effect - runs once on mount
   useEffect(() => {
     if (activeTabRef.current) {
       activeTabRef.current.scrollIntoView({
@@ -113,9 +115,13 @@ export function TabbedFileEditor({
 
   // Restore scroll position for active tab content
   useEffect(() => {
-    if (!activeTabId) return;
+    if (!activeTabId) {
+      return;
+    }
     const activeTab = tabs.find((t) => t.id === activeTabId);
-    if (!activeTab) return;
+    if (!activeTab) {
+      return;
+    }
     const el = activeContentRef.current;
     if (el) {
       el.scrollTop = getScrollTop(activeTab.compositeKey);
@@ -132,8 +138,12 @@ export function TabbedFileEditor({
   const MaxDomChars = 200_000; // ~200KB of visible text per panel
 
   const getDisplayContent = (raw?: string) => {
-    if (!raw) return { text: raw, truncated: false } as const;
-    if (raw.length <= MaxDomChars) return { text: raw, truncated: false } as const;
+    if (!raw) {
+      return { text: raw, truncated: false } as const;
+    }
+    if (raw.length <= MaxDomChars) {
+      return { text: raw, truncated: false } as const;
+    }
     const suffix = '\n\n… truncated for display …';
     return { text: raw.slice(0, MaxDomChars - suffix.length) + suffix, truncated: true } as const;
   };
@@ -164,12 +174,12 @@ export function TabbedFileEditor({
 
       return (
         <div
-          key={tab.id}
-          id={panelId}
-          role="tabpanel"
           aria-labelledby={tabButtonId}
+          className="h-full p-4"
           hidden={!isActive}
-          className="p-4 h-full"
+          id={panelId}
+          key={tab.id}
+          role="tabpanel"
         >
           {contentNode}
         </div>
@@ -189,9 +199,13 @@ export function TabbedFileEditor({
   });
 
   const cycleTab = (direction: 'next' | 'prev') => {
-    if (!activeTabId || tabs.length < 2) return;
+    if (!activeTabId || tabs.length < 2) {
+      return;
+    }
     const currentIndex = tabs.findIndex((t) => t.id === activeTabId);
-    if (currentIndex === -1) return;
+    if (currentIndex === -1) {
+      return;
+    }
 
     let nextIndex: number;
     if (direction === 'next') {
@@ -216,9 +230,9 @@ export function TabbedFileEditor({
   });
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-shrink-0 border-b border-border overflow-x-auto" role="tablist">
-        <div className="flex overflow-x-auto scrollbar-thin">
+    <div className="flex h-full flex-col">
+      <div className="flex-shrink-0 overflow-x-auto border-border border-b" role="tablist">
+        <div className="scrollbar-thin flex overflow-x-auto">
           {tabs.map((tab) => {
             const isActive = tab.id === activeTabId;
             const { path } = decodeFileSelection(tab.compositeKey);
@@ -228,12 +242,12 @@ export function TabbedFileEditor({
 
             return (
               <div
-                key={tab.id}
-                role="presentation"
                 className={cn(
-                  'flex-shrink-0 border-r border-transparent',
+                  'flex-shrink-0 border-transparent border-r',
                   isActive ? 'border-border' : ''
                 )}
+                key={tab.id}
+                role="presentation"
               >
                 <div
                   className={cn(
@@ -242,32 +256,32 @@ export function TabbedFileEditor({
                   )}
                 >
                   <button
-                    id={tabButtonId}
-                    ref={isActive ? activeTabRef : null}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
                     aria-controls={panelId}
+                    aria-selected={isActive}
                     className="flex items-center gap-2 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    id={tabButtonId}
                     onClick={() => onTabClick(tab.id)}
+                    ref={isActive ? activeTabRef : null}
+                    role="tab"
+                    type="button"
                   >
                     {loadingFiles.has(tab.compositeKey) ? (
-                      <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
+                      <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
                     ) : (
                       <File className="h-3 w-3 flex-shrink-0" />
                     )}
                     <span className="truncate">{fileName}</span>
                   </button>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 rounded-sm flex-shrink-0"
+                    aria-label={`Close ${fileName}`}
+                    className="h-6 w-6 flex-shrink-0 rounded-sm"
                     onClick={(e) => {
                       e.stopPropagation();
                       onTabClose(tab.id);
                     }}
+                    size="icon"
                     title={`Close ${fileName}`}
-                    aria-label={`Close ${fileName}`}
+                    variant="ghost"
                   >
                     <X className="h-3 w-3" />
                   </Button>
@@ -280,7 +294,7 @@ export function TabbedFileEditor({
 
       <div className="flex-1 overflow-auto bg-background">
         {tabs.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
+          <div className="flex h-full flex-col items-center justify-center p-4 text-center text-muted-foreground">
             <p className="font-semibold">No files open</p>
             <p className="text-sm">Click on a file in the preview panel to open it here</p>
           </div>

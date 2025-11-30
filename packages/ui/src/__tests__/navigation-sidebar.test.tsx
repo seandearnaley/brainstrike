@@ -9,7 +9,7 @@ const items: NavigationItem[] = [
 ];
 
 const renderSidebar = (currentPath = '/') =>
-  render(<NavigationSidebar items={items} currentPath={currentPath} />);
+  render(<NavigationSidebar currentPath={currentPath} items={items} />);
 
 describe('NavigationSidebar', () => {
   it('renders navigation items with correct links', () => {
@@ -66,7 +66,7 @@ describe('NavigationSidebar', () => {
 
   it('applies aria-label to buttons when onItemClick is provided', () => {
     const handleClick = vi.fn();
-    render(<NavigationSidebar items={items} currentPath="/" onItemClick={handleClick} />);
+    render(<NavigationSidebar currentPath="/" items={items} onItemClick={handleClick} />);
 
     const button = screen.getByRole('button', { name: 'Context Explorer' });
     expect(button).toHaveAttribute('aria-label', 'Context Explorer');

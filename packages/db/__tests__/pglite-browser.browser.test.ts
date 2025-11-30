@@ -50,8 +50,9 @@ describe('PGlite Browser Mode POC', () => {
     });
   });
 
-  // Skip PGlite tests until WASM bundling issue is resolved
+  // Skip PGlite tests until WASM bundling issue is resolved (BST-68)
   // The environment validation tests above prove browser mode works correctly
+  // biome-ignore lint/suspicious/noSkippedTests: Intentionally skipped - PGlite WASM bundling fails in Vitest browser mode
   describe.skip('PGlite in-memory operations', () => {
     it('should create an in-memory PGlite instance', async () => {
       // In-memory mode avoids IndexedDB persistence complexity
@@ -151,6 +152,7 @@ describe('PGlite Browser Mode POC', () => {
     });
   });
 
+  // biome-ignore lint/suspicious/noSkippedTests: Intentionally skipped - PGlite WASM bundling fails in Vitest browser mode
   describe.skip('WASM performance baseline', () => {
     it('should complete 100 inserts in reasonable time', async () => {
       db = new PGlite();
@@ -167,7 +169,7 @@ describe('PGlite Browser Mode POC', () => {
       console.log(`100 inserts completed in ${elapsed.toFixed(2)}ms`);
 
       // Should complete within 10 seconds (generous for CI)
-      expect(elapsed).toBeLessThan(10000);
+      expect(elapsed).toBeLessThan(10_000);
 
       const count = await db.query<{ count: string }>('SELECT COUNT(*) as count FROM perf_test');
       expect(Number.parseInt(count.rows[0].count, 10)).toBe(100);

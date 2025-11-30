@@ -1,6 +1,6 @@
 import type React from 'react';
 
-export interface ModelPickerModel {
+export type ModelPickerModel = {
   id: string;
   providerId: string;
   name: string;
@@ -15,32 +15,32 @@ export interface ModelPickerModel {
   contextWindow?: number;
   pricePer1MTokensInput?: number;
   pricePer1MTokensOutput?: number;
-}
+};
 
-export interface ModelPickerProvider {
+export type ModelPickerProvider = {
   id: string;
   name: string;
   icon?: string | null;
-}
+};
 
 export type ModelType = 'llm' | 'embedding' | 'all';
 export type SelectionMode = 'single' | 'multi';
 
-export interface TriggerRenderProps {
+export type TriggerRenderProps = {
   value?: string | string[] | undefined;
   models: ModelPickerModel[];
   providers: ModelPickerProvider[];
   placeholder?: string | undefined;
   disabled?: boolean | undefined;
-}
+};
 
-export interface ItemRenderProps {
+export type ItemRenderProps = {
   model: ModelPickerModel;
   isSelected: boolean;
   onSelect: () => void;
-}
+};
 
-export interface ModelPickerProps {
+export type ModelPickerProps = {
   /** Models to display (typically from useModelRegistryStore) */
   models: ModelPickerModel[];
 
@@ -79,4 +79,4 @@ export interface ModelPickerProps {
 
   /** Size variant */
   size?: 'sm' | 'default' | 'lg';
-}
+};

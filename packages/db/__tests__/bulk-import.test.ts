@@ -122,7 +122,7 @@ describe('Bulk Import with Batching', () => {
     expect(progressCalls.length).toBeGreaterThan(0);
 
     // Final call should report all files completed
-    const finalCall = progressCalls[progressCalls.length - 1];
+    const finalCall = progressCalls.at(-1);
     expect(finalCall?.completed).toBe(5);
     expect(finalCall?.total).toBe(5);
   });

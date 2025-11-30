@@ -49,13 +49,13 @@ describe('import-settings-store', () => {
     snapshot.setChunkSize(-42.7);
     snapshot.setChunkOverlap(-9.4);
     snapshot.setTokenTrueSizing(0 as unknown as boolean);
-    snapshot.setChunkTokenLimit(99999);
+    snapshot.setChunkTokenLimit(99_999);
 
     const next = useImportSettingsStore.getState();
     expect(next.chunkSize).toBe(1);
     expect(next.chunkOverlap).toBe(0);
     expect(next.tokenTrueSizing).toBe(false);
-    expect(next.chunkTokenLimit).toBe(16384);
+    expect(next.chunkTokenLimit).toBe(16_384);
     expect(useTokenPreferencesStore.getState().accurateCounting).toBe(false);
   });
 
@@ -86,7 +86,7 @@ describe('import-settings-store', () => {
     expect(persistApi).toBeDefined();
     const options = persistApi?.getOptions?.();
     expect(options?.storage).toBeDefined();
-    if (!persistApi || !options?.storage || !options.name) {
+    if (!(persistApi && options?.storage && options.name)) {
       throw new Error('persist storage unavailable for test');
     }
 

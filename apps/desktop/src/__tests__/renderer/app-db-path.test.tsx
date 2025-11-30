@@ -36,7 +36,7 @@ const mockDbProvider = vi.fn(
     dbPath?: string;
     useElectronIPC?: boolean;
   }) => (
-    <div data-testid="db-provider" data-db-path={dbPath} data-use-electron-ipc={useElectronIPC}>
+    <div data-db-path={dbPath} data-testid="db-provider" data-use-electron-ipc={useElectronIPC}>
       {children}
     </div>
   )
@@ -54,7 +54,9 @@ vi.mock('../../renderer/components/root-layout-content', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   const existing = document.getElementById('root');
-  if (existing) existing.remove();
+  if (existing) {
+    existing.remove();
+  }
   const rootEl = document.createElement('div');
   rootEl.id = 'root';
   document.body.appendChild(rootEl);

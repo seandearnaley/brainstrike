@@ -142,12 +142,11 @@ export const Component${i} = () => {
       renderCount: 0,
     };
 
-    const getMemory = async () => {
-      return await page.evaluate(() => {
+    const getMemory = async () =>
+      await page.evaluate(() => {
         const memory = (performance as any).memory;
         return memory ? memory.usedJSHeapSize / 1024 / 1024 : 0;
       });
-    };
 
     // Install comprehensive tracking
     await page.evaluate(() => {

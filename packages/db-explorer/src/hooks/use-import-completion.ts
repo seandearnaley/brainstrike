@@ -1,20 +1,20 @@
 import type { useToast } from '@brainstrike/ui';
 import type { EnhancedImportResult } from '../types';
 
-interface ImportCounts {
+type ImportCounts = {
   newFiles: number;
   existedButProcessed: number;
   failed: number;
   processingErrors: number;
   totalChunks: number;
   totalEmbeddings: number;
-}
+};
 
 function countImportOutcomes(results: EnhancedImportResult[]): ImportCounts {
   return {
     newFiles: results.filter((r) => r.imported && !r.existed).length,
     existedButProcessed: results.filter((r) => !r.imported && r.existed).length,
-    failed: results.filter((r) => !r.imported && !r.existed).length,
+    failed: results.filter((r) => !(r.imported || r.existed)).length,
     processingErrors: results.filter((r) => r.error && (r.imported || r.existed)).length,
     totalChunks: results.reduce((acc, r) => acc + (r.chunksCreated || 0), 0),
     totalEmbeddings: results.reduce((acc, r) => acc + (r.chunksWithEmbeddings || 0), 0),

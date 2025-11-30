@@ -2,13 +2,13 @@ import * as React from 'react';
 import { Button } from '../button';
 import { useToast } from '../use-toast';
 
-export interface UndoableActionOptions<T, S = unknown> {
+export type UndoableActionOptions<T, S = unknown> = {
   actionName: string;
   itemDescription: string;
   duration?: number;
   onUndo: (item: T, snapshot: S) => void;
   getStateSnapshot?: () => S;
-}
+};
 
 export function useUndoableAction<T, S = unknown>() {
   const { toast, dismiss } = useToast();
@@ -16,13 +16,14 @@ export function useUndoableAction<T, S = unknown>() {
     Map<string, { timeoutId: number; toastId: string; item: T; snapshot: S }>
   >(new Map());
 
-  React.useEffect(() => {
-    return () => {
+  React.useEffect(
+    () => () => {
       for (const { timeoutId } of undoTimeoutsRef.current.values()) {
         window.clearTimeout(timeoutId);
       }
-    };
-  }, []);
+    },
+    []
+  );
 
   const clearUndoTimeout = React.useCallback(
     (key: string) => {

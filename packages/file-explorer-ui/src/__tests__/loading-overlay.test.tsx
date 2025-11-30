@@ -28,12 +28,12 @@ describe('LoadingOverlay', () => {
   });
 
   it('should show root directory loading message for initial load', () => {
-    render(<LoadingOverlay isLoading={true} isInitialLoad={true} />);
+    render(<LoadingOverlay isInitialLoad={true} isLoading={true} />);
     expect(screen.getByText(FileExplorerStrings.loading.rootDirectory)).toBeInTheDocument();
   });
 
   it('should show refreshing message for non-initial load', () => {
-    render(<LoadingOverlay isLoading={true} isInitialLoad={false} />);
+    render(<LoadingOverlay isInitialLoad={false} isLoading={true} />);
     expect(screen.getByText(FileExplorerStrings.loading.refreshing)).toBeInTheDocument();
   });
 
@@ -100,7 +100,7 @@ describe('LoadingOverlay', () => {
 
   describe('Cancellation functionality', () => {
     it('should not show cancel button when cancellable is false', () => {
-      render(<LoadingOverlay isLoading={true} cancellable={false} />);
+      render(<LoadingOverlay cancellable={false} isLoading={true} />);
 
       // Fast-forward past the 2-second delay
       act(() => {
@@ -111,7 +111,7 @@ describe('LoadingOverlay', () => {
     });
 
     it('should show cancel button after 2 seconds when cancellable is true', async () => {
-      render(<LoadingOverlay isLoading={true} cancellable={true} onCancel={vi.fn()} />);
+      render(<LoadingOverlay cancellable={true} isLoading={true} onCancel={vi.fn()} />);
 
       // Initially, cancel button should not be visible
       expect(screen.queryByText('Cancel')).not.toBeInTheDocument();
@@ -127,7 +127,7 @@ describe('LoadingOverlay', () => {
 
     it('should call onCancel when cancel button is clicked', async () => {
       const onCancel = vi.fn();
-      render(<LoadingOverlay isLoading={true} cancellable={true} onCancel={onCancel} />);
+      render(<LoadingOverlay cancellable={true} isLoading={true} onCancel={onCancel} />);
 
       // Fast-forward to show cancel button and process React updates
       act(() => {
@@ -147,9 +147,9 @@ describe('LoadingOverlay', () => {
     it('should show cancelling state when isCancelling is true', () => {
       render(
         <LoadingOverlay
-          isLoading={true}
           cancellable={true}
           isCancelling={true}
+          isLoading={true}
           onCancel={vi.fn()}
         />
       );
@@ -164,9 +164,9 @@ describe('LoadingOverlay', () => {
     it('should disable cancel button when isCancelling is true', () => {
       render(
         <LoadingOverlay
-          isLoading={true}
           cancellable={true}
           isCancelling={true}
+          isLoading={true}
           onCancel={vi.fn()}
         />
       );
@@ -177,7 +177,7 @@ describe('LoadingOverlay', () => {
 
     it('should handle Escape key to cancel operation', async () => {
       const onCancel = vi.fn();
-      render(<LoadingOverlay isLoading={true} cancellable={true} onCancel={onCancel} />);
+      render(<LoadingOverlay cancellable={true} isLoading={true} onCancel={onCancel} />);
 
       // Simulate Escape key press
       await act(async () => {
@@ -190,7 +190,7 @@ describe('LoadingOverlay', () => {
 
     it('should not handle Escape key when not cancellable', async () => {
       const onCancel = vi.fn();
-      render(<LoadingOverlay isLoading={true} cancellable={false} onCancel={onCancel} />);
+      render(<LoadingOverlay cancellable={false} isLoading={true} onCancel={onCancel} />);
 
       // Simulate Escape key press
       await act(async () => {
@@ -205,9 +205,9 @@ describe('LoadingOverlay', () => {
       const onCancel = vi.fn();
       render(
         <LoadingOverlay
-          isLoading={true}
           cancellable={true}
           isCancelling={true}
+          isLoading={true}
           onCancel={onCancel}
         />
       );
@@ -222,7 +222,7 @@ describe('LoadingOverlay', () => {
     });
 
     it('should show keyboard hint when cancel button is visible and not cancelling', async () => {
-      render(<LoadingOverlay isLoading={true} cancellable={true} onCancel={vi.fn()} />);
+      render(<LoadingOverlay cancellable={true} isLoading={true} onCancel={vi.fn()} />);
 
       // Fast-forward to show cancel button and process React updates
       act(() => {
@@ -236,9 +236,9 @@ describe('LoadingOverlay', () => {
     it('should not show keyboard hint when cancelling', () => {
       render(
         <LoadingOverlay
-          isLoading={true}
           cancellable={true}
           isCancelling={true}
+          isLoading={true}
           onCancel={vi.fn()}
         />
       );
@@ -249,12 +249,12 @@ describe('LoadingOverlay', () => {
     it('should reset progress bar when cancelling', () => {
       render(
         <LoadingOverlay
-          isLoading={true}
           cancellable={true}
           isCancelling={true}
+          isLoading={true}
+          onCancel={vi.fn()}
           progressLoaded={50}
           progressTotal={100}
-          onCancel={vi.fn()}
         />
       );
 
@@ -265,9 +265,9 @@ describe('LoadingOverlay', () => {
     it('should add opacity to progress bar when cancelling', () => {
       render(
         <LoadingOverlay
-          isLoading={true}
           cancellable={true}
           isCancelling={true}
+          isLoading={true}
           onCancel={vi.fn()}
         />
       );
@@ -279,14 +279,14 @@ describe('LoadingOverlay', () => {
 
   describe('className handling', () => {
     it('should merge custom className with default classes', () => {
-      const { container } = render(<LoadingOverlay isLoading={true} className="custom-class" />);
+      const { container } = render(<LoadingOverlay className="custom-class" isLoading={true} />);
       expect(container.firstChild).toHaveClass('custom-class');
       expect(container.firstChild).toHaveClass('fixed');
       expect(container.firstChild).toHaveClass('inset-0');
     });
 
     it('should handle undefined className', () => {
-      const { container } = render(<LoadingOverlay isLoading={true} className={undefined} />);
+      const { container } = render(<LoadingOverlay className={undefined} isLoading={true} />);
       expect(container.firstChild).toHaveClass('fixed');
       expect(container.firstChild).toHaveClass('inset-0');
     });

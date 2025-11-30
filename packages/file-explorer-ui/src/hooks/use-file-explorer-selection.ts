@@ -1,11 +1,11 @@
 import type { IFileNode } from '@brainstrike/types';
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import { useSelectionManager } from '../use-selection-manager-context';
 
-interface UseFileExplorerSelectionParams {
+type UseFileExplorerSelectionParams = {
   quickFilteredTree: IFileNode[] | null;
   onSelectionLimitExceeded: () => void;
-}
+};
 
 export function useFileExplorerSelection({
   quickFilteredTree,
@@ -15,22 +15,22 @@ export function useFileExplorerSelection({
     onSelectionLimitExceeded,
   });
 
-  const [displayedFiles, setDisplayedFiles] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (quickFilteredTree) {
-      const allVisibleFiles = new Set<string>();
-      const stack = [...quickFilteredTree];
-      while (stack.length > 0) {
-        const node = stack.pop() as IFileNode;
-        if (node.type === 'file' && node.isVisible !== false) {
-          allVisibleFiles.add(node.path);
-        } else if (node.type === 'directory' && node.children) {
-          stack.push(...node.children);
-        }
-      }
-      setDisplayedFiles(allVisibleFiles);
+  // Derive displayed files from filtered tree using useMemo instead of useEffect
+  const displayedFiles = useMemo(() => {
+    if (!quickFilteredTree) {
+      return new Set<string>();
     }
+    const allVisibleFiles = new Set<string>();
+    const stack = [...quickFilteredTree];
+    while (stack.length > 0) {
+      const node = stack.pop() as IFileNode;
+      if (node.type === 'file' && node.isVisible !== false) {
+        allVisibleFiles.add(node.path);
+      } else if (node.type === 'directory' && node.children) {
+        stack.push(...node.children);
+      }
+    }
+    return allVisibleFiles;
   }, [quickFilteredTree]);
 
   return {

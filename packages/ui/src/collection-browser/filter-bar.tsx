@@ -148,27 +148,27 @@ export const FilterBar = React.memo(function FilterBar({
   const allNodeTypesSelected = filters.nodeTypes.size === 4;
 
   return (
-    <div className={cn('flex flex-col gap-2 p-2 bg-background border-b', className)}>
+    <div className={cn('flex flex-col gap-2 border-b bg-background p-2', className)}>
       {/* Row 1: Search and expand controls */}
       <div className="flex items-center gap-2">
         {/* Search Input */}
         <div className="relative flex-1">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Search className="-translate-y-1/2 absolute top-1/2 left-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            type="text"
-            placeholder="Search collections, files, chunks..."
-            value={filters.searchQuery}
-            onChange={handleSearchChange}
-            className="pl-9 pr-8 h-8 text-sm"
+            className="h-8 pr-8 pl-9 text-sm"
             data-testid="filter-search-input"
+            onChange={handleSearchChange}
+            placeholder="Search collections, files, chunks..."
+            type="text"
+            value={filters.searchQuery}
           />
           {filters.searchQuery && (
             <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleClearSearch}
-              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-transparent"
               aria-label="Clear search"
+              className="-translate-y-1/2 absolute top-1/2 right-1 h-6 w-6 hover:bg-transparent"
+              onClick={handleClearSearch}
+              size="icon"
+              variant="ghost"
             >
               <X className="h-4 w-4" />
             </Button>
@@ -179,22 +179,22 @@ export const FilterBar = React.memo(function FilterBar({
         {showExpandControls && (
           <div className="flex items-center gap-1">
             <Button
-              variant="ghost"
-              size="icon"
-              onClick={onExpandAll}
-              className="h-8 w-8"
               aria-label="Expand all"
+              className="h-8 w-8"
+              onClick={onExpandAll}
+              size="icon"
               title="Expand all"
+              variant="ghost"
             >
               <ChevronsUpDown className="h-4 w-4" />
             </Button>
             <Button
-              variant="ghost"
-              size="icon"
-              onClick={onCollapseAll}
-              className="h-8 w-8"
               aria-label="Collapse all"
+              className="h-8 w-8"
+              onClick={onCollapseAll}
+              size="icon"
               title="Collapse all"
+              variant="ghost"
             >
               <ChevronsDownUp className="h-4 w-4" />
             </Button>
@@ -205,22 +205,22 @@ export const FilterBar = React.memo(function FilterBar({
       {/* Row 2: Filter chips and status dropdown */}
       <div className="flex items-center justify-between gap-2">
         {/* Node type filters */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex flex-wrap items-center gap-1.5">
           {/* All button */}
           <FilterChip
-            label="All"
             active={allNodeTypesSelected}
+            label="All"
             onClick={handleSelectAllNodeTypes}
           />
 
           {/* Individual type chips */}
           {(Object.keys(NODE_TYPE_CONFIG) as CollectionNodeType[]).map((nodeType) => (
             <FilterChip
+              active={filters.nodeTypes.has(nodeType)}
+              icon={NodeTypeIcon[nodeType]}
               key={nodeType}
               label={NODE_TYPE_CONFIG[nodeType].pluralLabel}
-              active={filters.nodeTypes.has(nodeType)}
               onClick={() => handleToggleNodeType(nodeType)}
-              icon={NodeTypeIcon[nodeType]}
             />
           ))}
         </div>
@@ -228,7 +228,7 @@ export const FilterBar = React.memo(function FilterBar({
         {/* Status filter and result count */}
         <div className="flex items-center gap-2">
           {/* Embedding status dropdown */}
-          <Select value={filters.embeddingStatus} onValueChange={handleStatusChange}>
+          <Select onValueChange={handleStatusChange} value={filters.embeddingStatus}>
             <SelectTrigger className="h-8 w-[140px] text-xs">
               <div className="flex items-center gap-1.5">
                 {StatusIcon[filters.embeddingStatus]}
@@ -238,7 +238,7 @@ export const FilterBar = React.memo(function FilterBar({
             <SelectContent>
               {(Object.keys(EMBEDDING_STATUS_CONFIG) as (EmbeddingStatus | 'all')[]).map(
                 (status) => (
-                  <SelectItem key={status} value={status} className="text-xs">
+                  <SelectItem className="text-xs" key={status} value={status}>
                     <div className="flex items-center gap-1.5">
                       <span className={EMBEDDING_STATUS_CONFIG[status].color}>
                         {StatusIcon[status]}
@@ -253,7 +253,7 @@ export const FilterBar = React.memo(function FilterBar({
 
           {/* Result count */}
           {resultCount !== undefined && totalCount !== undefined && (
-            <span className="text-xs text-muted-foreground whitespace-nowrap">
+            <span className="whitespace-nowrap text-muted-foreground text-xs">
               {resultCount === totalCount
                 ? `${totalCount} items`
                 : `${resultCount} of ${totalCount}`}

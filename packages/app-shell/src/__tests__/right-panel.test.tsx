@@ -156,7 +156,7 @@ describe('RightPanel', () => {
     const assistantPanel = await screen.findByRole('tabpanel', { name: /assistant/i });
     expect(assistantPanel).toBeInTheDocument();
     expect(await within(assistantPanel).findByText(/Assistant disabled/i)).toBeInTheDocument();
-  }, 30000);
+  }, 30_000);
 
   test('has proper tab structure with icons', async () => {
     render(<RightPanel />);
@@ -198,5 +198,5 @@ describe('RightPanel', () => {
 
     await user.click(screen.getByRole('tab', { name: /assistant/i }));
     expect(await screen.findByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
-  }, 30000);
+  }, 30_000);
 });

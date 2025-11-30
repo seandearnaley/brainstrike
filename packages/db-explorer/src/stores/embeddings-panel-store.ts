@@ -5,7 +5,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type ModelKey = string;
 
-interface EmbeddingsPanelData {
+type EmbeddingsPanelData = {
   status: EmbeddingStatus;
   progress: number;
   progressMessage: string;
@@ -15,16 +15,16 @@ interface EmbeddingsPanelData {
   similarity: number | null;
   selectedDevice: string | null;
   error: string | null;
-}
+};
 
-interface EmbeddingsPanelActions {
+type EmbeddingsPanelActions = {
   setSelectedModel: (k: ModelKey) => void;
   setText1: (v: string) => void;
   setText2: (v: string) => void;
   initialize: () => Promise<void>;
   calculateSimilarity: () => Promise<void>;
   dispose: () => Promise<void>;
-}
+};
 
 type Store = EmbeddingsPanelData & EmbeddingsPanelActions;
 
@@ -58,7 +58,9 @@ export const useEmbeddingsPanelStore = create<Store>()(
       setText2: (v) => set({ text2: v }),
 
       initialize: async () => {
-        if (!service) service = new SimpleEmbeddingService();
+        if (!service) {
+          service = new SimpleEmbeddingService();
+        }
         const { selectedModel } = get();
         set({ status: 'initializing', error: null, progress: 0, progressMessage: '' });
         try {
@@ -71,7 +73,9 @@ export const useEmbeddingsPanelStore = create<Store>()(
           );
           set({ status: 'ready', progress: 100 });
           const cfg = service.getConfig();
-          if (cfg?.selectedDevice) set({ selectedDevice: cfg.selectedDevice });
+          if (cfg?.selectedDevice) {
+            set({ selectedDevice: cfg.selectedDevice });
+          }
         } catch (e) {
           const msg = e instanceof Error ? e.message : 'Failed to initialize model';
           set({ status: 'error', error: msg });
@@ -80,7 +84,9 @@ export const useEmbeddingsPanelStore = create<Store>()(
 
       calculateSimilarity: async () => {
         const { status, text1, text2 } = get();
-        if (!service || status !== 'ready' || !text1.trim() || !text2.trim()) return;
+        if (!service || status !== 'ready' || !text1.trim() || !text2.trim()) {
+          return;
+        }
         try {
           set({ status: 'processing', error: null, similarity: null });
           const svcAny = service as unknown as {

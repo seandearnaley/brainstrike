@@ -13,14 +13,14 @@ import { useCallback } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
-interface FolderSelectionDialogProps {
+type FolderSelectionDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   node: IFileNode;
   fileCount: number;
   onConfirm: () => void;
   onToggleFileSelection: (path: string) => void;
-}
+};
 
 export function FolderSelectionDialog({
   open,
@@ -65,7 +65,7 @@ export function FolderSelectionDialog({
   }, [node, willSelectAll, availableSlots, onToggleFileSelection, onOpenChange, onConfirm]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog onOpenChange={onOpenChange} open={open}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Select Folder Contents</DialogTitle>
@@ -85,7 +85,7 @@ export function FolderSelectionDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button onClick={() => onOpenChange(false)} variant="outline">
             Cancel
           </Button>
           <Button onClick={handleConfirm}>

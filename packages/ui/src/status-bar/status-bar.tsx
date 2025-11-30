@@ -1,7 +1,7 @@
 import type React from 'react';
 import { cn } from '../lib/utils';
 
-export interface StatusBarProps {
+export type StatusBarProps = {
   /** Content to display on the left side of the status bar */
   leftContent?: React.ReactNode;
   /** Content to display in the center of the status bar */
@@ -10,7 +10,7 @@ export interface StatusBarProps {
   rightContent?: React.ReactNode;
   /** Additional CSS classes */
   className?: string;
-}
+};
 
 /**
  * A VS Code-style status bar that displays at the bottom of the application.
@@ -26,9 +26,9 @@ export function StatusBar({
     <output
       aria-live="polite"
       className={cn(
-        'h-6 flex items-center justify-between px-2',
-        'bg-muted/50 border-t border-border',
-        'text-xs text-muted-foreground',
+        'flex h-6 items-center justify-between px-2',
+        'border-border border-t bg-muted/50',
+        'text-muted-foreground text-xs',
         className
       )}
       data-testid="status-bar"

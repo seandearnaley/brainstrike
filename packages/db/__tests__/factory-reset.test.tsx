@@ -49,5 +49,5 @@ describe('DbProvider factoryReset', () => {
     expect(result.current.reset).toBeDefined();
 
     await Promise.allSettled(createdDbs.map((db) => db.close()));
-  }, 15000); // Increase timeout to 15s for CI environment
+  }, 15_000); // Increase timeout to 15s for CI environment
 });

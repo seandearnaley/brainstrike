@@ -14,14 +14,14 @@ import NodeCheckbox from './node-checkbox';
 import NodeIcon from './node-icon';
 import { useFileTreeNodeSelection } from './use-file-tree-node-selection';
 
-interface IFileTreeNodeProps {
+type IFileTreeNodeProps = {
   node: IFileNode;
   isExpanded: boolean;
   onToggleDirectoryExpansion: (path: string) => void;
   onToggleFileSelection: (path: string) => void;
   isLoading: boolean;
   folderId: string;
-}
+};
 
 /**
  * FileTreeNode is a recursive component that renders a single node in the file explorer tree.
@@ -79,29 +79,29 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
      * - Loading state: Show spinner
      */
     const renderIcon = useCallback(
-      () => <NodeIcon node={node} isExpanded={isExpanded} isLoading={isLoading} />,
+      () => <NodeIcon isExpanded={isExpanded} isLoading={isLoading} node={node} />,
       [node, isExpanded, isLoading]
     );
 
     return (
       <li className="list-none">
-        <div className="flex items-center p-1 hover:bg-accent rounded transition-all duration-150">
+        <div className="flex items-center rounded p-1 transition-all duration-150 hover:bg-accent">
           <NodeCheckbox
-            node={node}
             checked={checkboxState}
             disabled={wouldExceedLimit}
+            maxSelectionCount={maxSelectionCount}
+            node={node}
             onSelect={handleNodeSelection}
             wouldExceedLimit={wouldExceedLimit}
-            maxSelectionCount={maxSelectionCount}
           />
-          <div className="w-6 flex items-center justify-center">
+          <div className="flex w-6 items-center justify-center">
             {node.type === 'directory' && (
               <button
-                type="button"
-                className="p-1 rounded-md hover:bg-accent cursor-pointer transition-all duration-150 active:scale-90"
-                onClick={handleExpansionClick}
-                data-testid={EXPAND_COLLAPSE_TEST_ID}
                 aria-label={isExpanded ? 'Collapse' : 'Expand'}
+                className="cursor-pointer rounded-md p-1 transition-all duration-150 hover:bg-accent active:scale-90"
+                data-testid={EXPAND_COLLAPSE_TEST_ID}
+                onClick={handleExpansionClick}
+                type="button"
               >
                 {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
               </button>
@@ -115,29 +115,29 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
           )}
         </div>
         {node.type === 'directory' && isExpanded && node.children && (
-          <fieldset className="ml-6" aria-label={`Contents of ${node.name}`}>
+          <fieldset aria-label={`Contents of ${node.name}`} className="ml-6">
             {node.children
               .filter((childNode: IFileNode) => childNode.isVisible !== false)
               .map((childNode: IFileNode) => (
                 <FileTreeNode
+                  folderId={folderId}
+                  isExpanded={expandedDirectoryPaths.has(childNode.path)}
+                  isLoading={isLoading}
                   key={childNode.path}
                   node={childNode}
-                  isExpanded={expandedDirectoryPaths.has(childNode.path)}
                   onToggleDirectoryExpansion={onToggleDirectoryExpansion}
                   onToggleFileSelection={onToggleFileSelection}
-                  isLoading={isLoading}
-                  folderId={folderId}
                 />
               ))}
           </fieldset>
         )}
         <FolderSelectionDialog
-          open={showSelectionDialog}
-          onOpenChange={setShowSelectionDialog}
-          node={node}
           fileCount={folderInfo?.count ?? 0}
+          node={node}
           onConfirm={handleNodeSelection}
+          onOpenChange={setShowSelectionDialog}
           onToggleFileSelection={onToggleFileSelection}
+          open={showSelectionDialog}
         />
       </li>
     );

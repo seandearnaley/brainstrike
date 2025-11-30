@@ -34,7 +34,9 @@ export function composeWrappers(...wrappers: AnyWrapper[]): AnyWrapper {
 
 export function makeRenderWithProviders(Wrapper: AnyWrapper) {
   return function renderWithProviders(ui: ReactElement, options?: RenderOptions) {
-    if (!rtlRender) throw new Error('Testing Library not available in this environment');
+    if (!rtlRender) {
+      throw new Error('Testing Library not available in this environment');
+    }
     return rtlRender(ui, {
       wrapper: Wrapper as ComponentType<{ children: ReactNode }>,
       ...options,

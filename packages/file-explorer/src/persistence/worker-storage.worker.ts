@@ -1,5 +1,5 @@
 // Operation handlers for different storage operations
-interface StorageOperation {
+type StorageOperation = {
   id: string;
   type: string;
   key?: string;
@@ -7,7 +7,7 @@ interface StorageOperation {
   operation?: string;
   rawValue?: string;
   success?: boolean;
-}
+};
 
 // Handle save operation
 function handleSaveOperation(data: StorageOperation): void {
@@ -58,10 +58,7 @@ function handleRemoveOperation(data: StorageOperation): void {
 
 // Handle storage response
 function handleStorageResponse(data: StorageOperation): void {
-  const result =
-    data.operation === 'getItem' && data.rawValue
-      ? JSON.parse(data.rawValue)
-      : data.success || true;
+  const result = data.operation === 'getItem' && data.rawValue ? JSON.parse(data.rawValue) : true;
 
   self.postMessage({
     id: data.id,

@@ -48,7 +48,7 @@ class WasmLoader {
   private static instance: WasmLoader;
   private wasmLoadPromise: Promise<void> | null = null;
   private isLoaded = false;
-  private dbCache: Map<string, PGlite> = new Map();
+  private readonly dbCache: Map<string, PGlite> = new Map();
 
   private constructor() {}
 

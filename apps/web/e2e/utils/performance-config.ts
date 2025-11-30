@@ -11,8 +11,8 @@ export const BASE_THRESHOLDS = {
   MEMORY_INCREASE_MAX_MB: 10, // Decreased from 50 to 10MB for navigation
   MEMORY_TOTAL_MAX_MB: 100, // Baseline total memory threshold (no heavy local DB)
   RENDER_TIME_MAX_MS: 150, // Slightly increased from 100
-  LARGE_TREE_LOAD_MAX_MS: 20000, // New: for stress tests
-  BULK_FILE_SELECTION_MAX_MS: 12000, // New: for bulk operations
+  LARGE_TREE_LOAD_MAX_MS: 20_000, // New: for stress tests
+  BULK_FILE_SELECTION_MAX_MS: 12_000, // New: for bulk operations
   AVG_FILE_LOAD_TIME_MAX_MS: 800, // New: average file loading time
   STRESS_MEMORY_INCREASE_MAX_MB: 20, // Stress tests: default 20MB cap
 } as const;
@@ -124,8 +124,12 @@ export function detectEnvironment(): 'local' | 'ci' | 'github-actions' {
     const envCI = (globalThis as any).process?.env?.CI;
     const envGithub = (globalThis as any).process?.env?.GITHUB_ACTIONS;
 
-    if (envGithub) return 'github-actions';
-    if (envCI) return 'ci';
+    if (envGithub) {
+      return 'github-actions';
+    }
+    if (envCI) {
+      return 'ci';
+    }
   } catch {
     // If process is not available, assume local environment
   }

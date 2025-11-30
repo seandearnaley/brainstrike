@@ -27,14 +27,14 @@ describe('TabbedFileEditor view-state integration', () => {
 
     render(
       <TabbedFileEditor
-        tabs={tabs}
         activeTabId="t1"
+        decodeFileSelection={decode}
         fileContents={fileContents}
         loadingFiles={loadingFiles}
+        onLoadFileContent={() => {}}
         onTabClick={() => {}}
         onTabClose={() => {}}
-        onLoadFileContent={() => {}}
-        decodeFileSelection={decode}
+        tabs={tabs}
       />
     );
 

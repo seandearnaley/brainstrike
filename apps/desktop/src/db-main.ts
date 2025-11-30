@@ -192,7 +192,9 @@ const CORRUPTION_ERROR_PATTERNS = [
  * Check if an error indicates database corruption that requires a full reset
  */
 export function isCorruptionError(error: unknown): boolean {
-  if (!error) return false;
+  if (!error) {
+    return false;
+  }
 
   const errorObj = error as { code?: string; message?: string };
   const code = errorObj.code;
@@ -244,7 +246,7 @@ async function handleCorruptionError(
 ): Promise<any> {
   await safeCloseDatabase();
 
-  if (!retryAfterCorruption || !isCorruptionError(err)) {
+  if (!(retryAfterCorruption && isCorruptionError(err))) {
     return null; // Signal that we didn't handle it
   }
 
@@ -284,7 +286,9 @@ export async function initializeMainDatabase(retryAfterCorruption = true): Promi
     logger.info('Database initialized with pgvector extension at:', dataDir);
   } catch (err) {
     const recovered = await handleCorruptionError(err, 'initialization', retryAfterCorruption);
-    if (recovered) return recovered;
+    if (recovered) {
+      return recovered;
+    }
 
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Failed to initialize database with pgvector:', msg);
@@ -296,7 +300,9 @@ export async function initializeMainDatabase(retryAfterCorruption = true): Promi
     await migrate(db);
   } catch (err) {
     const recovered = await handleCorruptionError(err, 'migration', retryAfterCorruption);
-    if (recovered) return recovered;
+    if (recovered) {
+      return recovered;
+    }
 
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Database migrations failed:', msg);

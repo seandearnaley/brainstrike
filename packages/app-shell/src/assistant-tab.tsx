@@ -11,23 +11,23 @@ export function AssistantTab(): ReactElement {
   const status = useAssistantAvailability();
 
   return (
-    <Card className="flex flex-col h-full overflow-hidden" data-testid="assistant-chat-card">
+    <Card className="flex h-full flex-col overflow-hidden" data-testid="assistant-chat-card">
       <CardHeader className="flex-shrink-0 pb-3">
         <CardTitle className="text-sm">Assistant</CardTitle>
         <CardDescription className="text-xs">
           Chat with the Brainstrike assistant for guidance while editing props.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 p-0 flex flex-col">
+      <CardContent className="flex min-h-0 flex-1 flex-col p-0">
         {status.state === 'loading' && (
           <div className="p-4 text-xs opacity-70">Checking assistant availability…</div>
         )}
         {status.state === 'error' && (
           <div className="p-4">
             <AssistantStatusCallout
-              title="Assistant unavailable"
               description="Could not determine assistant status."
               detail={status.message}
+              title="Assistant unavailable"
               variant="error"
             />
           </div>
@@ -35,8 +35,8 @@ export function AssistantTab(): ReactElement {
         {status.state === 'disabled' && (
           <div className="p-4">
             <AssistantStatusCallout
-              title="Assistant disabled"
               description="Configure an AI provider in Settings → LLM Provider Keys to enable the assistant."
+              title="Assistant disabled"
               variant="warning"
               {...(status.reason ? { detail: `Reason: ${status.reason}` } : {})}
             />

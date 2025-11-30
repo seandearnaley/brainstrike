@@ -14,7 +14,6 @@ import {
 // Mock hasPointerCapture
 beforeAll(() => {
   // We need to mock this for userEvent
-  // biome-ignore lint/suspicious/noExplicitAny: mocking DOM API for tests
   (Element.prototype as any).hasPointerCapture = () => false;
 });
 

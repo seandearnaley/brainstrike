@@ -23,14 +23,14 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 });
 
 declare global {
-  interface Window {
+  type Window = {
     logging?: {
       getPreferences: () => Promise<LoggingSettingsPayload>;
       setPreferences: (preferences: LoggingPreferences) => Promise<LoggingSettingsPayload>;
       selectDestination: () => Promise<string | null>;
       openDestination: (target: string | null) => Promise<boolean>;
     };
-  }
+  };
 }
 
 describe('DesktopLoggingSettings', () => {

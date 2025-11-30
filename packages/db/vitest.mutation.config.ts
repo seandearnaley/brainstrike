@@ -16,7 +16,7 @@ export default defineConfig({
     // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
     maxWorkers: 1,
     isolate: true,
-    hookTimeout: 30000,
-    testTimeout: 30000,
+    hookTimeout: 30_000,
+    testTimeout: 30_000,
   },
 });

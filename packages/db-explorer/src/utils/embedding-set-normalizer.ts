@@ -126,7 +126,9 @@ async function reconcileGroup(db: SqlClient, rows: NormalizedRow[]): Promise<voi
   }
   await ensureCanonicalKey(db, primary);
   for (const duplicate of duplicates) {
-    if (!duplicate) continue;
+    if (!duplicate) {
+      continue;
+    }
     await mergeDuplicate(db, primary, duplicate);
   }
 }

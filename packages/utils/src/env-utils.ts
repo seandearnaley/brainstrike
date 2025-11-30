@@ -10,12 +10,12 @@ function getEnvironmentMode(): string | undefined {
       return meta.env?.[modeKey];
     } catch {
       // import.meta not available
-      return undefined;
+      return;
     }
   }
 
   // In Node.js environments, return undefined so we fall back to process.env
-  return undefined;
+  return;
 }
 
 export function isDevEnv(): boolean {

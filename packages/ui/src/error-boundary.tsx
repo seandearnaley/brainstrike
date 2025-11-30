@@ -3,20 +3,20 @@ import { isDevEnv } from '@brainstrike/utils';
 import { AlertTriangle, ArrowLeft, Bug, RefreshCw, X } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
-export interface ErrorBoundaryProps {
+export type ErrorBoundaryProps = {
   children: ReactNode;
   fallback?: ReactNode;
   onReset?: () => void;
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
   showDetails?: boolean;
-}
+};
 
-export interface ErrorBoundaryState {
+export type ErrorBoundaryState = {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
   detailsVisible: boolean;
-}
+};
 
 /**
  * Generic ErrorBoundary component that provides basic error handling.
@@ -73,36 +73,36 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     }
 
     return (
-      <div className="flex flex-col items-center justify-center h-full p-6 bg-background/95 backdrop-blur-xs">
-        <div className="w-full max-w-md bg-card border rounded-lg shadow-lg overflow-hidden">
-          <div className="p-4 border-b bg-muted/30">
+      <div className="flex h-full flex-col items-center justify-center bg-background/95 p-6 backdrop-blur-xs">
+        <div className="w-full max-w-md overflow-hidden rounded-lg border bg-card shadow-lg">
+          <div className="border-b bg-muted/30 p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <AlertTriangle className="h-6 w-6 mr-2 text-red-500" />
-                <h2 className="text-xl font-bold">Error</h2>
+                <AlertTriangle className="mr-2 h-6 w-6 text-red-500" />
+                <h2 className="font-bold text-xl">Error</h2>
               </div>
-              <Button variant="ghost" size="icon" onClick={this.handleReset} title="Dismiss">
+              <Button onClick={this.handleReset} size="icon" title="Dismiss" variant="ghost">
                 <X className="h-4 w-4" />
               </Button>
             </div>
           </div>
 
           <div className="p-4">
-            <p className="text-destructive mb-4">{error?.message ?? 'Something went wrong.'}</p>
-            <div className="flex flex-wrap gap-2 mt-4">
-              <Button onClick={this.handleReload} className="flex items-center">
+            <p className="mb-4 text-destructive">{error?.message ?? 'Something went wrong.'}</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button className="flex items-center" onClick={this.handleReload}>
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Reload Page
               </Button>
-              <Button onClick={this.handleReset} variant="outline" className="flex items-center">
+              <Button className="flex items-center" onClick={this.handleReset} variant="outline">
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Go Back
               </Button>
               {details && (
                 <Button
+                  className="flex items-center"
                   onClick={this.toggleDetails}
                   variant="outline"
-                  className="flex items-center"
                 >
                   <Bug className="mr-2 h-4 w-4" />
                   {detailsVisible ? 'Hide' : 'Show'} Details
@@ -112,9 +112,9 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           </div>
 
           {detailsVisible && details && (
-            <div className="p-4 border-t bg-muted/20">
-              <h3 className="font-semibold mb-2">Error Details</h3>
-              <ScrollArea className="bg-muted p-2 rounded text-sm font-mono max-h-60">
+            <div className="border-t bg-muted/20 p-4">
+              <h3 className="mb-2 font-semibold">Error Details</h3>
+              <ScrollArea className="max-h-60 rounded bg-muted p-2 font-mono text-sm">
                 <p>
                   <strong>Name:</strong> {error?.name}
                 </p>
@@ -124,7 +124,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 {error?.stack && (
                   <div className="mt-2">
                     <strong>Stack:</strong>
-                    <pre className="whitespace-pre-wrap text-xs mt-1 text-muted-foreground">
+                    <pre className="mt-1 whitespace-pre-wrap text-muted-foreground text-xs">
                       {error.stack}
                     </pre>
                   </div>
@@ -132,7 +132,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 {errorInfo?.componentStack && (
                   <div className="mt-2">
                     <strong>Component Stack:</strong>
-                    <pre className="whitespace-pre-wrap text-xs mt-1 text-muted-foreground">
+                    <pre className="mt-1 whitespace-pre-wrap text-muted-foreground text-xs">
                       {errorInfo.componentStack}
                     </pre>
                   </div>

@@ -6,9 +6,9 @@ import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 
 export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 
-export interface Queryable {
+export type Queryable = {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
-}
+};
 
 // Process-local cache; follow-up hardening tracked in brainstrike-38 for invalidation strategy.
 const embeddingDimensionCache = new Map<string, number>();
@@ -53,7 +53,9 @@ export async function validateEmbeddingDimension(
   embedding: number[] | undefined,
   options: { embeddingSetId?: string | null; expectedDimension?: number } = {}
 ): Promise<void> {
-  if (!embedding) return;
+  if (!embedding) {
+    return;
+  }
 
   ensureArrayInput(embedding);
   ensureNumericValues(embedding);
@@ -61,7 +63,9 @@ export async function validateEmbeddingDimension(
   assertEmbeddingDimensionBounds(embeddingDimension);
 
   const targetDimension = await resolveTargetDimension(db, options);
-  if (targetDimension === undefined) return;
+  if (targetDimension === undefined) {
+    return;
+  }
 
   assertTargetDimensionBounds(targetDimension);
   if (embeddingDimension !== targetDimension) {
@@ -123,7 +127,7 @@ async function resolveTargetDimension(
     return options.expectedDimension;
   }
 
-  return undefined;
+  return;
 }
 
 import { createLogger } from '@brainstrike/utils';
@@ -165,7 +169,7 @@ function handleArrayInput(arr: unknown[]): number[] | undefined {
     return arr;
   }
   logger.warn('parseEmbeddingLoose: Array contains non-numeric values');
-  return undefined;
+  return;
 }
 
 // Helper to handle string inputs
@@ -195,7 +199,9 @@ function handleStringInput(str: string): number[] | undefined {
 }
 
 export function parseEmbeddingLoose(embedding: unknown): number[] | undefined {
-  if (!embedding) return undefined;
+  if (!embedding) {
+    return;
+  }
 
   try {
     if (Array.isArray(embedding)) {
@@ -207,12 +213,12 @@ export function parseEmbeddingLoose(embedding: unknown): number[] | undefined {
     }
 
     logger.warn('parseEmbeddingLoose: Unsupported embedding type', { type: typeof embedding });
-    return undefined;
+    return;
   } catch (error) {
     logger.warn('parseEmbeddingLoose: Failed to parse embedding', {
       error: error instanceof Error ? error.message : 'Unknown error',
     });
-    return undefined;
+    return;
   }
 }
 
@@ -237,7 +243,7 @@ export function batchArray<T>(items: T[], batchSize: number): T[][] {
  * @returns Cosine similarity between -1 and 1, or NaN if computation fails
  */
 export function computeCosineSimilarity(a: number[], b: number[]): number {
-  if (!a || !b || a.length !== b.length || a.length === 0) {
+  if (!(a && b) || a.length !== b.length || a.length === 0) {
     return Number.NaN;
   }
 
@@ -284,11 +290,11 @@ export function cosineToSearchSimilarity(cosineSimilarity: number): number {
   return (cosineSimilarity + 1) / 2;
 }
 
-export interface UpdateBuilder {
+export type UpdateBuilder = {
   setParts: string[];
   values: unknown[];
   index: number;
-}
+};
 
 export function createUpdateBuilder(startIndex = 1): UpdateBuilder {
   return { setParts: [], values: [], index: startIndex };

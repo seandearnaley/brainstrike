@@ -54,7 +54,7 @@ describe('parseEmbeddingLoose', () => {
   });
 
   it('should handle scientific notation', () => {
-    expect(parseEmbeddingLoose('[1e-5, 2.5e-3, 3.14e2]')).toEqual([0.00001, 0.0025, 314]);
+    expect(parseEmbeddingLoose('[1e-5, 2.5e-3, 3.14e2]')).toEqual([0.000_01, 0.0025, 314]);
   });
 
   it('should handle negative numbers', () => {

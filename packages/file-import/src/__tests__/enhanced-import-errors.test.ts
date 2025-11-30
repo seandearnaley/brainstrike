@@ -56,8 +56,10 @@ describe('runEnhancedImport error handling', () => {
     // 2. if (!chunking.enabled) -> createCompleteProgress(null, results.length)
 
     // We need to verify that createCompleteProgress was called with null and generated the default object
-    const updateFn = calls[calls.length - 1]?.[0];
-    if (!updateFn) throw new Error('updateFn is undefined');
+    const updateFn = calls.at(-1)?.[0];
+    if (!updateFn) {
+      throw new Error('updateFn is undefined');
+    }
 
     const result = updateFn(null); // Simulate prev=null
 

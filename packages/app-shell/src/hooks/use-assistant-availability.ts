@@ -81,10 +81,10 @@ export async function resolveAssistantStatusUrl(): Promise<string> {
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
-interface FetchAssistantStatusStateOptions {
+type FetchAssistantStatusStateOptions = {
   signal: AbortSignal;
   fetchImpl?: typeof fetch;
-}
+};
 
 export async function fetchAssistantStatusState({
   signal,

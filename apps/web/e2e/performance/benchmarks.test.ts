@@ -59,9 +59,9 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
 
     await home.goto();
 
-    await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
-    await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
-    await expect(explorer.noFilesText).toBeVisible({ timeout: 15000 });
+    await expect(explorer.selectRootButton).toBeVisible({ timeout: 10_000 });
+    await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.noFilesText).toBeVisible({ timeout: 15_000 });
 
     // 1. Tree Load Performance
     await page.evaluate(() => performance.mark('tree-load-start'));
@@ -164,9 +164,9 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
 
     await home.goto();
 
-    await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
-    await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
-    await expect(explorer.noFilesText).toBeVisible({ timeout: 15000 });
+    await expect(explorer.selectRootButton).toBeVisible({ timeout: 10_000 });
+    await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.noFilesText).toBeVisible({ timeout: 15_000 });
 
     // Use the selectRoot helper which properly waits for the file tree
     await explorer.selectRoot();
@@ -265,9 +265,9 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
 
     await home.goto();
 
-    await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
-    await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
-    await expect(explorer.noFilesText).toBeVisible({ timeout: 15000 });
+    await expect(explorer.selectRootButton).toBeVisible({ timeout: 10_000 });
+    await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15_000 });
+    await expect(explorer.noFilesText).toBeVisible({ timeout: 15_000 });
 
     // Use the selectRoot helper which properly waits for the file tree
     await explorer.selectRoot();

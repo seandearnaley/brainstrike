@@ -4,7 +4,7 @@ export type EmbeddingDeviceHint = EmbeddingDevice | 'auto';
 
 export type EmbeddingDType = 'fp16' | 'q4' | 'fp32';
 
-export interface EmbedWorkerRequest {
+export type EmbedWorkerRequest = {
   readonly type: 'embed';
   readonly id: string;
   readonly model: string;
@@ -19,16 +19,16 @@ export interface EmbedWorkerRequest {
   readonly provider?: string;
   readonly targetDimension?: number;
   readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
-}
+};
 
-export interface EmbedWorkerProgress {
+export type EmbedWorkerProgress = {
   readonly type: 'progress';
   readonly id: string;
   readonly progress: number;
   readonly phase: 'initializing' | 'embedding' | 'complete';
-}
+};
 
-export interface EmbedWorkerSuccess {
+export type EmbedWorkerSuccess = {
   readonly type: 'result';
   readonly id: string;
   readonly vectors: readonly Float32Array[];
@@ -41,18 +41,19 @@ export interface EmbedWorkerSuccess {
     readonly fallbackApplied: boolean;
     readonly dimensions: number;
   };
-}
+};
 
-export interface EmbedWorkerError {
+export type EmbedWorkerError = {
   readonly type: 'error';
   readonly id: string;
   readonly message: string;
   /** Serialized error cause for debugging (string instead of unknown for safe workerpool serialization) */
   readonly cause?: string | undefined;
-}
+};
 
 export function l2Normalize(vector: Float32Array): Float32Array {
   let sum = 0;
+  // biome-ignore lint/style/useForOf: Index-based loop needed for Float32Array performance
   for (let index = 0; index < vector.length; index += 1) {
     const value = vector[index] ?? 0;
     sum += value * value;

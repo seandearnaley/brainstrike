@@ -90,7 +90,7 @@ describe('chat route schema', () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     // should contain newline-delimited JSON with at least one chunk
-    const firstLine = text.split('\n').filter(Boolean)[0];
+    const firstLine = text.split('\n').find(Boolean);
     expect(firstLine).toBeDefined();
     const chunk = JSON.parse(firstLine ?? '{}');
     expect(['tool-event', 'text-delta']).toContain(chunk.type);

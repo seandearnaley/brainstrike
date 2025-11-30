@@ -136,7 +136,7 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
     const unsubscribe = addQueueTelemetryListener(listener);
 
     const event: QueueTelemetryEvent = {
-      timestamp: 1234567890,
+      timestamp: 1_234_567_890,
       adapter: 'workerpool',
       event: 'complete',
       taskId: 'full-event',

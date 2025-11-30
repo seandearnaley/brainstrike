@@ -7,6 +7,7 @@ import type { TriggerRenderProps } from './types';
 import { getProviderColor } from './utils/provider-colors';
 import { getProviderIcon } from './utils/provider-icons';
 
+// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to Button
 export const ModelPickerTrigger = React.forwardRef<
   HTMLButtonElement,
   TriggerRenderProps & React.ButtonHTMLAttributes<HTMLButtonElement>
@@ -23,7 +24,7 @@ export const ModelPickerTrigger = React.forwardRef<
       return () => mediaQuery.removeEventListener('change', handler);
     }
     setResolvedTheme(configuredTheme);
-    return undefined;
+    return;
   }, [configuredTheme]);
 
   const selectedModels = Array.isArray(value)
@@ -40,11 +41,11 @@ export const ModelPickerTrigger = React.forwardRef<
 
   return (
     <Button
-      ref={ref}
-      variant="outline"
-      role="combobox"
       className={cn('w-full justify-between', className)}
       disabled={disabled}
+      ref={ref}
+      role="combobox"
+      variant="outline"
       {...props}
     >
       <div className="flex items-center gap-2 truncate">

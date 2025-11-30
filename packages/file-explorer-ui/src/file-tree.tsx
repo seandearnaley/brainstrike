@@ -5,12 +5,12 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileTreeRow, { ROW_HEIGHT } from './file-tree-row';
 import { useVirtualList } from './use-virtual-list';
 
-interface IFileTreeProps {
+type IFileTreeProps = {
   fileTree: IFileNode[];
   loadingFiles: Set<string>;
   onRender?: (() => void) | undefined;
   folderId: string;
-}
+};
 
 /**
  * @file FileTree.tsx
@@ -79,14 +79,14 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
         .slice(range.start, range.end + 1)
         .map(({ node, depth }, index) => (
           <FileTreeRow
+            depth={depth}
+            folderId={folderId}
+            isExpanded={expandedDirectoryPaths.has(node.path)}
+            isLoading={loadingFiles.has(encodeFileSelection(folderId, node.path))}
             key={node.path}
             node={node}
-            depth={depth}
-            isExpanded={expandedDirectoryPaths.has(node.path)}
             onToggleDirectoryExpansion={toggleDirectoryExpansion}
             onToggleFileSelection={handleToggleFileSelection}
-            isLoading={loadingFiles.has(encodeFileSelection(folderId, node.path))}
-            folderId={folderId}
             style={{ position: 'absolute', top: (range.start + index) * ROW_HEIGHT - offset }}
           />
         )),
@@ -109,15 +109,15 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
 
   return (
     <div
-      ref={containerRef}
-      className="h-full relative flex-1 min-h-0 overflow-y-auto"
+      className="relative h-full min-h-0 flex-1 overflow-y-auto"
       data-testid="file-tree-scroll-container"
+      ref={containerRef}
     >
       <div
-        className="relative file-tree"
-        role="tree"
         aria-label="File tree"
+        className="file-tree relative"
         data-testid="file-tree"
+        role="tree"
         style={{ height: totalHeight, transform: `translateY(${offset}px)` }}
       >
         {renderedRows}

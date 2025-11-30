@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  l2Normalize,
-  truncateVector,
   computeInitialBatchSize,
+  l2Normalize,
+  resolveEmbeddingWorkerUrl,
+  truncateVector,
   vectorsFromPipelineOutput,
-  resolveEmbeddingWorkerUrl
 } from '../src';
 
 describe('shared math helpers', () => {
@@ -32,7 +32,7 @@ describe('vectorsFromPipelineOutput', () => {
   it('handles nested number arrays', () => {
     const output = [
       [0.2, 0.8],
-      [0.6, 0.4]
+      [0.6, 0.4],
     ];
     const vectors = vectorsFromPipelineOutput(output, 2);
     expect(vectors).toHaveLength(2);

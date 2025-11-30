@@ -10,10 +10,10 @@ import {
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
 
-export interface FolderStateActions {
+export type FolderStateActions = {
   setCurrentFolderId: (folderId: string | null) => void;
   hydrateFolderState: (folderId: string) => void;
-}
+};
 
 export const createFolderStateActions = (
   set: SetState<FileExplorerState>,
@@ -24,7 +24,9 @@ export const createFolderStateActions = (
     const currentFolderId = state.currentFolderId;
 
     // If there's no change, do nothing
-    if (folderId === currentFolderId) return;
+    if (folderId === currentFolderId) {
+      return;
+    }
 
     let updatedFolderStates = { ...state.folderStates };
     let updatedOrder = state.folderAccessOrder;
@@ -100,7 +102,9 @@ export const createFolderStateActions = (
   hydrateFolderState: (folderId: string) => {
     set((state) => {
       const folderState = state.folderStates[folderId];
-      if (!folderState) return {};
+      if (!folderState) {
+        return {};
+      }
 
       folderState.lastAccessed = Date.now();
       const order = updateFolderAccessOrder(state.folderAccessOrder, folderId);

@@ -14,14 +14,14 @@ export const FALLBACK_INDEXED_DB_NAMES = [
   'brainstrike-web', // Legacy web builds used idb://brainstrike-web; keep to clean up stale installs
 ] as const;
 
-export interface ClearPersistentUiStateOptions {
+export type ClearPersistentUiStateOptions = {
   /**
    * When true, skips clearing IndexedDB databases. Use when the database layer has already deleted
    * its storage (e.g., DbProvider factoryReset). Defaults to false so standalone callers still wipe
    * IndexedDB completely.
    */
   skipIndexedDb?: boolean;
-}
+};
 
 /**
  * Desktop bridges expose storage, secrets, and settings stores via IPC.
@@ -30,7 +30,9 @@ export interface ClearPersistentUiStateOptions {
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 
 async function clearElectronStorage(): Promise<void> {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined') {
+    return;
+  }
 
   const w = window as {
     electronAPI?: { storage?: { clear?: () => Promise<void> } };
@@ -72,8 +74,12 @@ async function clearElectronStorage(): Promise<void> {
  * Deletes the given IndexedDB database, catching and silencing errors.
  */
 async function deleteIndexedDb(name: string): Promise<void> {
-  if (!name) return;
-  if (typeof window === 'undefined' || !window.indexedDB) return;
+  if (!name) {
+    return;
+  }
+  if (typeof window === 'undefined' || !window.indexedDB) {
+    return;
+  }
 
   await new Promise<void>((resolve) => {
     try {
@@ -92,7 +98,9 @@ async function deleteIndexedDb(name: string): Promise<void> {
  * No fallback lists - if enumeration fails, we can't guarantee a clean slate.
  */
 async function clearIndexedDbDatabases(): Promise<void> {
-  if (typeof window === 'undefined' || !window.indexedDB) return;
+  if (typeof window === 'undefined' || !window.indexedDB) {
+    return;
+  }
 
   let enumeratedNames: string[] = [];
 
@@ -126,7 +134,9 @@ async function clearIndexedDbDatabases(): Promise<void> {
  * Clears the CacheStorage entries so cached bundles and responses do not survive resets.
  */
 async function clearCacheStorage(): Promise<void> {
-  if (typeof caches === 'undefined') return;
+  if (typeof caches === 'undefined') {
+    return;
+  }
   try {
     const cacheKeys = await caches.keys();
     await Promise.all(cacheKeys.map((key) => caches.delete(key).catch(() => false)));

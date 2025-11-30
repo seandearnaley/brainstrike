@@ -3,31 +3,31 @@ import type { ToolsInput } from '@mastra/core/agent';
 
 const logger = createLogger('ToolRegistry');
 
-export interface McpToolMetadata {
+export type McpToolMetadata = {
   id: string;
   serverName: string;
   description?: string;
   inputSchema?: unknown;
   enabled: boolean;
   discoveredAt: number;
-}
+};
 
-export interface McpToolsByServer {
+export type McpToolsByServer = {
   [serverName: string]: McpToolMetadata[];
-}
+};
 
-export interface ToolFilterConfig {
+export type ToolFilterConfig = {
   enabledTools?: string[];
-}
+};
 
 /**
  * Registry for tracking MCP tools discovered from servers.
  * Manages tool metadata, enabled/disabled state, and filtering.
  */
 export class ToolRegistry {
-  private tools: Map<string, McpToolMetadata> = new Map();
-  private toolsByServer: Map<string, Set<string>> = new Map();
-  private listeners: Array<(tools: McpToolsByServer) => void> = [];
+  private readonly tools: Map<string, McpToolMetadata> = new Map();
+  private readonly toolsByServer: Map<string, Set<string>> = new Map();
+  private readonly listeners: Array<(tools: McpToolsByServer) => void> = [];
 
   /**
    * Register tools from an MCP server
@@ -91,7 +91,9 @@ export class ToolRegistry {
    */
   getToolsForServer(serverName: string): McpToolMetadata[] {
     const toolIds = this.toolsByServer.get(serverName);
-    if (!toolIds) return [];
+    if (!toolIds) {
+      return [];
+    }
 
     return Array.from(toolIds)
       .map((id) => this.tools.get(id))
@@ -216,14 +218,14 @@ export class ToolRegistry {
     if (tool && typeof tool === 'object' && 'description' in tool) {
       return String(tool.description);
     }
-    return undefined;
+    return;
   }
 
   private extractInputSchema(tool: unknown): unknown {
     if (tool && typeof tool === 'object' && 'inputSchema' in tool) {
       return tool.inputSchema;
     }
-    return undefined;
+    return;
   }
 
   private isToolEnabledByDefault(toolId: string, filterConfig?: ToolFilterConfig): boolean {
@@ -251,8 +253,12 @@ export class ToolRegistry {
   }
 
   private matchPattern(toolId: string, pattern: string): boolean {
-    if (pattern === '*') return true;
-    if (pattern === toolId) return true;
+    if (pattern === '*') {
+      return true;
+    }
+    if (pattern === toolId) {
+      return true;
+    }
 
     // Support glob-style wildcards
     const regexPattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');

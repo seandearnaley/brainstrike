@@ -2,10 +2,10 @@ import type { IFileNode } from '@brainstrike/types';
 import { stableHash } from './hash-utils';
 import { createLogger } from './logger';
 
-interface ExperimentalFileSystemFeatures {
+type ExperimentalFileSystemFeatures = {
   isSameEntry(other: FileSystemHandle): Promise<boolean>;
   getParent(): Promise<FileSystemHandle | null>;
-}
+};
 
 // Custom error types for file system operations
 export class BrainStrikeError extends Error {
@@ -106,7 +106,9 @@ export const fileSystem = {
       while (true) {
         try {
           const parent = await current.getParent();
-          if (!parent) break; // Root reached
+          if (!parent) {
+            break; // Root reached
+          }
 
           // Check for circular references
           if (visitedHandles.has(parent)) {

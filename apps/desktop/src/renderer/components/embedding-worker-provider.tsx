@@ -19,7 +19,7 @@ function createWorkerConfig(
   return {
     db,
     concurrency: Number(import.meta.env['VITE_EMBED_CONCURRENCY'] ?? 1) || 1,
-    leaseMs: Number(import.meta.env['VITE_EMBED_LEASE_MS'] ?? 60000) || 60000,
+    leaseMs: Number(import.meta.env['VITE_EMBED_LEASE_MS'] ?? 60_000) || 60_000,
     modelKey: import.meta.env['VITE_EMBED_MODEL_KEY'] || undefined,
     log: (msg: string, meta?: unknown) => {
       if (meta) {
@@ -42,10 +42,14 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
   const startingRef = useRef(false);
 
   useEffect(() => {
-    if (!db) return;
+    if (!db) {
+      return;
+    }
 
     const startWorker = async () => {
-      if (startingRef.current || controllerRef.current) return;
+      if (startingRef.current || controllerRef.current) {
+        return;
+      }
 
       startingRef.current = true;
 

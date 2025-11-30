@@ -8,7 +8,7 @@ const logger = createLogger('ProviderApiKey');
 
 function normalizeSecretValue(value: unknown): string | undefined {
   if (typeof value !== 'string') {
-    return undefined;
+    return;
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
@@ -22,7 +22,7 @@ export function resolveProviderEnvKey(provider: SupportedProvider): string | und
       return value;
     }
   }
-  return undefined;
+  return;
 }
 
 export async function readProviderSecretKey(
@@ -34,7 +34,7 @@ export async function readProviderSecretKey(
     return normalizeSecretValue(value);
   } catch (error) {
     logger.error('Failed to read secrets entry for provider', { provider, error });
-    return undefined;
+    return;
   }
 }
 
@@ -60,7 +60,9 @@ export async function listConfiguredProviders(): Promise<SupportedProvider[]> {
     const secretsService = getSecretsService();
     const storedProviders: string[] = await secretsService.listProviders();
     for (const provider of storedProviders) {
-      if (!isSupportedProvider(provider)) continue;
+      if (!isSupportedProvider(provider)) {
+        continue;
+      }
       const supported = provider as SupportedProvider;
       const key = await secretsService.getKey(supported);
       if (normalizeSecretValue(key)) {

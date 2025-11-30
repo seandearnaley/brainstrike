@@ -39,7 +39,7 @@ import {
 
 const logger = createLogger('PreviewPanel');
 
-interface PreviewPanelProps {
+type PreviewPanelProps = {
   selectedFiles: Set<string>;
   fileContents: { [compositeKey: string]: string };
   loadingFiles: Set<string>;
@@ -62,16 +62,16 @@ interface PreviewPanelProps {
   pageSize?: number;
   onDownloadReport?: () => void;
   onCopyReport?: () => void;
-}
+};
 
 // Column configuration
-interface ColumnConfig {
+type ColumnConfig = {
   id: string;
   label: string;
   accessor: keyof TableRowData | 'checkbox';
   canHide: boolean;
   defaultVisible: boolean;
-}
+};
 
 const COLUMN_CONFIGS: ColumnConfig[] = [
   {
@@ -136,18 +136,18 @@ function getStoredValue<T>(storageKey: string, key: string, defaultValue: T): T 
 }
 
 // Column visibility controls component
-interface ColumnVisibilityControlsProps {
+type ColumnVisibilityControlsProps = {
   columnVisibility: ColumnVisibility;
   onColumnVisibilityChange: (visibility: ColumnVisibility) => void;
-}
+};
 
 const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
   function ColumnVisibilityControlsComponent({ columnVisibility, onColumnVisibilityChange }) {
     return (
       <Popover>
         <PopoverTrigger asChild>
-          <Button variant="outline" size="sm">
-            <Columns3 className="size-3.5 mr-1" />
+          <Button size="sm" variant="outline">
+            <Columns3 className="mr-1 size-3.5" />
             Columns
           </Button>
         </PopoverTrigger>
@@ -155,13 +155,13 @@ const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
           <div className="space-y-1">
             {COLUMN_CONFIGS.filter((col) => col.canHide).map((column) => (
               <div
+                className="flex cursor-pointer items-center space-x-2 rounded px-2 py-1.5 hover:bg-accent"
                 key={column.id}
-                className="flex items-center space-x-2 py-1.5 px-2 rounded hover:bg-accent cursor-pointer"
               >
                 <Checkbox
-                  id={`column-${column.id}`}
                   checked={columnVisibility[column.id as keyof ColumnVisibility] ?? false}
-                  disabled={column.id === 'checkbox' || column.id === 'path'} // Keep essential columns always visible
+                  disabled={column.id === 'checkbox' || column.id === 'path'}
+                  id={`column-${column.id}`} // Keep essential columns always visible
                   onCheckedChange={(checked) => {
                     onColumnVisibilityChange({
                       ...columnVisibility,
@@ -170,8 +170,8 @@ const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
                   }}
                 />
                 <label
+                  className="cursor-pointer select-none text-sm"
                   htmlFor={`column-${column.id}`}
-                  className="text-sm select-none cursor-pointer"
                 >
                   {column.label}
                 </label>
@@ -185,7 +185,7 @@ const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
 );
 
 // Preview Table component to reduce main component complexity
-interface PreviewTableProps {
+type PreviewTableProps = {
   columnVisibility: ColumnVisibility;
   sortField: keyof TableRowData;
   sortDirection: 'asc' | 'desc';
@@ -212,7 +212,7 @@ interface PreviewTableProps {
     elements: React.ReactNode[]
   ) => number;
   pagination: { startIndex: number; endIndex: number };
-}
+};
 
 const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(props) {
   const {
@@ -254,12 +254,12 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
       <TableGroupHeader
         groupKey={group.groupKey}
         groupLabel={group.groupLabel}
+        icon={<FolderOpen className="size-4 text-muted-foreground" />}
         isCollapsed={collapsedGroups.has(String(group.groupKey))}
         isFullySelected={isGroupFullySelected(group)}
         isPartiallySelected={isGroupPartiallySelected(group)}
-        onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
         onSelectionChange={handleSelectionChange}
-        icon={<FolderOpen className="size-4 text-muted-foreground" />}
+        onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
         stats={
           <>
             <span>{group.count} files</span>
@@ -281,7 +281,7 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
 
       // Add group header if within page bounds
       if (itemCount >= pagination.startIndex && itemCount < pagination.endIndex) {
-        elements.push(<GroupHeaderWrapper key={`group-${group.groupKey}`} group={group} />);
+        elements.push(<GroupHeaderWrapper group={group} key={`group-${group.groupKey}`} />);
       }
       itemCount++;
 
@@ -291,7 +291,9 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
       }
 
       // Stop if we've reached the end of the page
-      if (itemCount >= pagination.endIndex) break;
+      if (itemCount >= pagination.endIndex) {
+        break;
+      }
     }
 
     return <>{elements}</>;
@@ -301,16 +303,16 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
     <div className="flex-1 overflow-auto">
       <div className="min-w-full">
         <table className="w-full border-collapse">
-          <thead className="sticky top-0 bg-background border-b">
+          <thead className="sticky top-0 border-b bg-background">
             <tr>
               {columnVisibility.checkbox && (
-                <th className="px-4 py-3 w-12" scope="col">
+                <th className="w-12 px-4 py-3" scope="col">
                   <Checkbox
+                    aria-label="Select all files on current page"
                     checked={isAllCurrentPageSelected}
                     onCheckedChange={(checked) =>
                       checked ? onSelectAllOnPage(getVisibleFilesOnPage()) : onDeselectAll()
                     }
-                    aria-label="Select all files on current page"
                     title="Select all files on current page"
                   />
                 </th>
@@ -318,50 +320,50 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
               {columnVisibility.rootFolderId && (
                 <SortableTableHeader
                   field="rootFolderId"
-                  title="Folder"
-                  sortField={sortField}
-                  sortDirection={sortDirection}
                   onSort={onSort}
+                  sortDirection={sortDirection}
+                  sortField={sortField}
+                  title="Folder"
                 />
               )}
               {columnVisibility.path && (
                 <SortableTableHeader
-                  field="path"
-                  title="File Path"
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSort={onSort}
                   className="min-w-0 flex-1"
+                  field="path"
+                  onSort={onSort}
+                  sortDirection={sortDirection}
+                  sortField={sortField}
+                  title="File Path"
                 />
               )}
               {columnVisibility.type && (
                 <SortableTableHeader
-                  field="type"
-                  title="Type"
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSort={onSort}
                   className="w-20"
+                  field="type"
+                  onSort={onSort}
+                  sortDirection={sortDirection}
+                  sortField={sortField}
+                  title="Type"
                 />
               )}
               {columnVisibility.tokens && (
                 <SortableTableHeader
-                  field="tokens"
-                  title="Tokens"
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSort={onSort}
                   className="w-24"
+                  field="tokens"
+                  onSort={onSort}
+                  sortDirection={sortDirection}
+                  sortField={sortField}
+                  title="Tokens"
                 />
               )}
               {columnVisibility.size && (
                 <SortableTableHeader
-                  field="size"
-                  title="Size"
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSort={onSort}
                   className="w-24"
+                  field="size"
+                  onSort={onSort}
+                  sortDirection={sortDirection}
+                  sortField={sortField}
+                  title="Size"
                 />
               )}
             </tr>
@@ -370,11 +372,11 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
             {groupingConfig === 'none' ? (
               currentPageData.map((item) => (
                 <PreviewTableRow
-                  key={item.compositeKey}
-                  item={item}
-                  isSelected={previewSelections.has(item.compositeKey)}
-                  onToggleSelection={onToggleSelection}
                   columnVisibility={columnVisibility}
+                  isSelected={previewSelections.has(item.compositeKey)}
+                  item={item}
+                  key={item.compositeKey}
+                  onToggleSelection={onToggleSelection}
                   {...(onFileClick && { onFileClick })}
                 />
               ))
@@ -519,7 +521,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           const result: TableRowData = {
             id: fileItem.compositeKey,
             rootFolderId: folderId,
-            path: path,
+            path,
             type: path.split('.').pop()?.toUpperCase() || 'FILE',
             compositeKey: fileItem.compositeKey,
           };
@@ -556,9 +558,15 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Null check helper
   const handleNullValues = useCallback((aVal: unknown, bVal: unknown): number | null => {
-    if (aVal == null && bVal == null) return 0;
-    if (aVal == null) return 1;
-    if (bVal == null) return -1;
+    if (aVal === null && bVal === null) {
+      return 0;
+    }
+    if (aVal === null) {
+      return 1;
+    }
+    if (bVal === null) {
+      return -1;
+    }
     return null;
   }, []);
 
@@ -566,7 +574,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const compareValues = useCallback(
     (aVal: unknown, bVal: unknown, field: keyof TableRowData): number => {
       const nullResult = handleNullValues(aVal, bVal);
-      if (nullResult !== null) return nullResult;
+      if (nullResult !== null) {
+        return nullResult;
+      }
 
       // Numeric sorting for tokens and size
       if (field === 'tokens' || field === 'size') {
@@ -665,11 +675,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         if (currentItemCount >= pagination.startIndex && currentItemCount < pagination.endIndex) {
           elements.push(
             <PreviewTableRow
-              key={`item-${item.compositeKey}`}
-              item={item}
-              isSelected={previewSelections.has(item.compositeKey)}
-              onToggleSelection={toggleItemSelection}
               columnVisibility={columnVisibility}
+              isSelected={previewSelections.has(item.compositeKey)}
+              item={item}
+              key={`item-${item.compositeKey}`}
+              onToggleSelection={toggleItemSelection}
               {...(onFileClick && { onFileClick })}
             />
           );
@@ -699,7 +709,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           visibleFiles.push(item);
         }
         itemCount++;
-        if (itemCount >= pagination.endIndex) break;
+        if (itemCount >= pagination.endIndex) {
+          break;
+        }
       }
 
       return itemCount;
@@ -723,7 +735,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         itemCount = collectVisibleGroupItems(group, itemCount, visibleFiles);
       }
 
-      if (itemCount >= pagination.endIndex) break;
+      if (itemCount >= pagination.endIndex) {
+        break;
+      }
     }
 
     return visibleFiles;
@@ -738,7 +752,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Batch remove handler
   const handleBatchRemove = useCallback(() => {
-    if (previewSelections.size === 0) return;
+    if (previewSelections.size === 0) {
+      return;
+    }
 
     const newSelectedFiles = new Set(selectedFiles);
     for (const compositeKey of previewSelections) {
@@ -786,6 +802,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Reset to first page when grouping changes
   const prevGroupingConfigRef = useRef(groupingConfig);
+  // biome-ignore lint/plugin: Reset pagination when grouping config changes
   useEffect(() => {
     if (prevGroupingConfigRef.current !== groupingConfig) {
       prevGroupingConfigRef.current = groupingConfig;
@@ -796,42 +813,42 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   if (selectedFiles.size === 0) {
     return (
       <div className="p-4">
-        <p className="text-sm text-gray-500">No files selected</p>
+        <p className="text-gray-500 text-sm">No files selected</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex h-full flex-col">
       {/* Header with stats and controls */}
-      <div className="p-3 border-b bg-background">
+      <div className="border-b bg-background p-3">
         {/* Top row - stats and main controls */}
-        <div className="flex items-center justify-between mb-3 gap-6">
+        <div className="mb-3 flex items-center justify-between gap-6">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-3">
-              <Badge variant="outline" className="py-1.5">
+              <Badge className="py-1.5" variant="outline">
                 {formatTokenCount(totalStats.totalTokens)}
               </Badge>
               <Badge
-                variant={tokenStatus.variant}
+                className="flex items-center gap-1 py-1.5"
                 title={tokenStatus.description}
-                className="py-1.5 flex items-center gap-1"
+                variant={tokenStatus.variant}
               >
                 <StatusIcon className={`size-3.5 ${tokenStatus.spin ? 'animate-spin' : ''}`} />
                 {tokenStatus.label}
               </Badge>
             </div>
             <div className="flex items-center gap-3">
-              <div className="text-xs text-muted-foreground">
+              <div className="text-muted-foreground text-xs">
                 <span className="font-medium">{totalStats.totalFiles}</span> files |{' '}
                 <span className="font-medium">{totalStats.totalTokens.toLocaleString()}</span>{' '}
                 tokens
               </div>
               <div className="w-32">
                 <Progress
-                  data-testid="progress"
-                  value={Math.min((totalStats.totalTokens / 100000) * 100, 100)}
                   className="h-2"
+                  data-testid="progress"
+                  value={Math.min((totalStats.totalTokens / 100_000) * 100, 100)}
                 />
               </div>
             </div>
@@ -839,20 +856,20 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           </div>
           <div className="flex gap-2">
             <Button
-              variant="outline"
-              size="sm"
-              onClick={() => groupSelection.selectAll(flattenedData)}
               disabled={isAllSelected(flattenedData)}
+              onClick={() => groupSelection.selectAll(flattenedData)}
+              size="sm"
               title="Select all files across all pages"
+              variant="outline"
             >
               Select All ({flattenedData.length})
             </Button>
             {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
               <Button
-                variant="outline"
-                size="sm"
                 onClick={resetSort}
+                size="sm"
                 title="Reset sort to default (by folder)"
+                variant="outline"
               >
                 Reset Sort
               </Button>
@@ -866,14 +883,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
         {/* Bottom row - grouping controls */}
         <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">Group by:</span>
+          <span className="text-muted-foreground text-sm">Group by:</span>
           <select
-            value={groupingConfig}
+            className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             onChange={(e) => {
               setGroupingConfig(e.target.value);
               setCollapsedGroups(new Set());
             }}
-            className="text-sm border border-input bg-background px-2 py-1 rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
+            value={groupingConfig}
           >
             {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
               <option key={key} value={key}>
@@ -884,20 +901,20 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           {groupingConfig !== 'none' && groupedData.length > 1 && (
             <>
               <Button
-                variant="outline"
-                size="sm"
                 onClick={() => setCollapsedGroups(new Set())}
+                size="sm"
                 title="Expand all groups"
+                variant="outline"
               >
                 Expand All Groups
               </Button>
               <Button
-                variant="outline"
-                size="sm"
                 onClick={() =>
                   setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
                 }
+                size="sm"
                 title="Collapse all groups"
+                variant="outline"
               >
                 Collapse All Groups
               </Button>
@@ -908,28 +925,28 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
       {/* Table */}
       <PreviewTable
-        columnVisibility={columnVisibility}
-        sortField={sortField}
-        sortDirection={sortDirection}
-        groupingConfig={groupingConfig}
-        groupedData={groupedData}
-        currentPageData={currentPageData}
         collapsedGroups={collapsedGroups}
+        columnVisibility={columnVisibility}
+        currentPageData={currentPageData}
+        getVisibleFilesOnPage={getVisibleFilesOnPage}
+        groupedData={groupedData}
+        groupingConfig={groupingConfig}
         isAllCurrentPageSelected={isAllCurrentPageSelected}
-        previewSelections={previewSelections}
+        onDeselectAll={deselectAll}
+        onSelectAllOnPage={selectAllOnPage}
         onSort={handleSort}
         onToggleSelection={toggleItemSelection}
-        onSelectAllOnPage={selectAllOnPage}
-        onDeselectAll={deselectAll}
-        getVisibleFilesOnPage={getVisibleFilesOnPage}
+        previewSelections={previewSelections}
+        sortDirection={sortDirection}
+        sortField={sortField}
         {...(onFileClick && { onFileClick })}
-        toggleGroupCollapse={toggleGroupCollapse}
+        handleGroupDeselectAll={handleGroupDeselectAll}
+        handleGroupSelectAll={handleGroupSelectAll}
         isGroupFullySelected={isGroupFullySelected}
         isGroupPartiallySelected={isGroupPartiallySelected}
-        handleGroupSelectAll={handleGroupSelectAll}
-        handleGroupDeselectAll={handleGroupDeselectAll}
-        renderGroupItems={renderGroupItems}
         pagination={pagination}
+        renderGroupItems={renderGroupItems}
+        toggleGroupCollapse={toggleGroupCollapse}
       />
 
       {flattenedData.length === 0 && (
@@ -941,9 +958,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       {/* Pagination */}
       <TablePagination
         currentPage={currentPage}
-        totalPages={pagination.totalPages}
-        totalItems={flattenedData.length}
         onPageChange={goToPage}
+        totalItems={flattenedData.length}
+        totalPages={pagination.totalPages}
         {...(groupingConfig !== 'none' && groupedData.length > 1
           ? { pageInfo: `(${flattenedData.length} total files, ${groupedData.length} groups)` }
           : {})}
@@ -951,40 +968,40 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
       {/* Fixed bottom action bar */}
       {previewSelections.size > 0 && (
-        <div className="flex-shrink-0 p-3 border-t bg-yellow-50 dark:bg-yellow-900/20 flex items-center justify-between">
+        <div className="flex flex-shrink-0 items-center justify-between border-t bg-yellow-50 p-3 dark:bg-yellow-900/20">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">
+            <span className="font-medium text-sm">
               {previewSelections.size} files selected in preview
             </span>
-            <Button size="sm" variant="outline" onClick={deselectAll}>
+            <Button onClick={deselectAll} size="sm" variant="outline">
               Clear Preview Selection
             </Button>
           </div>
           <div className="flex items-center gap-2">
             {onDownloadReport && (
               <Button
+                disabled={selectedFiles.size === 0}
+                onClick={onDownloadReport}
                 size="sm"
                 variant="outline"
-                onClick={onDownloadReport}
-                disabled={selectedFiles.size === 0}
               >
-                <Download className="size-3.5 mr-1" />
+                <Download className="mr-1 size-3.5" />
                 Download Report
               </Button>
             )}
             {onCopyReport && (
               <Button
+                disabled={selectedFiles.size === 0}
+                onClick={onCopyReport}
                 size="sm"
                 variant="outline"
-                onClick={onCopyReport}
-                disabled={selectedFiles.size === 0}
               >
-                <FileText className="size-3.5 mr-1" />
+                <FileText className="mr-1 size-3.5" />
                 Copy Report
               </Button>
             )}
-            <Button size="sm" variant="destructive" onClick={handleBatchRemove}>
-              <FileX2 className="size-3.5 mr-1" />
+            <Button onClick={handleBatchRemove} size="sm" variant="destructive">
+              <FileX2 className="mr-1 size-3.5" />
               Remove Selected from Project
             </Button>
           </div>

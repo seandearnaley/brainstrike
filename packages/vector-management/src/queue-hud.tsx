@@ -14,7 +14,9 @@ type QueueStats = {
 function isQueueEnabled(): boolean {
   try {
     // In browser contexts, treat the queue as enabled so HUD reflects runtime activity.
-    if (typeof window !== 'undefined') return true;
+    if (typeof window !== 'undefined') {
+      return true;
+    }
     // @ts-expect-error process may not exist
     const v = process?.env?.EMBED_QUEUE_ENABLED;
     return String(v ?? 'false').toLowerCase() === 'true';
@@ -37,13 +39,17 @@ export function QueueHud() {
   const shouldPoll = typeof window !== 'undefined' && nodeEnv !== 'test';
 
   useEffect(() => {
-    if (!jobQueue) return;
+    if (!jobQueue) {
+      return;
+    }
 
     let canceled = false;
     const fetchStats = async () => {
       try {
         const s = await jobQueue.getQueueStats('embeddings');
-        if (!canceled) setStats(s);
+        if (!canceled) {
+          setStats(s);
+        }
       } catch {
         // ignore errors in HUD
       }
@@ -64,23 +70,27 @@ export function QueueHud() {
   }, [jobQueue, shouldPoll]);
 
   const s = stats?.[0];
-  if (!enabled) return null;
+  if (!enabled) {
+    return null;
+  }
   return (
     <Card>
-      <CardHeader className="py-1.5 px-3 border-b">
+      <CardHeader className="border-b px-3 py-1.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <CardTitle className="text-xs font-medium">Queue</CardTitle>
-            <Badge variant="secondary" className="text-[9px] py-0 px-1 h-4">
+            <CardTitle className="font-medium text-xs">Queue</CardTitle>
+            <Badge className="h-4 px-1 py-0 text-[9px]" variant="secondary">
               embeddings
             </Badge>
           </div>
           <Button
-            size="sm"
-            variant="outline"
+            aria-label="Retry failed jobs"
+            className="h-5 px-2 text-[10px]"
             disabled={busy || !jobQueue || (s?.failed ?? 0) === 0}
             onClick={async () => {
-              if (!jobQueue) return;
+              if (!jobQueue) {
+                return;
+              }
               try {
                 setBusy(true);
                 await jobQueue.requeueFailed('embeddings', 20);
@@ -90,36 +100,36 @@ export function QueueHud() {
                 setBusy(false);
               }
             }}
-            className="text-[10px] h-5 px-2"
-            aria-label="Retry failed jobs"
+            size="sm"
+            variant="outline"
           >
             Retry Failed
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="py-2 px-3 text-xs">
+      <CardContent className="px-3 py-2 text-xs">
         <div className="grid grid-cols-4 gap-3">
           <div>
             <div className="text-[9px] text-muted-foreground">Queued</div>
-            <div className="text-sm font-semibold">{s?.queued ?? 0}</div>
+            <div className="font-semibold text-sm">{s?.queued ?? 0}</div>
           </div>
           <div>
             <div className="text-[9px] text-muted-foreground">Running</div>
-            <div className="text-sm font-semibold">{s?.running ?? 0}</div>
+            <div className="font-semibold text-sm">{s?.running ?? 0}</div>
           </div>
           <div>
             <div className="text-[9px] text-muted-foreground">Failed</div>
-            <div className="text-sm font-semibold text-destructive">{s?.failed ?? 0}</div>
+            <div className="font-semibold text-destructive text-sm">{s?.failed ?? 0}</div>
           </div>
           <div>
             <div className="text-[9px] text-muted-foreground">Success</div>
-            <div className="text-sm font-semibold text-green-600 dark:text-green-400">
+            <div className="font-semibold text-green-600 text-sm dark:text-green-400">
               {s?.succeeded ?? 0}
             </div>
           </div>
         </div>
         {s?.nextRunnableAt && (
-          <div className="text-[9px] text-muted-foreground mt-2 pt-2 border-t">
+          <div className="mt-2 border-t pt-2 text-[9px] text-muted-foreground">
             Next: <span className="font-mono">{s.nextRunnableAt}</span>
           </div>
         )}

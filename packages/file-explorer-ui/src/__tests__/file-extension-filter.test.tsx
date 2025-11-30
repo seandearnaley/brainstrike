@@ -66,7 +66,7 @@ describe('FileExtensionFilter', () => {
 
   it('displays filter error when present', () => {
     render(
-      <FileExtensionFilter {...defaultProps} useRegex={true} filterError="Invalid regex pattern" />
+      <FileExtensionFilter {...defaultProps} filterError="Invalid regex pattern" useRegex={true} />
     );
     expect(screen.getByText('Invalid regex pattern')).toBeInTheDocument();
   });

@@ -12,6 +12,8 @@ export function calculateDynamicTotal(currentTotal: number, loaded: number): num
 }
 
 export function calculateProgressPercentage(loaded: number, total: number): number {
-  if (total === 0) return 0;
+  if (total === 0) {
+    return 0;
+  }
   return Math.round((loaded / total) * 100);
 }

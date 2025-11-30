@@ -4,12 +4,12 @@ import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('ToolPersistence');
 
-export interface ToolPreferences {
+export type ToolPreferences = {
   enabledTools: string[];
   disabledTools: string[];
   version: number;
   lastUpdated: number;
-}
+};
 
 /**
  * Load tool preferences from disk
@@ -28,7 +28,7 @@ export async function loadToolPreferences(
         code: 'invalid_preferences',
         path: prefsPath,
       });
-      return undefined;
+      return;
     }
 
     logger.info('tool preferences loaded', {
@@ -42,14 +42,14 @@ export async function loadToolPreferences(
     const err = error as { code?: string };
     if (err.code === 'ENOENT') {
       logger.info('no tool preferences found', { code: 'no_preferences' });
-      return undefined;
+      return;
     }
 
     logger.error('failed to load tool preferences', {
       code: 'load_preferences_failed',
       error: error instanceof Error ? error.message : String(error),
     });
-    return undefined;
+    return;
   }
 }
 
@@ -123,7 +123,9 @@ function getToolPreferencesPath(userDataDir: string): string {
  * Type guard for tool preferences
  */
 function isValidToolPreferences(value: unknown): value is ToolPreferences {
-  if (!value || typeof value !== 'object') return false;
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
 
   const obj = value as Record<string, unknown>;
 

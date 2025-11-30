@@ -54,7 +54,7 @@ class FakeEmbeddingService implements EmbeddingService {
   }
 }
 
-function vectorString(dim: number, entries: Array<[number, number]>): string {
+function vectorString(dim: number, entries: [number, number][]): string {
   const values = new Array(dim).fill(0);
   for (const [idx, value] of entries) {
     values[idx] = value;
@@ -70,8 +70,12 @@ async function waitFor(
   const start = Date.now();
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    if (await fn()) return;
-    if (Date.now() - start > timeoutMs) throw new Error('Timeout waiting for condition');
+    if (await fn()) {
+      return;
+    }
+    if (Date.now() - start > timeoutMs) {
+      throw new Error('Timeout waiting for condition');
+    }
     await new Promise((r) => setTimeout(r, intervalMs));
   }
 }
@@ -131,7 +135,7 @@ describe('embedding-worker', () => {
       const row = res.rows[0] as Record<string, unknown> | undefined;
       finalState = String(row?.['state'] ?? '');
       return finalState === 'succeeded' || finalState === 'failed';
-    }, 10000);
+    }, 10_000);
     expect(finalState).toBe('succeeded');
 
     const row = await db.query(
@@ -206,7 +210,7 @@ describe('embedding-worker', () => {
       const row = res.rows[0] as Record<string, unknown> | undefined;
       finalState2 = String(row?.['state'] ?? '');
       return finalState2 === 'succeeded' || finalState2 === 'failed';
-    }, 10000);
+    }, 10_000);
     expect(finalState2).toBe('succeeded');
 
     const row = await db.query('SELECT embedding, embedding_hash FROM file_chunks WHERE id = $1', [
@@ -222,4 +226,4 @@ describe('embedding-worker', () => {
   });
 });
 // Increase timeouts to reduce flakiness under workspace-wide runs
-vi.setConfig({ hookTimeout: 30000, testTimeout: 30000 });
+vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });

@@ -43,7 +43,7 @@ export type QueueProgressEvent = EmbedWorkerProgress;
 
 export type QueueErrorEvent = EmbedWorkerError;
 
-export interface QueueAdapter {
+export type QueueAdapter = {
   add(task: TaskPayload, options?: QueueAddOptions): Promise<QueueResult>;
   addBulk(
     tasks: readonly TaskPayload[],
@@ -53,7 +53,7 @@ export interface QueueAdapter {
   pause(): void;
   resume(): void;
   drain(): Promise<void>;
-}
+};
 
 export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {
   const baseRequest = {

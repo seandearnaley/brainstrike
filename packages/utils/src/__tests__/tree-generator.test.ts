@@ -21,7 +21,7 @@ const createMockDirectoryHandle = (name: string): FileSystemDirectoryHandle =>
     getFileHandle: async () => ({}) as unknown as FileSystemFileHandle,
     removeEntry: async () => {},
     resolve: async () => [],
-    entries: async function* () {},
+    async *entries() {},
     isSameEntry: async () => true,
   }) as unknown as FileSystemDirectoryHandle;
 

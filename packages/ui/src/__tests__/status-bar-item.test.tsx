@@ -10,12 +10,12 @@ describe('StatusBarItem', () => {
   });
 
   it('renders value text', () => {
-    render(<StatusBarItem value="Test Value" testId="test-item" />);
+    render(<StatusBarItem testId="test-item" value="Test Value" />);
     expect(screen.getByText('Test Value')).toBeInTheDocument();
   });
 
   it('renders both label and value', () => {
-    render(<StatusBarItem label="Label:" value="Value" testId="test-item" />);
+    render(<StatusBarItem label="Label:" testId="test-item" value="Value" />);
     expect(screen.getByText('Label:')).toBeInTheDocument();
     expect(screen.getByText('Value')).toBeInTheDocument();
   });
@@ -28,22 +28,22 @@ describe('StatusBarItem', () => {
   });
 
   it('applies connected status styling', () => {
-    render(<StatusBarItem status="connected" label="Connected" testId="test-item" />);
+    render(<StatusBarItem label="Connected" status="connected" testId="test-item" />);
     expect(screen.getByTestId('test-item')).toHaveClass('text-green-600');
   });
 
   it('applies disconnected status styling', () => {
-    render(<StatusBarItem status="disconnected" label="Disconnected" testId="test-item" />);
+    render(<StatusBarItem label="Disconnected" status="disconnected" testId="test-item" />);
     expect(screen.getByTestId('test-item')).toHaveClass('text-red-600');
   });
 
   it('applies warning status styling', () => {
-    render(<StatusBarItem status="warning" label="Warning" testId="test-item" />);
+    render(<StatusBarItem label="Warning" status="warning" testId="test-item" />);
     expect(screen.getByTestId('test-item')).toHaveClass('text-yellow-600');
   });
 
   it('applies loading status styling with animation', () => {
-    render(<StatusBarItem status="loading" label="Loading" testId="test-item" />);
+    render(<StatusBarItem label="Loading" status="loading" testId="test-item" />);
     const item = screen.getByTestId('test-item');
     expect(item).toHaveClass('text-muted-foreground');
     expect(item).toHaveClass('animate-pulse');
@@ -55,7 +55,7 @@ describe('StatusBarItem', () => {
   });
 
   it('applies custom className', () => {
-    render(<StatusBarItem label="Custom" className="custom-class" testId="test-item" />);
+    render(<StatusBarItem className="custom-class" label="Custom" testId="test-item" />);
     expect(screen.getByTestId('test-item')).toHaveClass('custom-class');
   });
 
@@ -72,9 +72,9 @@ describe('StatusBarItem', () => {
         <StatusBarItem
           icon={Database}
           label="Storage:"
-          value="Connecting..."
           status="loading"
           testId="db-status"
+          value="Connecting..."
         />
       );
       expect(container.firstChild).toMatchSnapshot();

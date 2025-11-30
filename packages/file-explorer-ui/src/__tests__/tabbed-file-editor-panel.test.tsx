@@ -18,10 +18,10 @@ vi.mock('../use-file-explorer-context', () => ({
 
 // Avoid global module mocks; will spy on specific exports instead
 
-interface MockTab {
+type MockTab = {
   id: string;
   path: string;
-}
+};
 
 // Mock the TabbedFileEditor component
 vi.mock('../tabbed-file-editor', () => ({
@@ -32,13 +32,13 @@ vi.mock('../tabbed-file-editor', () => ({
       ) : (
         tabs.map((tab: MockTab) => (
           <div key={tab.id}>
-            <button type="button" onClick={() => onTabClick(tab.id)}>
+            <button onClick={() => onTabClick(tab.id)} type="button">
               {tab.path}
             </button>
-            <button type="button" onClick={() => onTabClose(tab.id)}>
+            <button onClick={() => onTabClose(tab.id)} type="button">
               Close {tab.id}
             </button>
-            <button type="button" onClick={() => onLoadFileContent(tab.id)}>
+            <button onClick={() => onLoadFileContent(tab.id)} type="button">
               Load {tab.id}
             </button>
           </div>

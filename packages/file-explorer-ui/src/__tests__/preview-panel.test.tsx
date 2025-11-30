@@ -83,7 +83,9 @@ describe('PreviewPanel', () => {
     handleDeselectAll: vi.fn(),
     isAllFilesSelected: false,
     formatFileSize: vi.fn((bytes?: number) => {
-      if (bytes === undefined) return 'Unknown';
+      if (bytes === undefined) {
+        return 'Unknown';
+      }
       return `${bytes} B`;
     }),
     loadingFiles: new Set<string>(),
@@ -198,7 +200,7 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} />);
 
       const progress = screen.getByTestId('progress');
-      const expected = Math.min((totalTokens / 100000) * 100, 100);
+      const expected = Math.min((totalTokens / 100_000) * 100, 100);
       expect(progress).toHaveAttribute('data-value', expected.toString());
     });
   });
@@ -471,7 +473,7 @@ describe('PreviewPanel', () => {
 
       mockUsePreviewPanelState.mockReturnValue(stateWith25);
       const { rerender } = render(
-        <PreviewPanel {...mockProps} selectedFiles={fileSet} pageSize={10} />
+        <PreviewPanel {...mockProps} pageSize={10} selectedFiles={fileSet} />
       );
 
       // Should show three pages
@@ -500,7 +502,7 @@ describe('PreviewPanel', () => {
       };
 
       mockUsePreviewPanelState.mockReturnValue(stateWith5);
-      rerender(<PreviewPanel {...mockProps} selectedFiles={smallerFileSet} pageSize={10} />);
+      rerender(<PreviewPanel {...mockProps} pageSize={10} selectedFiles={smallerFileSet} />);
 
       // Should reset to page 1 since page 3 is now out of bounds
       expect(screen.getByText('Page 1 of 1 (5 total items)')).toBeInTheDocument();

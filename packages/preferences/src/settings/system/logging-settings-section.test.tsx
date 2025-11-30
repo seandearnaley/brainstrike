@@ -9,23 +9,20 @@ vi.mock('@tanstack/react-virtual', async () => {
   const actual = await vi.importActual('@tanstack/react-virtual');
   return {
     ...actual,
-    // biome-ignore lint/suspicious/noExplicitAny: Mocking external library
-    useVirtualizer: ({ count }: any) => {
-      return {
-        getVirtualItems: () =>
-          Array.from({ length: count }).map((_, i) => ({
-            index: i,
-            start: i * 30,
-            size: 30,
-            end: (i + 1) * 30,
-            key: i,
-            measureElement: () => {},
-          })),
-        getTotalSize: () => count * 30,
-        scrollToIndex: () => {},
-        measureElement: () => {},
-      };
-    },
+    useVirtualizer: ({ count }: any) => ({
+      getVirtualItems: () =>
+        Array.from({ length: count }).map((_, i) => ({
+          index: i,
+          start: i * 30,
+          size: 30,
+          end: (i + 1) * 30,
+          key: i,
+          measureElement: () => {},
+        })),
+      getTotalSize: () => count * 30,
+      scrollToIndex: () => {},
+      measureElement: () => {},
+    }),
   };
 });
 
@@ -61,7 +58,7 @@ describe('LoggingSettingsSection log viewer', () => {
       },
     ];
 
-    render(<LoggingSettingsSection runtime="browser" logSource={createLogSource(sampleRecords)} />);
+    render(<LoggingSettingsSection logSource={createLogSource(sampleRecords)} runtime="browser" />);
 
     await waitFor(() => {
       expect(screen.getByText('Renderer log row')).toBeInTheDocument();
@@ -90,7 +87,7 @@ describe('LoggingSettingsSection log viewer', () => {
       },
     };
 
-    render(<LoggingSettingsSection runtime="browser" logSource={logSource} />);
+    render(<LoggingSettingsSection logSource={logSource} runtime="browser" />);
 
     await waitFor(
       () => {

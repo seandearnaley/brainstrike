@@ -12,14 +12,16 @@ export type McpServer =
       env?: Record<string, string>;
     }
   | { transport: 'sse'; name: string; url: string; headers?: Record<string, string> };
-export interface McpConfig {
+export type McpConfig = {
   servers: McpServer[];
-}
+};
 
 const logger = createLogger('DesktopMcpLoader');
 
 function parseStdioServer(s: unknown): McpServer | null {
-  if (!s || typeof s !== 'object' || !('transport' in s)) return null;
+  if (!s || typeof s !== 'object' || !('transport' in s)) {
+    return null;
+  }
   const server = s as Record<string, unknown>;
 
   if (
@@ -47,7 +49,9 @@ function parseStdioServer(s: unknown): McpServer | null {
 }
 
 function parseSseServer(s: unknown): McpServer | null {
-  if (!s || typeof s !== 'object' || !('transport' in s)) return null;
+  if (!s || typeof s !== 'object' || !('transport' in s)) {
+    return null;
+  }
   const server = s as Record<string, unknown>;
 
   if (
@@ -98,17 +102,19 @@ export function parseMcpConfig(text: string): McpConfig {
     }
   }
 
-  if (servers.length === 0) throw new Error('invalid_mcp_config: no valid servers');
+  if (servers.length === 0) {
+    throw new Error('invalid_mcp_config: no valid servers');
+  }
   return { servers };
 }
 
-export interface LoadedMcpConfig {
+export type LoadedMcpConfig = {
   path: string;
   exists: boolean;
   config?: McpConfig;
   servers?: McpServer[];
   loadedAt?: number;
-}
+};
 
 let customConfigPath: string | null = null;
 
@@ -116,7 +122,9 @@ const CUSTOM_CONFIG_PATH_FILE = 'mcp-custom-path.txt';
 
 function getCustomPathStorageFile(): string | null {
   const userData = app.getPath('userData');
-  if (!userData) return null;
+  if (!userData) {
+    return null;
+  }
   return path.join(userData, 'mcp', CUSTOM_CONFIG_PATH_FILE);
 }
 
@@ -136,16 +144,16 @@ async function loadCustomConfigPath(): Promise<string | null> {
 async function saveCustomConfigPath(configPath: string | null): Promise<void> {
   try {
     const file = getCustomPathStorageFile();
-    if (!file) return; // Skip if userData is not available (e.g., in tests)
+    if (!file) {
+      return; // Skip if userData is not available (e.g., in tests)
+    }
 
     await fsp.mkdir(path.dirname(file), { recursive: true });
     if (configPath) {
       await fsp.writeFile(file, configPath, 'utf-8');
-    } else {
+    } else if (fs.existsSync(file)) {
       // Delete the file if path is null
-      if (fs.existsSync(file)) {
-        await fsp.unlink(file);
-      }
+      await fsp.unlink(file);
     }
   } catch (error) {
     logger.error('Failed to save custom MCP config path', { error });
@@ -196,7 +204,9 @@ export function decryptIfEncrypted(value: string): string {
 export function applyDecryptionToHeaders(
   headers?: Record<string, string>
 ): Record<string, string> | undefined {
-  if (!headers) return headers;
+  if (!headers) {
+    return headers;
+  }
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(headers)) {
     if (k.endsWith('Encrypted')) {
@@ -212,7 +222,9 @@ export function applyDecryptionToHeaders(
 export function applyDecryptionToEnv(
   env?: Record<string, string>
 ): Record<string, string> | undefined {
-  if (!env) return env;
+  if (!env) {
+    return env;
+  }
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) {
     if (k.endsWith('Encrypted')) {
@@ -282,8 +294,12 @@ export async function watchMcpConfig(
   void ensureMcpDirExists();
   let timer: NodeJS.Timeout | null = null;
   const watcher = fs.watch(path.dirname(p), async (_ev, filename) => {
-    if (!filename || !filename.toString().includes('mcp.config.json')) return;
-    if (timer) clearTimeout(timer);
+    if (!filename?.toString().includes('mcp.config.json')) {
+      return;
+    }
+    if (timer) {
+      clearTimeout(timer);
+    }
     timer = setTimeout(async () => {
       onChange(await loadMcpConfig());
     }, 100);

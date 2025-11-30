@@ -18,7 +18,7 @@ import {
 import type { ElectronDbAPI } from './electron-file-record-repository';
 
 // Type definition for database row returned by Electron IPC
-interface FileChunkRow {
+type FileChunkRow = {
   id: string;
   file_record_id: string;
   chunk_index: number;
@@ -34,7 +34,7 @@ interface FileChunkRow {
   embedding_hash?: string | null;
   created_at: string;
   updated_at: string;
-}
+};
 
 // Type for search result rows with additional fields
 interface FileChunkSearchRow extends FileChunkRow {
@@ -43,16 +43,16 @@ interface FileChunkSearchRow extends FileChunkRow {
 }
 
 // Type for stats query rows
-interface FileChunkStatsRow {
+type FileChunkStatsRow = {
   total_chunks: string;
   chunks_with_embeddings: string;
   average_token_count: string;
   chunk_type: string;
   type_count: string;
-}
+};
 
 export class ElectronFileChunkRepository {
-  constructor(private db: ElectronDbAPI) {}
+  constructor(private readonly db: ElectronDbAPI) {}
 
   async findById(id: string): Promise<FileChunk | null> {
     const result = await this.db.query(
@@ -190,7 +190,9 @@ export class ElectronFileChunkRepository {
     tx: Pick<ElectronDbAPI, 'query'>,
     chunks: FileChunkInsert[]
   ): Promise<FileChunk[]> {
-    if (chunks.length === 0) return [];
+    if (chunks.length === 0) {
+      return [];
+    }
 
     for (const chunk of chunks) {
       await validateEmbeddingDimension(tx as unknown as Queryable, chunk.embedding, {
@@ -343,7 +345,7 @@ export class ElectronFileChunkRepository {
       ).process?.env;
       const rawProbes = Number(envObj?.['IVFFLAT_PROBES'] ?? '0');
       if (Number.isFinite(rawProbes) && rawProbes > 0) {
-        const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10000));
+        const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10_000));
         await this.db.query(`SET LOCAL ivfflat.probes = ${probes}`);
       }
     } catch {
@@ -510,7 +512,7 @@ export class ElectronFileChunkRepository {
   }
 
   private appendSimpleUpdates(builder: UpdateBuilder, chunk: FileChunkUpdate): void {
-    const simpleFields: Array<[unknown, string]> = [
+    const simpleFields: [unknown, string][] = [
       [chunk.content, 'content'],
       [chunk.contentHash, 'content_hash'],
       [chunk.tokenCount, 'token_count'],
@@ -555,9 +557,9 @@ export class ElectronFileChunkRepository {
       chunkType: row.chunk_type,
       chunkSize: row.chunk_size,
       ...(embedding && { embedding }),
-      ...(row.embedding_set_id != null && { embeddingSetId: row.embedding_set_id }),
-      ...(row.embedding_updated_at != null && { embeddingUpdatedAt: row.embedding_updated_at }),
-      ...(row.embedding_hash != null && { embeddingHash: row.embedding_hash }),
+      ...(row.embedding_set_id !== null && { embeddingSetId: row.embedding_set_id }),
+      ...(row.embedding_updated_at !== null && { embeddingUpdatedAt: row.embedding_updated_at }),
+      ...(row.embedding_hash !== null && { embeddingHash: row.embedding_hash }),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

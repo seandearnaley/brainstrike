@@ -111,7 +111,7 @@ describe('mcp-tool-loader', () => {
       const mockMcpClient = {
         getTools: vi.fn().mockImplementation(() => {
           return new Promise((resolve) => {
-            setTimeout(() => resolve({}), 10000); // Will timeout
+            setTimeout(() => resolve({}), 10_000); // Will timeout
           });
         }),
       };
@@ -290,11 +290,12 @@ describe('mcp-tool-loader', () => {
 
     it('uses custom timeout value when provided', async () => {
       const mockMcpClient = {
-        getTools: vi.fn().mockImplementation(() => {
-          return new Promise((resolve) => {
-            setTimeout(() => resolve({}), 50);
-          });
-        }),
+        getTools: vi.fn().mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              setTimeout(() => resolve({}), 50);
+            })
+        ),
       };
 
       const start = Date.now();

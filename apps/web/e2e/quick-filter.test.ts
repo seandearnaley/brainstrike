@@ -30,7 +30,7 @@ test.describe('Quick Filter and Tree Expansion', () => {
 
     await expect(
       page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
-    ).toBeVisible({ timeout: 10000 });
+    ).toBeVisible({ timeout: 10_000 });
     await expect(page.getByRole('tree', { name: 'File tree' })).toBeVisible();
   });
 

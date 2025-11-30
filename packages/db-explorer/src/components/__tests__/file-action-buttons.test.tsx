@@ -58,7 +58,7 @@ describe('FileActionButtons', () => {
       });
       const onMakeSearchable = vi.fn();
 
-      render(<FileActionButtons status={status} onMakeSearchable={onMakeSearchable} />);
+      render(<FileActionButtons onMakeSearchable={onMakeSearchable} status={status} />);
 
       const button = screen.getByRole('button', { name: /make.*searchable/i });
       expect(button).not.toBeDisabled();
@@ -73,7 +73,7 @@ describe('FileActionButtons', () => {
       });
       const onMakeSearchable = vi.fn();
 
-      render(<FileActionButtons status={status} onMakeSearchable={onMakeSearchable} />);
+      render(<FileActionButtons onMakeSearchable={onMakeSearchable} status={status} />);
 
       const button = screen.getByRole('button', { name: /make.*searchable/i });
       await user.click(button);
@@ -141,7 +141,7 @@ describe('FileActionButtons', () => {
       });
       const onReindex = vi.fn();
 
-      render(<FileActionButtons status={status} onReindex={onReindex} />);
+      render(<FileActionButtons onReindex={onReindex} status={status} />);
 
       const button = screen.getByRole('button', { name: /re-index/i });
       expect(button).not.toBeDisabled();
@@ -156,7 +156,7 @@ describe('FileActionButtons', () => {
       });
       const onReindex = vi.fn();
 
-      render(<FileActionButtons status={status} onReindex={onReindex} />);
+      render(<FileActionButtons onReindex={onReindex} status={status} />);
 
       const button = screen.getByRole('button', { name: /re-index/i });
       await user.click(button);

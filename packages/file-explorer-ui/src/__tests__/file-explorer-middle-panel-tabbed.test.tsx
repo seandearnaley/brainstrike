@@ -28,7 +28,7 @@ vi.mock('../preview-panel', () => ({
   PreviewPanel: vi.fn(({ onFileClick, selectedFiles }) => (
     <div data-testid="preview-panel">
       <div>Selected files: {selectedFiles.size}</div>
-      <button type="button" onClick={() => onFileClick?.('folder1|@|file1.ts')}>
+      <button onClick={() => onFileClick?.('folder1|@|file1.ts')} type="button">
         Open file1
       </button>
     </div>
@@ -193,7 +193,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     await waitFor(() => expect(PreviewPanel).toHaveBeenCalled());
     const calls = PreviewPanel.mock.calls;
     expect(calls.length > 0).toBe(true);
-    const props = calls[calls.length - 1]?.[0];
+    const props = calls.at(-1)?.[0];
     expect(props).toMatchObject({
       fileContents,
       loadingFiles,
@@ -223,7 +223,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     await waitFor(() => expect(PreviewPanel).toHaveBeenCalled());
     const calls = PreviewPanel.mock.calls;
     expect(calls.length > 0).toBe(true);
-    const props = calls[calls.length - 1]?.[0];
+    const props = calls.at(-1)?.[0];
     expect(props?.onSelectionChange).toBe(mockHandleSelectionChange);
   });
 
@@ -240,7 +240,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     await waitFor(() => expect(PreviewPanel).toHaveBeenCalled());
     const calls = PreviewPanel.mock.calls;
     expect(calls.length > 0).toBe(true);
-    const props = calls[calls.length - 1]?.[0];
+    const props = calls.at(-1)?.[0];
     expect(typeof props?.decodeFileSelection).toBe('function');
     expect(props?.tokenCounting).toEqual(
       expect.objectContaining({

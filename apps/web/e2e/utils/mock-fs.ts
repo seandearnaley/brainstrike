@@ -1,12 +1,12 @@
 import type { Page } from '@playwright/test';
 
-export interface FileTree {
+export type FileTree = {
   [key: string]: FileTree | null | string;
-}
+};
 
-interface Options {
+type Options = {
   clipboard?: boolean;
-}
+};
 
 export async function mockBrowserApis(
   page: Page,
@@ -37,7 +37,7 @@ export async function mockBrowserApis(
       }
 
       class FileSystemFileHandle {
-        constructor(private node: Extract<FsNode, { kind: 'file' }>) {
+        constructor(private readonly node: Extract<FsNode, { kind: 'file' }>) {
           // @ts-expect-error
           this.kind = 'file';
           // @ts-expect-error
@@ -68,7 +68,9 @@ export async function mockBrowserApis(
             const handlers: Handler[] = [tryString, tryBlob, tryArrayBuffer, tryArrayBufferView];
             for (const h of handlers) {
               const result = await h(chunk);
-              if (result !== undefined) return result;
+              if (result !== undefined) {
+                return result;
+              }
             }
             if (isWriteChunk(chunk)) {
               return toStringChunk((chunk as { data: unknown }).data);
@@ -87,7 +89,7 @@ export async function mockBrowserApis(
       }
 
       class FileSystemDirectoryHandle {
-        constructor(private node: Extract<FsNode, { kind: 'directory' }>) {
+        constructor(private readonly node: Extract<FsNode, { kind: 'directory' }>) {
           // @ts-expect-error
           this.kind = 'directory';
           // @ts-expect-error
@@ -149,15 +151,7 @@ export async function mockBrowserApis(
       window.showDirectoryPicker = async () => root;
 
       if (enableClipboard) {
-        if (!navigator.clipboard) {
-          // @ts-expect-error
-          navigator.clipboard = {
-            writeText: async (text: string) => {
-              console.log('Clipboard mock: writeText called with:', text);
-              return Promise.resolve();
-            },
-          };
-        } else {
+        if (navigator.clipboard) {
           const originalWriteText = navigator.clipboard.writeText;
           navigator.clipboard.writeText = async (text: string) => {
             try {
@@ -166,6 +160,14 @@ export async function mockBrowserApis(
               console.log('Clipboard fallback: writeText called with:', text);
               return Promise.resolve();
             }
+          };
+        } else {
+          // @ts-expect-error
+          navigator.clipboard = {
+            writeText: async (text: string) => {
+              console.log('Clipboard mock: writeText called with:', text);
+              return Promise.resolve();
+            },
           };
         }
       }

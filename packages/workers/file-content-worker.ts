@@ -8,22 +8,22 @@ import {
   isTextExtension,
 } from '@brainstrike/utils';
 
-export interface FileReadRequest {
+export type FileReadRequest = {
   compositeKey: string;
   handle: FileHandle;
   path: string;
-}
+};
 
-export interface ProgressEvent {
+export type ProgressEvent = {
   key: string;
   loaded: number;
   total: number;
-}
+};
 
-export interface FileContentWorkerOptions {
+export type FileContentWorkerOptions = {
   fileSystemAdapter: FileSystemAdapter;
   concurrency?: number;
-}
+};
 
 const logger = createLogger('FileContentWorker');
 
@@ -69,7 +69,9 @@ export function createFileContentWorker({
         }
       };
 
-      if (queue.length === 0) resolve(results);
+      if (queue.length === 0) {
+        resolve(results);
+      }
       next(); // Don't await here to start processing immediately
     });
   }

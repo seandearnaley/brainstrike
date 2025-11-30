@@ -61,17 +61,15 @@ export const cleanupOldFolderStates = (
 };
 
 // Helper function to create a new folder state
-export const createNewFolderState = (now = Date.now()): FolderState => {
-  return {
-    selectedFilePaths: new Set<string>(),
-    expandedDirectoryPaths: new Set<string>(),
-    includeFilters: [],
-    excludeFilters: [],
-    useRegex: false,
-    includeProjectTree: true,
-    folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
-    maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
-    lastActiveTab: 'files',
-    lastAccessed: now,
-  };
-};
+export const createNewFolderState = (now = Date.now()): FolderState => ({
+  selectedFilePaths: new Set<string>(),
+  expandedDirectoryPaths: new Set<string>(),
+  includeFilters: [],
+  excludeFilters: [],
+  useRegex: false,
+  includeProjectTree: true,
+  folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+  maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
+  lastActiveTab: 'files',
+  lastAccessed: now,
+});

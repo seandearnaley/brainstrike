@@ -6,7 +6,7 @@ import { FileChunkRepository } from '../src/repositories/file-chunk-repository.j
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
-function makeVector(dim: number, entries: Array<[number, number]>): number[] {
+function makeVector(dim: number, entries: [number, number][]): number[] {
   const vector = new Array(dim).fill(0);
   for (const [idx, value] of entries) {
     vector[idx] = value;

@@ -45,7 +45,7 @@ describe('FileFilterBar', () => {
 
   it('calls onClear when clear button is clicked', async () => {
     const onClear = vi.fn();
-    render(<FileFilterBar {...defaultProps} value="test" onClear={onClear} />);
+    render(<FileFilterBar {...defaultProps} onClear={onClear} value="test" />);
 
     const clearButton = screen.getByRole('button', { name: /clear/i });
     await userEvent.click(clearButton);

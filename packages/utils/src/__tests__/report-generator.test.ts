@@ -38,7 +38,9 @@ class MockFileSystemAdapter implements FileSystemAdapter {
     const relative =
       handle.path === this.rootName ? '' : handle.path.replace(`${this.rootName}/`, '');
     const level = this.navigate(relative);
-    if (!level) return [];
+    if (!level) {
+      return [];
+    }
 
     const entries: IFileNode[] = [];
     for (const [name, entry] of Object.entries(level)) {
@@ -177,7 +179,7 @@ describe('reportGenerator', () => {
   const createMockDirectoryHandle = (): FileSystemDirectoryHandle => ({
     kind: 'directory',
     name: 'root',
-    entries: async function* () {
+    async *entries() {
       // Root level files
       yield [
         'README.md',
@@ -211,14 +213,14 @@ describe('reportGenerator', () => {
         {
           kind: 'directory',
           name: 'src',
-          entries: async function* () {
+          async *entries() {
             // src/lib
             yield [
               'lib',
               {
                 kind: 'directory',
                 name: 'lib',
-                entries: async function* () {
+                async *entries() {
                   yield [
                     'utils.ts',
                     {
@@ -246,14 +248,14 @@ describe('reportGenerator', () => {
               {
                 kind: 'directory',
                 name: 'components',
-                entries: async function* () {
+                async *entries() {
                   // src/components/ui
                   yield [
                     'ui',
                     {
                       kind: 'directory',
                       name: 'ui',
-                      entries: async function* () {
+                      async *entries() {
                         yield [
                           'Button.tsx',
                           {
@@ -293,7 +295,7 @@ describe('reportGenerator', () => {
                     {
                       kind: 'directory',
                       name: 'layout',
-                      entries: async function* () {
+                      async *entries() {
                         yield [
                           'Header.tsx',
                           {
@@ -329,7 +331,7 @@ describe('reportGenerator', () => {
               {
                 kind: 'directory',
                 name: 'pages',
-                entries: async function* () {
+                async *entries() {
                   yield [
                     'index.tsx',
                     {
@@ -357,7 +359,7 @@ describe('reportGenerator', () => {
               {
                 kind: 'directory',
                 name: 'styles',
-                entries: async function* () {
+                async *entries() {
                   yield [
                     'globals.css',
                     {
@@ -393,13 +395,13 @@ describe('reportGenerator', () => {
         {
           kind: 'directory',
           name: 'tests',
-          entries: async function* () {
+          async *entries() {
             yield [
               'components',
               {
                 kind: 'directory',
                 name: 'components',
-                entries: async function* () {
+                async *entries() {
                   yield [
                     'Button.test.tsx',
                     {
@@ -760,13 +762,19 @@ describe('generateReportFromAdapter', () => {
 
     // Traverse deep chain to verify depth truncation flag
     function findNode(nodes: IFileNode[] | undefined, target: string): IFileNode | undefined {
-      if (!nodes) return undefined;
-      for (const node of nodes) {
-        if (node.name === target) return node;
-        const found = findNode(node.children, target);
-        if (found) return found;
+      if (!nodes) {
+        return;
       }
-      return undefined;
+      for (const node of nodes) {
+        if (node.name === target) {
+          return node;
+        }
+        const found = findNode(node.children, target);
+        if (found) {
+          return found;
+        }
+      }
+      return;
     }
     const truncated = findNode(captured, 'dir28');
     expect(truncated?.isDepthTruncated).toBe(true);

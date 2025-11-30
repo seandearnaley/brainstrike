@@ -61,7 +61,7 @@ export default defineConfig({
             return 'vendor';
           }
           // Explicitly return undefined for other modules to keep them in the default chunk
-          return undefined;
+          return;
         },
       },
     },

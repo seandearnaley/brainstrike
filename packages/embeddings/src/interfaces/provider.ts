@@ -17,7 +17,7 @@ export type { EmbeddingInput };
  * Uses Strategy pattern to enable swapping between different embedding backends
  * without changing consumer code.
  */
-export interface IEmbeddingProvider {
+export type IEmbeddingProvider = {
   /**
    * Generate embedding for given text
    * Returns a Result type for explicit error handling (no thrown exceptions)
@@ -57,7 +57,7 @@ export interface IEmbeddingProvider {
     embedding: number[],
     expectedDimensions: number
   ): Result<void, EmbeddingProviderError>;
-}
+};
 
 /**
  * Extended provider interface for local (transformers.js) providers

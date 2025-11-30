@@ -4,7 +4,7 @@ import { ScrollArea } from '../../scroll-area';
 import type { Category, Prompt, PromptFilter } from '../types';
 import { PromptCard } from './prompt-card';
 
-interface PromptListProps {
+type PromptListProps = {
   prompts: Prompt[];
   categories: Category[];
   filter: PromptFilter;
@@ -12,7 +12,7 @@ interface PromptListProps {
   onDelete: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onCopy: (content: string) => void;
-}
+};
 
 export function PromptList({
   prompts,
@@ -28,9 +28,9 @@ export function PromptList({
 
   if (filteredPrompts.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-muted-foreground opacity-50">
-        <Inbox className="w-16 h-16 mb-4 stroke-1" />
-        <p className="text-lg font-medium">No prompts found</p>
+      <div className="flex h-full flex-col items-center justify-center text-muted-foreground opacity-50">
+        <Inbox className="mb-4 h-16 w-16 stroke-1" />
+        <p className="font-medium text-lg">No prompts found</p>
         <p className="text-sm">Try adjusting your filters or create a new prompt.</p>
       </div>
     );
@@ -38,16 +38,16 @@ export function PromptList({
 
   return (
     <ScrollArea className="h-full">
-      <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-20">
+      <div className="grid grid-cols-1 gap-6 p-6 pb-20 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {filteredPrompts.map((prompt) => (
           <PromptCard
+            category={categories.find((c) => c.id === prompt.categoryId) ?? categories[0]}
             key={prompt.id}
-            prompt={prompt}
-            category={categories.find((c) => c.id === prompt.categoryId) ?? categories[0]} // Fallback to first category (General)
-            onEdit={onEdit}
+            onCopy={onCopy} // Fallback to first category (General)
             onDelete={onDelete}
+            onEdit={onEdit}
             onToggleFavorite={onToggleFavorite}
-            onCopy={onCopy}
+            prompt={prompt}
           />
         ))}
       </div>
@@ -65,14 +65,20 @@ function filterPrompts(prompts: Prompt[], filter: PromptFilter): Prompt[] {
         prompt.content.toLowerCase().includes(searchLower) ||
         prompt.tags.some((tag) => tag.toLowerCase().includes(searchLower));
 
-      if (!matchesSearch) return false;
+      if (!matchesSearch) {
+        return false;
+      }
     }
 
     // Filter by category
-    if (filter.categoryId && prompt.categoryId !== filter.categoryId) return false;
+    if (filter.categoryId && prompt.categoryId !== filter.categoryId) {
+      return false;
+    }
 
     // Filter by favorites
-    if (filter.favoritesOnly && !prompt.isFavorite) return false;
+    if (filter.favoritesOnly && !prompt.isFavorite) {
+      return false;
+    }
 
     // Filter by tags
     if (filter.tags.length > 0 && !filter.tags.every((tag) => prompt.tags.includes(tag))) {

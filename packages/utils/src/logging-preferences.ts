@@ -6,22 +6,22 @@ import {
 } from './logger';
 import type { LoggerRuntime } from './logging-initializer';
 
-export interface FileLoggingPreferences {
+export type FileLoggingPreferences = {
   enabled: boolean;
   destination: string | null;
   level: LogLevel;
   append: boolean;
   mkdir: boolean;
-}
+};
 
-export interface LoggingPreferences {
+export type LoggingPreferences = {
   level: LogLevel;
   consoleLevel: LogLevel;
   includeTimestamp: boolean;
   consoleEnabled: boolean;
   redactPaths: readonly string[];
   file: FileLoggingPreferences;
-}
+};
 
 export function createDefaultLoggingPreferences(
   overrides?: Partial<LoggingPreferences>

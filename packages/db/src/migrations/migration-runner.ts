@@ -1,18 +1,18 @@
 import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 
-export interface Migration {
+export type Migration = {
   version: number;
   name: string;
   up: string | ((db: PGlite) => Promise<void>);
   down?: string | ((db: PGlite) => Promise<void>);
-}
+};
 
 export class MigrationRunner {
   private static MIGRATION_TABLE = '_migrations';
   private readonly logger = createLogger('MigrationRunner');
 
-  constructor(private db: PGlite) {}
+  constructor(private readonly db: PGlite) {}
 
   private static isTransactionalDb(db: PGlite): db is PGlite & {
     transaction: (fn: (tx: Pick<PGlite, 'exec' | 'query'>) => Promise<void>) => Promise<void>;
@@ -113,12 +113,14 @@ export class MigrationRunner {
       return;
     }
 
+    // Use local reference to avoid TypeScript narrowing this.db to never
+    const db = this.db as PGlite;
     try {
-      await this.db.exec('BEGIN');
-      await execWith(this.db);
-      await this.db.exec('COMMIT');
+      await db.exec('BEGIN');
+      await execWith(db);
+      await db.exec('COMMIT');
     } catch (error) {
-      await this.db.exec('ROLLBACK');
+      await db.exec('ROLLBACK');
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error(`Migration ${migration.version} failed: ${errorMessage}`);
     }
@@ -177,12 +179,14 @@ export class MigrationRunner {
       return;
     }
 
+    // Use local reference to avoid TypeScript narrowing this.db to never
+    const db = this.db as PGlite;
     try {
-      await this.db.exec('BEGIN');
-      await execWith(this.db);
-      await this.db.exec('COMMIT');
+      await db.exec('BEGIN');
+      await execWith(db);
+      await db.exec('COMMIT');
     } catch (error) {
-      await this.db.exec('ROLLBACK');
+      await db.exec('ROLLBACK');
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error(`Rollback of migration ${migration.version} failed: ${errorMessage}`);
     }

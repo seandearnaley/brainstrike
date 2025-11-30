@@ -5,7 +5,7 @@ import { UnsupportedFeature } from '../unsupported-feature';
 describe('UnsupportedFeature', () => {
   it('renders title and description', () => {
     const { getByText, container } = render(
-      <UnsupportedFeature title="Unsupported" description="Not supported here." />
+      <UnsupportedFeature description="Not supported here." title="Unsupported" />
     );
 
     expect(getByText('Unsupported')).toBeInTheDocument();

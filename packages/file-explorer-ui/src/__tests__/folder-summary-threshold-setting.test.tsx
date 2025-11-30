@@ -4,7 +4,7 @@ import FolderSummaryThresholdSetting from '../folder-summary-threshold-setting';
 
 describe('FolderSummaryThresholdSetting', () => {
   it('renders label and input with value', () => {
-    render(<FolderSummaryThresholdSetting value={5} onChange={vi.fn()} />);
+    render(<FolderSummaryThresholdSetting onChange={vi.fn()} value={5} />);
     const input = screen.getByLabelText(/Folder Summary Threshold/i);
     expect(input).toBeInTheDocument();
     expect(input).toHaveValue(5);
@@ -12,7 +12,7 @@ describe('FolderSummaryThresholdSetting', () => {
 
   it('calls onChange with numeric value', () => {
     const onChange = vi.fn();
-    render(<FolderSummaryThresholdSetting value={0} onChange={onChange} />);
+    render(<FolderSummaryThresholdSetting onChange={onChange} value={0} />);
     const input = screen.getByLabelText(/Folder Summary Threshold/i);
     fireEvent.change(input, { target: { value: '10' } });
     expect(onChange).toHaveBeenCalledWith(10);

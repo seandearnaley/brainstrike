@@ -100,8 +100,12 @@ describe('color-utils', () => {
           const index = Math.abs(hash) % ColorCombinations.length;
           const selectedColor = ColorCombinations[index];
 
-          if (selectedColor !== undefined) return selectedColor;
-          if (ColorCombinations.length > 0) return ColorCombinations[0];
+          if (selectedColor !== undefined) {
+            return selectedColor;
+          }
+          if (ColorCombinations.length > 0) {
+            return ColorCombinations[0];
+          }
           return {
             light: { bg: '#FFFFFF', text: '#000000' },
             dark: { bg: '#000000', text: '#FFFFFF' },

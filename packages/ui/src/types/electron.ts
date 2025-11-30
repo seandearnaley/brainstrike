@@ -1,6 +1,6 @@
 import type { PanelPersistenceState } from './panel';
 
-export interface LayoutElectronAPI {
+export type LayoutElectronAPI = {
   saveLayout: (state: PanelPersistenceState) => Promise<void>;
   loadLayout: () => Promise<PanelPersistenceState | undefined>;
-}
+};

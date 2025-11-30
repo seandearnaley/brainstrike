@@ -13,7 +13,9 @@ export function mapMastraToolEvent(
   toolNames: Map<string, string>,
   sanitizedNames?: Map<string, string>
 ): StreamChunk | undefined {
-  if (!isToolEventPart(candidate)) return undefined;
+  if (!isToolEventPart(candidate)) {
+    return;
+  }
 
   const callId = readString(candidate, 'toolCallId') ?? readString(candidate, 'id');
   const rawToolName = resolveRawToolName(candidate, callId, toolNames);
@@ -110,7 +112,7 @@ export function mapMastraToolEvent(
       } satisfies StreamChunk;
     }
     default:
-      return undefined;
+      return;
   }
 }
 
@@ -138,7 +140,9 @@ function resolveRawToolName(
 ): string | undefined {
   const explicitName = readString(part, 'toolName') ?? readString(part, 'name');
   if (explicitName) {
-    if (callId) toolNames.set(callId, explicitName);
+    if (callId) {
+      toolNames.set(callId, explicitName);
+    }
     return explicitName;
   }
 
@@ -149,10 +153,12 @@ function resolveRawToolName(
   const payloadTool = read(part, 'tool');
   if (payloadTool && typeof payloadTool === 'object') {
     const maybeName = readString(payloadTool as Record<string, unknown>, 'name');
-    if (maybeName) return maybeName;
+    if (maybeName) {
+      return maybeName;
+    }
   }
 
-  return undefined;
+  return;
 }
 
 function read(source: ToolEventPart, key: string): unknown {
@@ -166,7 +172,7 @@ function read(source: ToolEventPart, key: string): unknown {
       return record[key];
     }
   }
-  return undefined;
+  return;
 }
 
 function readString(
@@ -174,8 +180,10 @@ function readString(
   key: string
 ): string | undefined {
   const value = readValue(source, key);
-  if (typeof value === 'string' && value.length > 0) return value;
-  return undefined;
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
+  }
+  return;
 }
 
 function readValue(source: ToolEventPart | Record<string, unknown>, key: string): unknown {
@@ -189,7 +197,7 @@ function readValue(source: ToolEventPart | Record<string, unknown>, key: string)
       return record[key];
     }
   }
-  return undefined;
+  return;
 }
 
 function isToolEventPart(candidate: unknown): candidate is ToolEventPart {

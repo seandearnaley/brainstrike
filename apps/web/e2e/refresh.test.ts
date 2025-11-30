@@ -56,7 +56,7 @@ test.describe('Refresh Workflow', () => {
     // If refresh is very fast, the overlay might not appear, which is acceptable
     try {
       await expect(page.getByRole('alert')).toBeVisible({ timeout: 1000 });
-      await expect(page.getByRole('alert')).not.toBeVisible({ timeout: 10000 });
+      await expect(page.getByRole('alert')).not.toBeVisible({ timeout: 10_000 });
     } catch (_error) {
       // Loading overlay might be too fast in some environments, continue with test
       console.log('Loading overlay not detected, refresh was likely very fast');

@@ -88,7 +88,7 @@ describe('Theme Provider CSS Class Management', () => {
         const hasDark = document.documentElement.classList.contains('dark');
 
         // Should have light, not dark
-        expect(hasLight || (!hasLight && !hasDark)).toBe(true); // Light or neither, but not dark
+        expect(hasLight || !(hasLight || hasDark)).toBe(true); // Light or neither, but not dark
       });
 
       act(() => {

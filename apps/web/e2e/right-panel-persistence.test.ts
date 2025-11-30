@@ -24,7 +24,9 @@ test.describe('Right Panel - Persistence', () => {
       .getByRole('tab', { name: 'Database' })
       .or(page.getByRole('button', { name: 'Database' }));
     const hasDb = await dbTab.isVisible().catch(() => false);
-    if (!hasDb) test.skip(true, 'Database tab not available in this environment');
+    if (!hasDb) {
+      test.skip(true, 'Database tab not available in this environment');
+    }
 
     await dbTab.click();
     const subtab = page.getByLabel('DB subtab');

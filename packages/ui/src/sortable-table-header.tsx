@@ -1,14 +1,14 @@
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { memo } from 'react';
 
-interface SortableTableHeaderProps<T> {
+type SortableTableHeaderProps<T> = {
   field: T;
   title: string;
   sortField?: T;
   sortDirection?: 'asc' | 'desc';
   onSort: (field: T) => void;
   className?: string;
-}
+};
 
 function SortableTableHeaderComponent<T extends string | number | symbol>({
   field,
@@ -22,7 +22,8 @@ function SortableTableHeaderComponent<T extends string | number | symbol>({
 
   return (
     <th
-      className={`px-4 py-3 text-left text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground ${className}`}
+      aria-sort={isActive ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={`cursor-pointer px-4 py-3 text-left font-medium text-muted-foreground text-sm hover:text-foreground ${className}`}
       onClick={() => onSort(field)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -31,7 +32,6 @@ function SortableTableHeaderComponent<T extends string | number | symbol>({
         }
       }}
       scope="col"
-      aria-sort={isActive ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
       <div className="flex items-center gap-1">
         {title}

@@ -278,9 +278,9 @@ describe('AssistantUiPanel model picker', () => {
     // Provide empty pickerModels - shows the "no models" state
     render(
       <AssistantUiPanel
-        providerGroups={noModelsGroups}
         pickerModels={[]}
         pickerProviders={pickerProviders}
+        providerGroups={noModelsGroups}
       />
     );
 
@@ -301,9 +301,9 @@ describe('AssistantUiPanel model picker', () => {
     // Provide empty pickerModels - the picker should be disabled
     render(
       <AssistantUiPanel
-        providerGroups={noModelsGroups}
         pickerModels={[]}
         pickerProviders={pickerProviders}
+        providerGroups={noModelsGroups}
       />
     );
 

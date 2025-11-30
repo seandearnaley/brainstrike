@@ -53,7 +53,7 @@ export function fullReloadOnCompilerHotspots(): Plugin {
         ctx.server.ws.send({ type: 'full-reload' });
         return [];
       }
-      return undefined;
+      return;
     },
   };
 }

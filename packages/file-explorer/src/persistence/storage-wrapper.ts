@@ -6,7 +6,9 @@ const logger = createLogger('Persistence');
 
 async function getItemFromWorker(workerStorage: WorkerStorage, name: string): Promise<unknown> {
   const value = await workerStorage.getItem(name);
-  if (value === null || value === undefined) return null;
+  if (value === null || value === undefined) {
+    return null;
+  }
   if (typeof value === 'string') {
     return JSON.parse(value);
   }

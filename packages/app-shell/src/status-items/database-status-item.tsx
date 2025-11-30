@@ -16,9 +16,9 @@ export function DatabaseStatusItem() {
       <StatusBarItem
         icon={Database}
         label="Storage:"
-        value="Connecting..."
         status="loading"
         testId="status-bar-db-loading"
+        value="Connecting..."
       />
     );
   }

@@ -6,23 +6,23 @@ import type { DirectoryHandle, DirectoryReadOptions, FileHandle, FileSystemAdapt
 
 const logger = createLogger('FixtureAdapter');
 
-interface FixtureState {
+type FixtureState = {
   rootHandle: DirectoryHandle;
   directories: Map<string, IFileNode[]>;
   fileContents: Map<string, { content: string; size: number; lastModified: number }>;
-}
+};
 
-export interface FixtureAdapterOptions {
+export type FixtureAdapterOptions = {
   platform: DirectoryHandle['platform'];
   defaultFixture?: FixtureDefinition;
-}
+};
 
-export interface FixtureControls {
+export type FixtureControls = {
   loadInlineFixture: (fixture?: FixtureDefinition) => Promise<DirectoryHandle>;
   clearInlineFixture: () => Promise<void>;
   isInlineFixtureActive: () => boolean;
   canLoadInlineFixture: boolean;
-}
+};
 
 export type FixtureCapableFileSystemAdapter = FileSystemAdapter & FixtureControls;
 
@@ -31,7 +31,9 @@ export type FixtureCapableFileSystemAdapter = FileSystemAdapter & FixtureControl
  * Always uses POSIX-style paths for consistency.
  */
 function joinPath(parent: string, name: string): string {
-  if (!parent) return name;
+  if (!parent) {
+    return name;
+  }
   // Remove trailing slash from parent if present
   const cleanParent = parent.endsWith('/') ? parent.slice(0, -1) : parent;
   return `${cleanParent}/${name}`;
@@ -196,10 +198,11 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   }
 
   async function exists(path: string): Promise<boolean> {
-    if (fixtureState) {
-      if (fixtureState.directories.has(path) || fixtureState.fileContents.has(path)) {
-        return true;
-      }
+    if (
+      fixtureState &&
+      (fixtureState.directories.has(path) || fixtureState.fileContents.has(path))
+    ) {
+      return true;
     }
     return originalExists(path);
   }

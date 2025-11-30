@@ -27,6 +27,7 @@ export function ModelRegistrySettingsSection() {
   } = useModelRegistryStore();
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
 
+  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
   useEffect(() => {
     if (db) {
       void fetchRegistry(db);
@@ -44,7 +45,9 @@ export function ModelRegistrySettingsSection() {
   };
 
   const handleDownload = async (modelId: string) => {
-    if (isDownloading[modelId]) return;
+    if (isDownloading[modelId]) {
+      return;
+    }
 
     try {
       setDownloading(modelId, true);
@@ -71,14 +74,14 @@ export function ModelRegistrySettingsSection() {
 
   if (error) {
     return (
-      <div className="p-4 rounded-md bg-destructive/10 text-destructive">
+      <div className="rounded-md bg-destructive/10 p-4 text-destructive">
         <p className="font-medium">Error loading models</p>
         <p className="text-sm">{error}</p>
         <Button
-          variant="outline"
-          size="sm"
           className="mt-2"
           onClick={() => db && fetchRegistry(db)}
+          size="sm"
+          variant="outline"
         >
           Retry
         </Button>
@@ -92,32 +95,32 @@ export function ModelRegistrySettingsSection() {
         <Label htmlFor="model-cache-dir">Model Cache Directory</Label>
         <div className="flex gap-2">
           <Input
+            className="font-mono text-xs"
             id="model-cache-dir"
-            value={modelCacheDir || ''}
             onChange={(e) => setModelCacheDir(e.target.value)}
             placeholder="Default system cache directory"
-            className="font-mono text-xs"
+            value={modelCacheDir || ''}
           />
-          <Button variant="outline" size="icon" title="Select Directory">
+          <Button size="icon" title="Select Directory" variant="outline">
             <Folder className="h-4 w-4" />
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-muted-foreground text-xs">
           Directory where downloaded models are stored. Leave empty to use the system default.
         </p>
       </div>
 
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Manage available AI providers and models. Disabled models will not appear in the prompt
           editor.
         </p>
         <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => db && fetchRegistry(db)}
           disabled={isLoading}
+          onClick={() => db && fetchRegistry(db)}
+          size="icon"
           title="Refresh Registry"
+          variant="ghost"
         >
           <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
         </Button>
@@ -129,13 +132,13 @@ export function ModelRegistrySettingsSection() {
           const isExpanded = expandedProviders.has(provider.id);
 
           return (
-            <Card key={provider.id} className="overflow-hidden">
-              <div className="p-4 flex items-center gap-4 bg-muted/20">
+            <Card className="overflow-hidden" key={provider.id}>
+              <div className="flex items-center gap-4 bg-muted/20 p-4">
                 <Button
-                  variant="ghost"
-                  size="icon"
                   className="h-6 w-6 shrink-0"
                   onClick={() => toggleExpanded(provider.id)}
+                  size="icon"
+                  variant="ghost"
                 >
                   {isExpanded ? (
                     <ChevronDown className="h-4 w-4" />
@@ -147,51 +150,51 @@ export function ModelRegistrySettingsSection() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{provider.name}</span>
-                    <Badge variant="outline" className="text-xs font-normal">
+                    <Badge className="font-normal text-xs" variant="outline">
                       {providerModels.length} models
                     </Badge>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <Label htmlFor={`provider-${provider.id}`} className="sr-only">
+                  <Label className="sr-only" htmlFor={`provider-${provider.id}`}>
                     Enable {provider.name}
                   </Label>
                   <Switch
-                    id={`provider-${provider.id}`}
                     checked={provider.isEnabled}
+                    id={`provider-${provider.id}`}
                     onCheckedChange={(checked) => db && toggleProvider(db, provider.id, checked)}
                   />
                 </div>
               </div>
 
               {isExpanded && (
-                <div className="border-t border-border p-4 space-y-3">
+                <div className="space-y-3 border-border border-t p-4">
                   {providerModels.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">
+                    <p className="py-4 text-center text-muted-foreground text-sm">
                       No models found.
                     </p>
                   ) : (
                     providerModels.map((model) => (
-                      <Card key={model.id} className="p-3 bg-card/50">
+                      <Card className="bg-card/50 p-3" key={model.id}>
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex-1 space-y-1">
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-sm">{model.name}</span>
                               {model.capabilities.type === 'embedding' && (
-                                <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                                <Badge className="h-4 px-1 text-[10px]" variant="secondary">
                                   Embedding
                                 </Badge>
                               )}
                               {model.capabilities.streaming && (
-                                <Badge variant="secondary" className="h-4 px-1 text-[10px]">
+                                <Badge className="h-4 px-1 text-[10px]" variant="secondary">
                                   Streaming
                                 </Badge>
                               )}
                             </div>
-                            <p className="text-xs text-muted-foreground font-mono">{model.id}</p>
+                            <p className="font-mono text-muted-foreground text-xs">{model.id}</p>
                             {model.description && (
-                              <p className="text-xs text-muted-foreground">{model.description}</p>
+                              <p className="text-muted-foreground text-xs">{model.description}</p>
                             )}
 
                             {/* Download Progress */}
@@ -201,7 +204,7 @@ export function ModelRegistrySettingsSection() {
                                   <span>Downloading...</span>
                                   <span>{downloadProgress[model.id] || 0}%</span>
                                 </div>
-                                <Progress value={downloadProgress[model.id] || 0} className="h-1" />
+                                <Progress className="h-1" value={downloadProgress[model.id] || 0} />
                               </div>
                             )}
                           </div>
@@ -211,23 +214,23 @@ export function ModelRegistrySettingsSection() {
                               {/* Only show download for local models (provider id 'local' or similar logic) */}
                               {provider.id === 'local' && (
                                 <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="h-7 text-xs gap-1"
-                                  onClick={() => handleDownload(model.id)}
+                                  className="h-7 gap-1 text-xs"
                                   disabled={isDownloading[model.id]}
+                                  onClick={() => handleDownload(model.id)}
+                                  size="sm"
+                                  variant="outline"
                                 >
                                   <Download className="h-3 w-3" />
                                   {isDownloading[model.id] ? 'Downloading' : 'Download'}
                                 </Button>
                               )}
                               <Switch
+                                aria-label={`Enable ${model.name}`}
                                 checked={model.isEnabled}
                                 disabled={!provider.isEnabled}
                                 onCheckedChange={(checked) =>
                                   db && toggleModel(db, model.id, checked)
                                 }
-                                aria-label={`Enable ${model.name}`}
                               />
                             </div>
                           </div>

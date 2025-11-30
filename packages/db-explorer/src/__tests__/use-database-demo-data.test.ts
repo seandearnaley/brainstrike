@@ -50,18 +50,16 @@ const mockedUsePGliteLiveQuery = vi.mocked(usePGliteLiveQuery);
 const createRepository = (
   records: FileRecord[] = [],
   count = records.length
-): FileRecordRepository => {
-  return {
+): FileRecordRepository =>
+  ({
     findAll: vi.fn().mockResolvedValue(records),
     count: vi.fn().mockResolvedValue(count),
-  } as unknown as FileRecordRepository;
-};
+  }) as unknown as FileRecordRepository;
 
-const createChunkRepository = (chunks: FileChunk[]): FileChunkRepository => {
-  return {
+const createChunkRepository = (chunks: FileChunk[]): FileChunkRepository =>
+  ({
     findAll: vi.fn().mockResolvedValue(chunks),
-  } as unknown as FileChunkRepository;
-};
+  }) as unknown as FileChunkRepository;
 
 const setupLiveQueries = (
   options: {
@@ -116,11 +114,10 @@ const setupLiveQueries = (
   };
 };
 
-const createMockDatabase = () => {
-  return {
+const createMockDatabase = () =>
+  ({
     query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
-  } as never;
-};
+  }) as never;
 
 beforeEach(() => {
   mockedUsePGliteLiveQuery.mockReset();

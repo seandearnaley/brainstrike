@@ -81,16 +81,14 @@ vi.mock('@brainstrike/agent/client', () => {
   );
 
   return {
-    getProviderDefaultModel: (provider: string) => {
-      return PROVIDER_DEFAULT_MODELS[provider as keyof typeof PROVIDER_DEFINITIONS];
-    },
+    getProviderDefaultModel: (provider: string) =>
+      PROVIDER_DEFAULT_MODELS[provider as keyof typeof PROVIDER_DEFINITIONS],
     getProviderDisplayName: (provider: string) => {
       const definition = PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS];
       return definition?.displayName ?? provider;
     },
-    getProviderModels: (provider: string) => {
-      return PROVIDER_MODELS[provider as keyof typeof PROVIDER_MODELS] ?? [];
-    },
+    getProviderModels: (provider: string) =>
+      PROVIDER_MODELS[provider as keyof typeof PROVIDER_MODELS] ?? [],
     getProviderDefinition: (provider: string) =>
       PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS],
     getProviderModelDefinitions: (provider: string) =>
@@ -138,7 +136,9 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
 
     // Extract model name from composite key (format: "provider::model")
     const extractModelName = (compositeKey: string | undefined) => {
-      if (!compositeKey) return '';
+      if (!compositeKey) {
+        return '';
+      }
       const parts = compositeKey.split('::');
       return parts.length === 2 ? parts[1] : compositeKey;
     };
@@ -152,7 +152,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
 
         <select
           data-testid="provider-select"
-          value={selectedProvider ?? ''}
+          disabled={providers.length === 0}
           onChange={(e) => {
             // When provider changes, construct composite key with default model if enabled, otherwise first enabled model
             const newProvider = e.target.value;
@@ -166,7 +166,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
               }
             }
           }}
-          disabled={providers.length === 0}
+          value={selectedProvider ?? ''}
         >
           <option value="">Select provider</option>
           {providers.map((provider) => (
@@ -178,14 +178,14 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
 
         <select
           data-testid="model-select"
-          value={modelName}
+          disabled={!selectedProvider || enabledModels.length === 0}
           onChange={(e) => {
             // Construct composite key when model changes
             if (selectedProvider) {
               onModelChange?.(`${selectedProvider}::${e.target.value}`);
             }
           }}
-          disabled={!selectedProvider || enabledModels.length === 0}
+          value={modelName}
         >
           <option value="">Select model</option>
           {enabledModels.map((model) => (
@@ -197,15 +197,15 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
 
         <div data-testid="model-toggles">
           {allModels.map((model) => (
-            <label key={model.id} htmlFor={`toggle-${currentProvider?.id ?? 'none'}-${model.id}`}>
+            <label htmlFor={`toggle-${currentProvider?.id ?? 'none'}-${model.id}`} key={model.id}>
               <input
-                id={`toggle-${currentProvider?.id ?? 'none'}-${model.id}`}
-                type="checkbox"
                 checked={model.enabled}
+                data-testid={`model-toggle-${currentProvider?.id ?? 'none'}-${model.id}`}
+                id={`toggle-${currentProvider?.id ?? 'none'}-${model.id}`}
                 onChange={(event) =>
                   onModelToggle?.(currentProvider?.id ?? '', model.id, event.target.checked)
                 }
-                data-testid={`model-toggle-${currentProvider?.id ?? 'none'}-${model.id}`}
+                type="checkbox"
               />
               {model.id}
             </label>

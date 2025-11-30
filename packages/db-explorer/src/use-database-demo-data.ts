@@ -37,24 +37,24 @@ function resolveStorageLocation(
   return 'PGlite WASM';
 }
 
-export interface DatabaseInfo {
+export type DatabaseInfo = {
   location: string;
   testResult: string;
   connected: boolean;
-}
+};
 
-export interface UseDatabaseDemoDataOptions {
+export type UseDatabaseDemoDataOptions = {
   repository: FileRecordRepository | ElectronFileRecordRepository | null;
   chunkRepository?: FileChunkRepository | ElectronFileChunkRepository | null;
   toast: ReturnType<typeof useToast>['toast'];
   database?: ReturnType<typeof usePGliteDatabase>;
   activeCollectionId: string | null;
-}
+};
 
-interface DatabaseLoaders {
+type DatabaseLoaders = {
   loadRecords: () => Promise<void>;
   loadChunks: () => Promise<void>;
-}
+};
 
 export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
   records: FileRecord[];
@@ -158,7 +158,7 @@ function coerceNumericArray(values: ArrayLike<unknown>): number[] | undefined {
 function parseStringEmbedding(value: string): number[] | undefined {
   const trimmed = value.trim();
   if (!trimmed.length) {
-    return undefined;
+    return;
   }
 
   try {
@@ -172,17 +172,19 @@ function parseStringEmbedding(value: string): number[] | undefined {
 
   const withoutBrackets = trimmed.replace(/^\s*\[?/, '').replace(/\]?\s*$/, '');
   if (!withoutBrackets.length) {
-    return undefined;
+    return;
   }
   const parts = withoutBrackets.split(/,\s*/).filter(Boolean);
   if (!parts.length) {
-    return undefined;
+    return;
   }
   return coerceNumericArray(parts);
 }
 
 function normalizeEmbeddingVector(value: unknown): number[] | undefined {
-  if (!value) return undefined;
+  if (!value) {
+    return;
+  }
   if (Array.isArray(value)) {
     return coerceNumericArray(value);
   }
@@ -195,7 +197,7 @@ function normalizeEmbeddingVector(value: unknown): number[] | undefined {
     return parseStringEmbedding(value);
   }
 
-  return undefined;
+  return;
 }
 
 function mapRecordRow(row: FileRecordRow): FileRecord {
@@ -208,15 +210,31 @@ function mapRecordRow(row: FileRecordRow): FileRecord {
     updatedAt: row.updatedAt,
   };
 
-  if (row.content) record.content = row.content;
-  if (row.contentHash) record.contentHash = row.contentHash;
-  if (row.tokenCount != null) record.tokenCount = Number(row.tokenCount);
-  if (row.processedAt) record.processedAt = row.processedAt;
+  if (row.content) {
+    record.content = row.content;
+  }
+  if (row.contentHash) {
+    record.contentHash = row.contentHash;
+  }
+  if (row.tokenCount !== null) {
+    record.tokenCount = Number(row.tokenCount);
+  }
+  if (row.processedAt) {
+    record.processedAt = row.processedAt;
+  }
   const embeddingVector = normalizeEmbeddingVector(row.embedding);
-  if (embeddingVector?.length) record.embedding = embeddingVector;
-  if (row.embeddingSetId) record.embeddingSetId = row.embeddingSetId;
-  if (row.chunksProcessedAt) record.chunksProcessedAt = row.chunksProcessedAt;
-  if (row.chunksCount != null) record.chunksCount = Number(row.chunksCount);
+  if (embeddingVector?.length) {
+    record.embedding = embeddingVector;
+  }
+  if (row.embeddingSetId) {
+    record.embeddingSetId = row.embeddingSetId;
+  }
+  if (row.chunksProcessedAt) {
+    record.chunksProcessedAt = row.chunksProcessedAt;
+  }
+  if (row.chunksCount !== null) {
+    record.chunksCount = Number(row.chunksCount);
+  }
   if (
     row.chunkingStrategy === 'sentence' ||
     row.chunkingStrategy === 'token' ||
@@ -243,10 +261,18 @@ function mapChunkRow(row: FileChunkRow): FileChunk {
   };
 
   const embeddingVector = normalizeEmbeddingVector(row.embedding);
-  if (embeddingVector?.length) chunk.embedding = embeddingVector;
-  if (row.embeddingSetId) chunk.embeddingSetId = row.embeddingSetId;
-  if (row.embeddingUpdatedAt) chunk.embeddingUpdatedAt = row.embeddingUpdatedAt;
-  if (row.embeddingHash) chunk.embeddingHash = row.embeddingHash;
+  if (embeddingVector?.length) {
+    chunk.embedding = embeddingVector;
+  }
+  if (row.embeddingSetId) {
+    chunk.embeddingSetId = row.embeddingSetId;
+  }
+  if (row.embeddingUpdatedAt) {
+    chunk.embeddingUpdatedAt = row.embeddingUpdatedAt;
+  }
+  if (row.embeddingHash) {
+    chunk.embeddingHash = row.embeddingHash;
+  }
 
   return chunk;
 }
@@ -262,7 +288,9 @@ function extractErrorMessage(error: unknown): string | null {
 }
 
 function isMissingRelation(message: string | null, table: string): boolean {
-  if (!message) return false;
+  if (!message) {
+    return false;
+  }
   const pattern = new RegExp(`relation .*${table}`, 'i');
   return pattern.test(message);
 }
@@ -290,6 +318,7 @@ export function useDatabaseDemoData({
 
   void _chunkRepository;
 
+  // biome-ignore lint/plugin: Sync state when database changes - necessary for tracking DB lifecycle
   useEffect(() => {
     if (schemaStateRef.current.db !== database) {
       schemaStateRef.current = {
@@ -403,21 +432,21 @@ export function useDatabaseDemoData({
   });
 
   const records = useMemo<FileRecord[]>(() => {
-    if (!schemaReady || !activeCollectionId) {
+    if (!(schemaReady && activeCollectionId)) {
       return [];
     }
     return recordRows.map(mapRecordRow);
   }, [recordRows, schemaReady, activeCollectionId]);
 
   const chunks = useMemo<FileChunk[]>(() => {
-    if (!schemaReady || !activeCollectionId) {
+    if (!(schemaReady && activeCollectionId)) {
       return [];
     }
     return chunkRows.map(mapChunkRow);
   }, [chunkRows, schemaReady, activeCollectionId]);
 
   const loadRecords = useCallback(async () => {
-    if (!database || !schemaReady || !activeCollectionId) {
+    if (!(database && schemaReady && activeCollectionId)) {
       return;
     }
 
@@ -440,7 +469,7 @@ export function useDatabaseDemoData({
   }, [database, schemaReady, activeCollectionId, refreshRecordsQuery, runManualRefresh, toast]);
 
   const loadChunks = useCallback(async () => {
-    if (!database || !schemaReady || !activeCollectionId) {
+    if (!(database && schemaReady && activeCollectionId)) {
       return;
     }
 
@@ -529,7 +558,9 @@ export function useDatabaseDemoData({
 
   const databasePingHandlers = useMemo(() => {
     const handlers: Array<() => Promise<void>> = [];
-    if (typeof window === 'undefined') return handlers;
+    if (typeof window === 'undefined') {
+      return handlers;
+    }
     const w = window as unknown as {
       electronAPI?: {
         db?: {
@@ -587,12 +618,17 @@ export function useDatabaseDemoData({
     void testDatabaseConnection();
   }, [repository, testDatabaseConnection]);
 
+  // biome-ignore lint/plugin: Run registered ping handlers - callback invocation pattern with cleanup
   useEffect(() => {
-    if (databasePingHandlers.length === 0) return;
+    if (databasePingHandlers.length === 0) {
+      return;
+    }
     let canceled = false;
     const runHandlers = async () => {
       for (const handler of databasePingHandlers) {
-        if (canceled) return;
+        if (canceled) {
+          return;
+        }
         await handler();
       }
     };
@@ -603,7 +639,9 @@ export function useDatabaseDemoData({
   }, [databasePingHandlers]);
 
   useEffect(() => {
-    if (!database) return;
+    if (!database) {
+      return;
+    }
     let canceled = false;
     const fetchInfo = async () => {
       try {

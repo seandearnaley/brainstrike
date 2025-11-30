@@ -1,17 +1,19 @@
 import { getElectronAPI } from '../lib/electron-utils';
 import type { PanelPersistenceState } from '../types/panel';
 
-export interface PanelPersistenceAdapter {
+export type PanelPersistenceAdapter = {
   load: () => Promise<PanelPersistenceState | null>;
   save: (state: PanelPersistenceState) => Promise<void>;
   flush?: () => Promise<void>;
-}
+};
 
 const STORAGE_KEY = 'panelLayout.v1';
 
 export class LocalStoragePanelPersistenceAdapter implements PanelPersistenceAdapter {
   async load(): Promise<PanelPersistenceState | null> {
-    if (typeof window === 'undefined') return null;
+    if (typeof window === 'undefined') {
+      return null;
+    }
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
       return raw ? (JSON.parse(raw) as PanelPersistenceState) : null;
@@ -21,7 +23,9 @@ export class LocalStoragePanelPersistenceAdapter implements PanelPersistenceAdap
   }
 
   async save(state: PanelPersistenceState): Promise<void> {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined') {
+      return;
+    }
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }
 

@@ -52,7 +52,7 @@ export function extractNativeDirectoryHandleAsNull(
 export function isValidDirectoryHandle(
   handle: DirectoryHandle | null | undefined
 ): handle is DirectoryHandle {
-  return handle != null && handle.kind === 'directory';
+  return handle !== null && handle !== undefined && handle.kind === 'directory';
 }
 
 /**
@@ -102,11 +102,16 @@ export function createLimiter(max: number) {
           .finally(() => {
             active--;
             const next = queue.shift();
-            if (next) next();
+            if (next) {
+              next();
+            }
           });
       };
-      if (active < max) run();
-      else queue.push(run);
+      if (active < max) {
+        run();
+      } else {
+        queue.push(run);
+      }
     });
   };
 }
@@ -123,7 +128,7 @@ export function normalizeDirectoryReadOptions(options?: DirectoryReadOptions) {
   const limiter = createLimiter(concurrency);
   return {
     includeMetadata,
-    concurrency: concurrency,
+    concurrency,
     limiter,
   };
 }

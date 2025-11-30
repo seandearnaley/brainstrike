@@ -1,11 +1,11 @@
 import { useCallback } from 'react';
 import type { GroupedData } from '../utils/grouping-configs';
 
-interface UseGroupSelectionOptions<T> {
+type UseGroupSelectionOptions<T> = {
   selections: Set<string>;
   onSelectionChange: (selections: Set<string>) => void;
   getItemKey: (item: T) => string;
-}
+};
 
 export function useGroupSelection<T>({
   selections,
@@ -38,18 +38,17 @@ export function useGroupSelection<T>({
 
   const isGroupFullySelected = useCallback(
     (group: GroupedData<T>) => {
-      if (group.items.length === 0) return false;
+      if (group.items.length === 0) {
+        return false;
+      }
       return group.items.every((item) => selections.has(getItemKey(item)));
     },
     [selections, getItemKey]
   );
 
   const isGroupPartiallySelected = useCallback(
-    (group: GroupedData<T>) => {
-      return (
-        group.items.some((item) => selections.has(getItemKey(item))) && !isGroupFullySelected(group)
-      );
-    },
+    (group: GroupedData<T>) =>
+      group.items.some((item) => selections.has(getItemKey(item))) && !isGroupFullySelected(group),
     [selections, getItemKey, isGroupFullySelected]
   );
 
@@ -92,7 +91,9 @@ export function useGroupSelection<T>({
 
   const isAllSelected = useCallback(
     (items: T[]) => {
-      if (items.length === 0) return false;
+      if (items.length === 0) {
+        return false;
+      }
       return items.every((item) => selections.has(getItemKey(item)));
     },
     [selections, getItemKey]

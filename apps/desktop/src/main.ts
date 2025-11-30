@@ -117,7 +117,7 @@ function readStoredLoggingPreferences(): LoggingPreferences | undefined {
     ).get('loggingPreferences') as DesktopSettingsStoreSchema['loggingPreferences'] | undefined;
     return record?.v1;
   } catch {
-    return undefined;
+    return;
   }
 }
 
@@ -385,7 +385,9 @@ app.whenReady().then(async () => {
                 message:
                   'This will delete the local database files and reinitialize on next access. This action cannot be undone.',
               });
-              if (res.response !== 0) return;
+              if (res.response !== 0) {
+                return;
+              }
               try {
                 await resetLocalDatabase();
                 await dialog.showMessageBox({
@@ -427,7 +429,9 @@ app.whenReady().then(async () => {
     logger.info('Main window created successfully');
 
     app.on('activate', async () => {
-      if (BrowserWindow.getAllWindows().length === 0) await createWindow();
+      if (BrowserWindow.getAllWindows().length === 0) {
+        await createWindow();
+      }
     });
   } catch (error) {
     logger.error('Failed to initialize application:', error);
@@ -438,7 +442,9 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
 });
 
 // Clean shutdown

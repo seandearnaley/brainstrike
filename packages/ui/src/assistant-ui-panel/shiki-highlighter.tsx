@@ -25,13 +25,13 @@ const SyntaxHighlighterImpl = ({ language, code, components }: SyntaxHighlighter
 
   return (
     <ShikiHighlighter
+      className="overflow-hidden rounded-md"
+      delay={50}
       language={language || 'text'}
       theme={{
         light: 'github-light',
         dark: 'github-dark',
       }}
-      delay={50}
-      className="rounded-md overflow-hidden"
     >
       {code}
     </ShikiHighlighter>

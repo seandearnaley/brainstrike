@@ -11,14 +11,14 @@ import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { readFullTree as readFullTreeUtil } from './utils/read-full-tree';
 
-export interface LoadingProgressState {
+export type LoadingProgressState = {
   loaded: number;
   total: number;
   currentPath?: string;
   phase: 'counting' | 'loading';
-}
+};
 
-export interface CancellableFileTreeHook {
+export type CancellableFileTreeHook = {
   fileTree: IFileNode[];
   isLoading: boolean;
   error: Error | null;
@@ -30,7 +30,7 @@ export interface CancellableFileTreeHook {
   cancelOperation: () => void;
   /** Whether the operation is currently being cancelled */
   isCancelling: boolean;
-}
+};
 
 /**
  * Calculates the new total estimate when the current loaded count exceeds the estimate.
@@ -54,7 +54,9 @@ export function calculateDynamicTotal(currentTotal: number, loaded: number): num
  * Safely calculates percentage avoiding division by zero.
  */
 export function calculateProgressPercentage(loaded: number, total: number): number {
-  if (total === 0) return 0;
+  if (total === 0) {
+    return 0;
+  }
   return Math.round((loaded / total) * 100);
 }
 
@@ -73,9 +75,7 @@ const isCancellationError = (error: unknown): boolean => {
 /**
  * Safely converts any error to an Error instance
  */
-const ensureError = (err: unknown): Error => {
-  return err instanceof Error ? err : new Error(String(err));
-};
+const ensureError = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
 
 export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): CancellableFileTreeHook {
   const { fileSystemAdapter } = useAdapters();
@@ -113,18 +113,24 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     }
   }, [isLoading, isCancelling]);
 
-  const sortFileNodes = useCallback((nodes: IFileNode[]): IFileNode[] => {
-    return [...nodes].sort((a, b) => {
-      if (a.type !== b.type) {
-        if (a.type === 'directory') return -1;
-        if (b.type === 'directory') return 1;
-      }
-      return a.name.localeCompare(b.name, undefined, {
-        numeric: true,
-        sensitivity: 'base',
-      });
-    });
-  }, []);
+  const sortFileNodes = useCallback(
+    (nodes: IFileNode[]): IFileNode[] =>
+      [...nodes].sort((a, b) => {
+        if (a.type !== b.type) {
+          if (a.type === 'directory') {
+            return -1;
+          }
+          if (b.type === 'directory') {
+            return 1;
+          }
+        }
+        return a.name.localeCompare(b.name, undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+      }),
+    []
+  );
 
   // Use ref to avoid recreating the callback on every render
   const updateProgressRef = useRef(

@@ -50,6 +50,7 @@ export function useLoadingManager<K>(
     [loadFn] // setLoading is stable and not needed as a dep for useCallback
   );
 
+  // biome-ignore lint/plugin: Trigger loading for unloaded keys - reactive data loading
   useEffect(() => {
     for (const key of keys) {
       // The guard against re-initiating an already active load is now within handleLoad.

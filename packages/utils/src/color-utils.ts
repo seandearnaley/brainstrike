@@ -29,15 +29,15 @@ const COLOR_COMBINATIONS = [
   },
 ];
 
-export interface ColorScheme {
+export type ColorScheme = {
   bg: string;
   text: string;
-}
+};
 
-export interface FolderColors {
+export type FolderColors = {
   light: ColorScheme;
   dark: ColorScheme;
-}
+};
 
 /**
  * Gets a consistent, accessible color combination for a folder.
@@ -56,8 +56,12 @@ export function getFolderColor(str: string): FolderColors {
   const selectedColor: FolderColors | undefined = COLOR_COMBINATIONS[index];
 
   // Ensure we always return a valid FolderColors object
-  if (selectedColor !== undefined) return selectedColor;
-  if (COLOR_COMBINATIONS.length > 0) return COLOR_COMBINATIONS[0] as FolderColors;
+  if (selectedColor !== undefined) {
+    return selectedColor;
+  }
+  if (COLOR_COMBINATIONS.length > 0) {
+    return COLOR_COMBINATIONS[0] as FolderColors;
+  }
   // Fallback: return a default color scheme if COLOR_COMBINATIONS is empty
   return {
     light: { bg: '#FFFFFF', text: '#000000' },

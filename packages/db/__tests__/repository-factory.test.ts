@@ -21,7 +21,7 @@ describe('Repository Factory', () => {
   });
 
   describe('isPGlite type guard', () => {
-    it('should correctly identify PGlite instances', { timeout: 30000 }, async () => {
+    it('should correctly identify PGlite instances', { timeout: 30_000 }, async () => {
       const dataDir = `/tmp/pglite-test-repository-factory-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
       db = await wasmLoader.createPGlite(dataDir);
       await migrate(db);
@@ -135,7 +135,7 @@ describe('Repository Factory', () => {
 
     it(
       'should create working repositories that can be used interchangeably',
-      { timeout: 40000 },
+      { timeout: 40_000 },
       async () => {
         // Create test databases
         const pgliteDb = new PGlite('memory://');

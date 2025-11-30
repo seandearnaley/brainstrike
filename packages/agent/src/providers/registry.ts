@@ -6,13 +6,13 @@ export type ProviderRuntime = 'hosted' | 'gateway' | 'local' | 'browser';
 
 export type ProviderModelType = 'llm' | 'embedding';
 
-export interface ProviderCapabilities {
+export type ProviderCapabilities = {
   llm: boolean;
   embeddings: boolean;
   streaming: boolean;
-}
+};
 
-interface BaseModelDefinition {
+type BaseModelDefinition = {
   /**
    * Provider-specific model identifier (as accepted by the upstream API).
    */
@@ -25,7 +25,7 @@ interface BaseModelDefinition {
    * Flag a sensible default for the given model type.
    */
   default?: boolean;
-}
+};
 
 export interface LlmModelDefinition extends BaseModelDefinition {
   type: 'llm';
@@ -62,7 +62,7 @@ export interface EmbeddingModelDefinition extends BaseModelDefinition {
 
 export type ProviderModelDefinition = LlmModelDefinition | EmbeddingModelDefinition;
 
-export interface ProviderDefinition {
+export type ProviderDefinition = {
   id: ProviderId;
   displayName: string;
   runtime: ProviderRuntime;
@@ -75,7 +75,7 @@ export interface ProviderDefinition {
    * Environment variable keys (most preferred first) for secret discovery.
    */
   envKeys?: readonly string[];
-}
+};
 
 export type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'cohere' | 'voyage';
 
@@ -282,7 +282,9 @@ export function getProviderDefinition(provider: ProviderId): ProviderDefinition 
 
 export function listProviderModels(provider: ProviderId, type?: ProviderModelType) {
   const definition = getProviderDefinition(provider);
-  if (!type) return definition.models;
+  if (!type) {
+    return definition.models;
+  }
   return definition.models.filter((model) => model.type === type);
 }
 

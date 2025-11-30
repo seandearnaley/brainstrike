@@ -4,10 +4,10 @@ import type { ImportProgressDisplayProps } from '../types';
 export function ImportProgressDisplay({ progress, onClose }: ImportProgressDisplayProps) {
   return (
     <>
-      <ImportProgressComponent progress={progress} onClose={onClose} />
+      <ImportProgressComponent onClose={onClose} progress={progress} />
       {progress.phase === 'chunking' && progress.chunkingProgress && (
-        <div className="mt-2 p-2 rounded text-xs bg-muted border">
-          <div className="flex justify-between items-center">
+        <div className="mt-2 rounded border bg-muted p-2 text-xs">
+          <div className="flex items-center justify-between">
             <span className="text-foreground">
               Chunking: {progress.chunkingProgress.currentFile}
             </span>
@@ -16,25 +16,25 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
             </span>
           </div>
           <Progress
+            className="mt-1 h-1"
             value={
               (progress.chunkingProgress.filesProcessed / progress.chunkingProgress.totalFiles) *
               100
             }
-            className="h-1 mt-1"
           />
-          <div className="text-muted-foreground mt-1">
+          <div className="mt-1 text-muted-foreground">
             {progress.chunkingProgress.chunksCreated} chunks created
           </div>
           {progress.chunkingProgress.strategyUsed && (
-            <div className="text-muted-foreground mt-1">
+            <div className="mt-1 text-muted-foreground">
               Strategy: {progress.chunkingProgress.strategyUsed}
             </div>
           )}
         </div>
       )}
       {progress.phase === 'embedding' && progress.embeddingProgress && (
-        <div className="mt-2 p-2 rounded text-xs bg-muted border">
-          <div className="flex justify-between items-center">
+        <div className="mt-2 rounded border bg-muted p-2 text-xs">
+          <div className="flex items-center justify-between">
             <span className="text-foreground">
               Embedding: {progress.embeddingProgress.currentChunk}
             </span>
@@ -43,32 +43,32 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
             </span>
           </div>
           <Progress
+            className="mt-1 h-1"
             value={
               (progress.embeddingProgress.chunksProcessed /
                 progress.embeddingProgress.totalChunks) *
               100
             }
-            className="h-1 mt-1"
           />
-          <div className="text-muted-foreground mt-1">
+          <div className="mt-1 text-muted-foreground">
             Using {progress.embeddingProgress.modelName}
           </div>
         </div>
       )}
       {progress.queueProgress && (
-        <div className="mt-2 p-2 rounded text-xs bg-muted border">
-          <div className="flex justify-between items-center">
+        <div className="mt-2 rounded border bg-muted p-2 text-xs">
+          <div className="flex items-center justify-between">
             <span className="text-foreground">Embedding Queue</span>
             <span>
               {progress.queueProgress.processed + progress.queueProgress.failed}/
               {progress.queueProgress.totalQueued}
             </span>
           </div>
-          <div className="text-muted-foreground mt-1">
+          <div className="mt-1 text-muted-foreground">
             Pending: {progress.queueProgress.pending} · Failed: {progress.queueProgress.failed}
           </div>
           {progress.queueProgress.lastEvent && (
-            <div className="text-muted-foreground mt-1">
+            <div className="mt-1 text-muted-foreground">
               Last: {progress.queueProgress.lastEvent.status} ·{' '}
               {progress.queueProgress.lastEvent.model}
               {typeof progress.queueProgress.lastEvent.elapsedMs === 'number'
@@ -77,12 +77,12 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
             </div>
           )}
           {progress.queueProgress.lastEvent?.errorMessage && (
-            <div className="text-[11px] text-destructive mt-1">
+            <div className="mt-1 text-[11px] text-destructive">
               {progress.queueProgress.lastEvent.errorMessage}
             </div>
           )}
           {progress.queueProgress.lastError && !progress.queueProgress.lastEvent?.errorMessage && (
-            <div className="text-[11px] text-destructive mt-1">
+            <div className="mt-1 text-[11px] text-destructive">
               {progress.queueProgress.lastError}
             </div>
           )}

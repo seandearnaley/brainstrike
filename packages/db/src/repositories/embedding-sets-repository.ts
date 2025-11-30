@@ -6,7 +6,7 @@ import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
 export class EmbeddingSetsRepository {
   private readonly logger = createLogger('EmbeddingSetsRepository');
 
-  constructor(private db: PGlite) {}
+  constructor(private readonly db: PGlite) {}
 
   async getOrCreateSet(
     modelKey: string,
@@ -121,10 +121,18 @@ export class EmbeddingSetsRepository {
 
     // Add optional metadata fields only if they exist
     const result: EmbeddingSet = { ...base };
-    if (row['name'] != null) result.name = String(row['name']);
-    if (row['description'] != null) result.description = String(row['description']);
-    if (row['tags'] != null) result.tags = String(row['tags']);
-    if (row['category'] != null) result.category = String(row['category']);
+    if (row['name'] !== null) {
+      result.name = String(row['name']);
+    }
+    if (row['description'] !== null) {
+      result.description = String(row['description']);
+    }
+    if (row['tags'] !== null) {
+      result.tags = String(row['tags']);
+    }
+    if (row['category'] !== null) {
+      result.category = String(row['category']);
+    }
 
     return result;
   }

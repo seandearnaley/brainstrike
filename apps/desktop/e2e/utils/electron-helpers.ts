@@ -7,10 +7,10 @@ import { _electron as electron } from 'playwright';
 
 declare const process: NodeJS.Process;
 
-export interface ElectronAppContext {
+export type ElectronAppContext = {
   app: ElectronApplication;
   window: Page;
-}
+};
 
 export async function launchElectronApp(
   debugPort?: number,
@@ -71,18 +71,18 @@ export async function launchElectronApp(
   // Kill any lingering processes to free up ports
   // Only perform global cleanup if we are NOT running with a specific debug port (sharded)
   // otherwise we might kill the electron instances of concurrent shards on the same host.
-  if (!debugPort) {
-    await killLingeringElectronProcesses();
-  } else {
+  if (debugPort) {
     console.log(`ℹ️ Cleaning up any processes bound to port ${debugPort}...`);
     await killSpecificElectronProcess(debugPort);
+  } else {
+    await killLingeringElectronProcesses();
   }
 
   const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort, userDataDir);
   const app = await startElectron(launchOptions);
 
   console.log('⏳ Waiting for first window...');
-  const window = await app.firstWindow({ timeout: 60000 }); // Increased from 30s to 60s for CI stability
+  const window = await app.firstWindow({ timeout: 60_000 }); // Increased from 30s to 60s for CI stability
   await window.waitForLoadState('domcontentloaded');
   await setupDialogMocking(app);
   console.log('✅ Electron app launched successfully');
@@ -186,9 +186,9 @@ function createLaunchOptions(
         : {}),
     },
     // Let Playwright use its managed Electron binary unless explicitly needed
-    timeout: 90000,
+    timeout: 90_000,
   };
-  if (!process.env.CI) {
+  if (!process.env['CI']) {
     options.recordVideo = {
       dir: 'test-results/videos',
       size: { width: 1280, height: 720 },
@@ -266,7 +266,7 @@ function runPreflightElectronCheck(displayEnv: string | undefined): void {
   try {
     const versionOutput = execSync(`"${electronBinaryPath}" --version 2>&1`, {
       encoding: 'utf8',
-      timeout: 10000,
+      timeout: 10_000,
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       env: { ...process.env, DISPLAY: displayEnv ?? process.env['DISPLAY'] },
     });
@@ -442,7 +442,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('Page was closed before app could become ready');
     }
 
-    await page.waitForFunction(() => document.readyState === 'complete', { timeout: 30000 });
+    await page.waitForFunction(() => document.readyState === 'complete', { timeout: 30_000 });
 
     const readinessCheck = () => {
       const readyFlag = Boolean(
@@ -470,7 +470,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
 
     if (isCodex) {
       const pollInterval = 100;
-      const maxAttempts = Math.ceil(30000 / pollInterval);
+      const maxAttempts = Math.ceil(30_000 / pollInterval);
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (page.isClosed()) {
           throw new Error('Page was closed while waiting for app to become ready');
@@ -488,7 +488,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
       throw new Error('Timed out waiting for app readiness in Codex environment');
     }
 
-    await page.waitForFunction(readinessCheck, { timeout: 30000, polling: 100 });
+    await page.waitForFunction(readinessCheck, { timeout: 30_000, polling: 100 });
     console.log('✅ App is ready and responsive');
   } catch (error) {
     console.error('❌ Error waiting for app to be ready:', error);
@@ -530,15 +530,11 @@ export async function resetAppState(window: Page): Promise<void> {
 }
 
 export async function getAppVersion(app: ElectronApplication): Promise<string> {
-  return await app.evaluate(async ({ app }) => {
-    return app.getVersion();
-  });
+  return await app.evaluate(async ({ app }) => app.getVersion());
 }
 
 export async function getAppPath(app: ElectronApplication): Promise<string> {
-  return await app.evaluate(async ({ app }) => {
-    return app.getAppPath();
-  });
+  return await app.evaluate(async ({ app }) => app.getAppPath());
 }
 
 export async function triggerMenuAction(app: ElectronApplication, menuId: string): Promise<void> {
@@ -546,7 +542,9 @@ export async function triggerMenuAction(app: ElectronApplication, menuId: string
     const menu = Menu.getApplicationMenu();
     if (menu) {
       const menuItem = menu.getMenuItemById(id);
-      if (menuItem) menuItem.click();
+      if (menuItem) {
+        menuItem.click();
+      }
     }
   }, menuId);
 }
@@ -557,9 +555,7 @@ export async function waitForNewWindow(app: ElectronApplication): Promise<Page> 
 }
 
 export async function isDevMode(app: ElectronApplication): Promise<boolean> {
-  return await app.evaluate(async ({ app }) => {
-    return !app.isPackaged;
-  });
+  return await app.evaluate(async ({ app }) => !app.isPackaged);
 }
 
 export async function setupDialogMocking(app: ElectronApplication): Promise<void> {

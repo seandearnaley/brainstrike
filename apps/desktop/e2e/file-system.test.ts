@@ -10,13 +10,13 @@ test.describe('File System Integration', () => {
   });
 
   test('should handle file system access permissions', async ({ window }) => {
-    test.setTimeout(30000); // Increase timeout to 30s for this test
+    test.setTimeout(30_000); // Increase timeout to 30s for this test
     // The button text comes from FileExplorerStrings.selectRoot ('Select Root')
     // but we keep 'browse' for backward compatibility if needed
     const fileSystemButton = window.getByRole('button', { name: /select root|browse/i });
 
     // Wait for the button to be actionable before interacting
-    await fileSystemButton.first().waitFor({ state: 'visible', timeout: 10000 });
+    await fileSystemButton.first().waitFor({ state: 'visible', timeout: 10_000 });
 
     if (await fileSystemButton.isVisible().catch(() => false)) {
       await fileSystemButton.click();
@@ -32,10 +32,10 @@ test.describe('File System Integration', () => {
   });
 
   test('should handle directory operations', async ({ window }) => {
-    test.setTimeout(30000); // Increase timeout to 30s
+    test.setTimeout(30_000); // Increase timeout to 30s
     const fileExplorerPanel = window.getByTestId('file-explorer-panel');
     try {
-      await fileExplorerPanel.waitFor({ state: 'visible', timeout: 10000 });
+      await fileExplorerPanel.waitFor({ state: 'visible', timeout: 10_000 });
     } catch (e) {
       console.warn('File explorer panel did not appear within timeout:', e);
     }
@@ -52,7 +52,7 @@ test.describe('File System Integration', () => {
   });
 
   test('should handle file operations', async ({ window }) => {
-    test.setTimeout(30000); // Increase timeout
+    test.setTimeout(30_000); // Increase timeout
     const fileButtons = window.getByRole('button').filter({ hasText: /file/i });
     // Don't assume buttons exist immediately
     await window.waitForTimeout(1000);
@@ -74,7 +74,7 @@ test.describe('File System Integration', () => {
   });
 
   test('should handle large directory structures', async ({ window, homePage }) => {
-    test.setTimeout(45000); // Larger timeout for potentially heavy DOM operations
+    test.setTimeout(45_000); // Larger timeout for potentially heavy DOM operations
     const explorerButtons = window.getByRole('button').filter({ hasText: /explorer/i });
     await window.waitForTimeout(1000);
 
@@ -111,11 +111,11 @@ test.describe('File System Integration', () => {
     const spinner = window.locator('[data-testid*="loading"], [class*="spinner"]');
 
     if (await loadingIndicator.isVisible().catch(() => false)) {
-      await loadingIndicator.waitFor({ state: 'hidden', timeout: 15000 });
+      await loadingIndicator.waitFor({ state: 'hidden', timeout: 15_000 });
     }
 
     if (await spinner.isVisible().catch(() => false)) {
-      await spinner.waitFor({ state: 'hidden', timeout: 15000 });
+      await spinner.waitFor({ state: 'hidden', timeout: 15_000 });
     }
   }
 
@@ -147,7 +147,7 @@ test.describe('File System Integration', () => {
   });
 
   test('should maintain file system state across app restart', async ({ electron, window }) => {
-    test.setTimeout(120000);
+    test.setTimeout(120_000);
 
     const fileSystemButtons = window.getByRole('button').filter({ hasText: /browse|open|select/i });
 

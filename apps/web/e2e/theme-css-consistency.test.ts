@@ -257,15 +257,17 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     await page.waitForTimeout(200);
 
     // Check for elements with .bs-thread or .aui-* classes
-    const hasAssistantElements = await page.evaluate(() => {
-      return document.querySelector('.bs-thread, [class*="aui-"]') !== null;
-    });
+    const hasAssistantElements = await page.evaluate(
+      () => document.querySelector('.bs-thread, [class*="aui-"]') !== null
+    );
 
     // If assistant elements exist, verify they use the theme
     if (hasAssistantElements) {
       const threadTheme = await page.evaluate(() => {
         const threadEl = document.querySelector('.bs-thread') as HTMLElement;
-        if (!threadEl) return null;
+        if (!threadEl) {
+          return null;
+        }
 
         const styles = getComputedStyle(threadEl);
         return {

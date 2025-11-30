@@ -112,7 +112,7 @@ const {
   };
 
   const getSecretsService = vi.fn(() => secretsService);
-  const readOpenAIApiKey = vi.fn(async () => undefined);
+  const readOpenAIApiKey = vi.fn(async () => {});
 
   return {
     callOrder: order,

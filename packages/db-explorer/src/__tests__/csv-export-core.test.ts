@@ -86,7 +86,7 @@ describe('createCSVBlob', () => {
   });
 
   it('should handle large content', () => {
-    const largeContent = 'header1,header2\n'.repeat(10000);
+    const largeContent = 'header1,header2\n'.repeat(10_000);
     const blob = createCSVBlob(largeContent);
     expect(blob).toBeInstanceOf(Blob);
     expect(blob.size).toBeGreaterThan(largeContent.length);

@@ -4,15 +4,13 @@ import { act, renderHook } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@electric-sql/pglite', () => {
-  return {
-    PGlite: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
-      this.query = vi.fn();
-      this.exec = vi.fn();
-      this.close = vi.fn().mockResolvedValue(undefined);
-    }),
-  };
-});
+vi.mock('@electric-sql/pglite', () => ({
+  PGlite: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
+    this.query = vi.fn();
+    this.exec = vi.fn();
+    this.close = vi.fn().mockResolvedValue(undefined);
+  }),
+}));
 
 vi.mock('../src/migrations/bootstrap', () => ({
   migrate: vi.fn().mockResolvedValue(undefined),
@@ -45,7 +43,9 @@ describe('DbProvider default dbPath', () => {
     const calls = (PGlite as unknown as { mock: { calls: unknown[][] } }).mock.calls;
     expect(
       calls.some((call) => {
-        if (!Array.isArray(call)) return false;
+        if (!Array.isArray(call)) {
+          return false;
+        }
         const arg = call?.[0];
         if (typeof arg === 'string') {
           return arg === 'idb://app';

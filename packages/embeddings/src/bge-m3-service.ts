@@ -11,17 +11,17 @@ import type {
   SimilarityResult,
 } from './types';
 
-export interface DownloadModelOptions {
+export type DownloadModelOptions = {
   cacheDir?: string;
   onProgress?: (progress: EmbeddingProgress) => void;
-}
+};
 
 /**
  * A registry-aware embedding service using transformers.js feature-extraction pipeline
  * Supports plug-and-play model switching via JSON manifest
  */
 export class SimpleEmbeddingService implements EmbeddingService {
-  private _backend: TransformersBackend;
+  private readonly _backend: TransformersBackend;
   private _status: EmbeddingStatus = 'idle';
   private _config: EmbeddingConfig;
   private _currentModelKey: string | null = null;

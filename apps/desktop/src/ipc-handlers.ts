@@ -64,10 +64,16 @@ async function withCorruptionRecovery<T>(operation: () => Promise<T>, context: s
 function buildRefreshArgs(
   payload: { offset?: number; limit?: number } | undefined
 ): { offset?: number; limit?: number } | undefined {
-  if (!payload) return undefined;
+  if (!payload) {
+    return;
+  }
   const args: { offset?: number; limit?: number } = {};
-  if (payload.offset !== undefined) args.offset = payload.offset;
-  if (payload.limit !== undefined) args.limit = payload.limit;
+  if (payload.offset !== undefined) {
+    args.offset = payload.offset;
+  }
+  if (payload.limit !== undefined) {
+    args.limit = payload.limit;
+  }
   return Object.keys(args).length > 0 ? args : undefined;
 }
 
@@ -135,7 +141,9 @@ async function createLiveQueryHandle(
 
 async function cleanupLiveSubscription(id: number): Promise<void> {
   const record = liveSubscriptions.get(id);
-  if (!record) return;
+  if (!record) {
+    return;
+  }
   liveSubscriptions.delete(id);
   try {
     await record.handle.unsubscribe(record.listener);
@@ -339,26 +347,26 @@ export function registerIpcHandlers(
   });
 
   // Database IPC handlers (wrapped with corruption recovery)
-  ipcMain.handle('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) => {
-    return withCorruptionRecovery(async () => {
+  ipcMain.handle('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) =>
+    withCorruptionRecovery(async () => {
       const { getDatabase } = await import('./db-main');
       const db = await getDatabase();
       return await db.query(sql, params);
-    }, 'db:query');
-  });
+    }, 'db:query')
+  );
 
-  ipcMain.handle('db:exec', async (_evt: IpcMainInvokeEvent, sql: string) => {
-    return withCorruptionRecovery(async () => {
+  ipcMain.handle('db:exec', async (_evt: IpcMainInvokeEvent, sql: string) =>
+    withCorruptionRecovery(async () => {
       const { getDatabase } = await import('./db-main');
       const db = await getDatabase();
       return await db.exec(sql);
-    }, 'db:exec');
-  });
+    }, 'db:exec')
+  );
 
   ipcMain.handle(
     'db:live-query:start',
-    async (event: IpcMainInvokeEvent, payload: LiveQueryPayload) => {
-      return withCorruptionRecovery(async () => {
+    async (event: IpcMainInvokeEvent, payload: LiveQueryPayload) =>
+      withCorruptionRecovery(async () => {
         const { getDatabase } = await import('./db-main');
         const db = await getDatabase();
         if (!db.live) {
@@ -384,8 +392,7 @@ export function registerIpcHandlers(
         sender.once('destroyed', () => void cleanupLiveSubscription(id));
 
         return { id, initialResults: handle.initialResults };
-      }, 'db:live-query:start');
-    }
+      }, 'db:live-query:start')
   );
 
   ipcMain.handle('db:live-query:stop', async (_event: IpcMainInvokeEvent, id: number) => {

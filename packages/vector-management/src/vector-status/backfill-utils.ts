@@ -82,11 +82,18 @@ export function getBackfillDisabledState(params: {
 }): { disabled: boolean; title: string } {
   const { activeId, hasDb, backfilling, coverage, queueCounts } = params;
   // Evaluate reasons in priority order and early-return to keep complexity low
-  if (!activeId) return { disabled: true, title: 'Select an active embedding set' };
-  if (!hasDb) return { disabled: true, title: 'Database not ready yet' };
-  if (backfilling) return { disabled: true, title: 'Backfilling in progress' };
-  if (queueCounts.running > 0 || queueCounts.queued > 0)
+  if (!activeId) {
+    return { disabled: true, title: 'Select an active embedding set' };
+  }
+  if (!hasDb) {
+    return { disabled: true, title: 'Database not ready yet' };
+  }
+  if (backfilling) {
+    return { disabled: true, title: 'Backfilling in progress' };
+  }
+  if (queueCounts.running > 0 || queueCounts.queued > 0) {
     return { disabled: true, title: 'Jobs are queued or running – wait for completion' };
+  }
 
   // Disable when all chunks already embedded
   if (coverage.total > 0 && coverage.withSet >= coverage.total) {

@@ -8,7 +8,7 @@ import type { StorageAdapter } from '../types';
  * Data is not persisted between sessions.
  */
 export class MemoryStorageAdapter implements StorageAdapter {
-  private storage = new Map<string, string>();
+  private readonly storage = new Map<string, string>();
   private readonly debug: boolean;
   private readonly logger = createLogger('MemoryStorageAdapter');
 

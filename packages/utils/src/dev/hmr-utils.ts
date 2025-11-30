@@ -3,15 +3,15 @@
  * These functions handle the conditional availability of import.meta and HMR APIs.
  */
 
-export interface HMRModule {
+export type HMRModule = {
   accept: () => void;
   dispose: (callback: () => void) => void;
-}
+};
 
-interface GlobalWithViteHMR {
+type GlobalWithViteHMR = {
   // biome-ignore lint/style/useNamingConvention: Vite's global uses this exact naming
   __vite_hot__?: HMRModule;
-}
+};
 
 /**
  * Get the HMR module if available in the current environment.

@@ -5,7 +5,7 @@ import type { StoreApi, UseBoundStore } from 'zustand';
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
 
-export interface FileSelectionActions {
+export type FileSelectionActions = {
   setSelectedFiles: (selectedFiles: ReadonlySet<string>) => void;
   addSelectedFile: (folderId: string | null, path: string) => void;
   removeSelectedFile: (folderId: string | null, path: string) => void;
@@ -13,7 +13,7 @@ export interface FileSelectionActions {
   clearSelectedFiles: () => void;
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
-}
+};
 
 export const createFileSelectionActions = (
   set: SetState<FileExplorerState>,
@@ -32,7 +32,9 @@ export const createFileSelectionActions = (
   },
 
   addSelectedFile: (folderId: string | null, path: string) => {
-    if (folderId === null) return; // Skip if no folder is selected
+    if (folderId === null) {
+      return; // Skip if no folder is selected
+    }
     set((state) => {
       const newSelectedFiles = new Set(state.selectedFilePaths);
       // Check against maxSelectionCount before adding
@@ -44,7 +46,9 @@ export const createFileSelectionActions = (
   },
 
   removeSelectedFile: (folderId: string | null, path: string) => {
-    if (folderId === null) return; // Skip if no folder is selected
+    if (folderId === null) {
+      return; // Skip if no folder is selected
+    }
     set((state) => {
       const newSelectedFiles = new Set(state.selectedFilePaths);
       newSelectedFiles.delete(encodeFileSelection(folderId, path));
@@ -53,17 +57,17 @@ export const createFileSelectionActions = (
   },
 
   toggleSelectedFile: (folderId: string | null, path: string) => {
-    if (folderId === null) return; // Skip if no folder is selected
+    if (folderId === null) {
+      return; // Skip if no folder is selected
+    }
     set((state) => {
       const newSelectedFiles = new Set(state.selectedFilePaths);
       const compositeKey = encodeFileSelection(folderId, path);
       if (newSelectedFiles.has(compositeKey)) {
         newSelectedFiles.delete(compositeKey);
-      } else {
+      } else if (newSelectedFiles.size < state.maxSelectionCount) {
         // Check against maxSelectionCount before adding
-        if (newSelectedFiles.size < state.maxSelectionCount) {
-          newSelectedFiles.add(compositeKey);
-        }
+        newSelectedFiles.add(compositeKey);
       }
       return { selectedFilePaths: newSelectedFiles };
     });

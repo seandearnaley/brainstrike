@@ -18,7 +18,7 @@ import { useSharedFileContentLoading } from './use-shared-file-content-loading';
 
 type UseFileExplorerProps = Record<string, never>;
 
-interface UseFileExplorerReturn {
+type UseFileExplorerReturn = {
   fileTree: IFileNode[];
   handleRootDirectorySelect: () => Promise<DirectoryHandle | null>;
   isLoading: boolean;
@@ -45,7 +45,7 @@ interface UseFileExplorerReturn {
   /** Whether the operation is currently being cancelled */
   isCancelling: boolean;
   clearRootDirectory: () => void;
-}
+};
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
   // Split Zustand selectors and hoist them to avoid recreating selector lambdas per render
@@ -112,9 +112,10 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     [handleFileContentLoading]
   );
 
-  const handleRootDirectorySelect = useCallback(async () => {
-    return selectRootDirectory();
-  }, [selectRootDirectory]);
+  const handleRootDirectorySelect = useCallback(
+    async () => selectRootDirectory(),
+    [selectRootDirectory]
+  );
 
   const refreshFileExplorer = useCallback(async () => {
     if (!rootDirectoryHandle) {
@@ -149,10 +150,16 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // Construct the return object, carefully combining local state/logic with coreExplorer where needed.
   // This needs to satisfy UseFileExplorerReturn type.
   const deriveDisplayError = (): Error | null => {
-    if (treeError) return treeError;
-    if (contentError) return contentError;
+    if (treeError) {
+      return treeError;
+    }
+    if (contentError) {
+      return contentError;
+    }
     // If localFilterError is present, it's a string message from useFileFilters
-    if (localFilterError) return new Error(localFilterError);
+    if (localFilterError) {
+      return new Error(localFilterError);
+    }
     // coreExplorer.error could be an Error, string, or null
     if (coreExplorer.error) {
       // Check if it's an Error instance

@@ -2,13 +2,13 @@ import { Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from
 import { RefreshCw, Zap } from 'lucide-react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
 
-interface FileActionButtonsProps {
+type FileActionButtonsProps = {
   status: FileCollectionStatus;
   /** Handler for making file searchable - if undefined, button is disabled */
   onMakeSearchable?: ((fileId: string) => void) | undefined;
   /** Handler for re-indexing file - if undefined, button is disabled */
   onReindex?: ((fileId: string) => void) | undefined;
-}
+};
 
 /**
  * Action buttons for file collection operations
@@ -26,7 +26,7 @@ interface FileActionButtonsProps {
  */
 export function FileActionButtons({ status, onMakeSearchable, onReindex }: FileActionButtonsProps) {
   const makeSearchableDisabled = !onMakeSearchable;
-  const reindexDisabled = !onReindex || !status.searchableInActive;
+  const reindexDisabled = !(onReindex && status.searchableInActive);
 
   // Show "Make Searchable" for files not in active collection
   if (!status.searchableInActive && status.totalChunksCount > 0) {
@@ -35,13 +35,13 @@ export function FileActionButtons({ status, onMakeSearchable, onReindex }: FileA
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              variant="outline"
-              size="sm"
+              aria-label="Make file searchable in active collection"
               disabled={makeSearchableDisabled}
               onClick={() => onMakeSearchable?.(status.fileId)}
-              aria-label="Make file searchable in active collection"
+              size="sm"
+              variant="outline"
             >
-              <Zap className="h-3 w-3 mr-1" />
+              <Zap className="mr-1 h-3 w-3" />
               Make Searchable
             </Button>
           </TooltipTrigger>
@@ -64,13 +64,13 @@ export function FileActionButtons({ status, onMakeSearchable, onReindex }: FileA
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              variant="outline"
-              size="sm"
+              aria-label="Re-index file in active collection"
               disabled={reindexDisabled}
               onClick={() => onReindex?.(status.fileId)}
-              aria-label="Re-index file in active collection"
+              size="sm"
+              variant="outline"
             >
-              <RefreshCw className="h-3 w-3 mr-1" />
+              <RefreshCw className="mr-1 h-3 w-3" />
               Re-index
             </Button>
           </TooltipTrigger>

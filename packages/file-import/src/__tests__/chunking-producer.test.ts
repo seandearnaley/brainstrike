@@ -13,7 +13,7 @@ import { processChunking } from '../chunking';
 
 describe('Chunking producer enqueues jobs', () => {
   // Increase timeouts to tolerate in-memory DB startup + migrations under load
-  vi.setConfig({ hookTimeout: 30000, testTimeout: 30000 });
+  vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
   let db: PGlite;
 
   beforeEach(async () => {

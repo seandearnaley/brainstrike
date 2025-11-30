@@ -42,9 +42,13 @@ export function useSavePanelState(
 
   const persist = useCallback(
     (state: PanelPersistenceState) => {
-      if (pendingRef.current && statesEqual(pendingRef.current, state)) return;
+      if (pendingRef.current && statesEqual(pendingRef.current, state)) {
+        return;
+      }
       const lastSaved = getLastSaved();
-      if (!pendingRef.current && statesEqual(lastSaved, state)) return;
+      if (!pendingRef.current && statesEqual(lastSaved, state)) {
+        return;
+      }
       pendingRef.current = state;
       run(state);
     },

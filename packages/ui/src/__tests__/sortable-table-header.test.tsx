@@ -35,10 +35,10 @@ describe('SortableTableHeader', () => {
           <tr>
             <SortableTableHeader
               field="name"
-              title="Name"
-              sortField="name"
-              sortDirection="desc"
               onSort={vi.fn()}
+              sortDirection="desc"
+              sortField="name"
+              title="Name"
             />
           </tr>
         </thead>

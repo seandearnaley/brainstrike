@@ -8,7 +8,7 @@
 import type { PlaywrightProviderOptions } from '@vitest/browser-playwright';
 import { playwright } from '@vitest/browser-playwright';
 
-export interface BrowserTestConfig {
+export type BrowserTestConfig = {
   /** Test file pattern for browser tests (default: '**\/*.browser.test.{ts,tsx}') */
   testPattern?: string;
   /** Whether running in CI environment */
@@ -29,7 +29,7 @@ export interface BrowserTestConfig {
   trace?: 'off' | 'on' | 'on-first-retry' | 'on-all-retries' | 'retain-on-failure';
   /** Directory for trace output (default: 'test-results') */
   traceOutputDir?: string;
-}
+};
 
 /**
  * Default CI launch arguments for browser stability

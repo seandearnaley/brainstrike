@@ -9,8 +9,8 @@ type WebDocEntry = {
   title: string;
   summary: string;
   url: string;
-  tags: ReadonlyArray<string>;
-  sections: ReadonlyArray<string>;
+  tags: readonly string[];
+  sections: readonly string[];
   versionIntroduced?: string;
 };
 
@@ -26,7 +26,7 @@ type SearchResult = {
   summary: string;
   url: string;
   highlight: string;
-  tags: ReadonlyArray<string>;
+  tags: readonly string[];
   score: number;
 };
 
@@ -35,7 +35,7 @@ type SearchResponse = {
   limit: number;
   totalResults: number;
   tookMs: number;
-  results: ReadonlyArray<SearchResult>;
+  results: readonly SearchResult[];
 };
 
 type DocSummaryResponse = {
@@ -44,13 +44,13 @@ type DocSummaryResponse = {
     title: string;
     summary: string;
     url: string;
-    tags: ReadonlyArray<string>;
+    tags: readonly string[];
     versionIntroduced?: string;
     sections: ReadonlyArray<{ id: string; text: string }>;
   };
 };
 
-const DOCS_INDEX: ReadonlyArray<WebDocEntry> = [
+const DOCS_INDEX: readonly WebDocEntry[] = [
   {
     id: 'assistant-ui-integration',
     title: 'Assistant UI Integration Guide',
@@ -133,11 +133,13 @@ function tokenize(value: string): string[] {
 
 function splitIntoSentences(value: string): string[] {
   const matches = value.match(/[^.!?]+[.!?]?/g);
-  if (!matches) return [value];
+  if (!matches) {
+    return [value];
+  }
   return matches.map((sentence) => sentence.trim()).filter((sentence) => sentence.length > 0);
 }
 
-function indexDocs(entries: ReadonlyArray<WebDocEntry>): {
+function indexDocs(entries: readonly WebDocEntry[]): {
   docs: readonly IndexedDoc[];
   map: ReadonlyMap<string, IndexedDoc>;
 } {
@@ -169,8 +171,10 @@ function indexDocs(entries: ReadonlyArray<WebDocEntry>): {
 
 const { docs: INDEXED_DOCS, map: INDEXED_DOC_MAP } = indexDocs(DOCS_INDEX);
 
-function scoreDoc(doc: IndexedDoc, tokens: ReadonlyArray<string>): number {
-  if (tokens.length === 0) return 0;
+function scoreDoc(doc: IndexedDoc, tokens: readonly string[]): number {
+  if (tokens.length === 0) {
+    return 0;
+  }
   let score = 0;
   const uniqueTokens = new Set(tokens);
   for (const token of uniqueTokens) {
@@ -183,7 +187,7 @@ function scoreDoc(doc: IndexedDoc, tokens: ReadonlyArray<string>): number {
   return score;
 }
 
-function findHighlight(doc: IndexedDoc, tokens: ReadonlyArray<string>): string {
+function findHighlight(doc: IndexedDoc, tokens: readonly string[]): string {
   for (const sentence of doc.sentenceTokens) {
     for (const token of tokens) {
       if (sentence.tokens.has(token)) {
@@ -231,7 +235,9 @@ async function searchDocsExecute({
   }
 
   ranked.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
+    if (b.score !== a.score) {
+      return b.score - a.score;
+    }
     return a.doc.title.localeCompare(b.doc.title);
   });
 

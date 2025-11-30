@@ -60,11 +60,11 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
     await Promise.race([
       activePage.locator('[data-testid="database-demo-panel"]').waitFor({
         state: 'visible',
-        timeout: 30000,
+        timeout: 30_000,
       }),
       activePage.locator('[data-testid="db-init-error"]').waitFor({
         state: 'visible',
-        timeout: 30000,
+        timeout: 30_000,
       }),
     ]);
   } catch (waitError) {
@@ -117,11 +117,11 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
     await Promise.race([
       activePage.locator('[data-testid="database-demo-panel"]').waitFor({
         state: 'visible',
-        timeout: 15000,
+        timeout: 15_000,
       }),
       activePage.locator('[data-testid="db-init-error"]').waitFor({
         state: 'visible',
-        timeout: 15000,
+        timeout: 15_000,
       }),
     ]).catch(() => {
       // Ignore timeout errors here, we'll check visibility next
@@ -134,7 +134,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
     // If loading indicator is visible, wait for it to disappear
     if (await loadingIndicator.isVisible({ timeout: 1000 })) {
       console.log('⏳ Waiting for database to finish loading...');
-      await loadingIndicator.waitFor({ state: 'hidden', timeout: 30000 });
+      await loadingIndicator.waitFor({ state: 'hidden', timeout: 30_000 });
     }
   } catch (_error) {
     // Loading indicator might not appear if database loads quickly
@@ -146,7 +146,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   try {
     await activePage.locator('text=✓').or(activePage.locator('text=✗')).first().waitFor({
       state: 'visible',
-      timeout: 20000, // Increased timeout for database initialization
+      timeout: 20_000, // Increased timeout for database initialization
     });
   } catch (_error) {
     console.warn('⚠️ Database status indicator not found, trying alternative detection...');
@@ -158,7 +158,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
       .or(activePage.locator('[data-testid="database-content"]'));
     await databaseReady.first().waitFor({
       state: 'visible',
-      timeout: 10000,
+      timeout: 10_000,
     });
   }
 
@@ -358,7 +358,7 @@ async function clearDatabaseRecordsViaUI(page: Page): Promise<Page> {
 async function resolveActivePage(page: Page): Promise<Page> {
   if (!page.isClosed()) {
     try {
-      await page.waitForLoadState('domcontentloaded', { timeout: 10000 });
+      await page.waitForLoadState('domcontentloaded', { timeout: 10_000 });
     } catch (_error) {
       // Ignore load state errors; the page may already be ready.
     }
@@ -382,7 +382,7 @@ async function isDatabaseErrorState(page: Page): Promise<boolean> {
 async function waitForReplacementPage(
   context: BrowserContext,
   closedPage: Page,
-  timeoutMs = 15000
+  timeoutMs = 15_000
 ): Promise<Page> {
   const browser = context.browser();
   const deadline = Date.now() + timeoutMs;
@@ -391,7 +391,9 @@ async function waitForReplacementPage(
     const contexts = browser ? browser.contexts() : [context];
     for (const ctx of contexts) {
       for (const candidate of ctx.pages()) {
-        if (candidate === closedPage || candidate.isClosed()) continue;
+        if (candidate === closedPage || candidate.isClosed()) {
+          continue;
+        }
         try {
           await candidate.waitForLoadState('domcontentloaded', { timeout: 5000 });
         } catch (_error) {

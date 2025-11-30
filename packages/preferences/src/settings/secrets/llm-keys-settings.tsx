@@ -34,16 +34,16 @@ export function LlmKeysSettings() {
     [providerDefinitions]
   );
 
-  const [provider, setProvider] = useState<string>(providerOptions[0]?.id ?? 'openai');
+  const [rawProvider, setRawProvider] = useState<string>(providerOptions[0]?.id ?? 'openai');
   const [apiKey, setApiKey] = useState('');
   const [providersWithSecrets, setProvidersWithSecrets] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!providerOptions.some((option) => option.id === provider) && providerOptions[0]) {
-      setProvider(providerOptions[0].id);
-    }
-  }, [providerOptions, provider]);
+  // Derive effective provider - always valid even if options change
+  const provider = useMemo(() => {
+    const isValid = providerOptions.some((option) => option.id === rawProvider);
+    return isValid ? rawProvider : (providerOptions[0]?.id ?? 'openai');
+  }, [providerOptions, rawProvider]);
 
   const selectedProviderName = useMemo(
     () => providerOptions.find((option) => option.id === provider)?.name ?? provider,
@@ -72,7 +72,9 @@ export function LlmKeysSettings() {
   }, [refreshProviders]);
 
   const handleSave = useCallback(async () => {
-    if (!apiKey.trim()) return;
+    if (!apiKey.trim()) {
+      return;
+    }
     setBusy(true);
     try {
       const res = await window.secrets?.saveKey?.(provider, apiKey.trim());
@@ -117,11 +119,11 @@ export function LlmKeysSettings() {
           <CardTitle className="text-base">Provider API Keys</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-1 gap-3 items-end sm:grid-cols-3">
+          <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-3">
             <div className="space-y-1">
               <Label htmlFor={providerId}>Provider</Label>
-              <Select value={provider} onValueChange={(value) => setProvider(value)}>
-                <SelectTrigger id={providerId} data-testid="llm-provider">
+              <Select onValueChange={(value) => setRawProvider(value)} value={provider}>
+                <SelectTrigger data-testid="llm-provider" id={providerId}>
                   <SelectValue placeholder="Select provider" />
                 </SelectTrigger>
                 <SelectContent>
@@ -137,12 +139,12 @@ export function LlmKeysSettings() {
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor={apiKeyId}>API Key</Label>
               <Input
-                id={apiKeyId}
                 data-testid="llm-api-key"
-                type="password"
-                placeholder={`Enter ${selectedProviderName} API key`}
-                value={apiKey}
+                id={apiKeyId}
                 onChange={(event) => setApiKey(event.currentTarget.value)}
+                placeholder={`Enter ${selectedProviderName} API key`}
+                type="password"
+                value={apiKey}
               />
             </div>
           </div>
@@ -157,9 +159,9 @@ export function LlmKeysSettings() {
             </Button>
             <Button
               data-testid="delete-llm-key"
-              variant="secondary"
               disabled={busy}
               onClick={handleDelete}
+              variant="secondary"
             >
               Delete
             </Button>
@@ -167,7 +169,7 @@ export function LlmKeysSettings() {
 
           <div className="space-y-1">
             <Label>Saved Providers</Label>
-            <div data-testid="saved-llm-providers" className="text-xs text-muted-foreground">
+            <div className="text-muted-foreground text-xs" data-testid="saved-llm-providers">
               {providersWithSecrets.length === 0 ? 'None' : providersWithSecrets.join(', ')}
             </div>
           </div>

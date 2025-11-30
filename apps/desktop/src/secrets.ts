@@ -1,17 +1,17 @@
 import { safeStorage } from 'electron';
 import ElectronStore from 'electron-store';
 
-export interface SecretsService {
+export type SecretsService = {
   saveKey(provider: string, value: string): Promise<boolean>;
   getKey(provider: string): Promise<string | null>;
   deleteKey(provider: string): Promise<boolean>;
   listProviders(): Promise<string[]>;
   clearAll(): Promise<boolean>;
-}
+};
 
-interface SecretsSchema {
+type SecretsSchema = {
   secrets: Record<string, string>; // base64-encoded encrypted strings
-}
+};
 
 export function createSecretsService(store?: ElectronStore<SecretsSchema>): SecretsService {
   const _store = store ?? new ElectronStore<SecretsSchema>({ name: 'brainstrike-secrets' });
@@ -34,7 +34,9 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
     },
     async getKey(provider: string): Promise<string | null> {
       const b64 = (secretsStore.get('secrets') as SecretsSchema['secrets'])?.[provider];
-      if (!b64) return null;
+      if (!b64) {
+        return null;
+      }
       try {
         const buf = Buffer.from(b64, 'base64');
         // Prefer secure decrypt when available

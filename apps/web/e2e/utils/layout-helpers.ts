@@ -4,7 +4,7 @@ import { expect, type Page } from '@playwright/test';
  * Layout test utilities for IDE panel testing
  */
 
-export interface PanelElements {
+export type PanelElements = {
   leftPanel: ReturnType<Page['locator']>;
   rightPanel: ReturnType<Page['locator']>;
   consolePanel: ReturnType<Page['locator']>;
@@ -16,7 +16,7 @@ export interface PanelElements {
   showExplorerShim: ReturnType<Page['locator']>;
   showRightPanelShim: ReturnType<Page['locator']>;
   showConsoleShim: ReturnType<Page['locator']>;
-}
+};
 
 /**
  * Get all panel-related elements for testing
@@ -80,7 +80,7 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  * Waits for the main application content to be ready.
  * This is useful to ensure tests don't start before the UI is fully initialized.
  */
-export async function waitForAppLoad(page: Page, timeout = 10000) {
+export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // Wait for the app root to attach instead of relying on body text content
   await page.waitForSelector('#root', { state: 'attached', timeout });
   // Wait for the main layout structure to be present, regardless of panel visibility
@@ -140,7 +140,9 @@ export async function resizePanel(
   deltaY = 0
 ): Promise<void> {
   const handleBox = await resizeHandle.boundingBox();
-  if (!handleBox) throw new Error('Resize handle not found');
+  if (!handleBox) {
+    throw new Error('Resize handle not found');
+  }
 
   const startX = handleBox.x + handleBox.width / 2;
   const startY = handleBox.y + handleBox.height / 2;
@@ -166,7 +168,9 @@ export async function resizePanel(
     .waitForFunction(
       ({ selector, initial, isHorizontal }) => {
         const panel = document.querySelector(selector);
-        if (!panel) return false;
+        if (!panel) {
+          return false;
+        }
 
         const rect = panel.getBoundingClientRect();
         const currentDim = isHorizontal ? rect.width : rect.height;
@@ -352,22 +356,26 @@ export async function testPanelSizeConstraints(
   maxPercentage: number
 ): Promise<void> {
   const viewportSize = page.viewportSize();
-  if (!viewportSize) throw new Error('Viewport size not available');
+  if (!viewportSize) {
+    throw new Error('Viewport size not available');
+  }
 
   // Helper to wait for panel width to be non-zero
   const waitForPanelExpansion = async () => {
     await page.waitForFunction(
       (selector) => {
         const el = document.querySelector(selector);
-        if (!el) return false;
+        if (!el) {
+          return false;
+        }
         const rect = el.getBoundingClientRect();
         return rect.width > 0;
       },
-      await panel.evaluate((el) => {
-        return el.getAttribute('data-panel-id')
+      await panel.evaluate((el) =>
+        el.getAttribute('data-panel-id')
           ? `[data-panel-id="${el.getAttribute('data-panel-id')}"]`
-          : `#${el.id}`;
-      }),
+          : `#${el.id}`
+      ),
       { timeout: 5000 }
     );
   };
@@ -461,11 +469,11 @@ export async function clearAllStorage(page: Page): Promise<void> {
   });
 }
 
-interface DefaultLayoutState {
+type DefaultLayoutState = {
   leftPanelHidden?: boolean;
   rightPanelHidden?: boolean;
   consoleHidden?: boolean;
-}
+};
 
 /**
  * Verifies the default state of the layout.

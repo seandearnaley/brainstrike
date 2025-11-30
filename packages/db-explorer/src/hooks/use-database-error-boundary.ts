@@ -2,39 +2,39 @@ import type { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback } from 'react';
 
-export interface DatabaseErrorBoundaryOptions {
+export type DatabaseErrorBoundaryOptions = {
   toast: ReturnType<typeof useToast>['toast'];
   onError?: (error: Error) => void;
   fallbackMessage?: string;
-}
+};
 
 export type DatabaseOperation<T> = () => Promise<T>;
 
 // Types for multiple operations
-export interface DatabaseOperationItem<T = unknown> {
+export type DatabaseOperationItem<T = unknown> = {
   operation: DatabaseOperation<T>;
   name: string;
   critical?: boolean;
-}
+};
 
-export interface MultipleOperationsResult<T = unknown> {
+export type MultipleOperationsResult<T = unknown> = {
   results: (T | null)[];
   allSucceeded: boolean;
   failedCount: number;
-}
+};
 
-export interface ErrorCategories {
+export type ErrorCategories = {
   isNetworkError: boolean;
   isAuthError: boolean;
   isValidationError: boolean;
   isTransactionError: boolean;
   isDatabaseNotReady: boolean;
-}
+};
 
-export interface ClearOperationResult {
+export type ClearOperationResult = {
   deletedFiles: number;
   deletedChunks: number;
-}
+};
 
 const logger = createLogger('useDatabaseErrorBoundary');
 export const databaseErrorBoundaryLogger = logger;
@@ -45,15 +45,16 @@ export function useDatabaseErrorBoundary({
   fallbackMessage = 'An unexpected database error occurred',
 }: DatabaseErrorBoundaryOptions) {
   // Helper function to categorize errors
-  const categorizeError = useCallback((errorMessage: string): ErrorCategories => {
-    return {
+  const categorizeError = useCallback(
+    (errorMessage: string): ErrorCategories => ({
       isNetworkError: errorMessage.includes('network') || errorMessage.includes('connection'),
       isAuthError: errorMessage.includes('Unauthorized') || errorMessage.includes('permission'),
       isValidationError: errorMessage.includes('Invalid') || errorMessage.includes('required'),
       isTransactionError: errorMessage.includes('Transaction failed'),
       isDatabaseNotReady: errorMessage.includes('Database repositories not available'),
-    };
-  }, []);
+    }),
+    []
+  );
 
   // Helper function to get user-friendly error message
   const getUserFriendlyMessage = useCallback(
@@ -165,17 +166,21 @@ export function useDatabaseErrorBoundary({
   );
 
   // Helper function to check if result is a clear operation result
-  const isClearOperationResult = useCallback((result: unknown): result is ClearOperationResult => {
-    return Boolean(
-      result && typeof result === 'object' && 'deletedFiles' in result && 'deletedChunks' in result
-    );
-  }, []);
+  const isClearOperationResult = useCallback(
+    (result: unknown): result is ClearOperationResult =>
+      Boolean(
+        result &&
+          typeof result === 'object' &&
+          'deletedFiles' in result &&
+          'deletedChunks' in result
+      ),
+    []
+  );
 
   // Helper function to create description for clear operations
   const createClearOperationDescription = useCallback(
-    (result: ClearOperationResult, suffix = '') => {
-      return `Deleted ${result.deletedFiles} files and ${result.deletedChunks} chunks${suffix}.`;
-    },
+    (result: ClearOperationResult, suffix = '') =>
+      `Deleted ${result.deletedFiles} files and ${result.deletedChunks} chunks${suffix}.`,
     []
   );
 

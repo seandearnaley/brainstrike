@@ -7,7 +7,9 @@ export async function handleFilesystemList(
   rootDir: string
 ): Promise<unknown> {
   const resolved = await resolvePathWithinRoot(rootDir, params?.['path']);
-  if (!resolved.ok) return { error: resolved.error };
+  if (!resolved.ok) {
+    return { error: resolved.error };
+  }
   try {
     const entries = await fs.readdir(resolved.path, { withFileTypes: true });
     return entries.map((e) => ({ name: e.name, type: e.isDirectory() ? 'dir' : 'file' }));
@@ -21,7 +23,9 @@ export async function handleFilesystemRead(
   rootDir: string
 ): Promise<unknown> {
   const resolved = await resolvePathWithinRoot(rootDir, params?.['path']);
-  if (!resolved.ok) return { error: resolved.error };
+  if (!resolved.ok) {
+    return { error: resolved.error };
+  }
   const filePath = resolved.path;
   const encoding =
     (typeof params?.['encoding'] === 'string' ? (params['encoding'] as string) : 'utf8') || 'utf8';
@@ -33,7 +37,9 @@ export async function handleFilesystemRead(
       : 16 * 1024;
   try {
     const stat = await fs.stat(filePath);
-    if (stat.isDirectory()) return { error: 'path is a directory' };
+    if (stat.isDirectory()) {
+      return { error: 'path is a directory' };
+    }
     const fh = await fs.open(filePath, 'r');
     try {
       const size = stat.size;
@@ -57,9 +63,13 @@ export async function handleFilesystemSearch(
   rootDir: string
 ): Promise<unknown> {
   const q = typeof params?.['query'] === 'string' ? (params['query'] as string) : '';
-  if (!q) return { error: 'query is required' };
+  if (!q) {
+    return { error: 'query is required' };
+  }
   const start = await resolvePathWithinRoot(rootDir, params?.['path']);
-  if (!start.ok) return { error: start.error };
+  if (!start.ok) {
+    return { error: start.error };
+  }
   const root = start.path;
   const baseRoot = await fs.realpath(rootDir).catch(() => path.resolve(rootDir));
   const maxResultsRaw =
@@ -82,7 +92,9 @@ export async function handleFilesystemSearch(
   try {
     while (queue.length > 0 && results.length < maxResults) {
       const next = queue.shift();
-      if (!next) break;
+      if (!next) {
+        break;
+      }
       const { dir, depth } = next;
       let entries: import('node:fs').Dirent[] = [];
       try {
@@ -91,19 +103,31 @@ export async function handleFilesystemSearch(
         continue;
       }
       for (const e of entries) {
-        if (results.length >= maxResults) break;
+        if (results.length >= maxResults) {
+          break;
+        }
         const itemPath = path.join(dir, e.name);
-        if (ignore.has(e.name)) continue;
-        if (!isPathInsideRoot(baseRoot, path.resolve(itemPath))) continue;
-        if (e.isSymbolicLink?.()) continue;
-        if (e.isDirectory()) {
-          if (e.name.toLowerCase().includes(lcQuery))
-            results.push({ name: e.name, path: itemPath, type: 'dir' });
-          if (depth < maxDepth) queue.push({ dir: itemPath, depth: depth + 1 });
+        if (ignore.has(e.name)) {
           continue;
         }
-        if (e.name.toLowerCase().includes(lcQuery))
+        if (!isPathInsideRoot(baseRoot, path.resolve(itemPath))) {
+          continue;
+        }
+        if (e.isSymbolicLink?.()) {
+          continue;
+        }
+        if (e.isDirectory()) {
+          if (e.name.toLowerCase().includes(lcQuery)) {
+            results.push({ name: e.name, path: itemPath, type: 'dir' });
+          }
+          if (depth < maxDepth) {
+            queue.push({ dir: itemPath, depth: depth + 1 });
+          }
+          continue;
+        }
+        if (e.name.toLowerCase().includes(lcQuery)) {
           results.push({ name: e.name, path: itemPath, type: 'file' });
+        }
       }
     }
     return results;

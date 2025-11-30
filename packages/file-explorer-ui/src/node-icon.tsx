@@ -1,32 +1,32 @@
 import type { IFileNode } from '@brainstrike/types';
 import { File as FileIcon, Folder, FolderOpen, Loader2 } from 'lucide-react';
 
-interface NodeIconProps {
+type NodeIconProps = {
   node: IFileNode;
   isExpanded: boolean;
   isLoading: boolean;
-}
+};
 
 export function NodeIcon({ node, isExpanded, isLoading }: NodeIconProps) {
   if (isLoading) {
     return (
       <Loader2
-        size={16}
-        className="text-blue-500 dark:text-blue-400 animate-spin"
         aria-label={`Loading ${node.name}`}
+        className="animate-spin text-blue-500 dark:text-blue-400"
+        size={16}
       />
     );
   }
 
   if (node.type === 'file') {
-    return <FileIcon size={16} className="text-gray-500 dark:text-gray-400" />;
+    return <FileIcon className="text-gray-500 dark:text-gray-400" size={16} />;
   }
 
   if (node.type === 'directory') {
     return isExpanded ? (
-      <FolderOpen size={16} className="text-blue-500 dark:text-blue-400" />
+      <FolderOpen className="text-blue-500 dark:text-blue-400" size={16} />
     ) : (
-      <Folder size={16} className="text-blue-500 dark:text-blue-400" />
+      <Folder className="text-blue-500 dark:text-blue-400" size={16} />
     );
   }
 

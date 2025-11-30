@@ -10,14 +10,14 @@ import type { StoreApi, UseBoundStore } from 'zustand';
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
 
-export interface SettingsActions {
+export type SettingsActions = {
   setFilters: (include: readonly string[], exclude: readonly string[]) => void;
   setUseRegex: (useRegex: boolean) => void;
   setIncludeProjectTree: (value: boolean) => void;
   setFolderSummaryThreshold: (value: number) => void;
   setMaxSelectionCount: (count: number) => void; // Note: Moved from folder-state-actions
   setLastActiveTab: (tab: string) => void; // Note: Moved from folder-state-actions
-}
+};
 
 export const createSettingsActions = (
   set: SetState<FileExplorerState>,

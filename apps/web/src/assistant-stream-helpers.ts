@@ -37,7 +37,7 @@ export async function handleChatEndpoint(
   res: http.ServerResponse
 ): Promise<void> {
   const provider = resolveAssistantProviderConfig();
-  if (!provider.enabled || !provider.apiKey) {
+  if (!(provider.enabled && provider.apiKey)) {
     sendAssistantDisabledResponse(res, provider);
     return;
   }
@@ -87,7 +87,7 @@ export async function handleAssistantEndpoint(
   body: { messages?: unknown; data?: unknown }
 ): Promise<void> {
   const provider = resolveAssistantProviderConfig();
-  if (!provider.enabled || !provider.apiKey) {
+  if (!(provider.enabled && provider.apiKey)) {
     sendAssistantDisabledResponse(res, provider);
     return;
   }
@@ -185,9 +185,11 @@ function assistantStatusPayload(provider: AssistantProviderConfig): {
 
 function readLastEventId(req: http.IncomingMessage): string | undefined {
   const header = req.headers['last-event-id'];
-  if (!header) return undefined;
+  if (!header) {
+    return;
+  }
   if (Array.isArray(header)) {
-    return header[header.length - 1];
+    return header.at(-1);
   }
   return header;
 }
@@ -221,7 +223,7 @@ async function pipeStreamToResponse(
   signal: AbortSignal
 ): Promise<void> {
   try {
-    while (!signal.aborted && !res.destroyed) {
+    while (!(signal.aborted || res.destroyed)) {
       const { done, value } = await reader.read();
       if (done || signal.aborted || res.destroyed) {
         break;
@@ -231,7 +233,7 @@ async function pipeStreamToResponse(
       }
     }
   } catch (error) {
-    if (!signal.aborted && !res.destroyed) {
+    if (!(signal.aborted || res.destroyed)) {
       logger.error('Failed to stream assistant response', { error });
     }
   }

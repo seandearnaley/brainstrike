@@ -7,9 +7,13 @@ import { PreviewPanel } from '../preview-panel';
 vi.mock('../use-preview-panel-state', () => ({
   usePreviewPanelState: vi.fn(),
   formatTokenCount: (tokens: number) => {
-    if (tokens < 1000) return tokens.toString();
-    if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`;
-    return `${(tokens / 1000000).toFixed(1)}M`;
+    if (tokens < 1000) {
+      return tokens.toString();
+    }
+    if (tokens < 1_000_000) {
+      return `${(tokens / 1000).toFixed(1)}K`;
+    }
+    return `${(tokens / 1_000_000).toFixed(1)}M`;
   },
 }));
 
@@ -18,28 +22,28 @@ const mockUsePreviewPanelState = vi.mocked(
 ).usePreviewPanelState;
 
 // Mock UI component types
-interface MockBadgeProps {
+type MockBadgeProps = {
   children: React.ReactNode;
   [key: string]: unknown;
-}
+};
 
-interface MockButtonProps {
+type MockButtonProps = {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   [key: string]: unknown;
-}
+};
 
-interface MockCheckboxProps {
+type MockCheckboxProps = {
   checked?: boolean;
   onCheckedChange?: (checked: boolean) => void;
   [key: string]: unknown;
-}
+};
 
-interface MockProgressProps {
+type MockProgressProps = {
   value?: number;
   [key: string]: unknown;
-}
+};
 
 // Mock UI components with more realistic behavior
 vi.mock('@brainstrike/ui', () => ({
@@ -49,16 +53,16 @@ vi.mock('@brainstrike/ui', () => ({
     </div>
   ),
   Button: ({ children, onClick, disabled, ...props }: MockButtonProps) => (
-    <button onClick={onClick} disabled={disabled} data-testid="button" {...props}>
+    <button data-testid="button" disabled={disabled} onClick={onClick} {...props}>
       {children}
     </button>
   ),
   Checkbox: ({ checked, onCheckedChange, ...props }: MockCheckboxProps) => (
     <input
-      type="checkbox"
       checked={checked}
-      onChange={(e) => onCheckedChange?.(e.target.checked)}
       data-testid="checkbox"
+      onChange={(e) => onCheckedChange?.(e.target.checked)}
+      type="checkbox"
       {...props}
     />
   ),
@@ -76,7 +80,7 @@ vi.mock('@brainstrike/ui', () => ({
     onOpenChange?: (open: boolean) => void;
     [key: string]: unknown;
   }) => (
-    <div data-testid="popover" data-open={open} {...props}>
+    <div data-open={open} data-testid="popover" {...props}>
       {children}
     </div>
   ),
@@ -104,7 +108,7 @@ vi.mock('@brainstrike/ui', () => ({
     className?: string;
     [key: string]: unknown;
   }) => (
-    <div data-testid="popover-content" data-align={align} className={className} {...props}>
+    <div className={className} data-align={align} data-testid="popover-content" {...props}>
       {children}
     </div>
   ),
@@ -150,10 +154,10 @@ vi.mock('@brainstrike/ui', () => ({
     return (
       <th
         aria-label={title}
+        className={className}
         data-testid="sortable-header"
         onClick={handleClick}
         onKeyDown={handleKeyDown}
-        className={className}
         scope="col"
         tabIndex={0}
         {...domProps}
@@ -210,9 +214,9 @@ vi.mock('@brainstrike/ui', () => ({
     return (
       <div data-testid="table-pagination" {...domProps}>
         <button
-          type="button"
-          onClick={() => onPageChange?.(currentPage - 1)}
           disabled={currentPage === 0}
+          onClick={() => onPageChange?.(currentPage - 1)}
+          type="button"
         >
           Previous
         </button>
@@ -224,18 +228,18 @@ vi.mock('@brainstrike/ui', () => ({
           {getPageNumbers().map((pageNum) => (
             <button
               key={pageNum}
-              type="button"
               onClick={() => onPageChange?.(pageNum)}
               style={{ margin: '0 2px' }}
+              type="button"
             >
               {pageNum + 1}
             </button>
           ))}
         </div>
         <button
-          type="button"
-          onClick={() => onPageChange?.(currentPage + 1)}
           disabled={currentPage >= totalPages - 1}
+          onClick={() => onPageChange?.(currentPage + 1)}
+          type="button"
         >
           Next
         </button>
@@ -270,17 +274,17 @@ vi.mock('@brainstrike/ui', () => ({
     <tr data-testid="table-group-header" {...domProps}>
       <td>
         <input
-          type="checkbox"
-          onChange={(e) => onSelectionChange?.(e.target.checked)}
           aria-label={`Select all files in group ${groupLabel}`}
+          onChange={(e) => onSelectionChange?.(e.target.checked)}
+          type="checkbox"
         />
       </td>
       <td>
         <button
-          type="button"
-          onClick={onToggleCollapse}
-          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
           aria-expanded={!isCollapsed}
+          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
+          onClick={onToggleCollapse}
+          type="button"
         >
           {groupLabel}
         </button>
@@ -301,11 +305,11 @@ vi.mock('@brainstrike/hooks', () => {
       const prevTotalPagesRef = useRef(totalPages);
 
       // Reset to first page when total pages decreases or current page is out of bounds
+      // biome-ignore lint/plugin: Intentional state reset on bounds change - matches real hook behavior
       useEffect(() => {
         if (prevTotalPagesRef.current !== totalPages) {
           const prev = prevTotalPagesRef.current;
           prevTotalPagesRef.current = totalPages;
-          // If the page count shrank, snap back to first page to minimize surprises
           if ((prev > totalPages || currentPage >= totalPages) && totalPages > 0) {
             setCurrentPage(0);
           }
@@ -401,7 +405,9 @@ describe('PreviewPanel Integration Tests', () => {
     handleDeselectAll: vi.fn(),
     isAllFilesSelected: false,
     formatFileSize: vi.fn((bytes?: number) => {
-      if (bytes === undefined) return 'Unknown';
+      if (bytes === undefined) {
+        return 'Unknown';
+      }
       const units = ['B', 'KB', 'MB', 'GB'];
       let size = bytes;
       let unitIndex = 0;

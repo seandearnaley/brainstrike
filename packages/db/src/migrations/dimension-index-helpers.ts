@@ -6,10 +6,10 @@ import type { PGlite } from '@electric-sql/pglite';
  * multiple embedding dimensions in a single dimensionless VECTOR column.
  */
 
-interface HnswParams {
+type HnswParams = {
   m: number;
   ef: number;
-}
+};
 
 /**
  * Read HNSW tuning parameters from environment variables.

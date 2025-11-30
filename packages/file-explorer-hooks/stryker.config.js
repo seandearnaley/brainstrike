@@ -15,7 +15,7 @@ const config = {
   coverageAnalysis: 'perTest',
   concurrency: 2,
   reporters: ['html', 'clear-text', 'progress'],
-  timeoutMS: 120000,
+  timeoutMS: 120_000,
   htmlReporter: {
     fileName: 'reports/mutation/file-explorer-hooks/index.html',
   },

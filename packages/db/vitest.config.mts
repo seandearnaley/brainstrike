@@ -27,8 +27,8 @@ export default defineConfig({
           pool: 'threads',
           // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
           maxWorkers: 1,
-          hookTimeout: 10000,
-          testTimeout: 10000,
+          hookTimeout: 10_000,
+          testTimeout: 10_000,
         },
       },
       {
@@ -58,8 +58,8 @@ export default defineConfig({
             // Capture screenshots on failure for quick visual debugging
             screenshotFailures: true,
           },
-          testTimeout: 30000,
-          hookTimeout: 30000,
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
         },
       },
     ],

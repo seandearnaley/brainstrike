@@ -1,7 +1,7 @@
 import type { Page } from 'playwright';
 
 export class HomePage {
-  constructor(private page: Page) {}
+  constructor(private readonly page: Page) {}
 
   // Locators
   get appTitle() {
@@ -43,7 +43,7 @@ export class HomePage {
     // Wait for loading indicator to disappear if present
     const loadingElement = this.loadingIndicator;
     if (await loadingElement.isVisible().catch(() => false)) {
-      await loadingElement.waitFor({ state: 'hidden', timeout: 10000 });
+      await loadingElement.waitFor({ state: 'hidden', timeout: 10_000 });
     }
 
     // Give the app a moment to fully initialize

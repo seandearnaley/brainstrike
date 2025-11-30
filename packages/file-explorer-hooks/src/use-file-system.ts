@@ -7,9 +7,9 @@ import { isUserCancellation, mapFileSystemError } from './file-system-error-help
 
 const logger = createLogger('FileSystemHook');
 
-interface UseFileSystemParams {
+type UseFileSystemParams = {
   setCurrentFolderId: FileExplorerState['setCurrentFolderId'];
-}
+};
 
 type FileSystemState = {
   rootDirectoryHandle: DirectoryHandle | null;
@@ -46,7 +46,9 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
     const hasWebAPI =
       typeof (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
     const hasAdapterAPI = typeof fileSystemAdapter?.requestDirectoryAccess === 'function';
-    if (hasWebAPI || hasAdapterAPI) return { supported: true, reason: '' };
+    if (hasWebAPI || hasAdapterAPI) {
+      return { supported: true, reason: '' };
+    }
     return { supported: false, reason: 'File system access not supported in this environment' };
   }, [fileSystemAdapter]);
 
@@ -92,7 +94,9 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
         const restoreFn = (
           fileSystemAdapter as { restoreLastFolder?: () => Promise<DirectoryHandle | null> }
         ).restoreLastFolder;
-        if (!restoreFn) return;
+        if (!restoreFn) {
+          return;
+        }
         const restored = await restoreFn();
         if (restored) {
           dispatch({ type: 'setRoot', handle: restored });

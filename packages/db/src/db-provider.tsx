@@ -32,7 +32,7 @@ type QueryExecutor = {
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 };
 
-interface DbContextValue {
+type DbContextValue = {
   fileRecordRepository: FileRecordRepository | ElectronFileRecordRepository | null;
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
   error: Error | null;
@@ -43,13 +43,13 @@ interface DbContextValue {
   vectorEnabled: boolean; // Whether pgvector extension is available
   factoryReset: () => Promise<void>; // Close DB, wipe state, reinitialize
   clearQueuesAndEmbeddingSets: () => Promise<void>; // Helper to purge job_queue and embedding_sets
-}
+};
 
-interface DbProviderProps {
+type DbProviderProps = {
   children: React.ReactNode;
   dbPath?: string;
   useElectronIPC?: boolean;
-}
+};
 
 export function getDefaultDbPath() {
   const isBrowser = typeof window !== 'undefined';
@@ -79,7 +79,9 @@ const DbContext = createContext<DbContextValue | undefined>(undefined);
 
 /** Clear active embedding set ID from localStorage to prevent stale collection references */
 function clearActiveEmbeddingSetIdFromStorage(): void {
-  if (typeof localStorage === 'undefined') return;
+  if (typeof localStorage === 'undefined') {
+    return;
+  }
   try {
     localStorage.removeItem('brainstrike.activeEmbeddingSetId');
     logger.info('[DbProvider] Cleared active embedding set ID from localStorage');
@@ -102,9 +104,7 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
     const tx = executor.transaction;
     const transactionWrapper: DbHandle['transaction'] = async <T,>(
       fn: (txHandle: DbHandle) => Promise<T>
-    ) => {
-      return tx.call(executor, async (inner) => fn(createDbHandle(inner))) as Promise<T>;
-    };
+    ) => tx.call(executor, async (inner) => fn(createDbHandle(inner))) as Promise<T>;
     handle.transaction = transactionWrapper;
   }
 
@@ -136,7 +136,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const initializingPromiseRef = useRef<Promise<void> | null>(null);
 
   const testElectronConnection = useCallback(async (electronDB: ElectronDatabaseAPI) => {
-    if (!electronDB.test) return;
+    if (!electronDB.test) {
+      return;
+    }
 
     try {
       const testResult = await electronDB.test();
@@ -300,24 +302,19 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
     return () => {
       const db = dbRef.current;
-      if (db) {
-        if (!isDevEnv()) {
-          setTimeout(() => {
-            const closeResult = db.close();
-            if (closeResult && typeof (closeResult as Promise<unknown>).catch === 'function') {
-              (closeResult as Promise<void>).catch((err) => {
-                const errorMessage = err?.message || '';
-                if (
-                  !errorMessage.includes('closed') &&
-                  !errorMessage.includes('PGlite is closed')
-                ) {
-                  logger.error('Failed to close database:', err);
-                }
-              });
-            }
-          }, 0);
-          dbRef.current = null;
-        }
+      if (db && !isDevEnv()) {
+        setTimeout(() => {
+          const closeResult = db.close();
+          if (closeResult && typeof (closeResult as Promise<unknown>).catch === 'function') {
+            (closeResult as Promise<void>).catch((err) => {
+              const errorMessage = err?.message || '';
+              if (!(errorMessage.includes('closed') || errorMessage.includes('PGlite is closed'))) {
+                logger.error('Failed to close database:', err);
+              }
+            });
+          }
+        }, 0);
+        dbRef.current = null;
       }
       initializingRef.current = false;
     };
@@ -434,7 +431,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const tryElectronHardReset = useCallback(async (): Promise<boolean> => {
     // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
     const w = (typeof window !== 'undefined' ? (window as any) : null) as any;
-    if (!(useElectronIPC && w?.electronAPI?.db)) return false;
+    if (!(useElectronIPC && w?.electronAPI?.db)) {
+      return false;
+    }
     try {
       await w.electronAPI.db.clearAll?.('CONFIRM_CLEAR_DATABASE');
     } catch (err) {
@@ -454,7 +453,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, [useElectronIPC]);
 
   const purgeAndClosePGlite = useCallback(async () => {
-    if (!dbRef.current) return;
+    if (!dbRef.current) {
+      return;
+    }
     try {
       await dbRef.current.transaction(async (tx) => {
         await purgeTablesTx(tx);
@@ -540,10 +541,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const resetPGliteState = useCallback(async () => {
     // Purge and close if database exists
-    if (!dbRef.current) {
-      logger.warn('[DbProvider] No active database to purge during factory reset');
-    } else {
+    if (dbRef.current) {
       await purgeAndClosePGlite();
+    } else {
+      logger.warn('[DbProvider] No active database to purge during factory reset');
     }
 
     // Reset all state
@@ -635,7 +636,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           }
           // If IPC not available despite flag, fall through to local path
         }
-        if (!dbRef.current) return;
+        if (!dbRef.current) {
+          return;
+        }
         await dbRef.current.transaction(async (tx) => {
           await purgeQueuesAndSetsTx(tx);
         });
@@ -771,7 +774,9 @@ export function useFactoryReset(): (() => Promise<void>) | null {
       });
     }
   }, [ctx]);
-  if (!ctx) return null;
+  if (!ctx) {
+    return null;
+  }
   return ctx.ready && !ctx.error ? ctx.factoryReset : null;
 }
 
@@ -784,6 +789,8 @@ export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
       });
     }
   }, [ctx]);
-  if (!ctx) return null;
+  if (!ctx) {
+    return null;
+  }
   return ctx.ready && !ctx.error ? ctx.clearQueuesAndEmbeddingSets : null;
 }

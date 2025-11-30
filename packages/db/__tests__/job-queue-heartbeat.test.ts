@@ -8,7 +8,6 @@ describe('JobQueue Heartbeat Split Brain', () => {
 
   beforeEach(async () => {
     const pglite = await wasmLoader.createPGlite('memory://heartbeat-test');
-    // biome-ignore lint/suspicious/noExplicitAny: PGlite type mismatch with migration runner
     await migrate(pglite as any);
     db = pglite as unknown as IDatabase;
     jq = new JobQueue(db);
@@ -29,7 +28,9 @@ describe('JobQueue Heartbeat Split Brain', () => {
       leaseMs: 1000,
     });
     expect(jobA).toBeDefined();
-    if (!jobA) return;
+    if (!jobA) {
+      return;
+    }
 
     // 3. Manually expire the lease (simulate stall)
     await db.query(

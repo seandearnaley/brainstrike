@@ -27,7 +27,7 @@ export default {
   ],
 
   // Timeout and retry settings
-  timeout: 30000,
+  timeout: 30_000,
   retries: 0, // Don't retry during merge
 
   // Basic test configuration

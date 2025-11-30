@@ -153,12 +153,12 @@ describe('MemoryStorageAdapter', () => {
     });
 
     it('should handle large amounts of data', async () => {
-      const largeData = 'x'.repeat(10000);
+      const largeData = 'x'.repeat(10_000);
       await adapter.setItem('large-key', largeData);
 
       const result = await adapter.getItem('large-key');
       expect(result).toBe(largeData);
-      expect(result?.length).toBe(10000);
+      expect(result?.length).toBe(10_000);
     });
   });
 

@@ -33,7 +33,7 @@ describe('IdeLayout Phase 2 strictness', () => {
 
     expect(() =>
       render(
-        <IdeLayout leftPanelContent={<div />} rightPanelContent={<div />} consoleContent={<div />}>
+        <IdeLayout consoleContent={<div />} leftPanelContent={<div />} rightPanelContent={<div />}>
           <div>Content</div>
         </IdeLayout>
       )

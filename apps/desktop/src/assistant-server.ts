@@ -18,19 +18,19 @@ type StreamChunk = AgentModule['StreamChunk'];
 type McpConfig = AgentModule['McpConfig'];
 
 type AssistantRoute = 'status' | 'assistant' | 'not-found';
-interface AssistantRequestPayload {
+type AssistantRequestPayload = {
   rawMessages: AssistantUiMessage[];
   data: RuntimeData | undefined;
-}
-interface AgentStreamSuccess {
+};
+type AgentStreamSuccess = {
   ok: true;
   stream: AsyncIterable<StreamChunk>;
-}
-interface AgentStreamFailure {
+};
+type AgentStreamFailure = {
   ok: false;
   status: number;
   payload: { error: string; message: string };
-}
+};
 type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 
 import { readRequestBody, streamResponse } from './assistant-server/http';
@@ -181,7 +181,7 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
 function resolveRequestedProvider(data: RuntimeData | undefined): string | undefined {
   const raw = typeof data?.provider === 'string' ? data.provider.trim() : '';
   if (!raw) {
-    return undefined;
+    return;
   }
 
   const normalized = raw.toLowerCase();
@@ -190,7 +190,7 @@ function resolveRequestedProvider(data: RuntimeData | undefined): string | undef
 
 async function resolveProviderApiKey(provider: string): Promise<string | undefined> {
   if (!isSupportedProvider(provider)) {
-    return undefined;
+    return;
   }
 
   const supportedProvider = provider as SupportedProvider;
@@ -207,7 +207,7 @@ async function resolveProviderApiKey(provider: string): Promise<string | undefin
     return storedKey;
   }
 
-  return undefined;
+  return;
 }
 
 async function collectAvailableProviders(): Promise<string[]> {
@@ -247,7 +247,7 @@ function registerRequestAbort(req: http.IncomingMessage): {
 }
 
 function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
-  const lastUser = messages.length > 0 ? messages[messages.length - 1] : undefined;
+  const lastUser = messages.length > 0 ? messages.at(-1) : undefined;
   const lastText =
     lastUser?.parts.find((part: AgentMessage['parts'][number]) => part.type === 'text')?.text ?? '';
   return Boolean(lastText && lastText.trim().length > 0);
@@ -255,9 +255,11 @@ function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
 
 function readLastEventId(req: http.IncomingMessage): string | undefined {
   const header = req.headers['last-event-id'];
-  if (!header) return undefined;
+  if (!header) {
+    return;
+  }
   if (Array.isArray(header)) {
-    return header[header.length - 1];
+    return header.at(-1);
   }
   return header;
 }

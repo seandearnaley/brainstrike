@@ -6,9 +6,9 @@ const writeFileSync = vi.fn();
 const readFileSync = vi.fn();
 const statSync = vi.fn(() => ({ size: 10 }));
 vi.mock('node:fs', () => ({
-  readFileSync: readFileSync,
-  writeFileSync: writeFileSync,
-  statSync: statSync,
+  readFileSync,
+  writeFileSync,
+  statSync,
 }));
 
 // Mock glob to return a synthetic list
@@ -62,8 +62,12 @@ describe('CodeEmbeddingCLI basics', () => {
 
     // stub reads for two files
     readFileSync.mockImplementation((p: string) => {
-      if (String(p).endsWith('a.ts')) return 'console.log(1)';
-      if (String(p).endsWith('b.ts')) return 'console.log(2)';
+      if (String(p).endsWith('a.ts')) {
+        return 'console.log(1)';
+      }
+      if (String(p).endsWith('b.ts')) {
+        return 'console.log(2)';
+      }
       return '';
     });
 

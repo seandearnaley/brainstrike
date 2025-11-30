@@ -3,28 +3,28 @@ import type { MastraAgentRuntimeOptions } from './mastra/agent-runtime';
 import { streamMastraAgent } from './mastra/agent-runtime';
 import type { McpConfig } from './mcp/config';
 
-export interface AgentMessagePartText {
+export type AgentMessagePartText = {
   type: 'text';
   text: string;
-}
-export interface AgentMessagePartTool {
+};
+export type AgentMessagePartTool = {
   type: `tool-${string}`;
   state: 'input-available' | 'input-streaming' | 'output-available' | 'output-error';
   input?: unknown;
   output?: unknown;
   errorText?: string;
-}
+};
 export type AgentMessagePart = AgentMessagePartText | AgentMessagePartTool;
 
-export interface AgentMessage {
+export type AgentMessage = {
   id: string;
   role: 'user' | 'assistant' | 'system';
   parts: AgentMessagePart[];
-}
+};
 
 export type AssistantUiScalar = string | number | bigint | boolean | null;
 
-export interface AssistantUiNodeObject {
+export type AssistantUiNodeObject = {
   text?: AssistantUiScalar;
   value?: AssistantUiScalar;
   content?: AssistantUiNode;
@@ -35,28 +35,28 @@ export interface AssistantUiNodeObject {
   message?: AssistantUiNode;
   messages?: AssistantUiNode;
   [key: string]: AssistantUiScalar | AssistantUiNode | undefined;
-}
+};
 
 export type AssistantUiNode =
   | AssistantUiScalar
   | AssistantUiNodeObject
-  | ReadonlyArray<AssistantUiNode>;
+  | readonly AssistantUiNode[];
 
 // Recommended stricter message shape for first‑party API boundaries.
-export interface AssistantUiMessageStrict {
+export type AssistantUiMessageStrict = {
   id?: string | undefined;
   role?: 'user' | 'assistant' | 'system' | undefined;
   text?: string | undefined;
-}
+};
 
 // Assistant UI input message (intentionally permissive; normalized at runtime)
-export interface AssistantUiMessage {
+export type AssistantUiMessage = {
   id?: string | number | null;
   role?: string | null;
   text?: AssistantUiScalar | undefined;
   content?: AssistantUiNode;
   parts?: AssistantUiNode;
-}
+};
 
 type NormalizedRole = 'user' | 'assistant' | 'system';
 
@@ -118,7 +118,9 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
   ]);
 
   const pushScalar = (value: AssistantUiScalar | undefined) => {
-    if (value === null || value === undefined) return;
+    if (value === null || value === undefined) {
+      return;
+    }
     if (typeof value === 'string') {
       pushText(value);
       return;
@@ -132,17 +134,14 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
     }
   };
 
-  const isScalarValue = (value: AssistantUiNode | undefined): value is AssistantUiScalar => {
-    return (
-      value === null ||
-      typeof value === 'string' ||
-      typeof value === 'number' ||
-      typeof value === 'bigint' ||
-      typeof value === 'boolean'
-    );
-  };
+  const isScalarValue = (value: AssistantUiNode | undefined): value is AssistantUiScalar =>
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'bigint' ||
+    typeof value === 'boolean';
 
-  const visitArray = (nodes: ReadonlyArray<AssistantUiNode>): void => {
+  const visitArray = (nodes: readonly AssistantUiNode[]): void => {
     for (const item of nodes) {
       visit(item);
     }
@@ -166,7 +165,9 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
     visit(record.messages);
 
     for (const [key, nested] of Object.entries(record)) {
-      if (knownObjectKeys.has(key)) continue;
+      if (knownObjectKeys.has(key)) {
+        continue;
+      }
       if (isScalarValue(nested as AssistantUiNode | undefined)) {
         pushScalar(nested as AssistantUiScalar | undefined);
       } else {
@@ -176,7 +177,9 @@ function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStri
   };
 
   const visit = (value: AssistantUiNode | undefined): void => {
-    if (value == null) return;
+    if (value === null || value === undefined) {
+      return;
+    }
     if (isScalarValue(value)) {
       pushScalar(value);
       return;
@@ -202,23 +205,27 @@ function toAgentMessage(
   message: AssistantUiMessage | AssistantUiMessageStrict | null | undefined,
   fallbackRole?: NormalizedRole
 ): AgentMessage | null {
-  if (!message) return null;
+  if (!message) {
+    return null;
+  }
   const segments = extractTextSegments(message);
-  if (segments.length === 0) return null;
+  if (segments.length === 0) {
+    return null;
+  }
   const role = normalizeRole(message.role, fallbackRole);
-  if (!role) return null;
+  if (!role) {
+    return null;
+  }
   return {
     id: ensureMessageId(message.id),
     role,
     parts: segments.map((text) => ({ type: 'text', text }) satisfies AgentMessagePartText),
   } satisfies AgentMessage;
 }
-
 export function convertAssistantUiMessages(
-  messages: ReadonlyArray<AssistantUiMessageStrict | null | undefined>
-): AgentMessage[];
-export function convertAssistantUiMessages(
-  messages: ReadonlyArray<AssistantUiMessage | null | undefined>
+  messages:
+    | ReadonlyArray<AssistantUiMessage | null | undefined>
+    | ReadonlyArray<AssistantUiMessageStrict | null | undefined>
 ): AgentMessage[];
 export function convertAssistantUiMessages(
   messages: ReadonlyArray<AssistantUiMessage | AssistantUiMessageStrict | null | undefined>
@@ -233,12 +240,12 @@ export function convertAssistantUiMessages(
   if (converted.length > 0) {
     return converted;
   }
-  const last = messages.length > 0 ? messages[messages.length - 1] : undefined;
+  const last = messages.length > 0 ? messages.at(-1) : undefined;
   const fallback = toAgentMessage(last ?? null, 'user');
   return fallback ? [fallback] : [];
 }
 
-export interface RuntimeData {
+export type RuntimeData = {
   projectId?: string;
   /** AI provider to use. Defaults to 'openai' if not specified. */
   provider?: 'openai' | 'anthropic' | 'google' | 'openrouter' | string;
@@ -256,28 +263,28 @@ export interface RuntimeData {
   mastraTools?: ToolsInput;
   /** API key for the specified provider. Falls back to environment variables if not provided. */
   apiKey?: string;
-}
+};
 
-export interface StreamChunkText {
+export type StreamChunkText = {
   type: 'text-delta';
   value: string;
-}
-export interface StreamChunkTool {
+};
+export type StreamChunkTool = {
   type: 'tool-event';
   name: string;
   status: 'start' | 'progress' | 'success' | 'error';
   payload?: unknown;
-}
-export interface StreamChunkFinish {
+};
+export type StreamChunkFinish = {
   type: 'finish';
   usage: { promptTokens: number; completionTokens: number };
-}
-export interface StreamChunkMessageFinish {
+};
+export type StreamChunkMessageFinish = {
   type: 'message-finish';
   finishReason: 'stop';
   usage: { promptTokens: number; completionTokens: number };
-  path: ReadonlyArray<number>;
-}
+  path: readonly number[];
+};
 export type StreamChunk =
   | StreamChunkText
   | StreamChunkTool

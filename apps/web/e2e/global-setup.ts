@@ -63,7 +63,9 @@ async function globalSetup() {
 
   try {
     // Only try to find running server if we're not in CI
-    if (!process.env[ciEnv]) {
+    if (process.env[ciEnv]) {
+      log('Running in CI environment, skipping server detection');
+    } else {
       const runningPort = await findRunningDevServer();
       if (runningPort) {
         process.env[baseUrlEnv] = getBaseUrl(runningPort);
@@ -73,8 +75,6 @@ async function globalSetup() {
         // Don't throw error - let the webServer config handle it
         // No need to set a default - let playwright.config.ts handle it
       }
-    } else {
-      log('Running in CI environment, skipping server detection');
     }
   } catch (error) {
     log(`Error in global setup: ${error}`, 'error');

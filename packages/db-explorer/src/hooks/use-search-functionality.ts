@@ -178,7 +178,9 @@ export function useSearchFunctionality(
   async function performRepositorySearch(
     embedding: number[]
   ): Promise<Array<{ chunk: FileChunk; similarity: number }>> {
-    if (!chunkRepository) return [];
+    if (!chunkRepository) {
+      return [];
+    }
     const options = buildSearchOptions(searchThreshold);
     const repoResults = await chunkRepository.searchSimilar(embedding, options);
     return Array.isArray(repoResults) ? repoResults : [];
@@ -226,7 +228,7 @@ export function useSearchFunctionality(
   );
 
   const handleSearch = useCallback(async () => {
-    if (!searchQuery.trim() || !chunkRepository) {
+    if (!(searchQuery.trim() && chunkRepository)) {
       return;
     }
     setSearching(true);
@@ -305,21 +307,37 @@ function tokenize(text: string): Set<string> {
 }
 
 function lexicalOverlapScore(queryTokens: Set<string>, doc: string): number {
-  if (!doc) return 0;
+  if (!doc) {
+    return 0;
+  }
   const docTokens = tokenize(doc);
-  if (docTokens.size === 0) return 0;
+  if (docTokens.size === 0) {
+    return 0;
+  }
   let overlap = 0;
-  for (const t of queryTokens) if (docTokens.has(t)) overlap++;
+  for (const t of queryTokens) {
+    if (docTokens.has(t)) {
+      overlap++;
+    }
+  }
   // Jaccard-like score
   return overlap / (queryTokens.size + docTokens.size - overlap);
 }
 
 function isLikelyCodeQuery(text: string): boolean {
   const t = String(text || '').toLowerCase();
-  if (!t) return false;
-  if (/\b(import|export|class|function|const|let|var|interface|type|enum)\b/.test(t)) return true;
-  if (/[{}();.=<>[\]]/.test(t)) return true;
-  if (/\w+\s*\(.*\)/.test(t)) return true; // looks like a call or signature
+  if (!t) {
+    return false;
+  }
+  if (/\b(import|export|class|function|const|let|var|interface|type|enum)\b/.test(t)) {
+    return true;
+  }
+  if (/[{}();.=<>[\]]/.test(t)) {
+    return true;
+  }
+  if (/\w+\s*\(.*\)/.test(t)) {
+    return true; // looks like a call or signature
+  }
   return false;
 }
 
@@ -330,7 +348,9 @@ function getDefaultSearchThreshold(): number {
     // Vite-style
     // biome-ignore lint/suspicious/noExplicitAny: env access differs across runtimes
     const viteEnv = (import.meta as any)?.env?.VITE_SEARCH_DEFAULT_THRESHOLD;
-    if (viteEnv !== undefined) raw = viteEnv;
+    if (viteEnv !== undefined) {
+      raw = viteEnv;
+    }
   } catch {}
   if (raw === undefined) {
     try {
@@ -344,7 +364,9 @@ function getDefaultSearchThreshold(): number {
     } catch {}
   }
   const n = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw);
-  if (Number.isFinite(n)) return Math.min(1, Math.max(0, n));
+  if (Number.isFinite(n)) {
+    return Math.min(1, Math.max(0, n));
+  }
   // Fallback: conservative default; store persistence may override on mount
   return 0.5;
 }

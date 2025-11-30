@@ -49,7 +49,9 @@ export async function callTool(
 ): Promise<unknown> {
   const clientName = tool.includes('.') ? tool.slice(0, tool.indexOf('.')) : tool;
   const client = clients.get(clientName) || clients.get(clientName.toLowerCase());
-  if (!client) throw new Error(`No MCP client registered for '${clientName}'`);
+  if (!client) {
+    throw new Error(`No MCP client registered for '${clientName}'`);
+  }
   return client.callTool(tool, params, opts);
 }
 

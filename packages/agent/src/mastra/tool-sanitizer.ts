@@ -48,7 +48,9 @@ export function sanitizeTools(
   tools: ToolsInput | undefined,
   map: Map<string, string>
 ): ToolsInput | undefined {
-  if (!tools) return undefined;
+  if (!tools) {
+    return;
+  }
 
   const sanitized: ToolsInput = {};
   const usedNames = new Set<string>(map.keys());

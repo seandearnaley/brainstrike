@@ -9,9 +9,9 @@ import { useSelectionManager as useCoreSelectionManager } from '@brainstrike/fil
 import { useCallback, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
-interface UseSelectionManagerProps {
+type UseSelectionManagerProps = {
   onSelectionLimitExceeded: () => void;
-}
+};
 
 export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionManagerProps) => {
   const store = useFileExplorerStoreContext();

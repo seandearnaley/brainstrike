@@ -3,36 +3,40 @@ import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TokenCountingState } from './use-token-counting';
 
-export interface FileItem {
+export type FileItem = {
   compositeKey: string;
   folderId: string;
   path: string;
   size?: number;
   tokens?: number;
   type: 'file';
-}
+};
 
-export interface FolderHeaderItem {
+export type FolderHeaderItem = {
   folderId: string;
   type: 'folder-header';
   fileCount: number;
   totalTokens: number;
-}
+};
 
 export type ListItem = FileItem | FolderHeaderItem;
 
-interface SortConfig {
+type SortConfig = {
   key: string;
   direction: 'asc' | 'desc';
-}
+};
 
 export function formatTokenCount(tokens: number): string {
-  if (tokens < 1000) return tokens.toString();
-  if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`;
-  return `${(tokens / 1000000).toFixed(1)}M`;
+  if (tokens < 1000) {
+    return tokens.toString();
+  }
+  if (tokens < 1_000_000) {
+    return `${(tokens / 1000).toFixed(1)}K`;
+  }
+  return `${(tokens / 1_000_000).toFixed(1)}M`;
 }
 
-export interface UsePreviewPanelStateProps {
+export type UsePreviewPanelStateProps = {
   selectedFiles: Set<string>;
   fileContents: Record<string, string>;
   loadingFiles: Set<string>;
@@ -50,11 +54,11 @@ export interface UsePreviewPanelStateProps {
       onUndo: (key: string, snapshot: Set<string>) => void;
     }
   ) => void;
-}
+};
 
 // Helper function to check if content is accessible
 function isContentAccessible(content: string): boolean {
-  return !content.startsWith('File not accessible') && !content.startsWith('Binary file');
+  return !(content.startsWith('File not accessible') || content.startsWith('Binary file'));
 }
 
 // Helper function to get file size
@@ -78,7 +82,7 @@ function ensureTokenCount(
   onResolved: () => void
 ): number | undefined {
   if (!isContentAccessible(content)) {
-    return undefined;
+    return;
   }
 
   const cached = tokenCacheRef.current.get(compositeKey);
@@ -102,7 +106,7 @@ function ensureTokenCount(
     pendingTokenRequestsRef.current.set(compositeKey, pending);
   }
 
-  return undefined;
+  return;
 }
 
 // Helper function to create a file item
@@ -278,11 +282,12 @@ export function usePreviewPanelState({
   const prevSelectedFilesRef = useRef<Set<string> | null>(null);
   const isMountedRef = useRef(true);
 
-  useEffect(() => {
-    return () => {
+  useEffect(
+    () => () => {
       isMountedRef.current = false;
-    };
-  }, []);
+    },
+    []
+  );
 
   const handleTokenResolved = useCallback(() => {
     if (isMountedRef.current) {
@@ -352,7 +357,9 @@ export function usePreviewPanelState({
   );
 
   const handleBatchRemove = useCallback(() => {
-    if (batchSelectedFiles.size === 0) return;
+    if (batchSelectedFiles.size === 0) {
+      return;
+    }
     const newSelectedFiles = new Set(selectedFiles);
     for (const compositeKey of batchSelectedFiles) {
       newSelectedFiles.delete(compositeKey);
@@ -419,7 +426,9 @@ export function usePreviewPanelState({
   const isAllFilesSelected = batchSelectedFiles.size === selectedFiles.size;
 
   const formatFileSize = useCallback((bytes?: number) => {
-    if (bytes === undefined) return 'Unknown';
+    if (bytes === undefined) {
+      return 'Unknown';
+    }
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
     let size = bytes;
     let unitIndex = 0;

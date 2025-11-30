@@ -26,7 +26,7 @@ describe('createQueueTelemetryCollector', () => {
   });
 
   afterEach(async () => {
-    if (collector && collector.isRunning()) {
+    if (collector?.isRunning()) {
       await collector.stop();
     }
     collector = null;
@@ -57,15 +57,15 @@ describe('createQueueTelemetryCollector', () => {
     const response = await postJson(endpoint as string, payload);
     expect(response.status).toBe(204);
 
-    const batch = await collector!.nextBatch({ timeoutMs: 200 });
+    const batch = await collector?.nextBatch({ timeoutMs: 200 });
     expect(batch.runtime).toBe('browser');
     expect(batch.metadata).toEqual({ sessionId: 'abc' });
     expect(onBatch).toHaveBeenCalledTimes(1);
 
-    const stored = collector!.listBatches();
+    const stored = collector?.listBatches();
     expect(stored).toHaveLength(1);
-    collector!.clearBatches();
-    expect(collector!.listBatches()).toHaveLength(0);
+    collector?.clearBatches();
+    expect(collector?.listBatches()).toHaveLength(0);
   });
 
   it('normalises metadata and rejects invalid payloads', async () => {
@@ -85,24 +85,21 @@ describe('createQueueTelemetryCollector', () => {
     const invalidBody = await invalidResponse.json();
     expect(invalidBody.error).toContain('Invalid runtime');
 
-    const validResponse = await postJson(
-      endpoint as string,
-      {
-        runtime: 'electron-renderer',
-        sentAt: new Date().toISOString(),
-        events: [
-          {
-            timestamp: Date.now(),
-            adapter: 'workerpool',
-            event: 'complete',
-            taskId: 'task-1',
-          },
-        ],
-        metadata: 'ignored',
-      }
-    );
+    const validResponse = await postJson(endpoint as string, {
+      runtime: 'electron-renderer',
+      sentAt: new Date().toISOString(),
+      events: [
+        {
+          timestamp: Date.now(),
+          adapter: 'workerpool',
+          event: 'complete',
+          taskId: 'task-1',
+        },
+      ],
+      metadata: 'ignored',
+    });
     expect(validResponse.status).toBe(204);
-    const batch = await collector!.nextBatch({ timeoutMs: 200 });
+    const batch = await collector?.nextBatch({ timeoutMs: 200 });
     expect(batch.metadata).toBeNull();
   });
 

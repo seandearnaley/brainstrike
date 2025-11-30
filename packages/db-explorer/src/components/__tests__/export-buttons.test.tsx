@@ -16,7 +16,7 @@ vi.mock('@brainstrike/ui', () => ({
     disabled?: boolean;
     className?: string;
   }) => (
-    <button onClick={onClick} disabled={disabled} className={className} type="button">
+    <button className={className} disabled={disabled} onClick={onClick} type="button">
       {children}
     </button>
   ),

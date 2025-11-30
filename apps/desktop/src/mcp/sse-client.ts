@@ -8,8 +8,12 @@ function parseSseFrame(frame: string): { eventName: string; id?: string; payload
   const dataLines: string[] = [];
   for (const raw of lines) {
     const line = raw.trimEnd();
-    if (!line) continue;
-    if (line.startsWith(':')) continue;
+    if (!line) {
+      continue;
+    }
+    if (line.startsWith(':')) {
+      continue;
+    }
     if (line.startsWith('event:')) {
       eventName = line.slice(6).trim();
       continue;
@@ -18,7 +22,9 @@ function parseSseFrame(frame: string): { eventName: string; id?: string; payload
       id = line.slice(3).trim();
       continue;
     }
-    if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+    if (line.startsWith('data:')) {
+      dataLines.push(line.slice(5).trimStart());
+    }
   }
   const dataText = dataLines.join('\n');
   let payload: unknown = dataText;
@@ -26,7 +32,9 @@ function parseSseFrame(frame: string): { eventName: string; id?: string; payload
     payload = dataText ? JSON.parse(dataText) : {};
   } catch {}
   const result: { eventName: string; id?: string; payload: unknown } = { eventName, payload };
-  if (typeof id === 'string') result.id = id;
+  if (typeof id === 'string') {
+    result.id = id;
+  }
   return result;
 }
 
@@ -35,8 +43,9 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 function extractKey(payload: unknown, fallbackId?: string): string | undefined {
-  if (isObject(payload) && typeof payload['id'] === 'string' && payload['id'])
+  if (isObject(payload) && typeof payload['id'] === 'string' && payload['id']) {
     return payload['id'] as string;
+  }
   return fallbackId;
 }
 
@@ -47,7 +56,9 @@ function resolvePendingRequest(
   pending: Map<string, PendingEntry>
 ): void {
   const p = pending.get(key);
-  if (!p) return;
+  if (!p) {
+    return;
+  }
   pending.delete(key);
   clearTimeout(p.timer);
   if (eventName === 'tool-error' || (obj.ok === false && obj.error !== undefined)) {
@@ -73,7 +84,9 @@ function handleToolResultOrError(
   id: string | undefined,
   pending: Map<string, PendingEntry>
 ): void {
-  if (!isObject(payload)) return;
+  if (!isObject(payload)) {
+    return;
+  }
   const obj = payload as { id?: string; ok?: boolean; result?: unknown; error?: unknown };
   const key = extractKey(obj, id);
   if (key && pending.has(key)) {
@@ -90,12 +103,18 @@ function handleToolProgressEvent(
   id: string | undefined,
   pending: Map<string, PendingEntry>
 ): void {
-  if (!isObject(payload)) return;
+  if (!isObject(payload)) {
+    return;
+  }
   const obj = payload as { id?: string; [k: string]: unknown };
   const key = extractKey(obj, id);
-  if (!key) return;
+  if (!key) {
+    return;
+  }
   const entry = pending.get(key);
-  if (entry?.onProgress) entry.onProgress(payload, { id: key });
+  if (entry?.onProgress) {
+    entry.onProgress(payload, { id: key });
+  }
 }
 
 function handleToolResult(
@@ -150,7 +169,9 @@ async function handleSseRequest(
         });
         clearTimeout(timer);
         pending.delete(requestId);
-        if (!fallback.ok) return resolve({ error: `HTTP ${fallback.status}` });
+        if (!fallback.ok) {
+          return resolve({ error: `HTTP ${fallback.status}` });
+        }
         const json = await fallback.json().catch(() => null);
         return resolve(json ?? { ok: true });
       }
@@ -168,7 +189,9 @@ async function handleSseRequest(
 export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>): McpClient {
   const ctrl = new AbortController();
   const headers = new Headers();
-  for (const [k, v] of Object.entries(server.headers ?? {})) headers.set(k, v);
+  for (const [k, v] of Object.entries(server.headers ?? {})) {
+    headers.set(k, v);
+  }
   const base = server.url.replace(/\/?(?:sse|events)$/, '');
   const eventsPath = (process.env['MCP_SSE_EVENTS_PATH'] as string | undefined) ?? '/sse';
   const requestPath = (process.env['MCP_SSE_REQUEST_PATH'] as string | undefined) ?? '/request';
@@ -183,7 +206,9 @@ export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>
     let buf = '';
     while (true) {
       const { value, done } = await reader.read();
-      if (done) break;
+      if (done) {
+        break;
+      }
       buf += decoder.decode(value, { stream: true });
       let idx = buf.indexOf('\n\n');
       while (idx >= 0) {
@@ -197,11 +222,15 @@ export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>
   }
 
   async function startReader(): Promise<void> {
-    if (readerActive) return;
+    if (readerActive) {
+      return;
+    }
     readerActive = true;
     try {
       const res = await fetch(base + eventsPath, { method: 'GET', headers, signal: ctrl.signal });
-      if (!res.ok || !res.body) return;
+      if (!(res.ok && res.body)) {
+        return;
+      }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       await processEventStream(reader, decoder);
@@ -239,7 +268,9 @@ export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>
           resolve({ error: 'timeout' });
         }, timeoutMs);
         const entry: PendingEntry = { resolve, reject, timer };
-        if (opts && typeof opts.onProgress === 'function') entry.onProgress = opts.onProgress;
+        if (opts && typeof opts.onProgress === 'function') {
+          entry.onProgress = opts.onProgress;
+        }
         pending.set(requestId, entry);
         void handleSseRequest(
           requestId,

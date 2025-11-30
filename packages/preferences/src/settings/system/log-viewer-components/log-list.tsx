@@ -6,12 +6,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { LogRow } from './log-row';
 import type { LogRecordRow } from './log-utils';
 
-interface LogListProps {
+type LogListProps = {
   table: ReactTableInstance<LogRecordRow>;
   rows: Row<LogRecordRow>[];
   logsLoading: boolean;
   autoScroll: boolean;
-}
+};
 
 export function LogList({ table, rows, logsLoading, autoScroll }: LogListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -19,7 +19,9 @@ export function LogList({ table, rows, logsLoading, autoScroll }: LogListProps) 
 
   // ResizeObserver to handle dynamic container sizing and fix "dead space" bug
   useEffect(() => {
-    if (!parentRef.current) return;
+    if (!parentRef.current) {
+      return;
+    }
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         setParentHeight(entry.contentRect.height);
@@ -39,12 +41,13 @@ export function LogList({ table, rows, logsLoading, autoScroll }: LogListProps) 
   const virtualRows = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
   const paddingTop = virtualRows.length > 0 ? virtualRows[0]?.start || 0 : 0;
-  const paddingBottom =
-    virtualRows.length > 0 ? totalSize - (virtualRows[virtualRows.length - 1]?.end || 0) : 0;
+  const paddingBottom = virtualRows.length > 0 ? totalSize - (virtualRows.at(-1)?.end || 0) : 0;
 
   // Auto-scroll logic
   useEffect(() => {
-    if (!autoScroll || rows.length === 0) return;
+    if (!autoScroll || rows.length === 0) {
+      return;
+    }
 
     const lastIndex = rows.length - 1;
     // Use setTimeout to ensure render cycle is complete before scrolling
@@ -70,23 +73,23 @@ export function LogList({ table, rows, logsLoading, autoScroll }: LogListProps) 
 
   return (
     <div
+      className="w-full flex-1 overflow-auto bg-muted/5"
       ref={parentRef}
-      className="flex-1 w-full overflow-auto bg-muted/5"
       style={{ height: '100%', minHeight: '300px' }} // Ensure it takes full height of container
     >
       {logsLoading && rows.length === 0 ? (
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
           <div className="flex flex-col items-center gap-2">
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
             Loading logs...
           </div>
         </div>
       ) : rows.length === 0 ? (
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
           No logs recorded for the current session.
         </div>
       ) : (
-        <table className="w-full min-w-[800px] table-fixed text-sm border-collapse">
+        <table className="w-full min-w-[800px] table-fixed border-collapse text-sm">
           <colgroup>
             {table.getVisibleLeafColumns().map((column) => (
               <col
@@ -97,19 +100,19 @@ export function LogList({ table, rows, logsLoading, autoScroll }: LogListProps) 
               />
             ))}
           </colgroup>
-          <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur shadow-sm">
+          <TableHeader className="sticky top-0 z-10 bg-background/95 shadow-sm backdrop-blur">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow
+                className="border-border/60 border-b hover:bg-transparent"
                 key={headerGroup.id}
-                className="hover:bg-transparent border-b border-border/60"
               >
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} className="h-9 py-2 font-semibold text-foreground/80">
+                  <TableHead className="h-9 py-2 font-semibold text-foreground/80" key={header.id}>
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
                       <button
-                        type="button"
-                        className="flex w-full items-center justify-between gap-2 text-left text-xs uppercase tracking-wider hover:text-primary transition-colors"
+                        className="flex w-full items-center justify-between gap-2 text-left text-xs uppercase tracking-wider transition-colors hover:text-primary"
                         onClick={header.column.getToggleSortingHandler()}
+                        type="button"
                       >
                         <span>
                           {flexRender(header.column.columnDef.header, header.getContext())}
@@ -142,9 +145,11 @@ export function LogList({ table, rows, logsLoading, autoScroll }: LogListProps) 
             )}
             {virtualRows.map((virtualRow) => {
               const row = rows[virtualRow.index];
-              if (!row) return null;
+              if (!row) {
+                return null;
+              }
               return (
-                <LogRow key={row.id} row={row} virtualRow={virtualRow} measureRow={measureRow} />
+                <LogRow key={row.id} measureRow={measureRow} row={row} virtualRow={virtualRow} />
               );
             })}
             {paddingBottom > 0 && (

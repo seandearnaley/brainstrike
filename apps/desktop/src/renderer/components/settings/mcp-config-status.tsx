@@ -27,9 +27,9 @@ async function fetchMcpConfig(): Promise<{ status: Loaded | null; error: string 
     const exists = Boolean(res.exists);
     const servers = (res.servers ?? []) as Loaded['servers'];
     const status = { path, exists, servers };
-    const error = !exists
-      ? 'No valid MCP config found. Using defaults without external tools.'
-      : null;
+    const error = exists
+      ? null
+      : 'No valid MCP config found. Using defaults without external tools.';
 
     return { status, error };
   } catch (e) {
@@ -52,6 +52,7 @@ export function McpConfigStatus() {
     setError(result.error);
   }, []);
 
+  // biome-ignore lint/plugin: Async data fetching on mount - standard pattern for loading config
   useEffect(() => {
     let mounted = true;
 
@@ -120,11 +121,11 @@ export function McpConfigStatus() {
         <CardTitle className="text-sm">MCP Tools</CardTitle>
         <CardDescription className="text-xs">Configure external tool servers</CardDescription>
       </CardHeader>
-      <CardContent className="text-xs space-y-2">
+      <CardContent className="space-y-2 text-xs">
         {status && (
           <div className="flex items-center gap-2">
             <span>Config:</span>
-            <code className="px-1 py-0.5 bg-muted rounded text-[10px]">
+            <code className="rounded bg-muted px-1 py-0.5 text-[10px]">
               {status.path || 'unknown'}
             </code>
             {status.exists ? (
@@ -136,20 +137,20 @@ export function McpConfigStatus() {
         )}
         <div className="flex gap-2">
           <Button
-            size="sm"
-            variant="outline"
+            data-testid="select-mcp-config-path"
             disabled={busy}
             onClick={handleSelectPath}
-            data-testid="select-mcp-config-path"
+            size="sm"
+            variant="outline"
           >
             Change Config File
           </Button>
           <Button
-            size="sm"
-            variant="ghost"
+            data-testid="reset-mcp-config-path"
             disabled={busy}
             onClick={handleResetPath}
-            data-testid="reset-mcp-config-path"
+            size="sm"
+            variant="ghost"
           >
             Reset to Default
           </Button>

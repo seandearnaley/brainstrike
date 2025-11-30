@@ -9,12 +9,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 export type TokenCountingMode = 'accurate' | 'heuristic';
 export type TokenCountingReason = 'preference-disabled' | 'runtime-fallback' | null;
 
-export interface TokenCountingState {
+export type TokenCountingState = {
   mode: TokenCountingMode;
   reason: TokenCountingReason;
   loading: boolean;
   countTokens: (content: string) => Promise<number>;
-}
+};
 
 let runtimeSupportPromise: Promise<boolean> | null = null;
 
@@ -31,6 +31,7 @@ export function useTokenCounting(): TokenCountingState {
   const [reason, setReason] = useState<TokenCountingReason>('preference-disabled');
   const [loading, setLoading] = useState<boolean>(accuratePreference);
 
+  // biome-ignore lint/plugin: Initialize token counting mode based on preference - async initialization
   useEffect(() => {
     let cancelled = false;
 

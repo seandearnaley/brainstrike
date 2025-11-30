@@ -35,15 +35,15 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
 
   return (
     <ActionButtons
-      displayedFiles={displayedSet}
-      selectedFilePaths={selectedSet}
-      maxSelectionCount={props.maxSelectionCount}
       currentFolderId={props.currentFolderId}
-      setSelectedFiles={setSelectedSet}
+      displayedFiles={displayedSet}
       encodeFileSelection={props.encodeFileSelection}
-      onSelectionLimitExceeded={props.onSelectionLimitExceeded}
-      onDownloadReport={props.onDownloadReport}
+      maxSelectionCount={props.maxSelectionCount}
       onCopyReport={props.onCopyReport}
+      onDownloadReport={props.onDownloadReport}
+      onSelectionLimitExceeded={props.onSelectionLimitExceeded}
+      selectedFilePaths={selectedSet}
+      setSelectedFiles={setSelectedSet}
     />
   );
 };

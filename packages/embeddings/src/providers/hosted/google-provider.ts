@@ -37,13 +37,13 @@ const GOOGLE_MODELS: Record<string, ModelConfig> = {
   },
 };
 
-export interface GoogleEmbeddingProviderOptions {
+export type GoogleEmbeddingProviderOptions = {
   readonly modelId: string;
   readonly outputDimensions?: number;
   readonly apiKey?: string;
   readonly fetch?: FetchLike;
   readonly endpoint?: string;
-}
+};
 
 export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
   readonly runtime = 'hosted' as const;
@@ -229,13 +229,13 @@ async function safeJson(response: Response): Promise<unknown | undefined> {
   try {
     return await response.json();
   } catch {
-    return undefined;
+    return;
   }
 }
 
 function extractEmbeddingValues(payload: GoogleEmbeddingResponse): number[] | undefined {
   if (!payload) {
-    return undefined;
+    return;
   }
 
   if (Array.isArray(payload.embeddings) && payload.embeddings[0]?.values) {
@@ -248,16 +248,20 @@ function extractEmbeddingValues(payload: GoogleEmbeddingResponse): number[] | un
 
   if (Array.isArray(payload.predictions)) {
     const first = payload.predictions[0];
-    if (!first) return undefined;
+    if (!first) {
+      return;
+    }
     const embeddings = first.embeddings;
-    if (!embeddings) return undefined;
+    if (!embeddings) {
+      return;
+    }
     if (Array.isArray(embeddings)) {
       return embeddings[0]?.values;
     }
     return embeddings.values;
   }
 
-  return undefined;
+  return;
 }
 
 function normalizeApiKey(value: string | undefined): string | null {

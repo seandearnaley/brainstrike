@@ -33,8 +33,8 @@ function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   });
   return {
     query: baseQuery,
-    exec: vi.fn(async () => undefined),
-    close: vi.fn(async () => undefined),
+    exec: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
     ...overrides,
   };
 }
@@ -56,7 +56,7 @@ describe('DbProvider', () => {
 
     const { result } = renderHook(() => useFileRecordRepository(), { wrapper });
     await waitFor(() => expect(result.current).toBeDefined(), {
-      timeout: 10000, // 10 seconds timeout for CI
+      timeout: 10_000, // 10 seconds timeout for CI
     });
   });
 
@@ -84,13 +84,13 @@ describe('DbProvider', () => {
     });
 
     await waitFor(() => expect(createPGliteSpy).toHaveBeenCalledTimes(1), {
-      timeout: 10000,
+      timeout: 10_000,
     });
     await waitFor(() => expect(migrateSpy).toHaveBeenCalledTimes(1), {
-      timeout: 10000,
+      timeout: 10_000,
     });
     await waitFor(() => expect(result.current).toBeDefined(), {
-      timeout: 10000,
+      timeout: 10_000,
     });
     unmount();
 
@@ -120,13 +120,13 @@ describe('DbProvider', () => {
     });
 
     await waitFor(() => expect(createPGliteSpy).toHaveBeenCalledTimes(1), {
-      timeout: 10000,
+      timeout: 10_000,
     });
     await waitFor(() => expect(migrateSpy).toHaveBeenCalledTimes(1), {
-      timeout: 10000,
+      timeout: 10_000,
     });
     await waitFor(() => expect(result.current).toBeDefined(), {
-      timeout: 10000,
+      timeout: 10_000,
     });
     unmount();
 
@@ -157,7 +157,7 @@ describe('DbProvider', () => {
     expect(result.current).toBeNull();
     resolveMigration?.();
     await waitFor(() => expect(result.current).not.toBeNull(), {
-      timeout: 10000, // 10 seconds timeout for CI
+      timeout: 10_000, // 10 seconds timeout for CI
     });
   });
 
@@ -218,7 +218,7 @@ describe('DbProvider', () => {
     const { result, unmount } = renderHook(() => useFileRecordRepository(), {
       wrapper,
     });
-    await waitFor(() => expect(result.current).toBeDefined(), { timeout: 10000 });
+    await waitFor(() => expect(result.current).toBeDefined(), { timeout: 10_000 });
 
     expect(() => unmount()).not.toThrow();
 

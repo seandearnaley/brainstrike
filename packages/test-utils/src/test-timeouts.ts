@@ -4,33 +4,31 @@
 
 export const TEST_TIMEOUTS = {
   // Unit tests - fast, isolated tests
-  unit: 10000, // 10 seconds
+  unit: 10_000, // 10 seconds
 
   // Integration tests - tests involving multiple components
-  integration: 15000, // 15 seconds
+  integration: 15_000, // 15 seconds
 
   // Database tests - tests involving database operations
-  database: 20000, // 20 seconds
+  database: 20_000, // 20 seconds
 
   // UI component tests - tests involving rendering and interactions
-  uiComponent: 15000, // 15 seconds
+  uiComponent: 15_000, // 15 seconds
 
   // E2E tests - full application tests
-  e2e: 60000, // 60 seconds
+  e2e: 60_000, // 60 seconds
 
   // Performance tests - performance measurement tests
-  performance: 120000, // 2 minutes
+  performance: 120_000, // 2 minutes
 
   // Heavy/slow tests - computationally intensive tests
-  heavy: 30000, // 30 seconds
+  heavy: 30_000, // 30 seconds
 } as const;
 
 /**
  * Get the appropriate timeout for a test type
  */
-export const getTestTimeout = (type: keyof typeof TEST_TIMEOUTS): number => {
-  return TEST_TIMEOUTS[type];
-};
+export const getTestTimeout = (type: keyof typeof TEST_TIMEOUTS): number => TEST_TIMEOUTS[type];
 
 /**
  * Environment-specific timeout multipliers
@@ -48,6 +46,5 @@ export const getTimeoutMultiplier = (): number => {
 /**
  * Get adjusted timeout based on environment
  */
-export const getAdjustedTimeout = (type: keyof typeof TEST_TIMEOUTS): number => {
-  return TEST_TIMEOUTS[type] * getTimeoutMultiplier();
-};
+export const getAdjustedTimeout = (type: keyof typeof TEST_TIMEOUTS): number =>
+  TEST_TIMEOUTS[type] * getTimeoutMultiplier();

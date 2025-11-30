@@ -167,14 +167,14 @@ export function getVisibleNodeCount<T>(
 export function findNodeById<T>(
   nodes: TreeNode<T>[],
   id: string,
-  getChildren: (node: TreeNode<T>) => TreeNode<T>[]
+  _getChildren: (node: TreeNode<T>) => TreeNode<T>[]
 ): TreeNode<T> | null {
   for (const node of nodes) {
     if (node.id === id) {
       return node;
     }
     if (node.hasChildren) {
-      const found = findNodeById(getChildren(node), id, getChildren);
+      const found = findNodeById(_getChildren(node), id, _getChildren);
       if (found) {
         return found;
       }
@@ -204,10 +204,8 @@ export function getNodePath<T>(
       if (node.id === nodeId) {
         return true;
       }
-      if (node.hasChildren) {
-        if (traverse(getChildren(node))) {
-          return true;
-        }
+      if (node.hasChildren && traverse(getChildren(node))) {
+        return true;
       }
       path.pop();
     }
@@ -310,7 +308,7 @@ export function getNextVisibleNodeId<T>(
   if (currentId === null) {
     // If nothing focused, return first or last based on direction
     const firstRow = rows[0];
-    const lastRow = rows[rows.length - 1];
+    const lastRow = rows.at(-1);
     return direction === 'down' ? (firstRow?.node.id ?? null) : (lastRow?.node.id ?? null);
   }
 
@@ -347,7 +345,7 @@ export function getParentNodeId<T>(
   if (path.length <= 1) {
     return null;
   }
-  const parentNode = path[path.length - 2];
+  const parentNode = path.at(-2);
   return parentNode?.id ?? null;
 }
 
@@ -439,7 +437,9 @@ function processNodeForFilter<T>(
     : false;
 
   if (nodeMatches || childHasMatch) {
-    if (nodeMatches) matchingIds.add(node.id);
+    if (nodeMatches) {
+      matchingIds.add(node.id);
+    }
     addAncestors(ancestors, ancestorIds);
     return true;
   }
@@ -466,7 +466,9 @@ export function filterTreeNodes<T>(
         ancestorIds,
         traverse
       );
-      if (matched) hasMatchingDescendant = true;
+      if (matched) {
+        hasMatchingDescendant = true;
+      }
     }
     return hasMatchingDescendant;
   }

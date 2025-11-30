@@ -18,7 +18,7 @@ import { Download, RefreshCw, Search, Settings2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { LogRecordRow } from './log-utils';
 
-interface LogToolbarProps {
+type LogToolbarProps = {
   logLevelFilter: LogLevel;
   onLevelChange: (value: LogLevel) => void;
   logLevelItems: ReactNode;
@@ -32,7 +32,7 @@ interface LogToolbarProps {
   onExport: () => void;
   onRefresh: () => void;
   canRefresh: boolean;
-}
+};
 
 export function LogToolbar({
   logLevelFilter,
@@ -50,23 +50,23 @@ export function LogToolbar({
   canRefresh,
 }: LogToolbarProps) {
   return (
-    <div className="flex flex-col gap-4 border-b border-border/40 bg-background/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <div className="flex flex-col gap-4 border-border/40 border-b bg-background/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-1 items-center gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <div className="relative max-w-md flex-1">
+            <Search className="absolute top-2.5 left-2.5 h-4 w-4 text-muted-foreground" />
             <Input
+              className="border-border/50 bg-muted/50 pl-9 transition-colors focus:bg-background"
+              onChange={(event) => onSearchChange(event.target.value)}
               placeholder="Search logs..."
               value={globalFilter}
-              onChange={(event) => onSearchChange(event.target.value)}
-              className="pl-9 bg-muted/50 border-border/50 focus:bg-background transition-colors"
             />
           </div>
           <Select
-            value={logLevelFilter}
             onValueChange={(value) => onLevelChange(value as LogLevel)}
+            value={logLevelFilter}
           >
-            <SelectTrigger className="w-[140px] bg-muted/50 border-border/50">
+            <SelectTrigger className="w-[140px] border-border/50 bg-muted/50">
               <SelectValue placeholder="Level" />
             </SelectTrigger>
             <SelectContent>{logLevelItems}</SelectContent>
@@ -74,21 +74,21 @@ export function LogToolbar({
         </div>
 
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-muted/30 border border-border/30">
+          <div className="flex items-center gap-2 rounded-md border border-border/30 bg-muted/30 px-3 py-1.5">
             <Switch
-              id="log-viewer-autoscroll"
               checked={autoScroll}
-              onCheckedChange={onAutoScrollChange}
               className="scale-90"
+              id="log-viewer-autoscroll"
+              onCheckedChange={onAutoScrollChange}
             />
-            <Label htmlFor="log-viewer-autoscroll" className="text-xs font-medium cursor-pointer">
+            <Label className="cursor-pointer font-medium text-xs" htmlFor="log-viewer-autoscroll">
               Auto-scroll
             </Label>
           </div>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="h-9 gap-2 bg-muted/30">
+              <Button className="h-9 gap-2 bg-muted/30" size="sm" variant="outline">
                 <Settings2 className="h-3.5 w-3.5" />
                 View
               </Button>
@@ -99,8 +99,8 @@ export function LogToolbar({
                 .filter((column) => column.getCanHide())
                 .map((column) => (
                   <DropdownMenuCheckboxItem
-                    key={column.id}
                     checked={column.getIsVisible()}
+                    key={column.id}
                     onCheckedChange={(value) => column.toggleVisibility(!!value)}
                   >
                     {column.id.charAt(0).toUpperCase() + column.id.slice(1)}
@@ -109,26 +109,26 @@ export function LogToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <div className="h-4 w-px bg-border/50 mx-1" />
+          <div className="mx-1 h-4 w-px bg-border/50" />
 
           <Button
-            variant="ghost"
-            size="icon"
-            onClick={onRefresh}
-            disabled={logsLoading || !canRefresh}
             className="h-9 w-9"
+            disabled={logsLoading || !canRefresh}
+            onClick={onRefresh}
+            size="icon"
             title="Refresh Logs"
+            variant="ghost"
           >
             <RefreshCw className={`h-4 w-4 ${logsLoading ? 'animate-spin' : ''}`} />
           </Button>
 
           <Button
-            variant="ghost"
-            size="icon"
-            onClick={onExport}
-            disabled={rowsCount === 0}
             className="h-9 w-9"
+            disabled={rowsCount === 0}
+            onClick={onExport}
+            size="icon"
             title="Export Logs"
+            variant="ghost"
           >
             <Download className="h-4 w-4" />
           </Button>

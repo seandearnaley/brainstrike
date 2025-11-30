@@ -1,7 +1,7 @@
 /**
  * Status information for a file in relation to an embedding set (collection)
  */
-export interface FileCollectionStatus {
+export type FileCollectionStatus = {
   /** File record ID */
   fileId: string;
   /** File name */
@@ -18,4 +18,4 @@ export interface FileCollectionStatus {
   otherCollectionsCount: number;
   /** Last time file was indexed in any collection */
   lastIndexedAt?: string;
-}
+};

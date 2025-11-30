@@ -2,7 +2,7 @@ import type { EmbeddingWorkerController, EmbeddingWorkerOptions } from '@brainst
 import { startEmbeddingWorker } from '@brainstrike/embeddings';
 import { useCallback, useRef, useState } from 'react';
 
-export interface UseEmbeddingWorkerControlsParams {
+export type UseEmbeddingWorkerControlsParams = {
   db: EmbeddingWorkerOptions['db'] | null;
   devicePreference: 'auto' | 'webgpu' | 'wasm' | 'cpu';
   reinitEveryN: number;
@@ -10,9 +10,9 @@ export interface UseEmbeddingWorkerControlsParams {
   activeEmbeddingSetId: string | null;
   onBackfill: () => Promise<void>;
   toast: (options: { title: string; description?: string; variant?: 'destructive' }) => void;
-}
+};
 
-export interface UseEmbeddingWorkerControlsResult {
+export type UseEmbeddingWorkerControlsResult = {
   workerLocalRunning: boolean;
   startingWorker: boolean;
   startWorkerError: string | null;
@@ -20,10 +20,12 @@ export interface UseEmbeddingWorkerControlsResult {
   startWorker: () => Promise<void>;
   stopWorker: () => Promise<void>;
   resetWorker: () => Promise<void>;
-}
+};
 
 function dispatchQueueDrainedEvent(): void {
-  if (typeof window === 'undefined') return;
+  if (typeof window === 'undefined') {
+    return;
+  }
   try {
     window.dispatchEvent(new CustomEvent('brainstrike:queue-drained'));
   } catch {
@@ -53,7 +55,9 @@ export function useEmbeddingWorkerControls(
 
   const launchWorker = useCallback(
     async (successToast: { title: string; description: string }) => {
-      if (!db) return;
+      if (!db) {
+        return;
+      }
       const options: EmbeddingWorkerOptions = {
         db,
         enable: true,
@@ -86,7 +90,9 @@ export function useEmbeddingWorkerControls(
   );
 
   const startWorker = useCallback(async () => {
-    if (!db || startingWorker) return;
+    if (!db || startingWorker) {
+      return;
+    }
     setStartingWorker(true);
     setStartWorkerError(null);
     try {
@@ -114,7 +120,9 @@ export function useEmbeddingWorkerControls(
   }, [toast]);
 
   const resetWorker = useCallback(async () => {
-    if (!db) return;
+    if (!db) {
+      return;
+    }
     setStartWorkerError(null);
     setStartingWorker(true);
     try {

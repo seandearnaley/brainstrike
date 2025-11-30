@@ -131,7 +131,7 @@ describe('Repository clearAll functionality', () => {
 
       const result = await fileRepository.clearAll();
 
-      expect(result).toBe(1000000);
+      expect(result).toBe(1_000_000);
     });
 
     it('should handle string count values correctly', async () => {

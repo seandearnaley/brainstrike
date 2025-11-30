@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-interface UsePaginationOptions {
+type UsePaginationOptions = {
   totalItems: number;
   pageSize?: number;
   initialPage?: number;
-}
+};
 
-interface UsePaginationReturn {
+type UsePaginationReturn = {
   currentPage: number;
   totalPages: number;
   startIndex: number;
@@ -17,7 +17,7 @@ interface UsePaginationReturn {
   resetToFirstPage: () => void;
   isFirstPage: boolean;
   isLastPage: boolean;
-}
+};
 
 export function usePagination({
   totalItems,
@@ -58,7 +58,11 @@ export function usePagination({
   }, []);
 
   // Reset to first page when total pages changes and current page is out of bounds
+  // This is intentionally a state mutation (not derivation) because:
+  // 1. When data shrinks significantly, UX is better starting from page 0
+  // 2. When totalPages becomes 0, we preserve currentPage for when data returns
   const prevTotalPagesRef = useRef(totalPages);
+  // biome-ignore lint/plugin: Intentional state reset on bounds change - UX decision to reset to start, not just clamp
   useEffect(() => {
     if (prevTotalPagesRef.current !== totalPages) {
       prevTotalPagesRef.current = totalPages;

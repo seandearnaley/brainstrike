@@ -1,13 +1,13 @@
 import { LEGACY_DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { getModel } from './model-registry';
 
-export interface GetModelDimensionsOptions {
+export type GetModelDimensionsOptions = {
   /**
    * When true, falls back to LEGACY_DEFAULT_EMBEDDING_DIMENSION instead of throwing.
    * Use with caution - this should only be needed for backward compatibility.
    */
   fallbackToLegacy?: boolean;
-}
+};
 
 /**
  * Get the dimension count for a model from the registry with validation.
@@ -29,7 +29,7 @@ export interface GetModelDimensionsOptions {
 export function getModelDimensionsSafe(modelKey: string, opts?: GetModelDimensionsOptions): number {
   const cfg = getModel(modelKey);
 
-  if (!cfg?.dimensions || !Number.isFinite(cfg.dimensions)) {
+  if (!(cfg?.dimensions && Number.isFinite(cfg.dimensions))) {
     if (opts?.fallbackToLegacy) {
       return LEGACY_DEFAULT_EMBEDDING_DIMENSION;
     }

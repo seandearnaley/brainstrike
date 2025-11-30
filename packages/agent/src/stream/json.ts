@@ -4,7 +4,9 @@ import type { StreamChunk } from '../index';
  * Serializes arbitrary values into JSON-safe structures while preserving helpful metadata.
  */
 export function toJsonSafe(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
-  if (value == null) return value;
+  if (value === null) {
+    return value;
+  }
 
   const primitive = serializePrimitive(value);
   if (primitive.handled) {
@@ -163,7 +165,9 @@ function serializeObject(obj: Record<PropertyKey, unknown>, seen: WeakSet<object
 
   const result: Record<string, unknown> = {};
   for (const [key, entry] of Object.entries(obj)) {
-    if (entry === undefined) continue;
+    if (entry === undefined) {
+      continue;
+    }
     result[key] = toJsonSafe(entry, seen);
   }
 

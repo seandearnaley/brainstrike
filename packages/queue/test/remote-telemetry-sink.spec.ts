@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  emitQueueTelemetry,
-  initializeQueueTelemetrySink,
-  type QueueTelemetryEvent,
-} from '../src';
+import { emitQueueTelemetry, initializeQueueTelemetrySink, type QueueTelemetryEvent } from '../src';
 
 function createEvent(overrides: Partial<QueueTelemetryEvent> = {}): QueueTelemetryEvent {
   return {
@@ -30,7 +26,7 @@ describe('initializeQueueTelemetrySink', () => {
       globalThis.fetch = originalFetch;
     } else {
       // @ts-expect-error - allow removing fetch for cleanup when not originally defined
-      delete globalThis.fetch;
+      globalThis.fetch = undefined;
     }
     if (navigatorDescriptor) {
       Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);

@@ -64,6 +64,7 @@
     "@commitlint/cli": "^20.1.0",
     "@commitlint/config-conventional": "^20.0.0",
     "@commitlint/types": "^20.0.0",
+    "@jacobwolf/biome-unnecessary-effect": "^0.1.1",
     "@mermaid-js/mermaid-cli": "^11.12.0",
     "@playwright/test": "^1.57.0",
     "@types/node": "^24.10.1",
@@ -83,6 +84,7 @@
     "tsup": "^8.5.0",
     "turbo": "2.6.1",
     "typescript": "^5.9.3",
+    "ultracite": "6.3.8",
     "vercel": "^48.12.0",
     "vite": "^7.1.9",
     "vitest": "^4.0.14"

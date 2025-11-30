@@ -21,10 +21,10 @@ export function ExportDropdown({ records, chunks, exportHandlers }: ExportButton
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
+          className="flex items-center gap-1.5"
+          disabled={!hasAnyData}
           size="sm"
           variant="outline"
-          disabled={!hasAnyData}
-          className="flex items-center gap-1.5"
         >
           <FileDown className="h-3.5 w-3.5" />
           Export
@@ -36,41 +36,41 @@ export function ExportDropdown({ records, chunks, exportHandlers }: ExportButton
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
-          onClick={exportHandlers.handleExportFiles}
-          disabled={!hasFiles}
           className="cursor-pointer"
+          disabled={!hasFiles}
+          onClick={exportHandlers.handleExportFiles}
         >
           <Download className="mr-2 h-3.5 w-3.5" />
           <span className="flex-1">Files</span>
-          <span className="text-xs text-muted-foreground">{records.length}</span>
+          <span className="text-muted-foreground text-xs">{records.length}</span>
         </DropdownMenuItem>
 
         <DropdownMenuItem
-          onClick={exportHandlers.handleExportChunks}
-          disabled={!hasChunks}
           className="cursor-pointer"
+          disabled={!hasChunks}
+          onClick={exportHandlers.handleExportChunks}
         >
           <Download className="mr-2 h-3.5 w-3.5" />
           <span className="flex-1">Chunks</span>
-          <span className="text-xs text-muted-foreground">{chunks.length}</span>
+          <span className="text-muted-foreground text-xs">{chunks.length}</span>
         </DropdownMenuItem>
 
         <DropdownMenuItem
-          onClick={exportHandlers.handleExportEmbeddings}
-          disabled={!hasEmbeddings}
           className="cursor-pointer"
+          disabled={!hasEmbeddings}
+          onClick={exportHandlers.handleExportEmbeddings}
         >
           <Brain className="mr-2 h-3.5 w-3.5" />
           <span className="flex-1">Embeddings</span>
-          <span className="text-xs text-muted-foreground">{embeddings.length}</span>
+          <span className="text-muted-foreground text-xs">{embeddings.length}</span>
         </DropdownMenuItem>
 
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
-          onClick={() => void exportHandlers.handleExportAll()}
-          disabled={!hasAnyData}
           className="cursor-pointer"
+          disabled={!hasAnyData}
+          onClick={() => void exportHandlers.handleExportAll()}
         >
           <Archive className="mr-2 h-3.5 w-3.5" />
           <span className="flex-1">All (ZIP)</span>

@@ -35,11 +35,11 @@ vi.mock('react-resizable-panels', () => {
   const React = require('react') as typeof import('react');
   const { forwardRef, useImperativeHandle } = React;
 
-  interface PanelGroupProps {
+  type PanelGroupProps = {
     direction?: string;
     onLayout?: (sizes: number[]) => void;
     children?: React.ReactNode;
-  }
+  };
 
   const PanelGroup = ({ direction, onLayout, children }: PanelGroupProps) => {
     if (typeof onLayout === 'function') {
@@ -52,12 +52,12 @@ vi.mock('react-resizable-panels', () => {
     return <div data-testid={`panel-group-${direction}`}>{children}</div>;
   };
 
-  interface MockImperativeHandle {
+  type MockImperativeHandle = {
     isCollapsed: () => boolean;
     isExpanded: () => boolean;
     expand: () => void;
     collapse: () => void;
-  }
+  };
 
   interface PanelProps extends React.HTMLAttributes<HTMLDivElement> {
     children?: React.ReactNode;
@@ -89,10 +89,14 @@ vi.mock('react-resizable-panels', () => {
         isCollapsed: vi.fn().mockReturnValue(false),
         isExpanded: vi.fn().mockReturnValue(true),
         expand: vi.fn(() => {
-          if (onExpand) onExpand();
+          if (onExpand) {
+            onExpand();
+          }
         }),
         collapse: vi.fn(() => {
-          if (onCollapse) onCollapse();
+          if (onCollapse) {
+            onCollapse();
+          }
         }),
       } as {
         isCollapsed: Mock;
@@ -108,8 +112,12 @@ vi.mock('react-resizable-panels', () => {
           onCollapse?: (size?: number) => void;
           onExpand?: (size?: number) => void;
         } = {};
-        if (onCollapse) callbacks.onCollapse = onCollapse;
-        if (onExpand) callbacks.onExpand = onExpand;
+        if (onCollapse) {
+          callbacks.onCollapse = onCollapse;
+        }
+        if (onExpand) {
+          callbacks.onExpand = onExpand;
+        }
         panelCallbacks[id] = callbacks;
       }
       return (
@@ -173,17 +181,16 @@ describe('IdeLayout', () => {
     vi.useRealTimers();
   });
 
-  const renderDefaultLayout = () => {
-    return render(
+  const renderDefaultLayout = () =>
+    render(
       <IdeLayout
+        consoleContent={consoleContent}
         leftPanelContent={leftContent}
         rightPanelContent={rightContent}
-        consoleContent={consoleContent}
       >
         <div>Main Content</div>
       </IdeLayout>
     );
-  };
 
   it('renders toggle buttons and calls toggle handlers', () => {
     renderDefaultLayout();
@@ -231,7 +238,7 @@ describe('IdeLayout', () => {
       showConsole: true,
     });
     render(
-      <IdeLayout rightPanelContent={rightContent} consoleContent={consoleContent}>
+      <IdeLayout consoleContent={consoleContent} rightPanelContent={rightContent}>
         <div>Main Content</div>
       </IdeLayout>
     );
@@ -252,7 +259,7 @@ describe('IdeLayout', () => {
     });
 
     render(
-      <IdeLayout rightPanelContent={rightContent} consoleContent={consoleContent}>
+      <IdeLayout consoleContent={consoleContent} rightPanelContent={rightContent}>
         <div>Main Content</div>
       </IdeLayout>
     );
@@ -296,9 +303,9 @@ describe('IdeLayout', () => {
     Object.assign(mockState, { showConsole: true });
     rerender(
       <IdeLayout
+        consoleContent={consoleContent}
         leftPanelContent={leftContent}
         rightPanelContent={rightContent}
-        consoleContent={consoleContent}
       >
         <div>Main Content</div>
       </IdeLayout>
@@ -389,9 +396,9 @@ describe('IdeLayout', () => {
       Object.assign(mockState, { showLeftPanel: true });
       rerender(
         <IdeLayout
+          consoleContent={consoleContent}
           leftPanelContent={leftContent}
           rightPanelContent={rightContent}
-          consoleContent={consoleContent}
         >
           <div>Main Content</div>
         </IdeLayout>
@@ -404,7 +411,9 @@ describe('IdeLayout', () => {
     // Execute the queued rAF callbacks to simulate the next frames
     while (rafQueue.length > 0) {
       const cb = rafQueue.shift();
-      if (cb) cb(0);
+      if (cb) {
+        cb(0);
+      }
     }
 
     const hideBtn = screen.getByTestId('hide-left-panel');
@@ -445,9 +454,9 @@ describe('IdeLayout', () => {
       Object.assign(mockState, { showLeftPanel: true });
       rerender(
         <IdeLayout
+          consoleContent={consoleContent}
           leftPanelContent={leftContent}
           rightPanelContent={rightContent}
-          consoleContent={consoleContent}
         >
           <div>Main Content</div>
         </IdeLayout>

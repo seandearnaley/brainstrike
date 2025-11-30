@@ -38,7 +38,7 @@ describe('Progress Calculation Utilities', () => {
     });
 
     it('should always ensure total >= loaded', () => {
-      const testCases = [101, 500, 1000, 3168, 10000];
+      const testCases = [101, 500, 1000, 3168, 10_000];
       for (const loaded of testCases) {
         const result = calculateDynamicTotal(100, loaded);
         expect(result).toBeGreaterThanOrEqual(loaded);
@@ -77,8 +77,8 @@ describe('Progress Calculation Utilities', () => {
     });
 
     it('should handle very large numbers', () => {
-      expect(calculateProgressPercentage(999999, 1000000)).toBe(100);
-      expect(calculateProgressPercentage(500000, 1000000)).toBe(50);
+      expect(calculateProgressPercentage(999_999, 1_000_000)).toBe(100);
+      expect(calculateProgressPercentage(500_000, 1_000_000)).toBe(50);
     });
 
     it('should never exceed 100% when total is properly adjusted', () => {

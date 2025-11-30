@@ -284,23 +284,23 @@ export function EmbeddingSettings() {
           <div className="grid gap-3 sm:grid-cols-3">
             {MODEL_PRESETS.map((preset) => (
               <button
-                key={preset.id}
-                type="button"
-                onClick={() => applyPreset(preset)}
                 className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background p-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 data-testid={`preset-${preset.id}`}
+                key={preset.id}
+                onClick={() => applyPreset(preset)}
+                type="button"
               >
                 <div className="flex items-start justify-between">
-                  <span className="text-2xl" aria-hidden="true">
+                  <span aria-hidden="true" className="text-2xl">
                     {preset.icon}
                   </span>
-                  <Badge variant="outline" className="text-[10px]">
+                  <Badge className="text-[10px]" variant="outline">
                     {preset.badge}
                   </Badge>
                 </div>
                 <div className="space-y-1">
-                  <p className="text-sm font-medium leading-tight">{preset.name}</p>
-                  <p className="text-xs text-muted-foreground">{preset.description}</p>
+                  <p className="font-medium text-sm leading-tight">{preset.name}</p>
+                  <p className="text-muted-foreground text-xs">{preset.description}</p>
                 </div>
               </button>
             ))}
@@ -323,12 +323,12 @@ export function EmbeddingSettings() {
             <div className="relative w-full sm:max-w-xs">
               <Input
                 aria-label="Search embedding models"
+                className="pl-9"
+                onChange={(event) => setSearchTerm(event.currentTarget.value)}
                 placeholder="Search embedding models"
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.currentTarget.value)}
-                className="pl-9"
               />
-              <SearchIcon className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <SearchIcon className="-translate-y-1/2 absolute top-1/2 left-2.5 h-4 w-4 text-muted-foreground" />
             </div>
           </div>
 
@@ -365,14 +365,14 @@ export function EmbeddingSettings() {
 
               return (
                 <section
-                  key={provider.id}
                   className="rounded-lg border border-border/60 bg-muted/10"
                   data-testid={`embedding-provider-${provider.id}`}
+                  key={provider.id}
                 >
-                  <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-3 py-2">
+                  <header className="flex flex-wrap items-center justify-between gap-2 border-border/60 border-b px-3 py-2">
                     <div>
-                      <p className="text-sm font-medium leading-tight">{provider.displayName}</p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="font-medium text-sm leading-tight">{provider.displayName}</p>
+                      <p className="text-muted-foreground text-xs">
                         {enabledCount} of {totalModels} models enabled
                       </p>
                     </div>
@@ -381,20 +381,20 @@ export function EmbeddingSettings() {
                         {provider.runtime === 'browser' ? 'Browser' : 'Hosted'}
                       </Badge>
                       <Button
+                        data-testid={`embedding-enable-all-${provider.id}`}
+                        disabled={enabledCount === totalModels}
+                        onClick={() => setProviderModelsEnabled(provider.id, modelIds, true)}
                         size="sm"
                         variant="outline"
-                        onClick={() => setProviderModelsEnabled(provider.id, modelIds, true)}
-                        disabled={enabledCount === totalModels}
-                        data-testid={`embedding-enable-all-${provider.id}`}
                       >
                         Enable all
                       </Button>
                       <Button
+                        data-testid={`embedding-disable-all-${provider.id}`}
+                        disabled={enabledCount === 0}
+                        onClick={() => setProviderModelsEnabled(provider.id, modelIds, false)}
                         size="sm"
                         variant="ghost"
-                        onClick={() => setProviderModelsEnabled(provider.id, modelIds, false)}
-                        disabled={enabledCount === 0}
-                        data-testid={`embedding-disable-all-${provider.id}`}
                       >
                         Disable all
                       </Button>
@@ -403,11 +403,11 @@ export function EmbeddingSettings() {
                   <div className="space-y-2 px-3 py-3">
                     {visibleModels.map((model) => (
                       <EmbeddingModelRow
-                        key={model.id}
-                        providerId={provider.id}
-                        model={model}
                         enabled={enabledSet.has(model.id)}
+                        key={model.id}
+                        model={model}
                         onToggle={(next) => setModelEnabled(provider.id, model.id, next)}
+                        providerId={provider.id}
                       />
                     ))}
                   </div>
@@ -415,7 +415,7 @@ export function EmbeddingSettings() {
               );
             })}
             {providers.every((provider) => provider.pending || provider.models.length === 0) ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 Hosted provider integrations are on the roadmap. Local embeddings remain available.
               </p>
             ) : null}
@@ -429,7 +429,7 @@ export function EmbeddingSettings() {
                 return !haystack.includes(normalizedSearch);
               });
             }) ? (
-              <p className="text-xs text-muted-foreground">
+              <p className="text-muted-foreground text-xs">
                 No embedding models match &quot;{searchTerm}&quot;.
               </p>
             ) : null}
@@ -452,18 +452,18 @@ export function EmbeddingSettings() {
               const defaults = CHUNKING_CONFIG.codeLanguageDefaults[row.key];
               return (
                 <div
-                  key={row.key}
                   className="rounded-md border border-border/60 bg-muted/10 px-3 py-2"
                   data-testid={`code-chunk-row-${row.key}`}
+                  key={row.key}
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium leading-tight">{row.label}</p>
+                      <p className="font-medium text-sm leading-tight">{row.label}</p>
                       <p className="text-[11px] text-muted-foreground">{row.extensions}</p>
                     </div>
                     <Badge variant="outline">{defaults.maxTokens} tok</Badge>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
+                  <p className="mt-1 text-[11px] text-muted-foreground">
                     Overlap {defaults.overlap} tokens
                   </p>
                 </div>
@@ -480,12 +480,12 @@ export function EmbeddingSettings() {
   );
 }
 
-interface EmbeddingModelRowProps {
+type EmbeddingModelRowProps = {
   providerId: EmbeddingProviderType;
   model: NormalizedEmbeddingModel;
   enabled: boolean;
   onToggle: (enabled: boolean) => void;
-}
+};
 
 function EmbeddingModelRow({ providerId, model, enabled, onToggle }: EmbeddingModelRowProps) {
   const handleChange = (checked: boolean) => {
@@ -500,8 +500,8 @@ function EmbeddingModelRow({ providerId, model, enabled, onToggle }: EmbeddingMo
       data-testid={`embedding-model-row-${providerId}-${model.id}`}
     >
       <div className="space-y-1">
-        <p className="text-sm font-medium leading-tight">{model.label}</p>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+        <p className="font-medium text-sm leading-tight">{model.label}</p>
+        <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
           <span>{model.id}</span>
           <span>{model.dimensions}D</span>
           {model.supportsCustomDimensions ? <span>Custom dimensions supported</span> : null}
@@ -513,31 +513,31 @@ function EmbeddingModelRow({ providerId, model, enabled, onToggle }: EmbeddingMo
           {model.dimensions}D
         </Badge>
         <Switch
-          checked={enabled}
-          onCheckedChange={handleChange}
           aria-label={`Enable ${model.label}`}
+          checked={enabled}
           data-testid={`embedding-toggle-${providerId}-${model.id}`}
+          onCheckedChange={handleChange}
         />
       </div>
     </div>
   );
 }
 
-interface PendingProviderSectionProps {
+type PendingProviderSectionProps = {
   provider: NormalizedEmbeddingProvider;
-}
+};
 
 function PendingProviderSection({ provider }: PendingProviderSectionProps) {
   const metadata = HOSTED_PROVIDER_METADATA[provider.id as HostedEmbeddingProviderId];
   return (
     <section
-      className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-3"
+      className="rounded-lg border border-border/60 border-dashed bg-muted/20 px-3 py-3"
       data-testid={`embedding-provider-${provider.id}-pending`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-sm font-medium leading-tight">{metadata.displayName}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="font-medium text-sm leading-tight">{metadata.displayName}</p>
+          <p className="text-muted-foreground text-xs">
             Hosted embedding integration coming soon. Configure API keys in the Provider Keys
             section to prepare for launch.
           </p>
@@ -550,9 +550,9 @@ function PendingProviderSection({ provider }: PendingProviderSectionProps) {
   );
 }
 
-interface EmptyProviderSectionProps {
+type EmptyProviderSectionProps = {
   provider: NormalizedEmbeddingProvider;
-}
+};
 
 function EmptyProviderSection({ provider }: EmptyProviderSectionProps) {
   const metadata = HOSTED_PROVIDER_METADATA[provider.id as HostedEmbeddingProviderId];
@@ -563,8 +563,8 @@ function EmptyProviderSection({ provider }: EmptyProviderSectionProps) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-sm font-medium leading-tight">{metadata.displayName}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="font-medium text-sm leading-tight">{metadata.displayName}</p>
+          <p className="text-muted-foreground text-xs">
             This provider does not currently expose embedding models in the shared registry.
           </p>
         </div>

@@ -37,7 +37,9 @@ const getBaseMessage = (isInitialLoad?: boolean, progressState?: LoadingProgress
 const getProgressMessage = (progressState: LoadingProgressState): string => {
   const { loaded, total, currentPath } = progressState;
 
-  if (total === 0) return 'Preparing...';
+  if (total === 0) {
+    return 'Preparing...';
+  }
 
   const percent = Math.round((loaded / total) * 100);
   const baseMsg = `Processing files (${loaded}/${total} - ${percent}%)`;
@@ -55,29 +57,32 @@ export const useProgressMessage = (
   message?: string,
   isInitialLoad?: boolean,
   progressState?: LoadingProgressState
-) => {
-  return useMemo(() => {
+) =>
+  useMemo(() => {
     if (isCancelling) {
       return 'Cancelling operation...';
     }
 
-    if (message) return message;
+    if (message) {
+      return message;
+    }
 
     return getBaseMessage(isInitialLoad, progressState);
   }, [isCancelling, message, isInitialLoad, progressState]);
-};
 
 export const useProgressDescription = (
   isCancelling: boolean,
   description?: string,
   progressState?: LoadingProgressState
-) => {
-  return useMemo(() => {
+) =>
+  useMemo(() => {
     if (isCancelling) {
       return 'Please wait while the operation is safely cancelled...';
     }
 
-    if (description) return description;
+    if (description) {
+      return description;
+    }
     if (!progressState) {
       return FileExplorerStrings.prompts.waitForLoading;
     }
@@ -86,4 +91,3 @@ export const useProgressDescription = (
     }
     return FileExplorerStrings.prompts.waitForLoading;
   }, [isCancelling, description, progressState]);
-};

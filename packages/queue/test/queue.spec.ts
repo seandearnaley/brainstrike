@@ -1,8 +1,7 @@
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import type { QueueAdapter } from '../src/types';
-import { createWorkerpoolAdapter } from '../src/adapters/browser-workerpool';
-import { createPQueueAdapter } from '../src/adapters/browser-pqueue';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserEmbeddingQueue } from '../src';
+import { createPQueueAdapter } from '../src/adapters/browser-pqueue';
+import { createWorkerpoolAdapter } from '../src/adapters/browser-workerpool';
 import {
   addQueueTelemetryListener,
   createQueueTelemetryAggregator,
@@ -13,8 +12,9 @@ import {
 const workerpoolMocks = vi.hoisted(() => {
   const cancel = vi.fn();
 
-  const createDefaultImplementation = () => {
-    return (
+  const createDefaultImplementation =
+    () =>
+    (
       _method: string,
       args: unknown[],
       options?: { readonly on?: (event: unknown) => void; readonly priority?: number }
@@ -24,7 +24,7 @@ const workerpoolMocks = vi.hoisted(() => {
         type: 'progress',
         id: (payload as { id: string }).id,
         phase: 'embedding',
-        progress: 0.5
+        progress: 0.5,
       });
       const result: any = Promise.resolve({
         type: 'result',
@@ -37,13 +37,12 @@ const workerpoolMocks = vi.hoisted(() => {
           batchSize: 2,
           elapsedMs: 4,
           fallbackApplied: false,
-          dimensions: 3
-        }
+          dimensions: 3,
+        },
       });
       result.cancel = cancel;
       return result;
     };
-  };
 
   let implementation = createDefaultImplementation();
 
@@ -51,13 +50,13 @@ const workerpoolMocks = vi.hoisted(() => {
     [
       method: string,
       args: unknown[],
-      options?: { readonly on?: (event: unknown) => void; readonly priority?: number }
+      options?: { readonly on?: (event: unknown) => void; readonly priority?: number },
     ],
     Promise<unknown> & { cancel: () => void }
   >((method, args, options) => implementation(method, args, options));
 
   const poolSpy = vi.fn((_script: unknown, _options: unknown) => ({
-    exec: execSpy
+    exec: execSpy,
   }));
 
   return {
@@ -78,17 +77,17 @@ const workerpoolMocks = vi.hoisted(() => {
       ) => Promise<unknown> & { cancel: () => void }
     ) {
       implementation = fn;
-    }
+    },
   };
 });
 
 vi.mock('workerpool', () => ({
   default: {
-    pool: workerpoolMocks.poolSpy
+    pool: workerpoolMocks.poolSpy,
   },
   pool: workerpoolMocks.poolSpy,
   worker: vi.fn(),
-  workerEmit: vi.fn()
+  workerEmit: vi.fn(),
 }));
 
 vi.mock('@brainstrike/embedding-worker', () => ({
@@ -108,7 +107,7 @@ vi.mock('@brainstrike/embedding-worker', () => ({
       return (output as number[][]).map((row) => Float32Array.from(row));
     }
     return [Float32Array.of(1)];
-  }
+  },
 }));
 
 class MockTensor {
@@ -125,25 +124,22 @@ class MockTensor {
   }
 }
 
-const pipelineMock = vi.fn(
-  async () =>
-    async (inputs: string | readonly string[]) => {
-      const list = Array.isArray(inputs) ? inputs : [inputs];
-      return list.map(() => Float32Array.from([0.25, 0.5, 0.25]));
-    }
-);
+const pipelineMock = vi.fn(async () => async (inputs: string | readonly string[]) => {
+  const list = Array.isArray(inputs) ? inputs : [inputs];
+  return list.map(() => Float32Array.from([0.25, 0.5, 0.25]));
+});
 
 vi.mock('@huggingface/transformers', () => ({
   pipeline: pipelineMock,
   env: {},
-  Tensor: MockTensor
+  Tensor: MockTensor,
 }));
 
 const minimalTask = {
   kind: 'embed' as const,
   id: 'task-1',
   model: 'mock-model',
-  texts: ['hello', 'world']
+  texts: ['hello', 'world'],
 };
 
 beforeEach(() => {
@@ -153,8 +149,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  delete (globalThis as Partial<typeof globalThis>).Worker;
-  delete (globalThis as { window?: unknown }).window;
+  (globalThis as Partial<typeof globalThis>).Worker = undefined;
+  (globalThis as { window?: unknown }).window = undefined;
 });
 
 function setWorkerSupport(): void {
@@ -180,8 +176,15 @@ describe('createWorkerpoolAdapter', () => {
     const result = await adapter.add(minimalTask);
     expect(result.metadata.device).toBe('webgpu');
     expect(events).toHaveLength(1);
-    expect(workerpoolMocks.poolSpy).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ maxWorkers: expect.any(Number) }));
-    expect(workerpoolMocks.execSpy).toHaveBeenCalledWith('runEmbedding', expect.any(Array), expect.any(Object));
+    expect(workerpoolMocks.poolSpy).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ maxWorkers: expect.any(Number) })
+    );
+    expect(workerpoolMocks.execSpy).toHaveBeenCalledWith(
+      'runEmbedding',
+      expect.any(Array),
+      expect.any(Object)
+    );
   });
 
   it('forwards provider embedding metadata to worker requests', async () => {
@@ -194,7 +197,9 @@ describe('createWorkerpoolAdapter', () => {
       dimensionParameter: 'dimensions',
     });
     const lastCall = workerpoolMocks.execSpy.mock.calls.at(-1);
-    const payload = lastCall?.[1]?.[0] as { provider?: string; targetDimension?: number; dimensionParameter?: string } | undefined;
+    const payload = lastCall?.[1]?.[0] as
+      | { provider?: string; targetDimension?: number; dimensionParameter?: string }
+      | undefined;
     expect(payload).toMatchObject({
       provider: 'openai',
       targetDimension: 768,
@@ -211,7 +216,7 @@ describe('createWorkerpoolAdapter', () => {
         type: 'progress',
         id: (payload as { id: string }).id,
         phase: 'embedding',
-        progress: 0.25
+        progress: 0.25,
       });
       const promise: any = new Promise((resolve) => {
         resolveExec = resolve;
@@ -239,8 +244,8 @@ describe('createWorkerpoolAdapter', () => {
         batchSize: 1,
         elapsedMs: 1,
         fallbackApplied: false,
-        dimensions: 3
-      }
+        dimensions: 3,
+      },
     });
     const result = await pending;
     expect(result.metadata.batchSize).toBe(1);
@@ -335,7 +340,7 @@ describe('createBrowserEmbeddingQueue', () => {
   });
 
   it('falls back to p-queue when Worker is unavailable', async () => {
-    delete (globalThis as Partial<typeof globalThis>).Worker;
+    (globalThis as Partial<typeof globalThis>).Worker = undefined;
     const queue = createBrowserEmbeddingQueue();
     const result = await queue.add({ ...minimalTask, id: 'task-fallback' });
     expect(result.metadata.device).toBe('wasm');

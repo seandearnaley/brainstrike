@@ -22,7 +22,7 @@ import type {
 /**
  * Input data for building the collection tree
  */
-export interface CollectionTreeInput {
+export type CollectionTreeInput = {
   /** Embedding sets / collections */
   collections: Array<{
     id: string;
@@ -53,7 +53,7 @@ export interface CollectionTreeInput {
   }>;
   /** Pending chunk IDs (being embedded) */
   pendingChunkIds?: Set<string>;
-}
+};
 
 /**
  * Sort key for hierarchical sorting.
@@ -73,17 +73,17 @@ export type CollectionSortDirection = 'asc' | 'desc';
 /**
  * Sort state for the collection tree
  */
-export interface CollectionSortState {
+export type CollectionSortState = {
   /** Sort key */
   key: CollectionSortKey;
   /** Sort direction */
   direction: CollectionSortDirection;
-}
+};
 
 /**
  * Options for the useCollectionTree hook
  */
-export interface UseCollectionTreeOptions {
+export type UseCollectionTreeOptions = {
   /** Input data */
   data: CollectionTreeInput;
   /** Current filter state */
@@ -96,12 +96,12 @@ export interface UseCollectionTreeOptions {
   semanticResults?: SemanticSearchResult[];
   /** Whether to filter tree to only show semantic results (default: true when results present) */
   filterToSemanticResults?: boolean;
-}
+};
 
 /**
  * Result from the useCollectionTree hook
  */
-export interface UseCollectionTreeResult {
+export type UseCollectionTreeResult = {
   /** Flattened nodes for rendering (respects expansion state) */
   nodes: TreeNode<BrowserNodeData>[];
   /** Root nodes (top-level collections) */
@@ -122,7 +122,7 @@ export interface UseCollectionTreeResult {
   semanticMatchIds: Set<string>;
   /** Node IDs that should be auto-expanded to reveal semantic search matches */
   semanticExpandIds: Set<string>;
-}
+};
 
 /**
  * Determine embedding status for a file based on its chunks
@@ -133,14 +133,22 @@ function getFileEmbeddingStatus(
   pendingChunkIds?: Set<string>
 ): EmbeddingStatus {
   const fileChunks = chunks.filter((c) => c.fileRecordId === file.id);
-  if (fileChunks.length === 0) return 'none';
+  if (fileChunks.length === 0) {
+    return 'none';
+  }
 
   const embeddedCount = fileChunks.filter((c) => c.embedding && c.embedding.length > 0).length;
   const pendingCount = fileChunks.filter((c) => pendingChunkIds?.has(c.id)).length;
 
-  if (pendingCount > 0) return 'processing';
-  if (embeddedCount === fileChunks.length) return 'complete';
-  if (embeddedCount > 0) return 'pending';
+  if (pendingCount > 0) {
+    return 'processing';
+  }
+  if (embeddedCount === fileChunks.length) {
+    return 'complete';
+  }
+  if (embeddedCount > 0) {
+    return 'pending';
+  }
   return 'none';
 }
 
@@ -151,8 +159,12 @@ function getChunkEmbeddingStatus(
   chunk: CollectionTreeInput['chunks'][0],
   pendingChunkIds?: Set<string>
 ): EmbeddingStatus {
-  if (pendingChunkIds?.has(chunk.id)) return 'processing';
-  if (chunk.embedding && chunk.embedding.length > 0) return 'complete';
+  if (pendingChunkIds?.has(chunk.id)) {
+    return 'processing';
+  }
+  if (chunk.embedding && chunk.embedding.length > 0) {
+    return 'complete';
+  }
   return 'none';
 }
 
@@ -161,10 +173,18 @@ function getChunkEmbeddingStatus(
  */
 function getSearchableFields(data: BrowserNodeData): string[] {
   const fields: string[] = [];
-  if ('name' in data && typeof data.name === 'string') fields.push(data.name);
-  if ('description' in data && typeof data.description === 'string') fields.push(data.description);
-  if ('path' in data && typeof data.path === 'string') fields.push(data.path);
-  if ('content' in data && typeof data.content === 'string') fields.push(data.content);
+  if ('name' in data && typeof data.name === 'string') {
+    fields.push(data.name);
+  }
+  if ('description' in data && typeof data.description === 'string') {
+    fields.push(data.description);
+  }
+  if ('path' in data && typeof data.path === 'string') {
+    fields.push(data.path);
+  }
+  if ('content' in data && typeof data.content === 'string') {
+    fields.push(data.content);
+  }
   return fields;
 }
 
@@ -306,7 +326,9 @@ function sortNodes(
   sortState: CollectionSortState | undefined,
   similarityScores?: Map<string, number>
 ): TreeNode<BrowserNodeData>[] {
-  if (!sortState) return nodes;
+  if (!sortState) {
+    return nodes;
+  }
 
   // Handle score sorting specially - requires similarityScores map
   if (sortState.key === 'score' && similarityScores) {
@@ -325,7 +347,9 @@ function sortNodes(
  * Check if a node matches the current search query
  */
 function matchesSearch(node: TreeNode<BrowserNodeData>, searchQuery: string): boolean {
-  if (!searchQuery) return true;
+  if (!searchQuery) {
+    return true;
+  }
   const query = searchQuery.toLowerCase();
   const fields = getSearchableFields(node.data);
   return fields.some((field) => field.toLowerCase().includes(query));
@@ -334,10 +358,10 @@ function matchesSearch(node: TreeNode<BrowserNodeData>, searchQuery: string): bo
 /**
  * Build tree context for accumulating nodes
  */
-interface TreeBuildContext {
+type TreeBuildContext = {
   all: TreeNode<BrowserNodeData>[];
   children: Map<string, TreeNode<BrowserNodeData>[]>;
-}
+};
 
 /**
  * Create an embedding node from a chunk
@@ -499,7 +523,9 @@ function matchesEmbeddingStatus(
   node: TreeNode<BrowserNodeData>,
   status: EmbeddingStatus | 'all'
 ): boolean {
-  if (status === 'all') return true;
+  if (status === 'all') {
+    return true;
+  }
 
   const data = node.data;
   if ('embeddingStatus' in data) {
@@ -513,10 +539,10 @@ function matchesEmbeddingStatus(
 /**
  * Filter context for recursive node filtering
  */
-interface FilterContext {
+type FilterContext = {
   filters: CollectionBrowserFilters;
   childrenMap: Map<string, TreeNode<BrowserNodeData>[]>;
-}
+};
 
 /**
  * Check if node passes type filter, considering children visibility
@@ -527,14 +553,18 @@ function checkTypeFilter(
   filterFn: (n: TreeNode<BrowserNodeData>) => TreeNode<BrowserNodeData> | null
 ): TreeNode<BrowserNodeData> | null {
   const nodeType = node.type as CollectionNodeType;
-  if (ctx.filters.nodeTypes.has(nodeType)) return node; // Type passes
+  if (ctx.filters.nodeTypes.has(nodeType)) {
+    return node; // Type passes
+  }
 
   // Type doesn't pass, but check children
   const nodeChildren = ctx.childrenMap.get(node.id) ?? [];
   const hasVisibleChildren = nodeChildren.some((child) => filterFn(child) !== null);
 
   // Keep collections if they have visible children
-  if (hasVisibleChildren && nodeType === 'collection') return node;
+  if (hasVisibleChildren && nodeType === 'collection') {
+    return node;
+  }
   return null;
 }
 
@@ -560,7 +590,9 @@ function checkParentFilters(
 ): TreeNode<BrowserNodeData> | null {
   const nodeChildren = ctx.childrenMap.get(node.id) ?? [];
   const hasMatchingChildren = nodeChildren.some((child) => filterFn(child) !== null);
-  if (hasMatchingChildren) return node;
+  if (hasMatchingChildren) {
+    return node;
+  }
   return checkLeafFilters(node, ctx);
 }
 
@@ -573,8 +605,12 @@ function filterTreeNode(
 ): TreeNode<BrowserNodeData> | null {
   // First check type filter
   const typeResult = checkTypeFilter(node, ctx, (n) => filterTreeNode(n, ctx));
-  if (typeResult === null) return null;
-  if (typeResult !== node) return typeResult; // Type didn't pass but had visible children
+  if (typeResult === null) {
+    return null;
+  }
+  if (typeResult !== node) {
+    return typeResult; // Type didn't pass but had visible children
+  }
 
   // Check if leaf or parent
   const nodeChildren = ctx.childrenMap.get(node.id) ?? [];
@@ -762,7 +798,9 @@ export function useCollectionTree({
   const sortedChildrenMap = React.useMemo(() => {
     const hasSemanticSort = semanticResults && semanticResults.length > 0 && !sortState;
 
-    if (!sortState && !hasSemanticSort) return childrenMap;
+    if (!(sortState || hasSemanticSort)) {
+      return childrenMap;
+    }
 
     const sorted = new Map<string, TreeNode<BrowserNodeData>[]>();
     for (const [parentId, children] of childrenMap) {

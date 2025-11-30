@@ -4,13 +4,13 @@ import type * as React from 'react';
 import OptimizedFileTree from './optimized-file-tree';
 
 const NoFilesSelected = () => (
-  <div className="text-center text-muted-foreground p-8">
+  <div className="p-8 text-center text-muted-foreground">
     <p>No directory selected</p>
-    <p className="text-sm mt-2">Use the folder button to select a directory</p>
+    <p className="mt-2 text-sm">Use the folder button to select a directory</p>
   </div>
 );
 
-interface FileExplorerSidebarProps {
+type FileExplorerSidebarProps = {
   rootDirectoryHandle: DirectoryHandle | null;
   treeError: Error | null;
   filterError: Error | null;
@@ -20,7 +20,7 @@ interface FileExplorerSidebarProps {
   isInitialLoad: boolean;
   currentFolderId: string | null;
   onTreeRender?: () => void;
-}
+};
 
 const ErrorDisplay = ({
   treeError,
@@ -30,7 +30,7 @@ const ErrorDisplay = ({
   filterError?: Error | null;
 }) => (
   <div
-    className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 p-3 rounded m-2 text-sm"
+    className="m-2 rounded border border-red-400 bg-red-100 p-3 text-red-700 text-sm dark:border-red-700 dark:bg-red-900 dark:text-red-200"
     role="alert"
   >
     <strong>Error: </strong>
@@ -48,10 +48,10 @@ const EmptyState = ({
   quickFilteredTree: IFileNode[] | null;
   rootDirectoryHandle: DirectoryHandle | null;
 }) => (
-  <div className="text-center text-muted-foreground py-8">
+  <div className="py-8 text-center text-muted-foreground">
     {isLoading ? 'Loading files...' : 'No matching files found'}
     {process.env['NODE_ENV'] === 'development' && (
-      <div className="text-xs mt-2 opacity-50">
+      <div className="mt-2 text-xs opacity-50">
         Debug: quickFilteredTree={quickFilteredTree ? quickFilteredTree.length : 'null'}, isLoading=
         {String(isLoading)}, rootHandle={rootDirectoryHandle ? 'present' : 'null'}
       </div>
@@ -75,17 +75,15 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
 
   return (
     <div className="w-full">
-      {showError && <ErrorDisplay treeError={treeError} filterError={filterError} />}
-      {!rootDirectoryHandle ? (
-        <NoFilesSelected />
-      ) : (
+      {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
+      {rootDirectoryHandle ? (
         <div className="px-3 pt-4">
           {hasContent ? (
             <OptimizedFileTree
               fileTree={quickFilteredTree}
+              folderId={(rootDirectoryHandle?.name ?? currentFolderId ?? '') as string}
               loadingFiles={loadingFiles}
               onRender={onTreeRender || undefined}
-              folderId={(rootDirectoryHandle?.name ?? currentFolderId ?? '') as string}
             />
           ) : (
             <EmptyState
@@ -95,6 +93,8 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
             />
           )}
         </div>
+      ) : (
+        <NoFilesSelected />
       )}
     </div>
   );

@@ -72,7 +72,7 @@ describe('file-content-worker', () => {
     class DelayedAdapter extends MockFileSystemAdapter {
       active = 0;
       maxActive = 0;
-      constructor(private delays: Record<string, number>) {
+      constructor(private readonly delays: Record<string, number>) {
         super();
       }
       override async readFile(handle: Parameters<MockFileSystemAdapter['readFile']>[0]) {

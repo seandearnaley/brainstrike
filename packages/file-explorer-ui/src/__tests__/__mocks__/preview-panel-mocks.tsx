@@ -36,15 +36,15 @@ interface MockTableGroupHeaderProps extends MockComponentProps {
   isPartiallySelected?: boolean;
 }
 
-interface UsePaginationOptions {
+type UsePaginationOptions = {
   totalItems: number;
   pageSize?: number;
-}
+};
 
-interface PaginationState {
+type PaginationState = {
   currentPage: number;
   prevTotalPages: number;
-}
+};
 
 const INITIAL_PAGINATION_STATE: PaginationState = {
   currentPage: 0,
@@ -78,10 +78,10 @@ export const resetPreviewPanelPaginationMockState = () => {
   sharedPaginationState = { ...INITIAL_PAGINATION_STATE };
 };
 
-interface UsePreviewPanelStateMockReturn {
+type UsePreviewPanelStateMockReturn = {
   usePreviewPanelState: Mock;
   formatTokenCount: (tokens: number) => string;
-}
+};
 
 export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn => ({
   usePreviewPanelState: vi.fn(),
@@ -89,10 +89,10 @@ export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn
     if (tokens < 1000) {
       return tokens.toString();
     }
-    if (tokens < 1000000) {
+    if (tokens < 1_000_000) {
       return `${(tokens / 1000).toFixed(1)}K`;
     }
-    return `${(tokens / 1000000).toFixed(1)}M`;
+    return `${(tokens / 1_000_000).toFixed(1)}M`;
   },
 });
 
@@ -108,7 +108,7 @@ export const createUiModuleMock = () => ({
     disabled,
     ...props
   }: MockComponentProps & { onClick?: () => void; disabled?: boolean }) => (
-    <button onClick={onClick} disabled={disabled} data-testid="button" {...props}>
+    <button data-testid="button" disabled={disabled} onClick={onClick} {...props}>
       {children}
     </button>
   ),
@@ -118,10 +118,10 @@ export const createUiModuleMock = () => ({
     ...props
   }: MockComponentProps & { checked?: boolean; onCheckedChange?: (checked: boolean) => void }) => (
     <input
-      type="checkbox"
       checked={Boolean(checked)}
-      onChange={(event) => onCheckedChange?.(event.target.checked)}
       data-testid="checkbox"
+      onChange={(event) => onCheckedChange?.(event.target.checked)}
+      type="checkbox"
       {...props}
     />
   ),
@@ -129,7 +129,7 @@ export const createUiModuleMock = () => ({
     <div data-testid="progress" data-value={value} {...props} />
   ),
   Popover: ({ children, open, ...props }: MockComponentProps & { open?: boolean }) => (
-    <div data-testid="popover" data-open={open} {...props}>
+    <div data-open={open} data-testid="popover" {...props}>
       {children}
     </div>
   ),
@@ -148,7 +148,7 @@ export const createUiModuleMock = () => ({
     className,
     ...props
   }: MockComponentProps & { align?: string; className?: string }) => (
-    <div data-testid="popover-content" data-align={align} className={className} {...props}>
+    <div className={className} data-align={align} data-testid="popover-content" {...props}>
       {children}
     </div>
   ),
@@ -186,10 +186,10 @@ export const createUiModuleMock = () => ({
     return (
       <th
         aria-label={title}
+        className={className}
         data-testid="sortable-header"
         onClick={handleClick}
         onKeyDown={handleKeyDown}
-        className={className}
         scope="col"
         tabIndex={0}
         {...domProps}
@@ -238,9 +238,9 @@ export const createUiModuleMock = () => ({
     return (
       <div data-testid="table-pagination" {...domProps}>
         <button
-          type="button"
-          onClick={() => onPageChange?.(currentPage - 1)}
           disabled={currentPage === 0}
+          onClick={() => onPageChange?.(currentPage - 1)}
+          type="button"
         >
           Previous
         </button>
@@ -252,18 +252,18 @@ export const createUiModuleMock = () => ({
           {getPageNumbers().map((pageNumber) => (
             <button
               key={pageNumber}
-              type="button"
               onClick={() => onPageChange?.(pageNumber)}
               style={{ margin: '0 2px' }}
+              type="button"
             >
               {pageNumber + 1}
             </button>
           ))}
         </div>
         <button
-          type="button"
-          onClick={() => onPageChange?.(currentPage + 1)}
           disabled={currentPage >= totalPages - 1}
+          onClick={() => onPageChange?.(currentPage + 1)}
+          type="button"
         >
           Next
         </button>
@@ -286,17 +286,17 @@ export const createUiModuleMock = () => ({
     <tr data-testid="table-group-header" {...domProps}>
       <td>
         <input
-          type="checkbox"
-          onChange={(event) => onSelectionChange?.(event.target.checked)}
           aria-label={`Select all files in group ${groupLabel}`}
+          onChange={(event) => onSelectionChange?.(event.target.checked)}
+          type="checkbox"
         />
       </td>
       <td>
         <button
-          type="button"
-          onClick={onToggleCollapse}
-          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
           aria-expanded={!isCollapsed}
+          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
+          onClick={onToggleCollapse}
+          type="button"
         >
           {groupLabel}
         </button>

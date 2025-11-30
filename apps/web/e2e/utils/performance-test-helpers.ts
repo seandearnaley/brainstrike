@@ -5,13 +5,13 @@ import { promises as fs } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Page } from '@playwright/test';
 
-export interface PerformanceMetric {
+export type PerformanceMetric = {
   name: string;
   value: number;
   threshold: number;
   unit: string;
   timestamp: number;
-}
+};
 
 /**
  * Records a performance metric with logging
@@ -58,8 +58,8 @@ export const saveMetricsToFile = async (metrics: PerformanceMetric[]): Promise<v
 /**
  * Gets memory usage information from the browser
  */
-export const getMemoryUsage = async (page: Page) => {
-  return await page.evaluate(() => {
+export const getMemoryUsage = async (page: Page) =>
+  await page.evaluate(() => {
     const memory = performance.memory;
     if (!memory) {
       return { used: 0, total: 0, usedMB: 0 };
@@ -70,7 +70,6 @@ export const getMemoryUsage = async (page: Page) => {
       usedMB: Math.round(memory.usedJSHeapSize / 1024 / 1024),
     };
   });
-};
 
 /**
  * Creates a performance measurement around a function
@@ -144,11 +143,10 @@ export const setupRenderTracking = async (page: Page) => {
 /**
  * Gets render tracking statistics
  */
-export const getRenderStats = async (page: Page) => {
-  return await page.evaluate(
+export const getRenderStats = async (page: Page) =>
+  await page.evaluate(
     () => window.__renderTracker?.getStats() || { totalRenders: 0, recentRenderStorm: 0 }
   );
-};
 
 /**
  * Cleans up render tracking to prevent global state pollution

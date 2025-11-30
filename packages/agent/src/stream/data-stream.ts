@@ -8,19 +8,19 @@ import type {
 } from '../index';
 import { toJsonSafe } from './json';
 
-interface ToolState {
+type ToolState = {
   toolName: string;
   pendingArgsText: string;
   lastInput?: unknown;
-}
+};
 
-interface StepState {
+type StepState = {
   id: string;
   index: number;
   usage: Usage;
   finishReason: FinishReason;
   status: 'success' | 'error';
-}
+};
 
 type Usage = { promptTokens: number; completionTokens: number };
 
@@ -33,6 +33,7 @@ type FinishReason =
   | 'other'
   | 'unknown';
 
+// biome-ignore lint/style/noEnum: Internal enum used for protocol encoding - values must be stable
 enum DataStreamCode {
   TextDelta = '0',
   Data = '2',
@@ -51,22 +52,22 @@ type EncodedChunk = {
   value: unknown;
 };
 
-interface StoredChunk {
+type StoredChunk = {
   sequence: number;
   payload: Uint8Array;
   chunk: EncodedChunk;
-}
+};
 
-interface AssistantDataStreamSessionOptions {
+type AssistantDataStreamSessionOptions = {
   messageId?: string;
   sessionId?: string;
   cleanupDelayMs?: number;
-}
+};
 
-interface CreateResponseOptions {
+type CreateResponseOptions = {
   resumeFromEventId?: string | null;
   headers?: HeadersInit;
-}
+};
 
 const logger = createLogger('AgentDataStream');
 const encoder = new TextEncoder();
@@ -86,19 +87,31 @@ function encodeChunk({ code, value }: EncodedChunk): Uint8Array {
 function parseEventId(
   value: string | null | undefined
 ): { sessionId: string; sequence: number } | undefined {
-  if (!value) return undefined;
+  if (!value) {
+    return;
+  }
   const trimmed = value.trim();
-  if (!trimmed) return undefined;
+  if (!trimmed) {
+    return;
+  }
   const [sessionId, sequenceRaw] = trimmed.split(':');
-  if (!sessionId || !sequenceRaw) return undefined;
+  if (!(sessionId && sequenceRaw)) {
+    return;
+  }
   const sequence = Number.parseInt(sequenceRaw, 10);
-  if (!Number.isFinite(sequence) || sequence < -1) return undefined;
+  if (!Number.isFinite(sequence) || sequence < -1) {
+    return;
+  }
   return { sessionId, sequence };
 }
 
 function sanitizeDelta(value: string | undefined): string | undefined {
-  if (typeof value !== 'string') return undefined;
-  if (value.length === 0) return undefined;
+  if (typeof value !== 'string') {
+    return;
+  }
+  if (value.length === 0) {
+    return;
+  }
   return value;
 }
 
@@ -106,7 +119,7 @@ function sanitizeToolCallId(value: unknown): string | undefined {
   if (typeof value === 'string' && value.length > 0) {
     return value;
   }
-  return undefined;
+  return;
 }
 
 function toUsage(raw?: { promptTokens?: unknown; completionTokens?: unknown }): Usage {
@@ -147,7 +160,7 @@ function resolveFinishReason(chunk: StreamChunkFinish | StreamChunkMessageFinish
 
 function extractToolInput(payload: unknown): unknown {
   if (!payload || typeof payload !== 'object') {
-    return undefined;
+    return;
   }
   const record = payload as Record<string, unknown>;
   if (record['input'] !== undefined) {
@@ -156,7 +169,7 @@ function extractToolInput(payload: unknown): unknown {
   if (record['args'] !== undefined) {
     return toJsonSafe(record['args']);
   }
-  return undefined;
+  return;
 }
 
 function readProgressStep(payload: unknown): string | undefined {
@@ -697,7 +710,9 @@ class SessionSubscription {
   flushExisting(): void {
     while (!this.closed) {
       const chunk = this.session.pullEvent(this.nextIndex);
-      if (!chunk) break;
+      if (!chunk) {
+        break;
+      }
       this.controller.enqueue(chunk.payload);
       this.nextIndex += 1;
     }
@@ -716,7 +731,9 @@ class SessionSubscription {
     if (event.sequence > this.nextIndex) {
       while (!this.closed && event.sequence > this.nextIndex) {
         const queued = this.session.pullEvent(this.nextIndex);
-        if (!queued) break;
+        if (!queued) {
+          break;
+        }
         this.controller.enqueue(queued.payload);
         this.nextIndex += 1;
       }
@@ -747,7 +764,7 @@ export class AssistantDataStreamSessionManager {
   getByEventId(eventId: string | null | undefined): AssistantDataStreamSession | undefined {
     const parsed = parseEventId(eventId);
     if (!parsed) {
-      return undefined;
+      return;
     }
     return this.sessions.get(parsed.sessionId);
   }

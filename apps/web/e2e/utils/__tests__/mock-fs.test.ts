@@ -30,9 +30,15 @@ beforeEach(() => {
       // Convert fileBits to string
       this.content = fileBits
         .map((bit) => {
-          if (typeof bit === 'string') return bit;
-          if (bit instanceof ArrayBuffer) return new TextDecoder().decode(bit);
-          if (ArrayBuffer.isView(bit)) return new TextDecoder().decode(bit);
+          if (typeof bit === 'string') {
+            return bit;
+          }
+          if (bit instanceof ArrayBuffer) {
+            return new TextDecoder().decode(bit);
+          }
+          if (ArrayBuffer.isView(bit)) {
+            return new TextDecoder().decode(bit);
+          }
           return String(bit);
         })
         .join('');
@@ -51,9 +57,15 @@ beforeEach(() => {
       // Convert blobParts to string
       this.content = (blobParts || [])
         .map((part) => {
-          if (typeof part === 'string') return part;
-          if (part instanceof ArrayBuffer) return new TextDecoder().decode(part);
-          if (ArrayBuffer.isView(part)) return new TextDecoder().decode(part);
+          if (typeof part === 'string') {
+            return part;
+          }
+          if (part instanceof ArrayBuffer) {
+            return new TextDecoder().decode(part);
+          }
+          if (ArrayBuffer.isView(part)) {
+            return new TextDecoder().decode(part);
+          }
           return String(part);
         })
         .join('');
@@ -112,7 +124,9 @@ describe('Mock File System Logic', () => {
     const page = { addInitScript } as unknown as Page;
     await mockBrowserApis(page, 'root', tree, options);
     const firstCall = addInitScript.mock.calls[0];
-    if (!firstCall) throw new Error('addInitScript was not called');
+    if (!firstCall) {
+      throw new Error('addInitScript was not called');
+    }
     const [script, scriptArgs] = firstCall;
     return () =>
       script(
@@ -211,14 +225,16 @@ describe('Mock File System Logic', () => {
         showDirectoryPicker: () => Promise<TestDirHandle>;
       }
     ).showDirectoryPicker();
-    const entries: Array<[string, TestFileHandle | TestDirHandle]> = [];
+    const entries: [string, TestFileHandle | TestDirHandle][] = [];
     for await (const entry of rootHandle.entries()) {
       entries.push(entry as [string, TestFileHandle | TestDirHandle]);
     }
     expect(entries).toHaveLength(2);
     const first = entries[0];
     const second = entries[1];
-    if (!first || !second) throw new Error('entries not populated');
+    if (!(first && second)) {
+      throw new Error('entries not populated');
+    }
     const [firstName, firstHandle] = first;
     const [secondName, secondHandle] = second;
     expect(firstName).toBe('file.txt');

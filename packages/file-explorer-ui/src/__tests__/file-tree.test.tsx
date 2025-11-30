@@ -138,8 +138,8 @@ describe('FileTree', () => {
       renderWithProviders(
         <FileTree
           fileTree={[createDirectoryNode({ name: 'src', path: 'src', children: [] })]}
-          loadingFiles={new Set()}
           folderId="test-folder"
+          loadingFiles={new Set()}
         />
       );
       await Promise.resolve();

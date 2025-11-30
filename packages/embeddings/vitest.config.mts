@@ -14,7 +14,7 @@ export default defineConfig({
     // Also exclude CLI tests from unit runs; they are exercised separately.
     exclude: ['**/node_modules/**', '**/dist/**', '**/src/__tests__/cli.*.test.*'],
     // Set a reasonable timeout for unit tests
-    testTimeout: 10000,
+    testTimeout: 10_000,
     // Allow running integration tests with --run integration
     // Use: npx vitest run --reporter=verbose --testNamePattern="integration"
     // Or set environment variable: VITEST_RUN_INTEGRATION=true

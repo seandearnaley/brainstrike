@@ -12,13 +12,13 @@ describe('FileRow', () => {
     const onDetail = vi.fn();
     render(
       <FileRow
-        item={baseItem}
-        isSelected={false}
+        formatFileSize={(n) => String(n)}
         isLoading={false}
-        onToggleSelection={onToggle}
+        isSelected={false}
+        item={baseItem}
         onRemove={onRemove}
         onShowDetail={onDetail}
-        formatFileSize={(n) => String(n)}
+        onToggleSelection={onToggle}
       />
     );
     const user = userEvent.setup();
@@ -33,13 +33,13 @@ describe('FileRow', () => {
   it('shows loading spinner when isLoading', () => {
     render(
       <FileRow
-        item={baseItem}
-        isSelected={false}
+        formatFileSize={() => '10'}
         isLoading={true}
-        onToggleSelection={() => {}}
+        isSelected={false}
+        item={baseItem}
         onRemove={() => {}}
         onShowDetail={() => {}}
-        formatFileSize={() => '10'}
+        onToggleSelection={() => {}}
       />
     );
     expect(screen.getByTestId('loading-spinner')).toBeInTheDocument();

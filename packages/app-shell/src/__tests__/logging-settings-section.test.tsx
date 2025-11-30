@@ -46,7 +46,7 @@ vi.mock('@brainstrike/ui', async () => {
   const SelectItem = ({ value, children }: { value: string; children: React.ReactNode }) => {
     const ctx = React.useContext(SelectContext);
     return (
-      <button type="button" onClick={() => ctx?.select(value)}>
+      <button onClick={() => ctx?.select(value)} type="button">
         {children}
       </button>
     );
@@ -82,13 +82,13 @@ vi.mock('@brainstrike/ui', async () => {
     disabled?: boolean;
   }) => (
     <input
+      aria-checked={Boolean(checked)}
+      checked={Boolean(checked)}
+      disabled={disabled}
       id={id}
+      onChange={(event) => onCheckedChange?.(event.target.checked)}
       role="switch"
       type="checkbox"
-      checked={Boolean(checked)}
-      aria-checked={Boolean(checked)}
-      disabled={disabled}
-      onChange={(event) => onCheckedChange?.(event.target.checked)}
     />
   );
 
@@ -121,7 +121,7 @@ describe('LoggingSettingsSection', () => {
   it('updates console logging preference and commits changes', async () => {
     const onCommit = vi.fn(async (preferences) => preferences);
 
-    render(<LoggingSettingsSection runtime="browser" onCommitPreferences={onCommit} />);
+    render(<LoggingSettingsSection onCommitPreferences={onCommit} runtime="browser" />);
 
     const consoleSwitch = screen.getByRole('switch', { name: /console logging/i });
     expect(consoleSwitch).toBeChecked();
@@ -139,9 +139,9 @@ describe('LoggingSettingsSection', () => {
 
     render(
       <LoggingSettingsSection
-        runtime="browser"
         onCommitPreferences={onCommit}
         onResetPreferences={onReset}
+        runtime="browser"
       />
     );
 
@@ -168,14 +168,14 @@ describe('LoggingSettingsSection', () => {
 
     render(
       <LoggingSettingsSection
-        runtime="electron-renderer"
-        onCommitPreferences={onCommit}
-        onSelectLogDestination={onSelect}
         fileCapabilities={{
           fileLoggingSupported: true,
           canSelectDestination: true,
           defaultDestination: '/var/log/brainstrike.log',
         }}
+        onCommitPreferences={onCommit}
+        onSelectLogDestination={onSelect}
+        runtime="electron-renderer"
       />
     );
 
@@ -192,7 +192,7 @@ describe('LoggingSettingsSection', () => {
   it('updates redact paths from text input', async () => {
     const onCommit = vi.fn(async (preferences) => preferences);
 
-    render(<LoggingSettingsSection runtime="browser" onCommitPreferences={onCommit} />);
+    render(<LoggingSettingsSection onCommitPreferences={onCommit} runtime="browser" />);
 
     const redactInput = screen.getByLabelText(/redacted fields/i);
     fireEvent.change(redactInput, { target: { value: 'token, password, token' } });
@@ -216,7 +216,7 @@ describe('LoggingSettingsSection', () => {
       return Promise.resolve(preferences);
     });
 
-    render(<LoggingSettingsSection runtime="browser" onCommitPreferences={onCommit} />);
+    render(<LoggingSettingsSection onCommitPreferences={onCommit} runtime="browser" />);
 
     const consoleSwitch = screen.getByRole('switch', { name: /console logging/i });
     fireEvent.click(consoleSwitch);

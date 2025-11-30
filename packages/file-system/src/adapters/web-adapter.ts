@@ -14,6 +14,7 @@ import {
 
 // Type declarations for File System Access API
 declare global {
+  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     showDirectoryPicker(): Promise<FileSystemDirectoryHandle>;
   }
@@ -30,6 +31,7 @@ declare global {
     readonly name: string;
   }
 
+  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface FileSystemHandle {
     readonly kind: 'file' | 'directory';
     readonly name: string;
@@ -66,7 +68,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     const { includeMetadata, limiter } = normalizeDirectoryReadOptions(options);
 
     const dirNodes: IFileNode[] = [];
-    const fileWorks: Array<Promise<IFileNode | null>> = [];
+    const fileWorks: Promise<IFileNode | null>[] = [];
 
     for await (const [name, entryHandle] of dirHandle.entries()) {
       if (entryHandle.kind === 'directory') {
@@ -83,18 +85,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
         });
       } else {
         const fileHandle = entryHandle as FileSystemFileHandle;
-        if (!includeMetadata) {
-          dirNodes.push({
-            name,
-            path: `${handle.path}/${name}`,
-            type: 'file',
-            handle: fileHandle,
-            depth: 0, // This should be calculated by the caller
-            selectionState: 'unchecked',
-            rootFolderId: handle.name, // Use the handle name as root folder ID
-            isVisible: true,
-          });
-        } else {
+        if (includeMetadata) {
           fileWorks.push(
             limiter(async () => {
               try {
@@ -116,6 +107,17 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
               }
             })
           );
+        } else {
+          dirNodes.push({
+            name,
+            path: `${handle.path}/${name}`,
+            type: 'file',
+            handle: fileHandle,
+            depth: 0, // This should be calculated by the caller
+            selectionState: 'unchecked',
+            rootFolderId: handle.name, // Use the handle name as root folder ID
+            isVisible: true,
+          });
         }
       }
     }
@@ -123,7 +125,9 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     const settled = await Promise.allSettled(fileWorks);
     const fileNodes: IFileNode[] = [];
     for (const r of settled) {
-      if (r.status === 'fulfilled' && r.value) fileNodes.push(r.value);
+      if (r.status === 'fulfilled' && r.value) {
+        fileNodes.push(r.value);
+      }
     }
 
     const entries: IFileNode[] = [...dirNodes, ...fileNodes];

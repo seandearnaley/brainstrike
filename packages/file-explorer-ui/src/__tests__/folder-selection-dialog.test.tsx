@@ -25,12 +25,12 @@ describe('FolderSelectionDialog', () => {
     act(() => {
       renderWithProviders(
         <FolderSelectionDialog
-          open={true}
-          onOpenChange={vi.fn()}
-          node={node}
           fileCount={3}
+          node={node}
           onConfirm={vi.fn()}
+          onOpenChange={vi.fn()}
           onToggleFileSelection={vi.fn()}
+          open={true}
         />
       );
     });
@@ -46,12 +46,12 @@ describe('FolderSelectionDialog', () => {
     act(() => {
       renderWithProviders(
         <FolderSelectionDialog
-          open={true}
-          onOpenChange={vi.fn()}
+          fileCount={150}
           node={node}
-          fileCount={150} // Exceed default max of 100
           onConfirm={vi.fn()}
+          onOpenChange={vi.fn()} // Exceed default max of 100
           onToggleFileSelection={vi.fn()}
+          open={true}
         />
       );
     });
@@ -76,12 +76,12 @@ describe('FolderSelectionDialog', () => {
     act(() => {
       renderWithProviders(
         <FolderSelectionDialog
-          open={true}
-          onOpenChange={openChange}
-          node={node}
           fileCount={2}
+          node={node}
           onConfirm={confirm}
+          onOpenChange={openChange}
           onToggleFileSelection={toggle}
+          open={true}
         />
       );
     });

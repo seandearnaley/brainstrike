@@ -76,17 +76,17 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
   }, [isExpanded, onExpandedChange]);
 
   return (
-    <div className={cn('border-t border-border', className)}>
+    <div className={cn('border-border border-t', className)}>
       {/* Toggle button */}
       <Button
-        variant="ghost"
-        size="sm"
-        onClick={handleToggle}
-        className="w-full justify-between px-3 py-2 h-auto hover:bg-muted/50"
-        aria-expanded={isExpanded}
         aria-controls="search-config-content"
+        aria-expanded={isExpanded}
+        className="h-auto w-full justify-between px-3 py-2 hover:bg-muted/50"
+        onClick={handleToggle}
+        size="sm"
+        variant="ghost"
       >
-        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+        <span className="flex items-center gap-2 text-muted-foreground text-xs">
           <Settings className="h-3 w-3" />
           Advanced Options
         </span>
@@ -99,35 +99,35 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
 
       {/* Collapsible content */}
       <div
-        id="search-config-content"
         className={cn(
           'overflow-hidden transition-all duration-200 ease-out',
           isExpanded ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'
         )}
+        id="search-config-content"
       >
         <div className="space-y-4 p-3 pt-2">
           {/* Threshold slider */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label htmlFor="threshold" className="text-xs">
+              <Label className="text-xs" htmlFor="threshold">
                 Similarity Threshold
               </Label>
-              <span className="text-xs text-muted-foreground font-mono">
+              <span className="font-mono text-muted-foreground text-xs">
                 {config.threshold.toFixed(2)}
               </span>
             </div>
             <input
-              id="threshold"
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={config.threshold}
-              onChange={handleThresholdChange}
-              className="w-full h-2 bg-muted rounded-lg cursor-pointer accent-primary"
               aria-label="Similarity threshold"
+              className="h-2 w-full cursor-pointer rounded-lg bg-muted accent-primary"
+              id="threshold"
+              max="1"
+              min="0"
+              onChange={handleThresholdChange}
+              step="0.05"
+              type="range"
+              value={config.threshold}
             />
-            <div className="flex justify-between text-xs text-muted-foreground">
+            <div className="flex justify-between text-muted-foreground text-xs">
               <span>Broad</span>
               <span>Precise</span>
             </div>
@@ -135,16 +135,16 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
 
           {/* Result limit */}
           <div className="space-y-2">
-            <Label htmlFor="limit" className="text-xs">
+            <Label className="text-xs" htmlFor="limit">
               Max Results
             </Label>
-            <Select value={String(config.resultLimit)} onValueChange={handleLimitChange}>
-              <SelectTrigger id="limit" className="h-8 text-xs">
+            <Select onValueChange={handleLimitChange} value={String(config.resultLimit)}>
+              <SelectTrigger className="h-8 text-xs" id="limit">
                 <SelectValue placeholder="Select limit" />
               </SelectTrigger>
               <SelectContent>
                 {RESULT_LIMITS.map((limit) => (
-                  <SelectItem key={limit} value={String(limit)} className="text-xs">
+                  <SelectItem className="text-xs" key={limit} value={String(limit)}>
                     {limit} results
                   </SelectItem>
                 ))}
@@ -154,7 +154,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
 
           {/* Distance metric */}
           <div className="space-y-2">
-            <Label htmlFor="metric" className="text-xs">
+            <Label className="text-xs" htmlFor="metric">
               Distance Metric
               {collectionDistanceMetric && collectionDistanceMetric !== config.distanceMetric && (
                 <span className="ml-1 text-amber-500">
@@ -162,16 +162,16 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
                 </span>
               )}
             </Label>
-            <Select value={config.distanceMetric} onValueChange={handleMetricChange}>
-              <SelectTrigger id="metric" className="h-8 text-xs">
+            <Select onValueChange={handleMetricChange} value={config.distanceMetric}>
+              <SelectTrigger className="h-8 text-xs" id="metric">
                 <SelectValue placeholder="Select metric" />
               </SelectTrigger>
               <SelectContent>
                 {DISTANCE_METRICS.map((metric) => (
-                  <SelectItem key={metric.value} value={metric.value} className="text-xs">
+                  <SelectItem className="text-xs" key={metric.value} value={metric.value}>
                     <div className="flex flex-col">
                       <span>{metric.label}</span>
-                      <span className="text-xs text-muted-foreground">{metric.description}</span>
+                      <span className="text-muted-foreground text-xs">{metric.description}</span>
                     </div>
                   </SelectItem>
                 ))}

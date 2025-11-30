@@ -107,7 +107,7 @@ describe('EmbeddingWorkerProvider', () => {
       expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
         db: mockDb,
         concurrency: 2,
-        leaseMs: 30000,
+        leaseMs: 30_000,
         modelKey: 'bge-m3',
         log: expect.any(Function),
         onDownloadProgress: expect.any(Function),
@@ -143,7 +143,7 @@ describe('EmbeddingWorkerProvider', () => {
           expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
             db: mockDb,
             concurrency: 4,
-            leaseMs: 90000,
+            leaseMs: 90_000,
             modelKey: 'custom-model',
             log: expect.any(Function),
             onDownloadProgress: expect.any(Function),
@@ -177,7 +177,7 @@ describe('EmbeddingWorkerProvider', () => {
           expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
             db: mockDb,
             concurrency: 1,
-            leaseMs: 60000,
+            leaseMs: 60_000,
             modelKey: 'undefined',
             log: expect.any(Function),
             onDownloadProgress: expect.any(Function),
@@ -208,7 +208,7 @@ describe('EmbeddingWorkerProvider', () => {
           expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
             db: mockDb,
             concurrency: 1, // Falls back when 0 or NaN
-            leaseMs: 60000, // Falls back when empty or NaN
+            leaseMs: 60_000, // Falls back when empty or NaN
             modelKey: 'bge-m3',
             log: expect.any(Function),
             onDownloadProgress: expect.any(Function),
@@ -508,7 +508,7 @@ describe('EmbeddingWorkerProvider', () => {
           expect(mockStartEmbeddingWorker).toHaveBeenCalledWith({
             db: mockDb,
             concurrency: 2,
-            leaseMs: 30000,
+            leaseMs: 30_000,
             modelKey: 'bge-m3',
             log: expect.any(Function),
             onDownloadProgress: expect.any(Function),

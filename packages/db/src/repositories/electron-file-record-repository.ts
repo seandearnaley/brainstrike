@@ -4,16 +4,16 @@ import type { IDatabase } from './interfaces.js';
 /**
  * Electron IPC API
  */
-export interface ElectronDbAPI {
+export type ElectronDbAPI = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
   exec: (sql: string) => Promise<void>;
-}
+};
 
 /**
  * Adapter to make ElectronDbAPI compatible with IDatabase interface
  */
 class ElectronDbAdapter implements IDatabase {
-  constructor(private electronDb: ElectronDbAPI) {}
+  constructor(private readonly electronDb: ElectronDbAPI) {}
 
   async query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> {
     // Only pass params if they are provided

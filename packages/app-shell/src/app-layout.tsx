@@ -20,17 +20,17 @@ export function AppLayout({ children, config, currentPath, onNavigationClick }: 
     <ThemeProvider defaultTheme="system" storageKey={config.themeStorageKey}>
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
         <FileExplorerProvider storageAdapter={storageAdapter}>
-          <div className="h-screen flex flex-col">
+          <div className="flex h-screen flex-col">
             {/* Main content area */}
-            <div className="flex-1 flex min-h-0">
+            <div className="flex min-h-0 flex-1">
               <NavigationSidebar
-                items={config.navigationItems}
                 currentPath={currentPath}
+                items={config.navigationItems}
                 {...(onNavigationClick && { onItemClick: onNavigationClick })}
               >
                 <ThemeToggle />
               </NavigationSidebar>
-              <main className="flex-1 h-full overflow-hidden">{children}</main>
+              <main className="h-full flex-1 overflow-hidden">{children}</main>
             </div>
             {/* Status bar at bottom */}
             <StatusBar

@@ -34,12 +34,13 @@ export function ModelPicker({
       return () => mediaQuery.removeEventListener('change', handler);
     }
     setResolvedTheme(configuredTheme);
-    return undefined;
+    return;
   }, [configuredTheme]);
 
-  const filteredModels = React.useMemo(() => {
-    return filterModels(models, searchQuery, modelType);
-  }, [models, searchQuery, modelType]);
+  const filteredModels = React.useMemo(
+    () => filterModels(models, searchQuery, modelType),
+    [models, searchQuery, modelType]
+  );
 
   const handleSelect = React.useCallback(
     (modelId: string) => {
@@ -60,38 +61,38 @@ export function ModelPicker({
   const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
 
   return (
-    <Popover open={open} onOpenChange={setOpen} modal={true}>
+    <Popover modal={true} onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
         {renderTrigger ? (
           renderTrigger({ value, models, providers, placeholder, disabled })
         ) : (
           <ModelPickerTrigger
-            value={value}
-            models={models}
-            providers={providers}
-            placeholder={placeholder}
-            disabled={disabled}
             className={className}
+            disabled={disabled}
+            models={models}
+            placeholder={placeholder}
+            providers={providers}
+            value={value}
           />
         )}
       </PopoverTrigger>
       <PopoverContent
-        className="p-0 w-[400px] pointer-events-auto"
         align="start"
         aria-describedby="model-picker-description"
+        className="pointer-events-auto w-[400px] p-0"
       >
-        <span id="model-picker-description" className="sr-only">
+        <span className="sr-only" id="model-picker-description">
           Select a model from the list
         </span>
         <ModelPickerContent
           models={filteredModels}
-          providers={providers}
-          selectedValues={selectedValues}
+          onSearchChange={setSearchQuery}
           onSelect={handleSelect}
-          theme={resolvedTheme}
+          providers={providers}
           searchable={searchable}
           searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
+          selectedValues={selectedValues}
+          theme={resolvedTheme}
         />
       </PopoverContent>
     </Popover>

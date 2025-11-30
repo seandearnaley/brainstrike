@@ -28,7 +28,7 @@ describe('NodeIcon', () => {
   } as IFileNode;
 
   it('renders loading spinner when isLoading is true', () => {
-    render(<NodeIcon node={fileNode} isExpanded={false} isLoading={true} />);
+    render(<NodeIcon isExpanded={false} isLoading={true} node={fileNode} />);
 
     const loader = screen.getByLabelText('Loading test.txt');
     expect(loader).toBeInTheDocument();
@@ -36,7 +36,7 @@ describe('NodeIcon', () => {
   });
 
   it('renders file icon for file nodes', () => {
-    const { container } = render(<NodeIcon node={fileNode} isExpanded={false} isLoading={false} />);
+    const { container } = render(<NodeIcon isExpanded={false} isLoading={false} node={fileNode} />);
 
     const svg = container.querySelector('svg');
     expect(svg).toBeInTheDocument();
@@ -45,7 +45,7 @@ describe('NodeIcon', () => {
 
   it('renders folder icon when directory is collapsed', () => {
     const { container } = render(
-      <NodeIcon node={directoryNode} isExpanded={false} isLoading={false} />
+      <NodeIcon isExpanded={false} isLoading={false} node={directoryNode} />
     );
 
     const svg = container.querySelector('svg');
@@ -55,7 +55,7 @@ describe('NodeIcon', () => {
 
   it('renders open folder icon when directory is expanded', () => {
     const { container } = render(
-      <NodeIcon node={directoryNode} isExpanded={true} isLoading={false} />
+      <NodeIcon isExpanded={true} isLoading={false} node={directoryNode} />
     );
 
     const svg = container.querySelector('svg');
@@ -70,14 +70,14 @@ describe('NodeIcon', () => {
     };
 
     const { container } = render(
-      <NodeIcon node={unknownNode} isExpanded={false} isLoading={false} />
+      <NodeIcon isExpanded={false} isLoading={false} node={unknownNode} />
     );
 
     expect(container.firstChild).toBeNull();
   });
 
   it('prioritizes loading state over node type', () => {
-    render(<NodeIcon node={directoryNode} isExpanded={true} isLoading={true} />);
+    render(<NodeIcon isExpanded={true} isLoading={true} node={directoryNode} />);
 
     const loader = screen.getByLabelText('Loading src');
     expect(loader).toBeInTheDocument();

@@ -69,10 +69,14 @@ function setupRegexFilters(
   setError: (msg: string) => void
 ): boolean {
   const includes = compileRegexPatterns(processedIncludeFilters, setError);
-  if (!includes) return false;
+  if (!includes) {
+    return false;
+  }
 
   const excludes = compileRegexPatterns(processedExcludeFilters, setError);
-  if (!excludes) return false;
+  if (!excludes) {
+    return false;
+  }
 
   regexCache.current.include = includes;
   regexCache.current.exclude = excludes;
@@ -86,7 +90,9 @@ function createFilterFunctions(
   useRegex: boolean
 ) {
   const matchesInclude = (path: string): boolean => {
-    if (processedIncludeFilters.length === 0) return true;
+    if (processedIncludeFilters.length === 0) {
+      return true;
+    }
     return matchPath(path, processedIncludeFilters, regexCache.current.include, useRegex);
   };
 
@@ -104,7 +110,9 @@ function createProcessTreeFunction(
     const result: IFileNode[] = [];
     for (const node of nodes) {
       const path = normalizeNodePath(node.path);
-      if (matchesExclude(path)) continue;
+      if (matchesExclude(path)) {
+        continue;
+      }
 
       if (node.type === 'directory') {
         result.push(processDirectoryNode(node, processTree));
@@ -155,7 +163,9 @@ export function useFileFilters() {
           regexCache,
           setFilterError
         );
-        if (!success) return [];
+        if (!success) {
+          return [];
+        }
       }
 
       const { matchesInclude, matchesExclude } = createFilterFunctions(

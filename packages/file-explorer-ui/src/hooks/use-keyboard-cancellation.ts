@@ -7,7 +7,7 @@ export const useKeyboardCancellation = (
   onCancel?: () => void
 ) => {
   useEffect(() => {
-    if (!isLoading || !cancellable || isCancelling || !onCancel) {
+    if (!(isLoading && cancellable) || isCancelling || !onCancel) {
       return;
     }
 

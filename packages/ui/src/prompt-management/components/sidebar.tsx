@@ -5,13 +5,13 @@ import { cn } from '../../lib/utils';
 import { ScrollArea } from '../../scroll-area';
 import type { Category, PromptFilter } from '../types';
 
-interface SidebarProps {
+type SidebarProps = {
   categories: Category[];
   filter: PromptFilter;
   onFilterChange: (updates: Partial<PromptFilter>) => void;
   onAddPrompt: () => void;
   className?: string;
-}
+};
 
 export function Sidebar({
   categories,
@@ -21,23 +21,23 @@ export function Sidebar({
   className,
 }: SidebarProps) {
   return (
-    <div className={cn('flex flex-col h-full bg-muted/10 border-r border-border/50', className)}>
-      <div className="p-4 space-y-4">
+    <div className={cn('flex h-full flex-col border-border/50 border-r bg-muted/10', className)}>
+      <div className="space-y-4 p-4">
         <Button
+          className="w-full bg-primary shadow-md shadow-primary/20 transition-all hover:scale-[1.02] hover:bg-primary/90"
           onClick={onAddPrompt}
-          className="w-full bg-primary hover:bg-primary/90 shadow-md shadow-primary/20 transition-all hover:scale-[1.02]"
         >
-          <Plus className="w-4 h-4 mr-2" />
+          <Plus className="mr-2 h-4 w-4" />
           New Prompt
         </Button>
 
         <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute top-2.5 left-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search prompts..."
-            className="pl-9 bg-background/50 border-border/50 focus:bg-background transition-colors"
-            value={filter.search}
+            className="border-border/50 bg-background/50 pl-9 transition-colors focus:bg-background"
             onChange={(e) => onFilterChange({ search: e.target.value })}
+            placeholder="Search prompts..."
+            value={filter.search}
           />
         </div>
       </div>
@@ -45,20 +45,20 @@ export function Sidebar({
       <ScrollArea className="flex-1 px-2">
         <div className="space-y-1 p-2">
           <Button
-            variant={!filter.categoryId && !filter.favoritesOnly ? 'secondary' : 'ghost'}
             className="w-full justify-start font-normal"
             onClick={() => onFilterChange({ categoryId: null, favoritesOnly: false })}
+            variant={filter.categoryId || filter.favoritesOnly ? 'ghost' : 'secondary'}
           >
-            <LayoutGrid className="w-4 h-4 mr-2" />
+            <LayoutGrid className="mr-2 h-4 w-4" />
             All Prompts
           </Button>
 
           <Button
-            variant={filter.favoritesOnly ? 'secondary' : 'ghost'}
             className="w-full justify-start font-normal"
             onClick={() => onFilterChange({ favoritesOnly: true, categoryId: null })}
+            variant={filter.favoritesOnly ? 'secondary' : 'ghost'}
           >
-            <Star className="w-4 h-4 mr-2 text-yellow-500" />
+            <Star className="mr-2 h-4 w-4 text-yellow-500" />
             Favorites
           </Button>
         </div>
@@ -67,7 +67,7 @@ export function Sidebar({
           <div className="h-[1px] bg-border/50" />
         </div>
 
-        <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+        <div className="px-4 py-2 font-semibold text-muted-foreground text-xs uppercase tracking-wider">
           Categories
         </div>
 
@@ -75,13 +75,13 @@ export function Sidebar({
           {Array.isArray(categories) &&
             categories.map((category) => (
               <Button
+                className="group w-full justify-start font-normal"
                 key={category.id}
-                variant={filter.categoryId === category.id ? 'secondary' : 'ghost'}
-                className="w-full justify-start font-normal group"
                 onClick={() => onFilterChange({ categoryId: category.id, favoritesOnly: false })}
+                variant={filter.categoryId === category.id ? 'secondary' : 'ghost'}
               >
                 <span
-                  className="w-2 h-2 rounded-full mr-3 transition-transform group-hover:scale-125"
+                  className="mr-3 h-2 w-2 rounded-full transition-transform group-hover:scale-125"
                   style={{ backgroundColor: category.color }}
                 />
                 {category.name}
@@ -94,21 +94,21 @@ export function Sidebar({
         </div>
 
         {/* Placeholder for tags or other filters */}
-        <div className="px-4 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider flex justify-between items-center">
+        <div className="flex items-center justify-between px-4 py-2 font-semibold text-muted-foreground text-xs uppercase tracking-wider">
           <span>Tags</span>
-          <Button variant="ghost" size="icon" className="h-4 w-4">
+          <Button className="h-4 w-4" size="icon" variant="ghost">
             <Plus className="h-3 w-3" />
           </Button>
         </div>
 
-        <div className="p-2 text-sm text-muted-foreground text-center italic opacity-50">
+        <div className="p-2 text-center text-muted-foreground text-sm italic opacity-50">
           No tags yet
         </div>
       </ScrollArea>
 
-      <div className="p-4 border-t border-border/50">
-        <Button variant="ghost" className="w-full justify-start text-muted-foreground">
-          <Settings2 className="w-4 h-4 mr-2" />
+      <div className="border-border/50 border-t p-4">
+        <Button className="w-full justify-start text-muted-foreground" variant="ghost">
+          <Settings2 className="mr-2 h-4 w-4" />
           Settings
         </Button>
       </div>

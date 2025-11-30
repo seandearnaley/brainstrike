@@ -473,7 +473,6 @@ describe('processFileChunking', () => {
 
     const capturedChunks: { embeddingSetId?: string }[] = [];
     mockChunkRepository.insertMany.mockImplementation((chunks) => {
-      // biome-ignore lint/suspicious/noExplicitAny: casting for test capture
       capturedChunks.push(...chunks.map((c: any) => ({ ...c }))); // Capture copy
       return Promise.resolve([...chunks]);
     });
@@ -630,7 +629,7 @@ describe('processChunking', () => {
       { updateProgress: mockUpdateProgress }
     );
 
-    const lastCall = mockUpdateProgress.mock.calls[mockUpdateProgress.mock.calls.length - 1]?.[0];
+    const lastCall = mockUpdateProgress.mock.calls.at(-1)?.[0];
     const progress = lastCall?.({
       phase: 'chunking',
     } as EnhancedImportProgress);

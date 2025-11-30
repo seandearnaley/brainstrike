@@ -40,7 +40,7 @@ function calculateElapsed(startedAt: number): number {
 
 function serializeErrorCause(error: unknown): string | undefined {
   if (error === undefined || error === null) {
-    return undefined;
+    return;
   }
   if (error instanceof Error) {
     return error.stack ?? error.message;

@@ -8,23 +8,23 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type DeepPartial<T> = {
-  [K in keyof T]?: T[K] extends ReadonlyArray<unknown>
+  [K in keyof T]?: T[K] extends readonly unknown[]
     ? T[K]
-    : T[K] extends Array<unknown>
+    : T[K] extends unknown[]
       ? T[K]
       : T[K] extends object
         ? DeepPartial<T[K]>
         : T[K];
 };
 
-interface LoggingPreferencesState {
+type LoggingPreferencesState = {
   preferences: LoggingPreferences;
   hasHydrated: boolean;
   setPreferences: (preferences: LoggingPreferences) => void;
   updatePreferences: (updates: DeepPartial<LoggingPreferences>) => void;
   resetPreferences: () => void;
   markHydrated: () => void;
-}
+};
 
 const STORE_NAME = 'logging-preferences.v1' as const;
 

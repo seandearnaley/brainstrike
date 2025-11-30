@@ -10,8 +10,9 @@ const Wrapper = composeWrappers(({ children }) => (
 const renderWithProviders = makeRenderWithProviders(Wrapper);
 
 let previewSnapshot: Set<string>;
+// biome-ignore lint/suspicious/noVar: var required for vi.mock hoisting - let creates temporal dead zone
 var previewPanelMock: ReturnType<typeof vi.fn> | undefined;
-interface MockPreviewPanelProps {
+type MockPreviewPanelProps = {
   onSelectionChange: (files: Set<string>) => void;
   performUndoableAction: (
     key: string,
@@ -23,7 +24,7 @@ interface MockPreviewPanelProps {
       onUndo: (key: string, snapshot: Set<string>) => void;
     }
   ) => void;
-}
+};
 
 vi.mock('../preview-panel', () => {
   previewPanelMock = vi.fn(
@@ -53,10 +54,10 @@ vi.mock('../preview-panel', () => {
       return (
         <div data-testid="preview">
           Preview
-          <button type="button" data-testid="trigger" onClick={handleClick}>
+          <button data-testid="trigger" onClick={handleClick} type="button">
             trigger
           </button>
-          <button type="button" data-testid="file-click-trigger" onClick={handleFileClickTrigger}>
+          <button data-testid="file-click-trigger" onClick={handleFileClickTrigger} type="button">
             file-click
           </button>
         </div>

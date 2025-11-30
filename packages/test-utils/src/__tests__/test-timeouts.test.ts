@@ -22,43 +22,43 @@ describe('test timeouts', () => {
 
   describe('TEST_TIMEOUTS', () => {
     it('should have predefined timeout values', () => {
-      expect(TEST_TIMEOUTS.unit).toBe(10000);
-      expect(TEST_TIMEOUTS.integration).toBe(15000);
-      expect(TEST_TIMEOUTS.database).toBe(20000);
-      expect(TEST_TIMEOUTS.uiComponent).toBe(15000);
-      expect(TEST_TIMEOUTS.e2e).toBe(60000);
-      expect(TEST_TIMEOUTS.performance).toBe(120000);
-      expect(TEST_TIMEOUTS.heavy).toBe(30000);
+      expect(TEST_TIMEOUTS.unit).toBe(10_000);
+      expect(TEST_TIMEOUTS.integration).toBe(15_000);
+      expect(TEST_TIMEOUTS.database).toBe(20_000);
+      expect(TEST_TIMEOUTS.uiComponent).toBe(15_000);
+      expect(TEST_TIMEOUTS.e2e).toBe(60_000);
+      expect(TEST_TIMEOUTS.performance).toBe(120_000);
+      expect(TEST_TIMEOUTS.heavy).toBe(30_000);
     });
   });
 
   describe('getTestTimeout', () => {
     it('should return the correct timeout for unit tests', () => {
-      expect(getTestTimeout('unit')).toBe(10000);
+      expect(getTestTimeout('unit')).toBe(10_000);
     });
 
     it('should return the correct timeout for integration tests', () => {
-      expect(getTestTimeout('integration')).toBe(15000);
+      expect(getTestTimeout('integration')).toBe(15_000);
     });
 
     it('should return the correct timeout for database tests', () => {
-      expect(getTestTimeout('database')).toBe(20000);
+      expect(getTestTimeout('database')).toBe(20_000);
     });
 
     it('should return the correct timeout for UI component tests', () => {
-      expect(getTestTimeout('uiComponent')).toBe(15000);
+      expect(getTestTimeout('uiComponent')).toBe(15_000);
     });
 
     it('should return the correct timeout for e2e tests', () => {
-      expect(getTestTimeout('e2e')).toBe(60000);
+      expect(getTestTimeout('e2e')).toBe(60_000);
     });
 
     it('should return the correct timeout for performance tests', () => {
-      expect(getTestTimeout('performance')).toBe(120000);
+      expect(getTestTimeout('performance')).toBe(120_000);
     });
 
     it('should return the correct timeout for heavy tests', () => {
-      expect(getTestTimeout('heavy')).toBe(30000);
+      expect(getTestTimeout('heavy')).toBe(30_000);
     });
   });
 
@@ -96,20 +96,20 @@ describe('test timeouts', () => {
 
   describe('getAdjustedTimeout', () => {
     it('should return base timeout with default multiplier', () => {
-      expect(getAdjustedTimeout('unit')).toBe(10000);
-      expect(getAdjustedTimeout('e2e')).toBe(60000);
+      expect(getAdjustedTimeout('unit')).toBe(10_000);
+      expect(getAdjustedTimeout('e2e')).toBe(60_000);
     });
 
     it('should double timeouts in CI', () => {
       process.env['CI'] = 'true';
-      expect(getAdjustedTimeout('unit')).toBe(20000);
-      expect(getAdjustedTimeout('e2e')).toBe(120000);
+      expect(getAdjustedTimeout('unit')).toBe(20_000);
+      expect(getAdjustedTimeout('e2e')).toBe(120_000);
     });
 
     it('should multiply timeouts by 5 in DEBUG mode', () => {
       process.env['DEBUG'] = 'true';
-      expect(getAdjustedTimeout('unit')).toBe(50000);
-      expect(getAdjustedTimeout('e2e')).toBe(300000);
+      expect(getAdjustedTimeout('unit')).toBe(50_000);
+      expect(getAdjustedTimeout('e2e')).toBe(300_000);
     });
 
     it('should apply correct multiplier to all timeout types', () => {

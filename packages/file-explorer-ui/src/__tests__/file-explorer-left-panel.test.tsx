@@ -3,46 +3,47 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// biome-ignore lint/suspicious/noVar: var required for vi.mock hoisting - let creates temporal dead zone
 var FileExplorerSidebarMock: ReturnType<typeof vi.fn> | undefined;
+// biome-ignore lint/suspicious/noVar: var required for vi.mock hoisting - let creates temporal dead zone
 var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
+// biome-ignore lint/suspicious/noVar: var required for vi.mock hoisting - let creates temporal dead zone
 var LoadingOverlayMock: ReturnType<typeof vi.fn> | undefined;
 
 // Mock UI components that are imported relatively within the panel
-vi.mock('../file-explorer-toolbar', () => {
-  return {
-    FileExplorerToolbar: ({
-      onDirectorySelect,
-      onFilterChange,
-      selectedCount,
-      maxSelectionCount,
-    }: {
-      onDirectorySelect: () => void;
-      onFilterChange: (include: string[], exclude: string[], useRegex: boolean) => void;
-      selectedCount: number;
-      maxSelectionCount: number;
-    }) => (
-      <div data-testid="toolbar">
-        Toolbar
-        <div>
-          <span data-testid="selection-count">{selectedCount}</span>/
-          <span data-testid="selection-max">{maxSelectionCount}</span>
-        </div>
-        <button type="button" onClick={onDirectorySelect}>
-          Select Directory
-        </button>
-        <button type="button" onClick={() => onFilterChange(['in'], ['ex'], true)}>
-          Apply Filters
-        </button>
-        <button type="button" onClick={() => onFilterChange([], [], false)}>
-          Clear Filters
-        </button>
-        <button type="button" onClick={() => onFilterChange(['foo'], ['bar', 'baz'], false)}>
-          Apply Complex
-        </button>
+vi.mock('../file-explorer-toolbar', () => ({
+  FileExplorerToolbar: ({
+    onDirectorySelect,
+    onFilterChange,
+    selectedCount,
+    maxSelectionCount,
+  }: {
+    onDirectorySelect: () => void;
+    onFilterChange: (include: string[], exclude: string[], useRegex: boolean) => void;
+    selectedCount: number;
+    maxSelectionCount: number;
+  }) => (
+    <div data-testid="toolbar">
+      Toolbar
+      <div>
+        <span data-testid="selection-count">{selectedCount}</span>/
+        <span data-testid="selection-max">{maxSelectionCount}</span>
       </div>
-    ),
-  };
-});
+      <button onClick={onDirectorySelect} type="button">
+        Select Directory
+      </button>
+      <button onClick={() => onFilterChange(['in'], ['ex'], true)} type="button">
+        Apply Filters
+      </button>
+      <button onClick={() => onFilterChange([], [], false)} type="button">
+        Clear Filters
+      </button>
+      <button onClick={() => onFilterChange(['foo'], ['bar', 'baz'], false)} type="button">
+        Apply Complex
+      </button>
+    </div>
+  ),
+}));
 
 vi.mock('../file-explorer-sidebar', () => {
   FileExplorerSidebarMock = vi.fn(() => <div data-testid="sidebar">Sidebar</div>);
@@ -63,7 +64,7 @@ vi.mock('../loading-overlay', () => {
     ({ cancellable, onCancel }: { cancellable?: boolean; onCancel?: () => void }) => (
       <div data-testid="loading-overlay">
         {cancellable && (
-          <button type="button" onClick={onCancel}>
+          <button onClick={onCancel} type="button">
             Cancel
           </button>
         )}

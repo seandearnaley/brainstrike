@@ -51,7 +51,7 @@ describe('FileTreeNode', () => {
 
   it('renders a directory node correctly', () => {
     renderWithProviders(
-      <FileTreeNode {...defaultDirProps} isExpanded={true} folderId="test-folder" />
+      <FileTreeNode {...defaultDirProps} folderId="test-folder" isExpanded={true} />
     );
 
     expect(screen.getByText('components')).toBeInTheDocument();
@@ -152,7 +152,7 @@ describe('FileTreeNode', () => {
 
     // Expanded - the button aria-label is just "Collapse"
     await act(async () => {
-      rerender(<FileTreeNode {...defaultDirProps} isExpanded={true} folderId="test-folder" />);
+      rerender(<FileTreeNode {...defaultDirProps} folderId="test-folder" isExpanded={true} />);
       await Promise.resolve();
     });
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();

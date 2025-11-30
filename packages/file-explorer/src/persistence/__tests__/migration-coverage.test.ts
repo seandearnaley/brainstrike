@@ -4,7 +4,7 @@ import { createPersistOptions } from '../file-explorer-persistence';
 
 // Minimal in-memory localStorage mock
 class LocalStorageMock {
-  private store = new Map<string, string>();
+  private readonly store = new Map<string, string>();
   getItem(key: string) {
     return this.store.has(key) ? (this.store.get(key) as string) : null;
   }

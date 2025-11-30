@@ -87,7 +87,7 @@ describe('logging-preferences-store', () => {
     expect(persistApi).toBeDefined();
     const options = persistApi?.getOptions?.();
     expect(options?.storage).toBeDefined();
-    if (!persistApi || !options?.storage || !options.name) {
+    if (!(persistApi && options?.storage && options.name)) {
       throw new Error('persist storage unavailable for test');
     }
 
@@ -134,7 +134,7 @@ describe('logging-preferences-store', () => {
       storage.setItem(key, { state: { index }, version: 1 });
     }
 
-    const latest = storage.getItem(keys[keys.length - 1]!)!;
+    const latest = storage.getItem(keys.at(-1)!)!;
     expect(latest).not.toBeNull();
 
     const first = storage.getItem(keys[0]!);

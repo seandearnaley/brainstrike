@@ -56,9 +56,9 @@ import { useImportFlow } from './use-import-flow';
 import { usePendingChunks } from './use-pending-chunks';
 import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-preferences';
 
-interface DatabaseDemoPanelProps {
+type DatabaseDemoPanelProps = {
   embeddingQueue?: QueueAdapter | null;
-}
+};
 
 const logger = createLogger('DatabaseDemoPanel');
 
@@ -112,11 +112,18 @@ function createModelFromProviderAndId(
     provider: providerLabel,
   };
 
-  if (modelConfig?.description) model.description = modelConfig.description;
-  if (modelConfig?.tags) model.tags = modelConfig.tags;
-  if (modelConfig?.pricePer1MTokens !== undefined)
+  if (modelConfig?.description) {
+    model.description = modelConfig.description;
+  }
+  if (modelConfig?.tags) {
+    model.tags = modelConfig.tags;
+  }
+  if (modelConfig?.pricePer1MTokens !== undefined) {
     model.pricePer1MTokens = modelConfig.pricePer1MTokens;
-  if (modelConfig?.origin) model.origin = modelConfig.origin;
+  }
+  if (modelConfig?.origin) {
+    model.origin = modelConfig.origin;
+  }
 
   return model;
 }
@@ -207,21 +214,27 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       enabled: Boolean(dbContext),
     });
 
-  const embeddingSets = useMemo<EmbeddingSet[]>(() => {
-    return embeddingSetRows.map((row) => {
-      const set: EmbeddingSet = {
-        id: row.id,
-        modelKey: row.model_key,
-        modelId: row.model_id,
-        dimensions: row.dimensions,
-        distance: row.distance as 'cosine' | 'l2' | 'ip',
-        createdAt: row.created_at,
-      };
-      if (row.name) set.name = row.name;
-      if (row.description) set.description = row.description;
-      return set;
-    });
-  }, [embeddingSetRows]);
+  const embeddingSets = useMemo<EmbeddingSet[]>(
+    () =>
+      embeddingSetRows.map((row) => {
+        const set: EmbeddingSet = {
+          id: row.id,
+          modelKey: row.model_key,
+          modelId: row.model_id,
+          dimensions: row.dimensions,
+          distance: row.distance as 'cosine' | 'l2' | 'ip',
+          createdAt: row.created_at,
+        };
+        if (row.name) {
+          set.name = row.name;
+        }
+        if (row.description) {
+          set.description = row.description;
+        }
+        return set;
+      }),
+    [embeddingSetRows]
+  );
 
   // Get enabled models from preferences for Create dialog
   const { enabledModelsByProvider } = useEmbeddingPreferencesStore();
@@ -248,12 +261,16 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const { records, chunks, refreshing, loadRecords, loadChunks } = data;
 
   const filteredRecords = useMemo(() => {
-    if (!activeCollectionId) return [];
+    if (!activeCollectionId) {
+      return [];
+    }
     return records.filter((record) => record.embeddingSetId === activeCollectionId);
   }, [records, activeCollectionId]);
 
   const filteredChunks = useMemo(() => {
-    if (!activeCollectionId) return [];
+    if (!activeCollectionId) {
+      return [];
+    }
     return chunks.filter((chunk) => chunk.embeddingSetId === activeCollectionId);
   }, [chunks, activeCollectionId]);
 
@@ -384,19 +401,19 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     return (
       <Card className="h-full">
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
             <Database className="h-4 w-4" />
             Enhanced Database Demo
           </CardTitle>
-          <CardDescription className="text-xs text-red-600">
+          <CardDescription className="text-red-600 text-xs">
             Database failed to initialize
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="text-xs text-red-700 break-all" data-testid="db-init-error">
+          <div className="break-all text-red-700 text-xs" data-testid="db-init-error">
             {String(dbInitError.message || dbInitError)}
           </div>
-          <div className="text-xs text-muted-foreground">
+          <div className="text-muted-foreground text-xs">
             Ensure pgvector is available in Electron and try restarting the app.
           </div>
         </CardContent>
@@ -408,45 +425,45 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     return (
       <Card className="h-full">
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
             <Database className="h-4 w-4" />
             Enhanced Database Demo
           </CardTitle>
           <CardDescription className="text-xs">Database is initializing...</CardDescription>
         </CardHeader>
-        <CardContent className="flex items-center justify-center h-32">
-          <div className="text-sm text-muted-foreground">Loading PGlite database...</div>
+        <CardContent className="flex h-32 items-center justify-center">
+          <div className="text-muted-foreground text-sm">Loading PGlite database...</div>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden" data-testid="database-demo-panel">
-      <div className="p-4 border-b flex-shrink-0">
-        <div className="text-sm font-medium flex items-center gap-2 mb-1">
+    <div className="flex h-full flex-col overflow-hidden" data-testid="database-demo-panel">
+      <div className="flex-shrink-0 border-b p-4">
+        <div className="mb-1 flex items-center gap-2 font-medium text-sm">
           <Database className="h-4 w-4" />
           Enhanced Database Demo
         </div>
-        <div className="text-xs text-muted-foreground mb-3">
+        <div className="mb-3 text-muted-foreground text-xs">
           PGlite WASM with pgvector, chunking, and embeddings
         </div>
 
         <SearchCollectionSelector
-          db={dbContext}
           activeCollectionId={activeCollectionId}
+          db={dbContext}
           onCollectionChange={handleCollectionChange}
-          onManageCollections={handleManageCollections}
           onCreateCollection={handleCreateCollection}
+          onManageCollections={handleManageCollections}
         />
 
         {/* Settings Panel */}
         <div className="mb-3">
           <Button
+            className="h-6 px-2"
+            onClick={() => setShowSettings(!showSettings)}
             size="sm"
             variant="ghost"
-            onClick={() => setShowSettings(!showSettings)}
-            className="h-6 px-2"
           >
             {showSettings ? (
               <ChevronDown className="h-3 w-3" />
@@ -458,7 +475,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
           <div className={showSettings ? '' : 'hidden'}>
             <SettingsPanel
-              importSettings={importSettings}
               clearDatabaseProps={{
                 clearAllData,
                 records,
@@ -468,6 +484,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 setShowClearDialog,
                 onClear: handleClearDatabase,
               }}
+              importSettings={importSettings}
             />
           </div>
         </div>
@@ -475,47 +492,47 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         {/* Action Buttons */}
         <div className="flex flex-wrap gap-2 pt-2">
           <Button
-            size="sm"
-            onClick={importFlow.handleImportClick}
-            disabled={importFlow.isImporting || !activeCollectionId}
             className="flex items-center gap-1"
-            title={!activeCollectionId ? 'Select a collection first' : undefined}
+            disabled={importFlow.isImporting || !activeCollectionId}
+            onClick={importFlow.handleImportClick}
+            size="sm"
+            title={activeCollectionId ? undefined : 'Select a collection first'}
           >
             <FileText className="h-3 w-3" />
             Import Selected Files ({importFlow.selectedFileCount})
           </Button>
           <Button
+            className="flex items-center gap-1"
+            disabled={refreshing}
+            onClick={handleManualRefresh}
             size="sm"
             variant="outline"
-            onClick={handleManualRefresh}
-            disabled={refreshing}
-            className="flex items-center gap-1"
           >
             <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
           <ExportDropdown
-            records={filteredRecords}
             chunks={filteredChunks}
             exportHandlers={exportHandlers}
+            records={filteredRecords}
           />
         </div>
 
         {/* Clear Database Dialog - triggered from Import Settings */}
         <ClearDatabaseDialog
-          records={records}
           chunks={chunks}
           clearing={clearing}
-          showClearDialog={showClearDialog}
-          setShowClearDialog={setShowClearDialog}
           onClear={handleClearDatabase}
+          records={records}
+          setShowClearDialog={setShowClearDialog}
+          showClearDialog={showClearDialog}
         />
 
         {importFlow.showImportProgress && importFlow.progress && (
           <div className="mt-4">
             <ImportProgressDisplay
-              progress={importFlow.progress as EnhancedImportProgress}
               onClose={() => importFlow.setShowImportProgress(false)}
+              progress={importFlow.progress as EnhancedImportProgress}
             />
           </div>
         )}
@@ -527,13 +544,13 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           {...(semanticSearchExecutor ? { searchExecutor: semanticSearchExecutor } : {})}
         >
           <CollectionBrowserView
-            embeddingSets={embeddingSets}
-            records={records}
-            chunks={chunks}
-            pendingChunkIds={pendingChunkIds}
             activeCollectionId={activeCollectionId}
-            isLoading={embeddingSetsLoading || refreshing}
+            chunks={chunks}
+            embeddingSets={embeddingSets}
             height="100%"
+            isLoading={embeddingSetsLoading || refreshing}
+            pendingChunkIds={pendingChunkIds}
+            records={records}
           />
         </SemanticSearchProvider>
       </div>
@@ -541,10 +558,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {/* Create Collection Dialog */}
       {createCollectionOpen && (
         <CreateEmbeddingSetDialog
-          open={createCollectionOpen}
-          onOpenChange={setCreateCollectionOpen}
-          repository={embeddingSetsRepository}
           availableModels={availableModels}
+          onOpenChange={setCreateCollectionOpen}
           onSetCreated={(newSetId?: string) => {
             if (newSetId) {
               handleCollectionChange(newSetId);
@@ -552,20 +567,22 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             setCreateCollectionOpen(false);
             // Reload collections (SearchCollectionSelector listens to event)
           }}
+          open={createCollectionOpen}
+          repository={embeddingSetsRepository}
         />
       )}
 
       {/* Collection Management Dialog */}
       {manageCollectionsOpen && (
         <ManageEmbeddingSetsDialog
-          open={manageCollectionsOpen}
-          onOpenChange={setManageCollectionsOpen}
           db={dbContext as never}
-          repository={embeddingSetsRepository}
+          onOpenChange={setManageCollectionsOpen}
           onSetSelected={(setId: string) => {
             handleCollectionChange(setId);
             setManageCollectionsOpen(false);
           }}
+          open={manageCollectionsOpen}
+          repository={embeddingSetsRepository}
         />
       )}
     </div>

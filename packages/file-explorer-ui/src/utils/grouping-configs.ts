@@ -6,9 +6,9 @@ export type GroupBandFunction<T = unknown> = (item: T) => string;
 // Size threshold constants (in bytes)
 export const SIZE_THRESHOLDS = {
   small: 1024, // 1 KB
-  medium: 10240, // 10 KB
-  large: 102400, // 100 KB
-  veryLarge: 1048576, // 1 MB
+  medium: 10_240, // 10 KB
+  large: 102_400, // 100 KB
+  veryLarge: 1_048_576, // 1 MB
 } as const;
 
 // Token threshold constants
@@ -19,24 +19,24 @@ export const TOKEN_THRESHOLDS = {
   veryLarge: 5000,
 } as const;
 
-export interface GroupConfig<T = unknown> {
+export type GroupConfig<T = unknown> = {
   id: string;
   label: string;
   groupBy: GroupFunction<T> | GroupBandFunction<T>;
   sortGroups?: (a: GroupKey, b: GroupKey) => number;
-}
+};
 
-export interface GroupedData<T = unknown> {
+export type GroupedData<T = unknown> = {
   groupKey: GroupKey;
   groupLabel: string;
   items: T[];
   count: number;
   totalTokens: number;
   totalSize: number;
-}
+};
 
 // Table data structure for preview panel
-export interface TableRowData {
+export type TableRowData = {
   id: string;
   rootFolderId: string;
   path: string;
@@ -44,7 +44,7 @@ export interface TableRowData {
   size?: number;
   tokens?: number;
   compositeKey: string;
-}
+};
 
 // Predefined grouping configurations
 export const GROUPING_CONFIGS = {
@@ -70,11 +70,21 @@ export const GROUPING_CONFIGS = {
     label: 'By Size Range',
     groupBy: (item: TableRowData) => {
       const size = item.size || 0;
-      if (size === 0) return 'Unknown';
-      if (size < SIZE_THRESHOLDS.small) return 'Small (< 1 KB)';
-      if (size < SIZE_THRESHOLDS.medium) return 'Medium (1-10 KB)';
-      if (size < SIZE_THRESHOLDS.large) return 'Large (10-100 KB)';
-      if (size < SIZE_THRESHOLDS.veryLarge) return 'Very Large (100 KB - 1 MB)';
+      if (size === 0) {
+        return 'Unknown';
+      }
+      if (size < SIZE_THRESHOLDS.small) {
+        return 'Small (< 1 KB)';
+      }
+      if (size < SIZE_THRESHOLDS.medium) {
+        return 'Medium (1-10 KB)';
+      }
+      if (size < SIZE_THRESHOLDS.large) {
+        return 'Large (10-100 KB)';
+      }
+      if (size < SIZE_THRESHOLDS.veryLarge) {
+        return 'Very Large (100 KB - 1 MB)';
+      }
       return 'Huge (> 1 MB)';
     },
     sortGroups: (a: GroupKey, b: GroupKey) => {
@@ -94,11 +104,21 @@ export const GROUPING_CONFIGS = {
     label: 'By Token Range',
     groupBy: (item: TableRowData) => {
       const tokens = item.tokens || 0;
-      if (tokens === 0) return 'Unknown';
-      if (tokens < TOKEN_THRESHOLDS.small) return 'Small (< 100)';
-      if (tokens < TOKEN_THRESHOLDS.medium) return 'Medium (100-500)';
-      if (tokens < TOKEN_THRESHOLDS.large) return 'Large (500-1K)';
-      if (tokens < TOKEN_THRESHOLDS.veryLarge) return 'Very Large (1K-5K)';
+      if (tokens === 0) {
+        return 'Unknown';
+      }
+      if (tokens < TOKEN_THRESHOLDS.small) {
+        return 'Small (< 100)';
+      }
+      if (tokens < TOKEN_THRESHOLDS.medium) {
+        return 'Medium (100-500)';
+      }
+      if (tokens < TOKEN_THRESHOLDS.large) {
+        return 'Large (500-1K)';
+      }
+      if (tokens < TOKEN_THRESHOLDS.veryLarge) {
+        return 'Very Large (1K-5K)';
+      }
       return 'Huge (> 5K)';
     },
     sortGroups: (a: GroupKey, b: GroupKey) => {

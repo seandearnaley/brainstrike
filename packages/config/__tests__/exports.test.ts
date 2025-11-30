@@ -9,10 +9,11 @@ it('imports package entry without throwing', () => {
 });
 
 describe('biome configuration', () => {
-  it('has linter enabled with recommended rules', () => {
+  it('has linter enabled and extends ultracite presets', () => {
     expect(biome.linter?.enabled).toBe(true);
-    expect(biome.linter?.rules?.recommended).toBe(true);
-    expect(biome.linter?.rules?.correctness).toBeDefined();
+    // Now using Ultracite presets instead of recommended rules
+    expect(biome.extends).toContain('ultracite/core');
+    expect(biome.extends).toContain('ultracite/react');
   });
 
   it('includes node_modules in ignore list', () => {

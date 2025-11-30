@@ -1,12 +1,12 @@
 import type { AgentMessage } from '../index';
 
-export interface Conversation {
+export type Conversation = {
   id: string;
   messages: AgentMessage[];
-}
+};
 
 export class InMemoryMemoryStore {
-  private conversations = new Map<string, Conversation>();
+  private readonly conversations = new Map<string, Conversation>();
 
   append(conversationId: string, message: AgentMessage) {
     const existing = this.conversations.get(conversationId);

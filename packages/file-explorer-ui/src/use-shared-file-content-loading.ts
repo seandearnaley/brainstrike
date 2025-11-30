@@ -179,8 +179,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   }, [fileTree]);
 
   const prepareFileRead = useCallback(
-    async (compositeKey: string): Promise<FileReadRequest | null> => {
-      return prepareFileReadRequest(
+    async (compositeKey: string): Promise<FileReadRequest | null> =>
+      prepareFileReadRequest(
         compositeKey,
         fileTree,
         fileSystemAdapter,
@@ -188,14 +188,15 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         nodeCacheRef,
         loadingPathsRef,
         setLoadingFiles
-      );
-    },
+      ),
     [fileTree, fileSystemAdapter, store]
   );
 
   const handleFileContentLoading = useCallback(
     async (compositeKeys: string[]) => {
-      if (!workerRef.current) return;
+      if (!workerRef.current) {
+        return;
+      }
       setIsLoading(true);
       setError(null);
 
@@ -203,7 +204,9 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         const requests: FileReadRequest[] = [];
         for (const key of compositeKeys) {
           const req = await prepareFileRead(key);
-          if (req) requests.push(req);
+          if (req) {
+            requests.push(req);
+          }
         }
 
         await workerRef
@@ -223,11 +226,12 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   );
 
   // Automatically load content for selected files
+  // biome-ignore lint/plugin: Auto-load content for selected files - reactive data loading
   useEffect(() => {
     const { fileContents, setFileContent } = store.getState();
 
     for (const compositeKey of selectedFilePaths) {
-      if (!fileContents[compositeKey] && !loadingPathsRef.current.has(compositeKey)) {
+      if (!(fileContents[compositeKey] || loadingPathsRef.current.has(compositeKey))) {
         void loadSingleFile(
           compositeKey,
           workerRef,

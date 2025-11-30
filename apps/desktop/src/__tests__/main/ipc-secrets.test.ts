@@ -2,13 +2,11 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearCachedAgentClient } from '../../agent-client-loader';
 
-vi.mock('electron', () => {
-  return {
-    ipcMain: {
-      handle: vi.fn(),
-    },
-  };
-});
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: vi.fn(),
+  },
+}));
 
 type SecretsServiceMock = {
   saveKey: ReturnType<typeof vi.fn>;

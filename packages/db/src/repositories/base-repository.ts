@@ -229,9 +229,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       // Use transaction for atomicity within each batch (if supported)
       try {
         const batchResults = this.db.transaction
-          ? await this.db.transaction(async (tx: IDatabase) => {
-              return await this.processBatch(batch, tx, onProgress, batchStart, requests.length);
-            })
+          ? await this.db.transaction(
+              async (tx: IDatabase) =>
+                await this.processBatch(batch, tx, onProgress, batchStart, requests.length)
+            )
           : await this.processBatch(batch, this.db, onProgress, batchStart, requests.length);
 
         results.push(...batchResults);
@@ -371,7 +372,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     const map = new Map<string, FileRecord>();
 
     for (const row of result.rows) {
-      if (!row || typeof row !== 'object') continue;
+      if (!row || typeof row !== 'object') {
+        continue;
+      }
       const record = this.fromRow(row);
       if (record.contentHash) {
         const key = this.buildDedupKey(record.contentHash, record.embeddingSetId);
@@ -389,7 +392,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   }
 
   private async batchInsert(records: FileRecord[], tx: IDatabase): Promise<void> {
-    if (records.length === 0) return;
+    if (records.length === 0) {
+      return;
+    }
 
     // Check if any records have embedding_set_id
     const hasEmbeddingSetId = records.some((r) => r.embeddingSetId);
@@ -418,7 +423,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
     for (let i = 0; i < records.length; i++) {
       const record = records[i];
-      if (!record) continue;
+      if (!record) {
+        continue;
+      }
 
       const rowValues = [
         record.id,
@@ -482,28 +489,28 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       updatedAt: String(row['updated_at']),
     };
 
-    // Add optional fields if they exist
-    if (row['content'] != null) {
+    // Add optional fields if they exist (check for both null and undefined)
+    if (row['content'] !== null && row['content'] !== undefined) {
       record.content = String(row['content']);
     }
 
-    if (row['content_hash'] != null) {
+    if (row['content_hash'] !== null && row['content_hash'] !== undefined) {
       record.contentHash = String(row['content_hash']);
     }
 
-    if (row['token_count'] != null) {
+    if (row['token_count'] !== null && row['token_count'] !== undefined) {
       record.tokenCount = Number(row['token_count']);
     }
 
-    if (row['processed_at'] != null) {
+    if (row['processed_at'] !== null && row['processed_at'] !== undefined) {
       record.processedAt = String(row['processed_at']);
     }
 
-    if (row['embedding'] != null) {
+    if (row['embedding'] !== null && row['embedding'] !== undefined) {
       record.embedding = row['embedding'] as number[];
     }
 
-    if (row['embedding_set_id'] != null) {
+    if (row['embedding_set_id'] !== null && row['embedding_set_id'] !== undefined) {
       record.embeddingSetId = String(row['embedding_set_id']);
     }
 

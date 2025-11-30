@@ -5,12 +5,12 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
 import { useVirtualList } from './use-virtual-list';
 
-interface IOptimizedFileTreeProps {
+type IOptimizedFileTreeProps = {
   fileTree: IFileNode[];
   loadingFiles: Set<string>;
   onRender?: (() => void) | undefined;
   folderId: string;
-}
+};
 
 /**
  * @file OptimizedFileTree.tsx
@@ -38,7 +38,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // Immediate file selection for better responsiveness
     const handleToggleFileSelection = useCallback(
       (path: string) => {
-        if (!folderId) return;
+        if (!folderId) {
+          return;
+        }
         toggleSelectedFile(folderId, path);
       },
       [folderId, toggleSelectedFile]
@@ -80,23 +82,25 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
       for (let i = startIndex; i <= endIndex; i++) {
         const item = visibleNodes[i];
-        if (!item) continue;
+        if (!item) {
+          continue;
+        }
 
         const { node, depth } = item;
         const rowIndex = i - startIndex;
 
         rows.push(
           <OptimizedFileTreeRow
-            key={node.path}
-            node={node}
             depth={depth}
+            folderId={folderId}
             isExpanded={expandedDirectoryPaths.has(node.path)}
-            onToggleDirectoryExpansion={toggleDirectoryExpansion}
-            onToggleFileSelection={handleToggleFileSelection}
             isLoading={
               folderId ? loadingFiles.has(encodeFileSelection(folderId, node.path)) : false
             }
-            folderId={folderId}
+            key={node.path}
+            node={node}
+            onToggleDirectoryExpansion={toggleDirectoryExpansion}
+            onToggleFileSelection={handleToggleFileSelection}
             style={{
               position: 'absolute',
               top: (startIndex + rowIndex) * ROW_HEIGHT - offset,
@@ -129,15 +133,15 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     return (
       <div
-        ref={containerRef}
-        className="h-full relative flex-1 min-h-0 overflow-y-auto"
+        className="relative h-full min-h-0 flex-1 overflow-y-auto"
         data-testid="file-tree-scroll-container"
+        ref={containerRef}
       >
         <div
-          className="relative file-tree"
-          role="tree"
           aria-label="File tree"
+          className="file-tree relative"
           data-testid="file-tree"
+          role="tree"
           style={{
             height: totalHeight,
             transform: `translateY(${offset}px)`,
@@ -157,10 +161,18 @@ OptimizedFileTree.displayName = 'OptimizedFileTree';
 
 // Lightweight memoization: rely on reference equality to avoid O(n) comparisons
 const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps) => {
-  if (prevProps.folderId !== nextProps.folderId) return false;
-  if (prevProps.onRender !== nextProps.onRender) return false;
-  if (prevProps.fileTree !== nextProps.fileTree) return false;
-  if (prevProps.loadingFiles !== nextProps.loadingFiles) return false;
+  if (prevProps.folderId !== nextProps.folderId) {
+    return false;
+  }
+  if (prevProps.onRender !== nextProps.onRender) {
+    return false;
+  }
+  if (prevProps.fileTree !== nextProps.fileTree) {
+    return false;
+  }
+  if (prevProps.loadingFiles !== nextProps.loadingFiles) {
+    return false;
+  }
   return true;
 });
 

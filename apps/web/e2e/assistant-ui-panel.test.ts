@@ -50,7 +50,7 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
 
     const stopBtn = page.getByRole('button', { name: 'Stop' });
     await expect(stopBtn).toBeVisible();
-    await expect(stopBtn).toBeEnabled({ timeout: 5_000 });
+    await expect(stopBtn).toBeEnabled({ timeout: 5000 });
 
     await expect(viewport.getByText(/starting/i)).toBeVisible({ timeout: 10_000 });
 

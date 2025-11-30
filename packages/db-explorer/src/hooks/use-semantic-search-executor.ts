@@ -31,10 +31,10 @@ type SearchEmbedder = {
   dispose?: () => Promise<void> | void;
 };
 
-interface UseSemanticSearchExecutorOptions {
+type UseSemanticSearchExecutorOptions = {
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
   fileRepository: FileRecordRepository | ElectronFileRecordRepository | null;
-}
+};
 
 /**
  * Create a hosted provider embedder
@@ -226,7 +226,7 @@ export function useSemanticSearchExecutor({
         hasFileRepo: !!fileRepository,
       });
 
-      if (!chunkRepository || !fileRepository) {
+      if (!(chunkRepository && fileRepository)) {
         throw new Error('Repositories not available');
       }
 
@@ -299,12 +299,12 @@ export function useSemanticSearchExecutor({
   );
 
   // Only return executor if repositories are available
-  if (!chunkRepository || !fileRepository) {
+  if (!(chunkRepository && fileRepository)) {
     logger.debug('Semantic search executor not available', {
       hasChunkRepo: !!chunkRepository,
       hasFileRepo: !!fileRepository,
     });
-    return undefined;
+    return;
   }
 
   logger.debug('Semantic search executor ready');

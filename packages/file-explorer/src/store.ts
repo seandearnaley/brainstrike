@@ -108,7 +108,9 @@ const STORE_VERSION = 1 as const;
 const g = globalThis as unknown as Record<string, unknown>;
 type BoundStore = ReturnType<ReturnType<typeof create<FileExplorerState>>>;
 function isValidStore(candidate: unknown): candidate is BoundStore & { [k: string]: unknown } {
-  if (!candidate || typeof candidate !== 'function') return false;
+  if (!candidate || typeof candidate !== 'function') {
+    return false;
+  }
   const cand = candidate as unknown as {
     getState?: unknown;
     setState?: unknown;

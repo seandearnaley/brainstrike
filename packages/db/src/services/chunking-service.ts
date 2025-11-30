@@ -8,7 +8,7 @@ const logger = createLogger('ChunkingService');
 
 export type ChunkingStrategy = 'sentence' | 'token' | 'recursive';
 
-export interface ChunkingOptions {
+export type ChunkingOptions = {
   strategy: ChunkingStrategy;
   maxTokens?: number;
   overlap?: number;
@@ -29,16 +29,16 @@ export interface ChunkingOptions {
   onStrategyResolved?: (strategy: ChunkingStrategy) => void;
   // Skip file-type recommendations and only enforce global safety caps when true
   ignoreFileTypeRecommendations?: boolean;
-}
+};
 
-export interface ChunkingResult {
+export type ChunkingResult = {
   chunks: FileChunkInsert[];
   totalTokens: number;
   avgTokensPerChunk: number;
   strategyUsed: ChunkingStrategy;
   skipped?: boolean;
   skipReason?: string;
-}
+};
 
 // File patterns that should be skipped or handled differently (path or name)
 const SKIP_CHUNKING_PATTERNS = [
@@ -94,7 +94,9 @@ type AstNode = {
 function detectCodeLanguage(fileName: string): CodeLanguage | null {
   const name = fileName.toLowerCase();
   for (const { pattern, language } of CODE_LANGUAGE_PATTERNS) {
-    if (pattern.test(name)) return language;
+    if (pattern.test(name)) {
+      return language;
+    }
   }
   return null;
 }
@@ -123,7 +125,7 @@ export class ChunkingService {
     logger.debug(`Content length: ${content?.length || 0}`);
     logger.debug('Options', options);
 
-    if (!content || !fileRecordId) {
+    if (!(content && fileRecordId)) {
       logger.error('Missing required parameters', {
         hasContent: !!content,
         fileRecordId,
@@ -310,7 +312,9 @@ export class ChunkingService {
 
     // Enforce hard safety limits for explicitly provided values and defaults alike
     const clamp = (value: number, fallback: number, limit: number) => {
-      if (!Number.isFinite(value)) return fallback;
+      if (!Number.isFinite(value)) {
+        return fallback;
+      }
       return Math.max(1, Math.min(value, limit));
     };
 
@@ -399,7 +403,9 @@ export class ChunkingService {
 
     for (const subTxt of subPieces) {
       const subC = subTxt?.trim();
-      if (!subC) continue;
+      if (!subC) {
+        continue;
+      }
       const subTokenCount = tokenCounter ? await tokenCounter(subC) : this.estimateTokenCount(subC);
       const subContentHash = await this.generateContentHash(subC);
       const now = nowIso();
@@ -431,7 +437,7 @@ export class ChunkingService {
     fileRecordId: string,
     options: ChunkingOptions = { strategy: 'sentence' }
   ): AsyncGenerator<FileChunkInsert> {
-    if (!content || !fileRecordId) {
+    if (!(content && fileRecordId)) {
       throw new Error('Content and fileRecordId are required for chunking');
     }
 
@@ -464,7 +470,9 @@ export class ChunkingService {
     ): AsyncGenerator<FileChunkInsert> {
       for (const txt of pieces) {
         const c = txt?.trim();
-        if (!c) continue;
+        if (!c) {
+          continue;
+        }
         const tokenCount = options.tokenCounter
           ? await options.tokenCounter(c)
           : this.estimateTokenCount(c);
@@ -647,7 +655,9 @@ export class ChunkingService {
     let effectiveStrategy: ChunkingStrategy = options.strategy;
     let strategyNotified = false;
     const notifyStrategy = (strategy: ChunkingStrategy) => {
-      if (strategyNotified) return;
+      if (strategyNotified) {
+        return;
+      }
       strategyNotified = true;
       options.onStrategyResolved?.(strategy);
     };
@@ -689,10 +699,18 @@ function resolveEffectiveStrategy({
   isMarkdown: boolean;
   isCode: boolean;
 }): ChunkingStrategy {
-  if (requested === 'token') return 'token';
-  if (forceStrategy) return requested;
-  if (isMarkdown) return 'sentence';
-  if (requested === 'recursive' || isCode) return 'recursive';
+  if (requested === 'token') {
+    return 'token';
+  }
+  if (forceStrategy) {
+    return requested;
+  }
+  if (isMarkdown) {
+    return 'sentence';
+  }
+  if (requested === 'recursive' || isCode) {
+    return 'recursive';
+  }
   return 'sentence';
 }
 
@@ -708,7 +726,9 @@ function resolveMaxTokensCap(cap?: number): number {
 }
 
 function isFunctionNode(type?: string): boolean {
-  if (!type) return false;
+  if (!type) {
+    return false;
+  }
   return (
     type === 'FunctionDeclaration' ||
     type === 'FunctionExpression' ||
@@ -758,10 +778,12 @@ function collectTopLevelFunctionRanges(
   ancestors: AstNode[],
   ranges: Array<{ start: number; end: number }>
 ): void {
-  if (!node) return;
+  if (!node) {
+    return;
+  }
 
   const nodeType = node.type ?? '';
-  const parentType = ancestors[ancestors.length - 1]?.type;
+  const parentType = ancestors.at(-1)?.type;
   if (
     isTopLevelContainerType(parentType) &&
     isFunctionNode(nodeType) &&
@@ -836,7 +858,9 @@ async function splitCodeByFunctions(
 
   const pushSegment = async (segment: string) => {
     const trimmed = segment.trim();
-    if (!trimmed) return;
+    if (!trimmed) {
+      return;
+    }
     if (trimmed.length <= maxChars * 1.25) {
       pieces.push(trimmed);
       return;
@@ -892,7 +916,9 @@ async function computeCharsPerToken(content: string, options: ChunkingOptions): 
 }
 
 function getCodeSeparators(custom?: string[]) {
-  if (custom?.length) return custom;
+  if (custom?.length) {
+    return custom;
+  }
   return [
     '\n\n',
     // Declarations and exports
@@ -942,7 +968,9 @@ function splitByBlankLines(text: string): string[] {
       buf.push(line);
     }
   }
-  if (buf.length) parts.push(buf.join('\n'));
+  if (buf.length) {
+    parts.push(buf.join('\n'));
+  }
   return parts;
 }
 
@@ -967,7 +995,9 @@ function splitMarkdownIntoBlocks(content: string) {
     }
 
     const para = captureParagraph(lines, i);
-    if (para.paragraph) blocks.push(para.paragraph);
+    if (para.paragraph) {
+      blocks.push(para.paragraph);
+    }
     i = para.consumed;
   }
   return blocks;
@@ -978,12 +1008,16 @@ function captureFence(
   start: number
 ): { consumed: number; block?: { text: string; meta: { isFence: true } } } {
   const line = lines[start] ?? '';
-  if (!/^```/.test(line)) return { consumed: start };
+  if (!/^```/.test(line)) {
+    return { consumed: start };
+  }
   const buf: string[] = [line];
   let i = start + 1;
   while (i < lines.length) {
     const cur = lines[i] ?? '';
-    if (cur.startsWith('```')) break;
+    if (cur.startsWith('```')) {
+      break;
+    }
     buf.push(cur);
     i++;
   }
@@ -997,7 +1031,9 @@ function captureFence(
 function captureHeading(lines: (string | undefined)[], start: number) {
   const raw = lines[start] ?? '';
   const m = raw.match(/^(#{1,6})\s+(.*)$/);
-  if (!m) return { consumed: start } as const;
+  if (!m) {
+    return { consumed: start } as const;
+  }
   const headingText: string = m[2] ?? '';
   return { consumed: start + 1, heading: { text: raw, meta: { heading: headingText } } } as const;
 }
@@ -1007,14 +1043,20 @@ function captureParagraph(lines: (string | undefined)[], start: number) {
   let i = start;
   while (i < lines.length) {
     const cur = lines[i] ?? '';
-    if (cur.match(/^```/) || cur.match(/^(#{1,6})\s+/) || cur.trim() === '') break;
+    if (cur.match(/^```/) || cur.match(/^(#{1,6})\s+/) || cur.trim() === '') {
+      break;
+    }
     buf.push(cur);
     i++;
   }
   if (buf.length === 0) {
-    while (i < lines.length && (lines[i] ?? '').trim() === '') i++;
+    while (i < lines.length && (lines[i] ?? '').trim() === '') {
+      i++;
+    }
     return { consumed: i } as const;
   }
-  while (i < lines.length && (lines[i] ?? '').trim() === '') i++;
+  while (i < lines.length && (lines[i] ?? '').trim() === '') {
+    i++;
+  }
   return { consumed: i, paragraph: { text: buf.join('\n'), meta: {} as const } } as const;
 }

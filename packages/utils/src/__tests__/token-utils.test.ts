@@ -40,13 +40,13 @@ describe('Token Utilities', () => {
     it('should format token counts between 1000 and 999999 as K tokens', () => {
       expect(formatTokenCount(1000)).toBe('1.0K tokens');
       expect(formatTokenCount(1500)).toBe('1.5K tokens');
-      expect(formatTokenCount(999500)).toBe('999.5K tokens');
+      expect(formatTokenCount(999_500)).toBe('999.5K tokens');
     });
 
     it('should format token counts of 1 million or more as M tokens', () => {
-      expect(formatTokenCount(1000000)).toBe('1.0M tokens');
-      expect(formatTokenCount(1500000)).toBe('1.5M tokens');
-      expect(formatTokenCount(10000000)).toBe('10.0M tokens');
+      expect(formatTokenCount(1_000_000)).toBe('1.0M tokens');
+      expect(formatTokenCount(1_500_000)).toBe('1.5M tokens');
+      expect(formatTokenCount(10_000_000)).toBe('10.0M tokens');
     });
   });
 
@@ -59,7 +59,7 @@ describe('Token Utilities', () => {
   describe('estimateTokenCost', () => {
     it('should calculate cost based on input tokens only when output tokens not provided', () => {
       // 100,000 tokens at $0.01 per 1K tokens = $1.00
-      const result = estimateTokenCost(100000);
+      const result = estimateTokenCost(100_000);
       expect(result).toBe(1);
 
       // 500 tokens at $0.01 per 1K tokens = $0.005
@@ -71,7 +71,7 @@ describe('Token Utilities', () => {
       // 100,000 input tokens at $0.01 per 1K tokens = $1.00
       // 10,000 output tokens at $0.03 per 1K tokens = $0.30
       // Total: $1.30
-      const result = estimateTokenCost(100000, 10000);
+      const result = estimateTokenCost(100_000, 10_000);
       expect(result).toBe(1.3);
     });
   });

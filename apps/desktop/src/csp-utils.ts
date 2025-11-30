@@ -2,7 +2,7 @@
  * Content Security Policy utility for consistent CSP across dev server and Electron
  */
 
-interface CSPDirectives {
+type CSPDirectives = {
   'default-src': string[];
   'script-src': string[];
   'worker-src': string[];
@@ -14,7 +14,7 @@ interface CSPDirectives {
   'base-uri': string[];
   'form-action': string[];
   'frame-ancestors': string[];
-}
+};
 
 type Environment = 'development' | 'production';
 

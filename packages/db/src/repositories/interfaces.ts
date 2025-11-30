@@ -3,7 +3,7 @@ import type { FileImportRequest, FileImportResult, FileRecord } from '../models/
 /**
  * Common interface for all file record repositories
  */
-export interface IFileRecordRepository {
+export type IFileRecordRepository = {
   create(record: FileRecord): Promise<void>;
   createWithContent(record: FileRecord): Promise<void>;
   findById(id: string): Promise<FileRecord | null>;
@@ -25,13 +25,13 @@ export interface IFileRecordRepository {
     onProgress?: (completed: number, total: number, current?: string) => void
   ): Promise<FileImportResult[]>;
   clearAll?(): Promise<number>;
-}
+};
 
 /**
  * Minimal database query interface that both PGlite and Electron API implement
  * This is a subset of PGlite's full interface to support both implementations
  */
-export interface IDatabase {
+export type IDatabase = {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
   transaction?<T>(fn: (tx: IDatabase) => Promise<T>): Promise<T>;
-}
+};

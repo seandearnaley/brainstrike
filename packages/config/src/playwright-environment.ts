@@ -3,7 +3,7 @@
  * Used by both desktop and web Playwright configurations
  */
 
-export interface EnvironmentConfig {
+export type EnvironmentConfig = {
   isCodex: boolean;
   isGitHubActions: boolean;
   isCI: boolean;
@@ -12,7 +12,7 @@ export interface EnvironmentConfig {
   retries: number;
   headless: boolean;
   fullyParallel: boolean;
-}
+};
 
 /**
  * Detect the current environment based on environment variables
@@ -35,9 +35,15 @@ export const detectEnvironment = () => {
 export const getWorkerCount = (env?: ReturnType<typeof detectEnvironment>) => {
   const { isCodex, isGitHubActions, isCI } = env || detectEnvironment();
 
-  if (isCodex) return 1; // Codex has very limited resources
-  if (isGitHubActions) return 2; // GitHub Actions free runners have 2 cores
-  if (isCI) return 1; // Other CI environments, be conservative
+  if (isCodex) {
+    return 1; // Codex has very limited resources
+  }
+  if (isGitHubActions) {
+    return 2; // GitHub Actions free runners have 2 cores
+  }
+  if (isCI) {
+    return 1; // Other CI environments, be conservative
+  }
   return 2; // Local development default
 };
 
@@ -49,9 +55,13 @@ export const getGlobalTimeout = (env?: ReturnType<typeof detectEnvironment>) => 
   const { isCodex, isCI } = env || detectEnvironment();
 
   // 10 minutes for Codex (under 15-minute hard limit with buffer)
-  if (isCodex) return 10 * 60 * 1000;
+  if (isCodex) {
+    return 10 * 60 * 1000;
+  }
   // 15 minutes for other CI environments
-  if (isCI) return 15 * 60 * 1000;
+  if (isCI) {
+    return 15 * 60 * 1000;
+  }
   // No global timeout for local development
   return 0;
 };
@@ -62,7 +72,9 @@ export const getGlobalTimeout = (env?: ReturnType<typeof detectEnvironment>) => 
 export const getRetryCount = (env?: ReturnType<typeof detectEnvironment>) => {
   const { isCodex, isCI } = env || detectEnvironment();
 
-  if (!isCI) return 0; // No retries for local development (fail fast)
+  if (!isCI) {
+    return 0; // No retries for local development (fail fast)
+  }
   return isCodex ? 1 : 2; // Fewer retries for Codex to save time
 };
 
@@ -72,7 +84,9 @@ export const getRetryCount = (env?: ReturnType<typeof detectEnvironment>) => {
 export const getCILaunchArgs = (env?: ReturnType<typeof detectEnvironment>): string[] => {
   const { isCodex, isCI } = env || detectEnvironment();
 
-  if (!isCI) return [];
+  if (!isCI) {
+    return [];
+  }
 
   const baseArgs = [
     '--no-sandbox',

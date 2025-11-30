@@ -6,7 +6,7 @@ import { ModelPickerItem } from './model-picker-item';
 import { ModelPickerSearch } from './model-picker-search';
 import type { ModelPickerModel, ModelPickerProvider } from './types';
 
-interface ModelPickerContentProps {
+type ModelPickerContentProps = {
   models: ModelPickerModel[];
   providers: ModelPickerProvider[];
   selectedValues: string[];
@@ -15,7 +15,7 @@ interface ModelPickerContentProps {
   searchable?: boolean;
   searchQuery: string;
   onSearchChange: (value: string) => void;
-}
+};
 
 export function ModelPickerContent({
   models,
@@ -40,31 +40,33 @@ export function ModelPickerContent({
 
   return (
     <Command
-      shouldFilter={false}
       className="flex h-full w-full flex-col overflow-hidden rounded-md bg-popover text-popover-foreground"
+      shouldFilter={false}
     >
-      {searchable && <ModelPickerSearch value={searchQuery} onValueChange={onSearchChange} />}
+      {searchable && <ModelPickerSearch onValueChange={onSearchChange} value={searchQuery} />}
       <Command.List
-        className="max-h-[300px] !overflow-y-auto !overflow-x-hidden p-1 !pointer-events-auto"
+        className="!overflow-y-auto !overflow-x-hidden !pointer-events-auto max-h-[300px] p-1"
         style={{ scrollBehavior: 'smooth' }}
       >
         {models.length === 0 && <ModelPickerEmpty />}
         {providers.map((provider) => {
           const providerModels = groupedModels[provider.id] || [];
-          if (providerModels.length === 0) return null;
+          if (providerModels.length === 0) {
+            return null;
+          }
 
           return (
             <ModelPickerGroup
               key={provider.id}
+              modelCount={providerModels.length}
               provider={provider}
               theme={theme}
-              modelCount={providerModels.length}
             >
               {providerModels.map((model) => (
                 <ModelPickerItem
+                  isSelected={selectedValues.includes(model.id)}
                   key={model.id}
                   model={model}
-                  isSelected={selectedValues.includes(model.id)}
                   onSelect={() => onSelect(model.id)}
                   theme={theme}
                 />

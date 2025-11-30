@@ -2,9 +2,9 @@ import type { LogRecord } from './logger';
 
 export type LogBufferSubscriber = (records: readonly LogRecord[]) => void;
 
-export interface LogBufferOptions {
+export type LogBufferOptions = {
   size?: number;
-}
+};
 
 export class LogBuffer {
   private readonly maxSize: number;

@@ -3,11 +3,11 @@ import { vi } from 'vitest';
 
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown | Promise<unknown>;
 
-interface IpcMainMock {
+type IpcMainMock = {
   handle: Mock<(channel: string, handler: IpcHandler) => void>;
   removeHandler: Mock<(channel: string) => void>;
   __invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-}
+};
 
 export function createIpcMainMock(): IpcMainMock {
   const handlers = new Map<string, IpcHandler>();
@@ -22,26 +22,28 @@ export function createIpcMainMock(): IpcMainMock {
     // Utility for tests: trigger an invoke handler directly
     __invoke: async (channel: string, ...args: unknown[]) => {
       const handler = handlers.get(channel);
-      if (!handler) throw new Error(`No handler for channel: ${channel}`);
+      if (!handler) {
+        throw new Error(`No handler for channel: ${channel}`);
+      }
       return handler({} as unknown, ...args);
     },
   };
 }
 
-interface IpcRendererMock {
+type IpcRendererMock = {
   invoke: Mock<(_channel: string, ..._args: unknown[]) => Promise<unknown>>;
   on: Mock;
   once: Mock;
   removeListener: Mock;
   removeAllListeners: Mock;
   send: Mock;
-}
+};
 
 export function createIpcRendererMock(): IpcRendererMock {
   return {
-    invoke: vi.fn<(_channel: string, ..._args: unknown[]) => Promise<unknown>>(async () => {
-      return undefined as unknown;
-    }),
+    invoke: vi.fn<(_channel: string, ..._args: unknown[]) => Promise<unknown>>(
+      async () => undefined as unknown
+    ),
     on: vi.fn(),
     once: vi.fn(),
     removeListener: vi.fn(),
@@ -50,9 +52,9 @@ export function createIpcRendererMock(): IpcRendererMock {
   };
 }
 
-interface ContextBridgeMock {
+type ContextBridgeMock = {
   exposeInMainWorld: Mock;
-}
+};
 
 export function createContextBridgeMock(): ContextBridgeMock {
   return {
@@ -60,7 +62,7 @@ export function createContextBridgeMock(): ContextBridgeMock {
   };
 }
 
-interface AppMock {
+type AppMock = {
   whenReady: Mock<() => Promise<void>>;
   getAppPath: Mock<() => string>;
   getPath: Mock<(key: string) => string>;
@@ -69,7 +71,7 @@ interface AppMock {
   quit: Mock;
   on: Mock;
   once: Mock;
-}
+};
 
 export function createAppMock(opts?: {
   whenReadyResolved?: boolean;
@@ -91,12 +93,12 @@ export function createAppMock(opts?: {
   };
 }
 
-interface ElectronMocks {
+type ElectronMocks = {
   app: AppMock;
   ipcMain: IpcMainMock;
   ipcRenderer: IpcRendererMock;
   contextBridge: ContextBridgeMock;
-}
+};
 
 export function installElectronModuleMocks(parts?: {
   app?: AppMock;

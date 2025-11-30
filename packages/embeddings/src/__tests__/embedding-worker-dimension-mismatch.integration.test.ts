@@ -140,7 +140,9 @@ describe('embedding-worker: dimension mismatch handling', () => {
     for (let i = 0; i < 200; i++) {
       const res = await db.query(`SELECT state FROM job_queue WHERE id = 'job-d1'`);
       const rowData = res.rows[0] as { state: string } | undefined;
-      if (rowData?.state === 'failed') break;
+      if (rowData?.state === 'failed') {
+        break;
+      }
       await new Promise((r) => setTimeout(r, 25));
     }
 
@@ -193,7 +195,9 @@ describe('embedding-worker: dimension mismatch handling', () => {
     for (let i = 0; i < 200; i++) {
       const res = await db.query(`SELECT state FROM job_queue WHERE id = 'job-d2'`);
       const rowData = res.rows[0] as { state: string } | undefined;
-      if (rowData?.state === 'completed') break;
+      if (rowData?.state === 'completed') {
+        break;
+      }
       await new Promise((r) => setTimeout(r, 25));
     }
 

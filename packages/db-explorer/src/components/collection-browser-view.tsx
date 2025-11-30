@@ -27,7 +27,7 @@ import { useCallback, useMemo } from 'react';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
-export interface CollectionBrowserViewProps {
+export type CollectionBrowserViewProps = {
   /** Embedding sets / collections */
   embeddingSets: EmbeddingSet[];
   /** File records */
@@ -46,7 +46,7 @@ export interface CollectionBrowserViewProps {
   onFileSelect?: (fileId: string, file: FileRecord) => void;
   /** Called when a chunk is selected */
   onChunkSelect?: (chunkId: string, chunk: FileChunk) => void;
-}
+};
 
 /**
  * Transform database data into CollectionTreeInput format
@@ -84,8 +84,12 @@ function transformToTreeInput(
         modelId: set.modelId,
         dimensions: set.dimensions,
       };
-      if (set.name) collection.name = set.name;
-      if (set.description) collection.description = set.description;
+      if (set.name) {
+        collection.name = set.name;
+      }
+      if (set.description) {
+        collection.description = set.description;
+      }
       return collection;
     }),
     files: filteredRecords.map((record) => {
@@ -103,9 +107,15 @@ function transformToTreeInput(
         path: record.path,
         size: record.size,
       };
-      if (record.embeddingSetId) file.embeddingSetId = record.embeddingSetId;
-      if (record.chunksCount !== undefined) file.chunksCount = record.chunksCount;
-      if (record.processedAt) file.processedAt = record.processedAt;
+      if (record.embeddingSetId) {
+        file.embeddingSetId = record.embeddingSetId;
+      }
+      if (record.chunksCount !== undefined) {
+        file.chunksCount = record.chunksCount;
+      }
+      if (record.processedAt) {
+        file.processedAt = record.processedAt;
+      }
       return file;
     }),
     chunks: filteredChunks.map((chunk) => {
@@ -124,8 +134,12 @@ function transformToTreeInput(
         content: chunk.content,
         tokenCount: chunk.tokenCount,
       };
-      if (chunk.embedding && chunk.embedding.length > 0) chunkItem.embedding = chunk.embedding;
-      if (chunk.embeddingSetId) chunkItem.embeddingSetId = chunk.embeddingSetId;
+      if (chunk.embedding && chunk.embedding.length > 0) {
+        chunkItem.embedding = chunk.embedding;
+      }
+      if (chunk.embeddingSetId) {
+        chunkItem.embeddingSetId = chunk.embeddingSetId;
+      }
       return chunkItem;
     }),
     ...(pendingChunkIds ? { pendingChunkIds } : {}),
@@ -142,7 +156,9 @@ function buildCollectionData(
   chunks: FileChunk[]
 ): BrowserNodeData | null {
   const set = embeddingSets.find((s) => s.id === collectionId);
-  if (!set) return null;
+  if (!set) {
+    return null;
+  }
   const collFiles = records.filter((r) => r.embeddingSetId === set.id);
   const collChunks = chunks.filter((c) => c.embeddingSetId === set.id);
   return {
@@ -164,7 +180,9 @@ function buildFileData(
   chunks: FileChunk[]
 ): BrowserNodeData | null {
   const file = records.find((r) => r.id === fileId);
-  if (!file) return null;
+  if (!file) {
+    return null;
+  }
   const fileChunks = chunks.filter((c) => c.fileRecordId === file.id);
   const embeddedChunks = fileChunks.filter((c) => c.embedding && c.embedding.length > 0);
   const hasAllEmbeddings = embeddedChunks.length === fileChunks.length;
@@ -185,7 +203,9 @@ function buildFileData(
  */
 function buildChunkData(chunkId: string, chunks: FileChunk[]): BrowserNodeData | null {
   const chunk = chunks.find((c) => c.id === chunkId);
-  if (!chunk) return null;
+  if (!chunk) {
+    return null;
+  }
   return {
     index: chunk.chunkIndex,
     content: chunk.content,
@@ -199,7 +219,9 @@ function buildChunkData(chunkId: string, chunks: FileChunk[]): BrowserNodeData |
  */
 function buildEmbeddingData(chunkId: string, chunks: FileChunk[]): BrowserNodeData | null {
   const chunk = chunks.find((c) => c.id === chunkId);
-  if (!chunk || !chunk.embedding) return null;
+  if (!chunk?.embedding) {
+    return null;
+  }
   return {
     vectorId: chunk.id,
     dimensions: chunk.embedding.length,
@@ -301,7 +323,9 @@ export function CollectionBrowserView({
 
   // Build selected node data based on node type
   const actualSelectedNodeData = useMemo((): BrowserNodeData | null => {
-    if (!selectedId || !selectedNodeType || !selectedNodeId) return null;
+    if (!(selectedId && selectedNodeType && selectedNodeId)) {
+      return null;
+    }
 
     return buildSelectedNodeData(selectedNodeType, selectedNodeId, embeddingSets, records, chunks);
   }, [selectedId, selectedNodeType, selectedNodeId, embeddingSets, records, chunks]);
@@ -420,64 +444,64 @@ export function CollectionBrowserView({
   }, [searchMode, hasSearched, searchResults.length, activeCollectionId]);
 
   return (
-    <div className="flex flex-col h-full" style={{ height }}>
+    <div className="flex h-full flex-col" style={{ height }}>
       {/* Search mode bar */}
       <SearchModeBar
+        className="border-border border-b"
+        hasSearched={hasSearched}
+        isConfigExpanded={searchConfigExpanded}
+        isSearching={isSearching}
         mode={searchMode}
+        onConfigExpandedChange={setSearchConfigExpanded}
         onModeChange={handleSearchModeChange}
-        semanticQuery={semanticQuery}
+        onSearchConfigChange={handleSearchConfigChange}
         onSemanticQueryChange={setSemanticQuery}
         onSemanticSearch={handleSearch}
-        isSearching={isSearching}
-        hasSearched={hasSearched}
         resultCount={searchResults.length}
         searchConfig={searchConfig}
-        onSearchConfigChange={handleSearchConfigChange}
-        isConfigExpanded={searchConfigExpanded}
-        onConfigExpandedChange={setSearchConfigExpanded}
-        className="border-b border-border"
+        semanticQuery={semanticQuery}
       />
 
       {/* Error message display */}
       {searchError && (
-        <div className="px-3 py-2 bg-destructive/10 text-destructive text-sm border-b border-border">
+        <div className="border-border border-b bg-destructive/10 px-3 py-2 text-destructive text-sm">
           {searchError}
         </div>
       )}
 
       {/* Main content area */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex min-h-0 flex-1">
         {/* Main browser */}
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <CollectionBrowser
-            data={treeData}
-            onSelect={handleSelect}
-            isLoading={isLoading}
-            emptyMessage={emptyMessage}
-            height="100%"
             className="h-full"
+            data={treeData}
+            emptyMessage={emptyMessage}
             expandedIds={expandedIdsSet}
+            height="100%"
+            isLoading={isLoading}
             onExpandedIdsChange={handleExpandedIdsChange}
-            selectedId={selectedId}
+            onSelect={handleSelect}
             onSelectedIdChange={handleSelectedIdChange}
+            selectedId={selectedId}
             {...(sortState ? { sortState } : {})}
             onSortChange={handleSortChange}
-            showFilterBar={searchMode === 'quick'}
             searchMode={searchMode}
+            showFilterBar={searchMode === 'quick'}
             {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
-            isSearching={isSearching}
             hasSearched={hasSearched}
+            isSearching={isSearching}
           />
         </div>
 
         {/* Inspector panel - narrower in semantic mode to give more room for score column */}
         <NodeInspector
-          nodeType={selectedNodeType ?? null}
           nodeData={actualSelectedNodeData}
+          nodeType={selectedNodeType ?? null}
           {...(selectedNodeId ? { nodeId: selectedNodeId } : {})}
-          width={searchMode === 'semantic' ? 240 : 280}
           isCollapsed={isInspectorCollapsed}
           onCollapseChange={handleCollapseChange}
+          width={searchMode === 'semantic' ? 240 : 280}
         />
       </div>
     </div>

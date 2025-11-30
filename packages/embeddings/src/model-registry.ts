@@ -102,7 +102,7 @@ const DEFAULT_REGISTRY: ModelRegistry = {
         dimensions: 1024,
         description: 'General-purpose multilingual retrieval (32k context)',
         tags: ['voyage', 'hosted', 'multilingual', 'long-context'],
-        contextWindow: 32000,
+        contextWindow: 32_000,
         pricePer1MTokens: 0.06,
       },
       'voyage-3-lite': {
@@ -110,7 +110,7 @@ const DEFAULT_REGISTRY: ModelRegistry = {
         dimensions: 512,
         description: 'Latency-optimized retrieval model',
         tags: ['voyage', 'hosted', 'fast', 'cost-optimized'],
-        contextWindow: 32000,
+        contextWindow: 32_000,
         pricePer1MTokens: 0.02,
       },
       'voyage-code-3': {
@@ -118,7 +118,7 @@ const DEFAULT_REGISTRY: ModelRegistry = {
         dimensions: 1024,
         description: 'Optimized for code retrieval (32k context)',
         tags: ['voyage', 'hosted', 'code'],
-        contextWindow: 32000,
+        contextWindow: 32_000,
         pricePer1MTokens: 0.18,
       },
     },

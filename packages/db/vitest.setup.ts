@@ -3,13 +3,12 @@ import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, vi } from 'vitest';
 
 // Increase global hook timeout to tolerate WASM warmup under parallel runs
-vi.setConfig({ hookTimeout: 30000 });
+vi.setConfig({ hookTimeout: 30_000 });
 
 if (typeof Blob === 'undefined' || typeof Blob.prototype.arrayBuffer !== 'function') {
   // @ts-expect-error - assign Node's Blob polyfill for tests
   globalThis.Blob = NodeBlob;
 }
-
 
 if (!(Buffer.prototype as unknown as { arrayBuffer?: () => ArrayBuffer }).arrayBuffer) {
   Object.defineProperty(Buffer.prototype, 'arrayBuffer', {

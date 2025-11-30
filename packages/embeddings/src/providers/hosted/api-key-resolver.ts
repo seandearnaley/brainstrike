@@ -45,7 +45,7 @@ export async function resolveHostedProviderApiKey(
   }
 
   apiKeyCache.set(provider, undefined);
-  return undefined;
+  return;
 }
 
 export function clearHostedProviderApiKeyCache(provider?: HostedProvider): void {
@@ -72,7 +72,7 @@ async function readFromSecrets(provider: HostedProvider): Promise<string | undef
   } catch {
     // Ignore preload/bridge errors and continue to other sources.
   }
-  return undefined;
+  return;
 }
 
 function readFromProcessEnv(provider: HostedProvider): string | undefined {
@@ -96,14 +96,14 @@ function readFromProcessEnv(provider: HostedProvider): string | undefined {
   } catch {
     // Ignore access errors
   }
-  return undefined;
+  return;
 }
 
 function readFromImportMetaEnv(provider: HostedProvider): string | undefined {
   try {
     const meta = (import.meta as unknown as { env?: Record<string, string | undefined> })?.env;
     if (!meta) {
-      return undefined;
+      return;
     }
     for (const key of ENV_KEYS[provider] ?? []) {
       const value = normalizeValue(meta[key]);
@@ -119,12 +119,12 @@ function readFromImportMetaEnv(provider: HostedProvider): string | undefined {
   } catch {
     // import.meta may not exist in CJS contexts
   }
-  return undefined;
+  return;
 }
 
 function normalizeValue(value: unknown): string | undefined {
   if (typeof value !== 'string') {
-    return undefined;
+    return;
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;

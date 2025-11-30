@@ -43,9 +43,9 @@ vi.mock('@brainstrike/agent', () => ({
     })),
   },
   convertAssistantUiMessages: vi.fn((messages) => messages),
-  resolveDataStreamSession: vi.fn(() => undefined),
+  resolveDataStreamSession: vi.fn(() => {}),
   toAiSdkStyleStream: vi.fn(async () => ({
-    [Symbol.asyncIterator]: async function* () {
+    async *[Symbol.asyncIterator]() {
       yield { type: 'text', content: 'test' };
     },
   })),
@@ -77,7 +77,7 @@ describe('assistant-server', () => {
     vi.clearAllMocks();
     mockSecretsService.getKey.mockResolvedValue('test-api-key');
     mockSecretsService.listProviders.mockResolvedValue(['openai']);
-  }, 15000);
+  }, 15_000);
 
   describe('startAssistantServer', () => {
     it('should start server on dynamic port by default', async () => {
@@ -128,7 +128,7 @@ describe('assistant-server', () => {
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(data).toEqual({ enabled: true, providers: ['openai'] });
-    }, 10000);
+    }, 10_000);
 
     it('should handle status route with missing API key', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
@@ -142,7 +142,7 @@ describe('assistant-server', () => {
       expect(response.status).toBe(200);
       const data = await response.json();
       expect(data).toEqual({ enabled: false, reason: 'no_providers_configured', providers: [] });
-    }, 10000);
+    }, 10_000);
 
     it('should handle status route errors', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
@@ -155,7 +155,7 @@ describe('assistant-server', () => {
       const data = await response.json();
       expect(data.error).toBe('assistant_status_failed');
       expect(data.message).toBe('API key read failed');
-    }, 10000);
+    }, 10_000);
 
     it('should return 404 for unknown routes', async () => {
       server = await startAssistantServer();
@@ -164,7 +164,7 @@ describe('assistant-server', () => {
       expect(response.status).toBe(404);
       const text = await response.text();
       expect(text).toBe('not found');
-    }, 10000);
+    }, 10_000);
 
     it('should handle POST to assistant route with empty prompt', async () => {
       server = await startAssistantServer();
@@ -180,7 +180,7 @@ describe('assistant-server', () => {
       expect(response.status).toBe(400);
       const data = await response.json();
       expect(data.error).toBe('empty_prompt');
-    }, 10000);
+    }, 10_000);
 
     it('should reject assistant route when provider is missing', async () => {
       server = await startAssistantServer();
@@ -195,7 +195,7 @@ describe('assistant-server', () => {
       expect(response.status).toBe(400);
       const data = await response.json();
       expect(data.error).toBe('missing_provider');
-    }, 10000);
+    }, 10_000);
 
     it('should handle POST to assistant route with valid message', async () => {
       const loggerInfoSpy = vi
@@ -210,7 +210,7 @@ describe('assistant-server', () => {
       ]);
 
       (toAiSdkStyleStream as Mock).mockResolvedValueOnce({
-        [Symbol.asyncIterator]: async function* () {
+        async *[Symbol.asyncIterator]() {
           yield { type: 'text', content: 'Response' };
         },
       });
@@ -247,7 +247,7 @@ describe('assistant-server', () => {
 
       // Don't await the fetch as the response may not complete
       await Promise.race([fetchPromise, new Promise((resolve) => setTimeout(resolve, 1000))]);
-    }, 15000);
+    }, 15_000);
 
     it('should handle stream initialization failure', async () => {
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
@@ -273,6 +273,6 @@ describe('assistant-server', () => {
       const data = await response.json();
       expect(data.error).toBe('agent_stream_init_failed');
       expect(data.message).toBe('Stream initialization failed');
-    }, 10000);
+    }, 10_000);
   });
 });

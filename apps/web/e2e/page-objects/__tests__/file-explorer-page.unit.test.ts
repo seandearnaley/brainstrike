@@ -5,17 +5,19 @@ import { FileExplorerPage } from '../file-explorer-page';
 describe('FileExplorerPage (unit)', () => {
   it('exposes expected locators and actions', () => {
     const calls: string[] = [];
-    interface MockLocator {
+    type MockLocator = {
       r?: string;
       o?: Record<string, unknown>;
       t?: string;
       s?: string;
       kind: string;
-    }
+    };
     const page = {
       getByRole: (r: string, o?: Record<string, unknown>): MockLocator => {
         const loc: MockLocator = { r, kind: 'role' };
-        if (o !== undefined) loc.o = o;
+        if (o !== undefined) {
+          loc.o = o;
+        }
         return loc;
       },
       getByText: (t: string): MockLocator => ({ t, kind: 'text' }),

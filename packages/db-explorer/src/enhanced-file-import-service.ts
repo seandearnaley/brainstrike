@@ -40,7 +40,7 @@ import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-prefe
 const logger = createLogger('AppShell:EnhancedFileImport');
 
 // Extended progress interface for chunking and embedding
-interface EnhancedFileImportOptions {
+type EnhancedFileImportOptions = {
   onProgress?: (progress: EnhancedImportProgress) => void;
   onComplete?: (results: EnhancedImportResult[]) => void;
   onError?: (error: Error) => void;
@@ -53,9 +53,9 @@ interface EnhancedFileImportOptions {
   chunkTokenLimit?: number;
   embeddingQueue?: QueueAdapter | null;
   resolveTargetEmbeddingSetId?: () => string | null;
-}
+};
 
-interface EnhancedFileImportServiceReturn {
+type EnhancedFileImportServiceReturn = {
   importFiles: (
     selectedFilePaths: Set<string>,
     fileTree: IFileNode[],
@@ -64,7 +64,7 @@ interface EnhancedFileImportServiceReturn {
   isImporting: boolean;
   progress: EnhancedImportProgress | null;
   chunkRepository: ReturnType<typeof useFileChunkRepository>;
-}
+};
 
 type EnhancedImportParams = Parameters<typeof runEnhancedImport<IFileNode>>[0];
 type EmbeddingConfig = NonNullable<EnhancedImportParams['embedding']>;
@@ -74,7 +74,7 @@ async function backfillEmbeddingSetAssignments(
   embeddingSetId: string | null,
   fileIds: string[]
 ): Promise<void> {
-  if (!sql || !embeddingSetId || fileIds.length === 0) {
+  if (!(sql && embeddingSetId) || fileIds.length === 0) {
     return;
   }
 
@@ -216,7 +216,7 @@ export function useEnhancedFileImportService(
   });
 
   const browserQueuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
-    if (!options.embeddingQueue || !chunkRepository) {
+    if (!(options.embeddingQueue && chunkRepository)) {
       return null;
     }
 
@@ -275,7 +275,7 @@ export function useEnhancedFileImportService(
     if (browserQueuePort) {
       return null;
     }
-    if (!embedQueueEnabled || !db) {
+    if (!(embedQueueEnabled && db)) {
       return null;
     }
 
@@ -289,7 +289,7 @@ export function useEnhancedFileImportService(
         const dimensionParameter = options?.dimensionParameter ?? null;
 
         for (const chunk of chunks) {
-          if (!chunk.id || !chunk.contentHash) {
+          if (!(chunk.id && chunk.contentHash)) {
             logger.error('Invalid chunk data: missing required fields', {
               chunkId: chunk.id,
               hasContentHash: !!chunk.contentHash,

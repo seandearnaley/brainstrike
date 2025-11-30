@@ -3,7 +3,9 @@ import { Input } from '@brainstrike/ui';
 function debounce<Args extends unknown[]>(fn: (...args: Args) => void, wait: number) {
   let timeout: ReturnType<typeof setTimeout> | null = null;
   return (...args: Args) => {
-    if (timeout) clearTimeout(timeout);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
     timeout = setTimeout(() => fn(...args), wait);
   };
 }
@@ -12,14 +14,14 @@ import { AlertCircle } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-interface FileExtensionFilterProps {
+type FileExtensionFilterProps = {
   includeFilters: string[];
   excludeFilters: string[];
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   useRegex: boolean;
   filterError: string | null;
   onDraftChange?: (includeFilters: string[], excludeFilters: string[]) => void;
-}
+};
 
 const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
   includeFilters,
@@ -34,7 +36,9 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
   const isFirstMount = useRef(true);
 
   useEffect(() => {
-    if (!isFirstMount.current) return;
+    if (!isFirstMount.current) {
+      return;
+    }
 
     isFirstMount.current = false;
     setIncludeInput(includeFilters.join(', '));
@@ -88,31 +92,31 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
   return (
     <div className="space-y-2">
       <div>
-        <label htmlFor="include-files" className="text-sm font-medium">
+        <label className="font-medium text-sm" htmlFor="include-files">
           Files to Include:
         </label>
         <Input
           id="include-files"
-          type="text"
-          value={includeInput}
           onChange={handleIncludeInputChange}
           placeholder={getPlaceholder(true)}
+          type="text"
+          value={includeInput}
         />
       </div>
       <div>
-        <label htmlFor="exclude-files" className="text-sm font-medium">
+        <label className="font-medium text-sm" htmlFor="exclude-files">
           Files to Exclude:
         </label>
         <Input
           id="exclude-files"
-          type="text"
-          value={excludeInput}
           onChange={handleExcludeInputChange}
           placeholder={getPlaceholder(false)}
+          type="text"
+          value={excludeInput}
         />
       </div>
       {filterError && (
-        <div className="flex items-center text-red-600 text-sm mt-1">
+        <div className="mt-1 flex items-center text-red-600 text-sm">
           <AlertCircle className="mr-1 h-4 w-4" />
           {filterError}
         </div>

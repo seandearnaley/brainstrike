@@ -30,7 +30,7 @@ const SETTINGS_HASH_PREFIX = 'settings/';
  * };
  * ```
  */
-export interface SettingsCategory {
+export type SettingsCategory = {
   /**
    * Unique identifier for the category.
    * Used in URL hash routing (e.g., #settings/appearance).
@@ -69,12 +69,12 @@ export interface SettingsCategory {
    * Called only when the category is active (lazy rendering).
    */
   render: () => ReactNode;
-}
+};
 
 /**
  * Props for the SettingsPageContent component.
  */
-export interface SettingsPageContentProps {
+export type SettingsPageContentProps = {
   /**
    * Array of settings categories to display in the navigation panel.
    * Order determines the display order in navigation.
@@ -93,7 +93,7 @@ export interface SettingsPageContentProps {
    * @default 'Search settings…'
    */
   searchPlaceholder?: string;
-}
+};
 
 const isClient = typeof window !== 'undefined';
 
@@ -229,30 +229,30 @@ export function SettingsPageContent({
   return (
     <div className="h-full overflow-hidden">
       <div className="flex h-full flex-col">
-        <header className="px-8 pt-8 pb-4 border-b border-border">
+        <header className="border-border border-b px-8 pt-8 pb-4">
           <div className="flex items-center gap-3">
             <div className="rounded-lg bg-primary/10 p-2">
-              <Settings className="h-6 w-6 text-primary" aria-hidden="true" />
+              <Settings aria-hidden="true" className="h-6 w-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight">Settings</h1>
-              <p className="text-sm text-muted-foreground">
+              <h1 className="font-semibold text-3xl tracking-tight">Settings</h1>
+              <p className="text-muted-foreground text-sm">
                 Customize application behavior, integrations, and appearance.
               </p>
             </div>
           </div>
-          <div className="mt-6 relative">
+          <div className="relative mt-6">
             <Search
-              className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
               aria-hidden="true"
+              className="-translate-y-1/2 absolute top-1/2 left-3 h-4 w-4 text-muted-foreground"
             />
             <Input
-              value={query}
+              aria-label="Search settings"
+              className="py-2 pr-3 pl-9"
               onChange={(event) => setQuery(event.target.value)}
               placeholder={searchPlaceholder}
               role="searchbox"
-              aria-label="Search settings"
-              className="pl-9 pr-3 py-2"
+              value={query}
             />
           </div>
         </header>
@@ -260,7 +260,7 @@ export function SettingsPageContent({
         <div className="flex flex-1 overflow-hidden">
           <nav
             aria-label="Settings categories"
-            className="w-80 shrink-0 border-r border-border overflow-y-auto px-4 py-6 space-y-1"
+            className="w-80 shrink-0 space-y-1 overflow-y-auto border-border border-r px-4 py-6"
           >
             {filteredCategories.length ? (
               filteredCategories.map((category) => {
@@ -269,45 +269,45 @@ export function SettingsPageContent({
 
                 return (
                   <button
-                    key={category.id}
-                    type="button"
-                    onClick={() => setActiveCategoryId(category.id)}
+                    aria-current={isActive ? 'page' : undefined}
                     className={cn(
-                      'w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors border border-transparent',
+                      'flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition-colors',
                       isActive
-                        ? 'bg-primary/10 border-primary/40 text-primary'
+                        ? 'border-primary/40 bg-primary/10 text-primary'
                         : 'hover:bg-muted/60'
                     )}
-                    aria-current={isActive ? 'page' : undefined}
+                    key={category.id}
+                    onClick={() => setActiveCategoryId(category.id)}
+                    type="button"
                   >
                     {Icon ? (
-                      <Icon className="h-4 w-4 flex-none text-primary" aria-hidden="true" />
+                      <Icon aria-hidden="true" className="h-4 w-4 flex-none text-primary" />
                     ) : (
                       <span
-                        className="h-2 w-2 rounded-full bg-muted-foreground/60"
                         aria-hidden="true"
+                        className="h-2 w-2 rounded-full bg-muted-foreground/60"
                       />
                     )}
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium leading-tight truncate">{category.title}</div>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium leading-tight">{category.title}</div>
                       {category.description ? (
-                        <p className="text-xs text-muted-foreground line-clamp-2">
+                        <p className="line-clamp-2 text-muted-foreground text-xs">
                           {category.description}
                         </p>
                       ) : null}
                     </div>
                     <ChevronRight
+                      aria-hidden="true"
                       className={cn(
                         'h-4 w-4 flex-none transition-transform',
                         isActive ? 'translate-x-0' : '-translate-x-0.5 text-muted-foreground'
                       )}
-                      aria-hidden="true"
                     />
                   </button>
                 );
               })
             ) : (
-              <div className="px-3 py-4 text-sm text-muted-foreground rounded-md border border-dashed border-border/60 bg-muted/40">
+              <div className="rounded-md border border-border/60 border-dashed bg-muted/40 px-3 py-4 text-muted-foreground text-sm">
                 No settings matched "{query}".
               </div>
             )}
@@ -315,15 +315,15 @@ export function SettingsPageContent({
 
           <section className="flex-1 overflow-y-auto px-8 py-6">
             {filteredCategories.length === 0 ? (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
                 Try adjusting your search to find settings.
               </div>
             ) : activeCategory ? (
               <div className="space-y-6" data-testid={`settings-category-${activeCategory.id}`}>
                 <div>
-                  <h2 className="text-2xl font-semibold">{activeCategory.title}</h2>
+                  <h2 className="font-semibold text-2xl">{activeCategory.title}</h2>
                   {activeCategory.description ? (
-                    <p className="text-sm text-muted-foreground mt-1">
+                    <p className="mt-1 text-muted-foreground text-sm">
                       {activeCategory.description}
                     </p>
                   ) : null}
@@ -331,7 +331,7 @@ export function SettingsPageContent({
                 <div className="space-y-6">{activeCategory.render()}</div>
               </div>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
                 Select a setting category to view its options.
               </div>
             )}

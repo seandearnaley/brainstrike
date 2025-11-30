@@ -37,7 +37,7 @@ import { EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
 /**
  * Props for the NodeInspector component
  */
-export interface NodeInspectorProps {
+export type NodeInspectorProps = {
   /** The type of the selected node */
   nodeType: string | null;
   /** The data of the selected node */
@@ -54,13 +54,15 @@ export interface NodeInspectorProps {
   isCollapsed?: boolean;
   /** Called when collapse state should change */
   onCollapseChange?: (collapsed: boolean) => void;
-}
+};
 
 /**
  * Format file size for display
  */
 function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 B';
+  if (bytes === 0) {
+    return '0 B';
+  }
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -94,10 +96,10 @@ function PropertyRow({
 }) {
   return (
     <div className="flex items-start gap-2 py-1.5">
-      {Icon && <Icon className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />}
+      {Icon && <Icon className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />}
       <div className="min-w-0 flex-1 overflow-hidden">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-sm font-medium break-all">{value}</div>
+        <div className="text-muted-foreground text-xs">{label}</div>
+        <div className="break-all font-medium text-sm">{value}</div>
       </div>
     </div>
   );
@@ -110,10 +112,10 @@ function EmbeddingStatusBadge({ status }: { status: EmbeddingStatus }) {
   const config = EMBEDDING_STATUS_CONFIG[status];
   return (
     <Badge
+      className="text-xs"
       variant={
         status === 'complete' ? 'default' : status === 'failed' ? 'destructive' : 'secondary'
       }
-      className="text-xs"
     >
       {config.label}
     </Badge>
@@ -127,34 +129,34 @@ function CollectionInspector({ data }: { data: CollectionData }) {
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        <PropertyRow label="Name" value={data.name} icon={FolderOpen} />
+        <PropertyRow icon={FolderOpen} label="Name" value={data.name} />
         {data.description && (
-          <PropertyRow label="Description" value={data.description} icon={Info} />
+          <PropertyRow icon={Info} label="Description" value={data.description} />
         )}
       </div>
 
-      <div className="border-t pt-3 space-y-1">
-        <div className="text-xs font-medium text-muted-foreground mb-2">Statistics</div>
-        <PropertyRow label="Files" value={data.fileCount.toLocaleString()} icon={File} />
-        <PropertyRow label="Chunks" value={data.chunkCount.toLocaleString()} icon={FileText} />
+      <div className="space-y-1 border-t pt-3">
+        <div className="mb-2 font-medium text-muted-foreground text-xs">Statistics</div>
+        <PropertyRow icon={File} label="Files" value={data.fileCount.toLocaleString()} />
+        <PropertyRow icon={FileText} label="Chunks" value={data.chunkCount.toLocaleString()} />
         <PropertyRow
+          icon={Sparkles}
           label="Embeddings"
           value={data.embeddingCount.toLocaleString()}
-          icon={Sparkles}
         />
       </div>
 
-      <div className="border-t pt-3 space-y-1">
-        <div className="text-xs font-medium text-muted-foreground mb-2">Model</div>
-        <PropertyRow label="Model ID" value={data.modelId} icon={Brain} />
-        <PropertyRow label="Dimensions" value={`${data.dimensions}d`} icon={Hash} />
+      <div className="space-y-1 border-t pt-3">
+        <div className="mb-2 font-medium text-muted-foreground text-xs">Model</div>
+        <PropertyRow icon={Brain} label="Model ID" value={data.modelId} />
+        <PropertyRow icon={Hash} label="Dimensions" value={`${data.dimensions}d`} />
       </div>
 
       {data.createdAt && (
-        <div className="border-t pt-3 space-y-1">
-          <PropertyRow label="Created" value={formatDate(data.createdAt)} icon={Calendar} />
+        <div className="space-y-1 border-t pt-3">
+          <PropertyRow icon={Calendar} label="Created" value={formatDate(data.createdAt)} />
           {data.updatedAt && (
-            <PropertyRow label="Updated" value={formatDate(data.updatedAt)} icon={Calendar} />
+            <PropertyRow icon={Calendar} label="Updated" value={formatDate(data.updatedAt)} />
           )}
         </div>
       )}
@@ -169,33 +171,33 @@ function FileInspector({ data }: { data: FileData }) {
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        <PropertyRow label="Name" value={data.name} icon={File} />
+        <PropertyRow icon={File} label="Name" value={data.name} />
         <PropertyRow
           label="Path"
-          value={<span className="font-mono text-xs break-all">{data.path}</span>}
+          value={<span className="break-all font-mono text-xs">{data.path}</span>}
         />
       </div>
 
-      <div className="border-t pt-3 space-y-1">
-        <div className="text-xs font-medium text-muted-foreground mb-2">File Info</div>
+      <div className="space-y-1 border-t pt-3">
+        <div className="mb-2 font-medium text-muted-foreground text-xs">File Info</div>
         <PropertyRow label="Size" value={formatFileSize(data.size)} />
         {data.mimeType && <PropertyRow label="Type" value={data.mimeType} />}
-        <PropertyRow label="Chunks" value={data.chunkCount.toLocaleString()} icon={FileText} />
+        <PropertyRow icon={FileText} label="Chunks" value={data.chunkCount.toLocaleString()} />
       </div>
 
-      <div className="border-t pt-3 space-y-1">
-        <div className="text-xs font-medium text-muted-foreground mb-2">Embedding Status</div>
+      <div className="space-y-1 border-t pt-3">
+        <div className="mb-2 font-medium text-muted-foreground text-xs">Embedding Status</div>
         <div className="flex items-center gap-2">
           <EmbeddingStatusBadge status={data.embeddingStatus} />
           {data.embeddingProgress !== undefined && data.embeddingProgress < 100 && (
-            <span className="text-xs text-muted-foreground">({data.embeddingProgress}%)</span>
+            <span className="text-muted-foreground text-xs">({data.embeddingProgress}%)</span>
           )}
         </div>
       </div>
 
       {data.importedAt && (
-        <div className="border-t pt-3 space-y-1">
-          <PropertyRow label="Imported" value={formatDate(data.importedAt)} icon={Calendar} />
+        <div className="space-y-1 border-t pt-3">
+          <PropertyRow icon={Calendar} label="Imported" value={formatDate(data.importedAt)} />
         </div>
       )}
     </div>
@@ -209,20 +211,20 @@ function ChunkInspector({ data }: { data: ChunkData }) {
   return (
     <div className="space-y-3">
       <div className="space-y-1">
-        <PropertyRow label="Chunk Index" value={`#${data.index}`} icon={Hash} />
-        <PropertyRow label="Token Count" value={data.tokenCount.toLocaleString()} icon={Tag} />
+        <PropertyRow icon={Hash} label="Chunk Index" value={`#${data.index}`} />
+        <PropertyRow icon={Tag} label="Token Count" value={data.tokenCount.toLocaleString()} />
       </div>
 
-      <div className="border-t pt-3 space-y-1">
-        <div className="text-xs font-medium text-muted-foreground mb-2">Embedding Status</div>
+      <div className="space-y-1 border-t pt-3">
+        <div className="mb-2 font-medium text-muted-foreground text-xs">Embedding Status</div>
         <EmbeddingStatusBadge status={data.embeddingStatus} />
       </div>
 
       <div className="border-t pt-3">
-        <div className="text-xs font-medium text-muted-foreground mb-1">Content</div>
+        <div className="mb-1 font-medium text-muted-foreground text-xs">Content</div>
         <div className="relative w-full">
-          <div className="h-24 overflow-y-auto overflow-x-hidden border rounded bg-muted/30 p-2">
-            <div className="text-xs font-mono text-foreground/80 whitespace-pre-wrap break-all leading-relaxed">
+          <div className="h-24 overflow-y-auto overflow-x-hidden rounded border bg-muted/30 p-2">
+            <div className="whitespace-pre-wrap break-all font-mono text-foreground/80 text-xs leading-relaxed">
               {data.content}
             </div>
           </div>
@@ -231,10 +233,10 @@ function ChunkInspector({ data }: { data: ChunkData }) {
 
       {data.metadata && Object.keys(data.metadata).length > 0 && (
         <div className="border-t pt-3">
-          <div className="text-xs font-medium text-muted-foreground mb-1">Metadata</div>
+          <div className="mb-1 font-medium text-muted-foreground text-xs">Metadata</div>
           <div className="relative w-full">
-            <div className="max-h-20 overflow-y-auto overflow-x-hidden border rounded bg-muted/30 p-2">
-              <div className="text-xs font-mono text-foreground/80 whitespace-pre-wrap break-all leading-relaxed">
+            <div className="max-h-20 overflow-y-auto overflow-x-hidden rounded border bg-muted/30 p-2">
+              <div className="whitespace-pre-wrap break-all font-mono text-foreground/80 text-xs leading-relaxed">
                 {JSON.stringify(data.metadata, null, 2)}
               </div>
             </div>
@@ -252,23 +254,23 @@ function EmbeddingInspector({ data }: { data: EmbeddingData }) {
   return (
     <div className="space-y-4">
       <div className="space-y-1">
-        <PropertyRow label="Vector ID" value={data.vectorId} icon={Sparkles} />
-        <PropertyRow label="Dimensions" value={`${data.dimensions}d`} icon={Hash} />
+        <PropertyRow icon={Sparkles} label="Vector ID" value={data.vectorId} />
+        <PropertyRow icon={Hash} label="Dimensions" value={`${data.dimensions}d`} />
       </div>
 
       {data.similarity !== undefined && (
-        <div className="border-t pt-3 space-y-1">
-          <div className="text-xs font-medium text-muted-foreground mb-2">Search Result</div>
+        <div className="space-y-1 border-t pt-3">
+          <div className="mb-2 font-medium text-muted-foreground text-xs">Search Result</div>
           <PropertyRow label="Similarity" value={`${(data.similarity * 100).toFixed(2)}%`} />
         </div>
       )}
 
       {data.metadata && Object.keys(data.metadata).length > 0 && (
         <div className="border-t pt-3">
-          <div className="text-xs font-medium text-muted-foreground mb-1">Metadata</div>
+          <div className="mb-1 font-medium text-muted-foreground text-xs">Metadata</div>
           <div className="relative w-full">
-            <div className="max-h-20 overflow-y-auto overflow-x-hidden border rounded bg-muted/30 p-2">
-              <div className="text-xs font-mono text-foreground/80 whitespace-pre-wrap break-all leading-relaxed">
+            <div className="max-h-20 overflow-y-auto overflow-x-hidden rounded border bg-muted/30 p-2">
+              <div className="whitespace-pre-wrap break-all font-mono text-foreground/80 text-xs leading-relaxed">
                 {JSON.stringify(data.metadata, null, 2)}
               </div>
             </div>
@@ -315,11 +317,11 @@ function CollapseToggleButton({
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant="ghost"
-            size="sm"
+            aria-label={isCollapsed ? 'Expand inspector' : 'Collapse inspector'}
             className="h-8 w-8 p-0"
             onClick={onToggle}
-            aria-label={isCollapsed ? 'Expand inspector' : 'Collapse inspector'}
+            size="sm"
+            variant="ghost"
           >
             {isCollapsed ? (
               <ChevronLeft className="h-4 w-4" />
@@ -373,14 +375,14 @@ function CollapsedView({
 
   return (
     <div
-      className={cn('flex flex-col items-center h-full bg-muted/20 border-l', className)}
+      className={cn('flex h-full flex-col items-center border-l bg-muted/20', className)}
       style={{ width: COLLAPSED_WIDTH }}
     >
-      <div className="p-1 border-b w-full flex justify-center">
+      <div className="flex w-full justify-center border-b p-1">
         <CollapseToggleButton isCollapsed onToggle={onToggle} />
       </div>
       {nodeType && nodeData && (
-        <div className="flex-1 flex flex-col items-center justify-center">
+        <div className="flex flex-1 flex-col items-center justify-center">
           <TypeIcon className={cn('h-5 w-5', typeConfig?.color ?? 'text-muted-foreground')} />
         </div>
       )}
@@ -401,14 +403,14 @@ function EmptyView({
   onToggle: () => void;
 }) {
   return (
-    <div className={cn('flex flex-col h-full bg-muted/20 border-l', className)} style={{ width }}>
-      <div className="flex items-center justify-between p-2 border-b">
-        <span className="text-sm text-muted-foreground">Inspector</span>
+    <div className={cn('flex h-full flex-col border-l bg-muted/20', className)} style={{ width }}>
+      <div className="flex items-center justify-between border-b p-2">
+        <span className="text-muted-foreground text-sm">Inspector</span>
         <CollapseToggleButton isCollapsed={false} onToggle={onToggle} />
       </div>
-      <div className="flex-1 flex flex-col items-center justify-center">
-        <Info className="h-8 w-8 text-muted-foreground mb-2" />
-        <p className="text-sm text-muted-foreground">Select an item to view details</p>
+      <div className="flex flex-1 flex-col items-center justify-center">
+        <Info className="mb-2 h-8 w-8 text-muted-foreground" />
+        <p className="text-muted-foreground text-sm">Select an item to view details</p>
       </div>
     </div>
   );
@@ -433,40 +435,40 @@ export function NodeInspector({
     return (
       <CollapsedView
         className={className}
-        nodeType={nodeType}
         nodeData={nodeData}
+        nodeType={nodeType}
         onToggle={handleToggle}
       />
     );
   }
 
-  if (!nodeType || !nodeData) {
-    return <EmptyView className={className} width={width} onToggle={handleToggle} />;
+  if (!(nodeType && nodeData)) {
+    return <EmptyView className={className} onToggle={handleToggle} width={width} />;
   }
 
   const TypeIcon = getNodeTypeIcon(nodeType);
   const typeConfig = NODE_TYPE_CONFIG[nodeType as keyof typeof NODE_TYPE_CONFIG];
 
   return (
-    <div className={cn('flex flex-col h-full bg-background border-l', className)} style={{ width }}>
-      <div className="flex items-center gap-2 p-3 border-b">
+    <div className={cn('flex h-full flex-col border-l bg-background', className)} style={{ width }}>
+      <div className="flex items-center gap-2 border-b p-3">
         <TypeIcon className={cn('h-5 w-5', typeConfig?.color ?? 'text-muted-foreground')} />
         <div className="min-w-0 flex-1">
-          <div className="font-medium truncate">{typeConfig?.label ?? 'Item'} Details</div>
+          <div className="truncate font-medium">{typeConfig?.label ?? 'Item'} Details</div>
           {nodeId && (
-            <div className="text-xs text-muted-foreground font-mono truncate">{nodeId}</div>
+            <div className="truncate font-mono text-muted-foreground text-xs">{nodeId}</div>
           )}
         </div>
         <CollapseToggleButton isCollapsed={false} onToggle={handleToggle} />
       </div>
 
-      <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
-        <div className="p-3 overflow-hidden">
-          <InspectorContent nodeType={nodeType} nodeData={nodeData} />
+      <ScrollArea className="[&>[data-radix-scroll-area-viewport]]:!overflow-x-hidden flex-1">
+        <div className="overflow-hidden p-3">
+          <InspectorContent nodeData={nodeData} nodeType={nodeType} />
         </div>
       </ScrollArea>
 
-      {actions && <div className="p-3 border-t">{actions}</div>}
+      {actions && <div className="border-t p-3">{actions}</div>}
     </div>
   );
 }

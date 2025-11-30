@@ -214,7 +214,9 @@ export function generateEmbeddingsCSV(chunks: FileChunk[]): string {
   const csvRows = [headers.map(escapeCSVValue).join(',')];
 
   for (const chunk of chunksWithEmbeddings) {
-    if (!chunk.embedding) continue;
+    if (!chunk.embedding) {
+      continue;
+    }
 
     const row = [
       escapeCSVValue(chunk.id),

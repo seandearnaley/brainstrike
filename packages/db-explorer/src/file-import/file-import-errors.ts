@@ -11,10 +11,10 @@ export type FileImportErrorCode =
   | 'repository-error'
   | 'unknown';
 
-interface FileImportErrorOptions {
+type FileImportErrorOptions = {
   readonly cause?: unknown;
   readonly progress?: ImportProgress | null;
-}
+};
 
 export class FileImportError extends Error {
   readonly code: FileImportErrorCode;

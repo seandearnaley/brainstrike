@@ -12,9 +12,9 @@ import {
 } from '../utils/electron-helpers';
 import { resetToAppHome } from '../utils/test-reset';
 
-interface ElectronHarnessOptions {
+type ElectronHarnessOptions = {
   readonly preserveState?: boolean;
-}
+};
 
 class ElectronHarness {
   private context: ElectronAppContext | null = null;
@@ -65,7 +65,9 @@ class ElectronHarness {
   }
 
   async dispose(): Promise<void> {
-    if (!this.context) return;
+    if (!this.context) {
+      return;
+    }
 
     try {
       await closeElectronApp(this.context);
@@ -135,9 +137,9 @@ export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
   },
 
   window: async ({ electron }, use, testInfo: TestInfo) => {
-    const preserveState = testInfo.annotations.some((annotation) => {
-      return annotation.type === 'preserve-electron-state';
-    });
+    const preserveState = testInfo.annotations.some(
+      (annotation) => annotation.type === 'preserve-electron-state'
+    );
 
     const page = await electron.ensureWindow({ preserveState });
     await use(page);
@@ -159,7 +161,9 @@ function getRunSalt(): number {
   ];
 
   for (const value of candidates) {
-    if (!value) continue;
+    if (!value) {
+      continue;
+    }
     const parsed = Number.parseInt(value, 10);
     if (!Number.isNaN(parsed) && parsed > 0) {
       return parsed;
@@ -173,7 +177,7 @@ function getRunSalt(): number {
 function deriveDebugPort(runSalt: number, shardIndex: number): number | undefined {
   // Spread shards across an isolated slice of the port space that also varies per CI run
   const slot = runSalt % 1000; // keeps us under the 5xxxx range
-  const basePort = 42000 + slot * 10;
+  const basePort = 42_000 + slot * 10;
   return basePort + shardIndex;
 }
 

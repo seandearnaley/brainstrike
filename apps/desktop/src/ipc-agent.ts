@@ -37,7 +37,7 @@ type StreamChunk =
       type: 'message-finish';
       finishReason: 'stop';
       usage: { promptTokens: number; completionTokens: number };
-      path: ReadonlyArray<number>;
+      path: readonly number[];
     };
 
 const logger = createLogger('DesktopIpcAgent');
@@ -96,7 +96,7 @@ function resolveAgentModule(): AgentModule {
 function resolveAgentProvider(runtime: RuntimeData | undefined): string | undefined {
   const raw = typeof runtime?.provider === 'string' ? runtime.provider.trim() : '';
   if (!raw) {
-    return undefined;
+    return;
   }
   const normalized = raw.toLowerCase();
   return isSupportedProvider(normalized) ? normalized : undefined;
@@ -104,7 +104,7 @@ function resolveAgentProvider(runtime: RuntimeData | undefined): string | undefi
 
 async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
   if (!isSupportedProvider(provider)) {
-    return undefined;
+    return;
   }
   const supportedProvider = provider as SupportedProvider;
 
@@ -131,7 +131,7 @@ async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
     return fallback ?? undefined;
   }
 
-  return undefined;
+  return;
 }
 
 async function ensureAsyncIterable<T>(

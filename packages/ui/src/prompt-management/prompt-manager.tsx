@@ -8,10 +8,10 @@ import { Sidebar } from './components/sidebar';
 import { usePromptStore } from './store';
 import type { Prompt } from './types';
 
-interface PromptManagerProps {
+type PromptManagerProps = {
   availableModels?: ModelPickerModel[];
   providers?: ModelPickerProvider[];
-}
+};
 
 export function PromptManager({ availableModels, providers }: PromptManagerProps) {
   const {
@@ -35,6 +35,7 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
   };
 
   const handleDelete = (id: string) => {
+    // biome-ignore lint/suspicious/noAlert: Intentional use of confirm for delete action
     if (confirm('Are you sure you want to delete this prompt?')) {
       deletePrompt(id);
       toast({
@@ -63,10 +64,12 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
     } else {
       // Ensure we have the required fields for a new prompt
       if (
-        !promptData.title ||
-        !promptData.content ||
-        !promptData.categoryId ||
-        !promptData.modelSettings
+        !(
+          promptData.title &&
+          promptData.content &&
+          promptData.categoryId &&
+          promptData.modelSettings
+        )
       ) {
         toast({
           title: 'Error',
@@ -106,40 +109,40 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
   };
 
   return (
-    <div className="h-full w-full bg-background text-foreground overflow-hidden flex flex-col">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-background text-foreground">
       <div className="flex-1 overflow-hidden">
         <PanelGroup direction="horizontal">
-          <Panel defaultSize={20} minSize={15} maxSize={30} className="min-w-[250px]">
+          <Panel className="min-w-[250px]" defaultSize={20} maxSize={30} minSize={15}>
             <Sidebar
               categories={categories}
               filter={filter}
-              onFilterChange={setFilter}
               onAddPrompt={handleAddPrompt}
+              onFilterChange={setFilter}
             />
           </Panel>
 
-          <PanelResizeHandle className="w-1 bg-border/50 hover:bg-primary/50 transition-colors" />
+          <PanelResizeHandle className="w-1 bg-border/50 transition-colors hover:bg-primary/50" />
 
           <Panel>
-            <div className="h-full flex flex-col">
+            <div className="flex h-full flex-col">
               <div className="p-6 pb-0">
-                <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-primary to-purple-600 bg-clip-text text-transparent">
+                <h1 className="bg-gradient-to-r from-primary to-purple-600 bg-clip-text font-bold text-3xl text-transparent tracking-tight">
                   Prompt Library
                 </h1>
-                <p className="text-muted-foreground mt-1">
+                <p className="mt-1 text-muted-foreground">
                   Manage, version, and organize your LLM prompts.
                 </p>
               </div>
 
               <div className="flex-1 overflow-hidden">
                 <PromptList
-                  prompts={prompts}
                   categories={categories}
                   filter={filter}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                  onToggleFavorite={toggleFavorite}
                   onCopy={handleCopy}
+                  onDelete={handleDelete}
+                  onEdit={handleEdit}
+                  onToggleFavorite={toggleFavorite}
+                  prompts={prompts}
                 />
               </div>
             </div>
@@ -148,15 +151,15 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
       </div>
 
       <PromptEditor
+        availableModels={availableModels ?? []}
+        categories={categories}
         isOpen={isEditorOpen}
         onClose={handleCloseEditor}
+        onSave={handleSavePrompt}
         prompt={
           editingPromptId ? (prompts.find((p: Prompt) => p.id === editingPromptId) ?? null) : null
         }
-        categories={categories}
-        availableModels={availableModels ?? []}
         providers={providers ?? []}
-        onSave={handleSavePrompt}
       />
     </div>
   );

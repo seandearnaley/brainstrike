@@ -8,7 +8,7 @@
 import * as React from 'react';
 import { cn } from './lib/utils';
 
-export interface ExpandableTextareaProps {
+export type ExpandableTextareaProps = {
   /** Current value */
   value: string;
   /** Callback when value changes */
@@ -29,7 +29,7 @@ export interface ExpandableTextareaProps {
   id?: string;
   /** Aria label for accessibility */
   'aria-label'?: string;
-}
+};
 
 /**
  * ExpandableTextarea - Auto-growing textarea for RAG prompts
@@ -61,7 +61,9 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
   // Update height when value changes
   React.useEffect(() => {
     const textarea = textareaRef.current;
-    if (!textarea) return;
+    if (!textarea) {
+      return;
+    }
 
     // Get computed line height
     const computedStyle = window.getComputedStyle(textarea);
@@ -98,15 +100,7 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
 
   return (
     <textarea
-      ref={textareaRef}
-      id={id}
-      value={value}
-      onChange={handleChange}
-      onKeyDown={onKeyDown}
-      placeholder={placeholder}
-      disabled={disabled}
       aria-label={ariaLabel}
-      style={{ height }}
       className={cn(
         'w-full resize-none transition-[height] duration-150 ease-out',
         'rounded-md border border-input bg-background px-3 py-2',
@@ -116,6 +110,14 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
         'disabled:cursor-not-allowed disabled:opacity-50',
         className
       )}
+      disabled={disabled}
+      id={id}
+      onChange={handleChange}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      ref={textareaRef}
+      style={{ height }}
+      value={value}
     />
   );
 });

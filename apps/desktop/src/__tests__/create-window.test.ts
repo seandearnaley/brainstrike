@@ -28,9 +28,7 @@ vi.mock('electron', () => ({
 }));
 
 describe('createWindow', () => {
-  // biome-ignore lint/suspicious/noExplicitAny: Mock objects in tests need flexible typing
   let mockBrowserWindow: any;
-  // biome-ignore lint/suspicious/noExplicitAny: Mock objects in tests need flexible typing
   let mockWebContents: any;
 
   beforeEach(() => {
@@ -48,7 +46,6 @@ describe('createWindow', () => {
       loadFile: vi.fn(),
       loadURL: vi.fn(),
       webContents: mockWebContents,
-      // biome-ignore lint/suspicious/noExplicitAny: Mock objects in tests need flexible typing
     } as any;
 
     // Use function syntax for Vitest 4 constructor mocks

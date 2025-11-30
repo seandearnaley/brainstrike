@@ -12,7 +12,7 @@ type EnabledModelsMap = Record<EmbeddingProviderType, string[]>;
 /**
  * State shape for embedding preferences
  */
-interface EmbeddingPreferencesData {
+type EmbeddingPreferencesData = {
   /**
    * Enabled models per provider
    * Only enabled models are shown in UI and available for selection
@@ -25,12 +25,12 @@ interface EmbeddingPreferencesData {
    * - 'hosted': Prefer API-based models (OpenAI, Google, etc.)
    */
   preferredRuntime: 'browser' | 'hosted';
-}
+};
 
 /**
  * Actions for managing embedding preferences
  */
-interface EmbeddingPreferencesActions {
+type EmbeddingPreferencesActions = {
   /**
    * Enable or disable a specific model for a provider
    */
@@ -59,7 +59,7 @@ interface EmbeddingPreferencesActions {
    * Set preferred runtime for embedding operations
    */
   setPreferredRuntime: (runtime: 'browser' | 'hosted') => void;
-}
+};
 
 type Store = EmbeddingPreferencesData & EmbeddingPreferencesActions;
 
@@ -115,7 +115,7 @@ function enableModelForProvider(
   const alreadyEnabled = currentEnabled.includes(model);
 
   if (alreadyEnabled) {
-    return undefined;
+    return;
   }
 
   const nextEnabled = [...currentEnabled, model];
@@ -138,7 +138,7 @@ function disableModelForProvider(
 ): Partial<Store> | undefined {
   const currentEnabled = ensureEnabledModels(state.enabledModelsByProvider, provider);
   if (!currentEnabled.includes(model)) {
-    return undefined;
+    return;
   }
 
   const nextEnabled = currentEnabled.filter((item) => item !== model);
@@ -262,7 +262,7 @@ export const useEmbeddingPreferencesStore = create<Store>()(
       }),
       migrate: (persistedState, version) => {
         if (!persistedState) {
-          return undefined;
+          return;
         }
 
         if (version >= STORE_VERSION) {

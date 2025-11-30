@@ -11,7 +11,7 @@ import { error as logError } from '@brainstrike/utils';
 import { saveAs } from 'file-saver';
 import { useCallback } from 'react';
 
-interface UseReportManagerProps<A = unknown> {
+type UseReportManagerProps<A = unknown> = {
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
   generateReportWithContent: () => Promise<string>;
   showToast: (props: {
@@ -27,7 +27,7 @@ interface UseReportManagerProps<A = unknown> {
     action?: A;
     duration?: number;
   }) => { dismiss?: () => void };
-}
+};
 
 export const useReportManager = <A = unknown>({
   rootDirectoryHandle,
@@ -83,7 +83,9 @@ export const useReportManager = <A = unknown>({
 
     try {
       const report = await handleGenerateReport();
-      if (!report) return;
+      if (!report) {
+        return;
+      }
 
       await navigator.clipboard.writeText(report);
       reportToast?.dismiss?.();

@@ -5,13 +5,13 @@
  * This script is used by GitHub Actions to merge performance metrics
  */
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 function consolidateMetrics() {
   try {
     const metricsDir = 'performance-metrics';
-    
+
     // Check if metrics directory exists
     if (!fs.existsSync(metricsDir)) {
       console.log('No performance metrics directory found');
@@ -19,8 +19,9 @@ function consolidateMetrics() {
     }
 
     // Get all JSON files that start with 'metrics-'
-    const files = fs.readdirSync(metricsDir)
-      .filter(f => f.endsWith('.json') && f.startsWith('metrics-'));
+    const files = fs
+      .readdirSync(metricsDir)
+      .filter((f) => f.endsWith('.json') && f.startsWith('metrics-'));
 
     if (files.length === 0) {
       console.log('No performance metrics found');
@@ -33,11 +34,11 @@ function consolidateMetrics() {
     const allMetrics = [];
     const errors = [];
 
-    files.forEach(file => {
+    files.forEach((file) => {
       try {
         const filePath = path.join(metricsDir, file);
         const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-        
+
         if (data.metrics && Array.isArray(data.metrics)) {
           allMetrics.push(...data.metrics);
         } else if (Array.isArray(data)) {
@@ -56,14 +57,14 @@ function consolidateMetrics() {
       timestamp: new Date().toISOString(),
       commit: process.env.GITHUB_SHA || 'unknown',
       branch: process.env.GITHUB_REF_NAME || 'unknown',
-      environment: process.env.GITHUB_ACTIONS ? 'github-actions' : (process.env.CI ? 'ci' : 'local'),
+      environment: process.env.GITHUB_ACTIONS ? 'github-actions' : process.env.CI ? 'ci' : 'local',
       metrics: allMetrics,
       summary: {
         total: allMetrics.length,
-        passed: allMetrics.filter(m => m.passed !== false).length,
-        failed: allMetrics.filter(m => m.passed === false).length,
+        passed: allMetrics.filter((m) => m.passed !== false).length,
+        failed: allMetrics.filter((m) => m.passed === false).length,
       },
-      errors: errors
+      errors,
     };
 
     // Save consolidated metrics
@@ -76,7 +77,7 @@ function consolidateMetrics() {
     console.log(`Passed: ${summary.summary.passed}`);
     console.log(`Failed: ${summary.summary.failed}`);
     console.log(`Environment: ${summary.environment}`);
-    
+
     if (errors.length > 0) {
       console.log(`Errors: ${errors.length}`);
     }
@@ -97,7 +98,6 @@ function consolidateMetrics() {
     }
 
     console.log('\n✅ All performance metrics passed!');
-
   } catch (error) {
     console.error('❌ Error consolidating metrics:', error.message);
     console.error(error.stack);
@@ -110,4 +110,4 @@ if (require.main === module) {
   consolidateMetrics();
 }
 
-module.exports = { consolidateMetrics }; 
+module.exports = { consolidateMetrics };

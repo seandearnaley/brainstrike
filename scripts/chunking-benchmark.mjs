@@ -1,9 +1,10 @@
 #!/usr/bin/env node
+
 // Lightweight chunking memory benchmark (streaming vs aggregate)
 
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(__dirname, '..');
@@ -28,7 +29,7 @@ async function main() {
     overlap: CHUNKING_CONFIG.defaultOverlap,
   };
 
-  const base = process.memoryUsage().rss;
+  const _base = process.memoryUsage().rss;
 
   // Aggregate path (materialize all chunks from streaming)
   const rssBeforeAgg = process.memoryUsage().rss;
@@ -54,16 +55,22 @@ async function main() {
   const rssAfterStr = process.memoryUsage().rss;
   const deltaStr = (rssAfterStr - rssBeforeStr) / (1024 * 1024);
 
-  console.log(JSON.stringify({
-    platform: os.platform(),
-    sizeMB,
-    chunksAggregate: agg.length,
-    chunksStream,
-    memoryDeltaMB: {
-      aggregate: Number(deltaAgg.toFixed(2)),
-      streaming: Number(deltaStr.toFixed(2)),
-    },
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        platform: os.platform(),
+        sizeMB,
+        chunksAggregate: agg.length,
+        chunksStream,
+        memoryDeltaMB: {
+          aggregate: Number(deltaAgg.toFixed(2)),
+          streaming: Number(deltaStr.toFixed(2)),
+        },
+      },
+      null,
+      2
+    )
+  );
 }
 
 main().catch((e) => {

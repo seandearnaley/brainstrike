@@ -30,16 +30,16 @@ import { TooltipIconButton } from './tooltip-icon-button';
 // Re-export types needed by consumers
 export type { ModelPickerModel, ModelPickerProvider };
 
-export interface ProviderConfig {
+export type ProviderConfig = {
   id: string;
   name: string;
   models: readonly string[];
   defaultModel: string;
-}
+};
 
 export type ProviderRuntimeCategory = 'hosted' | 'gateway' | 'local' | 'browser';
 
-export interface ProviderModelOptionConfig {
+export type ProviderModelOptionConfig = {
   id: string;
   label: string;
   type: 'llm' | 'embedding';
@@ -47,9 +47,9 @@ export interface ProviderModelOptionConfig {
   default?: boolean;
   supportsStreaming?: boolean;
   supportsStandardDimension?: boolean;
-}
+};
 
-export interface ProviderOptionConfig {
+export type ProviderOptionConfig = {
   id: string;
   name: string;
   runtime: ProviderRuntimeCategory;
@@ -60,15 +60,15 @@ export interface ProviderOptionConfig {
     supportsStandardEmbeddingDimension: boolean;
   };
   models: ProviderModelOptionConfig[];
-}
+};
 
-export interface ProviderGroupConfig {
+export type ProviderGroupConfig = {
   runtime: ProviderRuntimeCategory;
   label: string;
   providers: ProviderOptionConfig[];
-}
+};
 
-export interface AssistantUiPanelProps {
+export type AssistantUiPanelProps = {
   className?: string;
   providers?: ProviderConfig[];
   providerGroups?: ProviderGroupConfig[];
@@ -82,9 +82,10 @@ export interface AssistantUiPanelProps {
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   disabled?: boolean;
   disabledReason?: string;
-}
+};
 
 declare global {
+  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     assistant?: { getUrl?: () => Promise<string>; url?: string };
   }
@@ -108,11 +109,14 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
         : '/api/assistant';
   const [api, setApi] = useState<string>(initialApi);
 
+  // biome-ignore lint/plugin: Async API URL resolution on mount - standard initialization
   useEffect(() => {
     const updateApi = async () => {
       try {
         const url = await window.assistant?.getUrl?.();
-        if (url) setApi(`${url}/assistant`);
+        if (url) {
+          setApi(`${url}/assistant`);
+        }
       } catch {
         // Ignore errors from getUrl
       }
@@ -129,7 +133,9 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
 
   // Extract model name from composite key (format: "provider::model")
   const modelName = useMemo(() => {
-    if (!selectedModel) return undefined;
+    if (!selectedModel) {
+      return;
+    }
     const parts = selectedModel.split('::');
     return parts.length === 2 ? parts[1] : selectedModel;
   }, [selectedModel]);
@@ -146,21 +152,21 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
 
   return (
     <section
-      className="flex flex-col h-full min-h-0"
-      data-testid="chat-panel"
       aria-label="Assistant chat"
+      className="flex h-full min-h-0 flex-col"
+      data-testid="chat-panel"
     >
       <AssistantRuntimeProvider runtime={runtime}>
-        <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex flex-col h-full min-h-0">
+        <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col">
           {/* Provider and Model Selector Header */}
           {hasGroupedProviders && (
             <ProviderModelHeader
               groups={groupedProviders}
+              onModelChange={onModelChange}
               pickerModels={pickerModels}
               pickerProviders={pickerProviders}
-              selectedProvider={selectedProvider}
               selectedModel={selectedModel}
-              onModelChange={onModelChange}
+              selectedProvider={selectedProvider}
             />
           )}
           {/**
@@ -178,24 +184,24 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
            * Post-mortem: docs/2025-09-30-assistant-ui-layout-fix-postmortem.md
            */}
           <ThreadPrimitive.Viewport
+            aria-atomic="false"
+            aria-live="polite"
             className="aui-thread-viewport"
             data-testid="assistant-ui-viewport"
-            aria-live="polite"
-            aria-atomic="false"
           >
             {disabledReason && (
-              <p className="px-4 py-3 text-xs text-muted-foreground" aria-live="polite">
+              <p aria-live="polite" className="px-4 py-3 text-muted-foreground text-xs">
                 {disabledReason}
               </p>
             )}
             <ThreadPrimitive.Messages
               components={{
                 /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-                AssistantMessage: AssistantMessage,
+                AssistantMessage,
                 /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-                UserMessage: UserMessage,
+                UserMessage,
                 /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-                EditComposer: EditComposer,
+                EditComposer,
               }}
             />
           </ThreadPrimitive.Viewport>
@@ -222,19 +228,19 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
            * We extracted it outside to avoid scrolling with messages.
            * This required aggressive CSS overrides (see overrides.css).
            */}
-          <div className="flex-shrink-0 border-t border-border bg-background">
+          <div className="flex-shrink-0 border-border border-t bg-background">
             <ComposerPrimitive.Root
-              className="aui-composer-root"
               aria-disabled={isComposerDisabled}
+              className="aui-composer-root"
               data-disabled={isComposerDisabled ? '' : undefined}
             >
               <ComposerPrimitive.Input
-                rows={1}
-                placeholder="Ask the assistant…"
-                className="aui-composer-input"
-                id="assistant-input"
                 aria-label="Message input"
+                className="aui-composer-input"
                 disabled={isComposerDisabled}
+                id="assistant-input"
+                placeholder="Ask the assistant…"
+                rows={1}
               />
               <ThreadPrimitive.If running={false}>
                 <ComposerPrimitive.Send
@@ -276,50 +282,46 @@ const UserMessage: FC = () => {
         />
       </div>
 
-      <BranchPicker className="col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
+      <BranchPicker className="-mr-1 col-span-full col-start-1 row-start-3 justify-end" />
     </MessagePrimitive.Root>
   );
 };
 
-const UserActionBar: FC = () => {
-  return (
-    <ActionBarPrimitive.Root
-      hideWhenRunning
-      autohide="not-last"
-      className="col-start-1 row-start-2 mr-3 mt-2 flex flex-col items-end"
-    >
-      <ActionBarPrimitive.Edit asChild>
-        <TooltipIconButton tooltip="Edit" aria-label="Edit message">
-          <PencilIcon className="size-4" />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Edit>
-    </ActionBarPrimitive.Root>
-  );
-};
+const UserActionBar: FC = () => (
+  <ActionBarPrimitive.Root
+    autohide="not-last"
+    className="col-start-1 row-start-2 mt-2 mr-3 flex flex-col items-end"
+    hideWhenRunning
+  >
+    <ActionBarPrimitive.Edit asChild>
+      <TooltipIconButton aria-label="Edit message" tooltip="Edit">
+        <PencilIcon className="size-4" />
+      </TooltipIconButton>
+    </ActionBarPrimitive.Edit>
+  </ActionBarPrimitive.Root>
+);
 
-const EditComposer: FC = () => {
-  return (
-    <ComposerPrimitive.Root className="my-4 flex w-full flex-col gap-2 rounded-xl bg-muted">
-      <ComposerPrimitive.Input className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none" />
+const EditComposer: FC = () => (
+  <ComposerPrimitive.Root className="my-4 flex w-full flex-col gap-2 rounded-xl bg-muted">
+    <ComposerPrimitive.Input className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none" />
 
-      <div className="mx-3 mb-3 flex items-center justify-center gap-2 self-end">
-        <ComposerPrimitive.Cancel asChild>
-          <Button variant="ghost" size="sm">
-            Cancel
-          </Button>
-        </ComposerPrimitive.Cancel>
-        <ComposerPrimitive.Send asChild>
-          <Button size="sm">Send</Button>
-        </ComposerPrimitive.Send>
-      </div>
-    </ComposerPrimitive.Root>
-  );
-};
+    <div className="mx-3 mb-3 flex items-center justify-center gap-2 self-end">
+      <ComposerPrimitive.Cancel asChild>
+        <Button size="sm" variant="ghost">
+          Cancel
+        </Button>
+      </ComposerPrimitive.Cancel>
+      <ComposerPrimitive.Send asChild>
+        <Button size="sm">Send</Button>
+      </ComposerPrimitive.Send>
+    </div>
+  </ComposerPrimitive.Root>
+);
 
 const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-3">
-      <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-xl break-words leading-7 text-foreground">
+      <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-xl break-words text-foreground leading-7">
         <MessagePrimitive.Parts
           components={{
             /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
@@ -334,60 +336,56 @@ const AssistantMessage: FC = () => {
 
       <AssistantActionBar />
 
-      <BranchPicker className="col-start-2 row-start-2 -ml-2 mr-2" />
+      <BranchPicker className="-ml-2 col-start-2 row-start-2 mr-2" />
     </MessagePrimitive.Root>
   );
 };
 
-const AssistantActionBar: FC = () => {
-  return (
-    <ActionBarPrimitive.Root
-      hideWhenRunning
-      autohide="not-last"
-      autohideFloat="single-branch"
-      className="col-start-3 row-start-2 -ml-1 flex gap-1 text-muted-foreground data-[floating]:absolute data-[floating]:rounded-md data-[floating]:border data-[floating]:bg-background data-[floating]:p-1 data-[floating]:shadow-sm"
-    >
-      <ActionBarPrimitive.Copy asChild>
-        <TooltipIconButton tooltip="Copy" aria-label="Copy message">
-          <MessagePrimitive.If copied>
-            <CheckIcon className="size-4" />
-          </MessagePrimitive.If>
-          <MessagePrimitive.If copied={false}>
-            <CopyIcon className="size-4" />
-          </MessagePrimitive.If>
-        </TooltipIconButton>
-      </ActionBarPrimitive.Copy>
-      <ActionBarPrimitive.Reload asChild>
-        <TooltipIconButton tooltip="Retry" aria-label="Regenerate response">
-          <RefreshCwIcon className="size-4" />
-        </TooltipIconButton>
-      </ActionBarPrimitive.Reload>
-    </ActionBarPrimitive.Root>
-  );
-};
+const AssistantActionBar: FC = () => (
+  <ActionBarPrimitive.Root
+    autohide="not-last"
+    autohideFloat="single-branch"
+    className="-ml-1 col-start-3 row-start-2 flex gap-1 text-muted-foreground data-[floating]:absolute data-[floating]:rounded-md data-[floating]:border data-[floating]:bg-background data-[floating]:p-1 data-[floating]:shadow-sm"
+    hideWhenRunning
+  >
+    <ActionBarPrimitive.Copy asChild>
+      <TooltipIconButton aria-label="Copy message" tooltip="Copy">
+        <MessagePrimitive.If copied>
+          <CheckIcon className="size-4" />
+        </MessagePrimitive.If>
+        <MessagePrimitive.If copied={false}>
+          <CopyIcon className="size-4" />
+        </MessagePrimitive.If>
+      </TooltipIconButton>
+    </ActionBarPrimitive.Copy>
+    <ActionBarPrimitive.Reload asChild>
+      <TooltipIconButton aria-label="Regenerate response" tooltip="Retry">
+        <RefreshCwIcon className="size-4" />
+      </TooltipIconButton>
+    </ActionBarPrimitive.Reload>
+  </ActionBarPrimitive.Root>
+);
 
-const BranchPicker: FC<{ className?: string }> = ({ className }) => {
-  return (
-    <BranchPickerPrimitive.Root
-      hideWhenSingleBranch
-      className={`inline-flex items-center text-xs text-muted-foreground ${className ?? ''}`}
-    >
-      <BranchPickerPrimitive.Previous asChild>
-        <TooltipIconButton tooltip="Previous" aria-label="Previous branch">
-          <ChevronLeftIcon className="size-4" />
-        </TooltipIconButton>
-      </BranchPickerPrimitive.Previous>
-      <span className="font-medium">
-        <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
-      </span>
-      <BranchPickerPrimitive.Next asChild>
-        <TooltipIconButton tooltip="Next" aria-label="Next branch">
-          <ChevronRightIcon className="size-4" />
-        </TooltipIconButton>
-      </BranchPickerPrimitive.Next>
-    </BranchPickerPrimitive.Root>
-  );
-};
+const BranchPicker: FC<{ className?: string }> = ({ className }) => (
+  <BranchPickerPrimitive.Root
+    className={`inline-flex items-center text-muted-foreground text-xs ${className ?? ''}`}
+    hideWhenSingleBranch
+  >
+    <BranchPickerPrimitive.Previous asChild>
+      <TooltipIconButton aria-label="Previous branch" tooltip="Previous">
+        <ChevronLeftIcon className="size-4" />
+      </TooltipIconButton>
+    </BranchPickerPrimitive.Previous>
+    <span className="font-medium">
+      <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
+    </span>
+    <BranchPickerPrimitive.Next asChild>
+      <TooltipIconButton aria-label="Next branch" tooltip="Next">
+        <ChevronRightIcon className="size-4" />
+      </TooltipIconButton>
+    </BranchPickerPrimitive.Next>
+  </BranchPickerPrimitive.Root>
+);
 
 const RUNTIME_LABELS: Record<ProviderRuntimeCategory, string> = {
   hosted: 'Hosted',
@@ -396,30 +394,30 @@ const RUNTIME_LABELS: Record<ProviderRuntimeCategory, string> = {
   browser: 'Browser',
 };
 
-interface ProviderModelOption {
+type ProviderModelOption = {
   value: string;
   provider: ProviderOptionConfig;
   model: ProviderModelOptionConfig;
   groupLabel: string;
-}
+};
 
-interface NormalizedProviderGroup {
+type NormalizedProviderGroup = {
   runtime: ProviderRuntimeCategory;
   label: string;
   providers: Array<{
     provider: ProviderOptionConfig;
     models: ProviderModelOptionConfig[];
   }>;
-}
+};
 
-interface ProviderModelHeaderProps {
+type ProviderModelHeaderProps = {
   groups: ProviderGroupConfig[];
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
   selectedProvider?: string | undefined;
   selectedModel?: string | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
-}
+};
 
 const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   groups,
@@ -431,50 +429,58 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
 }) => {
   // Extract model name from composite key (format: "provider::model")
   const modelName = useMemo(() => {
-    if (!selectedModel) return undefined;
+    if (!selectedModel) {
+      return;
+    }
     const parts = selectedModel.split('::');
     return parts.length === 2 ? parts[1] : selectedModel;
   }, [selectedModel]);
 
-  const normalizedGroups = useMemo<NormalizedProviderGroup[]>(() => {
-    return groups
-      .map((group) => {
-        const providers = group.providers
-          .map((provider) => ({
-            provider,
-            models: provider.models.filter((model) => model.enabled),
+  const normalizedGroups = useMemo<NormalizedProviderGroup[]>(
+    () =>
+      groups
+        .map((group) => {
+          const providers = group.providers
+            .map((provider) => ({
+              provider,
+              models: provider.models.filter((model) => model.enabled),
+            }))
+            .filter((entry) => entry.models.length > 0);
+          if (providers.length === 0) {
+            return null;
+          }
+          return {
+            runtime: group.runtime,
+            label: group.label ?? RUNTIME_LABELS[group.runtime],
+            providers,
+          };
+        })
+        .filter((group): group is NormalizedProviderGroup => group !== null),
+    [groups]
+  );
+
+  const options = useMemo<ProviderModelOption[]>(
+    () =>
+      normalizedGroups.flatMap((group) =>
+        group.providers.flatMap((entry) =>
+          entry.models.map((model) => ({
+            value: `${entry.provider.id}::${model.id}`,
+            provider: entry.provider,
+            model,
+            groupLabel: group.label,
           }))
-          .filter((entry) => entry.models.length > 0);
-        if (providers.length === 0) {
-          return null;
-        }
-        return {
-          runtime: group.runtime,
-          label: group.label ?? RUNTIME_LABELS[group.runtime],
-          providers,
-        };
-      })
-      .filter((group): group is NormalizedProviderGroup => group !== null);
-  }, [groups]);
+        )
+      ),
+    [normalizedGroups]
+  );
 
-  const options = useMemo<ProviderModelOption[]>(() => {
-    return normalizedGroups.flatMap((group) =>
-      group.providers.flatMap((entry) =>
-        entry.models.map((model) => ({
-          value: `${entry.provider.id}::${model.id}`,
-          provider: entry.provider,
-          model,
-          groupLabel: group.label,
-        }))
-      )
-    );
-  }, [normalizedGroups]);
-
-  const selectedOption = useMemo<ProviderModelOption | undefined>(() => {
-    return options.find(
-      (option) => option.provider.id === selectedProvider && option.model.id === modelName
-    );
-  }, [options, modelName, selectedProvider]);
+  const selectedOption = useMemo<ProviderModelOption | undefined>(
+    () =>
+      options.find(
+        (option) => option.provider.id === selectedProvider && option.model.id === modelName
+      ),
+    [options, modelName, selectedProvider]
+  );
 
   // Build a lookup map from model ID to provider ID for the ModelPicker callback
   const modelToProviderMap = useMemo(() => {
@@ -491,7 +497,9 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   const handleModelPickerChange = useCallback(
     (modelId: string | string[]) => {
       const id = Array.isArray(modelId) ? modelId[0] : modelId;
-      if (!id) return;
+      if (!id) {
+        return;
+      }
 
       const providerId = modelToProviderMap.get(id);
       if (providerId) {
@@ -510,30 +518,30 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   };
 
   return (
-    <div className="flex-shrink-0 space-y-3 border-b border-border bg-muted/30 px-3 py-3">
+    <div className="flex-shrink-0 space-y-3 border-border border-b bg-muted/30 px-3 py-3">
       <ProviderSelectionSummary {...summaryProps} />
       <div data-testid="assistant-model-dropdown">
         <ModelPicker
           models={pickerModels}
           providers={pickerProviders}
           {...(modelName ? { value: modelName } : {})}
-          onChange={handleModelPickerChange}
-          modelType="llm"
-          mode="single"
-          placeholder={options.length === 0 ? 'No models enabled' : 'Select a model...'}
           disabled={options.length === 0 || !onModelChange}
+          mode="single"
+          modelType="llm"
+          onChange={handleModelPickerChange}
+          placeholder={options.length === 0 ? 'No models enabled' : 'Select a model...'}
         />
       </div>
     </div>
   );
 };
 
-interface ProviderSelectionSummaryProps {
+type ProviderSelectionSummaryProps = {
   provider: ProviderOptionConfig | undefined;
   model: ProviderModelOptionConfig | undefined;
   selectedProvider?: string | undefined;
   selectedModel?: string | undefined;
-}
+};
 
 const ProviderSelectionSummary: FC<ProviderSelectionSummaryProps> = ({
   provider,
@@ -541,9 +549,9 @@ const ProviderSelectionSummary: FC<ProviderSelectionSummaryProps> = ({
   selectedProvider,
   selectedModel,
 }) => {
-  if (!provider || !selectedProvider) {
+  if (!(provider && selectedProvider)) {
     return (
-      <div className="rounded-md border border-dashed border-border/70 bg-background px-3 py-2 text-xs text-muted-foreground">
+      <div className="rounded-md border border-border/70 border-dashed bg-background px-3 py-2 text-muted-foreground text-xs">
         Select a provider and model to start chatting.
       </div>
     );
@@ -552,10 +560,10 @@ const ProviderSelectionSummary: FC<ProviderSelectionSummaryProps> = ({
   return (
     <div className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
       <div>
-        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <p className="font-semibold text-[10px] text-muted-foreground uppercase tracking-wide">
           In use
         </p>
-        <p className="text-sm font-medium leading-tight">{provider.name}</p>
+        <p className="font-medium text-sm leading-tight">{provider.name}</p>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-1 text-xs">
         <Badge variant="secondary">{model?.label ?? selectedModel ?? 'Select a model'}</Badge>

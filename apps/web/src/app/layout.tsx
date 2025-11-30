@@ -11,7 +11,7 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <title>BrainStrike.ai</title>
-        <meta name="description" content="Multi-app dashboard" />
+        <meta content="Multi-app dashboard" name="description" />
       </head>
       <body>
         <RouterProvider>{children}</RouterProvider>

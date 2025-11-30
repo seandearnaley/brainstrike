@@ -27,16 +27,16 @@ function EmbeddingWorkerCategory() {
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
+        <h3 className="flex items-center gap-2 font-semibold text-lg">
           Embedding Worker
           <Badge variant="secondary">experimental</Badge>
         </h3>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-muted-foreground text-sm">
           Monitor the embedding job queue and inspect vector store connectivity without leaving the
           settings screen.
         </p>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <QueueHud />
         <VectorStatusWithDialog />
       </div>
@@ -72,7 +72,7 @@ export default function SettingsPageContent() {
         description: 'Control browser log verbosity and redaction for debugging.',
         keywords: ['logging', 'debugging', 'console', 'diagnostics'],
         icon: FileCog,
-        render: () => <LoggingSettingsSection runtime="browser" logSource={logSource} />,
+        render: () => <LoggingSettingsSection logSource={logSource} runtime="browser" />,
       },
       {
         id: 'embedding-worker',
@@ -91,7 +91,7 @@ export default function SettingsPageContent() {
     <>
       <Helmet>
         <title>Settings - BrainStrike.ai</title>
-        <meta name="description" content="Customize your application settings" />
+        <meta content="Customize your application settings" name="description" />
       </Helmet>
 
       <SettingsLayout categories={categories} defaultCategoryId="appearance" />

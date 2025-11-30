@@ -672,13 +672,12 @@ describe('useFileTree', () => {
       };
 
       const readQueue: Array<() => void> = [];
-      const readSpy = vi
-        .spyOn(MockFileSystemAdapter.prototype, 'readDirectory')
-        .mockImplementation(() => {
-          return new Promise<IFileNode[]>((resolve) => {
+      const readSpy = vi.spyOn(MockFileSystemAdapter.prototype, 'readDirectory').mockImplementation(
+        () =>
+          new Promise<IFileNode[]>((resolve) => {
             readQueue.push(() => resolve([]));
-          });
-        });
+          })
+      );
 
       const { result, rerender } = renderHook(({ handle }) => useFileTree(handle), {
         initialProps: { handle: firstHandle },

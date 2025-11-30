@@ -1,21 +1,21 @@
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export interface FileTabState {
+export type FileTabState = {
   id: string;
   path: string;
   compositeKey: string;
   content: string | null;
   isLoading: boolean;
   error?: string | undefined;
-}
+};
 
-interface TabManagerData {
+type TabManagerData = {
   tabs: FileTabState[];
   activeTabId: string | null;
-}
+};
 
-interface TabManagerActions {
+type TabManagerActions = {
   openTab: (path: string, tabId: string, compositeKey: string) => void;
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
@@ -23,7 +23,7 @@ interface TabManagerActions {
   setTabLoading: (tabId: string, isLoading: boolean) => void;
   setTabError: (tabId: string, error: string) => void;
   clearTabs: () => void;
-}
+};
 
 export type TabManagerStore = TabManagerData & TabManagerActions;
 
@@ -39,27 +39,37 @@ const storage = createJSONStorage(() => {
 
   const fromLocalStorage = (key: string): string | null => {
     try {
-      if (typeof localStorage !== 'undefined') return localStorage.getItem(key);
+      if (typeof localStorage !== 'undefined') {
+        return localStorage.getItem(key);
+      }
     } catch {}
     return null;
   };
 
   const writeLocalStorage = (key: string, value: string) => {
     try {
-      if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(key, value);
+      }
     } catch {}
   };
 
   const removeLocalStorage = (key: string) => {
     try {
-      if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(key);
+      }
     } catch {}
   };
 
   const migrateIfNeeded = (name: string): string | null => {
-    if (name !== STORE_NAME) return null;
+    if (name !== STORE_NAME) {
+      return null;
+    }
     const legacy = fromLocalStorage(LegacyKey);
-    if (!legacy) return null;
+    if (!legacy) {
+      return null;
+    }
     try {
       const parsed = JSON.parse(legacy) as {
         tabs?: Array<{ id: string; path: string; compositeKey: string }>;
@@ -87,14 +97,20 @@ const storage = createJSONStorage(() => {
   return {
     getItem: (name: string) => {
       const direct = fromLocalStorage(name);
-      if (direct !== null) return direct;
+      if (direct !== null) {
+        return direct;
+      }
       const migrated = migrateIfNeeded(name);
-      if (migrated !== null) return migrated;
+      if (migrated !== null) {
+        return migrated;
+      }
       return memory.get(name) ?? null;
     },
     setItem: (name: string, value: string) => {
       writeLocalStorage(name, value);
-      if (!fromLocalStorage(name)) memory.set(name, value);
+      if (!fromLocalStorage(name)) {
+        memory.set(name, value);
+      }
     },
     removeItem: (name: string) => {
       removeLocalStorage(name);

@@ -18,7 +18,7 @@ const SKIP_INTEGRATION =
   !process.env['VITEST_RUN_INTEGRATION'] && process.env['NODE_ENV'] !== 'integration';
 
 // Test timeout for model downloading
-const LONG_TIMEOUT = 120000; // 2 minutes
+const LONG_TIMEOUT = 120_000; // 2 minutes
 
 describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
   let service: SimpleEmbeddingService;

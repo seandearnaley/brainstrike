@@ -39,7 +39,7 @@ export const CHUNKING_CONFIG = {
   overlapHardLimit: 2000,
 
   // Very large content thresholds and limits
-  veryLargeContentThreshold: 100000, // 100KB+ threshold for very large content
+  veryLargeContentThreshold: 100_000, // 100KB+ threshold for very large content
   veryLargeMaxTokens: 1000, // Maximum tokens for very large content
   veryLargeOverlap: 100, // Overlap for very large content
 

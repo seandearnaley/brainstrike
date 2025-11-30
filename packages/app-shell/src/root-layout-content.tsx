@@ -8,7 +8,7 @@ import { RightPanel } from './right-panel';
 import { usePanelLayoutStore } from './stores/panel-layout-store';
 import type { NavigationItem } from './types';
 
-export interface RootLayoutContentProps {
+export type RootLayoutContentProps = {
   readonly homePageContent: ReactNode;
   readonly settingsPageContent: ReactNode;
   readonly promptsPageContent?: ReactNode;
@@ -30,7 +30,7 @@ export interface RootLayoutContentProps {
    * - Vector search operations
    */
   readonly embeddingQueue?: QueueAdapter | null;
-}
+};
 
 export function RootLayoutContent({
   homePageContent,
@@ -46,8 +46,11 @@ export function RootLayoutContent({
   const handleNavigationClick = useCallback(
     (path: string) => {
       let tab = 'explorer';
-      if (path === '/settings') tab = 'settings';
-      else if (path === '/prompts') tab = 'prompts';
+      if (path === '/settings') {
+        tab = 'settings';
+      } else if (path === '/prompts') {
+        tab = 'prompts';
+      }
 
       setState({ activeTab: tab as 'explorer' | 'settings' | 'prompts' });
     },
@@ -76,7 +79,7 @@ export function RootLayoutContent({
       onNavigationClick={handleNavigationClick}
     >
       {activeTab === 'explorer' ? (
-        <div data-testid="explorer-section" className="h-full">
+        <div className="h-full" data-testid="explorer-section">
           <PanelLayoutProvider
             controlledState={panelState}
             onChange={(state) => {
@@ -93,20 +96,20 @@ export function RootLayoutContent({
             }}
           >
             <IdeLayout
+              consoleContent={<TabbedFileEditorPanel className="h-full" />}
               leftPanelContent={<FileExplorerLeftPanel />}
               rightPanelContent={rightPanelContent}
-              consoleContent={<TabbedFileEditorPanel className="h-full" />}
             >
               {homePageContent}
             </IdeLayout>
           </PanelLayoutProvider>
         </div>
       ) : activeTab === 'prompts' ? (
-        <div data-testid="prompts-section" className="h-full">
+        <div className="h-full" data-testid="prompts-section">
           {promptsPageContent}
         </div>
       ) : (
-        <div data-testid="settings-section" className="h-full">
+        <div className="h-full" data-testid="settings-section">
           {settingsPageContent}
         </div>
       )}

@@ -3,9 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { TooltipIconButton } from '../assistant-ui-panel/tooltip-icon-button';
 import { TooltipProvider } from '../tooltip';
 
-const renderWithTooltip = (ui: React.ReactElement) => {
-  return render(<TooltipProvider>{ui}</TooltipProvider>);
-};
+const renderWithTooltip = (ui: React.ReactElement) =>
+  render(<TooltipProvider>{ui}</TooltipProvider>);
 
 describe('TooltipIconButton', () => {
   it('renders with children', () => {
@@ -40,7 +39,7 @@ describe('TooltipIconButton', () => {
 
   it('applies custom className', () => {
     renderWithTooltip(
-      <TooltipIconButton tooltip="Test tooltip" className="custom-class">
+      <TooltipIconButton className="custom-class" tooltip="Test tooltip">
         <span>Icon</span>
       </TooltipIconButton>
     );
@@ -51,7 +50,7 @@ describe('TooltipIconButton', () => {
 
   it('passes additional props to button', () => {
     renderWithTooltip(
-      <TooltipIconButton tooltip="Test tooltip" aria-label="Custom label" disabled>
+      <TooltipIconButton aria-label="Custom label" disabled tooltip="Test tooltip">
         <span>Icon</span>
       </TooltipIconButton>
     );
@@ -77,7 +76,7 @@ describe('TooltipIconButton', () => {
 
     for (const side of sides) {
       const { unmount } = renderWithTooltip(
-        <TooltipIconButton tooltip="Test tooltip" side={side}>
+        <TooltipIconButton side={side} tooltip="Test tooltip">
           <span>Icon</span>
         </TooltipIconButton>
       );
@@ -89,7 +88,7 @@ describe('TooltipIconButton', () => {
 
   it('renders with asChild prop', () => {
     renderWithTooltip(
-      <TooltipIconButton tooltip="Test tooltip" asChild>
+      <TooltipIconButton asChild tooltip="Test tooltip">
         <a href="#test">Link Icon</a>
       </TooltipIconButton>
     );
@@ -99,7 +98,7 @@ describe('TooltipIconButton', () => {
 
   it('does not duplicate sr-only text when asChild is true', () => {
     renderWithTooltip(
-      <TooltipIconButton tooltip="Test tooltip" asChild>
+      <TooltipIconButton asChild tooltip="Test tooltip">
         <a href="#test">Link</a>
       </TooltipIconButton>
     );

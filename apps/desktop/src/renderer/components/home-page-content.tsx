@@ -18,9 +18,9 @@ export default function HomePageContent() {
   return (
     <>
       <title>BrainStrike Desktop - Home</title>
-      <meta name="description" content="BrainStrike Desktop Home Dashboard" />
+      <meta content="BrainStrike Desktop Home Dashboard" name="description" />
       <Suspense
-        fallback={<div className="flex items-center justify-center h-full">Loading...</div>}
+        fallback={<div className="flex h-full items-center justify-center">Loading...</div>}
       >
         <DesktopFileExplorer />
       </Suspense>

@@ -119,7 +119,9 @@ describe('file-explorer-persistence', () => {
 
     beforeEach(async () => {
       const persistOptions = await getFreshPersistOptions();
-      if (!persistOptions.partialize) throw new Error('Partialize function not found');
+      if (!persistOptions.partialize) {
+        throw new Error('Partialize function not found');
+      }
       partializeFn = persistOptions.partialize;
     });
 
@@ -132,7 +134,7 @@ describe('file-explorer-persistence', () => {
             ...testDefaultFolderState, // Use defined default folder state
             selectedFilePaths: new Set(['file1', 'file2']),
             expandedDirectoryPaths: new Set(['dir1', 'dir2']),
-            lastAccessed: 1234567890, // Override specific test values
+            lastAccessed: 1_234_567_890, // Override specific test values
             lastActiveTab: 'files',
           },
         },
@@ -176,7 +178,9 @@ describe('file-explorer-persistence', () => {
 
     beforeEach(async () => {
       const persistOptions = await getFreshPersistOptions();
-      if (!persistOptions.migrate) throw new Error('Migrate function not found');
+      if (!persistOptions.migrate) {
+        throw new Error('Migrate function not found');
+      }
       migrateFn = persistOptions.migrate;
     });
 
@@ -259,8 +263,9 @@ describe('file-explorer-persistence', () => {
 
     beforeEach(async () => {
       const persistOptions = await getFreshPersistOptions();
-      if (!persistOptions.merge || !persistOptions.partialize)
+      if (!(persistOptions.merge && persistOptions.partialize)) {
         throw new Error('Merge or partialize function not found');
+      }
       mergeFn = persistOptions.merge;
       partializeFn = persistOptions.partialize;
     });
@@ -498,8 +503,9 @@ describe('file-explorer-persistence', () => {
     beforeEach(async () => {
       vi.resetModules();
       const persistOptions = await getFreshPersistOptions();
-      if (!persistOptions.onRehydrateStorage)
+      if (!persistOptions.onRehydrateStorage) {
         throw new Error('onRehydrateStorage function not found');
+      }
       onRehydrateStorageFn = persistOptions.onRehydrateStorage;
     });
 
@@ -514,7 +520,9 @@ describe('file-explorer-persistence', () => {
       vi.resetModules(); // Re-import to get new isDev value
       const prodPersistOptions = await getFreshPersistOptions();
       const prodOnRehydrate = prodPersistOptions.onRehydrateStorage;
-      if (!prodOnRehydrate) throw new Error('Prod onRehydrateStorage not found');
+      if (!prodOnRehydrate) {
+        throw new Error('Prod onRehydrateStorage not found');
+      }
 
       const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
       prodOnRehydrate(mockHydratedState);

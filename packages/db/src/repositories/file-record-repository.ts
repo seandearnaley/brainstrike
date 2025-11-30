@@ -6,7 +6,7 @@ import type { IDatabase } from './interfaces.js';
  * Adapter to make PGlite compatible with IDatabase interface
  */
 class PGliteAdapter implements IDatabase {
-  constructor(private pgLite: PGlite) {}
+  constructor(private readonly pgLite: PGlite) {}
 
   async query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> {
     const result = await this.pgLite.query<T>(sql, params || []);

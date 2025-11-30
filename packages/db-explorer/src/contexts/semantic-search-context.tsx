@@ -16,7 +16,7 @@ const logger = createLogger('SemanticSearchContext');
 /**
  * Context value shape for semantic search functionality
  */
-export interface SemanticSearchContextValue {
+export type SemanticSearchContextValue = {
   // Transient state (not persisted)
   /** Current search results */
   searchResults: SemanticSearchResult[];
@@ -40,7 +40,7 @@ export interface SemanticSearchContextValue {
   setSearchResults: (results: SemanticSearchResult[]) => void;
   /** Set error state */
   setError: (error: string | null) => void;
-}
+};
 
 /**
  * Props for the search executor function that performs the actual search
@@ -54,11 +54,11 @@ export type SearchExecutor = (
 /**
  * Props for the SemanticSearchProvider component
  */
-export interface SemanticSearchProviderProps {
+export type SemanticSearchProviderProps = {
   children: ReactNode;
   /** Function that executes the actual semantic search */
   searchExecutor?: SearchExecutor;
-}
+};
 
 // Default context value (used when provider is not present)
 const defaultContextValue: SemanticSearchContextValue = {

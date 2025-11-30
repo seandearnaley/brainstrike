@@ -19,7 +19,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel" />,
   TabbedFileEditorPanel: ({ className }: { className?: string }) => (
-    <div data-testid="tabbed-file-editor-panel" className={className} />
+    <div className={className} data-testid="tabbed-file-editor-panel" />
   ),
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="file-explorer-provider">{children}</div>
@@ -90,8 +90,8 @@ describe('RootLayoutContent', () => {
   const renderComponent = () =>
     render(
       <RootLayoutContent
-        navigationItems={mockNavigationItems}
         homePageContent={<MockHomePage />}
+        navigationItems={mockNavigationItems}
         settingsPageContent={<MockSettingsPage />}
       />
     );

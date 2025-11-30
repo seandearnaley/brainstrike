@@ -15,7 +15,7 @@ import type { BrowserNodeData, CollectionNodeType } from './types';
 /**
  * Bulk action definition
  */
-export interface BulkAction {
+export type BulkAction = {
   /** Unique identifier for this action */
   id: string;
   /** Label to display on the button */
@@ -32,12 +32,12 @@ export interface BulkAction {
   disabledReason?: string;
   /** Node types this action applies to (if not specified, applies to all) */
   applicableTypes?: CollectionNodeType[];
-}
+};
 
 /**
  * Props for the BulkActionBar component
  */
-export interface BulkActionBarProps {
+export type BulkActionBarProps = {
   /** Set of selected node IDs */
   selectedIds: Set<string>;
   /** Map of node ID to node type */
@@ -50,7 +50,7 @@ export interface BulkActionBarProps {
   onClearSelection: () => void;
   /** Custom class name */
   className?: string;
-}
+};
 
 /**
  * Get counts of selected items by type
@@ -75,7 +75,9 @@ function getSelectionCounts(
  * Format a count with proper pluralization
  */
 function formatTypeCount(count: number, singular: string): string | null {
-  if (count === 0) return null;
+  if (count === 0) {
+    return null;
+  }
   return `${count} ${singular}${count !== 1 ? 's' : ''}`;
 }
 
@@ -83,7 +85,7 @@ function formatTypeCount(count: number, singular: string): string | null {
  * Format selection summary text
  */
 function formatSelectionSummary(counts: Map<CollectionNodeType, number>): string {
-  const typeLabels: Array<[CollectionNodeType, string]> = [
+  const typeLabels: [CollectionNodeType, string][] = [
     ['collection', 'collection'],
     ['file', 'file'],
     ['chunk', 'chunk'],
@@ -140,7 +142,7 @@ export function BulkActionBar({
   return (
     <div
       className={cn(
-        'flex items-center gap-3 px-4 py-2 bg-accent/90 backdrop-blur-sm border rounded-lg shadow-lg',
+        'flex items-center gap-3 rounded-lg border bg-accent/90 px-4 py-2 shadow-lg backdrop-blur-sm',
         className
       )}
     >
@@ -159,13 +161,13 @@ export function BulkActionBar({
           .filter((action) => isActionApplicable(action, nodeTypes, selectedIds))
           .map((action) => (
             <Button
-              key={action.id}
-              variant={action.destructive ? 'destructive' : 'secondary'}
-              size="sm"
-              disabled={action.disabled}
-              onClick={() => action.onAction(selectedIds, nodeTypes)}
               className="gap-1.5"
+              disabled={action.disabled}
+              key={action.id}
+              onClick={() => action.onAction(selectedIds, nodeTypes)}
+              size="sm"
               title={action.disabled ? action.disabledReason : undefined}
+              variant={action.destructive ? 'destructive' : 'secondary'}
             >
               {action.icon}
               {action.label}
@@ -175,11 +177,11 @@ export function BulkActionBar({
 
       {/* Clear selection button */}
       <Button
-        variant="ghost"
-        size="sm"
-        onClick={onClearSelection}
-        className="ml-auto gap-1"
         aria-label="Clear selection"
+        className="ml-auto gap-1"
+        onClick={onClearSelection}
+        size="sm"
+        variant="ghost"
       >
         <X className="h-4 w-4" />
         Clear

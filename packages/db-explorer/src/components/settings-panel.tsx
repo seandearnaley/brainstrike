@@ -35,25 +35,25 @@ export function SettingsPanel({ importSettings, clearDatabaseProps }: ExtendedSe
     : 'custom';
   const accurateCounting = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   return (
-    <div className="mt-2 p-3 bg-muted/50 rounded space-y-3">
+    <div className="mt-2 space-y-3 rounded bg-muted/50 p-3">
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label className="text-xs" htmlFor={chunkingId}>
             Chunking
           </Label>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="mt-1 flex items-center gap-2">
             <input
-              type="checkbox"
-              id={chunkingId}
               checked={importSettings.enableChunking}
-              onChange={(e) => importSettings.setEnableChunking(e.target.checked)}
               className="h-3 w-3"
+              id={chunkingId}
+              onChange={(e) => importSettings.setEnableChunking(e.target.checked)}
+              type="checkbox"
             />
             <Select
-              value={importSettings.chunkingStrategy}
               onValueChange={(value) =>
                 importSettings.setChunkingStrategy(value as ChunkingStrategy)
               }
+              value={importSettings.chunkingStrategy}
             >
               <SelectTrigger className="h-6 text-xs">
                 <SelectValue />
@@ -72,23 +72,23 @@ export function SettingsPanel({ importSettings, clearDatabaseProps }: ExtendedSe
         <div>
           <Label className="text-xs">Chunk Size</Label>
           <Input
+            className="h-6 text-xs"
+            max="2048"
+            min="128"
+            onChange={(e) => importSettings.setChunkSize(Number(e.target.value))}
             type="number"
             value={importSettings.chunkSize}
-            onChange={(e) => importSettings.setChunkSize(Number(e.target.value))}
-            className="h-6 text-xs"
-            min="128"
-            max="2048"
           />
         </div>
         <div>
           <Label className="text-xs">Overlap</Label>
           <Input
+            className="h-6 text-xs"
+            max="256"
+            min="0"
+            onChange={(e) => importSettings.setChunkOverlap(Number(e.target.value))}
             type="number"
             value={importSettings.chunkOverlap}
-            onChange={(e) => importSettings.setChunkOverlap(Number(e.target.value))}
-            className="h-6 text-xs"
-            min="0"
-            max="256"
           />
         </div>
       </div>
@@ -101,8 +101,8 @@ export function SettingsPanel({ importSettings, clearDatabaseProps }: ExtendedSe
           </p>
         </div>
         <Badge
-          variant={accurateCounting ? 'secondary' : 'outline'}
           className="text-[10px] uppercase"
+          variant={accurateCounting ? 'secondary' : 'outline'}
         >
           {accurateCounting ? 'WASM tokenizer' : 'Heuristic mode'}
         </Badge>
@@ -110,63 +110,65 @@ export function SettingsPanel({ importSettings, clearDatabaseProps }: ExtendedSe
 
       <div>
         <Label className="text-xs">Token cap</Label>
-        <div className="grid grid-cols-2 gap-2 mt-1">
+        <div className="mt-1 grid grid-cols-2 gap-2">
           <Input
+            className="h-6 text-xs"
+            max="16384"
+            min="512"
+            onChange={(e) => importSettings.setChunkTokenLimit(Number(e.target.value) || 0)}
+            step="128"
             type="number"
             value={importSettings.chunkTokenLimit}
-            onChange={(e) => importSettings.setChunkTokenLimit(Number(e.target.value) || 0)}
-            className="h-6 text-xs"
-            min="512"
-            max="16384"
-            step="128"
           />
           <Select
-            value={selectedPreset}
             onValueChange={(value) => {
-              if (value === 'custom') return;
+              if (value === 'custom') {
+                return;
+              }
               importSettings.setChunkTokenLimit(Number(value));
             }}
+            value={selectedPreset}
           >
             <SelectTrigger className="h-6 text-xs">
               <SelectValue placeholder="Presets" />
             </SelectTrigger>
             <SelectContent>
               {presetCaps.map((cap) => (
-                <SelectItem key={cap} value={cap} className="text-xs">
+                <SelectItem className="text-xs" key={cap} value={cap}>
                   {cap} tokens
                 </SelectItem>
               ))}
-              <SelectItem value="custom" className="text-xs">
+              <SelectItem className="text-xs" value="custom">
                 Custom
               </SelectItem>
             </SelectContent>
           </Select>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-1">
+        <p className="mt-1 text-[10px] text-muted-foreground">
           Higher caps reduce chunk count at the cost of larger embedding payloads.
         </p>
       </div>
 
       {/* Clear Database - Dangerous operation, placed at bottom of settings */}
       {clearDatabaseProps && (
-        <div className="pt-3 mt-3 border-t border-border/50">
+        <div className="mt-3 border-border/50 border-t pt-3">
           <div className="flex items-center justify-between">
             <div>
-              <Label className="text-xs text-muted-foreground">Danger Zone</Label>
+              <Label className="text-muted-foreground text-xs">Danger Zone</Label>
               <p className="text-[10px] text-muted-foreground">
                 Clear all imported files and chunks from database.
               </p>
             </div>
             <Button
-              size="sm"
-              variant="destructive"
+              className="flex h-7 items-center gap-1"
               disabled={
                 clearDatabaseProps.clearing ||
                 !clearDatabaseProps.clearAllData ||
                 (clearDatabaseProps.records.length === 0 && clearDatabaseProps.chunks.length === 0)
               }
               onClick={() => clearDatabaseProps.setShowClearDialog(true)}
-              className="flex items-center gap-1 h-7"
+              size="sm"
+              variant="destructive"
             >
               <Trash2 className="h-3 w-3" />
               Clear Database

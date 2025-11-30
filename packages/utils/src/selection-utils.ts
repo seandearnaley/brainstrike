@@ -9,7 +9,7 @@ const SEPARATOR = '|@|';
  * Creates a composite key from a folder ID and file path
  */
 export function encodeFileSelection(folderId: string, filePath: string): string {
-  if (!folderId || !filePath) {
+  if (!(folderId && filePath)) {
     throw new Error('Both folderId and filePath are required for encoding');
   }
   return `${folderId}${SEPARATOR}${filePath}`;
@@ -22,7 +22,7 @@ export function decodeFileSelection(compositeKey: string): {
   folderId: string;
   path: string;
 } {
-  if (!compositeKey || !compositeKey.includes(SEPARATOR)) {
+  if (!compositeKey?.includes(SEPARATOR)) {
     throw new Error('Invalid composite key format');
   }
   const [folderId, ...pathParts] = compositeKey.split(SEPARATOR);

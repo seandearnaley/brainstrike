@@ -14,14 +14,14 @@ vi.mock('@brainstrike/ui', () => ({
     <div data-testid="import-progress">
       <div>{progress.phase}</div>
       {onClose && (
-        <button type="button" onClick={onClose}>
+        <button onClick={onClose} type="button">
           Close
         </button>
       )}
     </div>
   ),
   Progress: ({ value, className }: { value: number; className?: string }) => (
-    <div data-testid="progress-bar" className={className}>
+    <div className={className} data-testid="progress-bar">
       {value}%
     </div>
   ),
@@ -36,7 +36,7 @@ describe('ImportProgressDisplay', () => {
       errors: [],
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
 
     expect(screen.getByTestId('import-progress')).toBeInTheDocument();
     expect(screen.getByText('importing')).toBeInTheDocument();
@@ -56,7 +56,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
 
     expect(screen.getByText('chunking')).toBeInTheDocument();
     expect(screen.getByText('Chunking: test-file.txt')).toBeInTheDocument();
@@ -81,7 +81,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
 
     expect(screen.getByText('embedding')).toBeInTheDocument();
     expect(screen.getByText('Embedding: chunk-123')).toBeInTheDocument();
@@ -100,7 +100,7 @@ describe('ImportProgressDisplay', () => {
       errors: [],
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
 
     expect(screen.queryByText(/chunking:/i)).not.toBeInTheDocument();
   });
@@ -119,7 +119,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
 
     expect(screen.queryByText(/embedding:/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/using/i)).not.toBeInTheDocument();
@@ -134,7 +134,7 @@ describe('ImportProgressDisplay', () => {
       errors: [],
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} onClose={mockOnClose} />);
+    render(<ImportProgressDisplay onClose={mockOnClose} progress={mockProgress} />);
 
     const closeButton = screen.getByText('Close');
     closeButton.click();
@@ -156,7 +156,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
 
     // Check progress bar shows 100%
     expect(screen.getByText('100%')).toBeInTheDocument();
@@ -178,7 +178,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
 
     expect(screen.getByText('Strategy: recursive')).toBeInTheDocument();
   });
@@ -204,7 +204,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
+    render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
 
     expect(screen.getByText('Embedding Queue')).toBeInTheDocument();
     expect(screen.getByText('6/8')).toBeInTheDocument();
