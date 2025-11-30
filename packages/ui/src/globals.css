@@ -1,55 +1,86 @@
-/* 
+/*
  * UI Components CSS Variables and Global Styles
  * This file defines the theme variables used by the UI components.
  * It should be imported by the consuming application after Tailwind's base imports.
+ *
+ * 2025 Visual Identity Refresh:
+ * - Warm neutral palette replacing clinical cool grays
+ * - Indigo-shifted primary for brand distinction
+ * - Enhanced semantic colors with proper contrast
  */
 
 /* @import "tailwindcss"; - Removed to prevent conflict with main app's Tailwind import */
 
 :root {
-  --bs-background: 0 0% 100%;
-  --bs-foreground: 222.2 84% 4.9%;
+  /* ============================================================================
+   * LIGHT MODE - Warm Neutral Palette
+   * ============================================================================
+   * Moving from cool grays (210 hue) to warm neutrals (30 hue) creates
+   * a more approachable, premium feel while reducing eye strain.
+   */
 
-  --bs-card: 0 0% 100%;
-  --bs-card-foreground: 222.2 84% 4.9%;
+  /* Backgrounds - Warm whites with subtle warmth */
+  --bs-background: 30 25% 99%; /* #FDFCFB - Warm white */
+  --bs-foreground: 25 20% 14%; /* #2D2520 - Warm near-black */
 
-  --bs-popover: 0 0% 100%;
-  --bs-popover-foreground: 222.2 84% 4.9%;
+  /* Cards & Surfaces - Pure white for contrast, warm tint for elevation */
+  --bs-card: 0 0% 100%; /* #FFFFFF - Pure white cards */
+  --bs-card-foreground: 25 20% 14%; /* #2D2520 - Warm text */
 
-  --bs-primary: 222.2 47.4% 11.2%;
-  --bs-primary-foreground: 210 40% 98%;
+  --bs-popover: 0 0% 100%; /* #FFFFFF - Pure white popovers */
+  --bs-popover-foreground: 25 20% 14%; /* #2D2520 - Warm text */
 
-  --bs-secondary: 210 40% 96.1%;
-  --bs-secondary-foreground: 222.2 47.4% 11.2%;
+  /* Primary - Warm slate blue, desaturated to harmonize with warm neutrals */
+  --bs-primary: 215 55% 45%; /* #3D6A9E - Muted slate blue */
+  --bs-primary-foreground: 0 0% 100%; /* #FFFFFF - White on primary */
 
-  --bs-muted: 210 40% 96.1%;
-  --bs-muted-foreground: 215.4 16.3% 46.9%;
+  /* Secondary - Warm light gray for subtle backgrounds */
+  --bs-secondary: 30 20% 97%; /* #F9F7F5 - Warm gray */
+  --bs-secondary-foreground: 25 20% 14%; /* #2D2520 - Warm text */
 
-  --bs-accent: 210 40% 96.1%;
-  --bs-accent-foreground: 222.2 47.4% 11.2%;
+  /* Muted - Slightly darker warm gray for disabled/secondary content */
+  --bs-muted: 30 15% 94%; /* #F2EFEC - Muted warm */
+  --bs-muted-foreground: 25 8% 45%; /* #6B5F55 - Muted text */
 
-  --bs-destructive: 0 84.2% 60.2%;
-  --bs-destructive-foreground: 210 40% 98%;
+  /* Accent - Hover states and interactive elements */
+  --bs-accent: 30 12% 90%; /* #E8E4E0 - Accent warm */
+  --bs-accent-foreground: 25 20% 14%; /* #2D2520 - Warm text */
 
-  --bs-border: 214.3 31.8% 91.4%;
-  --bs-input: 214.3 31.8% 91.4%;
-  --bs-ring: 222.2 84% 4.9%;
+  /* Destructive - Warm terracotta red, desaturated to match palette */
+  --bs-destructive: 8 55% 50%; /* #C25A4A - Muted terracotta */
+  --bs-destructive-foreground: 0 0% 100%; /* #FFFFFF - White on red */
 
-  --bs-chart-1: 199 89% 48%;
-  --bs-chart-2: 222 63% 52%;
-  --bs-chart-3: 162 73% 46%;
-  --bs-chart-4: 46 98% 64%;
-  --bs-chart-5: 12 91% 62%;
+  /* Borders & Inputs - Subtle warm borders */
+  --bs-border: 30 10% 90%; /* #E8E5E2 - Warm border */
+  --bs-input: 30 10% 90%; /* #E8E5E2 - Input border */
+  --bs-ring: 215 55% 45%; /* #3D6A9E - Focus ring matches primary */
 
-  --bs-sidebar: 210 40% 96.1%;
-  --bs-sidebar-foreground: 222.2 47.4% 11.2%;
-  --bs-sidebar-primary: 222.2 84% 4.9%;
-  --bs-sidebar-primary-foreground: 210 40% 98%;
-  --bs-sidebar-accent: 210 40% 96.1%;
-  --bs-sidebar-accent-foreground: 222.2 47.4% 11.2%;
-  --bs-sidebar-border: 214.3 31.8% 91.4%;
-  --bs-sidebar-ring: 222.2 84% 4.9%;
+  /* Chart Colors - Harmonized with warm palette */
+  --bs-chart-1: 215 55% 45%; /* Slate blue (matches primary) */
+  --bs-chart-2: 160 40% 42%; /* Muted teal */
+  --bs-chart-3: 35 55% 50%; /* Warm amber */
+  --bs-chart-4: 8 55% 50%; /* Terracotta (matches destructive) */
+  --bs-chart-5: 270 35% 50%; /* Muted purple */
 
+  /* Sidebar - Slightly warmer for visual hierarchy */
+  --bs-sidebar: 30 15% 96%; /* #F7F5F3 - Warm sidebar */
+  --bs-sidebar-foreground: 25 20% 14%; /* #2D2520 - Warm text */
+  --bs-sidebar-primary: 215 55% 45%; /* #3D6A9E - Slate blue */
+  --bs-sidebar-primary-foreground: 0 0% 100%; /* #FFFFFF */
+  --bs-sidebar-accent: 30 12% 92%; /* #EDEBE8 - Hover state */
+  --bs-sidebar-accent-foreground: 25 20% 14%; /* #2D2520 */
+  --bs-sidebar-border: 30 10% 90%; /* #E8E5E2 - Warm border */
+  --bs-sidebar-ring: 215 55% 45%; /* #3D6A9E - Focus ring */
+
+  /* Semantic Status Colors */
+  --bs-success: 152 55% 41%; /* #2F9E6E - Green */
+  --bs-success-foreground: 0 0% 100%; /* White */
+  --bs-warning: 38 92% 50%; /* #F59E0B - Amber */
+  --bs-warning-foreground: 25 20% 14%; /* Dark text for contrast */
+  --bs-info: 215 50% 50%; /* #4080B3 - Muted blue */
+  --bs-info-foreground: 0 0% 100%; /* White */
+
+  /* Radius - Slightly larger for modern feel */
   --bs-radius: 0.5rem;
 
   --background: var(--bs-background);
@@ -88,48 +119,73 @@
 }
 
 .dark {
-  --bs-background: 222.2 84% 4.9%;
-  --bs-foreground: 210 40% 98%;
+  /* ============================================================================
+   * DARK MODE - Warm Dark Palette
+   * ============================================================================
+   * Using warm brown-gray (hue 30) to match light mode's warmth.
+   * Creates cohesive warm feel across both themes.
+   */
 
-  --bs-card: 222.2 84% 4.9%;
-  --bs-card-foreground: 210 40% 98%;
+  /* Backgrounds - Warm dark brown-gray (matches light mode warmth) */
+  --bs-background: 30 8% 9%; /* #181614 - Warm dark brown */
+  --bs-foreground: 30 10% 93%; /* #F0EEEB - Warm near-white */
 
-  --bs-popover: 222.2 84% 4.9%;
-  --bs-popover-foreground: 210 40% 98%;
+  /* Cards & Surfaces - Slightly elevated from background */
+  --bs-card: 30 6% 12%; /* #201E1B - Warm card surface */
+  --bs-card-foreground: 30 10% 93%; /* #F0EEEB - Warm near-white */
 
-  --bs-primary: 210 40% 98%;
-  --bs-primary-foreground: 222.2 47.4% 11.2%;
+  --bs-popover: 30 6% 14%; /* #262320 - Elevated popover */
+  --bs-popover-foreground: 30 10% 93%; /* #F0EEEB - Warm near-white */
 
-  --bs-secondary: 217.2 32.6% 17.5%;
-  --bs-secondary-foreground: 210 40% 98%;
+  /* Primary - Lighter slate blue for dark mode visibility */
+  --bs-primary: 215 50% 58%; /* #6A94BE - Light slate blue */
+  --bs-primary-foreground: 0 0% 100%; /* #FFFFFF - White text */
 
-  --bs-muted: 217.2 32.6% 17.5%;
-  --bs-muted-foreground: 215 20.2% 65.1%;
+  /* Secondary - Warm dark gray */
+  --bs-secondary: 30 5% 15%; /* #272422 - Warm dark secondary */
+  --bs-secondary-foreground: 30 10% 93%; /* #F0EEEB - Light text */
 
-  --bs-accent: 217.2 32.6% 17.5%;
-  --bs-accent-foreground: 210 40% 98%;
+  /* Muted - For disabled and secondary content */
+  --bs-muted: 30 5% 18%; /* #302C29 - Muted warm dark */
+  --bs-muted-foreground: 30 6% 55%; /* #918A83 - Warm muted text */
 
-  --bs-destructive: 0 62.8% 30.6%;
-  --bs-destructive-foreground: 210 40% 98%;
+  /* Accent - Hover states */
+  --bs-accent: 30 5% 22%; /* #3A3633 - Warm hover dark */
+  --bs-accent-foreground: 30 10% 93%; /* #F0EEEB - Light text */
 
-  --bs-border: 217.2 32.6% 17.5%;
-  --bs-input: 217.2 32.6% 17.5%;
-  --bs-ring: 212.7 26.8% 83.9%;
+  /* Destructive - Lighter terracotta for dark mode */
+  --bs-destructive: 8 50% 60%; /* #CC7A6B - Light terracotta */
+  --bs-destructive-foreground: 0 0% 100%; /* #FFFFFF - White text */
 
-  --bs-chart-1: 199 89% 48%;
-  --bs-chart-2: 222 63% 52%;
-  --bs-chart-3: 162 73% 46%;
-  --bs-chart-4: 46 98% 64%;
-  --bs-chart-5: 12 91% 62%;
+  /* Borders & Inputs - Warm subtle borders */
+  --bs-border: 30 5% 20%; /* #353230 - Warm dark border */
+  --bs-input: 30 5% 20%; /* #353230 - Input border */
+  --bs-ring: 215 50% 58%; /* #6A94BE - Focus ring */
 
-  --bs-sidebar: 222.2 47.4% 11.2%;
-  --bs-sidebar-foreground: 210 40% 98%;
-  --bs-sidebar-primary: 217.2 32.6% 45%;
-  --bs-sidebar-primary-foreground: 210 40% 98%;
-  --bs-sidebar-accent: 217.2 32.6% 17.5%;
-  --bs-sidebar-accent-foreground: 210 40% 98%;
-  --bs-sidebar-border: 217.2 32.6% 17.5%;
-  --bs-sidebar-ring: 212.7 26.8% 83.9%;
+  /* Chart Colors - Harmonized for dark mode */
+  --bs-chart-1: 215 50% 58%; /* Light slate blue */
+  --bs-chart-2: 160 40% 52%; /* Muted teal */
+  --bs-chart-3: 35 55% 58%; /* Warm amber */
+  --bs-chart-4: 8 50% 60%; /* Light terracotta */
+  --bs-chart-5: 270 35% 60%; /* Muted purple */
+
+  /* Sidebar - Slightly different from main background */
+  --bs-sidebar: 30 7% 10%; /* #1A1816 - Warm sidebar dark */
+  --bs-sidebar-foreground: 30 10% 93%; /* #F0EEEB - Light text */
+  --bs-sidebar-primary: 215 50% 58%; /* #6A94BE - Light slate blue */
+  --bs-sidebar-primary-foreground: 0 0% 100%; /* #FFFFFF */
+  --bs-sidebar-accent: 30 5% 18%; /* #302C29 - Hover */
+  --bs-sidebar-accent-foreground: 30 10% 93%; /* #F0EEEB */
+  --bs-sidebar-border: 30 5% 18%; /* #302C29 - Border */
+  --bs-sidebar-ring: 215 50% 58%; /* #6A94BE - Focus */
+
+  /* Semantic Status Colors - Adjusted for dark mode */
+  --bs-success: 152 50% 50%; /* Brighter green */
+  --bs-success-foreground: 30 8% 9%; /* Dark text */
+  --bs-warning: 38 88% 55%; /* Brighter amber */
+  --bs-warning-foreground: 30 8% 9%; /* Dark text */
+  --bs-info: 215 45% 60%; /* Muted blue for dark mode */
+  --bs-info-foreground: 0 0% 100%; /* White text */
 
   --bs-radius: 0.5rem;
 
@@ -166,6 +222,80 @@
   --sidebar-border: var(--bs-sidebar-border);
   --sidebar-ring: var(--bs-sidebar-ring);
   --radius: var(--bs-radius);
+}
+
+/* ============================================================================
+ * HIGH CONTRAST MODE
+ * ============================================================================
+ * WCAG AAA compliant (7:1 contrast ratio) for users who need maximum clarity.
+ * Activated when user has prefers-contrast: more set in their OS.
+ */
+@media (prefers-contrast: more) {
+  :root {
+    --bs-background: 0 0% 100%; /* Pure white */
+    --bs-foreground: 0 0% 0%; /* Pure black */
+    --bs-card: 0 0% 100%;
+    --bs-card-foreground: 0 0% 0%;
+    --bs-popover: 0 0% 100%;
+    --bs-popover-foreground: 0 0% 0%;
+    --bs-primary: 212 100% 35%; /* Deep GitHub blue, high contrast */
+    --bs-primary-foreground: 0 0% 100%;
+    --bs-secondary: 0 0% 95%;
+    --bs-secondary-foreground: 0 0% 0%;
+    --bs-muted: 0 0% 90%;
+    --bs-muted-foreground: 0 0% 20%;
+    --bs-accent: 0 0% 85%;
+    --bs-accent-foreground: 0 0% 0%;
+    --bs-destructive: 354 100% 40%; /* High contrast red */
+    --bs-destructive-foreground: 0 0% 100%;
+    --bs-border: 0 0% 0%; /* Black borders */
+    --bs-input: 0 0% 0%;
+    --bs-ring: 212 100% 35%;
+    --bs-sidebar: 0 0% 95%;
+    --bs-sidebar-foreground: 0 0% 0%;
+    --bs-sidebar-border: 0 0% 0%;
+  }
+
+  .dark {
+    --bs-background: 0 0% 0%; /* Pure black */
+    --bs-foreground: 0 0% 100%; /* Pure white */
+    --bs-card: 0 0% 5%;
+    --bs-card-foreground: 0 0% 100%;
+    --bs-popover: 0 0% 5%;
+    --bs-popover-foreground: 0 0% 100%;
+    --bs-primary: 212 100% 70%; /* Bright GitHub blue */
+    --bs-primary-foreground: 0 0% 0%;
+    --bs-secondary: 0 0% 15%;
+    --bs-secondary-foreground: 0 0% 100%;
+    --bs-muted: 0 0% 20%;
+    --bs-muted-foreground: 0 0% 80%;
+    --bs-accent: 0 0% 25%;
+    --bs-accent-foreground: 0 0% 100%;
+    --bs-destructive: 354 100% 65%; /* Bright red */
+    --bs-destructive-foreground: 0 0% 0%;
+    --bs-border: 0 0% 100%; /* White borders */
+    --bs-input: 0 0% 100%;
+    --bs-ring: 212 100% 70%;
+    --bs-sidebar: 0 0% 5%;
+    --bs-sidebar-foreground: 0 0% 100%;
+    --bs-sidebar-border: 0 0% 100%;
+  }
+}
+
+/* ============================================================================
+ * REDUCED MOTION PREFERENCE
+ * ============================================================================
+ * Respects users who have requested reduced motion for accessibility.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* Define animations for components like accordion */
@@ -211,6 +341,88 @@
   ::backdrop,
   ::file-selector-button {
     border-color: hsl(var(--border));
+  }
+
+  /* ============================================================================
+   * GLOBAL INTERACTION STYLES
+   * ============================================================================
+   * World-class 2025 app feel: consistent cursors, tactile feedback,
+   * and smooth transitions on all interactive elements.
+   */
+
+  /* Ensure all clickable elements have pointer cursor */
+  button,
+  [role="button"],
+  [role="menuitem"],
+  [role="option"],
+  [role="tab"],
+  [role="switch"],
+  [role="checkbox"],
+  [role="radio"],
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="submit"],
+  input[type="button"],
+  input[type="reset"],
+  select,
+  summary,
+  a[href],
+  label[for],
+  .cursor-pointer {
+    cursor: pointer;
+  }
+
+  /* Subtle press effect for all clickable elements */
+  button:not(:disabled):active,
+  [role="button"]:not([aria-disabled="true"]):active,
+  [role="menuitem"]:not([aria-disabled="true"]):active,
+  [role="option"]:not([aria-disabled="true"]):active,
+  [role="tab"]:not([aria-disabled="true"]):active,
+  input[type="checkbox"]:not(:disabled):active,
+  input[type="radio"]:not(:disabled):active,
+  input[type="submit"]:not(:disabled):active,
+  input[type="button"]:not(:disabled):active {
+    transform: scale(0.97);
+  }
+
+  /* Smooth transition for interactive elements */
+  button,
+  [role="button"],
+  [role="menuitem"],
+  [role="option"],
+  [role="tab"],
+  [role="switch"],
+  input[type="checkbox"],
+  input[type="radio"],
+  a,
+  select {
+    transition:
+      transform 0.1s ease-out,
+      background-color 0.15s ease-out,
+      border-color 0.15s ease-out,
+      box-shadow 0.15s ease-out,
+      opacity 0.15s ease-out;
+  }
+
+  /* Disabled state styling */
+  button:disabled,
+  [role="button"][aria-disabled="true"],
+  input:disabled,
+  select:disabled,
+  textarea:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  /* Focus-visible ring for keyboard navigation */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  /* Remove default focus outline (we use focus-visible) */
+  :focus:not(:focus-visible) {
+    outline: none;
   }
 
   /* Global scrollbar styling */

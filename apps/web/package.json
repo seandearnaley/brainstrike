@@ -25,6 +25,8 @@
     "serve-static": "serve dist -p 8080"
   },
   "dependencies": {
+    "@fontsource-variable/geist": "^5.2.8",
+    "@fontsource-variable/geist-mono": "^5.2.7",
     "@brainstrike/agent": "workspace:*",
     "@brainstrike/app-shell": "workspace:*",
     "@brainstrike/db": "workspace:*",

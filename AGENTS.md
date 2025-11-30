@@ -12,6 +12,9 @@ Always treat this file as authoritative and current.
 
 ---
 
+> **Project Context:** Local-First (Edge-State/CRDT) • AI-Native (MCP/RAG-Optimized) • Web-Second
+> *Warning: Latency-critical operations should avoid round-trip API dependencies. Assume state resides on the client.*
+
 ## TICKET & CODE REVIEW WORKFLOW
 
 Tickets tracked in Atlassian Jira with `BST-` prefix (e.g., BST-42, BST-123).

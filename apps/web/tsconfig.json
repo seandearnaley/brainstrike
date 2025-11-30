@@ -39,7 +39,6 @@
     { "path": "../../packages/file-explorer" },
     { "path": "../../packages/file-explorer-hooks" },
     { "path": "../../packages/file-explorer-ui" },
-    { "path": "../../packages/fonts" },
     { "path": "../../packages/hooks" },
     { "path": "../../packages/queue" },
     { "path": "../../packages/server-config" },

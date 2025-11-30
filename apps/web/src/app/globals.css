@@ -1,6 +1,10 @@
 /* stylelint-disable */
 /* CSS with PostCSS syntax */
 
+/* Geist fonts via @fontsource-variable */
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
 @import "tailwindcss";
 @import "@brainstrike/ui/styles.css";
 @import "@brainstrike/file-explorer-ui/styles.css";
@@ -16,9 +20,13 @@
 
   body {
     @apply bg-background text-foreground;
+    /* Enhanced OpenType features for premium typography */
     font-feature-settings:
-      "rlig" 1,
-      "calt" 1;
+      "kern" 1, /* Kerning - proper letter spacing */
+      "liga" 1, /* Standard ligatures (fi, fl, etc.) */
+      "calt" 1, /* Contextual alternates */
+      "rlig" 1; /* Required ligatures */
+    font-kerning: auto;
   }
 
   html,
@@ -32,26 +40,67 @@
   }
 }
 
-/* Inter font configuration */
-@font-face {
-  font-family: "Inter";
-  src: url("/fonts/inter/InterVariable.ttf") format("truetype");
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Inter";
-  src: url("/fonts/inter/InterVariable-Italic.ttf") format("truetype");
-  font-weight: 100 900;
-  font-style: italic;
-  font-display: swap;
-}
+/* ============================================================================
+ * GEIST FONTS - 2025 Visual Identity Refresh
+ * ============================================================================
+ * Fonts loaded via @fontsource-variable/geist and @fontsource-variable/geist-mono.
+ * Geist is designed by Vercel specifically for developer interfaces.
+ * Features excellent legibility at small sizes with variable font support.
+ * License: SIL Open Font License (OFL-1.1) - free for commercial use.
+ */
 
 @custom-variant dark (&:is(.dark *));
 
 @theme {
+  /* ========================================================================
+   * TYPOGRAPHY SCALE - 2025 Visual Identity
+   * ========================================================================
+   * Refined typography scale with proper tracking (letter-spacing) for
+   * improved readability and premium feel.
+   */
+
+  /* Font Families - using @fontsource-variable packages */
+  --font-sans:
+    "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Typography Scale - Sizes */
+  --text-display: clamp(2rem, 4vw, 3rem); /* 32-48px - Hero text */
+  --text-h1: clamp(1.5rem, 2.5vw, 2rem); /* 24-32px - Page titles */
+  --text-h2: 1.25rem; /* 20px - Section titles */
+  --text-h3: 1rem; /* 16px - Subsections */
+  --text-body: 0.9375rem; /* 15px - Primary content */
+  --text-ui: 0.8125rem; /* 13px - Interface elements */
+  --text-caption: 0.75rem; /* 12px - Secondary, labels */
+  --text-micro: 0.6875rem; /* 11px - Badges, timestamps */
+
+  /* Typography Scale - Weights */
+  --weight-light: 300;
+  --weight-normal: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* Typography Scale - Tracking (Letter Spacing) */
+  --tracking-tighter: -0.02em; /* Display text */
+  --tracking-tight: -0.015em; /* Headlines */
+  --tracking-normal: 0; /* Body text */
+  --tracking-wide: 0.01em; /* UI elements */
+  --tracking-wider: 0.02em; /* Captions, labels */
+  --tracking-widest: 0.03em; /* Micro text, badges */
+
+  /* Typography Scale - Line Heights */
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  --leading-loose: 2;
+
+  /* ========================================================================
+   * COLORS
+   * ======================================================================== */
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
@@ -79,6 +128,9 @@
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
 
+  /* ========================================================================
+   * SPACING & LAYOUT
+   * ======================================================================== */
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -127,9 +179,33 @@
   }
 }
 
+/* ============================================================================
+ * TYPOGRAPHY SYSTEM - 2025 Visual Identity
+ * ============================================================================
+ * Using Geist as primary font with enhanced OpenType features for
+ * superior kerning, ligatures, and overall typographic polish.
+ */
+
 /* App-specific body styles */
 body {
-  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  /* Primary: Geist Variable via @fontsource, then system fonts */
+  font-family:
+    "Geist Variable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* Text rendering optimization */
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Monospace elements use Geist Mono Variable */
+code,
+pre,
+kbd,
+samp,
+.font-mono {
+  font-family:
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 @layer components {

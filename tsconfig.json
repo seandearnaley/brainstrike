@@ -34,7 +34,6 @@
     { "path": "./packages/utils" },
     { "path": "./packages/hooks" },
     { "path": "./packages/ui" },
-    { "path": "./packages/fonts" },
     { "path": "./packages/app-shell" },
     { "path": "./packages/file-explorer" },
     { "path": "./packages/file-explorer-hooks" },

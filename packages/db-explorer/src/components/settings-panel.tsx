@@ -1,8 +1,8 @@
-import type { ChunkingStrategy } from '@brainstrike/db';
+import type { ChunkingStrategy, FileChunk, FileRecord } from '@brainstrike/db';
 import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
 import {
   Badge,
-  // Button removed; FactoryResetPanel provides the destructive action
+  Button,
   Input,
   Label,
   Select,
@@ -11,9 +11,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@brainstrike/ui';
+import { Trash2 } from 'lucide-react';
 import type { SettingsPanelProps } from '../types';
 
-export function SettingsPanel({ importSettings }: SettingsPanelProps) {
+interface ExtendedSettingsPanelProps extends SettingsPanelProps {
+  /** Clear database dialog controls - optional for backwards compatibility */
+  clearDatabaseProps?: {
+    clearAllData: (() => Promise<unknown>) | null;
+    records: FileRecord[];
+    chunks: FileChunk[];
+    clearing: boolean;
+    showClearDialog: boolean;
+    setShowClearDialog: (show: boolean) => void;
+    onClear: () => void;
+  };
+}
+
+export function SettingsPanel({ importSettings, clearDatabaseProps }: ExtendedSettingsPanelProps) {
   const chunkingId = 'enable-chunking';
   const presetCaps = ['2048', '4096', '6144', '8192'];
   const selectedPreset = presetCaps.includes(String(importSettings.chunkTokenLimit))
@@ -96,7 +110,7 @@ export function SettingsPanel({ importSettings }: SettingsPanelProps) {
 
       <div>
         <Label className="text-xs">Token cap</Label>
-        <div className="flex items-center gap-2 mt-1">
+        <div className="grid grid-cols-2 gap-2 mt-1">
           <Input
             type="number"
             value={importSettings.chunkTokenLimit}
@@ -113,7 +127,7 @@ export function SettingsPanel({ importSettings }: SettingsPanelProps) {
               importSettings.setChunkTokenLimit(Number(value));
             }}
           >
-            <SelectTrigger className="h-6 text-xs w-28">
+            <SelectTrigger className="h-6 text-xs">
               <SelectValue placeholder="Presets" />
             </SelectTrigger>
             <SelectContent>
@@ -133,7 +147,33 @@ export function SettingsPanel({ importSettings }: SettingsPanelProps) {
         </p>
       </div>
 
-      {/* Factory reset moved to global Preferences; do not render it in Import Settings */}
+      {/* Clear Database - Dangerous operation, placed at bottom of settings */}
+      {clearDatabaseProps && (
+        <div className="pt-3 mt-3 border-t border-border/50">
+          <div className="flex items-center justify-between">
+            <div>
+              <Label className="text-xs text-muted-foreground">Danger Zone</Label>
+              <p className="text-[10px] text-muted-foreground">
+                Clear all imported files and chunks from database.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={
+                clearDatabaseProps.clearing ||
+                !clearDatabaseProps.clearAllData ||
+                (clearDatabaseProps.records.length === 0 && clearDatabaseProps.chunks.length === 0)
+              }
+              onClick={() => clearDatabaseProps.setShowClearDialog(true)}
+              className="flex items-center gap-1 h-7"
+            >
+              <Trash2 className="h-3 w-3" />
+              Clear Database
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

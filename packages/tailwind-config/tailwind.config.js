@@ -53,7 +53,9 @@ module.exports = {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
+        // Primary: Geist (2025 Visual Refresh), Fallback: Inter (legacy)
         sans: [
+          'Geist',
           'Inter',
           '-apple-system',
           'BlinkMacSystemFont',
@@ -65,6 +67,17 @@ module.exports = {
           'Open Sans',
           'Helvetica Neue',
           'sans-serif',
+        ],
+        // Monospace: Geist Mono with programming ligatures
+        mono: [
+          'Geist Mono',
+          'ui-monospace',
+          'SFMono-Regular',
+          'SF Mono',
+          'Menlo',
+          'Consolas',
+          'Liberation Mono',
+          'monospace',
         ],
       },
       keyframes: {
