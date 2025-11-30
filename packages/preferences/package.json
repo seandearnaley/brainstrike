@@ -40,17 +40,17 @@
     "@brainstrike/utils": "workspace:*",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.13.12",
-    "lucide-react": "^0.545.0"
+    "lucide-react": "^0.555.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.5.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^24.7.0",
-    "@types/react": "^19.2.2",
-    "jsdom": "^27.0.0",
+    "@types/node": "^24.10.1",
+    "@types/react": "^19.2.7",
+    "jsdom": "^27.2.0",
     "vitest": "^4.0.14",
-    "zustand": "^5.0.8"
+    "zustand": "^5.0.9"
   },
   "license": "ISC"
 }

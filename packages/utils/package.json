@@ -33,18 +33,18 @@
   },
   "dependencies": {
     "@brainstrike/types": "workspace:*",
-    "minimatch": "^10.0.3",
-    "pino": "^10.0.0",
+    "minimatch": "^10.1.1",
+    "pino": "^10.1.0",
     "tiktoken": "^1.0.22"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/core": "^9.2.0",
-    "@stryker-mutator/typescript-checker": "^9.2.0",
-    "@stryker-mutator/vitest-runner": "^9.2.0",
+    "@stryker-mutator/core": "^9.4.0",
+    "@stryker-mutator/typescript-checker": "^9.4.0",
+    "@stryker-mutator/vitest-runner": "^9.4.0",
     "@swc/core": "^1.13.5",
-    "@types/node": "^24.7.0",
-    "rimraf": "^6.0.1",
+    "@types/node": "^24.10.1",
+    "rimraf": "^6.1.2",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14"

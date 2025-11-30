@@ -1,7 +1,7 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
-import type { MastraLanguageModel } from '@mastra/core/agent';
+import type { MastraModelConfig } from '@mastra/core/llm';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import { PROVIDER_DEFAULT_MODELS, type SupportedProvider } from './types';
 
@@ -18,7 +18,7 @@ export function createProvider(
   provider: SupportedProvider | string,
   apiKey?: string,
   model?: string
-): MastraLanguageModel {
+): MastraModelConfig {
   const modelName = model ?? PROVIDER_DEFAULT_MODELS[provider as SupportedProvider];
 
   switch (provider) {

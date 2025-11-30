@@ -30,14 +30,14 @@
   "dependencies": {
     "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^3.7.5",
+    "@huggingface/transformers": "^3.8.0",
     "p-queue": "^7.4.1",
     "workerpool": "^9.1.2"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@types/node": "^24.7.0",
-    "rimraf": "^6.0.1",
+    "@types/node": "^24.10.1",
+    "rimraf": "^6.1.2",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14"
