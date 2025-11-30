@@ -12,12 +12,39 @@ test.describe.configure({ mode: 'serial' });
 test.describe('Database Persistence', () => {
   const ERROR_LOCATOR = '[data-testid="db-init-error"]';
   const REFRESH_BUTTON_SELECTOR = 'button:has-text("Refresh")';
+  const IMPORT_SETTINGS_SELECTOR = 'button:has-text("Import Settings")';
 
   async function isDatabaseError(page: Page): Promise<boolean> {
     try {
       return await page.locator(ERROR_LOCATOR).isVisible({ timeout: 200 });
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Expand the Import Settings panel to access the Clear Database button.
+   * The Clear Database button was moved to Import Settings > Danger Zone.
+   */
+  async function expandImportSettings(page: Page): Promise<void> {
+    const importSettingsButton = page.locator(IMPORT_SETTINGS_SELECTOR);
+    const clearDatabaseButton = page.locator('button:has-text("Clear Database")');
+
+    // Check if settings are already expanded (Clear Database button visible)
+    const isAlreadyExpanded = await clearDatabaseButton
+      .isVisible({ timeout: 500 })
+      .catch(() => false);
+    if (isAlreadyExpanded) {
+      return;
+    }
+
+    // Click Import Settings to expand
+    if (await importSettingsButton.isVisible({ timeout: 2000 })) {
+      await importSettingsButton.click();
+      // Wait for the settings panel to expand and Clear Database button to appear
+      await clearDatabaseButton.waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
+        console.warn('⚠️ Clear Database button not visible after expanding Import Settings');
+      });
     }
   }
 
@@ -253,6 +280,9 @@ test.describe('Database Persistence', () => {
       return;
     }
 
+    // Expand Import Settings to access Clear Database button
+    await expandImportSettings(activePage);
+
     const clearButton = activePage.locator('button:has-text("Clear Database")');
     const visible = await clearButton.isVisible({ timeout: 10000 }).catch(() => false);
     if (!visible) {
@@ -291,6 +321,10 @@ test.describe('Database Persistence', () => {
       await expect(page.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
+
+    // Expand Import Settings to access Clear Database button
+    await expandImportSettings(page);
+
     const clearButton = page.locator('button:has-text("Clear Database")');
     await expect(clearButton).toBeVisible();
     await expect(clearButton).toBeEnabled({ timeout: 5000 });
@@ -352,12 +386,17 @@ test.describe('Database Persistence', () => {
 
     if (await isDatabaseError(activeWindow)) {
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+      // Expand Import Settings first to check button count
+      await expandImportSettings(activeWindow);
       await expect(activeWindow.locator('button:has-text("Clear Database")')).toHaveCount(0);
       return;
     }
 
     await activeWindow.click(REFRESH_BUTTON_SELECTOR);
     await activeWindow.waitForTimeout(1000);
+
+    // Expand Import Settings to access Clear Database button
+    await expandImportSettings(activeWindow);
 
     const clearButton = activeWindow.locator('button:has-text("Clear Database")');
     await expect(clearButton).toBeVisible();
@@ -424,6 +463,9 @@ test.describe('Database Persistence', () => {
     let activePage = page;
     if (await isDatabaseError(activePage)) return activePage;
     if (!(await hasExistingData(activePage))) return activePage;
+
+    // Expand Import Settings to access Clear Database button
+    await expandImportSettings(activePage);
 
     const clearButton = activePage.locator('button:has-text("Clear Database")');
     if (await clearButton.isVisible()) {
