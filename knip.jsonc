@@ -20,7 +20,10 @@
         "src/test/**/*.{ts,tsx}",
         "src/config/server.ts"
       ],
-      "ignoreDependencies": [],
+      "ignoreDependencies": [
+        "@fontsource-variable/geist", // Imported via CSS @import in globals.css
+        "@fontsource-variable/geist-mono" // Imported via CSS @import in globals.css
+      ],
       "typescript": {
         // Only add if you need to specify a non-default tsconfig location
         "config": "tsconfig.json"
@@ -36,7 +39,9 @@
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
-        "@vitest/coverage-v8" // Only used in vitest.config.mts, not imported in source code
+        "@vitest/coverage-v8", // Only used in vitest.config.mts, not imported in source code
+        "@fontsource-variable/geist", // Imported via CSS @import in renderer/styles.css
+        "@fontsource-variable/geist-mono" // Imported via CSS @import in renderer/styles.css
       ],
       "typescript": {
         "config": "tsconfig.json"
