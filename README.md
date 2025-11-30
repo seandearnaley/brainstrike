@@ -197,6 +197,11 @@ Helpful docs: `onboarding.md`, `AGENTS.md`, `monorepo-docs.md`.
 - Playwright prompts: run `pnpm exec playwright install --with-deps chromium` if needed locally.
 - Tailwind CSS checks failing in CI: ensure only one `@import "tailwindcss"` per package stylesheet and that the web app scans sources from shared packages; use `TAILWIND_DEBUG=1 pnpm build` to inspect.
 - Turborepo caching oddities: `pnpm clean` then retry the command.
+- **Module resolution errors after merging/pulling changes**: If you see errors like `ERR_MODULE_NOT_FOUND: Cannot find module '...'` or `Module '"@brainstrike/..."' has no exported member '...'`, the Turborepo cache likely has stale/corrupted build artifacts. Fix with:
+  ```bash
+  rm -rf .turbo && pnpm run build
+  ```
+  This clears the cache and forces fresh builds of all packages. Common symptoms include missing exports from `@brainstrike/ui` or `@brainstrike/agent`, or orphaned module files in `dist/` directories.
 
 ---
 

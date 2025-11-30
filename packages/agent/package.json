@@ -27,7 +27,7 @@
   ],
   "scripts": {
     "build": "tsup",
-    "dev": "tsup src/index.ts --watch --out-dir dist",
+    "dev": "tsup --watch",
     "clean": "rimraf dist",
     "lint": "pnpm -w lint",
     "type-check": "tsc --noEmit",

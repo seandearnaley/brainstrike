@@ -5,7 +5,7 @@
     }
   ],
   "settings": {
-    "biome.lspBin": "node_modules/@biomejs/biome/bin/biome",
+    "biome.lsp.bin": "node_modules/@biomejs/biome/bin/biome",
     "typescript.tsdk": "node_modules/typescript/lib",
     "typescript.preferences.includePackageJsonAutoImports": "on",
     "typescript.enablePromptUseWorkspaceTsdk": true,
