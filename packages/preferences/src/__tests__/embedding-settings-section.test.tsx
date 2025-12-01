@@ -42,22 +42,24 @@ describe('EmbeddingSettings', () => {
     renderComponent();
 
     const localModels = useEmbeddingPreferencesStore.getState().getEnabledModels('local');
-    expect(localModels).toContain('jina-code');
+    expect(localModels).toContain('jinaai/jina-embeddings-v2-base-code');
   });
 
   it('toggles model enablement', async () => {
     renderComponent();
-    const toggle = await screen.findByTestId('embedding-toggle-local-jina-code');
+    const toggle = await screen.findByTestId(
+      'embedding-toggle-local-jinaai/jina-embeddings-v2-base-code'
+    );
 
     // Toggle off
     await userEvent.click(toggle);
     expect(useEmbeddingPreferencesStore.getState().getEnabledModels('local')).not.toContain(
-      'jina-code'
+      'jinaai/jina-embeddings-v2-base-code'
     );
     // Toggle on
     await userEvent.click(toggle);
     expect(useEmbeddingPreferencesStore.getState().getEnabledModels('local')).toContain(
-      'jina-code'
+      'jinaai/jina-embeddings-v2-base-code'
     );
   });
 
@@ -79,7 +81,9 @@ describe('EmbeddingSettings', () => {
 
     const openaiSection = screen.getByTestId('embedding-provider-openai');
     expect(openaiSection).toBeTruthy();
-    expect(screen.queryByTestId('embedding-model-row-local-jina-code')).toBeNull();
+    expect(
+      screen.queryByTestId('embedding-model-row-local-jinaai/jina-embeddings-v2-base-code')
+    ).toBeNull();
   });
 
   it('enables a hosted model', async () => {
