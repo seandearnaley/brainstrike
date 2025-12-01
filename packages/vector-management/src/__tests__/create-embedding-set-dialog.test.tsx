@@ -118,7 +118,7 @@ describe('CreateEmbeddingSetDialog', () => {
   });
 
   it('calls onSetCreated with correct data when form is submitted', async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null }); // Disable delay for faster tests
     (mockRepository.getOrCreateSet as Mock).mockResolvedValue({ id: 'new-set-id' });
 
     render(
