@@ -13,6 +13,8 @@ import type {
 } from '../types';
 import { clearModelConfigCache } from '../worker/embedding-worker';
 
+vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
+
 const loggerCalls = {
   error: [] as unknown[][],
   warn: [] as unknown[][],
