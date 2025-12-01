@@ -3,8 +3,8 @@ import { defineConfig } from 'tsup';
 export default defineConfig({
   entry: ['src/index.ts'],
   format: ['cjs', 'esm'],
-  dts: false,
-  clean: false,
+  dts: false, // Disable tsup dts generation, use tsc instead
+  clean: false, // Don't clean - tsc already generated .d.ts files
   sourcemap: true,
   target: 'es2020',
   external: ['@brainstrike/types', 'electron', 'chokidar'],
