@@ -35,6 +35,78 @@ type DbModelRow = {
 const dbModelConfigCache = new Map<string, ModelConfig | null>();
 
 /**
+ * Invalidate cached model configs.
+ * Passing a modelId clears just that entry; omitting clears everything.
+ */
+export function invalidateModelConfigCache(modelId?: string): void {
+  if (modelId) {
+    dbModelConfigCache.delete(modelId);
+    return;
+  }
+  dbModelConfigCache.clear();
+}
+
+/**
+ * Runtime-safe parse helpers for JSONB fields.
+ * Avoids throwing on malformed JSON and guards expected shapes.
+ */
+function parseCapabilities(raw: DbModelRow['capabilities']): {
+  type?: string;
+  defaultDimension?: number;
+} {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const type = typeof value?.['type'] === 'string' ? value['type'] : undefined;
+    const defaultDimension =
+      typeof value?.['defaultDimension'] === 'number' ? value['defaultDimension'] : undefined;
+    const result: { type?: string; defaultDimension?: number } = {};
+    if (type !== undefined) {
+      result.type = type;
+    }
+    if (defaultDimension !== undefined) {
+      result.defaultDimension = defaultDimension;
+    }
+    return result;
+  } catch (error) {
+    workerLogger.warn('parseCapabilities: failed to parse capabilities JSON', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
+  }
+}
+
+function parseParameters(raw: DbModelRow['parameters']): {
+  size?: string;
+  contextWindow?: number;
+} {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const size = typeof value?.['size'] === 'string' ? value['size'] : undefined;
+    const contextWindow =
+      typeof value?.['contextWindow'] === 'number' ? value['contextWindow'] : undefined;
+    const result: { size?: string; contextWindow?: number } = {};
+    if (size !== undefined) {
+      result.size = size;
+    }
+    if (contextWindow !== undefined) {
+      result.contextWindow = contextWindow;
+    }
+    return result;
+  } catch (error) {
+    workerLogger.warn('parseParameters: failed to parse parameters JSON', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
+  }
+}
+
+/**
  * Query the database for model configuration.
  * This is the primary source of truth for model metadata.
  *
@@ -70,13 +142,9 @@ async function getModelConfigFromDb(db: IDatabase, modelId: string): Promise<Mod
       return null;
     }
 
-    // Parse JSONB fields
-    const capabilities =
-      typeof row.capabilities === 'string' ? JSON.parse(row.capabilities) : row.capabilities;
-    const parameters =
-      typeof row.parameters === 'string' && row.parameters
-        ? JSON.parse(row.parameters)
-        : row.parameters;
+    // Parse JSONB fields with runtime guards
+    const capabilities = parseCapabilities(row.capabilities);
+    const parameters = parseParameters(row.parameters);
 
     // Convert DB row to ModelConfig
     const modelConfig: ModelConfig = {
@@ -87,8 +155,10 @@ async function getModelConfigFromDb(db: IDatabase, modelId: string): Promise<Mod
       description: row.description ?? '',
       tags: [row.provider_id, capabilities?.type ?? 'embedding'].filter(Boolean),
       origin: row.provider_id,
-      size: parameters?.size,
-      contextWindow: parameters?.contextWindow,
+      ...(parameters?.size !== undefined ? { size: parameters.size } : {}),
+      ...(parameters?.contextWindow !== undefined
+        ? { contextWindow: parameters.contextWindow }
+        : {}),
     };
 
     dbModelConfigCache.set(modelId, modelConfig);
@@ -99,7 +169,7 @@ async function getModelConfigFromDb(db: IDatabase, modelId: string): Promise<Mod
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined,
     });
-    dbModelConfigCache.set(modelId, null);
+    // Do not cache transient DB failures; allow retry on next call
     return null;
   }
 }
