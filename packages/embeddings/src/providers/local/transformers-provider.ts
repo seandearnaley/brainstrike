@@ -50,6 +50,7 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
           }
         : undefined;
 
+      // Uses string key - initializeWithModel will lookup from registry
       await this.service.initializeWithModel(this.modelKey, progressAdapter, this.deviceOverride);
 
       // Store expected dimensions from model config for validation

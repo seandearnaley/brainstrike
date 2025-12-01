@@ -1,4 +1,5 @@
-import type { EmbeddingProviderType } from './provider-types';
+import type { EmbeddingProviderType, HostedProviderType } from './provider-types';
+import { isLocalProviderType } from './provider-types';
 
 const PROVIDER_SEPARATOR = '::';
 const LEGACY_SEPARATOR = ':';
@@ -42,10 +43,12 @@ export function parseProviderModelKey(
   return null;
 }
 
-export function isHostedProvider(
-  provider: EmbeddingProviderType
-): provider is Exclude<EmbeddingProviderType, 'local'> {
-  return provider !== 'local';
+/**
+ * Check if a provider is a hosted provider (requires API key, runs on remote servers)
+ * Returns false for 'local' and 'transformers' (both use transformers.js in browser)
+ */
+export function isHostedProvider(provider: EmbeddingProviderType): provider is HostedProviderType {
+  return !isLocalProviderType(provider);
 }
 
 export function canonicalizeProviderModelKey(

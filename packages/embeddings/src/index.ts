@@ -32,9 +32,11 @@ export type {
   EmbeddingProviderError,
   EmbeddingProviderType,
   EmbeddingRuntime,
+  HostedProviderType,
+  LocalProviderType,
   Result,
 } from './provider-types';
-export { STANDARD_EMBEDDING_DIMENSION } from './provider-types';
+export { isLocalProviderType, STANDARD_EMBEDDING_DIMENSION } from './provider-types';
 export {
   canonicalizeProviderModelKey,
   formatProviderModelKey,

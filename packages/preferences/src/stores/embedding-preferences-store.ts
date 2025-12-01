@@ -72,7 +72,7 @@ const STORE_VERSION = 1;
  * Frozen to prevent accidental mutations
  */
 const DEFAULT_ENABLED_MODELS: EnabledModelsMap = Object.freeze({
-  local: Object.freeze(['jina-code'] as string[]), // Default local model from model-registry.json
+  local: Object.freeze(['jinaai/jina-embeddings-v2-base-code'] as string[]), // Default local model (HuggingFace ID)
   openai: Object.freeze([] as string[]), // Requires API key, disabled by default
   google: Object.freeze([] as string[]), // Requires API key, disabled by default
   cohere: Object.freeze([] as string[]), // Requires API key, disabled by default

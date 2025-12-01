@@ -19,6 +19,46 @@ import {
   vectorsFromPipelineOutput,
 } from './shared';
 
+// Global error handlers - only set up in actual worker environment.
+// This code only runs in browser Web Worker context where `self` exists.
+// It cannot be tested in Node.js. Coverage is excluded via c8 ignore.
+/* c8 ignore next 36 -- Worker globals only exist in browser Web Worker context */
+if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
+  // Global error handler to catch any uncaught errors in the worker
+  self.onerror = (event) => {
+    const message = typeof event === 'string' ? event : (event as ErrorEvent).message;
+    const filename = typeof event === 'object' ? (event as ErrorEvent).filename : undefined;
+    const lineno = typeof event === 'object' ? (event as ErrorEvent).lineno : undefined;
+    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+    console.error('[EmbeddingWorker] Uncaught error:', { message, filename, lineno, event });
+    workerEmit({
+      type: 'error',
+      id: 'global',
+      message: `Worker uncaught error: ${message}`,
+      cause: filename ? `${filename}:${lineno}` : undefined,
+    });
+  };
+
+  // Catch unhandled promise rejections
+  self.onunhandledrejection = (event) => {
+    const reason = event.reason;
+    const message = reason instanceof Error ? reason.message : String(reason);
+    const stack = reason instanceof Error ? reason.stack : undefined;
+    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+    console.error('[EmbeddingWorker] Unhandled promise rejection:', { message, stack, reason });
+    workerEmit({
+      type: 'error',
+      id: 'global',
+      message: `Worker unhandled rejection: ${message}`,
+      cause: stack,
+    });
+  };
+
+  // Log worker initialization
+  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+  console.log('[EmbeddingWorker] Worker script loaded and initializing...');
+}
+
 type FeatureExtractor = FeatureExtractionPipeline &
   ((
     inputs: string | readonly string[],
@@ -77,17 +117,54 @@ async function loadPipeline(
   const cacheKey = `${model}|${device}|${dtype}`;
   const existing = pipelines.get(cacheKey);
   if (existing !== undefined) {
+    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+    console.log('[EmbeddingWorker] Using cached pipeline:', { model, device, dtype });
     return existing;
   }
 
+  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+  console.log('[EmbeddingWorker] Loading pipeline:', { model, device, dtype });
+
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pipeline loading with fallback requires nested try/catch
   const loader = (async () => {
     try {
+      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+      console.log('[EmbeddingWorker] Creating feature-extraction pipeline...', {
+        model,
+        device,
+        dtype,
+      });
       const result = await pipeline('feature-extraction', model, { device, dtype });
+      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+      console.log('[EmbeddingWorker] Pipeline loaded successfully:', { model, device, dtype });
       return result as FeatureExtractor;
     } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+      console.error('[EmbeddingWorker] Pipeline load failed:', {
+        model,
+        device,
+        dtype,
+        error: errorMsg,
+        stack: errorStack,
+      });
+
       if (device === 'webgpu') {
-        const fallback = await pipeline('feature-extraction', model, { device: 'wasm', dtype });
-        return fallback as FeatureExtractor;
+        // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+        console.log('[EmbeddingWorker] Falling back to WASM device...');
+        try {
+          const fallback = await pipeline('feature-extraction', model, { device: 'wasm', dtype });
+          // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+          console.log('[EmbeddingWorker] WASM fallback pipeline loaded successfully');
+          return fallback as FeatureExtractor;
+        } catch (fallbackError) {
+          const fbMsg =
+            fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
+          console.error('[EmbeddingWorker] WASM fallback also failed:', { error: fbMsg });
+          throw fallbackError;
+        }
       }
       throw error;
     }

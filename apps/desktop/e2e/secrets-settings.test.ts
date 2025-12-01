@@ -6,7 +6,7 @@ test.describe('Secrets Settings', () => {
     await expect(window.getByTestId('settings-section')).toBeVisible();
 
     // Navigate to Models & Providers category
-    await window.getByRole('button', { name: /Models & Providers/i }).click();
+    await window.getByRole('button', { name: /API Keys/i }).click();
 
     const providerSelect = window.getByTestId('llm-provider');
     await expect(providerSelect).toBeVisible();

@@ -96,7 +96,14 @@ describe('embedding-worker', () => {
     await db.query(
       `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [embeddingSetId, 'local::jina-code', 'jina-code', 768, 'cosine', now]
+      [
+        embeddingSetId,
+        'local::jina-code',
+        'jinaai/jina-embeddings-v2-base-code',
+        768,
+        'cosine',
+        now,
+      ]
     );
 
     // Insert a file record + chunk
@@ -123,7 +130,7 @@ describe('embedding-worker', () => {
       db: db as unknown as IDatabase,
       concurrency: 1,
       leaseMs: 2000,
-      modelKey: 'jina-code',
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FakeEmbeddingService(),
       log: (m) => console.error(m),
     });
@@ -158,7 +165,7 @@ describe('embedding-worker', () => {
     const embeddingSetId = 'set-2';
     const fileId = 'file-2';
     const chunkId = 'chunk-2';
-    const modelKey = 'jina-code';
+    const modelKey = 'jinaai/jina-embeddings-v2-base-code';
     const compositeKey = formatProviderModelKey('local', modelKey);
     const expectedHash = await (await import('node:crypto'))
       .createHash('sha256')

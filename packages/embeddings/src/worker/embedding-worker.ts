@@ -10,10 +10,176 @@ import type {
   EmbeddingProviderError,
   EmbeddingProviderType,
 } from '../provider-types';
+import { isLocalProviderType } from '../provider-types';
 import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
 import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
 
 const workerLogger = createLogger('EmbeddingWorker');
+
+/**
+ * Raw model row from the database
+ */
+type DbModelRow = {
+  id: string;
+  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
+  provider_id: string;
+  name: string;
+  description: string | null;
+  capabilities: string | { type: string; defaultDimension?: number } | null;
+  parameters: string | { size?: string; contextWindow?: number } | null;
+};
+
+/**
+ * Cache for database model configs to avoid repeated queries
+ */
+const dbModelConfigCache = new Map<string, ModelConfig | null>();
+
+/**
+ * Invalidate cached model configs.
+ * Passing a modelId clears just that entry; omitting clears everything.
+ */
+export function invalidateModelConfigCache(modelId?: string): void {
+  if (modelId) {
+    dbModelConfigCache.delete(modelId);
+    return;
+  }
+  dbModelConfigCache.clear();
+}
+
+/**
+ * Runtime-safe parse helpers for JSONB fields.
+ * Avoids throwing on malformed JSON and guards expected shapes.
+ */
+function parseCapabilities(raw: DbModelRow['capabilities']): {
+  type?: string;
+  defaultDimension?: number;
+} {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const type = typeof value?.['type'] === 'string' ? value['type'] : undefined;
+    const defaultDimension =
+      typeof value?.['defaultDimension'] === 'number' ? value['defaultDimension'] : undefined;
+    const result: { type?: string; defaultDimension?: number } = {};
+    if (type !== undefined) {
+      result.type = type;
+    }
+    if (defaultDimension !== undefined) {
+      result.defaultDimension = defaultDimension;
+    }
+    return result;
+  } catch (error) {
+    workerLogger.warn('parseCapabilities: failed to parse capabilities JSON', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
+  }
+}
+
+function parseParameters(raw: DbModelRow['parameters']): {
+  size?: string;
+  contextWindow?: number;
+} {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const size = typeof value?.['size'] === 'string' ? value['size'] : undefined;
+    const contextWindow =
+      typeof value?.['contextWindow'] === 'number' ? value['contextWindow'] : undefined;
+    const result: { size?: string; contextWindow?: number } = {};
+    if (size !== undefined) {
+      result.size = size;
+    }
+    if (contextWindow !== undefined) {
+      result.contextWindow = contextWindow;
+    }
+    return result;
+  } catch (error) {
+    workerLogger.warn('parseParameters: failed to parse parameters JSON', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
+  }
+}
+
+/**
+ * Query the database for model configuration.
+ * This is the primary source of truth for model metadata.
+ *
+ * @param db - Database connection
+ * @param modelId - Model ID to look up (e.g., "Xenova/all-MiniLM-L6-v2")
+ * @returns ModelConfig or null if not found
+ */
+async function getModelConfigFromDb(db: IDatabase, modelId: string): Promise<ModelConfig | null> {
+  workerLogger.debug('getModelConfigFromDb: looking up model', { modelId });
+
+  // Check cache first
+  const cached = dbModelConfigCache.get(modelId);
+  if (cached !== undefined) {
+    workerLogger.debug('getModelConfigFromDb: cache hit', { modelId, found: !!cached });
+    return cached;
+  }
+
+  try {
+    const result = await db.query<DbModelRow>(
+      'SELECT id, provider_id, name, description, capabilities, parameters FROM models WHERE id = $1',
+      [modelId]
+    );
+
+    if (result.rows.length === 0) {
+      workerLogger.warn('getModelConfigFromDb: model not found in database', { modelId });
+      dbModelConfigCache.set(modelId, null);
+      return null;
+    }
+
+    const row = result.rows[0];
+    if (!row) {
+      dbModelConfigCache.set(modelId, null);
+      return null;
+    }
+
+    // Parse JSONB fields with runtime guards
+    const capabilities = parseCapabilities(row.capabilities);
+    const parameters = parseParameters(row.parameters);
+
+    // Convert DB row to ModelConfig
+    const modelConfig: ModelConfig = {
+      id: row.id,
+      name: row.name,
+      dimensions: capabilities?.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
+      quantized: false,
+      description: row.description ?? '',
+      tags: [row.provider_id, capabilities?.type ?? 'embedding'].filter(Boolean),
+      origin: row.provider_id,
+      ...(parameters?.size !== undefined ? { size: parameters.size } : {}),
+      ...(parameters?.contextWindow !== undefined
+        ? { contextWindow: parameters.contextWindow }
+        : {}),
+    };
+
+    dbModelConfigCache.set(modelId, modelConfig);
+    return modelConfig;
+  } catch (error) {
+    workerLogger.error('getModelConfigFromDb: QUERY FAILED', {
+      modelId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    // Do not cache transient DB failures; allow retry on next call
+    return null;
+  }
+}
+
+/**
+ * Clear the model config cache (useful for tests)
+ */
+export function clearModelConfigCache(): void {
+  dbModelConfigCache.clear();
+}
 
 class WorkerRateLimitError extends Error {
   retryAfterMs?: number;
@@ -243,7 +409,7 @@ function readBooleanEnv(key: string): boolean | undefined {
 }
 
 function ensureLocalRuntime(modelResolution: { provider: EmbeddingProviderType }): void {
-  if (modelResolution.provider !== 'local') {
+  if (!isLocalProviderType(modelResolution.provider)) {
     return;
   }
 
@@ -384,51 +550,34 @@ async function initializeEmbeddingService(
   options: EmbeddingWorkerOptions,
   modelKey: string
 ): Promise<{ service: EmbeddingService; modelConfig: ModelConfig }> {
+  workerLogger.info('initializeEmbeddingService: START', { modelKey });
+
   const service = options.service ?? new SimpleEmbeddingService();
 
   const parsedForRegistry = parseProviderModelKey(modelKey);
   const registryModelKey =
-    parsedForRegistry && parsedForRegistry.provider === 'local'
+    parsedForRegistry && isLocalProviderType(parsedForRegistry.provider)
       ? parsedForRegistry.modelId
       : modelKey;
 
-  // Only initialize if we created the default service
-  if (!options.service) {
-    // Check if it's a hosted model - if so, we don't need to initialize the local service
-    const parsed = parseProviderModelKey(modelKey);
-    const isHosted = parsed && isHostedProvider(parsed.provider);
+  workerLogger.info('initializeEmbeddingService: querying DB for model', {
+    modelKey,
+    registryModelKey,
+    parsedProvider: parsedForRegistry?.provider,
+  });
 
-    if (!isHosted) {
-      // Initialize with the requested model key
-      const simpleService = service as SimpleEmbeddingService;
-      if (typeof simpleService.initializeWithModel === 'function') {
-        // Configure cache dir if provided via options
-        // We need to cast to access the backend or internal config if not exposed
-        // But SimpleEmbeddingService doesn't expose cacheDir in initializeWithModel directly
-        // We might need to extend initializeWithModel or set it on the backend
+  // Get model config from database FIRST (single source of truth)
+  let modelConfig = await getModelConfigFromDb(options.db, registryModelKey);
 
-        // For now, we'll assume we can set it via a side channel or if we modify SimpleEmbeddingService
-        // Let's modify SimpleEmbeddingService to accept cacheDir in config
-        await simpleService.initializeWithModel(
-          registryModelKey,
-          (p) => {
-            if (options.onDownloadProgress && p.progress !== undefined) {
-              options.onDownloadProgress(registryModelKey, p.progress);
-            }
-          },
-          options.device,
-          options.cacheDir
-        );
-      } else {
-        await service.initialize?.({}, undefined);
-      }
-    }
-  }
+  workerLogger.info('initializeEmbeddingService: DB query complete', {
+    registryModelKey,
+    foundConfig: !!modelConfig,
+    configName: modelConfig?.name,
+    configDimensions: modelConfig?.dimensions,
+  });
 
-  // Get model config - if using custom service, determine dimensions first
-  let modelConfig = SimpleEmbeddingService.getModelConfig(registryModelKey);
+  // For custom services, generate a test embedding to get dimensions
   if (!modelConfig && options.service) {
-    // For custom services, generate a test embedding to get dimensions
     const serviceConfig = service.getConfig();
     const testEmbedding = await service.generateEmbedding('test');
     modelConfig = {
@@ -442,8 +591,38 @@ async function initializeEmbeddingService(
       size: 'unknown',
     };
   }
+
   if (!modelConfig) {
-    throw new Error(`Model config not found for key: ${modelKey}`);
+    throw new Error(
+      `Model '${registryModelKey}' not found in database. Add it via Settings > Models.`
+    );
+  }
+
+  // Only initialize if we created the default service
+  if (!options.service) {
+    // Check if it's a hosted model - if so, we don't need to initialize the local service
+    const parsed = parseProviderModelKey(modelKey);
+    const isHosted = parsed && isHostedProvider(parsed.provider);
+
+    if (!isHosted) {
+      // Initialize with the MODEL CONFIG from DB (not just the key)
+      // This bypasses the static registry lookup in SimpleEmbeddingService
+      const simpleService = service as SimpleEmbeddingService;
+      if (typeof simpleService.initializeWithModel === 'function') {
+        await simpleService.initializeWithModel(
+          modelConfig, // Pass the full config, not just the key
+          (p) => {
+            if (options.onDownloadProgress && p.progress !== undefined) {
+              options.onDownloadProgress(registryModelKey, p.progress);
+            }
+          },
+          options.device,
+          options.cacheDir
+        );
+      } else {
+        await service.initialize?.({}, undefined);
+      }
+    }
   }
 
   return { service, modelConfig };
@@ -494,6 +673,13 @@ function ensureModelDimension(
 export async function startEmbeddingWorker(
   options: EmbeddingWorkerOptions
 ): Promise<EmbeddingWorkerController> {
+  workerLogger.info('startEmbeddingWorker: START', {
+    hasDb: !!options.db,
+    modelKey: options.modelKey,
+    concurrency: options.concurrency,
+    device: options.device,
+  });
+
   const log =
     options.log ||
     ((message: string, meta?: unknown) => {
@@ -502,6 +688,7 @@ export async function startEmbeddingWorker(
 
   // Check if worker is disabled BEFORE resolving model to avoid errors in tests
   if (!shouldStartWorker(options, log)) {
+    workerLogger.info('startEmbeddingWorker: worker disabled, returning early');
     return { stop: async () => {} };
   }
 
@@ -595,6 +782,14 @@ export async function startEmbeddingWorker(
 
     workerLogger.warn('Reinitializing embedding service; this blocks the main thread');
 
+    // Get model config from database FIRST (single source of truth)
+    const cfg = await getModelConfigFromDb(options.db, targetModelId);
+    if (!cfg) {
+      throw new Error(
+        `Model '${targetModelId}' not found in database. Add it via Settings > Models.`
+      );
+    }
+
     try {
       await service.dispose();
     } catch (error) {
@@ -603,13 +798,9 @@ export async function startEmbeddingWorker(
 
     const device = forceCpu ? 'cpu' : options.device;
     const nextService = new SimpleEmbeddingService();
-    await nextService.initializeWithModel(targetModelId, undefined, device);
+    // Pass the MODEL CONFIG from DB (not just the key) to bypass static registry
+    await nextService.initializeWithModel(cfg, undefined, device);
     service = nextService;
-
-    const cfg = SimpleEmbeddingService.getModelConfig(targetModelId);
-    if (!cfg) {
-      throw new Error(`Model config not found for key: ${targetModelId}`);
-    }
     modelConfig = cfg;
 
     activeModelId = targetModelId;
@@ -869,6 +1060,14 @@ export async function startEmbeddingWorker(
   }
 
   async function handleBatchFailure(jobs: ClaimedJob[], error: unknown) {
+    // LOG THE ERROR so we can see what's happening
+    workerLogger.error('handleBatchFailure: Job(s) failed', {
+      jobCount: jobs.length,
+      jobIds: jobs.map((j) => j.id).slice(0, 5), // First 5 job IDs
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+
     const { backoffMs, isTerminal, looksLikeModelExecError, truncated } = classifyFailure(error);
 
     // Fail all jobs in the batch with the same error
@@ -941,7 +1140,13 @@ export async function startEmbeddingWorker(
     expectedDimension: number
   ) {
     const texts = toProcess.map((item) => item.chunk.content);
-    if (jobModel.provider === 'local') {
+    if (isLocalProviderType(jobModel.provider)) {
+      workerLogger.info('generateEmbeddingsForGroup: processing local model', {
+        provider: jobModel.provider,
+        modelId: jobModel.modelId,
+        compositeKey: jobModel.compositeKey,
+        chunkCount: toProcess.length,
+      });
       await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
       const results = await generateLocalEmbeddings(
         toProcess.map((item) => item.chunk),
@@ -1277,9 +1482,15 @@ export async function startEmbeddingWorker(
       })) as ClaimedJob[];
 
       if (jobs.length === 0) {
+        // Silent on empty polls - this happens constantly during idle
         await sleep(400); // idle backoff
         return;
       }
+
+      workerLogger.info('processBatch: claimed jobs', {
+        jobCount: jobs.length,
+        jobIds: jobs.slice(0, 3).map((j) => j.id),
+      });
 
       await processClaimedJobs(jobs);
 

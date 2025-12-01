@@ -31,7 +31,7 @@ describe('SimpleEmbeddingService (lightweight)', () => {
   it('initializes with model and generates embedding', async () => {
     const { SimpleEmbeddingService } = await import('../bge-m3-service');
     const svc = new SimpleEmbeddingService();
-    await svc.initializeWithModel('jina-code', undefined, 'cpu');
+    await svc.initializeWithModel('jinaai/jina-embeddings-v2-base-code', undefined, 'cpu');
     const out = await svc.generateEmbedding('hello');
     expect(Array.isArray(out.embedding)).toBe(true);
     expect(out.embedding.length).toBeGreaterThan(0);

@@ -303,8 +303,12 @@ describe('EmbeddingWorkerProvider', () => {
       await waitFor(
         () => {
           expect(mockLogger.error).toHaveBeenCalledWith(
-            'Failed to start embedding worker:',
-            mockError
+            'Failed to start embedding worker',
+            expect.objectContaining({
+              message: 'Failed to initialize worker',
+              name: 'Error',
+              stack: expect.any(String),
+            })
           );
         },
         { timeout: 3000 }

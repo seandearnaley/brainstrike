@@ -38,7 +38,7 @@ describe('embedding-preferences-store', () => {
     it('has local models enabled by default', () => {
       const store = useEmbeddingPreferencesStore.getState();
       const localModels = store.getEnabledModels('local');
-      expect(localModels).toContain('jina-code');
+      expect(localModels).toContain('jinaai/jina-embeddings-v2-base-code');
     });
 
     it('has hosted providers disabled by default', () => {
@@ -67,11 +67,11 @@ describe('embedding-preferences-store', () => {
       const store = useEmbeddingPreferencesStore.getState();
 
       // Enable then disable
-      store.setModelEnabled('local', 'jina-code', true);
-      expect(store.getEnabledModels('local')).toContain('jina-code');
+      store.setModelEnabled('local', 'jinaai/jina-embeddings-v2-base-code', true);
+      expect(store.getEnabledModels('local')).toContain('jinaai/jina-embeddings-v2-base-code');
 
-      store.setModelEnabled('local', 'jina-code', false);
-      expect(store.getEnabledModels('local')).not.toContain('jina-code');
+      store.setModelEnabled('local', 'jinaai/jina-embeddings-v2-base-code', false);
+      expect(store.getEnabledModels('local')).not.toContain('jinaai/jina-embeddings-v2-base-code');
     });
 
     it('enables multiple models for a provider', () => {

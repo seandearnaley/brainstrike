@@ -186,8 +186,31 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     });
   };
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Error extraction requires multiple type checks
   const onTaskError = (task: TaskPayload, startedAt: number, error: unknown) => {
-    const errorMessage = error instanceof Error ? error.message : String(error);
+    // Extract as much error information as possible
+    let errorMessage: string;
+    let errorStack: string | undefined;
+    let errorDetails: Record<string, unknown> | undefined;
+
+    if (error instanceof Error) {
+      errorMessage = error.message;
+      errorStack = error.stack;
+      // Check for nested cause (workerpool may wrap errors)
+      const cause = (error as Error & { cause?: unknown }).cause;
+      if (cause) {
+        errorDetails = { cause: cause instanceof Error ? cause.message : String(cause) };
+      }
+    } else if (typeof error === 'object' && error !== null) {
+      // Workerpool may return error objects that aren't Error instances
+      const errorObj = error as Record<string, unknown>;
+      errorMessage = String(errorObj['message'] ?? errorObj['error'] ?? JSON.stringify(error));
+      errorStack = String(errorObj['stack'] ?? '');
+      errorDetails = { ...errorObj };
+    } else {
+      errorMessage = String(error);
+    }
+
     const telemetry: QueueTelemetryEvent = {
       timestamp: Date.now(),
       adapter: 'workerpool',
@@ -202,11 +225,14 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     emitQueueTelemetry(telemetry);
     logger.error('Workerpool embedding task failed', {
       taskId: task.id,
+      model: task.model,
       elapsedMs: calculateElapsed(startedAt),
       activeBeforeRelease: activeTasks,
       activeAfterRelease: Math.max(activeTasks - 1, 0),
       error: errorMessage,
-      stack: error instanceof Error ? error.stack : undefined,
+      stack: errorStack,
+      details: errorDetails,
+      rawError: typeof error === 'object' ? JSON.stringify(error) : String(error),
     });
   };
 

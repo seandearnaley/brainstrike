@@ -6,6 +6,7 @@ import {
 import { CHUNKING_CONFIG } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,
+  type HostedProviderType,
   ModelRegistryManager,
   STANDARD_EMBEDDING_DIMENSION,
 } from '@brainstrike/embeddings';
@@ -24,7 +25,7 @@ import { SearchIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useEmbeddingPreferencesStore } from '../stores/embedding-preferences-store';
 
-type HostedEmbeddingProviderId = Exclude<EmbeddingProviderType, 'local'>;
+type HostedEmbeddingProviderId = HostedProviderType;
 
 type ModelPreset = {
   readonly id: string;

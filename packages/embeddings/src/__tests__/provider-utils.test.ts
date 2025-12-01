@@ -7,16 +7,16 @@ import {
 
 describe('parseProviderModelKey', () => {
   it('parses double-colon composite keys', () => {
-    expect(parseProviderModelKey('local::jina-code')).toEqual({
+    expect(parseProviderModelKey('local::jinaai/jina-embeddings-v2-base-code')).toEqual({
       provider: 'local',
-      modelId: 'jina-code',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
     });
   });
 
   it('parses legacy single-colon composites for backwards compatibility', () => {
-    expect(parseProviderModelKey('local:jina-code')).toEqual({
+    expect(parseProviderModelKey('local:jinaai/jina-embeddings-v2-base-code')).toEqual({
       provider: 'local',
-      modelId: 'jina-code',
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
     });
   });
 
@@ -38,11 +38,11 @@ describe('canonicalizeProviderModelKey', () => {
   });
 
   it('normalizes legacy single-colon values into the :: format', () => {
-    const result = canonicalizeProviderModelKey('local:jina-code');
+    const result = canonicalizeProviderModelKey('local:jinaai/jina-embeddings-v2-base-code');
     expect(result).toEqual({
       provider: 'local',
-      modelId: 'jina-code',
-      composite: formatProviderModelKey('local', 'jina-code'),
+      modelId: 'jinaai/jina-embeddings-v2-base-code',
+      composite: formatProviderModelKey('local', 'jinaai/jina-embeddings-v2-base-code'),
     });
   });
 

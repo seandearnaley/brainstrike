@@ -24,7 +24,7 @@ export type ModelPickerProvider = {
 };
 
 export type ModelType = 'llm' | 'embedding' | 'all';
-export type SelectionMode = 'single' | 'multi';
+export type ModelPickerSelectionMode = 'single' | 'multi';
 
 export type TriggerRenderProps = {
   value?: string | string[] | undefined;
@@ -48,7 +48,7 @@ export type ModelPickerProps = {
   providers: ModelPickerProvider[];
 
   /** Selection mode */
-  mode?: SelectionMode; // default: 'single'
+  mode?: ModelPickerSelectionMode; // default: 'single'
 
   /** Filter by model type */
   modelType?: ModelType; // default: 'all'

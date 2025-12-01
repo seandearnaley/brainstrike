@@ -1,5 +1,6 @@
 import { QueueHud, VectorStatusWithDialog } from '@brainstrike/app-shell';
 import {
+  createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createTokenCountingSettingsCategory,
@@ -70,6 +71,7 @@ export default function SettingsPageContent() {
     () => [
       createAppearanceSettingsCategory(),
       createTokenCountingSettingsCategory(),
+      createApiKeysSettingsCategory(),
       {
         id: 'embedding-models',
         title: 'Models & Providers',
