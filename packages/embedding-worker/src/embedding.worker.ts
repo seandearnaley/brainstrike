@@ -19,7 +19,10 @@ import {
   vectorsFromPipelineOutput,
 } from './shared';
 
-// Global error handlers - only set up in actual worker environment
+// Global error handlers - only set up in actual worker environment.
+// This code only runs in browser Web Worker context where `self` exists.
+// It cannot be tested in Node.js. Coverage is excluded via c8 ignore.
+/* c8 ignore next 36 -- Worker globals only exist in browser Web Worker context */
 if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
   // Global error handler to catch any uncaught errors in the worker
   self.onerror = (event) => {

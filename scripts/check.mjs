@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Lightweight orchestrator for repo checks with timing and clear output.
 // Modes:
-// - default: install, lint-all, build, type-check, test (unit/integration), test:browser, e2e:functional (web), e2e:desktop
+// - default: install, lint-all, build, type-check, test:coverage:split, coverage:enforce, test:browser, e2e:functional (web), e2e:desktop
 // - --fast:   install, lint-all, build, type-check, test:fast, test:browser, e2e:functional (web), e2e:desktop
-// - --full:   lint-all, build, type-check, test:coverage:split, test:browser, e2e:functional (web), e2e:desktop
+// - --full:   lint-all, build, type-check, test:coverage:split, coverage:enforce, test:browser, e2e:functional (web), e2e:desktop
 // Flags:
 //   --no-install     Skip pnpm install
 //   --no-e2e         Skip E2E tests
+//   --no-coverage    Skip coverage enforcement (only affects default/full modes)
 //   --headless       Run headless display setup before checks (Linux CI/dev)
 //   --verbose        Show step start/finish banners
 
@@ -18,6 +19,7 @@ const isFast = args.has('--fast');
 const isFull = args.has('--full');
 const noInstall = args.has('--no-install');
 const noE2E = args.has('--no-e2e');
+const noCoverage = args.has('--no-coverage');
 const headless = args.has('--headless');
 const verbose = args.has('--verbose');
 
@@ -70,6 +72,9 @@ function stepLabel(cmd) {
   if (cmd.endsWith('setup:headless')) {
     return 'setup:headless';
   }
+  if (cmd.endsWith('coverage:enforce')) {
+    return 'coverage:enforce';
+  }
   return cmd;
 }
 
@@ -106,12 +111,15 @@ function buildPlan() {
   plan.push('pnpm -s run build');
   plan.push('pnpm -s run type-check');
 
-  if (isFull) {
-    plan.push('pnpm -s run test:coverage:split');
-  } else if (isFast) {
+  // --fast: quick tests without coverage
+  // default/--full: coverage tests + enforcement
+  if (isFast) {
     plan.push('pnpm -s run test:fast');
   } else {
-    plan.push('pnpm -s run test');
+    plan.push('pnpm -s run test:coverage:split');
+    if (!noCoverage) {
+      plan.push('pnpm -s run coverage:enforce');
+    }
   }
 
   plan.push('pnpm -s run test:browser');
