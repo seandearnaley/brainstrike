@@ -1,5 +1,6 @@
 import React, { type ComponentType, type ReactElement, type ReactNode } from 'react';
 import { cn } from './lib/utils';
+import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 
 export type NavigationItem = {
   name: string;
@@ -15,6 +16,33 @@ export interface NavigationSidebarProps extends React.HTMLAttributes<HTMLElement
   onItemClick?: (path: string) => void;
 }
 
+/**
+ * Navigation item base styles for consistent appearance across button and link variants.
+ * Uses a vertical tab pattern with left border indicator for active state.
+ */
+const getNavItemStyles = (isActive: boolean): string =>
+  cn(
+    // Base layout and sizing
+    'relative flex items-center justify-center',
+    'h-12 w-12 rounded-lg',
+    // Transitions for smooth interactions
+    'transition-all duration-200 ease-out',
+    // Hover state with subtle lift effect
+    'hover:-translate-y-0.5 hover:bg-sidebar-accent/80 hover:shadow-sm',
+    // Active press state
+    'active:translate-y-0 active:scale-95',
+    // Focus visible state for keyboard navigation
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
+    // Active/selected state styling
+    isActive && [
+      'bg-sidebar-accent text-sidebar-primary',
+      // Left border indicator for vertical tab effect
+      'before:-translate-y-1/2 before:absolute before:top-1/2 before:left-0',
+      'before:h-6 before:w-1 before:rounded-r-full before:bg-sidebar-primary',
+      'shadow-sm',
+    ]
+  );
+
 const NavigationSidebar = React.memo(function NavigationSidebar({
   items,
   currentPath,
@@ -28,52 +56,66 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
     <nav
       aria-label={ariaLabel || 'Main navigation'}
       className={cn(
-        'flex h-full w-16 flex-col items-center space-y-4 border-sidebar-border border-r bg-sidebar py-4',
+        'flex h-full w-16 flex-col items-center gap-2 border-sidebar-border border-r bg-sidebar py-4',
         className
       )}
       {...props}
     >
       {items.map((item) => {
         const Icon = item.icon;
+        const isActive = currentPath === item.path;
 
         // If onItemClick is provided, render as button instead of link
         if (onItemClick) {
           return (
-            <button
-              aria-label={item.name}
-              className={cn(
-                'rounded-md p-2 transition-all duration-150',
-                'hover:bg-sidebar-accent active:scale-95',
-                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-1',
-                currentPath === item.path && 'bg-sidebar-accent text-sidebar-primary',
-                'cursor-pointer'
-              )}
-              key={item.name}
-              onClick={() => onItemClick(item.path)}
-              title={item.name}
-              type="button"
-            >
-              <Icon className="h-6 w-6" />
-            </button>
+            <Tooltip key={item.name}>
+              <TooltipTrigger asChild>
+                <button
+                  aria-current={isActive ? 'page' : undefined}
+                  aria-label={item.name}
+                  className={cn(getNavItemStyles(isActive), 'cursor-pointer')}
+                  onClick={() => onItemClick(item.path)}
+                  type="button"
+                >
+                  <Icon
+                    aria-hidden="true"
+                    className={cn(
+                      'h-5 w-5 transition-transform duration-200',
+                      isActive && 'scale-110'
+                    )}
+                  />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={8}>
+                <p className="font-medium">{item.name}</p>
+              </TooltipContent>
+            </Tooltip>
           );
         }
 
         // Default behavior: render as link
         return (
-          <a
-            aria-label={item.name}
-            className={cn(
-              'rounded-md p-2 transition-all duration-150',
-              'hover:bg-sidebar-accent active:scale-95',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-1',
-              currentPath === item.path && 'bg-sidebar-accent text-sidebar-primary'
-            )}
-            href={item.path}
-            key={item.name}
-            title={item.name}
-          >
-            <Icon className="h-6 w-6" />
-          </a>
+          <Tooltip key={item.name}>
+            <TooltipTrigger asChild>
+              <a
+                aria-current={isActive ? 'page' : undefined}
+                aria-label={item.name}
+                className={getNavItemStyles(isActive)}
+                href={item.path}
+              >
+                <Icon
+                  aria-hidden="true"
+                  className={cn(
+                    'h-5 w-5 transition-transform duration-200',
+                    isActive && 'scale-110'
+                  )}
+                />
+              </a>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={8}>
+              <p className="font-medium">{item.name}</p>
+            </TooltipContent>
+          </Tooltip>
         );
       })}
       {children ? <div className="mt-auto">{children}</div> : null}
