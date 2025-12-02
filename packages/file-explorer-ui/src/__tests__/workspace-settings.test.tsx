@@ -3,7 +3,7 @@ import { FileExplorerStrings } from '@brainstrike/types';
 import { act, fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import FileExplorerConfig from '../file-explorer-config';
+import WorkspaceSettings from '../workspace-settings';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 const Wrapper = composeWrappers(({ children }) => (
@@ -11,7 +11,7 @@ const Wrapper = composeWrappers(({ children }) => (
 ));
 const renderWithProviders = makeRenderWithProviders(Wrapper);
 
-describe('FileExplorerConfig', () => {
+describe('WorkspaceSettings', () => {
   const defaultProps = {
     filterError: null,
     onFilterChange: vi.fn(),
@@ -23,14 +23,14 @@ describe('FileExplorerConfig', () => {
 
   it('renders settings button', () => {
     act(() => {
-      renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+      renderWithProviders(<WorkspaceSettings {...defaultProps} />);
     });
     expect(screen.getByRole('button')).toBeInTheDocument();
   });
 
   it('opens popover on button click', async () => {
     act(() => {
-      renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+      renderWithProviders(<WorkspaceSettings {...defaultProps} />);
     });
     const button = screen.getByRole('button');
     await userEvent.click(button);
@@ -43,7 +43,7 @@ describe('FileExplorerConfig', () => {
       filterError: 'Invalid regex pattern',
     };
     act(() => {
-      renderWithProviders(<FileExplorerConfig {...props} />);
+      renderWithProviders(<WorkspaceSettings {...props} />);
     });
     const button = screen.getByRole('button');
     fireEvent.click(button);
@@ -52,7 +52,7 @@ describe('FileExplorerConfig', () => {
 
   it('handles regex toggle', async () => {
     act(() => {
-      renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+      renderWithProviders(<WorkspaceSettings {...defaultProps} />);
     });
     const button = screen.getByRole('button');
     await userEvent.click(button);
@@ -69,7 +69,7 @@ describe('FileExplorerConfig', () => {
 
   it('handles project tree toggle', async () => {
     act(() => {
-      renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+      renderWithProviders(<WorkspaceSettings {...defaultProps} />);
     });
     const button = screen.getByRole('button');
     await userEvent.click(button);
@@ -88,7 +88,7 @@ describe('FileExplorerConfig', () => {
 
   it('updates folder summary threshold', async () => {
     act(() => {
-      renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+      renderWithProviders(<WorkspaceSettings {...defaultProps} />);
     });
     const button = screen.getByRole('button');
     await userEvent.click(button);
@@ -104,7 +104,7 @@ describe('FileExplorerConfig', () => {
   });
 
   it('updates max selection count', async () => {
-    renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+    renderWithProviders(<WorkspaceSettings {...defaultProps} />);
     const button = screen.getByRole('button');
     await userEvent.click(button);
 
@@ -120,7 +120,7 @@ describe('FileExplorerConfig', () => {
 
   it('shows inline fixture toggle when available', async () => {
     renderWithProviders(
-      <FileExplorerConfig
+      <WorkspaceSettings
         {...defaultProps}
         inlineFixtureSetting={{ available: true, loading: false }}
       />
@@ -137,7 +137,7 @@ describe('FileExplorerConfig', () => {
     const mockOnFilterChange = vi.fn();
     act(() => {
       renderWithProviders(
-        <FileExplorerConfig {...defaultProps} onFilterChange={mockOnFilterChange} />
+        <WorkspaceSettings {...defaultProps} onFilterChange={mockOnFilterChange} />
       );
     });
 

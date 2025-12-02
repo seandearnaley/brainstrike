@@ -4,7 +4,7 @@ import { isCompilerHotspot } from '../dev/is-compiler-hotspot';
 describe('utils/dev/is-compiler-hotspot', () => {
   it('matches unix paths', () => {
     expect(isCompilerHotspot('/repo/packages/hooks/src/x.ts')).toBe(true);
-    expect(isCompilerHotspot('/repo/packages/file-explorer-ui/src/file-explorer-config.tsx')).toBe(
+    expect(isCompilerHotspot('/repo/packages/file-explorer-ui/src/workspace-settings.tsx')).toBe(
       true
     );
     expect(isCompilerHotspot('/repo/packages/file-explorer-ui/src/view.tsx')).toBe(true);
@@ -14,7 +14,7 @@ describe('utils/dev/is-compiler-hotspot', () => {
   it('matches windows paths', () => {
     expect(isCompilerHotspot('C:\\repo\\packages\\hooks\\src\\x.tsx')).toBe(true);
     expect(
-      isCompilerHotspot('C:\\repo\\packages\\file-explorer-ui\\src\\file-explorer-config.tsx')
+      isCompilerHotspot('C:\\repo\\packages\\file-explorer-ui\\src\\workspace-settings.tsx')
     ).toBe(true);
     expect(isCompilerHotspot('C:\\repo\\packages\\file-explorer-hooks\\src\\a.ts')).toBe(true);
     expect(isCompilerHotspot('C:\\repo\\packages\\utils\\src\\index.ts')).toBe(false);

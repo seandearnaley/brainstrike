@@ -25,7 +25,7 @@ Add a tiny plugin (already wired): see [apps/web/vite.config.mts](mdc:apps/web/v
 function fullReloadOnCompilerHotspots() {
   const HOTSPOTS = [
     /packages\/(file-explorer-ui|file-explorer-hooks|hooks)\/src\/.*\.(ts|tsx)$/,
-    /packages\/file-explorer-ui\/src\/file-explorer-config\.tsx$/,
+    /packages\/file-explorer-ui\/src\/workspace-settings\.tsx$/,
   ];
   return {
     name: 'full-reload-on-compiler-hotspots',
@@ -61,7 +61,7 @@ function fullReloadOnCompilerHotspots() {
 ## 6) Separate compiled wrapper from stateful container (optional)
 
 - For components frequently edited (dialogs/popovers), place state in a thin container and pass values/setters to a render-only child.
-  - Example: [packages/file-explorer-ui/src/file-explorer-config.tsx](mdc:packages/file-explorer-ui/src/file-explorer-config.tsx)
+  - Example: [packages/file-explorer-ui/src/workspace-settings.tsx](mdc:packages/file-explorer-ui/src/workspace-settings.tsx)
 
 ## 7) HMR-safe Zustand store singleton
 

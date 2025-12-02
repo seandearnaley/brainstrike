@@ -44,7 +44,7 @@ From `src/index.ts`:
   * `FileTree`, `OptimizedFileTree`
   * `PreviewPanel`, `TabbedFileEditor`, `TabbedFileEditorPanel`
   * `LoadingOverlay`, `SelectionCounter`
-  * Config/controls: `FileExplorerConfig`, `FileFilterBar`, `FileExtensionFilter`, `IncludeProjectTreeSetting`, `MaxSelectionCountSetting`, `FolderSummaryThresholdSetting`, `UseRegexSetting`
+  * Config/controls: `WorkspaceSettings`, `FileFilterBar`, `FileExtensionFilter`, `IncludeProjectTreeSetting`, `MaxSelectionCountSetting`, `FolderSummaryThresholdSetting`, `UseRegexSetting`
 * Providers & hooks
 
   * `FileExplorerProvider`, `useFileExplorerStoreContext`

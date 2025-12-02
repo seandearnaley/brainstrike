@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  createInlineFixtureToggleHandler,
-  fileExplorerConfigLogger,
-} from '../file-explorer-config';
+import { createInlineFixtureToggleHandler, workspaceSettingsLogger } from '../workspace-settings';
 
 vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils')>();
@@ -17,7 +14,7 @@ describe('createInlineFixtureToggleHandler', () => {
     const persistPatch = vi.fn().mockRejectedValue(new Error('boom'));
     const onSettingsChange = vi.fn();
     const setDevInlineFixtureEnabled = vi.fn();
-    const loggerWarnSpy = vi.spyOn(fileExplorerConfigLogger, 'warn').mockImplementation(() => {});
+    const loggerWarnSpy = vi.spyOn(workspaceSettingsLogger, 'warn').mockImplementation(() => {});
 
     const handler = createInlineFixtureToggleHandler({
       onSettingsChange,
