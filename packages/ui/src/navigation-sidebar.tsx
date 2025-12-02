@@ -27,19 +27,19 @@ const getNavItemStyles = (isActive: boolean): string =>
     'h-12 w-12 rounded-lg',
     // Transitions for smooth interactions
     'transition-all duration-200 ease-out',
-    // Hover state with subtle lift effect
-    'hover:-translate-y-0.5 hover:bg-sidebar-accent/80 hover:shadow-sm',
+    // Hover state - uses accent color for consistent look with theme toggle
+    'hover:bg-accent hover:text-accent-foreground hover:shadow-sm',
     // Active press state
-    'active:translate-y-0 active:scale-95',
+    'active:scale-95',
     // Focus visible state for keyboard navigation
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
-    // Active/selected state styling
+    // Active/selected state styling - prominent background for clear indication
     isActive && [
-      'bg-sidebar-accent text-sidebar-primary',
+      'bg-accent text-accent-foreground',
       // Left border indicator for vertical tab effect
       'before:-translate-y-1/2 before:absolute before:top-1/2 before:left-0',
       'before:h-6 before:w-1 before:rounded-r-full before:bg-sidebar-primary',
-      'shadow-sm',
+      'shadow-md',
     ]
   );
 
