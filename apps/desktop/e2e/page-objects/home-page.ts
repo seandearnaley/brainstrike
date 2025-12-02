@@ -32,7 +32,8 @@ export class HomePage {
   }
 
   get themeToggle() {
-    return this.page.getByRole('button', { name: /theme/i });
+    // Theme toggle button has aria-label "Switch to dark mode" or "Switch to light mode"
+    return this.page.getByRole('button', { name: /Switch to (dark|light) mode/i });
   }
 
   // Actions
@@ -56,10 +57,10 @@ export class HomePage {
       await btn.click();
       return;
     }
-    // Fallback: click by title attribute on sidebar icon
-    const byTitle = this.page.locator('nav [title="Settings"]');
-    if (await byTitle.isVisible().catch(() => false)) {
-      await byTitle.click();
+    // Fallback: click by aria-label (tooltips now use aria-label instead of title)
+    const byAriaLabel = this.page.locator('nav [aria-label="Settings"]');
+    if (await byAriaLabel.isVisible().catch(() => false)) {
+      await byAriaLabel.click();
     }
   }
 

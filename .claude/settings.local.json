@@ -169,7 +169,8 @@
       "Bash(cp:*)",
       "Bash(npx biome:*)",
       "Bash(xargs -I {} sh -c 'git diff {} | grep -q \"\"\"\"^-var \"\"\"\" && echo {}')",
-      "Bash(BRAINSTRIKE_DISABLE_FILE_LOGS=1 pnpm exec playwright test:*)"
+      "Bash(BRAINSTRIKE_DISABLE_FILE_LOGS=1 pnpm exec playwright test:*)",
+      "Bash(npx playwright test:*)"
     ],
     "deny": [],
     "ask": []

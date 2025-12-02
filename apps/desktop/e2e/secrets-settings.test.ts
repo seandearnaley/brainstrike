@@ -3,10 +3,15 @@ import { expect, test } from './fixtures/electron-fixture';
 test.describe('Secrets Settings', () => {
   test('save and retrieve provider key via settings UI + IPC', async ({ window, homePage }) => {
     await homePage.openSettings();
-    await expect(window.getByTestId('settings-section')).toBeVisible();
+    // Wait for Settings page to load by checking for the Settings heading
+    await expect(window.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
 
-    // Navigate to Models & Providers category
-    await window.getByRole('button', { name: /API Keys/i }).click();
+    // Navigate to API Keys category (scoped to settings nav to avoid nav sidebar conflicts)
+    await window
+      .getByRole('navigation', { name: 'Settings categories' })
+      .getByRole('button', { name: /API Keys/i })
+      .click();
+    await expect(window.getByTestId('settings-category-api-keys')).toBeVisible();
 
     const providerSelect = window.getByTestId('llm-provider');
     await expect(providerSelect).toBeVisible();

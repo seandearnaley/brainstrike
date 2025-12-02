@@ -1,26 +1,39 @@
 import { Button } from '@brainstrike/ui';
 import { Moon, Sun } from 'lucide-react';
 import { useTheme } from './theme-provider';
+import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
+  const nextTheme = theme === 'light' ? 'dark' : 'light';
+  const tooltipLabel = `Switch to ${nextTheme} mode`;
 
   return (
-    <Button
-      onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
-      size="icon"
-      title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
-      variant="ghost"
-    >
-      <Sun
-        className="dark:-rotate-90 h-5 w-5 rotate-0 scale-100 transition-all dark:scale-0"
-        data-testid="theme-sun-icon"
-      />
-      <Moon
-        className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100"
-        data-testid="theme-moon-icon"
-      />
-      <span className="sr-only">Toggle theme</span>
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          aria-label={tooltipLabel}
+          className="hover:-translate-y-0.5 h-12 w-12 rounded-lg transition-all duration-200 ease-out hover:shadow-sm active:translate-y-0 active:scale-95"
+          onClick={() => setTheme(nextTheme)}
+          size="icon"
+          variant="ghost"
+        >
+          <Sun
+            aria-hidden="true"
+            className="dark:-rotate-90 h-5 w-5 rotate-0 scale-100 transition-all duration-300 dark:scale-0"
+            data-testid="theme-sun-icon"
+          />
+          <Moon
+            aria-hidden="true"
+            className="absolute h-5 w-5 rotate-90 scale-0 transition-all duration-300 dark:rotate-0 dark:scale-100"
+            data-testid="theme-moon-icon"
+          />
+          <span className="sr-only">Toggle theme</span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8}>
+        <p className="font-medium">{tooltipLabel}</p>
+      </TooltipContent>
+    </Tooltip>
   );
 }
