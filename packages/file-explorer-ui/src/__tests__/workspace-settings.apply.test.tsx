@@ -2,7 +2,7 @@ import { Dialog } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { ConfigDialogContent } from '../file-explorer-config';
+import { ConfigDialogContent } from '../workspace-settings';
 
 describe('ConfigDialogContent apply settings', () => {
   it('catches errors from persistPatch and still closes', async () => {

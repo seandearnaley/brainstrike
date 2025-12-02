@@ -3,8 +3,8 @@ import { FileExplorerStrings } from '@brainstrike/types';
 import { Badge, Button } from '@brainstrike/ui';
 import { Folder } from 'lucide-react';
 import * as React from 'react';
-import FileExplorerConfig from './file-explorer-config';
 import { FileFilterBar } from './file-filter-bar';
+import WorkspaceSettings from './workspace-settings';
 
 type FileExplorerToolbarProps = {
   onDirectorySelect: () => Promise<void>;
@@ -50,7 +50,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
             <Folder className="mr-2 h-4 w-4" />
             {FileExplorerStrings.selectRoot}
           </Button>
-          <FileExplorerConfig
+          <WorkspaceSettings
             filterError={filterError}
             onFilterChange={onFilterChange}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}

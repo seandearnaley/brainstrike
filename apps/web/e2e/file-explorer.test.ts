@@ -34,12 +34,10 @@ test.describe('File Explorer', () => {
       await expect(page.getByText('No files selected')).toBeVisible();
     });
 
-    test('should show file explorer configuration options', async ({ page }) => {
+    test('should show workspace settings options', async ({ page }) => {
       const dialog = await openExplorerSettings(page, explorer);
 
-      await expect(
-        dialog.getByRole('heading', { name: 'File Explorer Configuration' })
-      ).toBeVisible();
+      await expect(dialog.getByRole('heading', { name: 'Workspace Settings' })).toBeVisible();
       await expect(dialog.getByLabel('Max Selection Count')).toBeVisible();
       await expect(dialog.getByLabel('Folder Summary Threshold')).toBeVisible();
       await expect(dialog.getByPlaceholder('e.g. *.ts, src/**/*.js')).toBeVisible();

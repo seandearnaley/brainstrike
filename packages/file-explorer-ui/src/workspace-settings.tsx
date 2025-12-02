@@ -29,7 +29,7 @@ type FileExplorerSettings = {
   devInlineFixtureEnabled: boolean;
 };
 
-type FileExplorerConfigProps = {
+type WorkspaceSettingsProps = {
   filterError: string | null;
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   inlineFixtureSetting?: {
@@ -38,8 +38,8 @@ type FileExplorerConfigProps = {
   };
 };
 
-const logger = createLogger('FileExplorerConfig');
-export const fileExplorerConfigLogger = logger;
+const logger = createLogger('WorkspaceSettings');
+export const workspaceSettingsLogger = logger;
 
 type InlineFixtureToggleDependencies = {
   onSettingsChange: (key: 'devInlineFixtureEnabled', value: boolean) => void;
@@ -147,10 +147,10 @@ const ConfigDialogContent: React.FC<{
     <div>
       <div className="rounded-t-lg border-b bg-card bg-gradient-to-t from-primary/5 to-card p-4 text-foreground">
         <DialogTitle className="font-semibold text-lg leading-none tracking-tight">
-          File Explorer Configuration
+          Workspace Settings
         </DialogTitle>
         <DialogDescription className="mt-1 text-muted-foreground text-sm">
-          Customize behavior and appearance
+          Configure file explorer behavior for this workspace
         </DialogDescription>
       </div>
       <div className="@container flex flex-col gap-4 bg-card p-4 text-foreground">
@@ -210,8 +210,8 @@ const ConfigDialogContent: React.FC<{
 };
 
 // Non-compiled stateful container to isolate hook layout from compiler HMR
-const ConfigDialogContainer: React.FC<
-  FileExplorerConfigProps & {
+const SettingsDialogContainer: React.FC<
+  WorkspaceSettingsProps & {
     selectors: {
       includeFilters: string[];
       excludeFilters: string[];
@@ -317,7 +317,7 @@ const ConfigDialogContainer: React.FC<
 };
 
 // Main Component (compiled wrapper)
-const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
+const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
   ({ filterError, onFilterChange, inlineFixtureSetting }) => {
     const store = useFileExplorerStoreContext();
     const [
@@ -415,7 +415,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
     };
 
     return (
-      <ConfigDialogContainer
+      <SettingsDialogContainer
         actions={{
           setMaxSelectionCount,
           setUseRegex,
@@ -443,4 +443,4 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
 );
 
 export { ConfigDialogContent };
-export default FileExplorerConfig;
+export default WorkspaceSettings;

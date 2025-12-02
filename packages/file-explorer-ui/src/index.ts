@@ -1,8 +1,6 @@
 export * from './action-buttons';
 export * from './contexts/file-editor-context';
 export * from './file-content-context';
-export * from './file-explorer-config';
-export { default as FileExplorerConfig } from './file-explorer-config';
 export { default as FileExplorerErrorBoundary } from './file-explorer-error-boundary';
 export * from './file-explorer-header';
 export * from './file-explorer-left-panel';
@@ -47,3 +45,5 @@ export * from './utils/file-node-cache';
 export { processDirectoryEntry } from './utils/process-directory-entry';
 export { processFileEntry } from './utils/process-file-entry';
 export { readFullTree } from './utils/read-full-tree';
+export * from './workspace-settings';
+export { default as WorkspaceSettings } from './workspace-settings';
