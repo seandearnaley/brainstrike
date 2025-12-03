@@ -424,8 +424,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shardIndex: [1, 2, 3, 4]
-        shardTotal: [4]
+        # Reduced from 4 to 2 shards to test resource contention theory
+        # See: docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md
+        shardIndex: [1, 2]
+        shardTotal: [2]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -466,14 +468,37 @@ jobs:
           # Use a deterministic X server number per shard to avoid collisions
           # Shard 1 = :91, Shard 2 = :92, etc. (base 90 + shardIndex)
           SERVER_NUM=$((90 + ${{ matrix.shardIndex }}))
+          export DISPLAY=":${SERVER_NUM}"
 
           # Clean up any stale X lock files for this server number
           LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
           [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
 
-          echo "Starting Xvfb on display :${SERVER_NUM} for shard ${{ matrix.shardIndex }}"
-          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24 -ac +extension GLX" \
-            pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          # Start Xvfb in background with explicit pre-warming
+          # See: docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md - Xvfb timing theory
+          echo "Starting Xvfb on display ${DISPLAY} for shard ${{ matrix.shardIndex }}"
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
+          XVFB_PID=$!
+
+          # Pre-warm: Wait for Xvfb to fully initialize
+          echo "Waiting for Xvfb to initialize..."
+          sleep 3
+
+          # Verify Xvfb is running and display is accessible
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            exit 1
+          fi
+          echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
+
+          # Run tests with explicit DISPLAY
+          echo "Starting Playwright tests..."
+          pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          TEST_EXIT_CODE=$?
+
+          # Cleanup
+          kill $XVFB_PID 2>/dev/null || true
+          exit $TEST_EXIT_CODE
         env:
           NODE_ENV: "test"
           CI: "true"
