@@ -171,12 +171,56 @@ packages/config/src/playwright-environment.ts  # Shared Playwright config
 - `HYP-H.*Heartbeat` - Heartbeat monitoring
 - `Launch attempt` - Retry attempts
 
+## Update: Session 2 (2025-12-03 21:00 UTC)
+
+### What Was Tested
+
+1. **Reduced shards from 4 to 2** - Modified `.github/workflows/test.yml`
+2. **Added Xvfb pre-warming** - Replaced `xvfb-run` with manual Xvfb startup + 3s sleep
+
+### Results (Run 19908574552)
+
+- **Shard 2/2**: ✅ PASSED
+- **Shard 1/2**: ❌ FAILED (same root cause)
+
+### Key Finding
+
+**Resource contention is NOT the primary cause.** Even with only 2 shards, Shard 1 still failed with the exact same symptoms:
+
+```
+[DEBUG][HYP-F] Electron version check FAILED: Command failed: "...electron" --version 2>&1
+[DEBUG][HYP-H] Heartbeat: 5539ms elapsed, stdout=false, stderr=false
+[DEBUG][HYP-H] Heartbeat: 10544ms elapsed, stdout=false, stderr=false
+... (30 seconds of no output) ...
+❌ Launch attempt 3 failed: electronApplication.firstWindow: Timeout 30000ms exceeded
+```
+
+The `electron --version` command itself fails - this is pure binary execution issue, not about displays or windows.
+
+### Theories Eliminated
+
+1. ~~Resource contention from 4 shards~~ - Still fails with 2 shards
+2. ~~Xvfb timing~~ - Manual Xvfb with 3s pre-warm didn't help
+
+### Remaining Theories
+
+1. **Electron 39 binary issue** - Something specific to Electron 39.2.4 on GitHub CI Ubuntu runners
+2. **Random native initialization failure** - Chromium/Electron has a non-deterministic startup bug
+3. **Missing system dependency** - Some library or config needed by Electron is intermittently unavailable
+
+### Recommended Next Steps (Updated Priority)
+
+1. **HIGH: Check Electron GitHub issues** - Search for Electron 39 + Ubuntu + headless issues
+2. **HIGH: Try Electron 38** - Downgrade to test if this is a regression
+3. **MEDIUM: Run single shard** - Remove all parallelism to isolate the issue
+4. **MEDIUM: Add pre-launch Electron binary verification** - Run `electron --version` before tests and fail fast if it doesn't work
+
 ## Conclusion
 
 The root cause is NOT in JavaScript code. It's a native-level issue where Electron hangs or crashes before the V8 engine even starts executing JavaScript. This happens randomly and is likely related to:
 
-1. Timing/race conditions with Xvfb display initialization
-2. Resource contention between parallel shards
-3. Potentially a bug in Electron 39's startup code
+1. ~~Timing/race conditions with Xvfb display initialization~~ (Tested, not the cause)
+2. ~~Resource contention between parallel shards~~ (Tested, not the cause)
+3. **Potentially a bug in Electron 39's startup code** (Most likely)
 
-The fix requires investigating at the native/environment level, not the JavaScript level. Consider reducing parallelism or adding explicit Xvfb readiness checks before proceeding.
+The fix requires investigating at the native/environment level, not the JavaScript level. **Next step should be testing with Electron 38 to determine if this is a regression.**
