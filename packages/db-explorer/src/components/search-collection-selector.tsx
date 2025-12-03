@@ -1,69 +1,20 @@
-import type { EmbeddingSet, usePGliteDatabase } from '@brainstrike/db';
-import { usePGliteLiveQuery } from '@brainstrike/db';
+import type { usePGliteDatabase } from '@brainstrike/db';
 import {
   Button,
   Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
+import {
+  CollectionSelect,
+  type CollectionWithDocCount,
+  useCollections,
+} from '@brainstrike/vector-management';
 import { HelpCircle, Plus, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-
-type EmbeddingSetWithDocumentCount = EmbeddingSet & {
-  documentCount: number;
-};
-
-type CollectionRow = {
-  id: string;
-  modelKey: string;
-  modelId: string;
-  dimensions: number;
-  distance: string;
-  createdAt: string;
-  name: string | null;
-  description: string | null;
-  tags: string | null;
-  category: string | null;
-  documentCount: string | number;
-};
-
-/**
- * SQL query to fetch all embedding sets with their chunk counts
- *
- * This query:
- * - Joins embedding_sets with file_chunks to count documents per collection
- * - Uses LEFT JOIN to include collections with zero chunks
- * - Lists all non-aggregated columns explicitly in GROUP BY (required for strict SQL mode)
- * - Orders by creation date (newest first)
- *
- * @returns SQL query string for fetching collections with metadata
- */
-const COLLECTIONS_WITH_COUNTS_QUERY = `
-  SELECT
-    s.id,
-    s.model_key AS "modelKey",
-    s.model_id AS "modelId",
-    s.dimensions,
-    s.distance,
-    s.created_at AS "createdAt",
-    s.name,
-    s.description,
-    s.tags,
-    s.category,
-    COUNT(DISTINCT fr.id) AS "documentCount"
-  FROM embedding_sets s
-  LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
-  GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at, s.name, s.description, s.tags, s.category
-  ORDER BY s.created_at DESC
-`.trim();
 
 type SearchCollectionSelectorProps = {
   /**
@@ -95,11 +46,13 @@ type SearchCollectionSelectorProps = {
 /**
  * SearchCollectionSelector - User-friendly collection selector for Database Explorer
  *
- * This component provides:
- * - Dropdown with all available collections
- * - Stats display (document count, last updated)
- * - Help tooltip explaining collections
- * - Quick access to Create and Manage buttons
+ * This component wraps CollectionSelect with additional UI:
+ * - Label with help tooltip explaining collections
+ * - Create and Manage action buttons
+ * - Metadata display (model, dimensions, distance)
+ * - Empty state with "Create First Collection" CTA
+ *
+ * For the compact version without chrome, see EmbeddingSetSelector.
  */
 export function SearchCollectionSelector({
   db,
@@ -111,55 +64,17 @@ export function SearchCollectionSelector({
   const { toast } = useToast();
   const lastToastErrorRef = useRef<string | null>(null);
 
-  const {
-    rows: rawCollections,
-    loading: liveLoading,
-    error: liveError,
-  } = usePGliteLiveQuery<CollectionRow>({
-    query: COLLECTIONS_WITH_COUNTS_QUERY,
-    enabled: Boolean(db),
-  });
+  // Use shared hook for collection data
+  const { collections, loading, error } = useCollections(db);
 
-  const collections = useMemo<EmbeddingSetWithDocumentCount[]>(
-    () =>
-      rawCollections.map((row) => {
-        const set: EmbeddingSetWithDocumentCount = {
-          id: row.id,
-          modelKey: row.modelKey,
-          modelId: row.modelId,
-          dimensions: row.dimensions,
-          distance: row.distance as 'cosine' | 'l2' | 'ip',
-          createdAt: row.createdAt,
-          documentCount: Number(row.documentCount ?? 0),
-        };
-
-        if (row.name) {
-          set.name = row.name;
-        }
-        if (row.description) {
-          set.description = row.description;
-        }
-        if (row.tags) {
-          set.tags = row.tags;
-        }
-        if (row.category) {
-          set.category = row.category;
-        }
-
-        return set;
-      }),
-    [rawCollections]
-  );
-
+  // Handle errors with toast notifications
   useEffect(() => {
-    if (!liveError) {
+    if (!error) {
       lastToastErrorRef.current = null;
       return;
     }
     const message =
-      liveError instanceof Error
-        ? liveError.message
-        : 'Unable to retrieve collections from database';
+      error instanceof Error ? error.message : 'Unable to retrieve collections from database';
     if (lastToastErrorRef.current === message) {
       return;
     }
@@ -169,22 +84,31 @@ export function SearchCollectionSelector({
       description: message,
       variant: 'destructive',
     });
-  }, [liveError, toast]);
+  }, [error, toast]);
 
-  const loading = liveLoading || !db;
+  // Error callback for CollectionSelect
+  const handleError = useCallback(
+    (err: Error) => {
+      if (lastToastErrorRef.current === err.message) {
+        return;
+      }
+      lastToastErrorRef.current = err.message;
+      toast({
+        title: 'Failed to Load Collections',
+        description: err.message,
+        variant: 'destructive',
+      });
+    },
+    [toast]
+  );
 
-  // Find active collection
-  const activeCollection = useMemo(
+  const isLoading = loading || !db;
+
+  // Find active collection for metadata display
+  const activeCollection = useMemo<CollectionWithDocCount | null>(
     () => collections.find((c) => c.id === activeCollectionId) ?? null,
     [collections, activeCollectionId]
   );
-
-  // Format collection label with stats
-  const formatCollectionLabel = useCallback((collection: EmbeddingSetWithDocumentCount) => {
-    const name = collection.name || collection.modelId;
-    const count = collection.documentCount ?? 0;
-    return `${name} (${count.toLocaleString()} docs)`;
-  }, []);
 
   const hasCollections = collections.length > 0;
 
@@ -233,28 +157,17 @@ export function SearchCollectionSelector({
       </div>
 
       <div className="space-y-2">
-        <Select
-          disabled={!hasCollections || loading}
-          onValueChange={(value) => onCollectionChange(value || null)}
-          value={activeCollectionId ?? ''}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue
-              placeholder={loading ? 'Loading...' : 'No collections yet – create one to start'}
-            >
-              {activeCollection ? formatCollectionLabel(activeCollection) : null}
-            </SelectValue>
-          </SelectTrigger>
-          {hasCollections && (
-            <SelectContent className="max-w-[400px]">
-              {collections.map((collection) => (
-                <SelectItem key={collection.id} value={collection.id}>
-                  {formatCollectionLabel(collection)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          )}
-        </Select>
+        <CollectionSelect
+          collections={collections}
+          error={error instanceof Error ? error : null}
+          loading={loading}
+          loadingPlaceholder="Loading..."
+          onError={handleError}
+          onSelectionChange={onCollectionChange}
+          placeholder="No collections yet – create one to start"
+          selectedId={activeCollectionId}
+          size="default"
+        />
 
         {activeCollection && (
           <div className="flex items-center justify-between px-1 text-muted-foreground text-xs">
@@ -265,11 +178,14 @@ export function SearchCollectionSelector({
                 {activeCollection.dimensions}D {activeCollection.distance}
               </span>
             </div>
-            <div>{activeCollection.documentCount.toLocaleString()} documents</div>
+            <div>
+              {activeCollection.fileCount.toLocaleString()}{' '}
+              {activeCollection.fileCount === 1 ? 'file' : 'files'}
+            </div>
           </div>
         )}
 
-        {!(hasCollections || loading) && (
+        {!(hasCollections || isLoading) && (
           <div className="rounded-md border border-dashed bg-muted/20 p-3 text-center">
             <p className="mb-2 text-muted-foreground text-sm">
               No collections yet. Create your first collection to start searching files.

@@ -18,10 +18,13 @@ import {
   Label,
   useToast,
 } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
-import { getActiveEmbeddingSetId } from './vector-preferences';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
+import {
+  EmbeddingSetSelector,
+  useEmbeddingSetSelection,
+} from './vector-status/embedding-set-selector';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
 import { createVectorQueueService } from './vector-status/vector-queue-service';
@@ -394,112 +397,8 @@ export function formatRelativeTimeFromNow(input: string | null): string {
   }
 }
 
-function useActiveEmbeddingSet() {
-  // Read activeId from global context - Database Explorer controls this
-  const [activeId, setActiveId] = useState<string | null>(() => getActiveEmbeddingSetId());
-
-  // Re-read from global context when it changes externally
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    const handler = (event: Event) => {
-      const custom = event as CustomEvent<{ id?: string }>;
-      const nextId = custom.detail?.id;
-      if (typeof nextId === 'string' && nextId.trim()) {
-        setActiveId(nextId);
-      }
-    };
-
-    window.addEventListener('brainstrike:embedding-set-updated', handler as EventListener);
-
-    return () => {
-      window.removeEventListener('brainstrike:embedding-set-updated', handler as EventListener);
-    };
-  }, []);
-
-  return { activeId } as const;
-}
-
-function useActiveCollectionMeta(
-  db: ReturnType<typeof usePGliteDatabase>,
-  activeId: string | null
-) {
-  const [meta, setMeta] = useState<{
-    id: string;
-    name: string;
-    documents: number;
-  } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!(db && activeId)) {
-      setMeta(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const client = db as {
-      query: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
-    };
-
-    if (typeof client.query !== 'function') {
-      setMeta(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    const fetchMeta = async () => {
-      try {
-        const result = await client.query<{
-          id: string;
-          name: string | null;
-          modelId: string;
-          documentCount: string | number;
-        }>(
-          `SELECT s.id,
-                  s.name,
-                  s.model_id AS "modelId",
-                  COUNT(DISTINCT fr.id) AS "documentCount"
-             FROM embedding_sets s
-             LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
-            WHERE s.id = $1
-            GROUP BY s.id, s.name, s.model_id`,
-          [activeId]
-        );
-        if (cancelled) {
-          return;
-        }
-        const row = result.rows[0];
-        if (!row) {
-          setMeta(null);
-          return;
-        }
-        setMeta({
-          id: row.id,
-          name: row.name ?? row.modelId,
-          documents: Number(row.documentCount ?? 0),
-        });
-      } catch {
-        if (!cancelled) {
-          setMeta(null);
-        }
-      }
-    };
-
-    void fetchMeta();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [db, activeId]);
-
-  return meta;
-}
+// Note: Collection selection is now managed by the useEmbeddingSetSelection hook
+// and the EmbeddingSetSelector component from ./vector-status/embedding-set-selector.tsx
 
 type VectorStatusWithDbProps = {
   queueAdapter?: QueueAdapter | null;
@@ -530,14 +429,14 @@ type VectorStatusWithDbContentProps = {
   queueEnabled: boolean;
 };
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This component coordinates queue telemetry, worker controls, and renderer-only state in one place so the vector HUD stays consistent. Splitting further would scatter tightly-coupled hooks and make bugs harder to trace.
 function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentProps) {
   const vectorEnabled = useVectorEnabled();
   const db = usePGliteDatabase();
   const chunkRepository = useFileChunkRepository();
-  const { activeId } = useActiveEmbeddingSet();
   const { toast } = useToast();
-  const activeCollectionMeta = useActiveCollectionMeta(db, activeId);
+
+  // Self-contained collection selection - no longer depends on Database Explorer
+  const { selectedId: activeId, setSelectedId: setActiveId } = useEmbeddingSetSelection();
 
   const devicePref = useVectorPreferencesStore((s) => s.devicePref);
   const setDevicePref = useVectorPreferencesStore((s) => s.setDevicePref);
@@ -655,28 +554,12 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
         </div>
       </CardHeader>
       <CardContent className="space-y-2 px-3 py-2 text-xs">
-        <div className="flex items-center justify-between rounded-md border border-dashed bg-muted/40 px-2 py-1">
+        {/* Self-contained collection selector */}
+        <div className="space-y-1">
           <div className="font-medium text-[10px] text-muted-foreground uppercase tracking-wide">
             Active Collection
           </div>
-          {activeId ? (
-            <div className="flex items-center gap-2">
-              <Badge className="px-2 py-0 text-[10px]" variant="secondary">
-                {activeCollectionMeta?.name ?? 'Resolving…'}
-              </Badge>
-              <span className="text-[10px] text-muted-foreground">
-                {activeCollectionMeta
-                  ? `${activeCollectionMeta.documents.toLocaleString()} file${
-                      activeCollectionMeta.documents === 1 ? '' : 's'
-                    }`
-                  : 'Loading stats…'}
-              </span>
-            </div>
-          ) : (
-            <span className="text-[10px] text-muted-foreground">
-              Select a collection in Database Explorer
-            </span>
-          )}
+          <EmbeddingSetSelector db={db} onSelectionChange={setActiveId} selectedId={activeId} />
         </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-1">
@@ -762,7 +645,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
         <div className="grid grid-cols-2 gap-1">
           <BackfillButton
             activeId={activeId}
-            activeLabel={activeCollectionMeta?.name ?? null}
+            activeLabel={null}
             backfilling={queueState.backfilling}
             backfillProgress={queueState.backfillProgress}
             coverage={queueState.coverage}

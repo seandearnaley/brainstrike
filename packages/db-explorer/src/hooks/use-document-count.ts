@@ -2,36 +2,46 @@ import { usePGliteLiveQuery } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils';
 import { useMemo } from 'react';
 
-const logger = createLogger('useDocumentCount');
+const logger = createLogger('useIndexedChunkCount');
+export const indexedChunkCountLogger = logger;
+
+/**
+ * @deprecated Use useIndexedChunkCount instead for clearer terminology
+ */
 export const documentCountLogger = logger;
 
 /**
- * Hook to get the count of indexed documents (chunks with embeddings) in the active collection
+ * Hook to get the count of indexed chunks (chunks with embeddings) in a collection.
  *
- * @param activeCollectionId - The active embedding set ID
- * @returns Number of indexed documents, or undefined if loading/no collection
+ * Terminology:
+ * - Files: Imported file_records
+ * - Chunks: Pieces of files split for embedding (file_chunks)
+ * - Indexed chunks: Chunks with embeddings (searchable)
+ *
+ * @param activeCollectionId - The embedding set ID to count chunks for
+ * @returns Number of chunks with embeddings, or undefined if loading/no collection
  *
  * @example
  * ```tsx
- * const documentCount = useDocumentCount(activeCollectionId);
- * // documentCount will be the count of chunks with embeddings in the active collection
+ * const indexedChunks = useIndexedChunkCount(activeCollectionId);
+ * // indexedChunks = count of file_chunks with non-null embedding for the set
  * ```
  */
-const DOCUMENT_COUNT_QUERY = `
+const INDEXED_CHUNK_COUNT_QUERY = `
   SELECT COUNT(*)::int AS count
     FROM file_chunks
    WHERE embedding_set_id = $1
      AND embedding IS NOT NULL
 `.trim();
 
-export function useDocumentCount(activeCollectionId: string | null): number | undefined {
+export function useIndexedChunkCount(activeCollectionId: string | null): number | undefined {
   const params = useMemo<readonly [string] | undefined>(
     () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
     [activeCollectionId]
   );
 
   const { rows, error } = usePGliteLiveQuery<{ count: number }>({
-    query: DOCUMENT_COUNT_QUERY,
+    query: INDEXED_CHUNK_COUNT_QUERY,
     ...(params ? { params } : {}),
     enabled: Boolean(activeCollectionId),
   });
@@ -41,7 +51,7 @@ export function useDocumentCount(activeCollectionId: string | null): number | un
       return;
     }
     if (error) {
-      logger.error('Failed to fetch document count', { error });
+      logger.error('Failed to fetch indexed chunk count', { error });
       return;
     }
     const row = rows[0];
@@ -51,3 +61,8 @@ export function useDocumentCount(activeCollectionId: string | null): number | un
     return Number.isFinite(row.count) ? row.count : 0;
   }, [activeCollectionId, rows, error]);
 }
+
+/**
+ * @deprecated Use useIndexedChunkCount instead for clearer terminology
+ */
+export const useDocumentCount = useIndexedChunkCount;

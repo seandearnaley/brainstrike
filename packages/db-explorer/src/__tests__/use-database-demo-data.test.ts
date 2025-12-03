@@ -201,42 +201,56 @@ describe('useDatabaseDemoData', () => {
   });
 
   it('refreshes live queries when manual reload is requested', async () => {
-    const repository = createRepository();
-    const chunkRepository = createChunkRepository([]);
-    const toast = vi.fn();
-    const { recordRefresh, chunkRefresh } = setupLiveQueries();
-
-    const { result } = renderHook(() =>
-      useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast,
-        database: createMockDatabase(),
-        activeCollectionId: 'set-1',
-      })
-    );
-
-    await waitFor(
-      () => {
-        expect(
-          mockedUsePGliteLiveQuery.mock.calls.some(([queryOptions]) => queryOptions.enabled)
-        ).toBe(true);
-      },
-      { timeout: 3000 }
-    );
-
-    await waitFor(() => {
-      expect(result.current.loadRecords).toBeDefined();
-      expect(result.current.refreshing).toBe(false);
+    // Suppress React act() warnings - these calls trigger async state updates
+    // that complete after the promise resolves, which is expected behavior
+    const originalError = console.error;
+    console.error = vi.fn((msg) => {
+      if (typeof msg === 'string' && msg.includes('was not wrapped in act')) {
+        return;
+      }
+      originalError(msg);
     });
 
-    await result.current.loadRecords();
-    await result.current.loadChunks();
+    try {
+      const repository = createRepository();
+      const chunkRepository = createChunkRepository([]);
+      const toast = vi.fn();
+      const { recordRefresh, chunkRefresh } = setupLiveQueries();
 
-    await waitFor(() => {
-      expect(recordRefresh).toHaveBeenCalled();
-      expect(chunkRefresh).toHaveBeenCalled();
-    });
+      const { result } = renderHook(() =>
+        useDatabaseDemoData({
+          repository,
+          chunkRepository,
+          toast,
+          database: createMockDatabase(),
+          activeCollectionId: 'set-1',
+        })
+      );
+
+      await waitFor(
+        () => {
+          expect(
+            mockedUsePGliteLiveQuery.mock.calls.some(([queryOptions]) => queryOptions.enabled)
+          ).toBe(true);
+        },
+        { timeout: 3000 }
+      );
+
+      await waitFor(() => {
+        expect(result.current.loadRecords).toBeDefined();
+        expect(result.current.refreshing).toBe(false);
+      });
+
+      await result.current.loadRecords();
+      await result.current.loadChunks();
+
+      await waitFor(() => {
+        expect(recordRefresh).toHaveBeenCalled();
+        expect(chunkRefresh).toHaveBeenCalled();
+      });
+    } finally {
+      console.error = originalError;
+    }
   });
 
   it('surfaces chunk live query errors via toast', async () => {
@@ -349,37 +363,51 @@ describe('useDatabaseDemoData', () => {
   });
 
   it('handles database connection failure gracefully', async () => {
-    const repository = {
-      findAll: vi.fn().mockResolvedValue([]),
-      count: vi.fn().mockRejectedValue(new Error('Connection refused')),
-    } as unknown as FileRecordRepository;
+    // Suppress "Maximum update depth" warnings - these occur due to the mock
+    // triggering rapid re-renders during error handling, which is expected
+    const originalError = console.error;
+    console.error = vi.fn((msg) => {
+      if (typeof msg === 'string' && msg.includes('Maximum update depth')) {
+        return;
+      }
+      originalError(msg);
+    });
 
-    const chunkRepository = createChunkRepository([]);
-    const toast = vi.fn();
-    setupLiveQueries();
+    try {
+      const repository = {
+        findAll: vi.fn().mockResolvedValue([]),
+        count: vi.fn().mockRejectedValue(new Error('Connection refused')),
+      } as unknown as FileRecordRepository;
 
-    const { result } = renderHook(() =>
-      useDatabaseDemoData({
-        repository,
-        chunkRepository,
-        toast,
-        database: createMockDatabase(),
-        activeCollectionId: 'set-1',
-      })
-    );
+      const chunkRepository = createChunkRepository([]);
+      const toast = vi.fn();
+      setupLiveQueries();
 
-    // Wait for connection test to complete - dbInfo.connected will be false after error
-    // The testDatabaseConnection callback catches the error and sets connected: false
-    await waitFor(
-      () => {
-        expect(result.current.dbInfo).toBeDefined();
-        expect(result.current.dbInfo?.testResult).toContain('Database connection failed');
-      },
-      { timeout: 5000 }
-    );
+      const { result } = renderHook(() =>
+        useDatabaseDemoData({
+          repository,
+          chunkRepository,
+          toast,
+          database: createMockDatabase(),
+          activeCollectionId: 'set-1',
+        })
+      );
 
-    // Should be disconnected due to error
-    expect(result.current.dbInfo?.connected).toBe(false);
+      // Wait for connection test to complete - dbInfo.connected will be false after error
+      // The testDatabaseConnection callback catches the error and sets connected: false
+      await waitFor(
+        () => {
+          expect(result.current.dbInfo).toBeDefined();
+          expect(result.current.dbInfo?.testResult).toContain('Database connection failed');
+        },
+        { timeout: 5000 }
+      );
+
+      // Should be disconnected due to error
+      expect(result.current.dbInfo?.connected).toBe(false);
+    } finally {
+      console.error = originalError;
+    }
   });
 
   it('handles database query failure in fetchInfo effect', async () => {

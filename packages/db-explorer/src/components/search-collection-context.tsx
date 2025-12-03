@@ -3,18 +3,22 @@ import { FileText, Info } from 'lucide-react';
 
 type SearchCollectionContextProps = {
   collectionName: string;
-  documentCount?: number | undefined;
+  /**
+   * Number of chunks with embeddings (searchable chunks)
+   * This is the count from useIndexedChunkCount which queries file_chunks with non-null embeddings
+   */
+  indexedChunkCount?: number | undefined;
 };
 
 /**
  * Displays the active collection context for the Search tab
  *
- * Shows which collection is being searched and how many documents are available.
+ * Shows which collection is being searched and how many chunks are indexed (have embeddings).
  * Provides contextual help about what "searching in a collection" means.
  */
 export function SearchCollectionContext({
   collectionName,
-  documentCount,
+  indexedChunkCount,
 }: SearchCollectionContextProps) {
   return (
     <div className="flex items-center gap-2 px-1 py-2">
@@ -25,9 +29,9 @@ export function SearchCollectionContext({
           {collectionName}
         </Badge>
 
-        {documentCount !== undefined && (
+        {indexedChunkCount !== undefined && (
           <span className="text-muted-foreground text-xs">
-            • {documentCount.toLocaleString()} document{documentCount === 1 ? '' : 's'} indexed
+            • {indexedChunkCount.toLocaleString()} chunk{indexedChunkCount === 1 ? '' : 's'} indexed
           </span>
         )}
 

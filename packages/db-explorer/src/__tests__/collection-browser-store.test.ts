@@ -233,54 +233,76 @@ describe('collection-browser-store', () => {
     });
 
     it('persists through fallback storage when localStorage fails', () => {
-      const persistApi = storeWithPersist.persist;
-      expect(persistApi).toBeDefined();
-      const options = persistApi?.getOptions?.();
-      expect(options?.storage).toBeDefined();
-      if (!(persistApi && options?.storage && options.name)) {
-        throw new Error('persist storage unavailable for test');
-      }
-
-      const storage = options.storage;
-      vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
-        throw new Error('blocked');
+      // Suppress SafeStorage fallback warnings - these are expected when testing
+      // the fallback behavior with localStorage blocked
+      const originalWarn = console.warn;
+      const originalError = console.error;
+      console.warn = vi.fn((msg) => {
+        if (typeof msg === 'string' && msg.includes('SafeStorage')) {
+          return;
+        }
+        originalWarn(msg);
       });
-      vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
-        throw new Error('blocked');
-      });
-      vi.spyOn(window.localStorage, 'removeItem').mockImplementation(() => {
-        throw new Error('blocked');
+      console.error = vi.fn((msg) => {
+        if (typeof msg === 'string' && msg.includes('SafeStorage')) {
+          return;
+        }
+        originalError(msg);
       });
 
-      const store = useCollectionBrowserStore.getState();
-      store.setExpandedIds(['node-1']);
-      store.setSortState({ key: 'name', direction: 'desc' });
+      try {
+        const persistApi = storeWithPersist.persist;
+        expect(persistApi).toBeDefined();
+        const options = persistApi?.getOptions?.();
+        expect(options?.storage).toBeDefined();
+        if (!(persistApi && options?.storage && options.name)) {
+          throw new Error('persist storage unavailable for test');
+        }
 
-      const persistedValue = storage.getItem(options.name);
-      expect(persistedValue).not.toBeNull();
+        const storage = options.storage;
+        vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
+          throw new Error('blocked');
+        });
+        vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+          throw new Error('blocked');
+        });
+        vi.spyOn(window.localStorage, 'removeItem').mockImplementation(() => {
+          throw new Error('blocked');
+        });
 
-      if (
-        !persistedValue ||
-        typeof (persistedValue as { state?: unknown }) !== 'object' ||
-        Array.isArray(persistedValue)
-      ) {
-        throw new Error('unexpected persisted snapshot');
-      }
+        const store = useCollectionBrowserStore.getState();
+        store.setExpandedIds(['node-1']);
+        store.setSortState({ key: 'name', direction: 'desc' });
 
-      const snapshot = persistedValue as {
-        state?: {
-          expandedIds: string[];
-          sortState: { key: string; direction: string };
+        const persistedValue = storage.getItem(options.name);
+        expect(persistedValue).not.toBeNull();
+
+        if (
+          !persistedValue ||
+          typeof (persistedValue as { state?: unknown }) !== 'object' ||
+          Array.isArray(persistedValue)
+        ) {
+          throw new Error('unexpected persisted snapshot');
+        }
+
+        const snapshot = persistedValue as {
+          state?: {
+            expandedIds: string[];
+            sortState: { key: string; direction: string };
+          };
         };
-      };
 
-      expect(snapshot.state?.expandedIds).toContain('node-1');
-      expect(snapshot.state?.sortState.key).toBe('name');
-      expect(snapshot.state?.sortState.direction).toBe('desc');
+        expect(snapshot.state?.expandedIds).toContain('node-1');
+        expect(snapshot.state?.sortState.key).toBe('name');
+        expect(snapshot.state?.sortState.direction).toBe('desc');
 
-      persistApi.clearStorage?.();
-      const afterClear = storage.getItem(options.name);
-      expect(afterClear).toBeNull();
+        persistApi.clearStorage?.();
+        const afterClear = storage.getItem(options.name);
+        expect(afterClear).toBeNull();
+      } finally {
+        console.warn = originalWarn;
+        console.error = originalError;
+      }
     });
   });
 

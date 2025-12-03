@@ -1,0 +1,322 @@
+import { render, renderHook, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Mock data
+const mockCollections = [
+  {
+    id: 'set-1',
+    modelKey: 'openai',
+    modelId: 'text-embedding-3-small',
+    dimensions: 1536,
+    distance: 'cosine' as const,
+    createdAt: '2024-01-01T00:00:00Z',
+    name: 'Test Collection',
+    description: null,
+    tags: null,
+    category: null,
+    fileCount: 10,
+  },
+  {
+    id: 'set-2',
+    modelKey: 'openai',
+    modelId: 'text-embedding-3-large',
+    dimensions: 3072,
+    distance: 'cosine' as const,
+    createdAt: '2024-01-02T00:00:00Z',
+    name: null,
+    description: null,
+    tags: null,
+    category: null,
+    fileCount: 5,
+  },
+];
+
+const mockLiveQueryResult = {
+  rows: mockCollections.map((c) => ({ ...c, fileCount: String(c.fileCount) })),
+  loading: false,
+  error: null,
+  refresh: vi.fn(),
+};
+
+vi.mock('@brainstrike/db', () => ({
+  usePGliteLiveQuery: vi.fn(() => mockLiveQueryResult),
+}));
+
+// Mock preferences store for useEmbeddingSetSelection tests
+const mockStoreState = {
+  activeEmbeddingSetId: null as string | null,
+  setActiveEmbeddingSetId: vi.fn(),
+};
+
+vi.mock('@brainstrike/preferences', () => ({
+  useVectorStatusUIStore: vi.fn((selector: (state: typeof mockStoreState) => unknown) =>
+    selector(mockStoreState)
+  ),
+}));
+
+// Use a valid HTML structure for select mock - no nested divs inside select
+vi.mock('@brainstrike/ui', async () => {
+  const actual = await vi.importActual('@brainstrike/ui');
+  return {
+    ...actual,
+    Select: ({ children, onValueChange, value, disabled }: any) => {
+      // Separate the children into trigger/content vs options
+      return (
+        <div data-disabled={disabled} data-testid="select" data-value={value}>
+          <select
+            aria-label="Select collection"
+            data-testid="select-native"
+            disabled={disabled}
+            onChange={(e) => onValueChange?.(e.target.value)}
+            value={value}
+          >
+            <option value="">Select...</option>
+            {/* Options will be rendered separately */}
+          </select>
+          {/* Render non-option children outside the select */}
+          <div data-testid="select-ui">{children}</div>
+        </div>
+      );
+    },
+    SelectTrigger: ({ children, className }: any) => (
+      <div className={className} data-testid="select-trigger">
+        {children}
+      </div>
+    ),
+    SelectValue: ({ placeholder, children }: any) => (
+      <span data-testid="select-value">{children || placeholder}</span>
+    ),
+    SelectContent: ({ children }: any) => <div data-testid="select-content">{children}</div>,
+    SelectItem: ({ children, value, className }: any) => (
+      <div className={className} data-testid={`select-item-${value}`} data-value={value}>
+        {children}
+      </div>
+    ),
+  };
+});
+
+import { usePGliteLiveQuery } from '@brainstrike/db';
+import {
+  EmbeddingSetSelector,
+  useEmbeddingSetSelection,
+} from '../vector-status/embedding-set-selector';
+
+describe('EmbeddingSetSelector', () => {
+  const mockDb = {} as any;
+  const mockOnSelectionChange = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(usePGliteLiveQuery).mockReturnValue(mockLiveQueryResult);
+  });
+
+  it('renders with collections', () => {
+    render(
+      <EmbeddingSetSelector
+        db={mockDb}
+        onSelectionChange={mockOnSelectionChange}
+        selectedId={null}
+      />
+    );
+
+    expect(screen.getByTestId('select')).toBeInTheDocument();
+    expect(screen.getByText('Select collection...')).toBeInTheDocument();
+  });
+
+  it('renders with loading state when db is not available', () => {
+    vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      ...mockLiveQueryResult,
+      loading: true,
+    });
+
+    render(
+      <EmbeddingSetSelector
+        db={null as any}
+        onSelectionChange={mockOnSelectionChange}
+        selectedId={null}
+      />
+    );
+
+    expect(screen.getByTestId('select')).toHaveAttribute('data-disabled', 'true');
+  });
+
+  it('displays selected collection with file count', () => {
+    render(
+      <EmbeddingSetSelector
+        db={mockDb}
+        onSelectionChange={mockOnSelectionChange}
+        selectedId="set-1"
+      />
+    );
+
+    // Check the select-value specifically to avoid matching the option
+    const selectValue = screen.getByTestId('select-value');
+    expect(selectValue).toHaveTextContent('Test Collection (10 files)');
+  });
+
+  it('displays model ID when name is null', () => {
+    render(
+      <EmbeddingSetSelector
+        db={mockDb}
+        onSelectionChange={mockOnSelectionChange}
+        selectedId="set-2"
+      />
+    );
+
+    // Check the select-value specifically to avoid matching the option
+    const selectValue = screen.getByTestId('select-value');
+    expect(selectValue).toHaveTextContent('text-embedding-3-large (5 files)');
+  });
+
+  it('calls onSelectionChange when selection changes', async () => {
+    render(
+      <EmbeddingSetSelector
+        db={mockDb}
+        onSelectionChange={mockOnSelectionChange}
+        selectedId={null}
+      />
+    );
+
+    const select = screen.getByTestId('select-native');
+    // Simulate change event directly since mock doesn't have real options
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    // Manually set and trigger the change
+    (select as HTMLSelectElement).value = 'set-1';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+
+    // The mock select calls onValueChange with the selected value
+    expect(mockOnSelectionChange).toHaveBeenCalled();
+  });
+
+  it('shows empty state when no collections exist', () => {
+    vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      rows: [],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <EmbeddingSetSelector
+        db={mockDb}
+        onSelectionChange={mockOnSelectionChange}
+        selectedId={null}
+      />
+    );
+
+    expect(screen.getByText('No embedding sets yet')).toBeInTheDocument();
+  });
+
+  it('uses compact size styling', () => {
+    render(
+      <EmbeddingSetSelector
+        db={mockDb}
+        onSelectionChange={mockOnSelectionChange}
+        selectedId={null}
+      />
+    );
+
+    const trigger = screen.getByTestId('select-trigger');
+    expect(trigger).toHaveClass('h-7');
+  });
+
+  it('formats file count with singular form', () => {
+    vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      rows: [
+        {
+          ...mockCollections[0],
+          fileCount: '1',
+        },
+      ],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <EmbeddingSetSelector
+        db={mockDb}
+        onSelectionChange={mockOnSelectionChange}
+        selectedId="set-1"
+      />
+    );
+
+    const selectValue = screen.getByTestId('select-value');
+    expect(selectValue).toHaveTextContent('Test Collection (1 file)');
+  });
+
+  it('formats large file counts with locale separator', () => {
+    vi.mocked(usePGliteLiveQuery).mockReturnValue({
+      rows: [
+        {
+          ...mockCollections[0],
+          fileCount: '1234567',
+        },
+      ],
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <EmbeddingSetSelector
+        db={mockDb}
+        onSelectionChange={mockOnSelectionChange}
+        selectedId="set-1"
+      />
+    );
+
+    // Check for formatted number (locale-dependent)
+    const selectValue = screen.getByTestId('select-value');
+    expect(selectValue).toHaveTextContent('1,234,567 files');
+  });
+});
+
+describe('useEmbeddingSetSelection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockStoreState.activeEmbeddingSetId = null;
+  });
+
+  it('returns selectedId from store', () => {
+    mockStoreState.activeEmbeddingSetId = 'test-set-id';
+
+    const { result } = renderHook(() => useEmbeddingSetSelection());
+
+    expect(result.current.selectedId).toBe('test-set-id');
+  });
+
+  it('returns null when no selection', () => {
+    mockStoreState.activeEmbeddingSetId = null;
+
+    const { result } = renderHook(() => useEmbeddingSetSelection());
+
+    expect(result.current.selectedId).toBeNull();
+  });
+
+  it('calls setActiveEmbeddingSetId when setSelectedId is called', () => {
+    const { result } = renderHook(() => useEmbeddingSetSelection());
+
+    result.current.setSelectedId('new-set-id');
+
+    expect(mockStoreState.setActiveEmbeddingSetId).toHaveBeenCalledWith('new-set-id');
+  });
+
+  it('calls setActiveEmbeddingSetId with null to clear selection', () => {
+    mockStoreState.activeEmbeddingSetId = 'existing-id';
+    const { result } = renderHook(() => useEmbeddingSetSelection());
+
+    result.current.setSelectedId(null);
+
+    expect(mockStoreState.setActiveEmbeddingSetId).toHaveBeenCalledWith(null);
+  });
+
+  it('memoizes setSelectedId callback', () => {
+    const { result, rerender } = renderHook(() => useEmbeddingSetSelection());
+    const firstCallback = result.current.setSelectedId;
+
+    rerender();
+
+    expect(result.current.setSelectedId).toBe(firstCallback);
+  });
+});

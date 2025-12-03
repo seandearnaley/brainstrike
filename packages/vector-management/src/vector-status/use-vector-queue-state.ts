@@ -123,7 +123,8 @@ type CoverageRow = {
 };
 
 export function useVectorQueueState(params: UseVectorQueueStateParams): UseVectorQueueStateResult {
-  const { activeEmbeddingSetId, shouldAutoBackfill } = params;
+  // shouldAutoBackfill is retained in the API for future use but currently has no effect
+  const { activeEmbeddingSetId, shouldAutoBackfill: _shouldAutoBackfill } = params;
   const { metrics } = useEmbeddingQueue();
   const service = params.service;
 
@@ -313,33 +314,10 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }
   }, [service, activeEmbeddingSetId]);
 
-  useEffect(() => {
-    if (!(shouldAutoBackfill && activeEmbeddingSetId)) {
-      return;
-    }
-    if (backfilling) {
-      return;
-    }
-    if (!coverage.total) {
-      return;
-    }
-    if (coverage.withSet >= coverage.total) {
-      return;
-    }
-    if (autoBackfillRef.current === activeEmbeddingSetId) {
-      return;
-    }
-
-    autoBackfillRef.current = activeEmbeddingSetId;
-    void backfillActiveSet();
-  }, [
-    shouldAutoBackfill,
-    activeEmbeddingSetId,
-    backfilling,
-    coverage.total,
-    coverage.withSet,
-    backfillActiveSet,
-  ]);
+  // Note: Auto-backfill effect was removed - backfill must be triggered manually
+  // via the Backfill button in Vector Status. This gives users explicit control
+  // over when embedding jobs are enqueued. The shouldAutoBackfill parameter is
+  // retained in the API for future use but currently has no effect.
 
   const retryFailed = useCallback(
     async (limit = 20) => {
