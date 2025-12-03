@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { documentCountLogger, useDocumentCount } from '../use-document-count';
+import { indexedChunkCountLogger, useIndexedChunkCount } from '../use-document-count';
 
 type MockRow = { count: number };
 
@@ -19,7 +19,7 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
 
-describe('useDocumentCount', () => {
+describe('useIndexedChunkCount', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLiveQueryState.rows = [];
@@ -29,7 +29,7 @@ describe('useDocumentCount', () => {
   });
 
   it('returns undefined when no active collection', () => {
-    const { result } = renderHook(() => useDocumentCount(null));
+    const { result } = renderHook(() => useIndexedChunkCount(null));
 
     expect(result.current).toBeUndefined();
     expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
@@ -40,7 +40,7 @@ describe('useDocumentCount', () => {
   it('maps live query count for active collection', () => {
     mockLiveQueryState.rows = [{ count: 42 }];
 
-    const { result } = renderHook(() => useDocumentCount('collection-1'));
+    const { result } = renderHook(() => useIndexedChunkCount('collection-1'));
 
     expect(result.current).toBe(42);
     expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
@@ -55,7 +55,7 @@ describe('useDocumentCount', () => {
   it('returns zero when live query has no rows', () => {
     mockLiveQueryState.rows = [];
 
-    const { result } = renderHook(() => useDocumentCount('collection-1'));
+    const { result } = renderHook(() => useIndexedChunkCount('collection-1'));
 
     expect(result.current).toBe(0);
   });
@@ -64,13 +64,13 @@ describe('useDocumentCount', () => {
     const testError = new Error('live query failed');
     mockLiveQueryState.error = testError;
 
-    const loggerErrorSpy = vi.spyOn(documentCountLogger, 'error').mockImplementation(() => {});
+    const loggerErrorSpy = vi.spyOn(indexedChunkCountLogger, 'error').mockImplementation(() => {});
 
-    const { result } = renderHook(() => useDocumentCount('collection-1'));
+    const { result } = renderHook(() => useIndexedChunkCount('collection-1'));
 
     expect(result.current).toBeUndefined();
     expect(loggerErrorSpy).toHaveBeenCalledWith(
-      'Failed to fetch document count',
+      'Failed to fetch indexed chunk count',
       expect.objectContaining({ error: testError })
     );
 
@@ -78,7 +78,7 @@ describe('useDocumentCount', () => {
   });
 
   it('recomputes when rows change', () => {
-    const { result, rerender } = renderHook(({ id }) => useDocumentCount(id), {
+    const { result, rerender } = renderHook(({ id }) => useIndexedChunkCount(id), {
       initialProps: { id: 'collection-1' as string | null },
     });
 
@@ -94,7 +94,7 @@ describe('useDocumentCount', () => {
   it('clears count when collection becomes null', () => {
     mockLiveQueryState.rows = [{ count: 5 }];
 
-    const { result, rerender } = renderHook(({ id }) => useDocumentCount(id), {
+    const { result, rerender } = renderHook(({ id }) => useIndexedChunkCount(id), {
       initialProps: { id: 'collection-1' as string | null },
     });
 

@@ -41,8 +41,10 @@ export function useEmbeddingWorkerControls(
     devicePreference,
     reinitEveryN,
     forceCpuAfterFailures,
-    activeEmbeddingSetId,
-    onBackfill,
+    // These parameters are retained for API compatibility but currently unused
+    // since auto-backfill on worker start is disabled
+    activeEmbeddingSetId: _activeEmbeddingSetId,
+    onBackfill: _onBackfill,
     toast,
   } = params;
 
@@ -69,24 +71,12 @@ export function useEmbeddingWorkerControls(
       workerControllerRef.current = controller;
       setWorkerLocalRunning(true);
       dispatchQueueDrainedEvent();
-      if (activeEmbeddingSetId) {
-        try {
-          await onBackfill();
-        } catch {
-          // ignore backfill errors; polling will reconcile
-        }
-      }
+      // Auto-backfill on worker start is disabled - backfill must be triggered manually
+      // via the Backfill button in Vector Status. This gives users explicit control
+      // over when embedding jobs are enqueued.
       toast(successToast);
     },
-    [
-      db,
-      devicePreference,
-      reinitEveryN,
-      forceCpuAfterFailures,
-      activeEmbeddingSetId,
-      onBackfill,
-      toast,
-    ]
+    [db, devicePreference, reinitEveryN, forceCpuAfterFailures, toast]
   );
 
   const startWorker = useCallback(async () => {

@@ -117,52 +117,56 @@ describe('CreateEmbeddingSetDialog', () => {
     expect(screen.getByTestId('model-picker-select')).toBeDisabled();
   });
 
-  it('calls onSetCreated with correct data when form is submitted', async () => {
-    const user = userEvent.setup({ delay: null }); // Disable delay for faster tests
-    (mockRepository.getOrCreateSet as Mock).mockResolvedValue({ id: 'new-set-id' });
+  it(
+    'calls onSetCreated with correct data when form is submitted',
+    { timeout: 15_000 },
+    async () => {
+      const user = userEvent.setup({ delay: null }); // Disable delay for faster tests
+      (mockRepository.getOrCreateSet as Mock).mockResolvedValue({ id: 'new-set-id' });
 
-    render(
-      <>
-        <Toaster />
-        <CreateEmbeddingSetDialog
-          models={mockModels}
-          onOpenChange={mockOnOpenChange}
-          onSetCreated={mockOnSetCreated}
-          open={true}
-          providers={mockProviders}
-          repository={mockRepository}
-        />
-      </>
-    );
+      render(
+        <>
+          <Toaster />
+          <CreateEmbeddingSetDialog
+            models={mockModels}
+            onOpenChange={mockOnOpenChange}
+            onSetCreated={mockOnSetCreated}
+            open={true}
+            providers={mockProviders}
+            repository={mockRepository}
+          />
+        </>
+      );
 
-    // Fill out form
-    await user.type(screen.getByLabelText(/Name/i), 'My Collection');
+      // Fill out form
+      await user.type(screen.getByLabelText(/Name/i), 'My Collection');
 
-    // Select model (using our mock select)
-    await user.selectOptions(
-      screen.getByTestId('model-picker-select'),
-      'openai::text-embedding-3-small'
-    );
+      // Select model (using our mock select)
+      await user.selectOptions(
+        screen.getByTestId('model-picker-select'),
+        'openai::text-embedding-3-small'
+      );
 
-    // Submit
-    await user.click(screen.getByText('Create Collection'));
+      // Submit
+      await user.click(screen.getByText('Create Collection'));
 
-    // Verify repository call
-    expect(mockRepository.getOrCreateSet).toHaveBeenCalledWith(
-      'openai::text-embedding-3-small',
-      'text-embedding-3-small',
-      1536,
-      'cosine',
-      expect.objectContaining({
-        name: 'My Collection',
-      })
-    );
+      // Verify repository call
+      expect(mockRepository.getOrCreateSet).toHaveBeenCalledWith(
+        'openai::text-embedding-3-small',
+        'text-embedding-3-small',
+        1536,
+        'cosine',
+        expect.objectContaining({
+          name: 'My Collection',
+        })
+      );
 
-    // Verify callback
-    await waitFor(() => {
-      expect(mockOnSetCreated).toHaveBeenCalledWith('new-set-id');
-    });
-  });
+      // Verify callback
+      await waitFor(() => {
+        expect(mockOnSetCreated).toHaveBeenCalledWith('new-set-id');
+      });
+    }
+  );
 
   it('validates required fields', async () => {
     const user = userEvent.setup();

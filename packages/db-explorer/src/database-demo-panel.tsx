@@ -48,7 +48,6 @@ import { useDatabaseDemoData } from './use-database-demo-data';
 import type { UseImportFlowResult } from './use-import-flow';
 import { useImportFlow } from './use-import-flow';
 import { usePendingChunks } from './use-pending-chunks';
-import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-preferences';
 
 type DatabaseDemoPanelProps = {
   embeddingQueue?: QueueAdapter | null;
@@ -76,22 +75,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const [showClearDialog, setShowClearDialog] = useState(false);
   const [manageCollectionsOpen, setManageCollectionsOpen] = useState(false);
   const [createCollectionOpen, setCreateCollectionOpen] = useState(false);
-  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
-    getActiveEmbeddingSetId()
-  );
-
-  useEffect(() => {
-    const unsubscribe = useVectorStatusUIStore.subscribe((state) => {
-      const nextId = state.activeEmbeddingSetId;
-      setActiveCollectionId((prev) => {
-        const normalized = typeof nextId === 'string' && nextId.trim() ? nextId : null;
-        return prev === normalized ? prev : normalized;
-      });
-    });
-    return () => {
-      unsubscribe();
-    };
-  }, []);
+  // Use Zustand store directly as single source of truth for collection selection
+  const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
+  const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
 
   // Create embedding sets repository
   const embeddingSetsRepository = useMemo(
@@ -218,7 +204,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   const { pendingChunkIds } = usePendingChunks({
     database: dbContext,
-    resolveActiveSetId: getActiveEmbeddingSetId,
+    resolveActiveSetId: resolveActiveCollectionId,
   });
 
   const exportHandlers = useExportHandlers(filteredRecords, filteredChunks, toast);
@@ -316,14 +302,13 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   }, [clearAllData, toast, loadRecords, loadChunks, errorBoundary]);
 
   // Collection management handlers
-  const handleCollectionChange = useCallback((collectionId: string | null) => {
-    logger.info('Collection changed', { collectionId });
-    setActiveCollectionId(collectionId);
-    setActiveEmbeddingSetId(collectionId);
-    logger.debug('Active embedding set after update', {
-      activeEmbeddingSetId: getActiveEmbeddingSetId(),
-    });
-  }, []);
+  const handleCollectionChange = useCallback(
+    (collectionId: string | null) => {
+      logger.info('Collection changed', { collectionId });
+      setActiveCollectionId(collectionId);
+    },
+    [setActiveCollectionId]
+  );
 
   const handleManageCollections = useCallback(() => {
     setManageCollectionsOpen(true);
@@ -435,10 +420,18 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         <div className="flex flex-wrap gap-2 pt-2">
           <Button
             className="flex items-center gap-1"
-            disabled={importFlow.isImporting || !activeCollectionId}
+            disabled={
+              importFlow.isImporting || !activeCollectionId || importFlow.selectedFileCount === 0
+            }
             onClick={importFlow.handleImportClick}
             size="sm"
-            title={activeCollectionId ? undefined : 'Select a collection first'}
+            title={
+              importFlow.selectedFileCount === 0
+                ? 'Select files to import first'
+                : activeCollectionId
+                  ? undefined
+                  : 'Select a collection first'
+            }
           >
             <FileText className="h-3 w-3" />
             Import Selected Files ({importFlow.selectedFileCount})
