@@ -12,6 +12,37 @@ export type ElectronAppContext = {
   window: Page;
 };
 
+// Single launch attempt - extracted for reduced complexity
+async function attemptElectronLaunch(
+  launchOptions: Parameters<typeof electron.launch>[0],
+  firstWindowTimeout: number
+): Promise<ElectronAppContext> {
+  const app = await startElectron(launchOptions);
+
+  console.log('⏳ Waiting for first window...');
+  const window = await app.firstWindow({ timeout: firstWindowTimeout });
+  await window.waitForLoadState('domcontentloaded');
+  await setupDialogMocking(app);
+  console.log('✅ Electron app launched successfully');
+  return { app, window };
+}
+
+// Log environment diagnostics for debugging CI issues
+function logEnvironmentDiagnostics(userDataDir?: string): void {
+  console.log('[DEBUG][HYP-A] NODE_OPTIONS:', process.env['NODE_OPTIONS'] ?? '<not set>');
+  console.log('[DEBUG][HYP-A] NODE_DEBUG:', process.env['NODE_DEBUG'] ?? '<not set>');
+  console.log(
+    '[DEBUG][HYP-A] ELECTRON_ENABLE_STACK_DUMPING:',
+    process.env['ELECTRON_ENABLE_STACK_DUMPING'] ?? '<not set>'
+  );
+  console.log('[DEBUG][HYP-C] DISPLAY:', process.env['DISPLAY'] ?? '<not set>');
+  console.log('[DEBUG][HYP-C] WAYLAND_DISPLAY:', process.env['WAYLAND_DISPLAY'] ?? '<not set>');
+  console.log('[DEBUG][HYP-C] XDG_SESSION_TYPE:', process.env['XDG_SESSION_TYPE'] ?? '<not set>');
+  if (userDataDir) {
+    console.log(`📂 Using custom user data dir: ${userDataDir}`);
+  }
+}
+
 export async function launchElectronApp(
   _debugPort?: number,
   userDataDir?: string
@@ -19,44 +50,39 @@ export async function launchElectronApp(
   const electronPath = require('electron');
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
 
+  // Retry configuration for CI stability
+  // Electron can hang silently in CI due to Xvfb/display timing issues
+  const maxAttempts = process.env['CI'] ? 3 : 1;
+  const firstWindowTimeout = process.env['CI'] ? 30_000 : 60_000;
+
   console.log('🚀 Launching Electron app...');
-
-  // #region agent log - Hypothesis A: V8 Inspector check
-  console.log('[DEBUG][HYP-A] NODE_OPTIONS:', process.env['NODE_OPTIONS'] ?? '<not set>');
-  console.log('[DEBUG][HYP-A] NODE_DEBUG:', process.env['NODE_DEBUG'] ?? '<not set>');
-  console.log(
-    '[DEBUG][HYP-A] ELECTRON_ENABLE_STACK_DUMPING:',
-    process.env['ELECTRON_ENABLE_STACK_DUMPING'] ?? '<not set>'
-  );
-  // #endregion
-
-  // #region agent log - Hypothesis C: DISPLAY check
-  console.log('[DEBUG][HYP-C] DISPLAY:', process.env['DISPLAY'] ?? '<not set>');
-  console.log('[DEBUG][HYP-C] WAYLAND_DISPLAY:', process.env['WAYLAND_DISPLAY'] ?? '<not set>');
-  console.log('[DEBUG][HYP-C] XDG_SESSION_TYPE:', process.env['XDG_SESSION_TYPE'] ?? '<not set>');
-  // #endregion
-
-  // NOTE: We no longer use explicit debug ports - Playwright manages CDP automatically.
-  // This prevents "Waiting for debugger to disconnect" hangs in CI.
-  if (userDataDir) {
-    console.log(`📂 Using custom user data dir: ${userDataDir}`);
-  }
+  logEnvironmentDiagnostics(userDataDir);
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
 
-  // Kill any lingering Electron processes from previous test runs
-  // This is safe because each shard has its own user data directory
-  await killLingeringElectronProcesses();
+  let lastError: Error | undefined;
 
-  const launchOptions = createLaunchOptions(electronPath, mainPath, undefined, userDataDir);
-  const app = await startElectron(launchOptions);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
+    await killLingeringElectronProcesses();
 
-  console.log('⏳ Waiting for first window...');
-  const window = await app.firstWindow({ timeout: 120_000 }); // Increased to 120s for CI stability
-  await window.waitForLoadState('domcontentloaded');
-  await setupDialogMocking(app);
-  console.log('✅ Electron app launched successfully');
-  return { app, window };
+    const launchOptions = createLaunchOptions(electronPath, mainPath, undefined, userDataDir);
+
+    try {
+      return await attemptElectronLaunch(launchOptions, firstWindowTimeout);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`❌ Launch attempt ${attempt} failed:`, lastError.message);
+
+      if (attempt < maxAttempts) {
+        const delay = attempt * 2000;
+        console.log(`⏸️ Waiting ${delay}ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  throw new Error(`Failed to launch Electron after ${maxAttempts} attempts: ${lastError?.message}`);
 }
 
 // a Helper to kill lingering Electron processes that might be holding ports
