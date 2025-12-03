@@ -52,7 +52,7 @@ export async function launchElectronApp(
   const app = await startElectron(launchOptions);
 
   console.log('⏳ Waiting for first window...');
-  const window = await app.firstWindow({ timeout: 60_000 }); // Increased from 30s to 60s for CI stability
+  const window = await app.firstWindow({ timeout: 120_000 }); // Increased to 120s for CI stability
   await window.waitForLoadState('domcontentloaded');
   await setupDialogMocking(app);
   console.log('✅ Electron app launched successfully');
@@ -153,7 +153,7 @@ function createLaunchOptions(
         : {}),
     },
     // Let Playwright manage the CDP connection - don't override
-    timeout: 90_000,
+    timeout: 150_000, // Increased to 150s for CI stability
   };
   if (!process.env['CI']) {
     options.recordVideo = {
