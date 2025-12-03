@@ -411,10 +411,11 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-  # Desktop E2E tests
+  # Desktop E2E tests - runs AFTER web E2E to reduce concurrent runner load
+  # This helps avoid resource contention that may cause Electron startup failures
   desktop-e2e:
     name: Desktop E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
-    needs: checks # Only run if checks pass
+    needs: [checks, e2e] # Run after web E2E completes to reduce concurrent load
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
