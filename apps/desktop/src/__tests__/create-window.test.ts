@@ -59,9 +59,11 @@ describe('createWindow', () => {
   });
 
   describe('window creation', () => {
-    it('should create window with correct configuration', async () => {
+    it('should create window with correct configuration (production mode with sandbox enabled)', async () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
+      // Ensure not in test mode - sandbox should be enabled in production
+      Reflect.deleteProperty(process.env, 'CI');
 
       await createWindow();
 
@@ -82,6 +84,22 @@ describe('createWindow', () => {
         titleBarStyle: 'default',
         show: false,
       });
+    });
+
+    it('should disable sandbox in CI environment for Playwright compatibility', async () => {
+      existsSyncMock.mockReturnValue(true);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
+      process.env['CI'] = 'true';
+
+      await createWindow();
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          webPreferences: expect.objectContaining({
+            sandbox: false,
+          }),
+        })
+      );
     });
 
     it('should show window when ready in non-headless mode', async () => {
