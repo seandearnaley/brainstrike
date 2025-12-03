@@ -462,11 +462,26 @@ jobs:
 
       - name: Run Desktop E2E tests (shard)
         working-directory: apps/desktop
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24 -ac" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+        run: |
+          # Use a deterministic X server number per shard to avoid collisions
+          # Shard 1 = :91, Shard 2 = :92, etc. (base 90 + shardIndex)
+          SERVER_NUM=$((90 + ${{ matrix.shardIndex }}))
+
+          # Clean up any stale X lock files for this server number
+          LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
+          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+
+          echo "Starting Xvfb on display :${SERVER_NUM} for shard ${{ matrix.shardIndex }}"
+          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24 -ac +extension GLX" \
+            pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "test"
           CI: "true"
           RUN_SALT: ${{ github.run_id }}
+          # Prevent V8 inspector from blocking Electron startup
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          # Disable GPU features that can cause hangs in headless Linux
+          ELECTRON_DISABLE_GPU: "1"
 
       - name: Bundle blob report (desktop shard)
         if: always()
