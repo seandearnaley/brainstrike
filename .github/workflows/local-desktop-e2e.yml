@@ -58,24 +58,25 @@ jobs:
         run: pnpm run build --filter @brainstrike/desktop
 
       - name: Run Desktop E2E tests (shard)
+        working-directory: apps/desktop
         run: |
-          cd apps/desktop
-          RUN_SALT=${GITHUB_RUN_ID:-${GITHUB_RUN_NUMBER:-$(date +%s)}}
-          echo "Using RUN_SALT=${RUN_SALT} for shard isolation"
+          # Use a deterministic X server number per shard to avoid collisions
+          # Shard 1 = :91, Shard 2 = :92, etc. (base 90 + shardIndex)
           SHARD=${{ inputs.shardIndex || 2 }}
-          RUN_SLOT=$((RUN_SALT % 50))
-          SERVER_NUM=$((99 + SHARD + RUN_SLOT * 10))
-          export RUN_SALT
+          SERVER_NUM=$((90 + SHARD))
 
+          # Clean up any stale X lock files for this server number
           LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
-          if [ -f "$LOCK_FILE" ]; then
-            rm -f "$LOCK_FILE"
-          fi
+          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
 
-          rm -rf "/tmp/brainstrike-test-user-data-${RUN_SALT}-shard-*" 2>/dev/null || true
-
-          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24" -- \
-            env RUN_SALT="$RUN_SALT" pnpm exec playwright test --shard=${{ inputs.shardIndex || 2 }}/${{ inputs.shardTotal || 2 }}
+          echo "Starting Xvfb on display :${SERVER_NUM} for shard ${SHARD}"
+          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24 -ac +extension GLX" \
+            pnpm exec playwright test --shard=${SHARD}/${{ inputs.shardTotal || 2 }}
         env:
           NODE_ENV: "test"
           CI: "true"
+          RUN_SALT: ${{ github.run_id }}
+          # Prevent V8 inspector from blocking Electron startup
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          # Disable GPU features that can cause hangs in headless Linux
+          ELECTRON_DISABLE_GPU: "1"

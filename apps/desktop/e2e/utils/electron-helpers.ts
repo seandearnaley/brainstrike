@@ -12,81 +12,77 @@ export type ElectronAppContext = {
   window: Page;
 };
 
-export async function launchElectronApp(
-  debugPort?: number,
-  userDataDir?: string
+// Single launch attempt - extracted for reduced complexity
+async function attemptElectronLaunch(
+  launchOptions: Parameters<typeof electron.launch>[0],
+  firstWindowTimeout: number
 ): Promise<ElectronAppContext> {
-  const electronPath = require('electron');
-  const mainPath = path.join(process.cwd(), 'dist', 'main.js');
+  const app = await startElectron(launchOptions);
 
-  console.log('🚀 Launching Electron app...');
+  console.log('⏳ Waiting for first window...');
+  const window = await app.firstWindow({ timeout: firstWindowTimeout });
+  await window.waitForLoadState('domcontentloaded');
+  await setupDialogMocking(app);
+  console.log('✅ Electron app launched successfully');
+  return { app, window };
+}
 
-  // #region agent log - Hypothesis A: V8 Inspector check
+// Log environment diagnostics for debugging CI issues
+function logEnvironmentDiagnostics(userDataDir?: string): void {
   console.log('[DEBUG][HYP-A] NODE_OPTIONS:', process.env['NODE_OPTIONS'] ?? '<not set>');
   console.log('[DEBUG][HYP-A] NODE_DEBUG:', process.env['NODE_DEBUG'] ?? '<not set>');
   console.log(
     '[DEBUG][HYP-A] ELECTRON_ENABLE_STACK_DUMPING:',
     process.env['ELECTRON_ENABLE_STACK_DUMPING'] ?? '<not set>'
   );
-  // #endregion
-
-  // #region agent log - Hypothesis C: DISPLAY check
   console.log('[DEBUG][HYP-C] DISPLAY:', process.env['DISPLAY'] ?? '<not set>');
   console.log('[DEBUG][HYP-C] WAYLAND_DISPLAY:', process.env['WAYLAND_DISPLAY'] ?? '<not set>');
   console.log('[DEBUG][HYP-C] XDG_SESSION_TYPE:', process.env['XDG_SESSION_TYPE'] ?? '<not set>');
-  // #endregion
-
-  if (debugPort) {
-    console.log(`🔌 Requesting manual debug port: ${debugPort}`);
-    // #region agent log - Hypothesis B: Port availability check
-    try {
-      const net = require('node:net');
-      await new Promise<void>((resolve, reject) => {
-        const testServer = net.createServer();
-        testServer.once('error', (err: NodeJS.ErrnoException) => {
-          console.log(`[DEBUG][HYP-B] Port ${debugPort} check FAILED: ${err.code}`);
-          reject(err);
-        });
-        testServer.once('listening', () => {
-          testServer.close(() => {
-            console.log(`[DEBUG][HYP-B] Port ${debugPort} is AVAILABLE`);
-            resolve();
-          });
-        });
-        testServer.listen(debugPort, '127.0.0.1');
-      });
-    } catch (_portError) {
-      console.error(
-        `[DEBUG][HYP-B] Port ${debugPort} is IN USE or blocked - this may cause launch failure`
-      );
-    }
-    // #endregion
-  }
   if (userDataDir) {
     console.log(`📂 Using custom user data dir: ${userDataDir}`);
   }
+}
+
+export async function launchElectronApp(
+  _debugPort?: number,
+  userDataDir?: string
+): Promise<ElectronAppContext> {
+  const electronPath = require('electron');
+  const mainPath = path.join(process.cwd(), 'dist', 'main.js');
+
+  // Retry configuration for CI stability
+  // Electron can hang silently in CI due to Xvfb/display timing issues
+  const maxAttempts = process.env['CI'] ? 3 : 1;
+  const firstWindowTimeout = process.env['CI'] ? 30_000 : 60_000;
+
+  console.log('🚀 Launching Electron app...');
+  logEnvironmentDiagnostics(userDataDir);
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
 
-  // Kill any lingering processes to free up ports
-  // Only perform global cleanup if we are NOT running with a specific debug port (sharded)
-  // otherwise we might kill the electron instances of concurrent shards on the same host.
-  if (debugPort) {
-    console.log(`ℹ️ Cleaning up any processes bound to port ${debugPort}...`);
-    await killSpecificElectronProcess(debugPort);
-  } else {
+  let lastError: Error | undefined;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    console.log(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
     await killLingeringElectronProcesses();
+
+    const launchOptions = createLaunchOptions(electronPath, mainPath, undefined, userDataDir);
+
+    try {
+      return await attemptElectronLaunch(launchOptions, firstWindowTimeout);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`❌ Launch attempt ${attempt} failed:`, lastError.message);
+
+      if (attempt < maxAttempts) {
+        const delay = attempt * 2000;
+        console.log(`⏸️ Waiting ${delay}ms before retry...`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
   }
 
-  const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort, userDataDir);
-  const app = await startElectron(launchOptions);
-
-  console.log('⏳ Waiting for first window...');
-  const window = await app.firstWindow({ timeout: 60_000 }); // Increased from 30s to 60s for CI stability
-  await window.waitForLoadState('domcontentloaded');
-  await setupDialogMocking(app);
-  console.log('✅ Electron app launched successfully');
-  return { app, window };
+  throw new Error(`Failed to launch Electron after ${maxAttempts} attempts: ${lastError?.message}`);
 }
 
 // a Helper to kill lingering Electron processes that might be holding ports
@@ -111,24 +107,13 @@ async function killLingeringElectronProcesses(): Promise<void> {
   }
 }
 
-async function killSpecificElectronProcess(debugPort: number): Promise<void> {
-  try {
-    const pattern = `remote-debugging-port=${debugPort}`;
-    if (process.platform === 'darwin' || process.platform === 'linux') {
-      execSync(`pkill -9 -f '${pattern}' || true`, { stdio: 'ignore' });
-    }
-    // Give OS time to release resources
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    console.log(`✅ Cleaned up processes on port ${debugPort}`);
-  } catch (_error) {
-    console.log(`⚠️ No processes found on port ${debugPort} to clean up`);
-  }
-}
+// NOTE: killSpecificElectronProcess was removed - we no longer use explicit debug ports
+// Playwright manages CDP connections automatically, preventing debugger disconnect hangs.
 
 function createLaunchOptions(
   _electronPath: string,
   mainPath: string,
-  debugPort?: number,
+  _debugPort?: number,
   userDataDir?: string
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
@@ -136,17 +121,21 @@ function createLaunchOptions(
     mainPath,
     '--test-mode',
     '--disable-dialogs',
-    // Note: Playwright automatically adds --remote-debugging-port=0 (dynamic port)
-    // However, in sharded CI environments, this can cause collisions if isolation fails.
-    // If a debugPort is provided, we explicitly set it to avoid collisions.
-    ...(debugPort ? [`--remote-debugging-port=${debugPort}`] : []),
+    // NOTE: Do NOT specify --remote-debugging-port here.
+    // Playwright manages its own CDP connection via electron.launch().
+    // Specifying an explicit port can cause "Waiting for debugger to disconnect" hangs.
     // Explicitly set user data dir to avoid collisions in shared environments
     ...(userDataDir ? [`--user-data-dir=${userDataDir}`] : []),
-    // Disable GPU to prevent crashes in CI
+    // Disable GPU features to prevent crashes/hangs in CI
     '--disable-gpu',
+    '--disable-gpu-sandbox',
     '--disable-software-rasterizer',
     '--no-sandbox',
     '--disable-dev-shm-usage',
+    // Additional flags to prevent debugger/inspector issues
+    '--disable-extensions',
+    '--disable-background-timer-throttling',
+    '--disable-renderer-backgrounding',
   ];
 
   // #region agent log - Hypothesis C: DISPLAY resolution logic
@@ -175,18 +164,22 @@ function createLaunchOptions(
       BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
-      // #region agent log - Hypothesis A: Explicitly clear NODE_OPTIONS to prevent V8 inspector issues
+      // Prevent V8 inspector issues that cause "Waiting for debugger to disconnect" hangs
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       NODE_OPTIONS: '', // Clear any inherited NODE_OPTIONS that might enable --inspect
-      // #endregion
-      // Ensure DISPLAY in Linux CI if not provided by runner; xvfb-maybe usually sets this
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      ELECTRON_ENABLE_STACK_DUMPING: 'false',
+      // Disable GPU acceleration in CI (can cause renderer process hangs)
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      ELECTRON_DISABLE_GPU: '1',
+      // Ensure DISPLAY in Linux CI if not provided by runner
       ...(needsDisplayFallback
         ? // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
           { DISPLAY: ':99' }
         : {}),
     },
-    // Let Playwright use its managed Electron binary unless explicitly needed
-    timeout: 90_000,
+    // Let Playwright manage the CDP connection - don't override
+    timeout: 150_000, // Increased to 150s for CI stability
   };
   if (!process.env['CI']) {
     options.recordVideo = {

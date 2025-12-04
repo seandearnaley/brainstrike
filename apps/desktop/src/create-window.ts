@@ -82,7 +82,14 @@ async function loadRenderer(win: BrowserWindow) {
  * Create the main application window and load the appropriate renderer.
  */
 export async function createWindow() {
-  const isHeadless = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
+  const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
+
+  // Sandbox must be disabled in CI/test environments because:
+  // 1. Playwright's Electron support does not work with sandbox enabled in CI
+  //    (see: https://github.com/microsoft/playwright/issues/16814)
+  // 2. CI environments (containers) lack the seccomp profiles needed for Chrome sandbox
+  // In production/local dev, sandbox remains enabled for security.
+  const enableSandbox = !isTestMode;
 
   const win = new BrowserWindow({
     width: 1536,
@@ -93,7 +100,7 @@ export async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
+      sandbox: enableSandbox,
       webSecurity: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
@@ -102,7 +109,8 @@ export async function createWindow() {
     show: false,
   });
 
-  if (!isHeadless) {
+  // In test mode, keep window hidden; otherwise show when ready
+  if (!isTestMode) {
     win.once('ready-to-show', () => {
       win.show();
     });

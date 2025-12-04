@@ -411,10 +411,11 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-  # Desktop E2E tests
+  # Desktop E2E tests - runs AFTER web E2E to reduce concurrent runner load
+  # This helps avoid resource contention that may cause Electron startup failures
   desktop-e2e:
     name: Desktop E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
-    needs: checks # Only run if checks pass
+    needs: [checks, e2e] # Run after web E2E completes to reduce concurrent load
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -424,6 +425,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Back to 4 shards - sequential ordering after e2e provides reliability
+        # while 4 shards keeps desktop E2E fast
         shardIndex: [1, 2, 3, 4]
         shardTotal: [4]
     steps:
@@ -462,11 +465,49 @@ jobs:
 
       - name: Run Desktop E2E tests (shard)
         working-directory: apps/desktop
-        run: xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24 -ac" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+        run: |
+          # Use a deterministic X server number per shard to avoid collisions
+          # Shard 1 = :91, Shard 2 = :92, etc. (base 90 + shardIndex)
+          SERVER_NUM=$((90 + ${{ matrix.shardIndex }}))
+          export DISPLAY=":${SERVER_NUM}"
+
+          # Clean up any stale X lock files for this server number
+          LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
+          [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
+
+          # Start Xvfb in background with explicit pre-warming
+          # See: docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md - Xvfb timing theory
+          echo "Starting Xvfb on display ${DISPLAY} for shard ${{ matrix.shardIndex }}"
+          Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
+          XVFB_PID=$!
+
+          # Pre-warm: Wait for Xvfb to fully initialize
+          echo "Waiting for Xvfb to initialize..."
+          sleep 3
+
+          # Verify Xvfb is running and display is accessible
+          if ! kill -0 $XVFB_PID 2>/dev/null; then
+            echo "ERROR: Xvfb process died unexpectedly"
+            exit 1
+          fi
+          echo "Xvfb running with PID $XVFB_PID on display ${DISPLAY}"
+
+          # Run tests with explicit DISPLAY
+          echo "Starting Playwright tests..."
+          pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          TEST_EXIT_CODE=$?
+
+          # Cleanup
+          kill $XVFB_PID 2>/dev/null || true
+          exit $TEST_EXIT_CODE
         env:
           NODE_ENV: "test"
           CI: "true"
           RUN_SALT: ${{ github.run_id }}
+          # Prevent V8 inspector from blocking Electron startup
+          ELECTRON_ENABLE_STACK_DUMPING: "false"
+          # Disable GPU features that can cause hangs in headless Linux
+          ELECTRON_DISABLE_GPU: "1"
 
       - name: Bundle blob report (desktop shard)
         if: always()

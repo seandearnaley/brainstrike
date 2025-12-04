@@ -115,13 +115,12 @@ export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
       const shardIndex = workerInfo.config.shard?.current ?? 0;
       const runSalt = getRunSalt();
 
-      // Assign a unique debug port based on the shard index to prevent collisions
-      // when running shards in parallel on the same host (e.g. in act or CI)
-      const debugPort = deriveDebugPort(runSalt, shardIndex);
-      // Also isolate user data directory
+      // NOTE: We no longer use explicit debug ports - Playwright manages CDP automatically.
+      // This prevents "Waiting for debugger to disconnect" hangs in CI.
+      // We still isolate user data directories per shard to prevent state collisions.
       const userDataDir = deriveUserDataDir(runSalt, shardIndex);
 
-      const harness = new ElectronHarness(debugPort, userDataDir);
+      const harness = new ElectronHarness(undefined, userDataDir);
       try {
         await use(harness);
       } finally {
@@ -174,12 +173,8 @@ function getRunSalt(): number {
   return Date.now() % 1_000_000;
 }
 
-function deriveDebugPort(runSalt: number, shardIndex: number): number | undefined {
-  // Spread shards across an isolated slice of the port space that also varies per CI run
-  const slot = runSalt % 1000; // keeps us under the 5xxxx range
-  const basePort = 42_000 + slot * 10;
-  return basePort + shardIndex;
-}
+// NOTE: deriveDebugPort was removed - Playwright now manages CDP ports automatically
+// to prevent "Waiting for debugger to disconnect" hangs in CI.
 
 function deriveUserDataDir(runSalt: number, shardIndex: number): string | undefined {
   const shardSuffix = Number.isInteger(shardIndex) ? shardIndex : 0;
