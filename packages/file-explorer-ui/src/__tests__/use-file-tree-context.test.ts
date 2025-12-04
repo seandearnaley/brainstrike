@@ -54,7 +54,12 @@ describe('useFileTree (context version)', () => {
     expect(result.current.fileTree).toEqual([]);
     expect(result.current.isLoading).toBe(false);
     expect(result.current.error).toBeNull();
-    expect(result.current.loadingProgress).toEqual({ loaded: 0, total: 0, phase: 'counting' });
+    expect(result.current.loadingProgress).toEqual({
+      loaded: 0,
+      total: 0,
+      phase: 'counting',
+      percentage: 0,
+    });
     expect(result.current.cancellable).toBe(false);
     expect(result.current.isCancelling).toBe(false);
   });

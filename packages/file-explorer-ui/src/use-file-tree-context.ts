@@ -16,6 +16,8 @@ export type LoadingProgressState = {
   total: number;
   currentPath?: string;
   phase: 'counting' | 'loading';
+  /** Monotonically increasing percentage (0-100), never decreases */
+  percentage: number;
 };
 
 export type CancellableFileTreeHook = {
@@ -53,13 +55,39 @@ export function calculateDynamicTotal(currentTotal: number, loaded: number): num
 }
 
 /**
+ * Maximum percentage to show during loading.
+ * We cap at 95% to avoid the "long tail" problem where progress sits at 99% for extended periods.
+ * Only the final completion state sets 100%.
+ */
+const MAX_IN_PROGRESS_PERCENTAGE = 95;
+
+/**
  * Safely calculates percentage avoiding division by zero.
+ * Clamps result between 0 and MAX_IN_PROGRESS_PERCENTAGE during loading.
+ * The final 100% is only set explicitly when loading completes.
  */
 export function calculateProgressPercentage(loaded: number, total: number): number {
   if (total === 0) {
     return 0;
   }
-  return Math.round((loaded / total) * 100);
+  const rawPercentage = Math.round((loaded / total) * 100);
+  // Cap at MAX_IN_PROGRESS_PERCENTAGE during loading - final 100% is set explicitly on completion
+  return Math.min(MAX_IN_PROGRESS_PERCENTAGE, Math.max(0, rawPercentage));
+}
+
+/**
+ * Calculates a monotonically increasing progress percentage.
+ * Ensures the percentage never decreases, providing a smooth user experience.
+ * Capped at MAX_IN_PROGRESS_PERCENTAGE until explicitly completed.
+ */
+export function calculateMonotonicProgress(
+  loaded: number,
+  total: number,
+  previousPercentage: number
+): number {
+  const currentPercentage = calculateProgressPercentage(loaded, total);
+  // Never go backwards - always return the higher value, but cap at MAX_IN_PROGRESS_PERCENTAGE
+  return Math.min(MAX_IN_PROGRESS_PERCENTAGE, Math.max(currentPercentage, previousPercentage));
 }
 
 /**
@@ -89,6 +117,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     loaded: 0,
     total: 0,
     phase: 'counting',
+    percentage: 0,
   });
 
   const progressRef = useRef<{
@@ -97,12 +126,14 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     currentPath: string;
     phase: LoadingProgressState['phase'];
     estimatedTotal: number;
+    maxPercentage: number;
   }>({
     loaded: 0,
     total: 0,
     currentPath: '',
     phase: 'counting',
     estimatedTotal: 100,
+    maxPercentage: 0,
   });
 
   // AbortController for cancelling operations
@@ -153,6 +184,16 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
           progressRef.current.loaded
         );
 
+        // Calculate monotonically increasing percentage
+        const currentPercentage = calculateProgressPercentage(
+          progressRef.current.loaded,
+          progressRef.current.total
+        );
+        progressRef.current.maxPercentage = Math.max(
+          progressRef.current.maxPercentage,
+          currentPercentage
+        );
+
         if (sinceLastCommit >= batchSize) {
           sinceLastCommit = 0;
           setLoadingProgress({
@@ -160,6 +201,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
             total: progressRef.current.total,
             currentPath: progressRef.current.currentPath,
             phase: progressRef.current.phase,
+            percentage: progressRef.current.maxPercentage,
           });
         }
       };
@@ -182,10 +224,12 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
         progressRef.current.phase = 'loading';
         progressRef.current.loaded = 0;
         progressRef.current.total = progressRef.current.estimatedTotal;
+        progressRef.current.maxPercentage = 0;
         setLoadingProgress({
           loaded: 0,
           total: progressRef.current.estimatedTotal,
           phase: 'loading',
+          percentage: 0,
         });
       }
 
@@ -234,12 +278,13 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
       // Only update state if not cancelled
       if (!abortController.signal.aborted) {
         setFileTree(tree);
-        // Final progress commit to ensure last batch is reflected
+        // Final progress commit - set to 100% when complete
         setLoadingProgress({
           loaded: progressRef.current.loaded,
-          total: progressRef.current.total,
+          total: progressRef.current.loaded, // Use loaded as total for accurate 100%
           currentPath: progressRef.current.currentPath,
           phase: progressRef.current.phase,
+          percentage: 100,
         });
       }
     } catch (err) {

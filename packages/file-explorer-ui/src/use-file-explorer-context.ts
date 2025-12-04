@@ -125,26 +125,23 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   }, [rootDirectoryHandle, refreshTree]);
 
   // Wrapper for external filter application (maintains API compatibility)
-  // This should update the store filters, which will cause filteredTree to recompute
+  // Updates store filters, which causes filteredTree useMemo to recompute on next render
+  // Returns current filteredTree for immediate access (will be stale until re-render)
   const wrappedApplyFileFilters = useCallback(
     (
       currentIncludeFilters: string[],
       currentExcludeFilters: string[],
       currentUseRegex: boolean
     ) => {
-      // Update the store filters first
+      // Update the store filters - filteredTree useMemo will recompute on next render
       setFilters(currentIncludeFilters, currentExcludeFilters);
       setUseRegex(currentUseRegex);
 
-      // Then compute and return the result
-      return applyFiltersUtil(
-        fileTree,
-        currentIncludeFilters,
-        currentExcludeFilters,
-        currentUseRegex
-      );
+      // Return current filteredTree for API compatibility
+      // Actual filtering happens via useMemo after state updates trigger re-render
+      return filteredTree;
     },
-    [applyFiltersUtil, fileTree, setFilters, setUseRegex]
+    [filteredTree, setFilters, setUseRegex]
   );
 
   // Construct the return object, carefully combining local state/logic with coreExplorer where needed.

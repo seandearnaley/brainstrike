@@ -151,7 +151,7 @@ describe('useFileExplorer (context)', () => {
       isLoading: false,
       error: null,
       refreshTree: mockRefreshTree,
-      loadingProgress: { loaded: 0, total: 0, phase: 'loading' },
+      loadingProgress: { loaded: 0, total: 0, phase: 'loading', percentage: 0 },
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
@@ -208,20 +208,19 @@ describe('useFileExplorer (context)', () => {
     expect(mockHandleFileContentLoading).toHaveBeenCalledWith(['/file1.ts']);
   });
 
-  it('applyFileFilters returns filtered results', () => {
+  it('applyFileFilters updates store filters and returns current fileTree', () => {
     const { result } = renderHook(() => useFileExplorer());
 
-    const newFiltered = [initialFileTree[1] as IFileNode];
-    mockApplyFileFilters.mockReturnValueOnce(newFiltered);
-
     act(() => {
+      // applyFileFilters updates store and returns current filteredTree
       const returned = result.current.applyFileFilters(['*.js'], [], false);
-      expect(returned).toBe(newFiltered);
+      // Returns the current filtered tree (set up in beforeEach via mockApplyFileFilters)
+      expect(returned).toEqual(filteredTree);
     });
 
-    // Note: fileTree is computed from store state, not from applyFileFilters calls
-    // The applyFileFilters function is a utility for external filtering, not internal state changes
-    expect(mockApplyFileFilters).toHaveBeenCalledWith(initialFileTree, ['*.js'], [], false);
+    // Verify store update functions were called
+    expect(storeState.setFilters).toHaveBeenCalledWith(['*.js'], []);
+    expect(storeState.setUseRegex).toHaveBeenCalledWith(false);
   });
 
   it('refreshFileExplorer throws when no root directory is selected', async () => {
