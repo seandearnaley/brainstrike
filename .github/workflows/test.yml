@@ -425,10 +425,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Reduced from 4 to 2 shards to test resource contention theory
-        # See: docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md
-        shardIndex: [1, 2]
-        shardTotal: [2]
+        # Back to 4 shards - sequential ordering after e2e provides reliability
+        # while 4 shards keeps desktop E2E fast
+        shardIndex: [1, 2, 3, 4]
+        shardTotal: [4]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
