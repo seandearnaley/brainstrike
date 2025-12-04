@@ -96,13 +96,25 @@ describe('RootLayoutContent', () => {
       />
     );
 
-  it('should render explorer view inside IdeLayout by default', () => {
+  it('should render explorer view visible and settings hidden by default', () => {
     renderComponent();
-    expect(screen.getByTestId('explorer-section')).toBeInTheDocument();
-    expect(screen.queryByTestId('settings-section')).not.toBeInTheDocument();
+    // All panels are always in DOM (CSS visibility pattern for performance)
+    const explorerSection = screen.getByTestId('explorer-section');
+    const settingsSection = screen.getByTestId('settings-section');
+
+    expect(explorerSection).toBeInTheDocument();
+    expect(settingsSection).toBeInTheDocument();
+
+    // Explorer should be visible
+    expect(explorerSection).not.toHaveClass('hidden');
+    expect(explorerSection).toHaveAttribute('aria-hidden', 'false');
+
+    // Settings should be hidden
+    expect(settingsSection).toHaveClass('hidden');
+    expect(settingsSection).toHaveAttribute('aria-hidden', 'true');
   });
 
-  it('should switch to settings view and hide IdeLayout on navigation', () => {
+  it('should switch to settings view and hide explorer on navigation', () => {
     renderComponent();
 
     // Simulate navigation click by invoking the captured function
@@ -110,8 +122,16 @@ describe('RootLayoutContent', () => {
       mockHandlers.onNavigationClick('/settings');
     });
 
-    expect(screen.queryByTestId('explorer-section')).not.toBeInTheDocument();
-    expect(screen.getByTestId('settings-section')).toBeInTheDocument();
+    const explorerSection = screen.getByTestId('explorer-section');
+    const settingsSection = screen.getByTestId('settings-section');
+
+    // Explorer should now be hidden
+    expect(explorerSection).toHaveClass('hidden');
+    expect(explorerSection).toHaveAttribute('aria-hidden', 'true');
+
+    // Settings should now be visible
+    expect(settingsSection).not.toHaveClass('hidden');
+    expect(settingsSection).toHaveAttribute('aria-hidden', 'false');
   });
 
   it('should switch back to explorer view on subsequent navigation', () => {
@@ -121,14 +141,23 @@ describe('RootLayoutContent', () => {
     act(() => {
       mockHandlers.onNavigationClick('/settings');
     });
-    expect(screen.getByTestId('settings-section')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-section')).not.toHaveClass('hidden');
 
     // Back to explorer
     act(() => {
       mockHandlers.onNavigationClick('/');
     });
-    expect(screen.getByTestId('explorer-section')).toBeInTheDocument();
-    expect(screen.queryByTestId('settings-section')).not.toBeInTheDocument();
+
+    const explorerSection = screen.getByTestId('explorer-section');
+    const settingsSection = screen.getByTestId('settings-section');
+
+    // Explorer should be visible again
+    expect(explorerSection).not.toHaveClass('hidden');
+    expect(explorerSection).toHaveAttribute('aria-hidden', 'false');
+
+    // Settings should be hidden again
+    expect(settingsSection).toHaveClass('hidden');
+    expect(settingsSection).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('should render the tabbed file editor panel in console content', () => {

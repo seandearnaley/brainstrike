@@ -130,13 +130,97 @@ function createProcessTreeFunction(
 }
 
 /**
+ * Checks if two string arrays are equal (same length and same elements in order).
+ */
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+type RegexCacheRef = React.MutableRefObject<{
+  include: RegExp[];
+  exclude: RegExp[];
+  lastIncludePatterns: string[];
+  lastExcludePatterns: string[];
+  lastUseRegex: boolean;
+}>;
+
+/**
+ * Checks if regex patterns need recompilation and updates the cache if so.
+ * Returns false if compilation fails (error is set via setError).
+ */
+function updateRegexCacheIfNeeded(
+  regexCache: RegexCacheRef,
+  processedIncludeFilters: string[],
+  processedExcludeFilters: string[],
+  useRegex: boolean,
+  setError: (msg: string) => void
+): boolean {
+  if (!useRegex) {
+    regexCache.current.lastUseRegex = false;
+    return true;
+  }
+
+  const patternsChanged =
+    regexCache.current.lastUseRegex !== useRegex ||
+    !arraysEqual(regexCache.current.lastIncludePatterns, processedIncludeFilters) ||
+    !arraysEqual(regexCache.current.lastExcludePatterns, processedExcludeFilters);
+
+  if (!patternsChanged) {
+    return true;
+  }
+
+  // Clear cache and recompile
+  regexCache.current.include = [];
+  regexCache.current.exclude = [];
+
+  const success = setupRegexFilters(
+    processedIncludeFilters,
+    processedExcludeFilters,
+    regexCache,
+    setError
+  );
+
+  if (!success) {
+    return false;
+  }
+
+  // Update cache tracking
+  regexCache.current.lastIncludePatterns = processedIncludeFilters;
+  regexCache.current.lastExcludePatterns = processedExcludeFilters;
+  regexCache.current.lastUseRegex = useRegex;
+  return true;
+}
+
+/**
  * A hook that applies include/exclude filters (glob or regex) to a tree of IFileNode.
+ * Features:
+ * - Regex pattern caching to avoid recompilation when patterns haven't changed
+ * - Efficient tree filtering with early exclusion checks
+ *
  * @returns applyFileFilters: function to filter a node tree, and filterError: error message if regex is invalid
  */
 export function useFileFilters() {
-  const regexCache = useRef<{ include: RegExp[]; exclude: RegExp[] }>({
+  const regexCache = useRef<{
+    include: RegExp[];
+    exclude: RegExp[];
+    // Track last used patterns to detect changes
+    lastIncludePatterns: string[];
+    lastExcludePatterns: string[];
+    lastUseRegex: boolean;
+  }>({
     include: [],
     exclude: [],
+    lastIncludePatterns: [],
+    lastExcludePatterns: [],
+    lastUseRegex: false,
   });
   const [filterError, setFilterError] = useState<string | null>(null);
 
@@ -151,21 +235,21 @@ export function useFileFilters() {
       if (filterError !== null) {
         setFilterError(null);
       }
-      regexCache.current = { include: [], exclude: [] };
 
       const processedIncludeFilters = useRegex ? includeFilters : includeFilters.map(processFilter);
       const processedExcludeFilters = useRegex ? excludeFilters : excludeFilters.map(processFilter);
 
-      if (useRegex) {
-        const success = setupRegexFilters(
-          processedIncludeFilters,
-          processedExcludeFilters,
-          regexCache,
-          setFilterError
-        );
-        if (!success) {
-          return [];
-        }
+      // Update regex cache if needed
+      const cacheSuccess = updateRegexCacheIfNeeded(
+        regexCache,
+        processedIncludeFilters,
+        processedExcludeFilters,
+        useRegex,
+        setFilterError
+      );
+
+      if (!cacheSuccess) {
+        return [];
       }
 
       const { matchesInclude, matchesExclude } = createFilterFunctions(

@@ -34,16 +34,18 @@ export type CancellableFileTreeHook = {
 
 /**
  * Calculates the new total estimate when the current loaded count exceeds the estimate.
- * Ensures the total is always at least the loaded count, with some buffer.
+ * Ensures the total is always at least the loaded count, with a conservative buffer.
+ * Uses a smaller buffer (10%) for more accurate progress display.
  */
 export function calculateDynamicTotal(currentTotal: number, loaded: number): number {
   if (loaded <= currentTotal) {
     return currentTotal;
   }
 
-  // Ensure total is at least the loaded count plus a buffer
-  const bufferPercentage = 0.25; // 25% buffer
-  const minBuffer = 100;
+  // Use a smaller buffer (10%) for more accurate progress estimates
+  // This prevents the progress from jumping backwards too much
+  const bufferPercentage = 0.1; // 10% buffer (down from 25%)
+  const minBuffer = 50; // Reduced minimum buffer
 
   const buffer = Math.max(Math.ceil(loaded * bufferPercentage), minBuffer);
 

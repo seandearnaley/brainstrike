@@ -128,8 +128,7 @@ const ConfigDialogContent: React.FC<{
         devInlineFixtureEnabled: fixtureEnabled,
       });
     } catch {}
-    // Allow persist middleware a brief window to flush writes to storage before closing
-    await new Promise((resolve) => setTimeout(resolve, 50));
+
     onClose();
   };
 
