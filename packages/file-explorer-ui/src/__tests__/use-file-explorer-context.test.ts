@@ -75,7 +75,13 @@ describe('useFileExplorer (context)', () => {
       createFileNode({ name: 'file2.js', path: '/file2.js' }),
     ];
     filteredTree = [initialFileTree[0] as IFileNode];
-    mockApplyFileFilters.mockReturnValue(filteredTree);
+    mockApplyFileFilters.mockImplementation((tree, includeFiltersArg) => {
+      // Return filteredTree when any filter is applied; otherwise return the original tree
+      if (includeFiltersArg.length > 0) {
+        return filteredTree;
+      }
+      return tree;
+    });
 
     storeState = {
       currentFolderId: null,
@@ -193,7 +199,8 @@ describe('useFileExplorer (context)', () => {
   it('returns values combined from context hooks', () => {
     const { result } = renderHook(() => useFileExplorer());
 
-    expect(result.current.fileTree).toBe(filteredTree);
+    // With no filters applied, fileTree should be the unfiltered tree
+    expect(result.current.fileTree).toEqual(initialFileTree);
     expect(result.current.rootDirectoryHandle).toBe(rootHandle);
     expect(result.current.isLoading).toBe(false);
     expect(result.current.fileContents['/file1.ts']).toBe('content');
@@ -208,19 +215,19 @@ describe('useFileExplorer (context)', () => {
     expect(mockHandleFileContentLoading).toHaveBeenCalledWith(['/file1.ts']);
   });
 
-  it('applyFileFilters updates store filters and returns current fileTree', () => {
+  it('applyFileFilters updates store filters and returns freshly filtered fileTree', () => {
     const { result } = renderHook(() => useFileExplorer());
 
     act(() => {
-      // applyFileFilters updates store and returns current filteredTree
+      // applyFileFilters updates store and returns freshly computed filteredTree
       const returned = result.current.applyFileFilters(['*.js'], [], false);
-      // Returns the current filtered tree (set up in beforeEach via mockApplyFileFilters)
       expect(returned).toEqual(filteredTree);
     });
 
     // Verify store update functions were called
     expect(storeState.setFilters).toHaveBeenCalledWith(['*.js'], []);
     expect(storeState.setUseRegex).toHaveBeenCalledWith(false);
+    expect(mockApplyFileFilters).toHaveBeenCalledWith(initialFileTree, ['*.js'], [], false);
   });
 
   it('refreshFileExplorer throws when no root directory is selected', async () => {

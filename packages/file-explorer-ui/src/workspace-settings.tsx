@@ -129,6 +129,10 @@ const ConfigDialogContent: React.FC<{
       });
     } catch {}
 
+    // Allow persist middleware a brief window to flush writes before closing.
+    // Without this, rapid close could drop the last write under heavy IO.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
     onClose();
   };
 
