@@ -126,8 +126,11 @@ test.describe('Application Layout', () => {
       await expect(page.locator('[data-panel-id="console-panel"]')).toBeAttached();
 
       // Verify panel group structure using correct data attributes
-      // Expecting two panel groups: one horizontal (outer) and one vertical (inner for main/console)
-      await expect(page.locator('[data-panel-group]')).toHaveCount(2);
+      // Expecting three panel groups:
+      // - Outer horizontal (left/middle/right)
+      // - Inner vertical (main/console)
+      // - Right panel's prompt manager (when right panel is visible)
+      await expect(page.locator('[data-panel-group]')).toHaveCount(3);
     });
   });
 });
