@@ -103,7 +103,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     includeFilters,
     excludeFilters,
     useRegex,
-    setFilters,
     currentFolderId,
     setCurrentFolderId,
     maxSelectionCount,
@@ -118,7 +117,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.includeFilters,
         s.excludeFilters,
         s.useRegex,
-        s.setFilters,
         s.currentFolderId,
         s.setCurrentFolderId,
         s.maxSelectionCount,
@@ -421,10 +419,10 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   const handleFilterChange = useCallback(
     (newIncludeFilters: string[], newExcludeFilters: string[], newUseRegex: boolean) => {
-      setFilters(newIncludeFilters, newExcludeFilters);
+      // applyFileFilters internally calls setFilters and setUseRegex, so no need to call setFilters separately
       applyFileFilters(newIncludeFilters, newExcludeFilters, newUseRegex);
     },
-    [setFilters, applyFileFilters]
+    [applyFileFilters]
   );
 
   const handleTreeRender = useCallback(() => {

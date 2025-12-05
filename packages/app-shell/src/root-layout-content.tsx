@@ -1,6 +1,6 @@
 import { FileExplorerLeftPanel, TabbedFileEditorPanel } from '@brainstrike/file-explorer-ui';
 import type { QueueAdapter } from '@brainstrike/queue';
-import { IdeLayout, PanelLayoutProvider } from '@brainstrike/ui';
+import { cn, IdeLayout, PanelLayoutProvider } from '@brainstrike/ui';
 import { type ReactElement, type ReactNode, useCallback, useMemo } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
@@ -78,41 +78,50 @@ export function RootLayoutContent({
       currentPath={activeTab === 'explorer' ? '/' : `/${activeTab}`}
       onNavigationClick={handleNavigationClick}
     >
-      {activeTab === 'explorer' ? (
-        <div className="h-full" data-testid="explorer-section">
-          <PanelLayoutProvider
-            controlledState={panelState}
-            onChange={(state) => {
-              setState({
-                sizes: [
-                  (state.sizes?.[0] as number | undefined) ?? panelState.sizes[0],
-                  (state.sizes?.[1] as number | undefined) ?? panelState.sizes[1],
-                  (state.sizes?.[2] as number | undefined) ?? panelState.sizes[2],
-                ] as [number, number, number],
-                showConsole: state.showConsole,
-                showLeftPanel: state.showLeftPanel,
-                showRightPanel: state.showRightPanel,
-              });
-            }}
+      {/* All panels rendered simultaneously with CSS visibility toggling to preserve state */}
+      <div
+        aria-hidden={activeTab !== 'explorer'}
+        className={cn('h-full', activeTab !== 'explorer' && 'hidden')}
+        data-testid="explorer-section"
+      >
+        <PanelLayoutProvider
+          controlledState={panelState}
+          onChange={(state) => {
+            setState({
+              sizes: [
+                (state.sizes?.[0] as number | undefined) ?? panelState.sizes[0],
+                (state.sizes?.[1] as number | undefined) ?? panelState.sizes[1],
+                (state.sizes?.[2] as number | undefined) ?? panelState.sizes[2],
+              ] as [number, number, number],
+              showConsole: state.showConsole,
+              showLeftPanel: state.showLeftPanel,
+              showRightPanel: state.showRightPanel,
+            });
+          }}
+        >
+          <IdeLayout
+            consoleContent={<TabbedFileEditorPanel className="h-full" />}
+            leftPanelContent={<FileExplorerLeftPanel />}
+            rightPanelContent={rightPanelContent}
           >
-            <IdeLayout
-              consoleContent={<TabbedFileEditorPanel className="h-full" />}
-              leftPanelContent={<FileExplorerLeftPanel />}
-              rightPanelContent={rightPanelContent}
-            >
-              {homePageContent}
-            </IdeLayout>
-          </PanelLayoutProvider>
-        </div>
-      ) : activeTab === 'prompts' ? (
-        <div className="h-full" data-testid="prompts-section">
-          {promptsPageContent}
-        </div>
-      ) : (
-        <div className="h-full" data-testid="settings-section">
-          {settingsPageContent}
-        </div>
-      )}
+            {homePageContent}
+          </IdeLayout>
+        </PanelLayoutProvider>
+      </div>
+      <div
+        aria-hidden={activeTab !== 'prompts'}
+        className={cn('h-full', activeTab !== 'prompts' && 'hidden')}
+        data-testid="prompts-section"
+      >
+        {promptsPageContent}
+      </div>
+      <div
+        aria-hidden={activeTab !== 'settings'}
+        className={cn('h-full', activeTab !== 'settings' && 'hidden')}
+        data-testid="settings-section"
+      >
+        {settingsPageContent}
+      </div>
     </AppLayout>
   );
 }

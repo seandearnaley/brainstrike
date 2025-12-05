@@ -75,7 +75,13 @@ describe('useFileExplorer (context)', () => {
       createFileNode({ name: 'file2.js', path: '/file2.js' }),
     ];
     filteredTree = [initialFileTree[0] as IFileNode];
-    mockApplyFileFilters.mockReturnValue(filteredTree);
+    mockApplyFileFilters.mockImplementation((tree, includeFiltersArg) => {
+      // Return filteredTree when any filter is applied; otherwise return the original tree
+      if (includeFiltersArg.length > 0) {
+        return filteredTree;
+      }
+      return tree;
+    });
 
     storeState = {
       currentFolderId: null,
@@ -151,7 +157,7 @@ describe('useFileExplorer (context)', () => {
       isLoading: false,
       error: null,
       refreshTree: mockRefreshTree,
-      loadingProgress: { loaded: 0, total: 0, phase: 'loading' },
+      loadingProgress: { loaded: 0, total: 0, phase: 'loading', percentage: 0 },
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
@@ -193,7 +199,8 @@ describe('useFileExplorer (context)', () => {
   it('returns values combined from context hooks', () => {
     const { result } = renderHook(() => useFileExplorer());
 
-    expect(result.current.fileTree).toBe(filteredTree);
+    // With no filters applied, fileTree should be the unfiltered tree
+    expect(result.current.fileTree).toEqual(initialFileTree);
     expect(result.current.rootDirectoryHandle).toBe(rootHandle);
     expect(result.current.isLoading).toBe(false);
     expect(result.current.fileContents['/file1.ts']).toBe('content');
@@ -208,19 +215,18 @@ describe('useFileExplorer (context)', () => {
     expect(mockHandleFileContentLoading).toHaveBeenCalledWith(['/file1.ts']);
   });
 
-  it('applyFileFilters returns filtered results', () => {
+  it('applyFileFilters updates store filters and returns freshly filtered fileTree', () => {
     const { result } = renderHook(() => useFileExplorer());
 
-    const newFiltered = [initialFileTree[1] as IFileNode];
-    mockApplyFileFilters.mockReturnValueOnce(newFiltered);
-
     act(() => {
+      // applyFileFilters updates store and returns freshly computed filteredTree
       const returned = result.current.applyFileFilters(['*.js'], [], false);
-      expect(returned).toBe(newFiltered);
+      expect(returned).toEqual(filteredTree);
     });
 
-    // Note: fileTree is computed from store state, not from applyFileFilters calls
-    // The applyFileFilters function is a utility for external filtering, not internal state changes
+    // Verify store update functions were called
+    expect(storeState.setFilters).toHaveBeenCalledWith(['*.js'], []);
+    expect(storeState.setUseRegex).toHaveBeenCalledWith(false);
     expect(mockApplyFileFilters).toHaveBeenCalledWith(initialFileTree, ['*.js'], [], false);
   });
 

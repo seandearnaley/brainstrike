@@ -249,7 +249,7 @@ describe('FileExplorerLeftPanel', () => {
 
     await user.click(screen.getByRole('button', { name: 'Apply Filters' }));
 
-    expect(setFiltersMock).toHaveBeenCalledWith(['in'], ['ex']);
+    // applyFileFilters internally calls setFilters, so we only verify it's called
     expect(applyFileFiltersMock).toHaveBeenCalledWith(['in'], ['ex'], true);
   });
 
@@ -294,11 +294,10 @@ describe('FileExplorerLeftPanel', () => {
     renderWithProviders(<FileExplorerLeftPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Clear Filters' }));
-    expect(setFiltersMock).toHaveBeenCalledWith([], []);
+    // applyFileFilters internally calls setFilters
     expect(applyFileFiltersMock).toHaveBeenCalledWith([], [], false);
 
     await user.click(screen.getByRole('button', { name: 'Apply Complex' }));
-    expect(setFiltersMock).toHaveBeenCalledWith(['foo'], ['bar', 'baz']);
     expect(applyFileFiltersMock).toHaveBeenCalledWith(['foo'], ['bar', 'baz'], false);
   });
 

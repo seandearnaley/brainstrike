@@ -99,16 +99,21 @@ test.describe('Application Layout', () => {
     test('should have resizable panels', async ({ page }) => {
       const elements = getPanelElements(page);
 
-      // Verify resize handles are present
-      const resizeHandles = page.locator('[data-panel-resize-handle-enabled="true"]');
-      await expect(resizeHandles.first()).toBeVisible(); // Left panel resize handle
+      // Verify horizontal resize handles are present (left panel boundary)
+      const horizontalResizeHandles = page.locator(
+        '[data-panel-resize-handle-enabled="true"][data-panel-group-direction="horizontal"]'
+      );
+      await expect(horizontalResizeHandles.first()).toBeVisible(); // Left panel resize handle
 
-      // Show console to get more resize handles
+      // Show console to get vertical resize handle
       await elements.showConsoleShim.click();
       await expect(elements.consolePanel).toBeVisible();
 
-      // Should have console resize handle too
-      await expect(resizeHandles.last()).toBeVisible();
+      // Should have console resize handle (vertical direction)
+      const verticalResizeHandles = page.locator(
+        '[data-panel-resize-handle-enabled="true"][data-panel-group-direction="vertical"]'
+      );
+      await expect(verticalResizeHandles.first()).toBeVisible();
     });
 
     test('should maintain panel structure integrity', async ({ page }) => {
@@ -126,8 +131,11 @@ test.describe('Application Layout', () => {
       await expect(page.locator('[data-panel-id="console-panel"]')).toBeAttached();
 
       // Verify panel group structure using correct data attributes
-      // Expecting two panel groups: one horizontal (outer) and one vertical (inner for main/console)
-      await expect(page.locator('[data-panel-group]')).toHaveCount(2);
+      // Expecting three panel groups:
+      // - Outer horizontal (left/middle/right)
+      // - Inner vertical (main/console)
+      // - Right panel's prompt manager (when right panel is visible)
+      await expect(page.locator('[data-panel-group]')).toHaveCount(3);
     });
   });
 });
