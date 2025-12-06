@@ -6,6 +6,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+/** Debounce delay for version updates to batch rapid-fire cache changes (ms) */
+const VERSION_DEBOUNCE_MS = 50;
+
 import type { Pool } from 'workerpool';
 import type { FileHasher } from './file-hasher';
 import type { TokenCacheStore } from './token-cache-store';
@@ -116,6 +120,28 @@ export function useTokenCache({
   // Version counter to trigger re-renders when cache updates
   const [version, setVersion] = useState(0);
 
+  // Debounce timer for batching version updates
+  const versionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
+
+  // Debounced version update to batch rapid-fire cache changes
+  const debouncedSetVersion = useCallback(() => {
+    if (!isMountedRef.current) {
+      return;
+    }
+    // Cancel any pending update
+    if (versionDebounceRef.current) {
+      clearTimeout(versionDebounceRef.current);
+    }
+    // Schedule a batched update
+    versionDebounceRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setVersion((v) => v + 1);
+      }
+      versionDebounceRef.current = null;
+    }, VERSION_DEBOUNCE_MS);
+  }, []);
+
   // Track loading state
   const [loadingCount, setLoadingCount] = useState(0);
 
@@ -126,6 +152,18 @@ export function useTokenCache({
       hasherReady.current = true;
     });
   }, [hasher]);
+
+  // Cleanup on unmount
+  // biome-ignore lint/plugin: Cleanup effect for unmount tracking and debounce timer
+  useEffect(
+    () => () => {
+      isMountedRef.current = false;
+      if (versionDebounceRef.current) {
+        clearTimeout(versionDebounceRef.current);
+      }
+    },
+    []
+  );
 
   /**
    * Load token count from persistent cache or trigger worker
@@ -159,7 +197,7 @@ export function useTokenCache({
           if (cached.contentHash === contentHash && cached.countingMode === countingMode) {
             // Cache hit - content unchanged
             hotCache.current.set(key, cached.tokenCount);
-            setVersion((v) => v + 1);
+            debouncedSetVersion();
             onTokenResolved?.(folderId, filePath, cached.tokenCount);
             return;
           }
@@ -190,7 +228,7 @@ export function useTokenCache({
 
         // Update hot cache
         hotCache.current.set(key, result.tokenCount);
-        setVersion((v) => v + 1);
+        debouncedSetVersion();
         onTokenResolved?.(folderId, filePath, result.tokenCount);
       } catch (error) {
         // Log error but don't crash - token count will show as loading
@@ -201,7 +239,7 @@ export function useTokenCache({
         setLoadingCount((c) => c - 1);
       }
     },
-    [store, hasher, workerPool, countingMode, onTokenResolved]
+    [store, hasher, workerPool, countingMode, onTokenResolved, debouncedSetVersion]
   );
 
   /**
@@ -278,9 +316,9 @@ export function useTokenCache({
           hotCache.current.set(key, entry.tokenCount);
         }
       }
-      setVersion((v) => v + 1);
+      debouncedSetVersion();
     },
-    [store, countingMode]
+    [store, countingMode, debouncedSetVersion]
   );
 
   /**
@@ -288,19 +326,22 @@ export function useTokenCache({
    */
   const clearHotCache = useCallback(() => {
     hotCache.current.clear();
-    setVersion((v) => v + 1);
-  }, []);
+    debouncedSetVersion();
+  }, [debouncedSetVersion]);
 
   /**
    * Invalidate specific files
    */
-  const invalidate = useCallback((folderId: string, filePaths: string[]) => {
-    for (const filePath of filePaths) {
-      const key = createCacheKey(folderId, filePath);
-      hotCache.current.delete(key);
-    }
-    setVersion((v) => v + 1);
-  }, []);
+  const invalidate = useCallback(
+    (folderId: string, filePaths: string[]) => {
+      for (const filePath of filePaths) {
+        const key = createCacheKey(folderId, filePath);
+        hotCache.current.delete(key);
+      }
+      debouncedSetVersion();
+    },
+    [debouncedSetVersion]
+  );
 
   // Clear hot cache when counting mode changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: countingMode triggers cache clear on mode switch

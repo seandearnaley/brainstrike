@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePersistentTokenCache } from './use-persistent-token-cache';
 import type { TokenCountingState } from './use-token-counting';
 
+/** Debounce delay for token version updates (ms) */
+const TOKEN_VERSION_DEBOUNCE_MS = 100;
+
 export type FileItem = {
   compositeKey: string;
   folderId: string;
@@ -121,18 +124,38 @@ export function usePreviewPanelState({
   const [tokenVersion, setTokenVersion] = useState(0);
   const prevSelectedFilesRef = useRef<Set<string> | null>(null);
   const isMountedRef = useRef(true);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // biome-ignore lint/plugin: Cleanup effect for unmount tracking and debounce timer
   useEffect(
     () => () => {
       isMountedRef.current = false;
+      // Clean up debounce timer on unmount
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
     },
     []
   );
 
+  // Debounced token version update to batch rapid-fire token resolutions
   const handleTokenResolved = useCallback(() => {
-    if (isMountedRef.current) {
-      setTokenVersion((prev) => prev + 1);
+    if (!isMountedRef.current) {
+      return;
     }
+
+    // Cancel any pending update
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // Schedule a batched update
+    debounceTimerRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setTokenVersion((prev) => prev + 1);
+      }
+      debounceTimerRef.current = null;
+    }, TOKEN_VERSION_DEBOUNCE_MS);
   }, []);
 
   // Use the persistent token cache hook
