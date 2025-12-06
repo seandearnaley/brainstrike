@@ -58,16 +58,12 @@ export type UsePreviewPanelStateProps = {
   ) => void;
 };
 
-// Helper function to get file size
-function getFileSize(
+// Helper function to get file size from metadata (no content loading required)
+function getFileSizeFromMetadata(
   compositeKey: string,
-  content: string,
   fileSizes?: Record<string, number>
 ): number | undefined {
-  if (fileSizes && fileSizes[compositeKey] !== undefined) {
-    return fileSizes[compositeKey];
-  }
-  return new TextEncoder().encode(content).length;
+  return fileSizes?.[compositeKey];
 }
 
 // Helper function to sort files
@@ -180,7 +176,6 @@ export function usePreviewPanelState({
   }
 
   // Build file items using the persistent cache
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: complex file grouping logic
   const flatListItems = useMemo(() => {
     const folderGroups: Record<string, FileItem[]> = {};
 
@@ -193,11 +188,8 @@ export function usePreviewPanelState({
       // Get token count from persistent cache (returns undefined if loading)
       const tokenCount = persistentCache.getTokenCount(compositeKey);
 
-      // Get file size
-      let fileSize: number | undefined;
-      if (fileContents[compositeKey]) {
-        fileSize = getFileSize(compositeKey, fileContents[compositeKey], fileSizes);
-      }
+      // Get file size from metadata (no content loading required)
+      const fileSize = getFileSizeFromMetadata(compositeKey, fileSizes);
 
       const fileItem: FileItem = {
         compositeKey,
@@ -221,7 +213,6 @@ export function usePreviewPanelState({
     selectedFiles,
     sortConfig,
     fileSizes,
-    fileContents,
     decodeFileSelection,
     collapsedFolders,
     persistentCache,
