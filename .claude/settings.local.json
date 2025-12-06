@@ -174,7 +174,8 @@
       "Bash(act:*)",
       "Bash(docker info:*)",
       "WebFetch(domain:playwright.dev)",
-      "Bash(git revert:*)"
+      "Bash(git revert:*)",
+      "Bash(biome check:*)"
     ],
     "deny": [],
     "ask": []

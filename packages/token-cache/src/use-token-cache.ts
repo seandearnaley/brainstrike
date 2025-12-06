@@ -1,0 +1,335 @@
+/**
+ * useTokenCache React Hook
+ *
+ * Provides a React-friendly API for the persistent token cache.
+ * Manages hot cache (in-memory) and cold cache (PGlite) with background worker.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Pool } from 'workerpool';
+import type { FileHasher } from './file-hasher';
+import type { TokenCacheStore } from './token-cache-store';
+import type { TokenCacheEntry, TokenCountingMode, TokenCountResult } from './types';
+
+/**
+ * Options for useTokenCache hook
+ */
+export type UseTokenCacheOptions = {
+  /** Token cache store instance */
+  store: TokenCacheStore;
+  /** File hasher instance */
+  hasher: FileHasher;
+  /** Worker pool instance */
+  workerPool: Pool;
+  /** Current counting mode preference */
+  countingMode: TokenCountingMode;
+  /** Callback when token count is resolved */
+  onTokenResolved?: (folderId: string, filePath: string, tokenCount: number) => void;
+};
+
+/**
+ * Return type for useTokenCache hook
+ */
+export type UseTokenCacheReturn = {
+  /**
+   * Get token count for a file.
+   * Returns cached value if available, otherwise triggers background count.
+   *
+   * @param folderId - Root folder identifier
+   * @param filePath - Relative file path
+   * @param content - Optional file content (required for counting if not cached)
+   * @returns Token count or null if loading
+   */
+  getTokenCount: (folderId: string, filePath: string, content?: string) => number | null;
+
+  /**
+   * Get aggregated token count for multiple files.
+   * Uses SQL SUM for efficiency.
+   */
+  getTotalTokens: (folderId: string, filePaths: string[]) => Promise<number>;
+
+  /**
+   * Check if a file's token count is currently being computed.
+   */
+  isLoading: (folderId: string, filePath: string) => boolean;
+
+  /**
+   * Check if any token counting is in progress.
+   */
+  isAnyLoading: boolean;
+
+  /**
+   * Queue files for background token counting.
+   */
+  queueForCounting: (
+    requests: Array<{
+      folderId: string;
+      filePath: string;
+      content: string;
+      fileSize?: number;
+      mtimeMs?: number;
+    }>
+  ) => void;
+
+  /**
+   * Preload token counts from persistent cache.
+   * Call this when folder is selected to warm the hot cache.
+   */
+  preloadFolder: (folderId: string) => Promise<void>;
+
+  /**
+   * Clear hot cache (in-memory).
+   * Does not affect persistent cache.
+   */
+  clearHotCache: () => void;
+
+  /**
+   * Invalidate cache for specific files.
+   * Use when file content has changed.
+   */
+  invalidate: (folderId: string, filePaths: string[]) => void;
+};
+
+/**
+ * Create a composite cache key
+ */
+function createCacheKey(folderId: string, filePath: string): string {
+  return `${folderId}::${filePath}`;
+}
+
+/**
+ * React hook for persistent token caching with background worker.
+ */
+export function useTokenCache({
+  store,
+  hasher,
+  workerPool,
+  countingMode,
+  onTokenResolved,
+}: UseTokenCacheOptions): UseTokenCacheReturn {
+  // Hot cache: in-memory for instant access
+  const hotCache = useRef(new Map<string, number>());
+
+  // Pending requests: track what's currently being processed
+  const pendingRequests = useRef(new Set<string>());
+
+  // Version counter to trigger re-renders when cache updates
+  const [version, setVersion] = useState(0);
+
+  // Track loading state
+  const [loadingCount, setLoadingCount] = useState(0);
+
+  // Memoize hasher initialization
+  const hasherReady = useRef(false);
+  useEffect(() => {
+    void hasher.init().then(() => {
+      hasherReady.current = true;
+    });
+  }, [hasher]);
+
+  /**
+   * Load token count from persistent cache or trigger worker
+   */
+  const loadOrCount = useCallback(
+    async (
+      folderId: string,
+      filePath: string,
+      content: string,
+      fileSize?: number,
+      mtimeMs?: number
+    ) => {
+      const key = createCacheKey(folderId, filePath);
+
+      // Already processing
+      if (pendingRequests.current.has(key)) {
+        return;
+      }
+
+      pendingRequests.current.add(key);
+      setLoadingCount((c) => c + 1);
+
+      try {
+        // Check persistent cache
+        const cached = await store.get(folderId, filePath);
+
+        if (cached) {
+          // Validate cache with content hash
+          const contentHash = await hasher.hashContent(content);
+
+          if (cached.contentHash === contentHash && cached.countingMode === countingMode) {
+            // Cache hit - content unchanged
+            hotCache.current.set(key, cached.tokenCount);
+            setVersion((v) => v + 1);
+            onTokenResolved?.(folderId, filePath, cached.tokenCount);
+            return;
+          }
+        }
+
+        // Cache miss or stale - count in worker
+        const result = (await workerPool.exec('countTokens', [
+          {
+            id: key,
+            content,
+            mode: countingMode,
+          },
+        ])) as TokenCountResult;
+
+        // Store in persistent cache
+        const entry: TokenCacheEntry = {
+          folderId,
+          filePath,
+          contentHash: result.contentHash,
+          fileSize: fileSize ?? new Blob([content]).size,
+          mtimeMs: mtimeMs ?? null,
+          tokenCount: result.tokenCount,
+          countingMode,
+          modelEncoding: countingMode === 'accurate' ? 'o200k_base' : null,
+        };
+
+        await store.set(entry);
+
+        // Update hot cache
+        hotCache.current.set(key, result.tokenCount);
+        setVersion((v) => v + 1);
+        onTokenResolved?.(folderId, filePath, result.tokenCount);
+      } catch (error) {
+        // Log error but don't crash - token count will show as loading
+        // biome-ignore lint/suspicious/noConsole: Error logging in cache
+        console.error('[TokenCache] Failed to count tokens:', { folderId, filePath, error });
+      } finally {
+        pendingRequests.current.delete(key);
+        setLoadingCount((c) => c - 1);
+      }
+    },
+    [store, hasher, workerPool, countingMode, onTokenResolved]
+  );
+
+  /**
+   * Get token count (synchronous, returns cached or null)
+   */
+  const getTokenCount = useCallback(
+    (folderId: string, filePath: string, content?: string): number | null => {
+      const key = createCacheKey(folderId, filePath);
+
+      // Check hot cache first
+      const cached = hotCache.current.get(key);
+      if (cached !== undefined) {
+        return cached;
+      }
+
+      // If content provided and not pending, trigger load
+      if (content && !pendingRequests.current.has(key)) {
+        void loadOrCount(folderId, filePath, content);
+      }
+
+      return null; // Loading
+    },
+    [loadOrCount]
+  );
+
+  /**
+   * Get total tokens for selection (async, uses SQL)
+   */
+  const getTotalTokens = useCallback(
+    async (folderId: string, filePaths: string[]): Promise<number> =>
+      store.getTotalTokens(folderId, filePaths),
+    [store]
+  );
+
+  /**
+   * Check if specific file is loading
+   */
+  const isLoading = useCallback(
+    (folderId: string, filePath: string): boolean =>
+      pendingRequests.current.has(createCacheKey(folderId, filePath)),
+    []
+  );
+
+  /**
+   * Queue multiple files for counting
+   */
+  const queueForCounting = useCallback(
+    (
+      requests: Array<{
+        folderId: string;
+        filePath: string;
+        content: string;
+        fileSize?: number;
+        mtimeMs?: number;
+      }>
+    ) => {
+      for (const req of requests) {
+        void loadOrCount(req.folderId, req.filePath, req.content, req.fileSize, req.mtimeMs);
+      }
+    },
+    [loadOrCount]
+  );
+
+  /**
+   * Preload folder from persistent cache
+   */
+  const preloadFolder = useCallback(
+    async (folderId: string) => {
+      const entries = await store.getAllForFolder(folderId);
+      for (const entry of entries) {
+        // Only use cache if counting mode matches
+        if (entry.countingMode === countingMode) {
+          const key = createCacheKey(entry.folderId, entry.filePath);
+          hotCache.current.set(key, entry.tokenCount);
+        }
+      }
+      setVersion((v) => v + 1);
+    },
+    [store, countingMode]
+  );
+
+  /**
+   * Clear hot cache
+   */
+  const clearHotCache = useCallback(() => {
+    hotCache.current.clear();
+    setVersion((v) => v + 1);
+  }, []);
+
+  /**
+   * Invalidate specific files
+   */
+  const invalidate = useCallback((folderId: string, filePaths: string[]) => {
+    for (const filePath of filePaths) {
+      const key = createCacheKey(folderId, filePath);
+      hotCache.current.delete(key);
+    }
+    setVersion((v) => v + 1);
+  }, []);
+
+  // Clear hot cache when counting mode changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: countingMode triggers cache clear on mode switch
+  useEffect(() => {
+    clearHotCache();
+  }, [countingMode, clearHotCache]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: version triggers re-render on cache update
+  return useMemo(
+    () => ({
+      getTokenCount,
+      getTotalTokens,
+      isLoading,
+      isAnyLoading: loadingCount > 0,
+      queueForCounting,
+      preloadFolder,
+      clearHotCache,
+      invalidate,
+    }),
+    [
+      getTokenCount,
+      getTotalTokens,
+      isLoading,
+      loadingCount,
+      queueForCounting,
+      preloadFolder,
+      clearHotCache,
+      invalidate,
+      version,
+    ]
+  );
+}
