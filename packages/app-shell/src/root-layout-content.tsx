@@ -15,6 +15,13 @@ export type RootLayoutContentProps = {
   readonly navigationItems: NavigationItem[];
 
   /**
+   * Optional custom left panel content.
+   * If not provided, defaults to FileExplorerLeftPanel.
+   * Use this to wrap the left panel with app-specific providers (e.g., TokenCacheProvider).
+   */
+  readonly leftPanelContent?: ReactNode;
+
+  /**
    * CRITICAL: The app-specific embedding queue adapter.
    *
    * This queue is created at the app entry point:
@@ -37,6 +44,7 @@ export function RootLayoutContent({
   settingsPageContent,
   promptsPageContent,
   navigationItems,
+  leftPanelContent,
   embeddingQueue = null,
 }: RootLayoutContentProps): ReactElement {
   const activeTab = usePanelLayoutStore((s) => s.activeTab);
@@ -101,7 +109,7 @@ export function RootLayoutContent({
         >
           <IdeLayout
             consoleContent={<TabbedFileEditorPanel className="h-full" />}
-            leftPanelContent={<FileExplorerLeftPanel />}
+            leftPanelContent={leftPanelContent ?? <FileExplorerLeftPanel />}
             rightPanelContent={rightPanelContent}
           >
             {homePageContent}

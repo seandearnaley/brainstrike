@@ -148,6 +148,8 @@ export default defineConfig({
         __dirname,
         '../../packages/file-explorer-ui/src'
       ),
+      '@brainstrike/agent': path.resolve(__dirname, '../../packages/agent/src'),
+      '@brainstrike/token-cache': path.resolve(__dirname, '../../packages/token-cache/src'),
       // Ensure hooks resolve to source once to avoid duplicates
       '@brainstrike/file-explorer-hooks': path.resolve(
         __dirname,
@@ -159,6 +161,15 @@ export default defineConfig({
       '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
       '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
       '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
+      // Force pino to browser build to avoid dynamic require of node libs
+      pino: path.resolve(
+        __dirname,
+        '../../node_modules/.pnpm/pino@10.1.0/node_modules/pino/browser.js'
+      ),
+      'pino/browser.js': path.resolve(
+        __dirname,
+        '../../node_modules/.pnpm/pino@10.1.0/node_modules/pino/browser.js'
+      ),
       // Agent client-safe exports (no Mastra dependencies)
       '@brainstrike/agent/client': path.resolve(__dirname, '../../packages/agent/src/client.ts'),
       // Force PGlite to use browser FS implementation in web renderer to avoid node:fs imports
@@ -185,6 +196,7 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell',
       '@brainstrike/workers',
+      '@brainstrike/token-cache',
     ],
     include: [
       'react-helmet-async', // Explicitly include to prevent cache issues

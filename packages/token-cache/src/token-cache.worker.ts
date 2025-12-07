@@ -47,14 +47,14 @@ async function initHasher(): Promise<XXHashModule> {
 }
 
 /**
- * Lazy load token counting utilities
+ * Lazy load token counting utilities (using lite version without pino)
  */
 async function getTokenUtils(): Promise<{
   countTokensAccurate: (text: string) => Promise<number>;
   countTokensHeuristic: (text: string) => number;
 }> {
   if (!tokenUtilsPromise) {
-    tokenUtilsPromise = import('@brainstrike/utils').then((mod) => ({
+    tokenUtilsPromise = import('./token-utils-lite').then((mod) => ({
       countTokensAccurate: mod.countTokensAccurate,
       countTokensHeuristic: mod.countTokensHeuristic,
     }));

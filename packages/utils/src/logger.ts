@@ -1,9 +1,10 @@
-import pino, {
-  type DestinationStream,
-  type LoggerOptions,
-  type Logger as PinoLogger,
-  type TransportTargetOptions,
+import type {
+  DestinationStream,
+  LoggerOptions,
+  Logger as PinoLogger,
+  TransportTargetOptions,
 } from 'pino';
+import pino from 'pino';
 import { isDevEnv } from './env-utils';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;

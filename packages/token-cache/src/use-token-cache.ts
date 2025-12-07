@@ -92,6 +92,12 @@ export type UseTokenCacheReturn = {
    * Use when file content has changed.
    */
   invalidate: (folderId: string, filePaths: string[]) => void;
+
+  /**
+   * Update hot cache directly.
+   * Used by background indexer to populate cache without re-counting.
+   */
+  updateHotCache: (folderId: string, filePath: string, tokenCount: number) => void;
 };
 
 /**
@@ -343,6 +349,18 @@ export function useTokenCache({
     [debouncedSetVersion]
   );
 
+  /**
+   * Update hot cache directly (for background indexer integration)
+   */
+  const updateHotCache = useCallback(
+    (folderId: string, filePath: string, tokenCount: number) => {
+      const key = createCacheKey(folderId, filePath);
+      hotCache.current.set(key, tokenCount);
+      debouncedSetVersion();
+    },
+    [debouncedSetVersion]
+  );
+
   // Clear hot cache when counting mode changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: countingMode triggers cache clear on mode switch
   useEffect(() => {
@@ -360,6 +378,7 @@ export function useTokenCache({
       preloadFolder,
       clearHotCache,
       invalidate,
+      updateHotCache,
     }),
     [
       getTokenCount,
@@ -370,6 +389,7 @@ export function useTokenCache({
       preloadFolder,
       clearHotCache,
       invalidate,
+      updateHotCache,
       version,
     ]
   );

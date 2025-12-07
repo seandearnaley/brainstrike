@@ -19,6 +19,7 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { LoadingOverlay } from './loading-overlay';
+import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
@@ -208,6 +209,15 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   }, [filterError]);
 
   const stableFileTree = useMemo(() => fileTree || [], [fileTree]);
+
+  // Background token indexing - processes selected files off the main thread
+  const selectedFilesSet = useMemo(() => new Set(safeSelectedFilesList), [safeSelectedFilesList]);
+
+  // This hook automatically indexes selected files when TokenCacheProvider is present
+  useBackgroundTokenIndexerIntegration({
+    fileTree: stableFileTree,
+    selectedFiles: selectedFilesSet,
+  });
 
   const [quickFilterRaw, setQuickFilterRaw, clearQuickFilterRaw] = store(
     (s) => [s.quickFilter, s.setQuickFilter, s.clearQuickFilter] as const

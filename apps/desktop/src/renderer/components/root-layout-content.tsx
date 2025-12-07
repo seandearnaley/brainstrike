@@ -4,11 +4,30 @@ import {
   navigationItems,
   RootLayoutContent as SharedRootLayoutContent,
 } from '@brainstrike/app-shell';
-import type { ReactElement } from 'react';
+import { usePGliteDatabase } from '@brainstrike/db';
+import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
+import type { ReactElement, ReactNode } from 'react';
 import { embeddingQueue } from '../create-embedding-queue';
 import { EmbeddingWorkerProvider } from './embedding-worker-provider';
 import HomePageContent from './home-page-content';
 import SettingsPageContent from './settings/page-content';
+
+/**
+ * Wrapper component that provides TokenCacheProvider when database is ready.
+ * This wraps the entire layout so both the left panel (file tree with indexer)
+ * and middle panel (preview with token display) share the same token cache context.
+ */
+function TokenCacheWrapper({ children }: { children: ReactNode }) {
+  const db = usePGliteDatabase();
+
+  // If db is not ready yet, render children without token cache
+  // Token counting will gracefully degrade (use fallbacks or show loading)
+  if (!db) {
+    return <>{children}</>;
+  }
+
+  return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
+}
 
 /**
  * Desktop app root layout component.
@@ -22,6 +41,12 @@ import SettingsPageContent from './settings/page-content';
  *
  * DO NOT remove the embeddingQueue prop! It's the single source of truth for all
  * embedding operations in the desktop app.
+ *
+ * TOKEN CACHE: The TokenCacheWrapper provides a shared token cache context that
+ * enables background token indexing. It wraps the entire layout so both:
+ * - FileExplorerLeftPanel (indexes selected files via background worker)
+ * - PreviewPanel in HomePageContent (displays token counts from the shared cache)
+ * can share the same context and see each other's updates.
  */
 export default function RootLayoutContent() {
   const navigationConfig = navigationItems as NavigationItem[];
@@ -38,8 +63,10 @@ export default function RootLayoutContent() {
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
 
   return (
-    <EmbeddingWorkerProvider>
-      <RootLayout {...sharedProps} />
-    </EmbeddingWorkerProvider>
+    <TokenCacheWrapper>
+      <EmbeddingWorkerProvider>
+        <RootLayout {...sharedProps} />
+      </EmbeddingWorkerProvider>
+    </TokenCacheWrapper>
   );
 }

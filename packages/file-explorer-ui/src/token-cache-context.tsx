@@ -52,6 +52,8 @@ type TokenCacheContextValue = UseTokenCacheReturn & {
   isReady: boolean;
   /** Current counting mode */
   countingMode: TokenCountingMode;
+  /** Token cache store for background indexer integration */
+  store: TokenCacheStore;
 };
 
 const TokenCacheContext = createContext<TokenCacheContextValue | null>(null);
@@ -124,8 +126,9 @@ export function TokenCacheProvider({
       ...tokenCache,
       isReady: isReady && workerPool !== null,
       countingMode,
+      store,
     }),
-    [tokenCache, isReady, workerPool, countingMode]
+    [tokenCache, isReady, workerPool, countingMode, store]
   );
 
   // Don't render children until worker pool is ready

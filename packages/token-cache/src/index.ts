@@ -11,6 +11,16 @@
  * - React hook for easy integration
  */
 
+// Background Indexer Worker Types
+export type {
+  IndexerBatchRequest,
+  IndexerError,
+  IndexerProgress,
+  IndexerRequest,
+  IndexerResult,
+  WorkerMessage,
+  WorkerResponse,
+} from './background-indexer.worker';
 // File Hasher
 export { __resetHasherForTests, FileHasher, fileHasher } from './file-hasher';
 // Token Cache Store
@@ -28,8 +38,18 @@ export type {
   TokenCountResult,
   TokenWorkerMessage,
 } from './types';
+export type {
+  ElectronFileHandle,
+  FileToIndex,
+  IndexingProgress,
+  UseBackgroundTokenIndexerOptions,
+  UseBackgroundTokenIndexerReturn,
+} from './use-background-token-indexer';
+
+// Background Token Indexer (Web Worker based)
+export { useBackgroundTokenIndexer } from './use-background-token-indexer';
 export type { UseTokenCacheOptions, UseTokenCacheReturn } from './use-token-cache';
-// React Hook
+// React Hooks
 export { useTokenCache } from './use-token-cache';
 
 // Worker pool factory
@@ -37,6 +57,9 @@ import * as workerpool from 'workerpool';
 
 // Re-export Pool type for consumers
 export type { Pool as WorkerPool } from 'workerpool';
+
+// Re-export the worker URL resolver for external consumers
+export { resolveBackgroundIndexerWorkerUrl } from './resolve-worker-url';
 
 /**
  * Create a worker pool for token counting.
@@ -60,9 +83,19 @@ export function createTokenCacheWorkerPool(
   workerUrl: string,
   options?: workerpool.WorkerPoolOptions
 ): workerpool.Pool {
+  // Workerpool defaults to classic workers, which cannot run ES module syntax.
+  // Force module workers so the ESM worker entry (token-cache.worker.ts) loads correctly.
+  const workerOpts: NonNullable<workerpool.WorkerPoolOptions['workerOpts']> = {
+    type: 'module',
+    ...(options?.workerOpts ?? {}),
+  };
+  const workerType: workerpool.WorkerPoolOptions['workerType'] = options?.workerType ?? 'web';
+
   return workerpool.pool(workerUrl, {
     minWorkers: 1,
     maxWorkers: 2, // Token counting is CPU-bound, limit parallelism
     ...options,
+    workerType,
+    workerOpts,
   });
 }

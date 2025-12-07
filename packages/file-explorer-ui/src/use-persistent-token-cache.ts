@@ -9,6 +9,7 @@
  * - Content-based invalidation using xxHash64
  * - Background worker for non-blocking counting
  * - SQL-based aggregation for total token counts
+ * - Cache-first lookup (no content loading required for cached files)
  */
 
 import type { MutableRefObject } from 'react';
@@ -20,7 +21,7 @@ import type { TokenCountingState } from './use-token-counting';
  * Props for the persistent token cache hook
  */
 export type UsePersistentTokenCacheProps = {
-  /** File contents by composite key (folderId::path) */
+  /** File contents by composite key (folderId::path) - now optional for cache hits */
   fileContents: Record<string, string>;
   /** Token counting state (old API) */
   tokenCounting: TokenCountingState;
@@ -90,29 +91,29 @@ export function usePersistentTokenCache({
   const pendingRequestsRef = useRef<Map<string, Promise<void>>>(new Map());
 
   /**
-   * Get token count using persistent cache if available, otherwise in-memory
+   * Get token count using persistent cache if available, otherwise in-memory.
+   *
+   * IMPORTANT: Cache-first lookup - for files that have been indexed before,
+   * we can return the cached count WITHOUT requiring content to be loaded.
+   * Content is only needed when counting a file for the first time.
    */
   const getTokenCount = useCallback(
     (compositeKey: string): number | undefined => {
-      const content = fileContents[compositeKey];
+      const { folderId, path } = decodeFileSelection(compositeKey);
 
-      // No content or inaccessible content
-      if (!(content && isContentAccessible(content))) {
-        return;
-      }
-
-      // --- Persistent Cache Path ---
+      // --- Persistent Cache Path (preferred) ---
       if (persistentCache?.isReady) {
-        const { folderId, path } = decodeFileSelection(compositeKey);
-
-        // getTokenCount returns number | null (null means loading)
+        // Try to get from hot cache first (no content needed!)
+        // Pass undefined for content to check cache only
+        const content = fileContents[compositeKey];
         const count = persistentCache.getTokenCount(folderId, path, content);
 
         if (count !== null) {
           return count;
         }
 
-        // Loading - return undefined to show spinner
+        // Not in cache - if we have content, it will trigger counting
+        // If no content, return undefined (shows as loading/unknown)
         return;
       }
 
@@ -120,6 +121,12 @@ export function usePersistentTokenCache({
       const cached = tokenCacheRef.current.get(compositeKey);
       if (typeof cached === 'number') {
         return cached;
+      }
+
+      // Need content to count - check if available and accessible
+      const content = fileContents[compositeKey];
+      if (!(content && isContentAccessible(content))) {
+        return;
       }
 
       // Not in cache and not pending - start counting

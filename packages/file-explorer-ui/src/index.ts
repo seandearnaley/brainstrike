@@ -32,6 +32,7 @@ export * from './selection-counter';
 export * from './tabbed-file-editor';
 export * from './tabbed-file-editor-panel';
 export * from './token-cache-context';
+export * from './use-background-token-indexer-integration';
 export { useFileExplorer } from './use-file-explorer-context';
 export * from './use-file-system-context';
 export { useFileTree } from './use-file-tree-context';
