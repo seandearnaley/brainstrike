@@ -7,5 +7,6 @@ export default defineConfig({
   clean: false, // Don't clean - tsc already generated .d.ts files
   sourcemap: true,
   target: 'es2020',
+  splitting: false, // Bundle into a single file so relative imports don't need runtime extensions
   external: ['@brainstrike/types', 'zustand', 'electron'],
 });

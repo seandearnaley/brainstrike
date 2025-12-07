@@ -13,19 +13,12 @@ import HomePageContent from './home-page-content';
 import SettingsPageContent from './settings/page-content';
 
 /**
- * Wrapper component that provides TokenCacheProvider when database is ready.
- * This wraps the entire layout so both the left panel (file tree with indexer)
- * and middle panel (preview with token display) share the same token cache context.
+ * Wrapper component that provides TokenCacheProvider.
+ * The provider keeps children mounted while the database/worker pool finish
+ * initializing so the UI never unmounts during startup.
  */
 function TokenCacheWrapper({ children }: { children: ReactNode }) {
   const db = usePGliteDatabase();
-
-  // If db is not ready yet, render children without token cache
-  // Token counting will gracefully degrade (use fallbacks or show loading)
-  if (!db) {
-    return <>{children}</>;
-  }
-
   return <TokenCacheProvider db={db}>{children}</TokenCacheProvider>;
 }
 

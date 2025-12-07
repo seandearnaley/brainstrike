@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import type { StorageAdapter } from '../types';
+import type { StorageAdapter } from '../types.js';
 
 /**
  * Electron Storage Adapter

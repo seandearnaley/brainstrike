@@ -159,10 +159,30 @@ export function useBackgroundTokenIndexerIntegration({
 
   // Build file handle map whenever tree changes
   const fileHandleMapRef = useRef<Map<string, HandleInfo>>(new Map());
+  const previousRootIdsRef = useRef<string>('');
+  // biome-ignore lint/plugin: Hook is intentionally used for side-effectful map construction on tree change
   useEffect(() => {
     const map = new Map<string, HandleInfo>();
+    const rootIds = new Set<string>();
     buildFileHandleMap(fileTree, map);
+    for (const key of map.keys()) {
+      const folderId = key.split('|@|', 1)[0];
+      if (folderId) {
+        rootIds.add(folderId);
+      }
+    }
     fileHandleMapRef.current = map;
+
+    const rootFingerprint = Array.from(rootIds).sort().join('|');
+    if (previousRootIdsRef.current && previousRootIdsRef.current !== rootFingerprint) {
+      indexedFilesRef.current.clear();
+      logger.info('Cleared indexedFiles cache due to root folder change', {
+        previousRootIds: previousRootIdsRef.current,
+        nextRootIds: rootFingerprint,
+      });
+    }
+    previousRootIdsRef.current = rootFingerprint;
+
     logger.info('File handle map built', {
       size: map.size,
       hasElectron: [...map.values()].some((h) => h.electronHandle),
@@ -180,6 +200,8 @@ export function useBackgroundTokenIndexerIntegration({
       const { folderId, path } = decodeFileSelection(compositeKey);
       // Update the hot cache to trigger UI re-render
       tokenCache?.updateHotCache(folderId, path, tokenCount);
+      // Mark as indexed only after we have a resolved result
+      indexedFilesRef.current.add(compositeKey);
       // Call optional external callback
       onTokenResolved?.(compositeKey, tokenCount);
     },
@@ -241,7 +263,6 @@ export function useBackgroundTokenIndexerIntegration({
           ...(handleInfo.webHandle ? { fileHandle: handleInfo.webHandle } : {}),
           ...(handleInfo.electronHandle ? { electronHandle: handleInfo.electronHandle } : {}),
         });
-        indexedFilesRef.current.add(compositeKey);
       }
 
       logger.info('triggerIndexing prepared', {
@@ -271,6 +292,29 @@ export function useBackgroundTokenIndexerIntegration({
       alreadyIndexed: indexedFilesRef.current.size,
       fileHandleMapSize: fileHandleMapRef.current.size,
     });
+
+    // Safety: if we think everything is indexed but nothing is running, assume stale cache.
+    if (
+      selectedFiles.size > 0 &&
+      indexedFilesRef.current.size >= selectedFiles.size &&
+      !backgroundIndexer.isIndexing
+    ) {
+      indexedFilesRef.current.clear();
+      logger.warn('Cleared indexedFiles cache due to no progress while fully indexed', {
+        selectedFilesCount: selectedFiles.size,
+      });
+    }
+
+    // If the current selection is smaller than what we've already indexed, the cached
+    // set is stale (e.g., user navigated to a different folder). Clear it to allow
+    // re-counting for the new selection.
+    if (indexedFilesRef.current.size > selectedFiles.size) {
+      indexedFilesRef.current.clear();
+      logger.info('Cleared indexedFiles cache due to selection shrink', {
+        previousIndexed: indexedFilesRef.current.size,
+        selectedFilesCount: selectedFiles.size,
+      });
+    }
 
     if (selectedFiles.size === 0 || !backgroundIndexer.isReady) {
       logger.info('Selection effect exiting early', {
@@ -304,6 +348,21 @@ export function useBackgroundTokenIndexerIntegration({
       indexedFilesRef.current.clear();
     }
   }, [fileTree.length]);
+
+  // Warm hot cache from persistent store so repeat selections show existing counts immediately.
+  useEffect(() => {
+    if (!tokenCache?.isReady || selectedFiles.size === 0) {
+      return;
+    }
+    const folderIds = new Set<string>();
+    for (const key of selectedFiles) {
+      const { folderId } = decodeFileSelection(key);
+      folderIds.add(folderId);
+    }
+    for (const folderId of folderIds) {
+      void tokenCache.preloadFolder(folderId);
+    }
+  }, [selectedFiles, tokenCache?.isReady, tokenCache?.preloadFolder, tokenCache]);
 
   return {
     isIndexing: backgroundIndexer.isIndexing,

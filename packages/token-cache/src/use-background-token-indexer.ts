@@ -27,6 +27,8 @@ import type { TokenCacheEntry, TokenCountingMode } from './types';
 
 const logger = createLogger('BackgroundTokenIndexer');
 
+type TokenCacheStoreLike = Pick<TokenCacheStore, 'get' | 'set'>;
+
 /**
  * Electron-style handle with path property
  */
@@ -58,7 +60,7 @@ export type IndexingProgress = {
 
 export type UseBackgroundTokenIndexerOptions = {
   /** Token cache store for persistence (null to disable indexing) */
-  store: TokenCacheStore | null;
+  store: TokenCacheStoreLike | null;
   /** Token counting mode */
   mode: TokenCountingMode;
   /** Callback when a file's token count is resolved */
@@ -315,27 +317,26 @@ export function useBackgroundTokenIndexer({
         if (cached) {
           onFileIndexed?.(result.compositeKey, cached.tokenCount);
         }
-        return;
+      } else {
+        // Store in persistent cache
+        const entry: TokenCacheEntry = {
+          folderId: result.folderId,
+          filePath: result.filePath,
+          contentHash: result.contentHash,
+          fileSize: result.fileSize,
+          mtimeMs: null,
+          tokenCount: result.tokenCount,
+          countingMode: result.mode,
+          modelEncoding: result.mode === 'accurate' ? 'o200k_base' : null,
+        };
+
+        await store.set(entry);
+
+        // Notify caller
+        onFileIndexed?.(result.compositeKey, result.tokenCount);
       }
 
-      // Store in persistent cache
-      const entry: TokenCacheEntry = {
-        folderId: result.folderId,
-        filePath: result.filePath,
-        contentHash: result.contentHash,
-        fileSize: result.fileSize,
-        mtimeMs: null,
-        tokenCount: result.tokenCount,
-        countingMode: result.mode,
-        modelEncoding: result.mode === 'accurate' ? 'o200k_base' : null,
-      };
-
-      await store.set(entry);
-
-      // Notify caller
-      onFileIndexed?.(result.compositeKey, result.tokenCount);
-
-      // Check if all done
+      // Check if all done (handles both skipped and counted results)
       if (pendingFilesRef.current.size === 0) {
         setIsIndexing(false);
         setProgress(null);

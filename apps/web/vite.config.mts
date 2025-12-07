@@ -149,7 +149,9 @@ export default defineConfig({
         '../../packages/file-explorer-ui/src'
       ),
       '@brainstrike/agent': path.resolve(__dirname, '../../packages/agent/src'),
-      '@brainstrike/token-cache': path.resolve(__dirname, '../../packages/token-cache/src'),
+      // NOTE: @brainstrike/token-cache must resolve via package exports (dist) so the
+      // worker subpath `@brainstrike/token-cache/worker` points to the built worker.
+      // Do not alias to src or the worker entry will be missing.
       // Ensure hooks resolve to source once to avoid duplicates
       '@brainstrike/file-explorer-hooks': path.resolve(
         __dirname,

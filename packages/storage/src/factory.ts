@@ -1,8 +1,8 @@
 import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
-import { ElectronStorageAdapter } from './adapters/electron-storage-adapter';
-import { MemoryStorageAdapter } from './adapters/memory-storage-adapter';
-import { WebStorageAdapter } from './adapters/web-storage-adapter';
-import type { StorageAdapter } from './types';
+import { ElectronStorageAdapter } from './adapters/electron-storage-adapter.js';
+import { MemoryStorageAdapter } from './adapters/memory-storage-adapter.js';
+import { WebStorageAdapter } from './adapters/web-storage-adapter.js';
+import type { StorageAdapter } from './types.js';
 
 export function createStorageAdapter(platform: Platform): StorageAdapter {
   switch (platform) {

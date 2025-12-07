@@ -22,6 +22,7 @@ import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrik
 import {
   createTokenCacheWorkerPool,
   FileHasher,
+  type TokenCacheEntry,
   TokenCacheStore,
   type TokenCountingMode,
   type UseTokenCacheReturn,
@@ -33,7 +34,7 @@ import { createContext, type ReactNode, useContext, useEffect, useMemo, useState
  * PGlite database type (subset of @electric-sql/pglite)
  */
 type PGliteDB = {
-  query: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+  query: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[]; affectedRows?: number }>;
 };
 
 /**
@@ -44,16 +45,141 @@ type WorkerPool = {
   terminate: () => Promise<void>;
 };
 
+class InMemoryTokenCacheStore {
+  private readonly entries = new Map<string, TokenCacheEntry>();
+
+  private static createKey(folderId: string, filePath: string): string {
+    return `${folderId}::${filePath}`;
+  }
+
+  async get(folderId: string, filePath: string): Promise<TokenCacheEntry | null> {
+    return this.entries.get(InMemoryTokenCacheStore.createKey(folderId, filePath)) ?? null;
+  }
+
+  async getBatch(folderId: string, filePaths: string[]): Promise<Map<string, TokenCacheEntry>> {
+    const result = new Map<string, TokenCacheEntry>();
+    for (const filePath of filePaths) {
+      const entry = await this.get(folderId, filePath);
+      if (entry) {
+        result.set(filePath, entry);
+      }
+    }
+    return result;
+  }
+
+  async getAllForFolder(folderId: string): Promise<TokenCacheEntry[]> {
+    const entries: TokenCacheEntry[] = [];
+    for (const entry of this.entries.values()) {
+      if (entry.folderId === folderId) {
+        entries.push(entry);
+      }
+    }
+    return entries;
+  }
+
+  async set(entry: TokenCacheEntry): Promise<void> {
+    this.entries.set(InMemoryTokenCacheStore.createKey(entry.folderId, entry.filePath), entry);
+  }
+
+  async setBatch(entries: TokenCacheEntry[]): Promise<void> {
+    for (const entry of entries) {
+      await this.set(entry);
+    }
+  }
+
+  async delete(folderId: string, filePath: string): Promise<boolean> {
+    return this.entries.delete(InMemoryTokenCacheStore.createKey(folderId, filePath));
+  }
+
+  async clearFolder(folderId: string): Promise<number> {
+    let removed = 0;
+    for (const key of this.entries.keys()) {
+      if (key.startsWith(`${folderId}::`)) {
+        this.entries.delete(key);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  async clearAll(): Promise<number> {
+    const removed = this.entries.size;
+    this.entries.clear();
+    return removed;
+  }
+
+  async getTotalTokens(folderId: string, filePaths: string[]): Promise<number> {
+    let total = 0;
+    for (const filePath of filePaths) {
+      const entry = await this.get(folderId, filePath);
+      if (entry) {
+        total += entry.tokenCount;
+      }
+    }
+    return total;
+  }
+
+  async getStats(folderId?: string): Promise<{
+    entryCount: number;
+    totalTokens: number;
+    accurateCount: number;
+    heuristicCount: number;
+  }> {
+    let entryCount = 0;
+    let totalTokens = 0;
+    let accurateCount = 0;
+    let heuristicCount = 0;
+
+    for (const entry of this.entries.values()) {
+      if (folderId && entry.folderId !== folderId) {
+        continue;
+      }
+      entryCount += 1;
+      totalTokens += entry.tokenCount;
+      if (entry.countingMode === 'accurate') {
+        accurateCount += 1;
+      } else {
+        heuristicCount += 1;
+      }
+    }
+
+    return { entryCount, totalTokens, accurateCount, heuristicCount };
+  }
+
+  async findByCountingMode(
+    folderId: string,
+    mode: TokenCountingMode,
+    limit = 100
+  ): Promise<TokenCacheEntry[]> {
+    const matches: TokenCacheEntry[] = [];
+    for (const entry of this.entries.values()) {
+      if (entry.folderId === folderId && entry.countingMode === mode) {
+        matches.push(entry);
+        if (matches.length >= limit) {
+          break;
+        }
+      }
+    }
+    return matches;
+  }
+
+  async vacuum(): Promise<void> {
+    // No-op for in-memory store
+  }
+}
+
+type TokenCacheStoreLike = TokenCacheStore | InMemoryTokenCacheStore;
+
 /**
  * Context value type
  */
-type TokenCacheContextValue = UseTokenCacheReturn & {
+export type TokenCacheContextValue = UseTokenCacheReturn & {
   /** Whether the token cache infrastructure is ready */
   isReady: boolean;
   /** Current counting mode */
   countingMode: TokenCountingMode;
   /** Token cache store for background indexer integration */
-  store: TokenCacheStore;
+  store: TokenCacheStoreLike;
 };
 
 const TokenCacheContext = createContext<TokenCacheContextValue | null>(null);
@@ -63,7 +189,7 @@ const TokenCacheContext = createContext<TokenCacheContextValue | null>(null);
  */
 type TokenCacheProviderProps = {
   /** PGlite database instance (or compatible interface) */
-  db: PGliteDB;
+  db: PGliteDB | null;
   /** Worker URL for the token cache worker */
   workerUrl?: string;
   /** Callback when token count is resolved */
@@ -71,6 +197,13 @@ type TokenCacheProviderProps = {
   /** Children to render */
   children: ReactNode;
 };
+
+function createNoopWorkerPool(): WorkerPool {
+  return {
+    exec: async () => ({ tokenCount: 0, contentHash: '' }),
+    terminate: async () => {},
+  };
+}
 
 /**
  * Provider component that initializes token cache infrastructure.
@@ -81,60 +214,96 @@ export function TokenCacheProvider({
   onTokenResolved,
   children,
 }: TokenCacheProviderProps) {
-  // Cast to satisfy TokenCacheStore which expects PGlite (PGliteDB is compatible)
-  const [store] = useState(
-    () => new TokenCacheStore(db as unknown as ConstructorParameters<typeof TokenCacheStore>[0])
-  );
+  const fallbackStoreRef = useState(() => new InMemoryTokenCacheStore())[0];
+  const [store, setStore] = useState<TokenCacheStoreLike>(fallbackStoreRef);
+  const [hasPersistentStore, setHasPersistentStore] = useState(false);
   const [hasher] = useState(() => new FileHasher());
-  const [workerPool, setWorkerPool] = useState<WorkerPool | null>(null);
-  const [isReady, setIsReady] = useState(false);
+  const noopWorkerPool = useState(createNoopWorkerPool)[0];
+  const [workerPool, setWorkerPool] = useState<WorkerPool>(noopWorkerPool);
+  const [workerReady, setWorkerReady] = useState(false);
+  const [hasherReady, setHasherReady] = useState(false);
 
   // Get counting mode preference
   const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   const countingMode: TokenCountingMode = accuratePreference ? 'accurate' : 'heuristic';
 
+  // Initialize store when db becomes available
+  useEffect(() => {
+    if (!db) {
+      setStore(fallbackStoreRef);
+      setHasPersistentStore(false);
+      return;
+    }
+
+    setStore(
+      new TokenCacheStore(db as unknown as ConstructorParameters<typeof TokenCacheStore>[0])
+    );
+    setHasPersistentStore(true);
+  }, [db, fallbackStoreRef]);
+
+  // Initialize hasher once
+  useEffect(() => {
+    let cancelled = false;
+    void hasher.init().then(() => {
+      if (!cancelled) {
+        setHasherReady(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasher]);
+
   // Initialize worker pool
   useEffect(() => {
-    // Dynamic worker URL - defaults to the token-cache worker
     const url = workerUrl ?? new URL('@brainstrike/token-cache/worker', import.meta.url).href;
-
     const pool = createTokenCacheWorkerPool(url);
     setWorkerPool(pool as WorkerPool);
-
-    // Initialize hasher
-    void hasher.init().then(() => {
-      setIsReady(true);
-    });
+    setWorkerReady(true);
 
     return () => {
+      setWorkerReady(false);
       void pool.terminate();
+      setWorkerPool(noopWorkerPool);
     };
-  }, [hasher, workerUrl]);
+  }, [noopWorkerPool, workerUrl]);
 
   // Use the token cache hook with initialized infrastructure
   // WorkerPool interface is compatible with Pool from workerpool
   const tokenCache = useTokenCache({
-    store,
+    store: store as TokenCacheStore,
     hasher,
     workerPool: workerPool as unknown as ReturnType<typeof createTokenCacheWorkerPool>,
     countingMode,
     ...(onTokenResolved ? { onTokenResolved } : {}),
   });
 
+  const isReady = Boolean(db) && workerReady && hasherReady && hasPersistentStore;
+
+  const disabledTokenCache = useMemo<UseTokenCacheReturn>(
+    () => ({
+      getTokenCount: () => null,
+      getTotalTokens: async () => 0,
+      isLoading: () => false,
+      isAnyLoading: false,
+      queueForCounting: () => {},
+      preloadFolder: async () => {},
+      clearHotCache: () => {},
+      invalidate: () => {},
+      updateHotCache: () => {},
+    }),
+    []
+  );
+
   const contextValue = useMemo<TokenCacheContextValue>(
     () => ({
-      ...tokenCache,
-      isReady: isReady && workerPool !== null,
+      ...(isReady ? tokenCache : disabledTokenCache),
+      isReady,
       countingMode,
       store,
     }),
-    [tokenCache, isReady, workerPool, countingMode, store]
+    [tokenCache, disabledTokenCache, isReady, countingMode, store]
   );
-
-  // Don't render children until worker pool is ready
-  if (!workerPool) {
-    return null;
-  }
 
   return <TokenCacheContext.Provider value={contextValue}>{children}</TokenCacheContext.Provider>;
 }
