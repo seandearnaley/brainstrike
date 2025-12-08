@@ -216,6 +216,7 @@ export function usePreviewPanelState({
     decodeFileSelection,
     collapsedFolders,
     persistentCache,
+    persistentCache.cacheVersion,
     tokenVersion,
   ]);
 
@@ -337,7 +338,7 @@ export function usePreviewPanelState({
     }
 
     return { totalTokens, totalFiles };
-  }, [selectedFiles, persistentCache, tokenVersion]);
+  }, [selectedFiles, persistentCache, persistentCache.cacheVersion, tokenVersion]);
 
   return {
     batchSelectedFiles,

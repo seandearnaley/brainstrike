@@ -213,10 +213,19 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // Background token indexing - processes selected files off the main thread
   const selectedFilesSet = useMemo(() => new Set(safeSelectedFilesList), [safeSelectedFilesList]);
 
+  // Electron file reader - reads file content via IPC for the background worker
+  // The worker cannot read files directly in Electron due to security restrictions
+  const electronFileReader = useCallback(
+    async (handle: { path: string; name: string; kind: 'file'; platform: 'electron' }) =>
+      fileSystemAdapter.readFile(handle),
+    [fileSystemAdapter]
+  );
+
   // This hook automatically indexes selected files when TokenCacheProvider is present
   useBackgroundTokenIndexerIntegration({
     fileTree: stableFileTree,
     selectedFiles: selectedFilesSet,
+    electronFileReader,
   });
 
   const [quickFilterRaw, setQuickFilterRaw, clearQuickFilterRaw] = store(

@@ -29,6 +29,41 @@ const logger = createLogger('BackgroundTokenIndexer');
 
 type TokenCacheStoreLike = Pick<TokenCacheStore, 'get' | 'set'>;
 
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return typeof error === 'string' ? error : JSON.stringify(error);
+}
+
+async function persistResultToStore(
+  result: IndexerResult,
+  store: TokenCacheStoreLike,
+  onFileIndexed?: (compositeKey: string, tokenCount: number) => void
+): Promise<void> {
+  if (result.skipped) {
+    const cached = await store.get(result.folderId, result.filePath);
+    if (cached) {
+      onFileIndexed?.(result.compositeKey, cached.tokenCount);
+    }
+    return;
+  }
+
+  const entry: TokenCacheEntry = {
+    folderId: result.folderId,
+    filePath: result.filePath,
+    contentHash: result.contentHash,
+    fileSize: result.fileSize,
+    mtimeMs: null,
+    tokenCount: result.tokenCount,
+    countingMode: result.mode,
+    modelEncoding: result.mode === 'accurate' ? 'o200k_base' : null,
+  };
+
+  await store.set(entry);
+  onFileIndexed?.(result.compositeKey, result.tokenCount);
+}
+
 /**
  * Electron-style handle with path property
  */
@@ -40,16 +75,18 @@ export type ElectronFileHandle = {
 };
 
 /**
- * File ready for indexing - supports both Web FileSystemFileHandle and Electron path-based access
+ * File ready for indexing - supports both Web FileSystemFileHandle and Electron with pre-loaded content
  */
 export type FileToIndex = {
   compositeKey: string;
   folderId: string;
   filePath: string;
+  /** Pre-loaded file content (required for Electron) */
+  content?: string;
+  /** Pre-loaded file size in bytes */
+  fileSize?: number;
   /** Web FileSystemFileHandle for File System Access API */
   fileHandle?: FileSystemFileHandle;
-  /** Electron-style handle with path for direct file access */
-  electronHandle?: ElectronFileHandle;
 };
 
 export type IndexingProgress = {
@@ -67,6 +104,8 @@ export type UseBackgroundTokenIndexerOptions = {
   onFileIndexed?: (compositeKey: string, tokenCount: number) => void;
   /** Callback for progress updates */
   onProgress?: (progress: IndexingProgress) => void;
+  /** Callback when a file fails to index */
+  onFileError?: (compositeKey: string, error: string) => void;
 };
 
 export type UseBackgroundTokenIndexerReturn = {
@@ -105,6 +144,7 @@ export function useBackgroundTokenIndexer({
   mode,
   onFileIndexed,
   onProgress,
+  onFileError,
 }: UseBackgroundTokenIndexerOptions): UseBackgroundTokenIndexerReturn {
   const workerRef = useRef<Worker | null>(null);
   const [isReady, setIsReady] = useState(false);
@@ -116,6 +156,31 @@ export function useBackgroundTokenIndexer({
   // Track pending files to enable cancellation
   const pendingFilesRef = useRef<Set<string>>(new Set());
   const isMountedRef = useRef(true);
+
+  // Use refs to always call the LATEST callbacks from worker message handler.
+  // This prevents stale closure bugs where worker.onmessage captures old callback versions.
+  const onFileIndexedRef = useRef(onFileIndexed);
+  const onProgressRef = useRef(onProgress);
+  const onFileErrorRef = useRef(onFileError);
+  const storeRef = useRef(store);
+  const modeRef = useRef(mode);
+
+  // Keep refs in sync with latest props
+  useEffect(() => {
+    onFileIndexedRef.current = onFileIndexed;
+  }, [onFileIndexed]);
+  useEffect(() => {
+    onProgressRef.current = onProgress;
+  }, [onProgress]);
+  useEffect(() => {
+    onFileErrorRef.current = onFileError;
+  }, [onFileError]);
+  useEffect(() => {
+    storeRef.current = store;
+  }, [store]);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   const logWorkerErrorOnce = useCallback((error: unknown, context: string) => {
     if (workerErrorLoggedRef.current) {
@@ -294,78 +359,67 @@ export function useBackgroundTokenIndexer({
   );
 
   /**
-   * Handle result from worker
+   * Handle result from worker.
+   * Uses refs to always call the LATEST callbacks (avoids stale closure bug).
    */
-  const handleResult = useCallback(
-    async (result: IndexerResult) => {
+  const handleResult = useCallback(async (result: IndexerResult) => {
+    try {
       pendingFilesRef.current.delete(result.compositeKey);
 
+      // Get latest callback and store from refs
+      const currentOnFileIndexed = onFileIndexedRef.current;
+      const currentStore = storeRef.current;
+
       // If store is null, just notify without caching
-      if (!store) {
-        onFileIndexed?.(result.compositeKey, result.tokenCount);
-        if (pendingFilesRef.current.size === 0) {
-          setIsIndexing(false);
-          setProgress(null);
-        }
+      if (!currentStore) {
+        currentOnFileIndexed?.(result.compositeKey, result.tokenCount);
         return;
       }
 
-      // If skipped (hash matched), we don't need to update the cache
-      if (result.skipped) {
-        // Get existing token count from cache
-        const cached = await store.get(result.folderId, result.filePath);
-        if (cached) {
-          onFileIndexed?.(result.compositeKey, cached.tokenCount);
-        }
-      } else {
-        // Store in persistent cache
-        const entry: TokenCacheEntry = {
-          folderId: result.folderId,
-          filePath: result.filePath,
-          contentHash: result.contentHash,
-          fileSize: result.fileSize,
-          mtimeMs: null,
-          tokenCount: result.tokenCount,
-          countingMode: result.mode,
-          modelEncoding: result.mode === 'accurate' ? 'o200k_base' : null,
-        };
-
-        await store.set(entry);
-
-        // Notify caller
-        onFileIndexed?.(result.compositeKey, result.tokenCount);
+      await persistResultToStore(result, currentStore, currentOnFileIndexed);
+    } catch (error) {
+      logger.error('handleResult failed', {
+        compositeKey: result.compositeKey,
+        error: formatErrorMessage(error),
+      });
+      const currentOnFileError = onFileErrorRef.current;
+      if (currentOnFileError) {
+        currentOnFileError(result.compositeKey, formatErrorMessage(error));
       }
-
+    } finally {
       // Check if all done (handles both skipped and counted results)
       if (pendingFilesRef.current.size === 0) {
         setIsIndexing(false);
         setProgress(null);
       }
-    },
-    [store, onFileIndexed]
-  );
+    }
+  }, []);
 
   /**
-   * Handle progress update from worker
+   * Handle progress update from worker.
+   * Uses ref to always call the LATEST callback.
    */
-  const handleProgress = useCallback(
-    (progressMsg: IndexerProgress) => {
-      const newProgress: IndexingProgress = {
-        completed: progressMsg.completed,
-        total: progressMsg.total,
-        currentFile: progressMsg.currentId,
-      };
-      setProgress(newProgress);
-      onProgress?.(newProgress);
-    },
-    [onProgress]
-  );
+  const handleProgress = useCallback((progressMsg: IndexerProgress) => {
+    const newProgress: IndexingProgress = {
+      completed: progressMsg.completed,
+      total: progressMsg.total,
+      currentFile: progressMsg.currentId,
+    };
+    setProgress(newProgress);
+    onProgressRef.current?.(newProgress);
+  }, []);
 
   /**
-   * Handle error from worker
+   * Handle error from worker.
+   * Uses ref to always call the LATEST callback.
    */
   const handleError = useCallback((error: IndexerError) => {
     pendingFilesRef.current.delete(error.compositeKey);
+
+    const currentOnFileError = onFileErrorRef.current;
+    if (currentOnFileError) {
+      currentOnFileError(error.compositeKey, error.error);
+    }
 
     // biome-ignore lint/suspicious/noConsole: Error logging
     console.warn('[BackgroundTokenIndexer] File error:', error.compositeKey, error.error);
@@ -378,7 +432,8 @@ export function useBackgroundTokenIndexer({
   }, []);
 
   /**
-   * Queue files for background indexing
+   * Queue files for background indexing.
+   * Uses refs to get the latest store/mode/callbacks at call time.
    */
   const indexFiles = useCallback(
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Batch request building requires multiple conditionals for caching and handle types
@@ -392,63 +447,90 @@ export function useBackgroundTokenIndexer({
         return;
       }
 
+      // Get latest values from refs
+      const currentStore = storeRef.current;
+      const currentMode = modeRef.current;
+      const currentOnFileError = onFileErrorRef.current;
+
       setIsIndexing(true);
 
-      // Build batch request, checking cache for existing hashes
-      const requests: IndexerBatchRequest['requests'] = [];
+      try {
+        // Build batch request, checking cache for existing hashes
+        const requests: IndexerBatchRequest['requests'] = [];
 
-      for (const file of files) {
-        pendingFilesRef.current.add(file.compositeKey);
+        for (const file of files) {
+          pendingFilesRef.current.add(file.compositeKey);
 
-        // Check for cached hash to enable skip optimization (only if store is available)
-        let cachedHash: string | undefined;
-        if (store) {
-          const cached = await store.get(file.folderId, file.filePath);
-          cachedHash = cached?.countingMode === mode ? cached.contentHash : undefined;
+          // Check for cached hash to enable skip optimization (only if store is available)
+          let cachedHash: string | undefined;
+          if (currentStore) {
+            try {
+              const cached = await currentStore.get(file.folderId, file.filePath);
+              cachedHash = cached?.countingMode === currentMode ? cached.contentHash : undefined;
+            } catch (error) {
+              logger.error('indexFiles cache lookup failed', {
+                compositeKey: file.compositeKey,
+                error: formatErrorMessage(error),
+              });
+              pendingFilesRef.current.delete(file.compositeKey);
+              currentOnFileError?.(file.compositeKey, formatErrorMessage(error));
+              continue;
+            }
+          }
+
+          requests.push({
+            id: createRequestId(),
+            compositeKey: file.compositeKey,
+            folderId: file.folderId,
+            filePath: file.filePath,
+            cachedHash,
+            mode: currentMode,
+            // Include pre-loaded content for Electron files
+            ...(file.content !== undefined ? { content: file.content } : {}),
+            ...(file.fileSize !== undefined ? { fileSize: file.fileSize } : {}),
+            // Include file handle for Web files
+            ...(file.fileHandle ? { fileHandle: file.fileHandle } : {}),
+          });
         }
 
-        requests.push({
-          id: createRequestId(),
-          compositeKey: file.compositeKey,
-          folderId: file.folderId,
-          filePath: file.filePath,
-          cachedHash,
-          mode,
-          // Conditionally include handles to satisfy exactOptionalPropertyTypes
-          ...(file.fileHandle ? { fileHandle: file.fileHandle } : {}),
-          ...(file.electronHandle ? { electronHandle: file.electronHandle } : {}),
-        });
+        if (requests.length === 0) {
+          setIsIndexing(false);
+          setProgress(null);
+          return;
+        }
+
+        // Send batch to worker
+        const batchMessage: IndexerBatchRequest = {
+          type: 'index-batch',
+          requests,
+        };
+
+        workerRef.current.postMessage(batchMessage);
+      } catch (error) {
+        logger.error('indexFiles failed before dispatch', { error: formatErrorMessage(error) });
+        for (const file of files) {
+          pendingFilesRef.current.delete(file.compositeKey);
+          currentOnFileError?.(file.compositeKey, formatErrorMessage(error));
+        }
+        setIsIndexing(false);
+        setProgress(null);
       }
-
-      // Send batch to worker
-      const batchMessage: IndexerBatchRequest = {
-        type: 'index-batch',
-        requests,
-      };
-
-      workerRef.current.postMessage(batchMessage);
     },
-    [isReady, store, mode]
+    [isReady]
   );
 
   /**
    * Cancel all pending indexing
    */
   const cancelIndexing = useCallback(() => {
-    // Terminate and recreate worker
     if (workerRef.current) {
-      const oldOnMessage = workerRef.current.onmessage;
-      const oldOnError = workerRef.current.onerror;
       workerRef.current.terminate();
+      workerRef.current = null;
       pendingFilesRef.current.clear();
       setIsIndexing(false);
+      setIsReady(false);
       setProgress(null);
-
-      // Recreate worker
-      const worker = createWorkerInstance();
-      worker.onmessage = oldOnMessage;
-      worker.onerror = oldOnError;
-      workerRef.current = worker;
+      // Worker will be recreated on next mount or can be manually re-initialized
     }
   }, []);
 

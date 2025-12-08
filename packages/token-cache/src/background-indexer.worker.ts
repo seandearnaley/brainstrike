@@ -67,16 +67,6 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
 
 log('info', 'worker script evaluated');
 
-/**
- * Electron-style handle with path property
- */
-export type ElectronFileHandle = {
-  path: string;
-  name: string;
-  kind: 'file';
-  platform: 'electron';
-};
-
 // Message types for worker communication
 export type IndexerRequest = {
   type: 'index';
@@ -84,10 +74,12 @@ export type IndexerRequest = {
   compositeKey: string;
   folderId: string;
   filePath: string;
-  /** Web FileSystemFileHandle for File System Access API */
+  /** Pre-loaded file content (required for Electron, optional for Web) */
+  content?: string;
+  /** Pre-loaded file size in bytes */
+  fileSize?: number;
+  /** Web FileSystemFileHandle for File System Access API (Web only) */
   fileHandle?: FileSystemFileHandle;
-  /** Electron-style handle with path for direct file access */
-  electronHandle?: ElectronFileHandle;
   cachedHash: string | undefined; // If provided, skip if hash matches
   mode: TokenCountingMode;
 };
@@ -240,32 +232,26 @@ function isBinaryContent(content: string): boolean {
 }
 
 /**
- * Read file content - supports both Web FileSystemFileHandle and Electron path-based access
+ * Read file content - uses pre-loaded content for Electron, FileSystemFileHandle for Web
  */
 async function readFileContent(
   request: Omit<IndexerRequest, 'type'>
 ): Promise<{ content: string; fileSize: number }> {
-  // Web File System Access API
+  // Pre-loaded content (required for Electron, optional optimization for Web)
+  if (request.content !== undefined) {
+    const fileSize = request.fileSize ?? new Blob([request.content]).size;
+    return { content: request.content, fileSize };
+  }
+
+  // Web File System Access API (works in workers)
   if (request.fileHandle) {
     const file = await request.fileHandle.getFile();
     return { content: await file.text(), fileSize: file.size };
   }
 
-  // Electron path-based access via fetch with file:// protocol
-  if (request.electronHandle?.path) {
-    const fileUrl = `file://${request.electronHandle.path}`;
-    log('debug', 'readFileContent via fetch', { fileUrl });
-    const response = await fetch(fileUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to read file: ${response.status} ${response.statusText}`);
-    }
-    const content = await response.text();
-    // Estimate file size from content length (may differ from actual due to encoding)
-    const fileSize = new Blob([content]).size;
-    return { content, fileSize };
-  }
-
-  throw new Error('No valid file handle provided - need either fileHandle or electronHandle');
+  throw new Error(
+    'No file content available - Electron files must have content pre-loaded via IPC'
+  );
 }
 
 /**
@@ -284,7 +270,7 @@ async function processFile(
       mode: request.mode,
       hasCachedHash: Boolean(request.cachedHash),
       hasFileHandle: Boolean(request.fileHandle),
-      hasElectronHandle: Boolean(request.electronHandle),
+      hasContent: request.content !== undefined,
     });
     // Read file content using appropriate method
     const { content, fileSize } = await readFileContent(request);

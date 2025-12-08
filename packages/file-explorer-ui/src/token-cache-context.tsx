@@ -291,6 +291,7 @@ export function TokenCacheProvider({
       clearHotCache: () => {},
       invalidate: () => {},
       updateHotCache: () => {},
+      cacheVersion: 0,
     }),
     []
   );

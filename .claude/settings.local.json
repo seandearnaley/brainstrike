@@ -175,7 +175,10 @@
       "Bash(docker info:*)",
       "WebFetch(domain:playwright.dev)",
       "Bash(git revert:*)",
-      "Bash(biome check:*)"
+      "Bash(biome check:*)",
+      "Bash(python3:*)",
+      "Bash(node /Users/seandearnaley/Documents/GitHub/brainstrike/.claude/scripts/analyze-token-cache-logs.mjs:*)",
+      "Bash(node /Users/seandearnaley/Documents/GitHub/brainstrike/.claude/scripts/trace-rerender-chain.mjs:*)"
     ],
     "deny": [],
     "ask": []

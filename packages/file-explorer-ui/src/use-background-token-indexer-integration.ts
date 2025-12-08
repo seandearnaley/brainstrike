@@ -11,10 +11,17 @@
 import { type FileToIndex, useBackgroundTokenIndexer } from '@brainstrike/token-cache';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
+const INDEX_BATCH_SIZE = 200;
+
+/**
+ * Function to read file content for Electron handles via IPC.
+ * Required for Electron; workers cannot read files directly due to security restrictions.
+ */
+export type ElectronFileReader = (handle: ElectronFileHandle) => Promise<string>;
 
 export type UseBackgroundTokenIndexerIntegrationProps = {
   /** The file tree containing IFileNodes with handles */
@@ -23,13 +30,15 @@ export type UseBackgroundTokenIndexerIntegrationProps = {
   selectedFiles: Set<string>;
   /** Callback when a file's token count is resolved */
   onTokenResolved?: (compositeKey: string, tokenCount: number) => void;
+  /** File reader for Electron handles - required when using Electron file handles */
+  electronFileReader?: ElectronFileReader;
 };
 
 export type UseBackgroundTokenIndexerIntegrationReturn = {
   /** Whether background indexing is active */
   isIndexing: boolean;
-  /** Manually trigger indexing for specific files */
-  triggerIndexing: (compositeKeys: string[]) => void;
+  /** Manually trigger indexing for specific files (async for Electron file reading) */
+  triggerIndexing: (compositeKeys: string[]) => Promise<void>;
   /** Whether the background indexer is ready */
   isReady: boolean;
   /** Current indexing progress */
@@ -142,6 +151,7 @@ export function useBackgroundTokenIndexerIntegration({
   fileTree,
   selectedFiles,
   onTokenResolved,
+  electronFileReader,
 }: UseBackgroundTokenIndexerIntegrationProps): UseBackgroundTokenIndexerIntegrationReturn {
   // Get the token cache context (may be null if not in provider)
   const tokenCache = useOptionalTokenCacheContext();
@@ -156,11 +166,21 @@ export function useBackgroundTokenIndexerIntegration({
 
   // Track which files we've already queued for indexing
   const indexedFilesRef = useRef<Set<string>>(new Set());
+  // Track files currently in flight to avoid re-queuing while a batch is running
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const previousSelectionSizeRef = useRef<number>(0);
+  const [_inFlightPulse, bumpInFlightPulse] = useState(0);
+
+  // Stable refs for tokenCache functions to avoid re-render loops.
+  // The tokenCache object changes on every cacheVersion bump, but the functions are stable.
+  // Using refs prevents effects from re-running when cacheVersion changes.
+  const tokenCacheRef = useRef(tokenCache);
+  tokenCacheRef.current = tokenCache;
 
   // Build file handle map whenever tree changes
   const fileHandleMapRef = useRef<Map<string, HandleInfo>>(new Map());
   const previousRootIdsRef = useRef<string>('');
-  // biome-ignore lint/plugin: Hook is intentionally used for side-effectful map construction on tree change
+  // biome-ignore lint/plugin: side-effectful map construction on tree change is intentional
   useEffect(() => {
     const map = new Map<string, HandleInfo>();
     const rootIds = new Set<string>();
@@ -176,6 +196,8 @@ export function useBackgroundTokenIndexerIntegration({
     const rootFingerprint = Array.from(rootIds).sort().join('|');
     if (previousRootIdsRef.current && previousRootIdsRef.current !== rootFingerprint) {
       indexedFilesRef.current.clear();
+      inFlightRef.current.clear();
+      bumpInFlightPulse((value) => value + 1);
       logger.info('Cleared indexedFiles cache due to root folder change', {
         previousRootIds: previousRootIdsRef.current,
         nextRootIds: rootFingerprint,
@@ -190,29 +212,42 @@ export function useBackgroundTokenIndexerIntegration({
     });
   }, [fileTree]);
 
+  // Stable ref for onTokenResolved to avoid callback instability
+  const onTokenResolvedRef = useRef(onTokenResolved);
+  onTokenResolvedRef.current = onTokenResolved;
+
   /**
    * Callback when background indexer resolves a token count.
    * Updates the hot cache to trigger React re-render.
+   * Uses refs to maintain stable callback identity and avoid re-render loops.
    */
-  const handleFileIndexed = useCallback(
-    (compositeKey: string, tokenCount: number) => {
-      // Decode the composite key to get folderId and path for cache key consistency
-      const { folderId, path } = decodeFileSelection(compositeKey);
-      // Update the hot cache to trigger UI re-render
-      tokenCache?.updateHotCache(folderId, path, tokenCount);
-      // Mark as indexed only after we have a resolved result
-      indexedFilesRef.current.add(compositeKey);
-      // Call optional external callback
-      onTokenResolved?.(compositeKey, tokenCount);
-    },
-    [tokenCache, onTokenResolved]
-  );
+  const handleFileIndexed = useCallback((compositeKey: string, tokenCount: number) => {
+    const { folderId, path } = decodeFileSelection(compositeKey);
+    inFlightRef.current.delete(compositeKey);
+    if (inFlightRef.current.size === 0) {
+      bumpInFlightPulse((value) => value + 1);
+    }
+    tokenCacheRef.current?.updateHotCache(folderId, path, tokenCount);
+    indexedFilesRef.current.add(compositeKey);
+    logger.debug('File indexed', { compositeKey, tokenCount });
+    onTokenResolvedRef.current?.(compositeKey, tokenCount);
+  }, []);
+
+  const handleFileError = useCallback((compositeKey: string, error: string) => {
+    inFlightRef.current.delete(compositeKey);
+    indexedFilesRef.current.delete(compositeKey);
+    if (inFlightRef.current.size === 0) {
+      bumpInFlightPulse((value) => value + 1);
+    }
+    logger.error('Background indexer file error', { compositeKey, error });
+  }, []);
 
   // Use the background token indexer when context is available
   const backgroundIndexer = useBackgroundTokenIndexer({
     store: tokenCache?.store ?? null,
     mode: tokenCache?.countingMode ?? 'heuristic',
     onFileIndexed: handleFileIndexed,
+    onFileError: handleFileError,
   });
 
   // Log indexer state for debugging
@@ -222,16 +257,28 @@ export function useBackgroundTokenIndexerIntegration({
     selectedFilesCount: selectedFiles.size,
   });
 
+  // Stable ref for backgroundIndexer to avoid callback instability
+  const backgroundIndexerRef = useRef(backgroundIndexer);
+  backgroundIndexerRef.current = backgroundIndexer;
+
+  // Stable ref for electronFileReader
+  const electronFileReaderRef = useRef(electronFileReader);
+  electronFileReaderRef.current = electronFileReader;
+
   /**
-   * Queue files for indexing using the background worker
+   * Queue files for indexing using the background worker.
+   * For Electron files, reads content via IPC first (async, non-blocking).
+   * Uses refs to maintain stable callback identity and avoid re-render loops.
    */
   const triggerIndexing = useCallback(
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Indexing logic requires multiple conditional branches for handle types and caching
-    (compositeKeys: string[]) => {
-      if (!(tokenCache?.isReady && backgroundIndexer.isReady)) {
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Indexing logic requires branching for handle types and batch processing
+    async (compositeKeys: string[]) => {
+      const cache = tokenCacheRef.current;
+      const indexer = backgroundIndexerRef.current;
+      if (!(cache?.isReady && indexer.isReady)) {
         logger.warn('triggerIndexing blocked - not ready', {
-          tokenCacheReady: tokenCache?.isReady ?? false,
-          backgroundIndexerReady: backgroundIndexer.isReady,
+          tokenCacheReady: cache?.isReady ?? false,
+          backgroundIndexerReady: indexer.isReady,
           requestedFiles: compositeKeys.length,
         });
         return;
@@ -240,11 +287,21 @@ export function useBackgroundTokenIndexerIntegration({
       logger.info('triggerIndexing started', { fileCount: compositeKeys.length });
 
       const filesToIndex: FileToIndex[] = [];
+      const electronFilesToRead: Array<{
+        compositeKey: string;
+        folderId: string;
+        path: string;
+        handle: ElectronFileHandle;
+      }> = [];
       let skippedNoHandle = 0;
 
       for (const compositeKey of compositeKeys) {
         // Skip if already indexed in this session
         if (indexedFilesRef.current.has(compositeKey)) {
+          continue;
+        }
+        // Skip if already queued
+        if (inFlightRef.current.has(compositeKey)) {
           continue;
         }
 
@@ -255,53 +312,127 @@ export function useBackgroundTokenIndexerIntegration({
         }
 
         const { folderId, path } = decodeFileSelection(compositeKey);
-        filesToIndex.push({
-          compositeKey,
-          folderId,
-          filePath: path,
-          // Conditionally include handles to satisfy exactOptionalPropertyTypes
-          ...(handleInfo.webHandle ? { fileHandle: handleInfo.webHandle } : {}),
-          ...(handleInfo.electronHandle ? { electronHandle: handleInfo.electronHandle } : {}),
-        });
+
+        if (handleInfo.webHandle) {
+          // Web files: pass handle directly to worker
+          const wasEmpty = inFlightRef.current.size === 0;
+          inFlightRef.current.add(compositeKey);
+          if (wasEmpty) {
+            bumpInFlightPulse((value) => value + 1);
+          }
+          filesToIndex.push({
+            compositeKey,
+            folderId,
+            filePath: path,
+            fileHandle: handleInfo.webHandle,
+          });
+        } else if (handleInfo.electronHandle) {
+          // Electron files: need to read content first
+          electronFilesToRead.push({
+            compositeKey,
+            folderId,
+            path,
+            handle: handleInfo.electronHandle,
+          });
+        }
+      }
+
+      // Read Electron file contents via IPC (async, non-blocking)
+      if (electronFilesToRead.length > 0) {
+        const fileReader = electronFileReaderRef.current;
+        if (!fileReader) {
+          throw new Error(
+            'electronFileReader is required for Electron file handles. ' +
+              'The background worker cannot read files directly due to security restrictions.'
+          );
+        }
+
+        // Read files in parallel batches to avoid overwhelming IPC
+        const BatchSize = 20;
+        for (let i = 0; i < electronFilesToRead.length; i += BatchSize) {
+          const batch = electronFilesToRead.slice(i, i + BatchSize);
+          const results = await Promise.all(
+            batch.map(async ({ compositeKey, folderId, path, handle }) => {
+              try {
+                const content = await fileReader(handle);
+                return { compositeKey, folderId, path, content, error: null };
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                return { compositeKey, folderId, path, content: null, error: message };
+              }
+            })
+          );
+
+          for (const result of results) {
+            if (result.error || result.content === null) {
+              logger.error('Failed to read Electron file', {
+                compositeKey: result.compositeKey,
+                error: result.error ?? 'No content returned',
+              });
+              handleFileError(result.compositeKey, result.error ?? 'No content returned');
+              continue;
+            }
+
+            const wasEmpty = inFlightRef.current.size === 0;
+            inFlightRef.current.add(result.compositeKey);
+            if (wasEmpty) {
+              bumpInFlightPulse((value) => value + 1);
+            }
+            filesToIndex.push({
+              compositeKey: result.compositeKey,
+              folderId: result.folderId,
+              filePath: result.path,
+              content: result.content,
+              fileSize: new Blob([result.content]).size,
+            });
+          }
+        }
       }
 
       logger.info('triggerIndexing prepared', {
         toIndex: filesToIndex.length,
         skippedNoHandle,
-        hasElectron: filesToIndex.some((f) => f.electronHandle),
-        hasWeb: filesToIndex.some((f) => f.fileHandle),
+        electronFiles: electronFilesToRead.length,
+        webFiles: filesToIndex.filter((f) => f.fileHandle).length,
       });
 
       if (filesToIndex.length === 0) {
         return;
       }
 
-      // Queue files for background indexing
-      backgroundIndexer.indexFiles(filesToIndex);
+      // Queue files for background indexing in manageable batches
+      for (let i = 0; i < filesToIndex.length; i += INDEX_BATCH_SIZE) {
+        const batch = filesToIndex.slice(i, i + INDEX_BATCH_SIZE);
+        indexer.indexFiles(batch);
+      }
     },
-    [tokenCache, backgroundIndexer]
+    [handleFileError]
   );
 
   // Queue newly selected files for indexing when selection changes
+  // Uses refs to avoid re-render loops while still accessing latest values
+  const backgroundIndexerIsReady = backgroundIndexer.isReady;
   useEffect(() => {
+    const indexer = backgroundIndexerRef.current;
+    const cache = tokenCacheRef.current;
     // Use INFO for critical diagnostic visibility
     logger.info('Selection effect triggered', {
       selectedFilesCount: selectedFiles.size,
-      isReady: backgroundIndexer.isReady,
-      tokenCacheReady: tokenCache?.isReady ?? false,
+      isReady: indexer.isReady,
+      tokenCacheReady: cache?.isReady ?? false,
       alreadyIndexed: indexedFilesRef.current.size,
       fileHandleMapSize: fileHandleMapRef.current.size,
     });
 
-    // Safety: if we think everything is indexed but nothing is running, assume stale cache.
-    if (
-      selectedFiles.size > 0 &&
-      indexedFilesRef.current.size >= selectedFiles.size &&
-      !backgroundIndexer.isIndexing
-    ) {
-      indexedFilesRef.current.clear();
-      logger.warn('Cleared indexedFiles cache due to no progress while fully indexed', {
-        selectedFilesCount: selectedFiles.size,
+    const previousSize = previousSelectionSizeRef.current;
+    previousSelectionSizeRef.current = selectedFiles.size;
+    if (selectedFiles.size < previousSize && inFlightRef.current.size > 0) {
+      indexer.cancelIndexing();
+      inFlightRef.current.clear();
+      bumpInFlightPulse((value) => value + 1);
+      logger.info('Cleared in-flight queue due to selection shrink', {
+        previousSize,
+        nextSize: selectedFiles.size,
       });
     }
 
@@ -310,22 +441,28 @@ export function useBackgroundTokenIndexerIntegration({
     // re-counting for the new selection.
     if (indexedFilesRef.current.size > selectedFiles.size) {
       indexedFilesRef.current.clear();
+      if (inFlightRef.current.size > 0) {
+        inFlightRef.current.clear();
+        bumpInFlightPulse((value) => value + 1);
+      }
       logger.info('Cleared indexedFiles cache due to selection shrink', {
         previousIndexed: indexedFilesRef.current.size,
         selectedFilesCount: selectedFiles.size,
       });
     }
 
-    if (selectedFiles.size === 0 || !backgroundIndexer.isReady) {
+    if (selectedFiles.size === 0 || !indexer.isReady) {
       logger.info('Selection effect exiting early', {
         noFiles: selectedFiles.size === 0,
-        notReady: !backgroundIndexer.isReady,
+        notReady: !indexer.isReady,
       });
       return;
     }
 
     // Find files that haven't been indexed yet
-    const newFiles = Array.from(selectedFiles).filter((key) => !indexedFilesRef.current.has(key));
+    const newFiles = Array.from(selectedFiles).filter(
+      (key) => !(indexedFilesRef.current.has(key) || inFlightRef.current.has(key))
+    );
     logger.info('New files to index', { count: newFiles.length, first3: newFiles.slice(0, 3) });
 
     if (newFiles.length === 0) {
@@ -334,11 +471,11 @@ export function useBackgroundTokenIndexerIntegration({
 
     // Debounce to avoid rapid re-indexing during fast selection changes
     const timeoutId = setTimeout(() => {
-      triggerIndexing(newFiles);
+      void triggerIndexing(newFiles);
     }, 100);
 
     return () => clearTimeout(timeoutId);
-  }, [selectedFiles, triggerIndexing, backgroundIndexer.isReady]);
+  }, [selectedFiles, triggerIndexing, backgroundIndexerIsReady]);
 
   // Clear indexed files cache when file tree changes significantly
   // biome-ignore lint/plugin: Intentional effect to reset cache when folder is cleared - not an event handler
@@ -346,23 +483,60 @@ export function useBackgroundTokenIndexerIntegration({
     // Reset cache when tree is empty (folder cleared)
     if (fileTree.length === 0) {
       indexedFilesRef.current.clear();
+      if (inFlightRef.current.size > 0) {
+        inFlightRef.current.clear();
+        bumpInFlightPulse((value) => value + 1);
+      }
     }
   }, [fileTree.length]);
 
   // Warm hot cache from persistent store so repeat selections show existing counts immediately.
+  // Uses tokenCacheRef to avoid re-render loops when cacheVersion changes.
+  const tokenCacheIsReady = tokenCache?.isReady ?? false;
+  // biome-ignore lint/plugin: Cache hydration from persistent store is intentional side effect
   useEffect(() => {
-    if (!tokenCache?.isReady || selectedFiles.size === 0) {
+    const cache = tokenCacheRef.current;
+    if (!cache?.isReady || selectedFiles.size === 0) {
       return;
     }
     const folderIds = new Set<string>();
+    const keysByFolder = new Map<string, string[]>();
     for (const key of selectedFiles) {
       const { folderId } = decodeFileSelection(key);
       folderIds.add(folderId);
+      const arr = keysByFolder.get(folderId) ?? [];
+      arr.push(key);
+      keysByFolder.set(folderId, arr);
     }
     for (const folderId of folderIds) {
-      void tokenCache.preloadFolder(folderId);
+      void cache.preloadFolder(folderId);
     }
-  }, [selectedFiles, tokenCache?.isReady, tokenCache?.preloadFolder, tokenCache]);
+
+    // After preload, ensure hot cache gets populated for any selected files that
+    // were already stored but not yet marked indexed (prevents zero-count UI).
+    for (const [folderId, keys] of keysByFolder.entries()) {
+      const paths = keys.map((key) => decodeFileSelection(key).path);
+      void cache.store
+        .getBatch(folderId, paths)
+        .then((entries) => {
+          // Use ref to get latest cache instance in async callback
+          const currentCache = tokenCacheRef.current;
+          if (!currentCache) {
+            return;
+          }
+          for (const [path, entry] of entries.entries()) {
+            const compositeKey = encodeFileSelection(folderId, path);
+            if (!indexedFilesRef.current.has(compositeKey)) {
+              currentCache.updateHotCache(folderId, path, entry.tokenCount);
+              indexedFilesRef.current.add(compositeKey);
+            }
+          }
+        })
+        .catch((error) => {
+          logger.warn('Failed to hydrate hot cache from store', { folderId, error });
+        });
+    }
+  }, [selectedFiles, tokenCacheIsReady]);
 
   return {
     isIndexing: backgroundIndexer.isIndexing,

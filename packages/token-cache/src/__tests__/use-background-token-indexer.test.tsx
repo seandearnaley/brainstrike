@@ -103,4 +103,142 @@ describe('useBackgroundTokenIndexer', () => {
     await waitFor(() => expect(result.current.isIndexing).toBe(false));
     expect(result.current.progress).toBeNull();
   });
+
+  it('invokes onFileError when worker reports an error', async () => {
+    const onFileError = vi.fn();
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store: null,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    act(() => {
+      const worker = mockWorkers[0]!;
+      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+    });
+
+    act(() => {
+      result.current.indexFiles([
+        {
+          compositeKey: 'folder|@|bad.txt',
+          folderId: 'folder',
+          filePath: 'bad.txt',
+        },
+      ]);
+    });
+
+    await act(async () => {
+      const worker = mockWorkers[0]!;
+      worker.onmessage?.({
+        data: {
+          type: 'error',
+          compositeKey: 'folder|@|bad.txt',
+          error: 'boom',
+          id: '1',
+        },
+      } as MessageEvent);
+    });
+
+    expect(onFileError).toHaveBeenCalledWith('folder|@|bad.txt', 'boom');
+    await waitFor(() => expect(result.current.isIndexing).toBe(false));
+  });
+
+  it('recovers if cache lookup throws before dispatch', async () => {
+    const onFileError = vi.fn();
+
+    const store = {
+      get: vi.fn(async () => {
+        throw new Error('db unreachable');
+      }),
+      set: vi.fn(async () => {}),
+    };
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store,
+        mode: 'accurate',
+        onFileError,
+      })
+    );
+
+    act(() => {
+      const worker = mockWorkers[0]!;
+      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+    });
+
+    await act(async () => {
+      result.current.indexFiles([
+        {
+          compositeKey: 'folder|@|file.txt',
+          folderId: 'folder',
+          filePath: 'file.txt',
+        },
+      ]);
+    });
+
+    expect(onFileError).toHaveBeenCalledWith('folder|@|file.txt', 'db unreachable');
+    expect(result.current.isIndexing).toBe(false);
+    expect(result.current.progress).toBeNull();
+  });
+
+  it('does not stay stuck when store.set rejects inside handleResult', async () => {
+    const onFileIndexed = vi.fn();
+    const onFileError = vi.fn();
+
+    const store = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => {
+        throw new Error('write failed');
+      }),
+    };
+
+    const { result } = renderHook(() =>
+      useBackgroundTokenIndexer({
+        store,
+        mode: 'accurate',
+        onFileIndexed,
+        onFileError,
+      })
+    );
+
+    act(() => {
+      const worker = mockWorkers[0]!;
+      worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+    });
+
+    act(() => {
+      result.current.indexFiles([
+        {
+          compositeKey: 'folder|@|file.txt',
+          folderId: 'folder',
+          filePath: 'file.txt',
+        },
+      ]);
+    });
+
+    await act(async () => {
+      const worker = mockWorkers[0]!;
+      worker.onmessage?.({
+        data: {
+          type: 'result',
+          skipped: false,
+          compositeKey: 'folder|@|file.txt',
+          folderId: 'folder',
+          filePath: 'file.txt',
+          contentHash: 'hash',
+          fileSize: 128,
+          mode: 'accurate',
+          tokenCount: 99,
+        },
+      } as MessageEvent);
+    });
+
+    expect(onFileIndexed).not.toHaveBeenCalled();
+    expect(onFileError).toHaveBeenCalledWith('folder|@|file.txt', 'write failed');
+    await waitFor(() => expect(result.current.isIndexing).toBe(false));
+    expect(result.current.progress).toBeNull();
+  });
 });

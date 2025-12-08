@@ -5,7 +5,10 @@
  * Manages hot cache (in-memory) and cold cache (PGlite) with background worker.
  */
 
+import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+const logger = createLogger('TokenCache');
 
 /** Debounce delay for version updates to batch rapid-fire cache changes (ms) */
 const VERSION_DEBOUNCE_MS = 50;
@@ -98,6 +101,12 @@ export type UseTokenCacheReturn = {
    * Used by background indexer to populate cache without re-counting.
    */
   updateHotCache: (folderId: string, filePath: string, tokenCount: number) => void;
+
+  /**
+   * Version counter that increments when cache updates.
+   * Use as a dependency in useMemo/useEffect to trigger re-renders on cache changes.
+   */
+  cacheVersion: number;
 };
 
 /**
@@ -106,6 +115,11 @@ export type UseTokenCacheReturn = {
 function createCacheKey(folderId: string, filePath: string): string {
   return `${folderId}::${filePath}`;
 }
+
+// Temporary diagnostics: surface hot-cache hits/misses for a single file to confirm UI read path.
+// NOTE: keep scoped to a single key to avoid noisy logs; remove after validation.
+const DIAG_KEY = (process.env['TOKEN_CACHE_DIAG_KEY'] as string | undefined) ?? '';
+const diagLogger = DIAG_KEY ? createLogger('TokenCacheDiag') : null;
 
 /**
  * React hook for persistent token caching with background worker.
@@ -257,6 +271,13 @@ export function useTokenCache({
 
       // Check hot cache first
       const cached = hotCache.current.get(key);
+      if (DIAG_KEY && key === DIAG_KEY && diagLogger) {
+        diagLogger.debug('token-cache diag: hot cache lookup', {
+          key,
+          hit: cached !== undefined,
+          value: cached,
+        });
+      }
       if (cached !== undefined) {
         return cached;
       }
@@ -264,6 +285,10 @@ export function useTokenCache({
       // If content provided and not pending, trigger load
       if (content && !pendingRequests.current.has(key)) {
         void loadOrCount(folderId, filePath, content);
+      }
+
+      if (DIAG_KEY && key === DIAG_KEY && diagLogger) {
+        diagLogger.debug('token-cache diag: cache miss', { key, hasContent: Boolean(content) });
       }
 
       return null; // Loading
@@ -356,6 +381,7 @@ export function useTokenCache({
     (folderId: string, filePath: string, tokenCount: number) => {
       const key = createCacheKey(folderId, filePath);
       hotCache.current.set(key, tokenCount);
+      logger.info('Hot cache updated', { key, tokenCount, cacheSize: hotCache.current.size });
       debouncedSetVersion();
     },
     [debouncedSetVersion]
@@ -367,7 +393,7 @@ export function useTokenCache({
     clearHotCache();
   }, [countingMode, clearHotCache]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: version triggers re-render on cache update
+  // NOTE: version is included in deps to trigger consumer re-renders when cache updates
   return useMemo(
     () => ({
       getTokenCount,
@@ -379,6 +405,7 @@ export function useTokenCache({
       clearHotCache,
       invalidate,
       updateHotCache,
+      cacheVersion: version,
     }),
     [
       getTokenCount,

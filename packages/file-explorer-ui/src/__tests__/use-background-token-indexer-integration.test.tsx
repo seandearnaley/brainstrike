@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
-import { renderHook } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TokenCacheContextValue } from '../token-cache-context';
 import { useBackgroundTokenIndexerIntegration } from '../use-background-token-indexer-integration';
@@ -20,21 +20,34 @@ vi.mock('@brainstrike/token-cache', () => ({
 }));
 
 // Provide a minimal context value with the fields the integration hook reads.
-const storeMock = { get: vi.fn(), set: vi.fn() } as unknown as TokenCacheContextValue['store'];
+const storeMock = {
+  get: vi.fn(),
+  set: vi.fn(),
+  getBatch: vi.fn(async () => new Map()),
+  getAllForFolder: vi.fn(async () => []),
+  setBatch: vi.fn(async () => {}),
+  delete: vi.fn(async () => true),
+  clearFolder: vi.fn(async () => 0),
+  clearAll: vi.fn(async () => 0),
+  getTotalTokens: vi.fn(async () => 0),
+  findByCountingMode: vi.fn(async () => []),
+  vacuum: vi.fn(async () => {}),
+} as unknown as TokenCacheContextValue['store'];
 
 const tokenCacheContext: TokenCacheContextValue = {
   isReady: true,
   countingMode: 'accurate',
-  store: storeMock,
   getTokenCount: vi.fn(),
   getTotalTokens: vi.fn(async () => 0),
   isLoading: vi.fn(() => false),
   isAnyLoading: false,
   queueForCounting: vi.fn(),
   preloadFolder: vi.fn(),
+  store: storeMock,
   clearHotCache: vi.fn(),
   invalidate: vi.fn(),
   updateHotCache: vi.fn(),
+  cacheVersion: 0,
 };
 
 vi.mock('../token-cache-context', () => ({
@@ -81,10 +94,23 @@ const fileTreeRootB: IFileNode[] = [
   },
 ];
 
+const flushTimers = (): void => {
+  act(() => {
+    vi.runAllTimers();
+  });
+};
+
+const advanceTimers = (ms: number): void => {
+  act(() => {
+    vi.advanceTimersByTime(ms);
+  });
+};
+
 describe('useBackgroundTokenIndexerIntegration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    mockBackgroundIndexer.isIndexing = false;
   });
 
   it('re-queues files when selection shrinks (stale cache is cleared)', () => {
@@ -101,13 +127,13 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     );
 
     // First selection: both files should be queued.
-    vi.runAllTimers();
+    flushTimers();
     expect(indexFilesMock).toHaveBeenCalledTimes(1);
     expect(indexFilesMock.mock.calls[0]![0]).toHaveLength(2);
 
     // Shrink selection to only fileA; cache should clear and re-queue fileA.
     rerender(new Set([fileAKey]));
-    vi.runAllTimers();
+    flushTimers();
 
     expect(indexFilesMock).toHaveBeenCalledTimes(2);
     expect(indexFilesMock.mock.calls[1]![0]).toHaveLength(1);
@@ -127,12 +153,12 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       }
     );
 
-    vi.runAllTimers();
+    flushTimers();
     expect(indexFilesMock).toHaveBeenCalledTimes(1);
     indexFilesMock.mockClear();
 
     rerender({ tree: fileTreeRootB, selected: new Set([fileCKey]) });
-    vi.runAllTimers();
+    flushTimers();
 
     expect(indexFilesMock).toHaveBeenCalledTimes(1);
     expect(indexFilesMock.mock.calls[0]![0][0]?.compositeKey).toBe(fileCKey);
@@ -147,7 +173,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       })
     );
 
-    vi.runAllTimers();
+    flushTimers();
     // The stale-cache safety should enqueue once.
     expect(indexFilesMock).toHaveBeenCalled();
     expect(indexFilesMock.mock.calls[0]![0][0]?.compositeKey).toBe(fileAKey);
@@ -171,5 +197,26 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     expect(preloadSpy).toHaveBeenCalledTimes(2);
     expect(preloadSpy).toHaveBeenCalledWith('root');
     expect(preloadSpy).toHaveBeenCalledWith('other-root');
+  });
+
+  it('does not requeue files that are already in flight across renders', () => {
+    const selected = new Set([fileAKey, fileBKey]);
+    const { rerender } = renderHook(() =>
+      useBackgroundTokenIndexerIntegration({
+        fileTree: fileTreeRootA,
+        selectedFiles: selected,
+        onTokenResolved: vi.fn(),
+      })
+    );
+
+    flushTimers();
+    expect(indexFilesMock).toHaveBeenCalledTimes(1);
+
+    mockBackgroundIndexer.isIndexing = true;
+    rerender();
+    advanceTimers(500);
+    rerender();
+
+    expect(indexFilesMock).toHaveBeenCalledTimes(1);
   });
 });

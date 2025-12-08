@@ -55,6 +55,12 @@ export type UsePersistentTokenCacheReturn = {
    * Reference to in-memory cache (for compatibility with legacy code)
    */
   tokenCacheRef: MutableRefObject<Map<string, number>>;
+
+  /**
+   * Cache version counter that increments when hot cache updates.
+   * Use as a dependency in useMemo/useEffect to trigger re-renders.
+   */
+  cacheVersion: number;
 };
 
 /**
@@ -159,5 +165,6 @@ export function usePersistentTokenCache({
     isAnyLoading: persistentCache?.isAnyLoading ?? pendingRequestsRef.current.size > 0,
     pendingRequestsRef,
     tokenCacheRef,
+    cacheVersion: persistentCache?.cacheVersion ?? 0,
   };
 }
