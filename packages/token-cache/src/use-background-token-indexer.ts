@@ -229,11 +229,11 @@ export function useBackgroundTokenIndexer({
         }
 
         const message = event.data;
-        logger.debug('Background token indexer worker message', { type: message.type });
-        // biome-ignore lint/suspicious/noConsole: message visibility
-        console.log('[BackgroundTokenIndexer] Worker message', {
-          type: (message as { type: string }).type,
-        });
+        // Only log non-'log' message types to avoid duplicate noise
+        // Worker 'log' messages are already logged by the worker itself
+        if (message.type !== 'log') {
+          logger.debug('Background token indexer worker message', { type: message.type });
+        }
 
         if (message.type === 'ready') {
           logger.info('Background token indexer worker is ready');
@@ -246,6 +246,8 @@ export function useBackgroundTokenIndexer({
         }
 
         if (message.type === 'log') {
+          // Worker already logs to its own console, so we only forward to our
+          // structured logger for file/remote logging. No duplicate console output.
           const logMsg = message as WorkerLog;
           const logPayload = { data: logMsg.data };
           if (logMsg.level === 'error') {
@@ -257,12 +259,6 @@ export function useBackgroundTokenIndexer({
           } else {
             logger.debug(`Worker log: ${logMsg.message}`, logPayload);
           }
-          // biome-ignore lint/suspicious/noConsole: worker log visibility
-          console.log('[BackgroundTokenIndexer][worker-log]', {
-            level: logMsg.level,
-            message: logMsg.message,
-            data: logMsg.data,
-          });
           return;
         }
 

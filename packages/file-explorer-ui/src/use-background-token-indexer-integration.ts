@@ -442,20 +442,11 @@ export function useBackgroundTokenIndexerIntegration({
       });
     }
 
-    // If the current selection is smaller than what we've already indexed, the cached
-    // set is stale (e.g., user navigated to a different folder). Clear it to allow
-    // re-counting for the new selection.
-    if (indexedFilesRef.current.size > selectedFiles.size) {
-      indexedFilesRef.current.clear();
-      if (inFlightRef.current.size > 0) {
-        inFlightRef.current.clear();
-        bumpInFlightPulse((value) => value + 1);
-      }
-      logger.info('Cleared indexedFiles cache due to selection shrink', {
-        previousIndexed: indexedFilesRef.current.size,
-        selectedFilesCount: selectedFiles.size,
-      });
-    }
+    // Note: We no longer clear indexedFilesRef based on selection size shrinking.
+    // The root folder change detection in the file handle map effect handles
+    // clearing when user actually navigates to a different folder. Selection
+    // size changes (e.g., "select all" briefly going to 0 then 90) should NOT
+    // invalidate already-indexed files.
 
     // Exit early if no files selected, indexer not ready, or no file handles available yet.
     // During startup, selection may be restored from storage before file tree has handles.

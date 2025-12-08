@@ -375,11 +375,17 @@ export function useTokenCache({
   );
 
   /**
-   * Update hot cache directly (for background indexer integration)
+   * Update hot cache directly (for background indexer integration).
+   * Skips update if value is already cached to avoid unnecessary UI churn and log noise.
    */
   const updateHotCache = useCallback(
     (folderId: string, filePath: string, tokenCount: number) => {
       const key = createCacheKey(folderId, filePath);
+      const existing = hotCache.current.get(key);
+      if (existing === tokenCount) {
+        // Already cached with same value - no update needed
+        return;
+      }
       hotCache.current.set(key, tokenCount);
       logger.info('Hot cache updated', { key, tokenCount, cacheSize: hotCache.current.size });
       debouncedSetVersion();
