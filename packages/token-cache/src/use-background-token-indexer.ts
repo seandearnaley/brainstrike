@@ -203,18 +203,21 @@ export function useBackgroundTokenIndexer({
   // Initialize worker
   // biome-ignore lint/correctness/useExhaustiveDependencies: Handlers are stable refs
   useEffect(() => {
-    logger.error('Background token indexer init start', { hasStore: !!store, mode });
-    // biome-ignore lint/suspicious/noConsole: explicit visibility
-    console.error('[BackgroundTokenIndexer] init start', { hasStore: !!store, mode });
+    // Reset mounted flag on each mount (fixes React StrictMode double-mount issue)
+    isMountedRef.current = true;
+
+    logger.info('Background token indexer init start', { hasStore: !!store, mode });
+    // biome-ignore lint/suspicious/noConsole: startup visibility
+    console.log('[BackgroundTokenIndexer] init start', { hasStore: !!store, mode });
 
     try {
       const worker = createWorkerInstance();
-      logger.error('Background token indexer worker created; awaiting ready signal', {
+      logger.info('Background token indexer worker created; awaiting ready signal', {
         hasStore: !!store,
         mode,
       });
-      // biome-ignore lint/suspicious/noConsole: explicit visibility for stuck worker
-      console.error('[BackgroundTokenIndexer] Worker created; waiting for ready', {
+      // biome-ignore lint/suspicious/noConsole: startup visibility
+      console.log('[BackgroundTokenIndexer] Worker created; waiting for ready', {
         hasStore: !!store,
         mode,
       });
@@ -226,14 +229,14 @@ export function useBackgroundTokenIndexer({
         }
 
         const message = event.data;
-        logger.error('Background token indexer worker message', { type: message.type });
-        // biome-ignore lint/suspicious/noConsole: explicit visibility for stuck worker
-        console.error('[BackgroundTokenIndexer] Worker message', {
+        logger.debug('Background token indexer worker message', { type: message.type });
+        // biome-ignore lint/suspicious/noConsole: message visibility
+        console.log('[BackgroundTokenIndexer] Worker message', {
           type: (message as { type: string }).type,
         });
 
         if (message.type === 'ready') {
-          logger.error('Background token indexer worker is ready');
+          logger.info('Background token indexer worker is ready');
           setIsReady(true);
           if (readinessTimerRef.current) {
             clearTimeout(readinessTimerRef.current);
@@ -254,8 +257,8 @@ export function useBackgroundTokenIndexer({
           } else {
             logger.debug(`Worker log: ${logMsg.message}`, logPayload);
           }
-          // biome-ignore lint/suspicious/noConsole: explicit visibility
-          console.error('[BackgroundTokenIndexer][worker-log]', {
+          // biome-ignore lint/suspicious/noConsole: worker log visibility
+          console.log('[BackgroundTokenIndexer][worker-log]', {
             level: logMsg.level,
             message: logMsg.message,
             data: logMsg.data,
@@ -321,7 +324,7 @@ export function useBackgroundTokenIndexer({
       };
 
       workerRef.current = worker;
-      logger.error('Background token indexer worker created successfully');
+      logger.info('Background token indexer worker created successfully');
 
       // If the worker never posts "ready", emit a hard error for visibility.
       readinessTimerRef.current = setTimeout(() => {
@@ -520,18 +523,15 @@ export function useBackgroundTokenIndexer({
   );
 
   /**
-   * Cancel all pending indexing
+   * Cancel all pending indexing.
+   * Clears pending files but keeps worker alive for reuse.
+   * Any in-flight results will be ignored since they're not in pendingFilesRef.
    */
   const cancelIndexing = useCallback(() => {
-    if (workerRef.current) {
-      workerRef.current.terminate();
-      workerRef.current = null;
-      pendingFilesRef.current.clear();
-      setIsIndexing(false);
-      setIsReady(false);
-      setProgress(null);
-      // Worker will be recreated on next mount or can be manually re-initialized
-    }
+    pendingFilesRef.current.clear();
+    setIsIndexing(false);
+    setProgress(null);
+    // Worker stays alive - no need to terminate and recreate
   }, []);
 
   return {

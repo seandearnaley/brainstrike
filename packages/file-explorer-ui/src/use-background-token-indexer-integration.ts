@@ -170,6 +170,8 @@ export function useBackgroundTokenIndexerIntegration({
   const inFlightRef = useRef<Set<string>>(new Set());
   const previousSelectionSizeRef = useRef<number>(0);
   const [_inFlightPulse, bumpInFlightPulse] = useState(0);
+  // Track file handle map population to trigger selection effect re-run
+  const [fileHandleMapSize, setFileHandleMapSize] = useState(0);
 
   // Stable refs for tokenCache functions to avoid re-render loops.
   // The tokenCache object changes on every cacheVersion bump, but the functions are stable.
@@ -192,6 +194,8 @@ export function useBackgroundTokenIndexerIntegration({
       }
     }
     fileHandleMapRef.current = map;
+    // Update state to trigger selection effect re-run when map is populated
+    setFileHandleMapSize(map.size);
 
     const rootFingerprint = Array.from(rootIds).sort().join('|');
     if (previousRootIdsRef.current && previousRootIdsRef.current !== rootFingerprint) {
@@ -276,7 +280,8 @@ export function useBackgroundTokenIndexerIntegration({
       const cache = tokenCacheRef.current;
       const indexer = backgroundIndexerRef.current;
       if (!(cache?.isReady && indexer.isReady)) {
-        logger.warn('triggerIndexing blocked - not ready', {
+        // Use debug level - this is expected during startup before everything initializes
+        logger.debug('triggerIndexing blocked - not ready', {
           tokenCacheReady: cache?.isReady ?? false,
           backgroundIndexerReady: indexer.isReady,
           requestedFiles: compositeKeys.length,
@@ -412,6 +417,7 @@ export function useBackgroundTokenIndexerIntegration({
   // Queue newly selected files for indexing when selection changes
   // Uses refs to avoid re-render loops while still accessing latest values
   const backgroundIndexerIsReady = backgroundIndexer.isReady;
+  const tokenCacheIsReady = tokenCache?.isReady ?? false;
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
     const cache = tokenCacheRef.current;
@@ -451,10 +457,13 @@ export function useBackgroundTokenIndexerIntegration({
       });
     }
 
-    if (selectedFiles.size === 0 || !indexer.isReady) {
+    // Exit early if no files selected, indexer not ready, or no file handles available yet.
+    // During startup, selection may be restored from storage before file tree has handles.
+    if (selectedFiles.size === 0 || !indexer.isReady || fileHandleMapRef.current.size === 0) {
       logger.info('Selection effect exiting early', {
         noFiles: selectedFiles.size === 0,
         notReady: !indexer.isReady,
+        noHandles: fileHandleMapRef.current.size === 0,
       });
       return;
     }
@@ -475,7 +484,13 @@ export function useBackgroundTokenIndexerIntegration({
     }, 100);
 
     return () => clearTimeout(timeoutId);
-  }, [selectedFiles, triggerIndexing, backgroundIndexerIsReady]);
+  }, [
+    selectedFiles,
+    triggerIndexing,
+    backgroundIndexerIsReady,
+    tokenCacheIsReady,
+    fileHandleMapSize,
+  ]);
 
   // Clear indexed files cache when file tree changes significantly
   // biome-ignore lint/plugin: Intentional effect to reset cache when folder is cleared - not an event handler
@@ -492,7 +507,6 @@ export function useBackgroundTokenIndexerIntegration({
 
   // Warm hot cache from persistent store so repeat selections show existing counts immediately.
   // Uses tokenCacheRef to avoid re-render loops when cacheVersion changes.
-  const tokenCacheIsReady = tokenCache?.isReady ?? false;
   // biome-ignore lint/plugin: Cache hydration from persistent store is intentional side effect
   useEffect(() => {
     const cache = tokenCacheRef.current;

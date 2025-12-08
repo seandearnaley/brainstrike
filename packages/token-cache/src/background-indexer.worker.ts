@@ -60,8 +60,10 @@ function postLog(level: LogLevel, message: string, data?: Record<string, unknown
 }
 
 function log(level: LogLevel, message: string, data?: Record<string, unknown>): void {
-  // biome-ignore lint/suspicious/noConsole: worker diagnostics must surface
-  console.error('[BackgroundTokenIndexerWorker]', message, data ?? '');
+  // Use appropriate console method based on level to avoid red errors for info logs
+  // biome-ignore lint/suspicious/noConsole: worker diagnostics must surface via console
+  const fn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
+  fn('[BackgroundTokenIndexerWorker]', message, data ?? '');
   postLog(level, message, data);
 }
 
