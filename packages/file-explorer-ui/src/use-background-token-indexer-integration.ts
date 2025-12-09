@@ -34,6 +34,22 @@ export type UseBackgroundTokenIndexerIntegrationProps = {
   electronFileReader?: ElectronFileReader;
 };
 
+/** Diagnostic info for debugging indexing issues */
+export type IndexerDiagnostics = {
+  /** Number of files tracked as already indexed */
+  indexedCount: number;
+  /** Number of files currently being processed */
+  inFlightCount: number;
+  /** Number of file handles available */
+  fileHandleMapSize: number;
+  /** Whether the background indexer worker is ready */
+  workerReady: boolean;
+  /** Whether the token cache is ready */
+  cacheReady: boolean;
+  /** Clear the indexed files tracking (forces re-indexing) */
+  clearIndexedCache: () => void;
+};
+
 export type UseBackgroundTokenIndexerIntegrationReturn = {
   /** Whether background indexing is active */
   isIndexing: boolean;
@@ -43,6 +59,8 @@ export type UseBackgroundTokenIndexerIntegrationReturn = {
   isReady: boolean;
   /** Current indexing progress */
   progress: { completed: number; total: number; currentFile?: string } | null;
+  /** Diagnostic info for debugging */
+  diagnostics: IndexerDiagnostics;
 };
 
 /**
@@ -502,6 +520,10 @@ export function useBackgroundTokenIndexerIntegration({
   useEffect(() => {
     const cache = tokenCacheRef.current;
     if (!cache?.isReady || selectedFiles.size === 0) {
+      logger.debug('Warm cache effect skipped', {
+        cacheReady: cache?.isReady ?? false,
+        selectedCount: selectedFiles.size,
+      });
       return;
     }
     const folderIds = new Set<string>();
@@ -513,6 +535,12 @@ export function useBackgroundTokenIndexerIntegration({
       arr.push(key);
       keysByFolder.set(folderId, arr);
     }
+
+    logger.info('Warm cache effect: preloading folders', {
+      folderCount: folderIds.size,
+      totalFiles: selectedFiles.size,
+    });
+
     for (const folderId of folderIds) {
       void cache.preloadFolder(folderId);
     }
@@ -523,18 +551,34 @@ export function useBackgroundTokenIndexerIntegration({
       const paths = keys.map((key) => decodeFileSelection(key).path);
       void cache.store
         .getBatch(folderId, paths)
+        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Hydration logic requires iteration and conditional logging
         .then((entries) => {
           // Use ref to get latest cache instance in async callback
           const currentCache = tokenCacheRef.current;
           if (!currentCache) {
+            logger.warn('Warm cache: cache ref became null during async operation');
             return;
           }
+          let hydrated = 0;
+          let skipped = 0;
           for (const [path, entry] of entries.entries()) {
             const compositeKey = encodeFileSelection(folderId, path);
-            if (!indexedFilesRef.current.has(compositeKey)) {
+            if (indexedFilesRef.current.has(compositeKey)) {
+              skipped++;
+            } else {
               currentCache.updateHotCache(folderId, path, entry.tokenCount);
               indexedFilesRef.current.add(compositeKey);
+              hydrated++;
             }
+          }
+          if (hydrated > 0 || entries.size > 0) {
+            logger.info('Warm cache: hydrated from store', {
+              folderId,
+              requested: paths.length,
+              foundInStore: entries.size,
+              hydrated,
+              skippedAlreadyIndexed: skipped,
+            });
           }
         })
         .catch((error) => {
@@ -543,10 +587,27 @@ export function useBackgroundTokenIndexerIntegration({
     }
   }, [selectedFiles, tokenCacheIsReady]);
 
+  // Diagnostic function to force re-indexing by clearing the tracked files
+  const clearIndexedCache = useCallback(() => {
+    const previousSize = indexedFilesRef.current.size;
+    indexedFilesRef.current.clear();
+    inFlightRef.current.clear();
+    bumpInFlightPulse((v) => v + 1);
+    logger.info('Manually cleared indexed cache', { previousSize });
+  }, []);
+
   return {
     isIndexing: backgroundIndexer.isIndexing,
     triggerIndexing,
     isReady: backgroundIndexer.isReady && (tokenCache?.isReady ?? false),
     progress: backgroundIndexer.progress,
+    diagnostics: {
+      indexedCount: indexedFilesRef.current.size,
+      inFlightCount: inFlightRef.current.size,
+      fileHandleMapSize: fileHandleMapRef.current.size,
+      workerReady: backgroundIndexer.isReady,
+      cacheReady: tokenCache?.isReady ?? false,
+      clearIndexedCache,
+    },
   };
 }

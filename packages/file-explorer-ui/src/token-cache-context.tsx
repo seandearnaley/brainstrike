@@ -28,7 +28,10 @@ import {
   type UseTokenCacheReturn,
   useTokenCache,
 } from '@brainstrike/token-cache';
+import { createLogger } from '@brainstrike/utils';
 import { createContext, type ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+
+const logger = createLogger('TokenCacheContext');
 
 /**
  * PGlite database type (subset of @electric-sql/pglite)
@@ -214,6 +217,9 @@ export function TokenCacheProvider({
   onTokenResolved,
   children,
 }: TokenCacheProviderProps) {
+  // Log db prop value for debugging
+  logger.info('TokenCacheProvider render', { hasDb: db !== null, dbType: db ? typeof db : 'null' });
+
   const fallbackStoreRef = useState(() => new InMemoryTokenCacheStore())[0];
   const [store, setStore] = useState<TokenCacheStoreLike>(fallbackStoreRef);
   const [hasPersistentStore, setHasPersistentStore] = useState(false);
@@ -230,22 +236,29 @@ export function TokenCacheProvider({
   // Initialize store when db becomes available
   useEffect(() => {
     if (!db) {
+      logger.info('TokenCacheProvider: db not available, using fallback store');
       setStore(fallbackStoreRef);
       setHasPersistentStore(false);
       return;
     }
 
+    logger.info('TokenCacheProvider: db available, creating persistent store');
     setStore(
       new TokenCacheStore(db as unknown as ConstructorParameters<typeof TokenCacheStore>[0])
     );
     setHasPersistentStore(true);
+    logger.info('TokenCacheProvider: hasPersistentStore set to true');
   }, [db, fallbackStoreRef]);
 
   // Initialize hasher once
   useEffect(() => {
     let cancelled = false;
+    logger.info('TokenCacheProvider: initializing hasher');
     void hasher.init().then(() => {
-      if (!cancelled) {
+      if (cancelled) {
+        logger.warn('TokenCacheProvider: hasher init completed but effect was cancelled');
+      } else {
+        logger.info('TokenCacheProvider: hasher initialized, setting hasherReady=true');
         setHasherReady(true);
       }
     });
@@ -257,11 +270,14 @@ export function TokenCacheProvider({
   // Initialize worker pool
   useEffect(() => {
     const url = workerUrl ?? new URL('@brainstrike/token-cache/worker', import.meta.url).href;
+    logger.info('TokenCacheProvider: creating worker pool', { url });
     const pool = createTokenCacheWorkerPool(url);
     setWorkerPool(pool as WorkerPool);
     setWorkerReady(true);
+    logger.info('TokenCacheProvider: workerReady set to true');
 
     return () => {
+      logger.info('TokenCacheProvider: cleaning up worker pool');
       setWorkerReady(false);
       void pool.terminate();
       setWorkerPool(noopWorkerPool);
@@ -279,6 +295,17 @@ export function TokenCacheProvider({
   });
 
   const isReady = Boolean(db) && workerReady && hasherReady && hasPersistentStore;
+
+  // Log readiness state for debugging
+  useEffect(() => {
+    logger.info('TokenCacheProvider: readiness check', {
+      hasDb: Boolean(db),
+      workerReady,
+      hasherReady,
+      hasPersistentStore,
+      isReady,
+    });
+  }, [db, workerReady, hasherReady, hasPersistentStore, isReady]);
 
   const disabledTokenCache = useMemo<UseTokenCacheReturn>(
     () => ({

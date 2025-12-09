@@ -131,6 +131,14 @@ export function useTokenCache({
   countingMode,
   onTokenResolved,
 }: UseTokenCacheOptions): UseTokenCacheReturn {
+  // Log initialization for debugging
+  logger.info('useTokenCache hook initialized', {
+    hasStore: !!store,
+    hasHasher: !!hasher,
+    hasWorkerPool: !!workerPool,
+    countingMode,
+  });
+
   // Hot cache: in-memory for instant access
   const hotCache = useRef(new Map<string, number>());
 
@@ -142,11 +150,15 @@ export function useTokenCache({
 
   // Debounce timer for batching version updates
   const versionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Note: isMountedRef is reset in the mount effect below to handle React StrictMode double-mount
   const isMountedRef = useRef(true);
 
   // Debounced version update to batch rapid-fire cache changes
   const debouncedSetVersion = useCallback(() => {
     if (!isMountedRef.current) {
+      logger.warn('debouncedSetVersion skipped - component not mounted', {
+        isMounted: isMountedRef.current,
+      });
       return;
     }
     // Cancel any pending update
@@ -156,7 +168,10 @@ export function useTokenCache({
     // Schedule a batched update
     versionDebounceRef.current = setTimeout(() => {
       if (isMountedRef.current) {
+        logger.debug('Version increment triggered');
         setVersion((v) => v + 1);
+      } else {
+        logger.warn('Version increment skipped - unmounted during debounce');
       }
       versionDebounceRef.current = null;
     }, VERSION_DEBOUNCE_MS);
@@ -173,17 +188,19 @@ export function useTokenCache({
     });
   }, [hasher]);
 
-  // Cleanup on unmount
-  // biome-ignore lint/plugin: Cleanup effect for unmount tracking and debounce timer
-  useEffect(
-    () => () => {
+  // Reset mounted flag on mount and cleanup on unmount (StrictMode compatibility)
+  useEffect(() => {
+    // Reset mounted flag on each mount (fixes React StrictMode double-mount issue)
+    logger.info('useTokenCache mount effect - setting isMountedRef to true');
+    isMountedRef.current = true;
+    return () => {
+      logger.info('useTokenCache cleanup - setting isMountedRef to false');
       isMountedRef.current = false;
       if (versionDebounceRef.current) {
         clearTimeout(versionDebounceRef.current);
       }
-    },
-    []
-  );
+    };
+  }, []);
 
   /**
    * Load token count from persistent cache or trigger worker
