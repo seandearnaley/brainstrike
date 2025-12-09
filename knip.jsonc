@@ -262,6 +262,19 @@
       "typescript": {
         "config": "tsconfig.json"
       }
+    },
+    "packages/token-cache": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignoreDependencies": [
+        // jsdom is provided by Vitest for environment: 'jsdom' in vitest.config.ts
+        "jsdom",
+        // react is an optional peerDependency that IS used by the hooks - Knip flags it incorrectly
+        "react"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
     }
   },
   // Root level entries and projects, e.g., for tests/configs not tied to a specific workspace
