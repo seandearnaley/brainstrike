@@ -1,20 +1,12 @@
-import {
-  FileExplorerLeftPanel,
-  FileExplorerMiddlePanelTabbed,
-} from '@brainstrike/file-explorer-ui';
+import { FileExplorerMiddlePanelTabbed } from '@brainstrike/file-explorer-ui';
 import { Suspense } from 'react';
 import { Helmet } from 'react-helmet-async';
 
-// Web file explorer component
-function WebFileExplorer() {
-  return <FileExplorerMiddlePanelTabbed />;
-}
-
-// Web file explorer left panel component
-function WebFileExplorerLeftPanel() {
-  return <FileExplorerLeftPanel />;
-}
-
+/**
+ * Home page content - the middle panel of the file explorer.
+ * Note: TokenCacheProvider wraps the entire layout in root-layout-content.tsx,
+ * so this component (and the left panel) share the same token cache context.
+ */
 export default function HomePageContent() {
   return (
     <>
@@ -25,10 +17,8 @@ export default function HomePageContent() {
       <Suspense
         fallback={<div className="flex h-full items-center justify-center">Loading...</div>}
       >
-        <WebFileExplorer />
+        <FileExplorerMiddlePanelTabbed />
       </Suspense>
     </>
   );
 }
-
-export { WebFileExplorerLeftPanel };

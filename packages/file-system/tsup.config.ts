@@ -7,5 +7,6 @@ export default defineConfig({
   clean: false, // Don't clean - tsc already generated .d.ts files
   sourcemap: true,
   target: 'es2020',
+  splitting: false, // Bundle to avoid extensionless relative imports in dist
   external: ['@brainstrike/types', 'electron', 'chokidar'],
 });

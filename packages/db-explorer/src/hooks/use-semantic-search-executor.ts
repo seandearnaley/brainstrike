@@ -307,6 +307,6 @@ export function useSemanticSearchExecutor({
     return;
   }
 
-  logger.debug('Semantic search executor ready');
+  // Removed noisy debug log (was: logger.debug('Semantic search executor ready'));
   return searchExecutor;
 }

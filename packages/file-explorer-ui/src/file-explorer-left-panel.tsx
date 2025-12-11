@@ -19,6 +19,7 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { LoadingOverlay } from './loading-overlay';
+import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
@@ -149,6 +150,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancelOperation,
     isCancelling,
     clearRootDirectory,
+    loadMultipleFileContents,
   } = useFileExplorer();
 
   const onSelectionLimitExceeded = useCallback(() => {
@@ -168,6 +170,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const [isInlineFixtureLoading, setIsInlineFixtureLoading] = useState(false);
   const hasAppliedInitialFixtureRef = useRef(false);
 
+  // Getter for fresh file contents from the store (used after loading missing content)
+  const getFileContents = useCallback(() => store.getState().fileContents, [store]);
+
   // Report generation configured with current state
   const { generateReportWithContent } = useReportGeneration({
     selectedFiles: new Set(selectedFilesList),
@@ -179,6 +184,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     useRegex,
     includeProjectTree,
     folderSummaryThreshold,
+    loadMissingContent: loadMultipleFileContents,
+    getFileContents,
   });
 
   const {
@@ -208,6 +215,24 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   }, [filterError]);
 
   const stableFileTree = useMemo(() => fileTree || [], [fileTree]);
+
+  // Background token indexing - processes selected files off the main thread
+  const selectedFilesSet = useMemo(() => new Set(safeSelectedFilesList), [safeSelectedFilesList]);
+
+  // Electron file reader - reads file content via IPC for the background worker
+  // The worker cannot read files directly in Electron due to security restrictions
+  const electronFileReader = useCallback(
+    async (handle: { path: string; name: string; kind: 'file'; platform: 'electron' }) =>
+      fileSystemAdapter.readFile(handle),
+    [fileSystemAdapter]
+  );
+
+  // This hook automatically indexes selected files when TokenCacheProvider is present
+  useBackgroundTokenIndexerIntegration({
+    fileTree: stableFileTree,
+    selectedFiles: selectedFilesSet,
+    electronFileReader,
+  });
 
   const [quickFilterRaw, setQuickFilterRaw, clearQuickFilterRaw] = store(
     (s) => [s.quickFilter, s.setQuickFilter, s.clearQuickFilter] as const

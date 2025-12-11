@@ -1,7 +1,9 @@
-import { countTokensHeuristic } from '@brainstrike/utils';
-import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { usePersistentTokenCache } from './use-persistent-token-cache';
 import type { TokenCountingState } from './use-token-counting';
+
+/** Debounce delay for token version updates (ms) */
+const TOKEN_VERSION_DEBOUNCE_MS = 100;
 
 export type FileItem = {
   compositeKey: string;
@@ -56,95 +58,12 @@ export type UsePreviewPanelStateProps = {
   ) => void;
 };
 
-// Helper function to check if content is accessible
-function isContentAccessible(content: string): boolean {
-  return !(content.startsWith('File not accessible') || content.startsWith('Binary file'));
-}
-
-// Helper function to get file size
-function getFileSize(
+// Helper function to get file size from metadata (no content loading required)
+function getFileSizeFromMetadata(
   compositeKey: string,
-  content: string,
   fileSizes?: Record<string, number>
 ): number | undefined {
-  if (fileSizes && fileSizes[compositeKey] !== undefined) {
-    return fileSizes[compositeKey];
-  }
-  return new TextEncoder().encode(content).length;
-}
-
-function ensureTokenCount(
-  compositeKey: string,
-  content: string,
-  tokenCounting: TokenCountingState,
-  tokenCacheRef: MutableRefObject<Map<string, number>>,
-  pendingTokenRequestsRef: MutableRefObject<Map<string, Promise<void>>>,
-  onResolved: () => void
-): number | undefined {
-  if (!isContentAccessible(content)) {
-    return;
-  }
-
-  const cached = tokenCacheRef.current.get(compositeKey);
-  if (typeof cached === 'number') {
-    return cached;
-  }
-
-  if (!pendingTokenRequestsRef.current.has(compositeKey)) {
-    const pending = tokenCounting
-      .countTokens(content)
-      .then((count) => {
-        tokenCacheRef.current.set(compositeKey, count);
-      })
-      .catch(() => {
-        tokenCacheRef.current.set(compositeKey, countTokensHeuristic(content));
-      })
-      .finally(() => {
-        pendingTokenRequestsRef.current.delete(compositeKey);
-        onResolved();
-      });
-    pendingTokenRequestsRef.current.set(compositeKey, pending);
-  }
-
-  return;
-}
-
-// Helper function to create a file item
-function createFileItem(
-  compositeKey: string,
-  folderId: string,
-  path: string,
-  fileContents: Record<string, string>,
-  fileSizes: Record<string, number> | undefined,
-  tokenCounting: TokenCountingState,
-  tokenCacheRef: MutableRefObject<Map<string, number>>,
-  pendingTokenRequestsRef: MutableRefObject<Map<string, Promise<void>>>,
-  onTokenResolved: () => void
-): FileItem {
-  let fileSize: number | undefined;
-  let tokenCount: number | undefined;
-
-  if (fileContents[compositeKey]) {
-    const content = fileContents[compositeKey];
-    tokenCount = ensureTokenCount(
-      compositeKey,
-      content,
-      tokenCounting,
-      tokenCacheRef,
-      pendingTokenRequestsRef,
-      onTokenResolved
-    );
-    fileSize = getFileSize(compositeKey, content, fileSizes);
-  }
-
-  return {
-    compositeKey,
-    folderId,
-    path,
-    type: 'file',
-    ...(fileSize !== undefined ? { size: fileSize } : {}),
-    ...(tokenCount !== undefined ? { tokens: tokenCount } : {}),
-  };
+  return fileSizes?.[compositeKey];
 }
 
 // Helper function to sort files
@@ -163,49 +82,6 @@ function sortFiles(files: FileItem[], sortConfig: SortConfig): void {
         return 0;
     }
   });
-}
-
-// Helper function to build folder groups
-function buildFolderGroups(
-  selectedFiles: Set<string>,
-  fileContents: Record<string, string>,
-  fileSizes: Record<string, number> | undefined,
-  decodeFileSelection: (compositeKey: string) => { folderId: string; path: string },
-  tokenCounting: TokenCountingState,
-  tokenCacheRef: MutableRefObject<Map<string, number>>,
-  pendingTokenRequestsRef: MutableRefObject<Map<string, Promise<void>>>,
-  onTokenResolved: () => void,
-  sortConfig: SortConfig
-): Record<string, FileItem[]> {
-  const folderGroups: Record<string, FileItem[]> = {};
-
-  for (const compositeKey of selectedFiles) {
-    const { folderId, path } = decodeFileSelection(compositeKey);
-    if (!folderGroups[folderId]) {
-      folderGroups[folderId] = [];
-    }
-
-    const fileItem = createFileItem(
-      compositeKey,
-      folderId,
-      path,
-      fileContents,
-      fileSizes,
-      tokenCounting,
-      tokenCacheRef,
-      pendingTokenRequestsRef,
-      onTokenResolved
-    );
-
-    folderGroups[folderId].push(fileItem);
-  }
-
-  // Sort files in each folder
-  for (const files of Object.values(folderGroups)) {
-    sortFiles(files, sortConfig);
-  }
-
-  return folderGroups;
 }
 
 // Helper function to build final list items
@@ -227,41 +103,6 @@ function buildListItems(
   return items;
 }
 
-// Helper function to calculate token count for a single file
-function calculateFileTokens(
-  compositeKey: string,
-  fileContents: Record<string, string>,
-  tokenCounting: TokenCountingState,
-  tokenCacheRef: MutableRefObject<Map<string, number>>,
-  pendingTokenRequestsRef: MutableRefObject<Map<string, Promise<void>>>,
-  onTokenResolved: () => void
-): number {
-  if (!fileContents[compositeKey]) {
-    return 0;
-  }
-
-  const content = fileContents[compositeKey];
-  if (!isContentAccessible(content)) {
-    return 0;
-  }
-
-  const cached = tokenCacheRef.current.get(compositeKey);
-  if (typeof cached === 'number') {
-    return cached;
-  }
-
-  ensureTokenCount(
-    compositeKey,
-    content,
-    tokenCounting,
-    tokenCacheRef,
-    pendingTokenRequestsRef,
-    onTokenResolved
-  );
-
-  return tokenCacheRef.current.get(compositeKey) || 0;
-}
-
 export function usePreviewPanelState({
   selectedFiles,
   fileContents,
@@ -276,28 +117,54 @@ export function usePreviewPanelState({
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const [sortConfig] = useState<SortConfig>({ key: 'path', direction: 'asc' });
 
-  const tokenCacheRef = useRef<Map<string, number>>(new Map());
-  const pendingTokenRequestsRef = useRef<Map<string, Promise<void>>>(new Map());
   const [tokenVersion, setTokenVersion] = useState(0);
   const prevSelectedFilesRef = useRef<Set<string> | null>(null);
   const isMountedRef = useRef(true);
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // biome-ignore lint/plugin: Cleanup effect for unmount tracking and debounce timer
   useEffect(
     () => () => {
       isMountedRef.current = false;
+      // Clean up debounce timer on unmount
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
     },
     []
   );
 
+  // Debounced token version update to batch rapid-fire token resolutions
   const handleTokenResolved = useCallback(() => {
-    if (isMountedRef.current) {
-      setTokenVersion((prev) => prev + 1);
+    if (!isMountedRef.current) {
+      return;
     }
+
+    // Cancel any pending update
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // Schedule a batched update
+    debounceTimerRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setTokenVersion((prev) => prev + 1);
+      }
+      debounceTimerRef.current = null;
+    }, TOKEN_VERSION_DEBOUNCE_MS);
   }, []);
 
+  // Use the persistent token cache hook
+  // This provides automatic caching with PGlite persistence when available
+  const persistentCache = usePersistentTokenCache({
+    fileContents,
+    tokenCounting,
+    decodeFileSelection,
+    onTokenResolved: handleTokenResolved,
+  });
+
+  // Clear hot cache when counting mode changes
   useEffect(() => {
-    tokenCacheRef.current.clear();
-    pendingTokenRequestsRef.current.clear();
     setTokenVersion((prev) => prev + 1);
   }, [tokenCounting.mode]);
 
@@ -308,30 +175,48 @@ export function usePreviewPanelState({
     }
   }
 
+  // Build file items using the persistent cache
   const flatListItems = useMemo(() => {
-    const folderGroups = buildFolderGroups(
-      selectedFiles,
-      fileContents,
-      fileSizes,
-      decodeFileSelection,
-      tokenCounting,
-      tokenCacheRef,
-      pendingTokenRequestsRef,
-      handleTokenResolved,
-      sortConfig
-    );
+    const folderGroups: Record<string, FileItem[]> = {};
+
+    for (const compositeKey of selectedFiles) {
+      const { folderId, path } = decodeFileSelection(compositeKey);
+      if (!folderGroups[folderId]) {
+        folderGroups[folderId] = [];
+      }
+
+      // Get token count from persistent cache (returns undefined if loading)
+      const tokenCount = persistentCache.getTokenCount(compositeKey);
+
+      // Get file size from metadata (no content loading required)
+      const fileSize = getFileSizeFromMetadata(compositeKey, fileSizes);
+
+      const fileItem: FileItem = {
+        compositeKey,
+        folderId,
+        path,
+        type: 'file',
+        ...(fileSize !== undefined ? { size: fileSize } : {}),
+        ...(tokenCount !== undefined ? { tokens: tokenCount } : {}),
+      };
+
+      folderGroups[folderId].push(fileItem);
+    }
+
+    // Sort files in each folder
+    for (const files of Object.values(folderGroups)) {
+      sortFiles(files, sortConfig);
+    }
 
     return buildListItems(folderGroups, collapsedFolders);
   }, [
     selectedFiles,
     sortConfig,
     fileSizes,
-    fileContents,
     decodeFileSelection,
     collapsedFolders,
-    tokenCounting,
-    handleTokenResolved,
-    pendingTokenRequestsRef,
+    persistentCache,
+    persistentCache.cacheVersion,
     tokenVersion,
   ]);
 
@@ -439,24 +324,21 @@ export function usePreviewPanelState({
     return `${size.toFixed(1)} ${units[unitIndex]}`;
   }, []);
 
+  // Calculate total stats using the persistent cache
   const totalStats = useMemo(() => {
     let totalTokens = 0;
     let totalFiles = 0;
 
     for (const compositeKey of selectedFiles) {
       totalFiles++;
-      totalTokens += calculateFileTokens(
-        compositeKey,
-        fileContents,
-        tokenCounting,
-        tokenCacheRef,
-        pendingTokenRequestsRef,
-        handleTokenResolved
-      );
+      const tokenCount = persistentCache.getTokenCount(compositeKey);
+      if (tokenCount !== undefined) {
+        totalTokens += tokenCount;
+      }
     }
 
     return { totalTokens, totalFiles };
-  }, [selectedFiles, fileContents, tokenCounting, handleTokenResolved, tokenVersion]);
+  }, [selectedFiles, persistentCache, persistentCache.cacheVersion, tokenVersion]);
 
   return {
     batchSelectedFiles,

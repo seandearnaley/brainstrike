@@ -3,6 +3,26 @@ import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('Persistence');
 
+/**
+ * Cached Set-to-Array converter using WeakMap.
+ * Only runs Array.from() when the Set reference changes.
+ * This is critical for performance with large Sets (17k+ items).
+ */
+const setArrayCache = new WeakMap<Set<string>, string[]>();
+
+function cachedSetToArray(set: Set<string> | undefined): string[] {
+  if (!set || set.size === 0) {
+    return [];
+  }
+
+  let cached = setArrayCache.get(set);
+  if (!cached) {
+    cached = Array.from(set);
+    setArrayCache.set(set, cached);
+  }
+  return cached;
+}
+
 export function serializeState(state: FileExplorerState): SerializedState {
   const serialized: SerializedState = {
     currentFolderId: state.currentFolderId,
@@ -11,17 +31,15 @@ export function serializeState(state: FileExplorerState): SerializedState {
         id,
         {
           ...folderState,
-          selectedFilePaths: Array.from(folderState?.selectedFilePaths || new Set<string>()),
-          expandedDirectoryPaths: Array.from(
-            folderState?.expandedDirectoryPaths || new Set<string>()
-          ),
+          selectedFilePaths: cachedSetToArray(folderState?.selectedFilePaths),
+          expandedDirectoryPaths: cachedSetToArray(folderState?.expandedDirectoryPaths),
           lastAccessed: folderState?.lastAccessed || Date.now(),
         },
       ])
     ),
     folderAccessOrder: state.folderAccessOrder,
-    selectedFilePaths: Array.from(state.selectedFilePaths || new Set<string>()),
-    expandedDirectoryPaths: Array.from(state.expandedDirectoryPaths || new Set<string>()),
+    selectedFilePaths: cachedSetToArray(state.selectedFilePaths),
+    expandedDirectoryPaths: cachedSetToArray(state.expandedDirectoryPaths),
     includeFilters: state.includeFilters,
     excludeFilters: state.excludeFilters,
     useRegex: state.useRegex,

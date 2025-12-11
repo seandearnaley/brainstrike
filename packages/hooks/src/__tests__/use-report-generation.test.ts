@@ -22,6 +22,19 @@ describe('useReportGeneration', () => {
   const mockIncludeProjectTree = true;
   const mockFolderSummaryThreshold = 5;
 
+  // Helper to create a basic hook props object
+  const createBaseProps = (overrides = {}) => ({
+    selectedFiles: mockSelectedFiles,
+    fileContents: mockFileContents,
+    rootDirectoryHandle: mockRootDirectoryHandle,
+    includeFilters: mockIncludeFilters,
+    excludeFilters: mockExcludeFilters,
+    useRegex: mockUseRegex,
+    includeProjectTree: mockIncludeProjectTree,
+    folderSummaryThreshold: mockFolderSummaryThreshold,
+    ...overrides,
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -179,5 +192,217 @@ describe('useReportGeneration', () => {
     });
 
     expect(result.current.isGenerating).toBe(false);
+  });
+
+  describe('loadMissingContent integration', () => {
+    it('should call loadMissingContent for files without content', async () => {
+      const mockReport = '<report>Test Report with loaded content</report>';
+      (generateReport as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockReport);
+
+      // Start with empty file contents - simulating lazy loading scenario
+      const emptyFileContents: Record<string, string> = {};
+      const loadedContents = { 'file1.ts': 'loaded-content1', 'file2.ts': 'loaded-content2' };
+
+      const mockLoadMissingContent = vi.fn().mockResolvedValue(undefined);
+      const mockGetFileContents = vi.fn().mockReturnValue(loadedContents);
+
+      const { result } = renderHook(() =>
+        useReportGeneration(
+          createBaseProps({
+            fileContents: emptyFileContents,
+            loadMissingContent: mockLoadMissingContent,
+            getFileContents: mockGetFileContents,
+          })
+        )
+      );
+
+      await act(async () => {
+        await result.current.generateReportWithContent();
+      });
+
+      // Should have called loadMissingContent with both files
+      expect(mockLoadMissingContent).toHaveBeenCalledTimes(1);
+      expect(mockLoadMissingContent).toHaveBeenCalledWith(['file1.ts', 'file2.ts']);
+
+      // Should have called getFileContents to get fresh content after loading
+      expect(mockGetFileContents).toHaveBeenCalled();
+
+      // generateReport should receive the loaded contents
+      expect(generateReport).toHaveBeenCalledWith(
+        mockSelectedFiles,
+        loadedContents,
+        mockRootDirectoryHandle,
+        mockIncludeFilters,
+        mockExcludeFilters,
+        mockUseRegex,
+        mockIncludeProjectTree,
+        mockFolderSummaryThreshold
+      );
+    });
+
+    it('should only load missing files, not files that already have content', async () => {
+      const mockReport = '<report>Partial load report</report>';
+      (generateReport as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockReport);
+
+      // One file has content, one doesn't
+      const partialFileContents = { 'file1.ts': 'existing-content1' };
+      const loadedContents = {
+        'file1.ts': 'existing-content1',
+        'file2.ts': 'newly-loaded-content2',
+      };
+
+      const mockLoadMissingContent = vi.fn().mockResolvedValue(undefined);
+      const mockGetFileContents = vi.fn().mockReturnValue(loadedContents);
+
+      const { result } = renderHook(() =>
+        useReportGeneration(
+          createBaseProps({
+            fileContents: partialFileContents,
+            loadMissingContent: mockLoadMissingContent,
+            getFileContents: mockGetFileContents,
+          })
+        )
+      );
+
+      await act(async () => {
+        await result.current.generateReportWithContent();
+      });
+
+      // Should only load the missing file (file2.ts)
+      expect(mockLoadMissingContent).toHaveBeenCalledTimes(1);
+      expect(mockLoadMissingContent).toHaveBeenCalledWith(['file2.ts']);
+    });
+
+    it('should not call loadMissingContent when all files have content', async () => {
+      const mockReport = '<report>All content present</report>';
+      (generateReport as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockReport);
+
+      // All files already have content
+      const completeFileContents = { 'file1.ts': 'content1', 'file2.ts': 'content2' };
+      const mockLoadMissingContent = vi.fn().mockResolvedValue(undefined);
+      const mockGetFileContents = vi.fn();
+
+      const { result } = renderHook(() =>
+        useReportGeneration(
+          createBaseProps({
+            fileContents: completeFileContents,
+            loadMissingContent: mockLoadMissingContent,
+            getFileContents: mockGetFileContents,
+          })
+        )
+      );
+
+      await act(async () => {
+        await result.current.generateReportWithContent();
+      });
+
+      // Should not call loadMissingContent since all files have content
+      expect(mockLoadMissingContent).not.toHaveBeenCalled();
+      // Should not call getFileContents since no loading was needed
+      expect(mockGetFileContents).not.toHaveBeenCalled();
+
+      // generateReport should use the original file contents
+      expect(generateReport).toHaveBeenCalledWith(
+        mockSelectedFiles,
+        completeFileContents,
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      );
+    });
+
+    it('should use original fileContents when getFileContents is not provided', async () => {
+      const mockReport = '<report>Fallback to original</report>';
+      (generateReport as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockReport);
+
+      const emptyFileContents: Record<string, string> = {};
+      const mockLoadMissingContent = vi.fn().mockResolvedValue(undefined);
+
+      const { result } = renderHook(() =>
+        useReportGeneration(
+          createBaseProps({
+            fileContents: emptyFileContents,
+            loadMissingContent: mockLoadMissingContent,
+            // getFileContents intentionally not provided
+          })
+        )
+      );
+
+      await act(async () => {
+        await result.current.generateReportWithContent();
+      });
+
+      // Should still call loadMissingContent
+      expect(mockLoadMissingContent).toHaveBeenCalled();
+
+      // generateReport should receive original (empty) fileContents as fallback
+      expect(generateReport).toHaveBeenCalledWith(
+        mockSelectedFiles,
+        emptyFileContents,
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        expect.anything()
+      );
+    });
+
+    it('should work without loadMissingContent (backward compatibility)', async () => {
+      const mockReport = '<report>No loader provided</report>';
+      (generateReport as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(mockReport);
+
+      // No loadMissingContent provided - simulating old behavior
+      const { result } = renderHook(() =>
+        useReportGeneration(
+          createBaseProps({
+            fileContents: mockFileContents,
+            // No loadMissingContent or getFileContents
+          })
+        )
+      );
+
+      await act(async () => {
+        await result.current.generateReportWithContent();
+      });
+
+      // Should work and use the provided fileContents directly
+      expect(generateReport).toHaveBeenCalledWith(
+        mockSelectedFiles,
+        mockFileContents,
+        mockRootDirectoryHandle,
+        mockIncludeFilters,
+        mockExcludeFilters,
+        mockUseRegex,
+        mockIncludeProjectTree,
+        mockFolderSummaryThreshold
+      );
+    });
+
+    it('should handle loadMissingContent errors gracefully', async () => {
+      const mockLoadMissingContent = vi.fn().mockRejectedValue(new Error('Load failed'));
+
+      const { result } = renderHook(() =>
+        useReportGeneration(
+          createBaseProps({
+            fileContents: {},
+            loadMissingContent: mockLoadMissingContent,
+          })
+        )
+      );
+
+      // Should propagate the error
+      await expect(
+        act(async () => {
+          await result.current.generateReportWithContent();
+        })
+      ).rejects.toThrow('Load failed');
+
+      // isGenerating should be reset to false
+      expect(result.current.isGenerating).toBe(false);
+    });
   });
 });

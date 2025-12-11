@@ -132,27 +132,6 @@ async function prepareFileReadRequest(
   return { compositeKey, handle: fileHandle, path };
 }
 
-// Single file loading helper
-async function loadSingleFile(
-  compositeKey: string,
-  workerRef: React.MutableRefObject<FileContentWorker | null>,
-  prepareFileRead: (key: string) => Promise<FileReadRequest | null>,
-  loadingPathsRef: React.MutableRefObject<Set<string>>,
-  setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>,
-  setFileContent: (key: string, content: string) => void
-): Promise<void> {
-  const req = await prepareFileRead(compositeKey);
-  if (req && workerRef.current) {
-    workerRef
-      .current([req], ({ key }) => {
-        updateLoadingState(key, loadingPathsRef, setLoadingFiles);
-      })
-      .then((results) => {
-        processWorkerResults(results, setFileContent);
-      });
-  }
-}
-
 export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -170,8 +149,6 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       workerRef.current = null;
     };
   }, [fileSystemAdapter]);
-
-  const selectedFilePaths = store((s) => s.selectedFilePaths);
 
   // Build a cache of path -> node keyed by folder ID whenever the file tree changes
   useEffect(() => {
@@ -225,24 +202,11 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     [prepareFileRead, store]
   );
 
-  // Automatically load content for selected files
-  // biome-ignore lint/plugin: Auto-load content for selected files - reactive data loading
-  useEffect(() => {
-    const { fileContents, setFileContent } = store.getState();
-
-    for (const compositeKey of selectedFilePaths) {
-      if (!(fileContents[compositeKey] || loadingPathsRef.current.has(compositeKey))) {
-        void loadSingleFile(
-          compositeKey,
-          workerRef,
-          prepareFileRead,
-          loadingPathsRef,
-          setLoadingFiles,
-          setFileContent
-        );
-      }
-    }
-  }, [selectedFilePaths, prepareFileRead, store]);
+  // NOTE: Eager content loading removed for performance.
+  // Content is now loaded on-demand via handleFileContentLoading() when:
+  // 1. User explicitly previews a file
+  // 2. Import/export operation is triggered
+  // This prevents loading 1000s of files just because they're selected.
 
   // Use zustand selector to get fileContents with proper memoization
   const fileContents = store((state) => state.fileContents);

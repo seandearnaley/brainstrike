@@ -84,6 +84,9 @@ export default defineConfig({
         find: '@brainstrike/file-explorer-ui',
         replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/src'),
       },
+      // NOTE: @brainstrike/token-cache intentionally NOT aliased to src.
+      // It uses dist to get the pre-built worker JavaScript file.
+      // This matches the @brainstrike/embedding-worker pattern.
       {
         find: '@brainstrike/file-explorer-hooks',
         replacement: path.resolve(__dirname, '../../packages/file-explorer-hooks/src'),
@@ -120,6 +123,21 @@ export default defineConfig({
         find: '@brainstrike/workers',
         replacement: path.resolve(__dirname, '../../packages/workers'),
       },
+      {
+        // Force pino to browser build to avoid dynamic require of node libs in renderer
+        find: 'pino',
+        replacement: path.resolve(
+          __dirname,
+          '../../node_modules/.pnpm/pino@10.1.0/node_modules/pino/browser.js'
+        ),
+      },
+      {
+        find: 'pino/browser.js',
+        replacement: path.resolve(
+          __dirname,
+          '../../node_modules/.pnpm/pino@10.1.0/node_modules/pino/browser.js'
+        ),
+      },
       // Agent client-safe exports (no Mastra dependencies)
       {
         find: '@brainstrike/agent/client',
@@ -136,6 +154,7 @@ export default defineConfig({
   },
   worker: {
     format: 'es',
+    plugins: () => [wasm(), topLevelAwait()],
   },
   optimizeDeps: {
     exclude: [
@@ -152,6 +171,7 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell',
       '@brainstrike/workers',
+      // NOTE: @brainstrike/token-cache is NOT excluded - using dist version
     ],
   },
   define: {

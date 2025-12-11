@@ -289,7 +289,12 @@
       }
     },
     {
-      "includes": ["packages/db/**", "**/db-main.ts", "**/ipc-handlers.ts"],
+      "includes": [
+        "packages/db/**",
+        "packages/token-cache/**",
+        "**/db-main.ts",
+        "**/ipc-handlers.ts"
+      ],
       "linter": {
         "rules": {
           "style": {

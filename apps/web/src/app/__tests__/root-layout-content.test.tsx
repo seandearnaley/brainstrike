@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RootLayoutContent from '../root-layout-content';
@@ -23,6 +23,15 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   UnifiedFileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="unified-file-explorer-provider">{children}</div>
   ),
+  TokenCacheProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="token-cache-provider">{children}</div>
+  ),
+}));
+
+let currentDb: unknown = null;
+const usePGliteDatabaseMock = vi.fn(() => currentDb);
+vi.mock('@brainstrike/db', () => ({
+  usePGliteDatabase: () => usePGliteDatabaseMock(),
 }));
 
 let capturedOnNavigationClick: ((path: string) => void) | undefined;
@@ -107,8 +116,22 @@ vi.mock('@brainstrike/app-shell', async (importOriginal) => {
 });
 
 // Mock the page components
+let homeMountCount = 0;
 vi.mock('../home-page-content', () => ({
-  default: () => <div data-testid="home-page-content">Home Page Content</div>,
+  default: () => {
+    const [mountIndex, setMountIndex] = React.useState(0);
+
+    React.useEffect(() => {
+      homeMountCount += 1;
+      setMountIndex(homeMountCount);
+    }, []);
+
+    return (
+      <div data-mount-index={mountIndex} data-testid="home-page-content">
+        Home Page Content
+      </div>
+    );
+  },
   WebFileExplorerLeftPanel: () => <div data-testid="web-file-explorer-left-panel">Left Panel</div>,
 }));
 
@@ -119,6 +142,8 @@ vi.mock('../settings/page-content', () => ({
 describe('RootLayoutContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    homeMountCount = 0;
+    currentDb = null;
   });
 
   it('renders without crashing', () => {
@@ -169,5 +194,23 @@ describe('RootLayoutContent', () => {
 
     expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
     expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/');
+  });
+
+  it('keeps home content mounted while the database becomes available', async () => {
+    const { rerender } = render(<RootLayoutContent />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('home-page-content')).toHaveAttribute('data-mount-index', '1')
+    );
+
+    currentDb = {
+      query: vi.fn(async () => ({ rows: [], affectedRows: 0 })),
+    };
+
+    rerender(<RootLayoutContent />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('home-page-content')).toHaveAttribute('data-mount-index', '1')
+    );
   });
 });

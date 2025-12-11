@@ -87,7 +87,9 @@
         "@brainstrike/app-shell#dev", // Run the 'dev' script from the @brainstrike/app-shell package
         "@brainstrike/file-explorer-ui#dev", // Run the 'dev' script from the @brainstrike/file-explorer-ui package
         "@brainstrike/file-system#dev", // Run the 'dev' script from the @brainstrike/file-system package
-        "@brainstrike/storage#dev" // Run the 'dev' script from the @brainstrike/storage package
+        "@brainstrike/storage#dev", // Run the 'dev' script from the @brainstrike/storage package
+        "@brainstrike/token-cache#dev", // Run the 'dev' script from the @brainstrike/token-cache package (builds workers)
+        "@brainstrike/embedding-worker#dev" // Run the 'dev' script from the @brainstrike/embedding-worker package (builds workers)
       ]
     },
 
