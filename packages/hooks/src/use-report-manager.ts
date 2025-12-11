@@ -60,18 +60,31 @@ export const useReportManager = <A = unknown>({
   }, [rootDirectoryHandle, generateReportWithContent, toast]);
 
   const handleDownloadReport = useCallback(async () => {
-    const report = await handleGenerateReport();
-    if (report) {
-      saveAs(
-        new Blob([report], { type: 'text/plain;charset=utf-8' }),
-        FileExplorerStrings.fileNames.report
-      );
-      showToast({
-        title: FileExplorerStrings.success.title,
-        description: FileExplorerStrings.success.reportDownloaded,
-      });
+    const reportToast = toast({
+      title: FileExplorerStrings.loading.generatingReport,
+      description: FileExplorerStrings.prompts.waitForReport,
+      duration: Number.POSITIVE_INFINITY,
+    });
+
+    try {
+      const report = await handleGenerateReport();
+      reportToast?.dismiss?.();
+
+      if (report) {
+        saveAs(
+          new Blob([report], { type: 'text/plain;charset=utf-8' }),
+          FileExplorerStrings.fileNames.report
+        );
+        showToast({
+          title: FileExplorerStrings.success.title,
+          description: FileExplorerStrings.success.reportDownloaded,
+        });
+      }
+    } catch (error) {
+      reportToast?.dismiss?.();
+      throw error;
     }
-  }, [handleGenerateReport, showToast]);
+  }, [handleGenerateReport, showToast, toast]);
 
   const handleCopyReport = useCallback(async () => {
     let reportToast: ReturnType<typeof toast> | undefined;

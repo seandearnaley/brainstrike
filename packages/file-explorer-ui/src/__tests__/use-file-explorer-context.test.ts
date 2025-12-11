@@ -245,4 +245,18 @@ describe('useFileExplorer (context)', () => {
     await expect(result.current.refreshFileExplorer()).rejects.toBeInstanceOf(Error);
     expect(mockRefreshTree).not.toHaveBeenCalled();
   });
+
+  it('loadMultipleFileContents calls handleFileContentLoading with array of keys', async () => {
+    const { result } = renderHook(() => useFileExplorer());
+
+    await act(async () => {
+      await result.current.loadMultipleFileContents(['/file1.ts', '/file2.js', '/file3.tsx']);
+    });
+
+    expect(mockHandleFileContentLoading).toHaveBeenCalledWith([
+      '/file1.ts',
+      '/file2.js',
+      '/file3.tsx',
+    ]);
+  });
 });

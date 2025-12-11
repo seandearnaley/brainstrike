@@ -171,6 +171,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       rootDirectoryHandle: null,
       isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
       loadFileContent: vi.fn(),
+      loadMultipleFileContents: vi.fn(),
       refreshFileExplorer: vi.fn(),
       isInitialLoad: false,
       clearFileContents: vi.fn(),

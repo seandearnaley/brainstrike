@@ -150,6 +150,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancelOperation,
     isCancelling,
     clearRootDirectory,
+    loadMultipleFileContents,
   } = useFileExplorer();
 
   const onSelectionLimitExceeded = useCallback(() => {
@@ -169,6 +170,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const [isInlineFixtureLoading, setIsInlineFixtureLoading] = useState(false);
   const hasAppliedInitialFixtureRef = useRef(false);
 
+  // Getter for fresh file contents from the store (used after loading missing content)
+  const getFileContents = useCallback(() => store.getState().fileContents, [store]);
+
   // Report generation configured with current state
   const { generateReportWithContent } = useReportGeneration({
     selectedFiles: new Set(selectedFilesList),
@@ -180,6 +184,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     useRegex,
     includeProjectTree,
     folderSummaryThreshold,
+    loadMissingContent: loadMultipleFileContents,
+    getFileContents,
   });
 
   const {

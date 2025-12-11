@@ -34,6 +34,8 @@ type UseFileExplorerReturn = {
   rootDirectoryHandle: DirectoryHandle | null;
   isFileSystemAccessSupported: () => { supported: boolean; reason: string };
   loadFileContent: (path: string) => Promise<void>;
+  /** Load content for multiple files at once (batch loading for report generation) */
+  loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
   refreshFileExplorer: () => Promise<void>;
   isInitialLoad: boolean;
   clearFileContents: (compositeKeys: string[]) => void;
@@ -191,6 +193,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     rootDirectoryHandle,
     isFileSystemAccessSupported,
     loadFileContent,
+    loadMultipleFileContents: handleFileContentLoading,
     refreshFileExplorer,
     isInitialLoad: approximatedIsInitialLoad,
     clearFileContents: storeClearFileContents,

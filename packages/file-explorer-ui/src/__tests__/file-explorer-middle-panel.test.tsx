@@ -125,6 +125,7 @@ describe('FileExplorerMiddlePanel', () => {
       fileContents: {},
       loadingFiles: new Set<string>(),
       loadFileContent: vi.fn(),
+      loadMultipleFileContents: vi.fn(),
       handleRootDirectorySelect: vi.fn(),
       isLoading: false,
       error: null,

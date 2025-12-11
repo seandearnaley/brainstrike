@@ -189,6 +189,7 @@ describe('FileExplorerLeftPanel', () => {
       isCancelling: false,
       clearRootDirectory: vi.fn(),
       loadFileContent: vi.fn(),
+      loadMultipleFileContents: vi.fn(),
       clearFileContents: vi.fn(),
     } as ReturnType<typeof useFileExplorer>;
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
