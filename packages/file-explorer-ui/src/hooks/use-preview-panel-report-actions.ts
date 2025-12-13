@@ -24,12 +24,18 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
   const { fileSystemAdapter } = useAdapters();
   const { toast, showToast } = useToastManager();
 
+  // Get fresh file contents from store state when needed (avoids stale closure).
+  // The store reference is stable, but we call getState() to get current values.
   const getFileContents = useCallback(() => input.store.getState().fileContents, [input.store]);
+  // `useReportGeneration` models "no directory" as `undefined`, whereas the rest of the explorer
+  // surfaces missing root directory as `null`.
+  const rootDirectoryHandleForGeneration =
+    input.rootDirectoryHandle === null ? undefined : input.rootDirectoryHandle;
 
   const { generateReportWithContent } = useReportGeneration({
     selectedFiles: input.selectedFiles,
     fileContents: input.fileContents,
-    rootDirectoryHandle: input.rootDirectoryHandle ?? undefined,
+    rootDirectoryHandle: rootDirectoryHandleForGeneration,
     fileSystemAdapter,
     includeFilters: input.includeFilters,
     excludeFilters: input.excludeFilters,

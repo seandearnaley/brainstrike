@@ -146,12 +146,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     clearRootDirectory,
   } = useFileExplorer();
 
-  const onSelectionLimitExceeded = useCallback(() => {
-    // Selection limit handling is managed by action buttons
-  }, []);
+  const {
+    showToast,
+    handleRefreshError,
+    handleBrowserCompatibilityError,
+    handleDirectorySelectError,
+    handleSelectionLimitError,
+  } = useToastManager();
 
   const { selectedFilesList, setSelectedFilesFromList } = useSelectionManager({
-    onSelectionLimitExceeded,
+    onSelectionLimitExceeded: handleSelectionLimitError,
   });
   // Back-compat for older test mocks that don't provide new fields
   const safeSelectedFilesList: string[] = Array.isArray(selectedFilesList) ? selectedFilesList : [];
@@ -162,13 +166,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const inlineFixtureAvailable = Boolean(fixtureAdapter?.canLoadInlineFixture);
   const [isInlineFixtureLoading, setIsInlineFixtureLoading] = useState(false);
   const hasAppliedInitialFixtureRef = useRef(false);
-
-  const {
-    showToast,
-    handleRefreshError,
-    handleBrowserCompatibilityError,
-    handleDirectorySelectError,
-  } = useToastManager();
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {

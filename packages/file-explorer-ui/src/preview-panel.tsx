@@ -422,6 +422,9 @@ const PreviewPanelReportActions = memo<PreviewPanelReportActionsProps>(
         <div className="flex flex-wrap items-center gap-2">
           {onDownloadReport && (
             <Button
+              aria-label={
+                selectedFilesCount === 0 ? 'Download Report (no files selected)' : 'Download Report'
+              }
               disabled={selectedFilesCount === 0}
               onClick={onDownloadReport}
               size="sm"
@@ -433,6 +436,9 @@ const PreviewPanelReportActions = memo<PreviewPanelReportActionsProps>(
           )}
           {onCopyReport && (
             <Button
+              aria-label={
+                selectedFilesCount === 0 ? 'Copy Report (no files selected)' : 'Copy Report'
+              }
               disabled={selectedFilesCount === 0}
               onClick={onCopyReport}
               size="sm"
