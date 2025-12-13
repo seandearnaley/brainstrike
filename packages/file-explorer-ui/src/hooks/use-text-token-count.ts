@@ -26,7 +26,7 @@ export function useTextTokenCount({
 
   // biome-ignore lint/plugin: Async tokenization requires effect-driven state updates
   useEffect(() => {
-    if (!(enabled && countTextTokens && isWorkerReady)) {
+    if (!(enabled && countTextTokens)) {
       setState({ tokenCount: 0, loading: false });
       lastTextRef.current = '';
       lastModeRef.current = '';
@@ -40,7 +40,9 @@ export function useTextTokenCount({
       return;
     }
 
-    const modeKey = countingMode ?? 'heuristic';
+    // Include readiness in the memo key so we re-count once the worker is available.
+    // This prevents us from getting "stuck" with a heuristic fallback value indefinitely.
+    const modeKey = `${countingMode ?? 'heuristic'}:${isWorkerReady ? 'worker' : 'fallback'}`;
     if (lastTextRef.current === text && lastModeRef.current === modeKey) {
       return;
     }
@@ -48,7 +50,9 @@ export function useTextTokenCount({
     lastModeRef.current = modeKey;
 
     let cancelled = false;
-    setState((prev) => ({ ...prev, loading: true }));
+    if (isWorkerReady) {
+      setState((prev) => ({ ...prev, loading: true }));
+    }
 
     void (async () => {
       try {
