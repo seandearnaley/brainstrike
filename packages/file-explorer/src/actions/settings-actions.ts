@@ -2,8 +2,10 @@ import type { FileExplorerState } from '@brainstrike/types';
 import {
   MAX_FOLDER_SUMMARY_THRESHOLD,
   MAX_SELECTION_COUNT,
+  MAX_TOKEN_BUDGET,
   MIN_FOLDER_SUMMARY_THRESHOLD,
   MIN_MAX_SELECTION_COUNT,
+  MIN_TOKEN_BUDGET,
 } from '@brainstrike/types';
 import type { StoreApi, UseBoundStore } from 'zustand';
 
@@ -14,6 +16,7 @@ export type SettingsActions = {
   setFilters: (include: readonly string[], exclude: readonly string[]) => void;
   setUseRegex: (useRegex: boolean) => void;
   setIncludeProjectTree: (value: boolean) => void;
+  setTokenBudget: (budget: number) => void;
   setFolderSummaryThreshold: (value: number) => void;
   setMaxSelectionCount: (count: number) => void; // Note: Moved from folder-state-actions
   setLastActiveTab: (tab: string) => void; // Note: Moved from folder-state-actions
@@ -33,6 +36,37 @@ export const createSettingsActions = (
 
   setIncludeProjectTree: (value: boolean) => {
     set({ includeProjectTree: value });
+  },
+
+  setTokenBudget: (budget: number) => {
+    if (!Number.isFinite(budget)) {
+      return;
+    }
+
+    const normalized = Math.round(budget);
+    const clamped = Math.max(MIN_TOKEN_BUDGET, Math.min(normalized, MAX_TOKEN_BUDGET));
+    set((state: FileExplorerState) => {
+      const currentFolderId = state.currentFolderId;
+      if (!currentFolderId) {
+        return { tokenBudget: clamped };
+      }
+
+      const folderState = state.folderStates[currentFolderId];
+      if (!folderState) {
+        return { tokenBudget: clamped };
+      }
+
+      return {
+        tokenBudget: clamped,
+        folderStates: {
+          ...state.folderStates,
+          [currentFolderId]: {
+            ...folderState,
+            tokenBudget: clamped,
+          },
+        },
+      };
+    });
   },
 
   setFolderSummaryThreshold: (value: number) => {

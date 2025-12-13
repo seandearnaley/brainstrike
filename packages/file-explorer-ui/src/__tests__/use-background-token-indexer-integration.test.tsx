@@ -52,7 +52,9 @@ const storeMock = createStoreMock();
 
 const createTokenCacheContext = (): TokenCacheContextValue => ({
   isReady: true,
+  isWorkerReady: true,
   countingMode: 'accurate',
+  countTextTokens: vi.fn(async () => 0),
   getTokenCount: vi.fn(),
   getTotalTokens: vi.fn(async () => 0),
   isLoading: vi.fn(() => false),

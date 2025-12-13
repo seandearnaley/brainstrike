@@ -137,10 +137,10 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Check stats display
-      const stats = screen.getAllByText(
-        (_, element) => element?.textContent?.includes('3 files | 1,500 tokens') ?? false
-      );
-      expect(stats.length > 0).toBe(true);
+      expect(screen.getByText(/Selected 1,500/i)).toBeInTheDocument();
+      const progress = screen.getByTestId('progress');
+      expect(progress.getAttribute('title')).toContain('1,500 / 100,000 tokens');
+      expect(progress.getAttribute('title')).toContain('Selected 1,500');
 
       // Check files are displayed
       expect(screen.getByText('file1.txt')).toBeInTheDocument();
@@ -202,6 +202,135 @@ describe('PreviewPanel', () => {
       const progress = screen.getByTestId('progress');
       const expected = Math.min((totalTokens / 100_000) * 100, 100);
       expect(progress).toHaveAttribute('data-value', expected.toString());
+    });
+
+    it('should render a segmented token bar for selected vs tree tokens', () => {
+      mockUsePreviewPanelState.mockReturnValue({
+        ...mockState,
+        totalStats: { totalFiles: 3, totalTokens: 50_000 },
+      });
+
+      render(
+        <PreviewPanel
+          {...mockProps}
+          includeProjectTree={true}
+          projectTreeTokenCount={25_000}
+          tokenBudget={100_000}
+        />
+      );
+
+      const treeSegment = screen.getByTestId('token-bar-tree');
+      const selectedSegment = screen.getByTestId('token-bar-selected');
+
+      expect(treeSegment).toHaveStyle({ width: '25%' });
+      expect(selectedSegment).toHaveStyle({ width: '50%' });
+    });
+
+    it('should not render the tree segment when Include Project Tree is disabled', () => {
+      mockUsePreviewPanelState.mockReturnValue({
+        ...mockState,
+        totalStats: { totalFiles: 3, totalTokens: 50_000 },
+      });
+
+      render(
+        <PreviewPanel
+          {...mockProps}
+          includeProjectTree={false}
+          projectTreeTokenCount={25_000}
+          tokenBudget={100_000}
+        />
+      );
+
+      expect(screen.queryByTestId('token-bar-tree')).not.toBeInTheDocument();
+      expect(screen.getByTestId('token-bar-selected')).toHaveStyle({ width: '50%' });
+    });
+
+    it('should render only the tree segment when selected tokens are zero', () => {
+      mockUsePreviewPanelState.mockReturnValue({
+        ...mockState,
+        totalStats: { totalFiles: 3, totalTokens: 0 },
+      });
+
+      render(
+        <PreviewPanel
+          {...mockProps}
+          includeProjectTree={true}
+          projectTreeTokenCount={25_000}
+          tokenBudget={100_000}
+        />
+      );
+
+      expect(screen.getByTestId('token-bar-tree')).toHaveStyle({ width: '25%' });
+      expect(screen.queryByTestId('token-bar-selected')).not.toBeInTheDocument();
+    });
+
+    it('should keep both segments visible when over budget', () => {
+      mockUsePreviewPanelState.mockReturnValue({
+        ...mockState,
+        totalStats: { totalFiles: 3, totalTokens: 50_000 },
+      });
+
+      render(
+        <PreviewPanel
+          {...mockProps}
+          includeProjectTree={true}
+          projectTreeTokenCount={120_000}
+          tokenBudget={100_000}
+        />
+      );
+
+      const treeSegment = screen.getByTestId('token-bar-tree');
+      const selectedSegment = screen.getByTestId('token-bar-selected');
+      const progress = screen.getByTestId('progress');
+
+      const treeWidth = Number.parseFloat((treeSegment as HTMLElement).style.width);
+      const selectedWidth = Number.parseFloat((selectedSegment as HTMLElement).style.width);
+      expect(treeWidth + selectedWidth).toBeCloseTo(100, 2);
+      expect(progress).toHaveAttribute('data-value', '100');
+      expect(progress).toHaveClass('ring-destructive/70');
+    });
+
+    it('should surface tree loading state in the progress title', () => {
+      mockUsePreviewPanelState.mockReturnValue({
+        ...mockState,
+        totalStats: { totalFiles: 3, totalTokens: 50_000 },
+      });
+
+      render(
+        <PreviewPanel
+          {...mockProps}
+          includeProjectTree={true}
+          projectTreeTokenCount={0}
+          projectTreeTokenCountLoading={true}
+          tokenBudget={100_000}
+        />
+      );
+
+      const progress = screen.getByTestId('progress');
+      expect(progress.getAttribute('title')).toContain('Tree …');
+    });
+
+    it('allows editing the token budget', async () => {
+      const onTokenBudgetChange = vi.fn();
+
+      render(
+        <PreviewPanel
+          {...mockProps}
+          onTokenBudgetChange={onTokenBudgetChange}
+          tokenBudget={100_000}
+        />
+      );
+
+      const editButton = screen.getByRole('button', { name: /edit token budget/i });
+      fireEvent.click(editButton);
+
+      const input = screen.getByLabelText(/token budget input/i);
+      fireEvent.change(input, { target: { value: '1,000,000' } });
+
+      const saveButton = screen.getByRole('button', { name: /save token budget/i });
+      fireEvent.click(saveButton);
+
+      expect(onTokenBudgetChange).toHaveBeenCalledWith(1_000_000);
     });
   });
 

@@ -43,7 +43,6 @@ test.describe('File Explorer', () => {
       await expect(dialog.getByPlaceholder('e.g. *.ts, src/**/*.js')).toBeVisible();
       await expect(dialog.getByPlaceholder('e.g. *.test.js, node_modules/**')).toBeVisible();
       await expect(dialog.getByRole('switch', { name: 'Use Regex' })).toBeVisible();
-      await expect(dialog.getByRole('switch', { name: 'Include Project Tree' })).toBeVisible();
     });
 
     test('should show action buttons in disabled state initially', async () => {
@@ -51,6 +50,7 @@ test.describe('File Explorer', () => {
       await expect(explorer.downloadReportButton).toBeDisabled();
       await expect(explorer.copyReportButton).toBeVisible();
       await expect(explorer.copyReportButton).toBeDisabled();
+      await expect(explorer.includeProjectTreeToggle).toBeVisible();
     });
 
     test('should show selection counter with initial state', async ({ page }) => {
@@ -276,21 +276,23 @@ test.describe('File Explorer', () => {
             'component.tsx': null,
           },
         },
-        execute: async ({ page, openDialog }) => {
+        execute: async ({ page, explorer, openDialog }) => {
+          await expect(explorer.includeProjectTreeToggle).toBeVisible();
+          await explorer.includeProjectTreeToggle.click();
+          await expect(explorer.includeProjectTreeToggle).toHaveAttribute('aria-checked', 'false');
+
           const dialog = await openDialog();
           await dialog.getByLabel(/Use Regex/i).click();
-          await dialog.getByLabel('Include Project Tree').click();
           await dialog.getByRole('button', { name: 'Apply Settings' }).click();
           await expect(dialog).not.toBeVisible();
 
           await reloadExplorer(page);
 
+          await expect(explorer.includeProjectTreeToggle).toBeVisible();
+          await expect(explorer.includeProjectTreeToggle).toHaveAttribute('aria-checked', 'false');
+
           const reopened = await openDialog();
           await expect(reopened.getByLabel(/Use Regex/i)).toHaveAttribute('aria-checked', 'true');
-          await expect(reopened.getByLabel('Include Project Tree')).toHaveAttribute(
-            'aria-checked',
-            'false'
-          );
         },
       },
       {

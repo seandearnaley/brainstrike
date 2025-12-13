@@ -13,6 +13,7 @@ export type SerializedFolderState = {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  tokenBudget: number;
   /**
    * Number of files displayed before summarizing a folder in the generated
    * report's project tree. Does not affect the file explorer UI.
@@ -33,6 +34,7 @@ export type SerializedState = {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  tokenBudget: number;
   /**
    * Number of files displayed before summarizing a folder in the generated
    * report's project tree. Does not affect the file explorer UI.
@@ -51,6 +53,7 @@ export type FolderState = {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  tokenBudget: number;
   /**
    * Number of files displayed before summarizing a folder in the generated
    * report's project tree. Does not affect the file explorer UI.
@@ -72,6 +75,7 @@ export type FileExplorerData = {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  tokenBudget: number;
   /**
    * Number of files displayed before summarizing a folder in the generated
    * report's project tree. Does not affect the file explorer UI.
@@ -119,6 +123,7 @@ export interface FileExplorerState extends FileExplorerData {
   setFilters: (include: readonly string[], exclude: readonly string[]) => void;
   setUseRegex: (useRegex: boolean) => void;
   setIncludeProjectTree: (value: boolean) => void;
+  setTokenBudget: (budget: number) => void;
   setFolderSummaryThreshold: (value: number) => void;
   setMaxSelectionCount: (count: number) => void;
   setLastActiveTab: (tab: string) => void;
@@ -154,6 +159,9 @@ export const DEFAULT_FOLDER_SUMMARY_THRESHOLD = 5;
 /** Default allowed number of file selections */
 export const DEFAULT_MAX_SELECTION_COUNT = 10;
 
+/** Default token budget for reports/token meter */
+export const DEFAULT_TOKEN_BUDGET = 100_000;
+
 export const DEFAULT_STATE = {
   selectedFilePaths: new Set<string>(),
   expandedDirectoryPaths: new Set<string>(),
@@ -168,6 +176,7 @@ export const DEFAULT_STATE = {
   ] as string[],
   useRegex: false,
   includeProjectTree: true,
+  tokenBudget: DEFAULT_TOKEN_BUDGET,
   // Used only when generating reports
   folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
   maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,

@@ -1,4 +1,5 @@
 import { usePagination } from '@brainstrike/hooks';
+import { DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
 import {
   Badge,
   Button,
@@ -6,7 +7,6 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
-  Progress,
   SortableTableHeader,
   TableGroupHeader,
   TablePagination,
@@ -21,12 +21,14 @@ import {
   FileX2,
   FolderOpen,
   Loader2,
+  type LucideIcon,
   MinusCircle,
 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
+import { TokenBudgetControl } from './token-budget-control';
 import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
 import type { TokenCountingState } from './use-token-counting';
 import {
@@ -38,6 +40,108 @@ import {
 } from './utils/grouping-configs';
 
 const logger = createLogger('PreviewPanel');
+
+type TokenStatus = {
+  label: string;
+  description: string;
+  variant: 'outline' | 'secondary' | 'destructive';
+  icon: LucideIcon;
+  spin: boolean;
+};
+
+function getTokenStatus(tokenCounting: TokenCountingState): TokenStatus {
+  if (tokenCounting.loading) {
+    return {
+      label: 'Checking tokenizer…',
+      description: 'Loading WASM tokenizer to confirm accurate counting is available.',
+      variant: 'outline',
+      icon: Loader2,
+      spin: true,
+    };
+  }
+
+  if (tokenCounting.mode === 'accurate') {
+    return {
+      label: 'Accurate tokens (WASM)',
+      description: 'Counts generated with the tiktoken WASM encoder.',
+      variant: 'secondary',
+      icon: CheckCircle2,
+      spin: false,
+    };
+  }
+
+  if (tokenCounting.reason === 'runtime-fallback') {
+    return {
+      label: 'Heuristic fallback',
+      description: 'WASM tokenizer is unavailable; using 4 chars/token heuristic.',
+      variant: 'destructive',
+      icon: AlertTriangle,
+      spin: false,
+    };
+  }
+
+  return {
+    label: 'Heuristic mode',
+    description: 'Accurate counting disabled in global token settings.',
+    variant: 'outline',
+    icon: MinusCircle,
+    spin: false,
+  };
+}
+
+type TokenUsageMetrics = {
+  budget: number;
+  selectedTokens: number;
+  includedTreeTokens: number;
+  usedTokens: number;
+  treePercent: number;
+  selectedPercent: number;
+  usedPercent: number;
+  treeLabel: string;
+  remainingLabel: string;
+  isOverBudget: boolean;
+};
+
+function getTokenUsageMetrics(args: {
+  budget: number;
+  selectedTokens: number;
+  includeProjectTree: boolean;
+  projectTreeTokenCount: number;
+  projectTreeTokenCountLoading: boolean;
+}): TokenUsageMetrics {
+  const budget = args.budget;
+  const includedTreeTokens = args.includeProjectTree ? args.projectTreeTokenCount : 0;
+  const usedTokens = args.selectedTokens + includedTreeTokens;
+  const remainingTokens = budget - usedTokens;
+  const isOverBudget = remainingTokens < 0;
+
+  // For the segmented bar, normalize to the budget when under-budget so the "remaining" track is visible,
+  // and normalize to total usage when over-budget so both segments remain visible.
+  const barBaseTokens = Math.max(budget, usedTokens, 1);
+  const treePercent = (includedTreeTokens / barBaseTokens) * 100;
+  const selectedPercent = (args.selectedTokens / barBaseTokens) * 100;
+  const usedPercent = budget > 0 ? Math.min((usedTokens / budget) * 100, 100) : 0;
+
+  const treeLabel = args.projectTreeTokenCountLoading
+    ? '…'
+    : args.projectTreeTokenCount.toLocaleString();
+  const remainingLabel = isOverBudget
+    ? `${Math.abs(remainingTokens).toLocaleString()} over`
+    : `${remainingTokens.toLocaleString()} remaining`;
+
+  return {
+    budget,
+    includedTreeTokens,
+    isOverBudget,
+    remainingLabel,
+    selectedPercent,
+    selectedTokens: args.selectedTokens,
+    treeLabel,
+    treePercent,
+    usedPercent,
+    usedTokens,
+  };
+}
 
 type PreviewPanelProps = {
   selectedFiles: Set<string>;
@@ -62,6 +166,11 @@ type PreviewPanelProps = {
   pageSize?: number;
   onDownloadReport?: () => void;
   onCopyReport?: () => void;
+  includeProjectTree?: boolean;
+  projectTreeTokenCount?: number;
+  projectTreeTokenCountLoading?: boolean;
+  tokenBudget?: number;
+  onTokenBudgetChange?: (budget: number) => void;
 };
 
 // Column configuration
@@ -184,6 +293,98 @@ const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
   }
 );
 
+type PreviewPanelTokenSummaryProps = {
+  totalFiles: number;
+  includeProjectTree: boolean;
+  tokenStatus: TokenStatus;
+  tokenUsage: TokenUsageMetrics;
+  onTokenBudgetChange?: ((budget: number) => void) | undefined;
+};
+
+const PreviewPanelTokenSummary = memo<PreviewPanelTokenSummaryProps>(
+  function PreviewPanelTokenSummary(props) {
+    const { totalFiles, includeProjectTree, tokenStatus, tokenUsage, onTokenBudgetChange } = props;
+    const StatusIcon = tokenStatus.icon;
+
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="flex items-center gap-3">
+          <Badge className="py-1.5" variant="outline">
+            {formatTokenCount(tokenUsage.usedTokens)}
+          </Badge>
+          <Badge
+            className="flex items-center gap-1 py-1.5"
+            title={tokenStatus.description}
+            variant={tokenStatus.variant}
+          >
+            <StatusIcon className={`size-3.5 ${tokenStatus.spin ? 'animate-spin' : ''}`} />
+            {tokenStatus.label}
+          </Badge>
+          <TokenBudgetControl budget={tokenUsage.budget} onBudgetChange={onTokenBudgetChange} />
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-muted-foreground text-xs">
+            <span className="font-medium">{totalFiles}</span> files •{' '}
+            <span className="font-medium tabular-nums">
+              {tokenUsage.usedTokens.toLocaleString()}
+            </span>{' '}
+            / <span className="font-medium tabular-nums">{tokenUsage.budget.toLocaleString()}</span>{' '}
+            tokens •{' '}
+            <span className="inline-flex items-center gap-1 tabular-nums">
+              <span aria-hidden className="size-1.5 rounded-full bg-primary" />
+              Selected {tokenUsage.selectedTokens.toLocaleString()}
+            </span>{' '}
+            •{' '}
+            <span
+              className={`inline-flex items-center gap-1 tabular-nums ${includeProjectTree ? '' : 'opacity-60'}`}
+            >
+              <span
+                aria-hidden
+                className={`size-1.5 rounded-full bg-[hsl(var(--chart-2))] ${includeProjectTree ? '' : 'opacity-60'}`}
+              />
+              Tree {tokenUsage.treeLabel}
+            </span>{' '}
+            •{' '}
+            <span className={`tabular-nums ${tokenUsage.isOverBudget ? 'text-destructive' : ''}`}>
+              {tokenUsage.remainingLabel}
+            </span>
+          </div>
+          <div className="w-32">
+            <div
+              aria-valuemax={100}
+              aria-valuemin={0}
+              aria-valuenow={Math.round(tokenUsage.usedPercent)}
+              className={`relative h-2.5 w-full overflow-hidden rounded-full bg-secondary shadow-inner ring-1 ring-inset ${tokenUsage.isOverBudget ? 'ring-destructive/70' : 'ring-border/60'}`}
+              data-testid="progress"
+              data-value={tokenUsage.usedPercent}
+              role="progressbar"
+              title={`Selected ${tokenUsage.selectedTokens.toLocaleString()} • Tree ${tokenUsage.treeLabel} • ${tokenUsage.usedTokens.toLocaleString()} / ${tokenUsage.budget.toLocaleString()} tokens`}
+            >
+              <div className="flex h-full w-full">
+                {tokenUsage.treePercent > 0 && (
+                  <div
+                    className={`h-full bg-[hsl(var(--chart-2))] ${tokenUsage.selectedPercent > 0 ? 'border-background/70 border-r' : ''}`}
+                    data-testid="token-bar-tree"
+                    style={{ width: `${tokenUsage.treePercent}%` }}
+                  />
+                )}
+                {tokenUsage.selectedPercent > 0 && (
+                  <div
+                    className="h-full bg-primary"
+                    data-testid="token-bar-selected"
+                    style={{ width: `${tokenUsage.selectedPercent}%` }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="text-[10px] text-muted-foreground">{tokenStatus.description}</div>
+      </div>
+    );
+  }
+);
+
 // Preview Table component to reduce main component complexity
 type PreviewTableProps = {
   columnVisibility: ColumnVisibility;
@@ -193,26 +394,101 @@ type PreviewTableProps = {
   groupedData: GroupedData<TableRowData>[];
   currentPageData: TableRowData[];
   collapsedGroups: Set<string>;
-  isAllCurrentPageSelected: boolean;
   previewSelections: Set<string>;
   onSort: (field: keyof TableRowData) => void;
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
   onSelectAllOnPage: (items: TableRowData[]) => void;
   onDeselectAll: () => void;
-  getVisibleFilesOnPage: () => TableRowData[];
-  onFileClick?: (compositeKey: string) => void;
+  isAllSelected: (items: TableRowData[]) => boolean;
+  onFileClick?: ((compositeKey: string) => void) | undefined;
   toggleGroupCollapse: (groupKey: GroupKey) => void;
   isGroupFullySelected: (group: GroupedData<TableRowData>) => boolean;
   isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
   handleGroupSelectAll: (group: GroupedData<TableRowData>) => void;
   handleGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
-  renderGroupItems: (
-    group: GroupedData<TableRowData>,
-    itemCount: number,
-    elements: React.ReactNode[]
-  ) => number;
   pagination: { startIndex: number; endIndex: number };
 };
+
+type VisibleFilesOnPageInput = {
+  groupingConfig: string;
+  currentPageData: TableRowData[];
+  groupedData: GroupedData<TableRowData>[];
+  collapsedGroups: Set<string>;
+  startIndex: number;
+  endIndex: number;
+};
+
+function getVisibleFilesOnPage(input: VisibleFilesOnPageInput): TableRowData[] {
+  if (input.groupingConfig === 'none') {
+    return input.currentPageData;
+  }
+
+  const visibleFiles: TableRowData[] = [];
+  let itemCount = 0;
+
+  for (const group of input.groupedData) {
+    itemCount += 1; // group header
+
+    if (input.collapsedGroups.has(String(group.groupKey))) {
+      continue;
+    }
+
+    for (const item of group.items) {
+      if (itemCount >= input.startIndex && itemCount < input.endIndex) {
+        visibleFiles.push(item);
+      }
+      itemCount += 1;
+      if (itemCount >= input.endIndex) {
+        break;
+      }
+    }
+
+    if (itemCount >= input.endIndex) {
+      break;
+    }
+  }
+
+  return visibleFiles;
+}
+
+type PushGroupItemsInput = {
+  group: GroupedData<TableRowData>;
+  itemCount: number;
+  columnVisibility: ColumnVisibility;
+  previewSelections: Set<string>;
+  onToggleSelection: (compositeKey: string, checked: boolean) => void;
+  onFileClick?: ((compositeKey: string) => void) | undefined;
+  startIndex: number;
+  endIndex: number;
+  elements: React.ReactNode[];
+};
+
+function pushGroupItemsForPage(input: PushGroupItemsInput): number {
+  let currentItemCount = input.itemCount;
+
+  for (const item of input.group.items) {
+    if (currentItemCount >= input.endIndex) {
+      break;
+    }
+
+    if (currentItemCount >= input.startIndex) {
+      input.elements.push(
+        <PreviewTableRow
+          columnVisibility={input.columnVisibility}
+          isSelected={input.previewSelections.has(item.compositeKey)}
+          item={item}
+          key={`item-${item.compositeKey}`}
+          onFileClick={input.onFileClick}
+          onToggleSelection={input.onToggleSelection}
+        />
+      );
+    }
+
+    currentItemCount += 1;
+  }
+
+  return currentItemCount;
+}
 
 const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(props) {
   const {
@@ -222,11 +498,10 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
     groupingConfig,
     groupedData,
     currentPageData,
-    isAllCurrentPageSelected,
     onSort,
     onSelectAllOnPage,
     onDeselectAll,
-    getVisibleFilesOnPage,
+    isAllSelected,
     onFileClick,
     onToggleSelection,
     previewSelections,
@@ -236,9 +511,33 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
     isGroupPartiallySelected,
     handleGroupSelectAll,
     handleGroupDeselectAll,
-    renderGroupItems,
     pagination,
   } = props;
+
+  const visibleFilesOnPage = useMemo(
+    () =>
+      getVisibleFilesOnPage({
+        collapsedGroups,
+        currentPageData,
+        endIndex: pagination.endIndex,
+        groupedData,
+        groupingConfig,
+        startIndex: pagination.startIndex,
+      }),
+    [
+      collapsedGroups,
+      currentPageData,
+      groupedData,
+      groupingConfig,
+      pagination.endIndex,
+      pagination.startIndex,
+    ]
+  );
+
+  const isAllCurrentPageSelected = useMemo(
+    () => isAllSelected(visibleFilesOnPage),
+    [isAllSelected, visibleFilesOnPage]
+  );
 
   // Group header component wrapper
   const GroupHeaderWrapper = memo(({ group }: { group: GroupedData<TableRowData> }) => {
@@ -287,7 +586,17 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
 
       // Add group items if not collapsed
       if (!isCollapsed) {
-        itemCount = renderGroupItems(group, itemCount, elements);
+        itemCount = pushGroupItemsForPage({
+          columnVisibility,
+          elements,
+          endIndex: pagination.endIndex,
+          group,
+          itemCount,
+          onFileClick,
+          onToggleSelection,
+          previewSelections,
+          startIndex: pagination.startIndex,
+        });
       }
 
       // Stop if we've reached the end of the page
@@ -311,7 +620,7 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
                     aria-label="Select all files on current page"
                     checked={isAllCurrentPageSelected}
                     onCheckedChange={(checked) =>
-                      checked ? onSelectAllOnPage(getVisibleFilesOnPage()) : onDeselectAll()
+                      checked ? onSelectAllOnPage(visibleFilesOnPage) : onDeselectAll()
                     }
                     title="Select all files on current page"
                   />
@@ -376,8 +685,8 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
                   isSelected={previewSelections.has(item.compositeKey)}
                   item={item}
                   key={item.compositeKey}
+                  onFileClick={onFileClick}
                   onToggleSelection={onToggleSelection}
-                  {...(onFileClick && { onFileClick })}
                 />
               ))
             ) : (
@@ -404,6 +713,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     pageSize = 50,
     onDownloadReport,
     onCopyReport,
+    includeProjectTree = false,
+    projectTreeTokenCount = 0,
+    projectTreeTokenCountLoading = false,
+    tokenBudget,
+    onTokenBudgetChange,
   } = props;
 
   // Local selection state for preview panel - separate from file tree selections
@@ -458,52 +772,23 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     fileContents,
     loadingFiles,
     onSelectionChange,
-    ...(fileSizes ? { fileSizes } : {}),
+    fileSizes,
     decodeFileSelection,
     tokenCounting,
     performUndoableAction,
   });
 
-  const tokenStatus = useMemo(() => {
-    if (tokenCounting.loading) {
-      return {
-        label: 'Checking tokenizer…',
-        description: 'Loading WASM tokenizer to confirm accurate counting is available.',
-        variant: 'outline' as const,
-        icon: Loader2,
-        spin: true,
-      };
-    }
-    if (tokenCounting.mode === 'accurate') {
-      return {
-        label: 'Accurate tokens (WASM)',
-        description: 'Counts generated with the tiktoken WASM encoder.',
-        variant: 'secondary' as const,
-        icon: CheckCircle2,
-        spin: false,
-      };
-    }
-    if (tokenCounting.reason === 'runtime-fallback') {
-      return {
-        label: 'Heuristic fallback',
-        description: 'WASM tokenizer is unavailable; using 4 chars/token heuristic.',
-        variant: 'destructive' as const,
-        icon: AlertTriangle,
-        spin: false,
-      };
-    }
-    return {
-      label: 'Heuristic mode',
-      description: 'Accurate counting disabled in global token settings.',
-      variant: 'outline' as const,
-      icon: MinusCircle,
-      spin: false,
-    };
-  }, [tokenCounting.loading, tokenCounting.mode, tokenCounting.reason]);
-
-  const StatusIcon = tokenStatus.icon;
+  const tokenStatus = getTokenStatus(tokenCounting);
 
   const { totalStats, flatListItems } = state;
+
+  const tokenUsage = getTokenUsageMetrics({
+    budget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
+    includeProjectTree,
+    projectTreeTokenCount,
+    projectTreeTokenCountLoading,
+    selectedTokens: totalStats.totalTokens,
+  });
 
   // Use deferred value for expensive transformations to prevent blocking
   const deferredFlatListItems = useDeferredValue(flatListItems);
@@ -666,90 +951,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       ? flattenedData.slice(pagination.startIndex, pagination.endIndex)
       : [];
 
-  // Helper to render group items within pagination bounds
-  const renderGroupItems = useCallback(
-    (group: GroupedData<TableRowData>, itemCount: number, elements: React.ReactNode[]) => {
-      let currentItemCount = itemCount;
-
-      for (const item of group.items) {
-        if (currentItemCount >= pagination.startIndex && currentItemCount < pagination.endIndex) {
-          elements.push(
-            <PreviewTableRow
-              columnVisibility={columnVisibility}
-              isSelected={previewSelections.has(item.compositeKey)}
-              item={item}
-              key={`item-${item.compositeKey}`}
-              onToggleSelection={toggleItemSelection}
-              {...(onFileClick && { onFileClick })}
-            />
-          );
-        }
-        currentItemCount++;
-      }
-
-      return currentItemCount;
-    },
-    [
-      pagination.startIndex,
-      pagination.endIndex,
-      previewSelections,
-      toggleItemSelection,
-      columnVisibility,
-      onFileClick,
-    ]
-  );
-
-  // Helper to collect visible items from a group
-  const collectVisibleGroupItems = useCallback(
-    (group: GroupedData<TableRowData>, startCount: number, visibleFiles: TableRowData[]) => {
-      let itemCount = startCount;
-
-      for (const item of group.items) {
-        if (itemCount >= pagination.startIndex && itemCount < pagination.endIndex) {
-          visibleFiles.push(item);
-        }
-        itemCount++;
-        if (itemCount >= pagination.endIndex) {
-          break;
-        }
-      }
-
-      return itemCount;
-    },
-    [pagination.startIndex, pagination.endIndex]
-  );
-
-  // Get files visible on current page
-  const getVisibleFilesOnPage = useCallback(() => {
-    if (groupingConfig === 'none') {
-      return currentPageData;
-    }
-
-    const visibleFiles: TableRowData[] = [];
-    let itemCount = 0;
-
-    for (const group of groupedData) {
-      itemCount++; // Group header count
-
-      if (!collapsedGroups.has(String(group.groupKey))) {
-        itemCount = collectVisibleGroupItems(group, itemCount, visibleFiles);
-      }
-
-      if (itemCount >= pagination.endIndex) {
-        break;
-      }
-    }
-
-    return visibleFiles;
-  }, [
-    groupingConfig,
-    currentPageData,
-    groupedData,
-    collapsedGroups,
-    collectVisibleGroupItems,
-    pagination.endIndex,
-  ]);
-
   // Batch remove handler
   const handleBatchRemove = useCallback(() => {
     if (previewSelections.size === 0) {
@@ -773,12 +974,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     onSelectionChange(newSelectedFiles);
     setPreviewSelections(new Set());
   }, [previewSelections, selectedFiles, onSelectionChange, performUndoableAction]);
-
-  // Check if all items on current page are selected
-  const isAllCurrentPageSelected = useMemo(() => {
-    const visibleFiles = getVisibleFilesOnPage();
-    return isAllSelected(visibleFiles);
-  }, [getVisibleFilesOnPage, isAllSelected]);
 
   // Handle sort changes
   const handleSort = useCallback(
@@ -824,36 +1019,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       <div className="border-b bg-background p-3">
         {/* Top row - stats and main controls */}
         <div className="mb-3 flex items-center justify-between gap-6">
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-3">
-              <Badge className="py-1.5" variant="outline">
-                {formatTokenCount(totalStats.totalTokens)}
-              </Badge>
-              <Badge
-                className="flex items-center gap-1 py-1.5"
-                title={tokenStatus.description}
-                variant={tokenStatus.variant}
-              >
-                <StatusIcon className={`size-3.5 ${tokenStatus.spin ? 'animate-spin' : ''}`} />
-                {tokenStatus.label}
-              </Badge>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="text-muted-foreground text-xs">
-                <span className="font-medium">{totalStats.totalFiles}</span> files |{' '}
-                <span className="font-medium">{totalStats.totalTokens.toLocaleString()}</span>{' '}
-                tokens
-              </div>
-              <div className="w-32">
-                <Progress
-                  className="h-2"
-                  data-testid="progress"
-                  value={Math.min((totalStats.totalTokens / 100_000) * 100, 100)}
-                />
-              </div>
-            </div>
-            <div className="text-[10px] text-muted-foreground">{tokenStatus.description}</div>
-          </div>
+          <PreviewPanelTokenSummary
+            includeProjectTree={includeProjectTree}
+            onTokenBudgetChange={onTokenBudgetChange}
+            tokenStatus={tokenStatus}
+            tokenUsage={tokenUsage}
+            totalFiles={totalStats.totalFiles}
+          />
           <div className="flex gap-2">
             <Button
               disabled={isAllSelected(flattenedData)}
@@ -928,24 +1100,22 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         collapsedGroups={collapsedGroups}
         columnVisibility={columnVisibility}
         currentPageData={currentPageData}
-        getVisibleFilesOnPage={getVisibleFilesOnPage}
         groupedData={groupedData}
         groupingConfig={groupingConfig}
-        isAllCurrentPageSelected={isAllCurrentPageSelected}
+        handleGroupDeselectAll={handleGroupDeselectAll}
+        handleGroupSelectAll={handleGroupSelectAll}
+        isAllSelected={isAllSelected}
+        isGroupFullySelected={isGroupFullySelected}
+        isGroupPartiallySelected={isGroupPartiallySelected}
         onDeselectAll={deselectAll}
+        onFileClick={onFileClick}
         onSelectAllOnPage={selectAllOnPage}
         onSort={handleSort}
         onToggleSelection={toggleItemSelection}
+        pagination={pagination}
         previewSelections={previewSelections}
         sortDirection={sortDirection}
         sortField={sortField}
-        {...(onFileClick && { onFileClick })}
-        handleGroupDeselectAll={handleGroupDeselectAll}
-        handleGroupSelectAll={handleGroupSelectAll}
-        isGroupFullySelected={isGroupFullySelected}
-        isGroupPartiallySelected={isGroupPartiallySelected}
-        pagination={pagination}
-        renderGroupItems={renderGroupItems}
         toggleGroupCollapse={toggleGroupCollapse}
       />
 

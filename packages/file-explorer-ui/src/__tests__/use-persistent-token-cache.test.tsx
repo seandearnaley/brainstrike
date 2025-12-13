@@ -62,7 +62,9 @@ describe('usePersistentTokenCache', () => {
     beforeEach(() => {
       mockContext = {
         isReady: true,
+        isWorkerReady: true,
         countingMode: 'accurate',
+        countTextTokens: vi.fn(async () => 0),
         cacheVersion: 3,
         getTokenCount: vi.fn(() => 42),
         getTotalTokens: vi.fn(async () => 0),

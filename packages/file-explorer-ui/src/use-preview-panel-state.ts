@@ -43,7 +43,7 @@ export type UsePreviewPanelStateProps = {
   fileContents: Record<string, string>;
   loadingFiles: Set<string>;
   onSelectionChange: (files: Set<string>) => void;
-  fileSizes?: Record<string, number>;
+  fileSizes?: Record<string, number> | undefined;
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
   tokenCounting: TokenCountingState;
   performUndoableAction: (

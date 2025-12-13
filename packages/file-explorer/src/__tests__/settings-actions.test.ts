@@ -2,8 +2,10 @@ import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import {
   MAX_FOLDER_SUMMARY_THRESHOLD,
   MAX_SELECTION_COUNT,
+  MAX_TOKEN_BUDGET,
   MIN_FOLDER_SUMMARY_THRESHOLD,
   MIN_MAX_SELECTION_COUNT,
+  MIN_TOKEN_BUDGET,
 } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import { createFileExplorerStore } from '../store';
@@ -67,5 +69,24 @@ describe('settings-actions', () => {
     s.setIncludeProjectTree(false);
     expect(store.getState().useRegex).toBe(true);
     expect(store.getState().includeProjectTree).toBe(false);
+  });
+
+  it('persists tokenBudget to the active folder state', () => {
+    const store = makeStore();
+    const s = store.getState();
+
+    s.setCurrentFolderId('root');
+
+    s.setTokenBudget(42);
+    expect(store.getState().tokenBudget).toBe(42);
+    expect(store.getState().folderStates.root?.tokenBudget).toBe(42);
+
+    s.setTokenBudget(MIN_TOKEN_BUDGET - 100);
+    expect(store.getState().tokenBudget).toBe(MIN_TOKEN_BUDGET);
+    expect(store.getState().folderStates.root?.tokenBudget).toBe(MIN_TOKEN_BUDGET);
+
+    s.setTokenBudget(MAX_TOKEN_BUDGET + 100);
+    expect(store.getState().tokenBudget).toBe(MAX_TOKEN_BUDGET);
+    expect(store.getState().folderStates.root?.tokenBudget).toBe(MAX_TOKEN_BUDGET);
   });
 });

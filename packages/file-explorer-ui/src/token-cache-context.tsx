@@ -25,6 +25,8 @@ import {
   type TokenCacheEntry,
   TokenCacheStore,
   type TokenCountingMode,
+  type TokenCountRequest,
+  type TokenCountResult,
   type UseTokenCacheReturn,
   useTokenCache,
 } from '@brainstrike/token-cache';
@@ -179,8 +181,12 @@ type TokenCacheStoreLike = TokenCacheStore | InMemoryTokenCacheStore;
 export type TokenCacheContextValue = UseTokenCacheReturn & {
   /** Whether the token cache infrastructure is ready */
   isReady: boolean;
+  /** Whether the token counting worker is ready */
+  isWorkerReady: boolean;
   /** Current counting mode */
   countingMode: TokenCountingMode;
+  /** Count tokens for arbitrary text (off-main-thread when worker is ready) */
+  countTextTokens: (text: string) => Promise<number>;
   /** Token cache store for background indexer integration */
   store: TokenCacheStoreLike;
 };
@@ -203,7 +209,7 @@ type TokenCacheProviderProps = {
 
 function createNoopWorkerPool(): WorkerPool {
   return {
-    exec: async () => ({ tokenCount: 0, contentHash: '' }),
+    exec: async () => ({ id: '', tokenCount: 0, contentHash: '', mode: 'heuristic' }),
     terminate: async () => {},
   };
 }
@@ -217,8 +223,10 @@ export function TokenCacheProvider({
   onTokenResolved,
   children,
 }: TokenCacheProviderProps) {
-  // Log db prop value for debugging
-  logger.info('TokenCacheProvider render', { hasDb: db !== null, dbType: db ? typeof db : 'null' });
+  logger.debug('TokenCacheProvider render', {
+    hasDb: db !== null,
+    dbType: db ? typeof db : 'null',
+  });
 
   const fallbackStoreRef = useState(() => new InMemoryTokenCacheStore())[0];
   const [store, setStore] = useState<TokenCacheStoreLike>(fallbackStoreRef);
@@ -236,29 +244,29 @@ export function TokenCacheProvider({
   // Initialize store when db becomes available
   useEffect(() => {
     if (!db) {
-      logger.info('TokenCacheProvider: db not available, using fallback store');
+      logger.debug('TokenCacheProvider: db not available, using fallback store');
       setStore(fallbackStoreRef);
       setHasPersistentStore(false);
       return;
     }
 
-    logger.info('TokenCacheProvider: db available, creating persistent store');
+    logger.debug('TokenCacheProvider: db available, creating persistent store');
     setStore(
       new TokenCacheStore(db as unknown as ConstructorParameters<typeof TokenCacheStore>[0])
     );
     setHasPersistentStore(true);
-    logger.info('TokenCacheProvider: hasPersistentStore set to true');
+    logger.debug('TokenCacheProvider: hasPersistentStore set to true');
   }, [db, fallbackStoreRef]);
 
   // Initialize hasher once
   useEffect(() => {
     let cancelled = false;
-    logger.info('TokenCacheProvider: initializing hasher');
+    logger.debug('TokenCacheProvider: initializing hasher');
     void hasher.init().then(() => {
       if (cancelled) {
         logger.warn('TokenCacheProvider: hasher init completed but effect was cancelled');
       } else {
-        logger.info('TokenCacheProvider: hasher initialized, setting hasherReady=true');
+        logger.debug('TokenCacheProvider: hasher initialized, setting hasherReady=true');
         setHasherReady(true);
       }
     });
@@ -270,14 +278,14 @@ export function TokenCacheProvider({
   // Initialize worker pool
   useEffect(() => {
     const url = workerUrl ?? new URL('@brainstrike/token-cache/worker', import.meta.url).href;
-    logger.info('TokenCacheProvider: creating worker pool', { url });
+    logger.debug('TokenCacheProvider: creating worker pool', { url });
     const pool = createTokenCacheWorkerPool(url);
     setWorkerPool(pool as WorkerPool);
     setWorkerReady(true);
-    logger.info('TokenCacheProvider: workerReady set to true');
+    logger.debug('TokenCacheProvider: workerReady set to true');
 
     return () => {
-      logger.info('TokenCacheProvider: cleaning up worker pool');
+      logger.debug('TokenCacheProvider: cleaning up worker pool');
       setWorkerReady(false);
       void pool.terminate();
       setWorkerPool(noopWorkerPool);
@@ -296,9 +304,35 @@ export function TokenCacheProvider({
 
   const isReady = Boolean(db) && workerReady && hasherReady && hasPersistentStore;
 
+  const countTextTokens = useMemo(() => {
+    return async (text: string) => {
+      if (!text) {
+        return 0;
+      }
+
+      if (!workerReady) {
+        // Fast fallback; avoids blocking on WASM init in the main thread.
+        return Math.ceil(text.length / 4);
+      }
+
+      try {
+        const request: TokenCountRequest = {
+          id: '__text__',
+          content: text,
+          mode: countingMode,
+        };
+
+        const result = (await workerPool.exec('countTokens', [request])) as TokenCountResult;
+        return typeof result.tokenCount === 'number' ? result.tokenCount : 0;
+      } catch {
+        return Math.ceil(text.length / 4);
+      }
+    };
+  }, [countingMode, workerPool, workerReady]);
+
   // Log readiness state for debugging
   useEffect(() => {
-    logger.info('TokenCacheProvider: readiness check', {
+    logger.debug('TokenCacheProvider: readiness check', {
       hasDb: Boolean(db),
       workerReady,
       hasherReady,
@@ -327,10 +361,12 @@ export function TokenCacheProvider({
     () => ({
       ...(isReady ? tokenCache : disabledTokenCache),
       isReady,
+      isWorkerReady: workerReady,
       countingMode,
+      countTextTokens,
       store,
     }),
-    [tokenCache, disabledTokenCache, isReady, countingMode, store]
+    [tokenCache, disabledTokenCache, isReady, workerReady, countingMode, countTextTokens, store]
   );
 
   return <TokenCacheContext.Provider value={contextValue}>{children}</TokenCacheContext.Provider>;

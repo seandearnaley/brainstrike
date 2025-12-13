@@ -19,6 +19,8 @@ function getProps(overrides: Partial<ActionButtonsProps> = {}): ActionButtonsPro
     onSelectionLimitExceeded: vi.fn(),
     onDownloadReport: vi.fn(),
     onCopyReport: vi.fn(),
+    includeProjectTree: true,
+    onIncludeProjectTreeChange: vi.fn(),
     ...overrides,
   };
 }
@@ -173,5 +175,18 @@ describe('ActionButtons', () => {
       expect(screen.getByRole('button', { name: /download report/i })).not.toBeDisabled();
       expect(screen.getByRole('button', { name: /copy report/i })).not.toBeDisabled();
     });
+  });
+
+  it('wires include project tree toggle', async () => {
+    const user = userEvent.setup();
+    const onIncludeProjectTreeChange = vi.fn();
+
+    const props = getProps({ includeProjectTree: false, onIncludeProjectTreeChange });
+    render(<ActionButtons {...props} />);
+
+    const treeSwitch = screen.getByRole('switch', { name: /include project tree/i });
+    await user.click(treeSwitch);
+
+    expect(onIncludeProjectTreeChange).toHaveBeenCalledWith(true);
   });
 });

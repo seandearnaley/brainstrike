@@ -13,7 +13,6 @@ import { useCallback, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileExtensionFilter from './file-extension-filter';
 import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
-import IncludeProjectTreeSetting from './include-project-tree-setting';
 import InlineFixtureSetting from './inline-fixture-setting';
 import MaxSelectionCountSetting from './max-selection-count-setting';
 import UseRegexSetting from './use-regex-setting';
@@ -24,7 +23,6 @@ type FileExplorerSettings = {
   excludeFilters: string[];
   useRegex: boolean;
   maxSelectionCount: number;
-  includeProjectTree: boolean;
   folderSummaryThreshold: number;
   devInlineFixtureEnabled: boolean;
 };
@@ -73,7 +71,6 @@ const ConfigDialogContent: React.FC<{
   setMaxSelectionCount: (v: number) => void;
   setUseRegex: (v: boolean) => void;
   setFilters: (i: string[], e: string[]) => void;
-  setIncludeProjectTree: (v: boolean) => void;
   setFolderSummaryThreshold: (v: number) => void;
   persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
   setDevInlineFixtureEnabled: (v: boolean) => void;
@@ -90,7 +87,6 @@ const ConfigDialogContent: React.FC<{
   setMaxSelectionCount,
   setUseRegex,
   setFilters,
-  setIncludeProjectTree,
   setFolderSummaryThreshold,
   persistPatch,
   setDevInlineFixtureEnabled,
@@ -102,7 +98,6 @@ const ConfigDialogContent: React.FC<{
       useRegex: r,
       includeFilters: i,
       excludeFilters: e,
-      includeProjectTree: t,
       folderSummaryThreshold: f,
       devInlineFixtureEnabled: fixtureEnabled,
     } = settings;
@@ -110,7 +105,6 @@ const ConfigDialogContent: React.FC<{
     setMaxSelectionCount(m);
     setUseRegex(r);
     setFilters(i, e);
-    setIncludeProjectTree(t);
     setFolderSummaryThreshold(f);
     setDevInlineFixtureEnabled(fixtureEnabled);
 
@@ -123,7 +117,6 @@ const ConfigDialogContent: React.FC<{
         useRegex: r,
         includeFilters: i,
         excludeFilters: e,
-        includeProjectTree: t,
         folderSummaryThreshold: f,
         devInlineFixtureEnabled: fixtureEnabled,
       });
@@ -186,10 +179,6 @@ const ConfigDialogContent: React.FC<{
             checked={settings.useRegex}
             onChange={(checked) => onSettingsChange('useRegex', checked)}
           />
-          <IncludeProjectTreeSetting
-            checked={settings.includeProjectTree}
-            onChange={(checked) => onSettingsChange('includeProjectTree', checked)}
-          />
         </div>
         {inlineFixtureSetting?.available && (
           <InlineFixtureSetting
@@ -220,7 +209,6 @@ const SettingsDialogContainer: React.FC<
       excludeFilters: string[];
       useRegex: boolean;
       maxSelectionCount: number;
-      includeProjectTree: boolean;
       folderSummaryThreshold: number;
       devInlineFixtureEnabled: boolean;
     };
@@ -228,7 +216,6 @@ const SettingsDialogContainer: React.FC<
       setMaxSelectionCount: (v: number) => void;
       setUseRegex: (v: boolean) => void;
       setFilters: (i: string[], e: string[]) => void;
-      setIncludeProjectTree: (v: boolean) => void;
       setFolderSummaryThreshold: (v: number) => void;
       setDevInlineFixtureEnabled: (v: boolean) => void;
     };
@@ -241,7 +228,6 @@ const SettingsDialogContainer: React.FC<
     excludeFilters: selectors.excludeFilters,
     useRegex: selectors.useRegex,
     maxSelectionCount: selectors.maxSelectionCount,
-    includeProjectTree: selectors.includeProjectTree,
     folderSummaryThreshold: selectors.folderSummaryThreshold,
     devInlineFixtureEnabled: selectors.devInlineFixtureEnabled,
   }));
@@ -264,7 +250,6 @@ const SettingsDialogContainer: React.FC<
       excludeFilters: selectors.excludeFilters ?? prev.excludeFilters,
       useRegex: selectors.useRegex ?? prev.useRegex,
       maxSelectionCount: selectors.maxSelectionCount ?? prev.maxSelectionCount,
-      includeProjectTree: selectors.includeProjectTree ?? prev.includeProjectTree,
       folderSummaryThreshold: selectors.folderSummaryThreshold ?? prev.folderSummaryThreshold,
       devInlineFixtureEnabled: selectors.devInlineFixtureEnabled ?? prev.devInlineFixtureEnabled,
     }));
@@ -274,7 +259,6 @@ const SettingsDialogContainer: React.FC<
     selectors.excludeFilters,
     selectors.useRegex,
     selectors.maxSelectionCount,
-    selectors.includeProjectTree,
     selectors.folderSummaryThreshold,
     selectors.devInlineFixtureEnabled,
   ]);
@@ -307,7 +291,6 @@ const SettingsDialogContainer: React.FC<
             setDevInlineFixtureEnabled={actions.setDevInlineFixtureEnabled}
             setFilters={actions.setFilters}
             setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
-            setIncludeProjectTree={actions.setIncludeProjectTree}
             setMaxSelectionCount={actions.setMaxSelectionCount}
             settings={settings}
             setUseRegex={actions.setUseRegex}
@@ -328,13 +311,11 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
       excludeFilters,
       useRegex,
       maxSelectionCount,
-      includeProjectTree,
       folderSummaryThreshold,
       devInlineFixtureEnabled,
       setMaxSelectionCount,
       setUseRegex,
       setFilters,
-      setIncludeProjectTree,
       setFolderSummaryThreshold,
       setDevInlineFixtureEnabled,
     ] = store(
@@ -344,13 +325,11 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
           s.excludeFilters,
           s.useRegex,
           s.maxSelectionCount,
-          s.includeProjectTree,
           s.folderSummaryThreshold,
           s.devInlineFixtureEnabled,
           s.setMaxSelectionCount,
           s.setUseRegex,
           s.setFilters,
-          s.setIncludeProjectTree,
           s.setFolderSummaryThreshold,
           s.setDevInlineFixtureEnabled,
         ] as const
@@ -423,7 +402,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
           setMaxSelectionCount,
           setUseRegex,
           setFilters,
-          setIncludeProjectTree,
           setFolderSummaryThreshold,
           setDevInlineFixtureEnabled,
         }}
@@ -435,7 +413,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
           excludeFilters,
           useRegex,
           maxSelectionCount,
-          includeProjectTree,
           folderSummaryThreshold,
           devInlineFixtureEnabled,
         }}
