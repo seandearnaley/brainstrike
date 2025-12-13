@@ -1,10 +1,9 @@
-import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
-import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
 import { decodeFileSelection, generateProjectTreeText } from '@brainstrike/utils';
 import { useCallback, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { usePreviewPanelReportActions } from './hooks/use-preview-panel-report-actions';
 import { useTextTokenCount } from './hooks/use-text-token-count';
 import { PreviewPanel } from './preview-panel';
 import { useFileExplorer } from './use-file-explorer-context';
@@ -25,8 +24,6 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
   } = useFileExplorer();
   const fileTree = Array.isArray(rawFileTree) ? rawFileTree : [];
   const tokenCounting = useTokenCounting();
-  const { fileSystemAdapter } = useAdapters();
-  const { toast, showToast } = useToastManager();
   const store = useFileExplorerStoreContext();
   const [
     tokenBudget,
@@ -55,27 +52,17 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
     onSelectionLimitExceeded: () => {}, // Handled by left panel
   });
 
-  const getFileContents = useCallback(() => store.getState().fileContents, [store]);
-
-  const { generateReportWithContent } = useReportGeneration({
+  const { handleDownloadReport, handleCopyReport } = usePreviewPanelReportActions({
+    store,
     selectedFiles: selectedFilePaths,
     fileContents,
-    rootDirectoryHandle: rootDirectoryHandle ?? undefined,
-    fileSystemAdapter,
+    rootDirectoryHandle,
     includeFilters,
     excludeFilters,
     useRegex,
     includeProjectTree,
     folderSummaryThreshold,
-    loadMissingContent: loadMultipleFileContents,
-    getFileContents,
-  });
-
-  const { handleDownloadReport, handleCopyReport } = useReportManager({
-    rootDirectoryHandle,
-    generateReportWithContent,
-    showToast,
-    toast,
+    loadMultipleFileContents,
   });
 
   const projectTreeText = useMemo(
