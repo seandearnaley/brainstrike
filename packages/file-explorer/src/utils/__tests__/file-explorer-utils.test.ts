@@ -2,6 +2,7 @@ import type { FileExplorerData, FolderState } from '@brainstrike/types';
 import {
   DEFAULT_FOLDER_SUMMARY_THRESHOLD,
   DEFAULT_MAX_SELECTION_COUNT,
+  DEFAULT_TOKEN_BUDGET,
   MAX_FOLDER_STATES,
 } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
@@ -268,6 +269,7 @@ describe('file-explorer-utils', () => {
         excludeFilters: [],
         useRegex: false,
         includeProjectTree: true,
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
         maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
         lastActiveTab: 'files',

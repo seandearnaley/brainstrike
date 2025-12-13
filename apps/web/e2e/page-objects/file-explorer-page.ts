@@ -48,6 +48,10 @@ export class FileExplorerPage {
     return this.page.getByRole('button', { name: 'Select All' });
   }
 
+  get includeProjectTreeToggle(): Locator {
+    return this.page.getByRole('switch', { name: 'Include Project Tree' });
+  }
+
   async selectRoot(): Promise<void> {
     await this.selectRootButton.click();
 

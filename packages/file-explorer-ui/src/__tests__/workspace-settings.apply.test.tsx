@@ -24,14 +24,12 @@ describe('ConfigDialogContent apply settings', () => {
           setDevInlineFixtureEnabled={vi.fn()}
           setFilters={vi.fn()}
           setFolderSummaryThreshold={vi.fn()}
-          setIncludeProjectTree={vi.fn()}
           setMaxSelectionCount={vi.fn()}
           settings={{
             includeFilters: [],
             excludeFilters: [],
             useRegex: false,
             maxSelectionCount: 10,
-            includeProjectTree: true,
             folderSummaryThreshold: 5,
             devInlineFixtureEnabled: false,
           }}

@@ -9,7 +9,7 @@ type PreviewTableRowProps = {
   item: TableRowData;
   isSelected: boolean;
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
-  onFileClick?: (compositeKey: string) => void;
+  onFileClick?: ((compositeKey: string) => void) | undefined;
   columnVisibility: ColumnVisibility;
 };
 

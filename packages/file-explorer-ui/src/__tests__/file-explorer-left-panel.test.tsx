@@ -146,6 +146,7 @@ describe('FileExplorerLeftPanel', () => {
       setCurrentFolderId: vi.fn(),
       maxSelectionCount: 5,
       includeProjectTree: true,
+      setIncludeProjectTree: vi.fn(),
       folderSummaryThreshold: 5,
       expandAllDirectories: vi.fn(),
       collapseAllDirectories: vi.fn(),

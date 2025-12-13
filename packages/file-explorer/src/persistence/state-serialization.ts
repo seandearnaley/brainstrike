@@ -23,6 +23,25 @@ function cachedSetToArray(set: Set<string> | undefined): string[] {
   return cached;
 }
 
+function coerceStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === 'string');
+}
+
+function coerceNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' ? value : fallback;
+}
+
+function coerceString(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function coerceBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
+}
+
 export function serializeState(state: FileExplorerState): SerializedState {
   const serialized: SerializedState = {
     currentFolderId: state.currentFolderId,
@@ -44,6 +63,7 @@ export function serializeState(state: FileExplorerState): SerializedState {
     excludeFilters: state.excludeFilters,
     useRegex: state.useRegex,
     includeProjectTree: state.includeProjectTree,
+    tokenBudget: state.tokenBudget,
     folderSummaryThreshold: state.folderSummaryThreshold,
     maxSelectionCount: state.maxSelectionCount,
     lastActiveTab: state.lastActiveTab ?? 'files',
@@ -80,47 +100,33 @@ export function mergeState(
   const mergedState: FileExplorerState = {
     ...current,
     ...persistedSerialized,
-    selectedFilePaths: new Set(
-      Array.isArray(persistedSerialized.selectedFilePaths)
-        ? persistedSerialized.selectedFilePaths
-        : []
-    ),
-    expandedDirectoryPaths: new Set(
-      Array.isArray(persistedSerialized.expandedDirectoryPaths)
-        ? persistedSerialized.expandedDirectoryPaths
-        : []
-    ),
-    folderAccessOrder: Array.isArray(persistedSerialized.folderAccessOrder)
-      ? persistedSerialized.folderAccessOrder
-      : [],
+    selectedFilePaths: new Set(coerceStringArray(persistedSerialized.selectedFilePaths)),
+    expandedDirectoryPaths: new Set(coerceStringArray(persistedSerialized.expandedDirectoryPaths)),
+    folderAccessOrder: coerceStringArray(persistedSerialized.folderAccessOrder),
     folderStates: Object.fromEntries(
       Object.entries(persistedSerialized.folderStates ?? {}).map(([key, psFolderState]) => {
         const currentFolderState = current.folderStates[key];
+        const fallbackTokenBudget = currentFolderState?.tokenBudget ?? current.tokenBudget;
         return [
           key,
           {
             ...(currentFolderState ?? ({} as FolderState)),
             ...psFolderState,
-            selectedFilePaths: new Set(
-              Array.isArray(psFolderState.selectedFilePaths) ? psFolderState.selectedFilePaths : []
-            ),
+            selectedFilePaths: new Set(coerceStringArray(psFolderState.selectedFilePaths)),
             expandedDirectoryPaths: new Set(
-              Array.isArray(psFolderState.expandedDirectoryPaths)
-                ? psFolderState.expandedDirectoryPaths
-                : []
+              coerceStringArray(psFolderState.expandedDirectoryPaths)
             ),
+            tokenBudget: coerceNumber(psFolderState.tokenBudget, fallbackTokenBudget),
           },
         ];
       })
     ),
-    quickFilter:
-      typeof persistedSerialized.quickFilter === 'string'
-        ? persistedSerialized.quickFilter
-        : current.quickFilter,
-    devInlineFixtureEnabled:
-      typeof persistedSerialized.devInlineFixtureEnabled === 'boolean'
-        ? persistedSerialized.devInlineFixtureEnabled
-        : current.devInlineFixtureEnabled,
+    tokenBudget: coerceNumber(persistedSerialized.tokenBudget, current.tokenBudget),
+    quickFilter: coerceString(persistedSerialized.quickFilter, current.quickFilter),
+    devInlineFixtureEnabled: coerceBoolean(
+      persistedSerialized.devInlineFixtureEnabled,
+      current.devInlineFixtureEnabled
+    ),
   };
 
   for (const key in current.folderStates) {

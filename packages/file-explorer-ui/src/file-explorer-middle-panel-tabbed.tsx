@@ -1,7 +1,9 @@
 import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
-import { decodeFileSelection } from '@brainstrike/utils';
-import { useCallback } from 'react';
+import { decodeFileSelection, generateProjectTreeText } from '@brainstrike/utils';
+import { useCallback, useMemo } from 'react';
+import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useTextTokenCount } from './hooks/use-text-token-count';
 import { PreviewPanel } from './preview-panel';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
@@ -12,12 +14,52 @@ import { useTokenCounting } from './use-token-counting';
  * This component can be used independently in the middle panel of an IDE layout
  */
 export const FileExplorerMiddlePanelTabbed: React.FC = () => {
-  const { fileContents, loadingFiles } = useFileExplorer();
+  const { fileContents, loadingFiles, fileTree: rawFileTree } = useFileExplorer();
+  const fileTree = Array.isArray(rawFileTree) ? rawFileTree : [];
   const tokenCounting = useTokenCounting();
+  const store = useFileExplorerStoreContext();
+  const [
+    tokenBudget,
+    setTokenBudget,
+    includeProjectTree,
+    includeFilters,
+    excludeFilters,
+    useRegex,
+    folderSummaryThreshold,
+  ] = store(
+    (s) =>
+      [
+        s.tokenBudget,
+        s.setTokenBudget,
+        s.includeProjectTree,
+        s.includeFilters,
+        s.excludeFilters,
+        s.useRegex,
+        s.folderSummaryThreshold,
+      ] as const
+  );
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
     onSelectionLimitExceeded: () => {}, // Handled by left panel
   });
+
+  const projectTreeText = useMemo(
+    () =>
+      generateProjectTreeText(
+        fileTree,
+        includeFilters,
+        excludeFilters,
+        useRegex,
+        folderSummaryThreshold
+      ),
+    [excludeFilters, fileTree, folderSummaryThreshold, includeFilters, useRegex]
+  );
+
+  const { tokenCount: projectTreeTokenCount, loading: projectTreeTokenCountLoading } =
+    useTextTokenCount({
+      text: projectTreeText,
+      enabled: selectedFilePaths.size > 0,
+    });
 
   const { performUndoableAction } = useUndoableAction();
 
@@ -61,11 +103,16 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
             <PreviewPanel
               decodeFileSelection={decodeFileSelection}
               fileContents={fileContents}
+              includeProjectTree={includeProjectTree}
               loadingFiles={loadingFiles}
               onFileClick={handleFileClick}
               onSelectionChange={handleSelectionChange}
+              onTokenBudgetChange={setTokenBudget}
               performUndoableAction={performUndoableActionForPanel}
+              projectTreeTokenCount={projectTreeTokenCount}
+              projectTreeTokenCountLoading={projectTreeTokenCountLoading}
               selectedFiles={selectedFilePaths}
+              tokenBudget={tokenBudget}
               tokenCounting={tokenCounting}
             />
           </div>

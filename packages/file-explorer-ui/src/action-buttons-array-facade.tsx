@@ -11,6 +11,8 @@ type Props = {
   onSelectionLimitExceeded: () => void | Promise<void>;
   onDownloadReport: () => void | Promise<void>;
   onCopyReport: () => void | Promise<void>;
+  includeProjectTree: boolean;
+  onIncludeProjectTreeChange: (checked: boolean) => void;
 };
 
 // Reuse Set instances to reduce GC pressure for large arrays
@@ -38,9 +40,11 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
       currentFolderId={props.currentFolderId}
       displayedFiles={displayedSet}
       encodeFileSelection={props.encodeFileSelection}
+      includeProjectTree={props.includeProjectTree}
       maxSelectionCount={props.maxSelectionCount}
       onCopyReport={props.onCopyReport}
       onDownloadReport={props.onDownloadReport}
+      onIncludeProjectTreeChange={props.onIncludeProjectTreeChange}
       onSelectionLimitExceeded={props.onSelectionLimitExceeded}
       selectedFilePaths={selectedSet}
       setSelectedFiles={setSelectedSet}

@@ -25,6 +25,8 @@ import {
   type TokenCacheEntry,
   TokenCacheStore,
   type TokenCountingMode,
+  type TokenCountRequest,
+  type TokenCountResult,
   type UseTokenCacheReturn,
   useTokenCache,
 } from '@brainstrike/token-cache';
@@ -179,8 +181,12 @@ type TokenCacheStoreLike = TokenCacheStore | InMemoryTokenCacheStore;
 export type TokenCacheContextValue = UseTokenCacheReturn & {
   /** Whether the token cache infrastructure is ready */
   isReady: boolean;
+  /** Whether the token counting worker is ready */
+  isWorkerReady: boolean;
   /** Current counting mode */
   countingMode: TokenCountingMode;
+  /** Count tokens for arbitrary text (off-main-thread when worker is ready) */
+  countTextTokens: (text: string) => Promise<number>;
   /** Token cache store for background indexer integration */
   store: TokenCacheStoreLike;
 };
@@ -203,7 +209,7 @@ type TokenCacheProviderProps = {
 
 function createNoopWorkerPool(): WorkerPool {
   return {
-    exec: async () => ({ tokenCount: 0, contentHash: '' }),
+    exec: async () => ({ id: '', tokenCount: 0, contentHash: '', mode: 'heuristic' }),
     terminate: async () => {},
   };
 }
@@ -296,6 +302,32 @@ export function TokenCacheProvider({
 
   const isReady = Boolean(db) && workerReady && hasherReady && hasPersistentStore;
 
+  const countTextTokens = useMemo(() => {
+    return async (text: string) => {
+      if (!text) {
+        return 0;
+      }
+
+      if (!workerReady) {
+        // Fast fallback; avoids blocking on WASM init in the main thread.
+        return Math.ceil(text.length / 4);
+      }
+
+      try {
+        const request: TokenCountRequest = {
+          id: '__text__',
+          content: text,
+          mode: countingMode,
+        };
+
+        const result = (await workerPool.exec('countTokens', [request])) as TokenCountResult;
+        return typeof result.tokenCount === 'number' ? result.tokenCount : 0;
+      } catch {
+        return Math.ceil(text.length / 4);
+      }
+    };
+  }, [countingMode, workerPool, workerReady]);
+
   // Log readiness state for debugging
   useEffect(() => {
     logger.info('TokenCacheProvider: readiness check', {
@@ -327,10 +359,12 @@ export function TokenCacheProvider({
     () => ({
       ...(isReady ? tokenCache : disabledTokenCache),
       isReady,
+      isWorkerReady: workerReady,
       countingMode,
+      countTextTokens,
       store,
     }),
-    [tokenCache, disabledTokenCache, isReady, countingMode, store]
+    [tokenCache, disabledTokenCache, isReady, workerReady, countingMode, countTextTokens, store]
   );
 
   return <TokenCacheContext.Provider value={contextValue}>{children}</TokenCacheContext.Provider>;

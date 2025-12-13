@@ -20,6 +20,7 @@ import { Button } from '@brainstrike/ui';
 import { Download, FileText } from 'lucide-react';
 import * as React from 'react';
 import { useCallback } from 'react';
+import IncludeProjectTreeSetting from './include-project-tree-setting';
 
 export type ActionButtonsProps = {
   displayedFiles: Set<string>;
@@ -31,6 +32,8 @@ export type ActionButtonsProps = {
   onSelectionLimitExceeded?: () => void;
   onDownloadReport: () => void;
   onCopyReport: () => void;
+  includeProjectTree: boolean;
+  onIncludeProjectTreeChange: (checked: boolean) => void;
 };
 
 export const ActionButtons = React.memo(
@@ -44,6 +47,8 @@ export const ActionButtons = React.memo(
     onSelectionLimitExceeded,
     onDownloadReport,
     onCopyReport,
+    includeProjectTree,
+    onIncludeProjectTreeChange,
   }: ActionButtonsProps) => {
     // Handles selecting files up to the max limit
     const handleSelectAll = useCallback(() => {
@@ -87,7 +92,7 @@ export const ActionButtons = React.memo(
     };
 
     return (
-      <div className="@container/buttons flex gap-2">
+      <div className="@container/buttons flex flex-wrap items-center gap-2">
         <Button
           className="flex h-8 items-center gap-1"
           disabled={!hasDisplayedFiles}
@@ -96,6 +101,10 @@ export const ActionButtons = React.memo(
         >
           {getButtonText()}
         </Button>
+        <IncludeProjectTreeSetting
+          checked={includeProjectTree}
+          onChange={onIncludeProjectTreeChange}
+        />
         <Button
           className="flex h-8 items-center gap-1"
           disabled={!hasSelectedFiles}

@@ -57,6 +57,13 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </button>
   ),
+  Input: ({
+    ref,
+    ...props
+  }: {
+    ref?: React.RefObject<HTMLInputElement | null>;
+    [key: string]: unknown;
+  }) => <input data-testid="input" ref={ref} {...props} />,
   Checkbox: ({ checked, onCheckedChange, ...props }: MockCheckboxProps) => (
     <input
       checked={checked}
@@ -443,9 +450,10 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Verify initial state
-      const runStats = screen.getAllByText(
-        (_, element) => element?.textContent?.includes('25 files | 5,000 tokens') ?? false
-      );
+      const runStats = screen.getAllByText((_, element) => {
+        const text = element?.textContent ?? '';
+        return text.includes('25 files') && text.includes('5,000 / 100,000');
+      });
       expect(runStats.length > 0).toBe(true);
 
       // Select multiple files using aria-labels - files are in folder0 for file1-file9
@@ -598,9 +606,10 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Should still render successfully with mixed states
-      const mixedStats = screen.getAllByText(
-        (_, element) => element?.textContent?.includes('50 files | 10,000 tokens') ?? false
-      );
+      const mixedStats = screen.getAllByText((_, element) => {
+        const text = element?.textContent ?? '';
+        return text.includes('50 files') && text.includes('10,000 / 100,000');
+      });
       expect(mixedStats.length > 0).toBe(true);
       expect(screen.getByText('file1.txt')).toBeInTheDocument();
     });
@@ -612,9 +621,10 @@ describe('PreviewPanel Integration Tests', () => {
 
       const { rerender } = render(<PreviewPanel {...mockProps} />);
 
-      const pagedStats = screen.getAllByText(
-        (_, element) => element?.textContent?.includes('10 files | 2,000 tokens') ?? false
-      );
+      const pagedStats = screen.getAllByText((_, element) => {
+        const text = element?.textContent ?? '';
+        return text.includes('10 files') && text.includes('2,000 / 100,000');
+      });
       expect(pagedStats.length > 0).toBe(true);
 
       // Simulate adding more files
@@ -624,9 +634,10 @@ describe('PreviewPanel Integration Tests', () => {
 
       rerender(<PreviewPanel {...newMockProps} />);
 
-      const reducedStats = screen.getAllByText(
-        (_, element) => element?.textContent?.includes('20 files | 4,000 tokens') ?? false
-      );
+      const reducedStats = screen.getAllByText((_, element) => {
+        const text = element?.textContent ?? '';
+        return text.includes('20 files') && text.includes('4,000 / 100,000');
+      });
       expect(reducedStats.length > 0).toBe(true);
     });
 

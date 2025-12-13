@@ -108,6 +108,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setCurrentFolderId,
     maxSelectionCount,
     includeProjectTree,
+    setIncludeProjectTree,
     folderSummaryThreshold,
     devInlineFixtureEnabled,
     setDevInlineFixtureEnabled,
@@ -122,6 +123,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.setCurrentFolderId,
         s.maxSelectionCount,
         s.includeProjectTree,
+        s.setIncludeProjectTree,
         s.folderSummaryThreshold,
         s.devInlineFixtureEnabled,
         s.setDevInlineFixtureEnabled,
@@ -618,9 +620,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
               displayedFiles={displayedFileList}
               encodeFileSelection={encodeFileSelection}
+              includeProjectTree={includeProjectTree}
               maxSelectionCount={maxSelectionCount}
               onCopyReport={handleCopyReport}
               onDownloadReport={handleDownloadReport}
+              onIncludeProjectTreeChange={setIncludeProjectTree}
               onSelectionLimitExceeded={() => {}}
               selectedFiles={safeSelectedFilesList}
               setSelectedFiles={safeSetSelectedFilesFromList}

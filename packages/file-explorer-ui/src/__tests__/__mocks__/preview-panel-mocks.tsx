@@ -112,6 +112,12 @@ export const createUiModuleMock = () => ({
       {children}
     </button>
   ),
+  Input: ({
+    ref,
+    ...props
+  }: MockComponentProps & { ref?: React.RefObject<HTMLInputElement | null> }) => (
+    <input data-testid="input" ref={ref} {...props} />
+  ),
   Checkbox: ({
     checked,
     onCheckedChange,
@@ -383,4 +389,7 @@ export const createLucideModuleMock = () => ({
   CheckCircle2: () => <div data-testid="check" />,
   AlertTriangle: () => <div data-testid="alert" />,
   MinusCircle: () => <div data-testid="minus" />,
+  Pencil: () => <div data-testid="pencil" />,
+  Check: () => <div data-testid="checkmark" />,
+  X: () => <div data-testid="x" />,
 });
