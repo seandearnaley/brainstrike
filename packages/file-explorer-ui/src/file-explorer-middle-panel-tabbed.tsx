@@ -1,4 +1,6 @@
+import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
+import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
 import { decodeFileSelection, generateProjectTreeText } from '@brainstrike/utils';
 import { useCallback, useMemo } from 'react';
@@ -14,14 +16,23 @@ import { useTokenCounting } from './use-token-counting';
  * This component can be used independently in the middle panel of an IDE layout
  */
 export const FileExplorerMiddlePanelTabbed: React.FC = () => {
-  const { fileContents, loadingFiles, fileTree: rawFileTree } = useFileExplorer();
+  const {
+    fileContents,
+    loadingFiles,
+    fileTree: rawFileTree,
+    rootDirectoryHandle,
+    loadMultipleFileContents,
+  } = useFileExplorer();
   const fileTree = Array.isArray(rawFileTree) ? rawFileTree : [];
   const tokenCounting = useTokenCounting();
+  const { fileSystemAdapter } = useAdapters();
+  const { toast, showToast } = useToastManager();
   const store = useFileExplorerStoreContext();
   const [
     tokenBudget,
     setTokenBudget,
     includeProjectTree,
+    setIncludeProjectTree,
     includeFilters,
     excludeFilters,
     useRegex,
@@ -32,6 +43,7 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
         s.tokenBudget,
         s.setTokenBudget,
         s.includeProjectTree,
+        s.setIncludeProjectTree,
         s.includeFilters,
         s.excludeFilters,
         s.useRegex,
@@ -41,6 +53,29 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
     onSelectionLimitExceeded: () => {}, // Handled by left panel
+  });
+
+  const getFileContents = useCallback(() => store.getState().fileContents, [store]);
+
+  const { generateReportWithContent } = useReportGeneration({
+    selectedFiles: selectedFilePaths,
+    fileContents,
+    rootDirectoryHandle: rootDirectoryHandle ?? undefined,
+    fileSystemAdapter,
+    includeFilters,
+    excludeFilters,
+    useRegex,
+    includeProjectTree,
+    folderSummaryThreshold,
+    loadMissingContent: loadMultipleFileContents,
+    getFileContents,
+  });
+
+  const { handleDownloadReport, handleCopyReport } = useReportManager({
+    rootDirectoryHandle,
+    generateReportWithContent,
+    showToast,
+    toast,
   });
 
   const projectTreeText = useMemo(
@@ -105,7 +140,10 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
               fileContents={fileContents}
               includeProjectTree={includeProjectTree}
               loadingFiles={loadingFiles}
+              onCopyReport={handleCopyReport}
+              onDownloadReport={handleDownloadReport}
               onFileClick={handleFileClick}
+              onIncludeProjectTreeChange={setIncludeProjectTree}
               onSelectionChange={handleSelectionChange}
               onTokenBudgetChange={setTokenBudget}
               performUndoableAction={performUndoableActionForPanel}

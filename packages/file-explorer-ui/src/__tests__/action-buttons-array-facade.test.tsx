@@ -16,11 +16,7 @@ describe('ActionButtonsArrayFacade', () => {
         currentFolderId={'folder'}
         displayedFiles={displayed}
         encodeFileSelection={(folder, p) => `${folder}:${p}`}
-        includeProjectTree={true}
         maxSelectionCount={10}
-        onCopyReport={() => {}}
-        onDownloadReport={() => {}}
-        onIncludeProjectTreeChange={() => {}}
         onSelectionLimitExceeded={() => {}}
         selectedFiles={selected}
         setSelectedFiles={setSelectedFiles}

@@ -27,6 +27,7 @@ import {
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
+import IncludeProjectTreeSetting from './include-project-tree-setting';
 import { PreviewTableRow } from './preview-table-row';
 import { TokenBudgetControl } from './token-budget-control';
 import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
@@ -167,6 +168,7 @@ type PreviewPanelProps = {
   onDownloadReport?: () => void;
   onCopyReport?: () => void;
   includeProjectTree?: boolean;
+  onIncludeProjectTreeChange?: (checked: boolean) => void;
   projectTreeTokenCount?: number;
   projectTreeTokenCountLoading?: boolean;
   tokenBudget?: number;
@@ -380,6 +382,67 @@ const PreviewPanelTokenSummary = memo<PreviewPanelTokenSummaryProps>(
           </div>
         </div>
         <div className="text-[10px] text-muted-foreground">{tokenStatus.description}</div>
+      </div>
+    );
+  }
+);
+
+type PreviewPanelReportActionsProps = {
+  selectedFilesCount: number;
+  includeProjectTree: boolean;
+  onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
+  onDownloadReport?: (() => void) | undefined;
+  onCopyReport?: (() => void) | undefined;
+};
+
+const PreviewPanelReportActions = memo<PreviewPanelReportActionsProps>(
+  function PreviewPanelReportActionsComponent(props) {
+    const {
+      selectedFilesCount,
+      includeProjectTree,
+      onIncludeProjectTreeChange,
+      onDownloadReport,
+      onCopyReport,
+    } = props;
+
+    if (!(onIncludeProjectTreeChange || onDownloadReport || onCopyReport)) {
+      return null;
+    }
+
+    return (
+      <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t bg-background p-3">
+        <div className="flex items-center gap-3">
+          {onIncludeProjectTreeChange && (
+            <IncludeProjectTreeSetting
+              checked={includeProjectTree}
+              onChange={onIncludeProjectTreeChange}
+            />
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {onDownloadReport && (
+            <Button
+              disabled={selectedFilesCount === 0}
+              onClick={onDownloadReport}
+              size="sm"
+              variant="outline"
+            >
+              <Download className="mr-1 size-3.5" />
+              Download Report
+            </Button>
+          )}
+          {onCopyReport && (
+            <Button
+              disabled={selectedFilesCount === 0}
+              onClick={onCopyReport}
+              size="sm"
+              variant="outline"
+            >
+              <FileText className="mr-1 size-3.5" />
+              Copy Report
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
@@ -714,6 +777,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     onDownloadReport,
     onCopyReport,
     includeProjectTree = false,
+    onIncludeProjectTreeChange,
     projectTreeTokenCount = 0,
     projectTreeTokenCountLoading = false,
     tokenBudget,
@@ -1007,8 +1071,17 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   if (selectedFiles.size === 0) {
     return (
-      <div className="p-4">
-        <p className="text-gray-500 text-sm">No files selected</p>
+      <div className="flex h-full flex-col">
+        <div className="flex-1 p-4">
+          <p className="text-gray-500 text-sm">No files selected</p>
+        </div>
+        <PreviewPanelReportActions
+          includeProjectTree={includeProjectTree}
+          onCopyReport={onCopyReport}
+          onDownloadReport={onDownloadReport}
+          onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+          selectedFilesCount={selectedFiles.size}
+        />
       </div>
     );
   }
@@ -1017,8 +1090,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     <div className="flex h-full flex-col">
       {/* Header with stats and controls */}
       <div className="border-b bg-background p-3">
-        {/* Top row - stats and main controls */}
-        <div className="mb-3 flex items-center justify-between gap-6">
+        <div className="flex flex-col gap-3">
           <PreviewPanelTokenSummary
             includeProjectTree={includeProjectTree}
             onTokenBudgetChange={onTokenBudgetChange}
@@ -1026,72 +1098,72 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             tokenUsage={tokenUsage}
             totalFiles={totalStats.totalFiles}
           />
-          <div className="flex gap-2">
-            <Button
-              disabled={isAllSelected(flattenedData)}
-              onClick={() => groupSelection.selectAll(flattenedData)}
-              size="sm"
-              title="Select all files across all pages"
-              variant="outline"
-            >
-              Select All ({flattenedData.length})
-            </Button>
-            {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-muted-foreground text-sm">Group by:</span>
+              <select
+                className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                onChange={(e) => {
+                  setGroupingConfig(e.target.value);
+                  setCollapsedGroups(new Set());
+                }}
+                value={groupingConfig}
+              >
+                {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
+                  <option key={key} value={key}>
+                    {config.label}
+                  </option>
+                ))}
+              </select>
+              {groupingConfig !== 'none' && groupedData.length > 1 && (
+                <>
+                  <Button
+                    onClick={() => setCollapsedGroups(new Set())}
+                    size="sm"
+                    title="Expand all groups"
+                    variant="outline"
+                  >
+                    Expand All Groups
+                  </Button>
+                  <Button
+                    onClick={() =>
+                      setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
+                    }
+                    size="sm"
+                    title="Collapse all groups"
+                    variant="outline"
+                  >
+                    Collapse All Groups
+                  </Button>
+                </>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
               <Button
-                onClick={resetSort}
+                disabled={isAllSelected(flattenedData)}
+                onClick={() => groupSelection.selectAll(flattenedData)}
                 size="sm"
-                title="Reset sort to default (by folder)"
+                title="Select all files across all pages"
                 variant="outline"
               >
-                Reset Sort
+                Select All ({flattenedData.length})
               </Button>
-            )}
-            <ColumnVisibilityControls
-              columnVisibility={columnVisibility}
-              onColumnVisibilityChange={setColumnVisibility}
-            />
+              {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
+                <Button
+                  onClick={resetSort}
+                  size="sm"
+                  title="Reset sort to default (by folder)"
+                  variant="outline"
+                >
+                  Reset Sort
+                </Button>
+              )}
+              <ColumnVisibilityControls
+                columnVisibility={columnVisibility}
+                onColumnVisibilityChange={setColumnVisibility}
+              />
+            </div>
           </div>
-        </div>
-
-        {/* Bottom row - grouping controls */}
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground text-sm">Group by:</span>
-          <select
-            className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            onChange={(e) => {
-              setGroupingConfig(e.target.value);
-              setCollapsedGroups(new Set());
-            }}
-            value={groupingConfig}
-          >
-            {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
-              <option key={key} value={key}>
-                {config.label}
-              </option>
-            ))}
-          </select>
-          {groupingConfig !== 'none' && groupedData.length > 1 && (
-            <>
-              <Button
-                onClick={() => setCollapsedGroups(new Set())}
-                size="sm"
-                title="Expand all groups"
-                variant="outline"
-              >
-                Expand All Groups
-              </Button>
-              <Button
-                onClick={() =>
-                  setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
-                }
-                size="sm"
-                title="Collapse all groups"
-                variant="outline"
-              >
-                Collapse All Groups
-              </Button>
-            </>
-          )}
         </div>
       </div>
 
@@ -1148,28 +1220,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            {onDownloadReport && (
-              <Button
-                disabled={selectedFiles.size === 0}
-                onClick={onDownloadReport}
-                size="sm"
-                variant="outline"
-              >
-                <Download className="mr-1 size-3.5" />
-                Download Report
-              </Button>
-            )}
-            {onCopyReport && (
-              <Button
-                disabled={selectedFiles.size === 0}
-                onClick={onCopyReport}
-                size="sm"
-                variant="outline"
-              >
-                <FileText className="mr-1 size-3.5" />
-                Copy Report
-              </Button>
-            )}
             <Button onClick={handleBatchRemove} size="sm" variant="destructive">
               <FileX2 className="mr-1 size-3.5" />
               Remove Selected from Project
@@ -1177,6 +1227,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           </div>
         </div>
       )}
+
+      <PreviewPanelReportActions
+        includeProjectTree={includeProjectTree}
+        onCopyReport={onCopyReport}
+        onDownloadReport={onDownloadReport}
+        onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+        selectedFilesCount={selectedFiles.size}
+      />
     </div>
   );
 });

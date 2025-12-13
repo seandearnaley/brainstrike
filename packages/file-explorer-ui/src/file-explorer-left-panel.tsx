@@ -1,6 +1,5 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { isFixtureCapableAdapter } from '@brainstrike/file-system';
-import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import {
   Button,
@@ -107,9 +106,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     currentFolderId,
     setCurrentFolderId,
     maxSelectionCount,
-    includeProjectTree,
-    setIncludeProjectTree,
-    folderSummaryThreshold,
     devInlineFixtureEnabled,
     setDevInlineFixtureEnabled,
     setRootDirectoryHandle,
@@ -122,9 +118,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.currentFolderId,
         s.setCurrentFolderId,
         s.maxSelectionCount,
-        s.includeProjectTree,
-        s.setIncludeProjectTree,
-        s.folderSummaryThreshold,
         s.devInlineFixtureEnabled,
         s.setDevInlineFixtureEnabled,
         s.setRootDirectoryHandle,
@@ -139,7 +132,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     handleRootDirectorySelect,
     isLoading,
     error,
-    fileContents,
     loadingFiles,
     applyFileFilters,
     filterError,
@@ -152,7 +144,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancelOperation,
     isCancelling,
     clearRootDirectory,
-    loadMultipleFileContents,
   } = useFileExplorer();
 
   const onSelectionLimitExceeded = useCallback(() => {
@@ -172,41 +163,12 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const [isInlineFixtureLoading, setIsInlineFixtureLoading] = useState(false);
   const hasAppliedInitialFixtureRef = useRef(false);
 
-  // Getter for fresh file contents from the store (used after loading missing content)
-  const getFileContents = useCallback(() => store.getState().fileContents, [store]);
-
-  // Report generation configured with current state
-  const { generateReportWithContent } = useReportGeneration({
-    selectedFiles: new Set(selectedFilesList),
-    fileContents,
-    rootDirectoryHandle: rootDirectoryHandle ?? undefined,
-    fileSystemAdapter,
-    includeFilters,
-    excludeFilters,
-    useRegex,
-    includeProjectTree,
-    folderSummaryThreshold,
-    loadMissingContent: loadMultipleFileContents,
-    getFileContents,
-  });
-
   const {
-    toast,
     showToast,
     handleRefreshError,
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
   } = useToastManager();
-
-  const { handleDownloadReport, handleCopyReport } = useReportManager({
-    rootDirectoryHandle,
-    generateReportWithContent,
-    showToast,
-    toast,
-  });
-
-  // We no longer surface these here; wired in PreviewPanel footer instead.
-  // Keeping creation here would be unused, so omit to satisfy TS strict mode.
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {
@@ -620,11 +582,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
               displayedFiles={displayedFileList}
               encodeFileSelection={encodeFileSelection}
-              includeProjectTree={includeProjectTree}
               maxSelectionCount={maxSelectionCount}
-              onCopyReport={handleCopyReport}
-              onDownloadReport={handleDownloadReport}
-              onIncludeProjectTreeChange={setIncludeProjectTree}
               onSelectionLimitExceeded={() => {}}
               selectedFiles={safeSelectedFilesList}
               setSelectedFiles={safeSetSelectedFilesFromList}

@@ -17,10 +17,6 @@ function getProps(overrides: Partial<ActionButtonsProps> = {}): ActionButtonsPro
     setSelectedFiles: vi.fn(),
     encodeFileSelection: (folderId, path) => `${folderId}:${path}`,
     onSelectionLimitExceeded: vi.fn(),
-    onDownloadReport: vi.fn(),
-    onCopyReport: vi.fn(),
-    includeProjectTree: true,
-    onIncludeProjectTreeChange: vi.fn(),
     ...overrides,
   };
 }
@@ -157,36 +153,5 @@ describe('ActionButtons', () => {
       const calledWith = setSelectedFiles.mock.calls[0]?.[0];
       expect([...calledWith].every((v) => typeof v === 'string')).toBe(true);
     });
-  });
-
-  describe('Report Buttons', () => {
-    it('should disable report buttons when no files are selected', () => {
-      const props = getProps();
-      render(<ActionButtons {...props} />);
-      expect(screen.getByRole('button', { name: /download report/i })).toBeDisabled();
-      expect(screen.getByRole('button', { name: /copy report/i })).toBeDisabled();
-    });
-
-    it('should enable report buttons when files are selected', () => {
-      const props = getProps({
-        selectedFilePaths: new Set(['test-folder:file1.txt']),
-      });
-      render(<ActionButtons {...props} />);
-      expect(screen.getByRole('button', { name: /download report/i })).not.toBeDisabled();
-      expect(screen.getByRole('button', { name: /copy report/i })).not.toBeDisabled();
-    });
-  });
-
-  it('wires include project tree toggle', async () => {
-    const user = userEvent.setup();
-    const onIncludeProjectTreeChange = vi.fn();
-
-    const props = getProps({ includeProjectTree: false, onIncludeProjectTreeChange });
-    render(<ActionButtons {...props} />);
-
-    const treeSwitch = screen.getByRole('switch', { name: /include project tree/i });
-    await user.click(treeSwitch);
-
-    expect(onIncludeProjectTreeChange).toHaveBeenCalledWith(true);
   });
 });

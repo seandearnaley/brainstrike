@@ -17,10 +17,8 @@
  */
 
 import { Button } from '@brainstrike/ui';
-import { Download, FileText } from 'lucide-react';
 import * as React from 'react';
 import { useCallback } from 'react';
-import IncludeProjectTreeSetting from './include-project-tree-setting';
 
 export type ActionButtonsProps = {
   displayedFiles: Set<string>;
@@ -30,10 +28,6 @@ export type ActionButtonsProps = {
   setSelectedFiles: (files: Set<string>) => void;
   encodeFileSelection: (folderId: string, path: string) => string;
   onSelectionLimitExceeded?: () => void;
-  onDownloadReport: () => void;
-  onCopyReport: () => void;
-  includeProjectTree: boolean;
-  onIncludeProjectTreeChange: (checked: boolean) => void;
 };
 
 export const ActionButtons = React.memo(
@@ -45,10 +39,6 @@ export const ActionButtons = React.memo(
     setSelectedFiles,
     encodeFileSelection,
     onSelectionLimitExceeded,
-    onDownloadReport,
-    onCopyReport,
-    includeProjectTree,
-    onIncludeProjectTreeChange,
   }: ActionButtonsProps) => {
     // Handles selecting files up to the max limit
     const handleSelectAll = useCallback(() => {
@@ -100,29 +90,6 @@ export const ActionButtons = React.memo(
           variant="outline"
         >
           {getButtonText()}
-        </Button>
-        <IncludeProjectTreeSetting
-          checked={includeProjectTree}
-          onChange={onIncludeProjectTreeChange}
-        />
-        <Button
-          className="flex h-8 items-center gap-1"
-          disabled={!hasSelectedFiles}
-          onClick={onDownloadReport}
-          variant="outline"
-        >
-          <Download className="@md/buttons:block hidden size-3.5" />
-          <span>Download Report</span>
-        </Button>
-        <Button
-          className="flex h-8 items-center gap-1"
-          disabled={!hasSelectedFiles}
-          onClick={onCopyReport}
-          variant="outline"
-        >
-          <FileText className="@md/buttons:block hidden size-3.5" />
-          <span className="@sm/buttons:inline hidden">Copy Report</span>
-          <span className="@sm/buttons:hidden">Copy</span>
         </Button>
       </div>
     );

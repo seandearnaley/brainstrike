@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../preview-panel';
 
@@ -129,6 +130,57 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} selectedFiles={new Set()} />);
 
       expect(screen.getByText('No files selected')).toBeInTheDocument();
+    });
+  });
+
+  describe('Report Actions', () => {
+    it('renders report actions and wires callbacks', async () => {
+      const user = userEvent.setup();
+      const onDownloadReport = vi.fn();
+      const onCopyReport = vi.fn();
+      const onIncludeProjectTreeChange = vi.fn();
+
+      render(
+        <PreviewPanel
+          {...mockProps}
+          includeProjectTree={false}
+          onCopyReport={onCopyReport}
+          onDownloadReport={onDownloadReport}
+          onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+        />
+      );
+
+      const downloadButton = screen.getByRole('button', { name: /download report/i });
+      const copyButton = screen.getByRole('button', { name: /copy report/i });
+      expect(downloadButton).not.toBeDisabled();
+      expect(copyButton).not.toBeDisabled();
+
+      fireEvent.click(downloadButton);
+      fireEvent.click(copyButton);
+      expect(onDownloadReport).toHaveBeenCalledTimes(1);
+      expect(onCopyReport).toHaveBeenCalledTimes(1);
+
+      const treeSwitch = screen.getByRole('switch', { name: /include project tree/i });
+      await user.click(treeSwitch);
+      expect(onIncludeProjectTreeChange).toHaveBeenCalledWith(true);
+    });
+
+    it('disables report buttons when no files are selected', () => {
+      const onDownloadReport = vi.fn();
+      const onCopyReport = vi.fn();
+
+      render(
+        <PreviewPanel
+          {...mockProps}
+          onCopyReport={onCopyReport}
+          onDownloadReport={onDownloadReport}
+          selectedFiles={new Set()}
+        />
+      );
+
+      expect(screen.getByText('No files selected')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /download report/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /copy report/i })).toBeDisabled();
     });
   });
 
