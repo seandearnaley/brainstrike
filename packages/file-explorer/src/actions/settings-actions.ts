@@ -45,7 +45,28 @@ export const createSettingsActions = (
 
     const normalized = Math.round(budget);
     const clamped = Math.max(MIN_TOKEN_BUDGET, Math.min(normalized, MAX_TOKEN_BUDGET));
-    set({ tokenBudget: clamped });
+    set((state: FileExplorerState) => {
+      const currentFolderId = state.currentFolderId;
+      if (!currentFolderId) {
+        return { tokenBudget: clamped };
+      }
+
+      const folderState = state.folderStates[currentFolderId];
+      if (!folderState) {
+        return { tokenBudget: clamped };
+      }
+
+      return {
+        tokenBudget: clamped,
+        folderStates: {
+          ...state.folderStates,
+          [currentFolderId]: {
+            ...folderState,
+            tokenBudget: clamped,
+          },
+        },
+      };
+    });
   },
 
   setFolderSummaryThreshold: (value: number) => {
