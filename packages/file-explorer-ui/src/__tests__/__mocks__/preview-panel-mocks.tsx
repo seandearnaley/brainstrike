@@ -131,6 +131,36 @@ export const createUiModuleMock = () => ({
       {...props}
     />
   ),
+  Switch: ({
+    checked,
+    id,
+    onCheckedChange,
+    ...props
+  }: MockComponentProps & {
+    checked?: boolean;
+    id?: string;
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
+    <input
+      aria-checked={Boolean(checked)}
+      checked={Boolean(checked)}
+      data-testid="switch"
+      id={id}
+      onChange={(event) => onCheckedChange?.(event.target.checked)}
+      role="switch"
+      type="checkbox"
+      {...props}
+    />
+  ),
+  Label: ({
+    children,
+    htmlFor,
+    ...props
+  }: MockComponentProps & { htmlFor?: string | undefined }) => (
+    <label htmlFor={htmlFor} {...props}>
+      {children}
+    </label>
+  ),
   Progress: ({ value, ...props }: MockComponentProps & { value?: number }) => (
     <div data-testid="progress" data-value={value} {...props} />
   ),

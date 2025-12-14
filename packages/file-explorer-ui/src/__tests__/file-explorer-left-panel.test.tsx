@@ -102,16 +102,7 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
     })),
   };
 });
-vi.mock('@brainstrike/hooks', () => ({
-  useQuickFilter: vi.fn(),
-  useReportGeneration: vi.fn(() => ({ generateReportWithContent: vi.fn() })),
-  useReportManager: vi.fn(() => ({
-    handleDownloadReport: vi.fn(),
-    handleCopyReport: vi.fn(),
-  })),
-}));
 
-import { useQuickFilter } from '@brainstrike/hooks';
 import { FileExplorerLeftPanel } from '../file-explorer-left-panel';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useFileExplorer } from '../use-file-explorer-context';
@@ -203,13 +194,6 @@ describe('FileExplorerLeftPanel', () => {
       handleSelectionChange: vi.fn(),
       wouldExceedSelectionLimit: vi.fn(),
     } as unknown as ReturnType<typeof useSelectionManager>);
-
-    vi.mocked(useQuickFilter).mockReturnValue({
-      quickFilter: '',
-      setQuickFilter: vi.fn(),
-      clearFilter: vi.fn(),
-      filteredTree: [],
-    });
 
     showToastMock = vi.fn();
     handleDirectorySelectErrorMock = vi.fn();
