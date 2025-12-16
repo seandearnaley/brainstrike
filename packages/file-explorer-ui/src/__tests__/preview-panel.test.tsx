@@ -765,6 +765,15 @@ describe('PreviewPanel', () => {
       expect(groupingSelect).toHaveValue('folder');
     });
 
+    it('should hide the folder column when grouping by folder', () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      const groupingSelect = screen.getByDisplayValue('No Grouping');
+      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+
+      expect(screen.queryByRole('columnheader', { name: 'Folder' })).not.toBeInTheDocument();
+    });
+
     it('should show group control buttons when grouping is enabled', () => {
       render(<PreviewPanel {...mockProps} />);
 

@@ -4,6 +4,7 @@ import { memo } from 'react';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { formatTokenCount } from './use-preview-panel-state';
 import type { TableRowData } from './utils/grouping-configs';
+import { formatDirPathForDisplay, splitFilePath } from './utils/path-display';
 
 type PreviewTableRowProps = {
   item: TableRowData;
@@ -20,8 +21,8 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
   onFileClick,
   columnVisibility,
 }) {
-  const fileName = item.path.split('/').pop() || item.path;
-  const dirPath = item.path.substring(0, item.path.lastIndexOf('/'));
+  const { fileName, dirPath } = splitFilePath(item.path);
+  const displayDirPath = formatDirPathForDisplay({ dirPath, rootFolderId: item.rootFolderId });
 
   return (
     <tr className="border-b transition-colors hover:bg-muted/50">
@@ -37,26 +38,33 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
       )}
       {columnVisibility.rootFolderId && (
         <td className="p-4">
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
-            <span className="truncate font-mono text-sm">{item.rootFolderId}</span>
+            <span className="min-w-0 truncate font-mono text-sm" title={item.rootFolderId}>
+              {item.rootFolderId}
+            </span>
           </div>
         </td>
       )}
       {columnVisibility.path && (
-        <td className="min-w-0 flex-1 p-4">
+        <td className="p-4">
           <button
             aria-label={fileName}
-            className="w-full min-w-0 text-left transition-colors hover:text-primary"
+            className="block w-full min-w-0 overflow-hidden text-left transition-colors hover:text-primary"
             onClick={(e) => {
               e.preventDefault();
               onFileClick?.(item.compositeKey);
             }}
+            title={item.path}
             type="button"
           >
-            <div className="truncate font-medium text-sm">{fileName}</div>
-            {dirPath && (
-              <div className="truncate font-mono text-muted-foreground text-xs">{dirPath}</div>
+            <div className="truncate font-medium text-sm" title={fileName}>
+              {fileName}
+            </div>
+            {displayDirPath && (
+              <div className="truncate font-mono text-muted-foreground text-xs" title={dirPath}>
+                {displayDirPath}
+              </div>
             )}
           </button>
         </td>
@@ -69,18 +77,22 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
         </td>
       )}
       {columnVisibility.tokens && (
-        <td className="w-24 p-4 text-right">
+        <td className="w-24 whitespace-nowrap p-4 text-right tabular-nums">
           {item.tokens ? (
-            <span className="font-mono text-sm">{formatTokenCount(item.tokens)}</span>
+            <span className="whitespace-nowrap font-mono text-sm tabular-nums">
+              {formatTokenCount(item.tokens)}
+            </span>
           ) : (
             <span className="text-muted-foreground text-sm">—</span>
           )}
         </td>
       )}
       {columnVisibility.size && (
-        <td className="w-24 p-4 text-right">
+        <td className="w-24 whitespace-nowrap p-4 text-right tabular-nums">
           {item.size ? (
-            <span className="font-mono text-sm">{(item.size / 1024).toFixed(1)} KB</span>
+            <span className="whitespace-nowrap font-mono text-sm tabular-nums">
+              {(item.size / 1024).toFixed(1)} KB
+            </span>
           ) : (
             <span className="text-muted-foreground text-sm">—</span>
           )}

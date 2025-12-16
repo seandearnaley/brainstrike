@@ -631,8 +631,12 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
         stats={
           <>
             <span>{group.count} files</span>
-            <span>{formatTokenCount(group.totalTokens)}</span>
-            <span>{(group.totalSize / 1024).toFixed(1)} KB</span>
+            <span className="whitespace-nowrap tabular-nums">
+              {formatTokenCount(group.totalTokens)}
+            </span>
+            <span className="whitespace-nowrap tabular-nums">
+              {(group.totalSize / 1024).toFixed(1)} KB
+            </span>
           </>
         }
       />
@@ -680,7 +684,7 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
   return (
     <div className="flex-1 overflow-auto">
       <div className="min-w-full">
-        <table className="w-full border-collapse">
+        <table className="w-full table-fixed border-collapse">
           <thead className="sticky top-0 border-b bg-background">
             <tr>
               {columnVisibility.checkbox && (
@@ -697,6 +701,7 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
               )}
               {columnVisibility.rootFolderId && (
                 <SortableTableHeader
+                  className="w-44"
                   field="rootFolderId"
                   onSort={onSort}
                   sortDirection={sortDirection}
@@ -706,7 +711,7 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
               )}
               {columnVisibility.path && (
                 <SortableTableHeader
-                  className="min-w-0 flex-1"
+                  className="min-w-0"
                   field="path"
                   onSort={onSort}
                   sortDirection={sortDirection}
@@ -811,6 +816,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const [groupingConfig, setGroupingConfig] = useState<string>(() =>
     getStoredValue(storageKey, 'groupingConfig', 'none')
   );
+
+  const effectiveColumnVisibility = useMemo(() => {
+    // Avoid redundant "Folder" column when grouping by folder (group headers already show it).
+    if (groupingConfig === 'folder') {
+      return { ...columnVisibility, rootFolderId: false };
+    }
+    return columnVisibility;
+  }, [columnVisibility, groupingConfig]);
 
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     const storedGroups = getStoredValue(storageKey, 'collapsedGroups', []);
@@ -1176,7 +1189,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       {/* Table */}
       <PreviewTable
         collapsedGroups={collapsedGroups}
-        columnVisibility={columnVisibility}
+        columnVisibility={effectiveColumnVisibility}
         currentPageData={currentPageData}
         groupedData={groupedData}
         groupingConfig={groupingConfig}
