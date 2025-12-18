@@ -18,6 +18,14 @@ const SIZES = {
   lg: { diameter: 80, stroke: 6, fontSize: 'text-sm', labelSize: 'text-[10px]' },
 } as const;
 
+/** Usage thresholds for color transitions (percentage of budget) */
+const USAGE_THRESHOLDS = {
+  /** Above this percentage: show warning (amber) */
+  warning: 90,
+  /** Above this percentage: show caution (yellow) */
+  caution: 75,
+} as const;
+
 /**
  * TokenMeter - A circular progress indicator for token budget visualization.
  *
@@ -63,10 +71,10 @@ export const TokenMeter = memo<TokenMeterProps>(function TokenMeter({
     if (isOverBudget) {
       bg = 'from-destructive/20 to-destructive/5';
       ring = 'ring-destructive/30';
-    } else if (totalPercent > 90) {
+    } else if (totalPercent > USAGE_THRESHOLDS.warning) {
       bg = 'from-amber-500/20 to-amber-500/5';
       ring = 'ring-amber-500/30';
-    } else if (totalPercent > 75) {
+    } else if (totalPercent > USAGE_THRESHOLDS.caution) {
       bg = 'from-yellow-500/15 to-yellow-500/5';
       ring = 'ring-yellow-500/20';
     } else {

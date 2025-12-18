@@ -154,7 +154,10 @@ function loadStoredPreferences(storageKey: string) {
   try {
     const stored = localStorage.getItem(storageKey);
     return stored ? JSON.parse(stored) : null;
-  } catch {
+  } catch (error) {
+    if (process.env['NODE_ENV'] === 'development') {
+      logger.warn('Failed to parse stored preferences', { storageKey, error });
+    }
     return null;
   }
 }
@@ -797,8 +800,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           collapsedGroups: Array.from(collapsedGroups),
         };
         localStorage.setItem(storageKey, JSON.stringify(settings));
-      } catch {
-        // Ignore errors
+      } catch (error) {
+        if (process.env['NODE_ENV'] === 'development') {
+          logger.warn('Failed to save preferences to localStorage', { error });
+        }
       }
     }, 250);
 

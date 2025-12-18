@@ -73,15 +73,15 @@ test.describe('Report Folder Summary Threshold', () => {
     expect(content1).toContain('... 3 more items');
     expect(content1).not.toContain('file6.ts');
 
-    // Change threshold to 2
-    await page.getByTestId('settings-button').click();
-    const dialog = page.locator('[data-testid="settings-dialog"]');
-    await expect(dialog).toBeVisible();
+    // Enable Include Project Tree to access the threshold setting in the footer
+    const includeTreeCheckbox = page.getByRole('checkbox', { name: 'Include Project Tree' });
+    await includeTreeCheckbox.click();
+    await expect(includeTreeCheckbox).toBeChecked();
 
-    const input = dialog.getByLabel('Folder Summary Threshold');
-    await input.fill('2');
-    await dialog.getByRole('button', { name: 'Apply Settings' }).click();
-    await expect(dialog).not.toBeVisible();
+    // Change threshold to 2 via the footer input (now visible since tree is included)
+    const thresholdInput = page.locator('#folder-summary-threshold-footer');
+    await expect(thresholdInput).toBeVisible();
+    await thresholdInput.fill('2');
 
     // Download another report
     await expect(downloadButton).toBeEnabled({ timeout: 10_000 });
