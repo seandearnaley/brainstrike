@@ -76,6 +76,32 @@ vi.mock('@brainstrike/ui', () => ({
   Progress: ({ value, ...props }: MockProgressProps) => (
     <div data-testid="progress" data-value={value} {...props} />
   ),
+  TooltipProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({
+    children,
+    asChild,
+    ...props
+  }: {
+    children: React.ReactNode;
+    asChild?: boolean;
+    [key: string]: unknown;
+  }) => (
+    <div data-testid="tooltip-trigger" {...props}>
+      {children}
+    </div>
+  ),
+  TooltipContent: ({
+    children,
+    ...props
+  }: {
+    children: React.ReactNode;
+    [key: string]: unknown;
+  }) => (
+    <div data-testid="tooltip-content" {...props}>
+      {children}
+    </div>
+  ),
   Popover: ({
     children,
     open,
@@ -366,9 +392,16 @@ vi.mock('lucide-react', () => ({
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
   Loader2: () => <div data-testid="loader" />,
-  CheckCircle2: () => <div data-testid="check" />,
+  CheckCircle2: () => <div data-testid="check-circle" />,
   AlertTriangle: () => <div data-testid="alert" />,
   MinusCircle: () => <div data-testid="minus" />,
+  Pencil: () => <div data-testid="pencil" />,
+  Check: () => <div data-testid="checkmark" />,
+  X: () => <div data-testid="x" />,
+  Target: () => <div data-testid="target" />,
+  TreePine: () => <div data-testid="tree-pine" />,
+  Layers: () => <div data-testid="layers" />,
+  Files: () => <div data-testid="files" />,
 }));
 
 describe('PreviewPanel Integration Tests', () => {
@@ -452,7 +485,7 @@ describe('PreviewPanel Integration Tests', () => {
       // Verify initial state
       const runStats = screen.getAllByText((_, element) => {
         const text = element?.textContent ?? '';
-        return text.includes('25 files') && text.includes('5,000 / 100,000');
+        return text.includes('25 files') && text.includes('5,000 selected');
       });
       expect(runStats.length > 0).toBe(true);
 
@@ -608,7 +641,7 @@ describe('PreviewPanel Integration Tests', () => {
       // Should still render successfully with mixed states
       const mixedStats = screen.getAllByText((_, element) => {
         const text = element?.textContent ?? '';
-        return text.includes('50 files') && text.includes('10,000 / 100,000');
+        return text.includes('50 files') && text.includes('10,000 selected');
       });
       expect(mixedStats.length > 0).toBe(true);
       expect(screen.getByText('file1.txt')).toBeInTheDocument();
@@ -623,7 +656,7 @@ describe('PreviewPanel Integration Tests', () => {
 
       const pagedStats = screen.getAllByText((_, element) => {
         const text = element?.textContent ?? '';
-        return text.includes('10 files') && text.includes('2,000 / 100,000');
+        return text.includes('10 files') && text.includes('2,000 selected');
       });
       expect(pagedStats.length > 0).toBe(true);
 
@@ -636,7 +669,7 @@ describe('PreviewPanel Integration Tests', () => {
 
       const reducedStats = screen.getAllByText((_, element) => {
         const text = element?.textContent ?? '';
-        return text.includes('20 files') && text.includes('4,000 / 100,000');
+        return text.includes('20 files') && text.includes('4,000 selected');
       });
       expect(reducedStats.length > 0).toBe(true);
     });

@@ -89,14 +89,18 @@ export function splitFilePath(filePath: string): SplitFilePathResult {
   return { dirPath, fileName };
 }
 
+/** Minimum maxDisplayChars to ensure ellipsis handling works properly */
+const MIN_DISPLAY_CHARS = 15;
+
 function normalizeDirPathDisplayOptions(args: {
   maxDisplayChars?: number;
   headSegments?: number;
   tailSegments?: number;
   maxSegmentChars?: number;
 }): DirPathDisplayOptions {
+  const requestedMaxChars = args.maxDisplayChars ?? 48;
   return {
-    maxDisplayChars: args.maxDisplayChars ?? 48,
+    maxDisplayChars: Math.max(MIN_DISPLAY_CHARS, requestedMaxChars),
     headSegments: args.headSegments ?? 1,
     tailSegments: args.tailSegments ?? 2,
     maxSegmentChars: args.maxSegmentChars ?? 24,
@@ -231,6 +235,11 @@ export function getDirPathForGrouping(args: { filePath: string; rootFolderId: st
 
   if (segments.length === 0) {
     return trimmedToFolderRoot ? '.' : dirPath;
+  }
+
+  // If root folder wasn't found, return the original normalized path to preserve absolute paths
+  if (!trimmedToFolderRoot) {
+    return normalized;
   }
 
   return segments.join('/');

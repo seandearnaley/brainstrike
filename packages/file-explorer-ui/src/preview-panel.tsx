@@ -1,7 +1,6 @@
 import { usePagination } from '@brainstrike/hooks';
 import { DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
 import {
-  Badge,
   Button,
   Checkbox,
   Popover,
@@ -12,24 +11,15 @@ import {
   TablePagination,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Columns3,
-  Download,
-  FileText,
-  FileX2,
-  FolderOpen,
-  Loader2,
-  type LucideIcon,
-  MinusCircle,
-} from 'lucide-react';
+import { Columns3, Download, FileText, FileX2, FolderOpen } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import IncludeProjectTreeSetting from './include-project-tree-setting';
 import { PreviewTableRow } from './preview-table-row';
 import { TokenBudgetControl } from './token-budget-control';
+import { TokenMeter } from './token-meter';
+import { TokenSummaryBar } from './token-summary-bar';
 import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
 import type { TokenCountingState } from './use-token-counting';
 import {
@@ -41,54 +31,6 @@ import {
 } from './utils/grouping-configs';
 
 const logger = createLogger('PreviewPanel');
-
-type TokenStatus = {
-  label: string;
-  description: string;
-  variant: 'outline' | 'secondary' | 'destructive';
-  icon: LucideIcon;
-  spin: boolean;
-};
-
-function getTokenStatus(tokenCounting: TokenCountingState): TokenStatus {
-  if (tokenCounting.loading) {
-    return {
-      label: 'Checking tokenizer…',
-      description: 'Loading WASM tokenizer to confirm accurate counting is available.',
-      variant: 'outline',
-      icon: Loader2,
-      spin: true,
-    };
-  }
-
-  if (tokenCounting.mode === 'accurate') {
-    return {
-      label: 'Accurate tokens (WASM)',
-      description: 'Counts generated with the tiktoken WASM encoder.',
-      variant: 'secondary',
-      icon: CheckCircle2,
-      spin: false,
-    };
-  }
-
-  if (tokenCounting.reason === 'runtime-fallback') {
-    return {
-      label: 'Heuristic fallback',
-      description: 'WASM tokenizer is unavailable; using 4 chars/token heuristic.',
-      variant: 'destructive',
-      icon: AlertTriangle,
-      spin: false,
-    };
-  }
-
-  return {
-    label: 'Heuristic mode',
-    description: 'Accurate counting disabled in global token settings.',
-    variant: 'outline',
-    icon: MinusCircle,
-    spin: false,
-  };
-}
 
 type TokenUsageMetrics = {
   budget: number;
@@ -246,6 +188,17 @@ function getStoredValue<T>(storageKey: string, key: string, defaultValue: T): T 
   return stored?.[key] ?? defaultValue;
 }
 
+/**
+ * Migrate legacy grouping config values to current option names.
+ * The 'folder' option was renamed to 'rootFolder' in favor of new 'directory' grouping.
+ */
+function migrateGroupingConfig(value: string): string {
+  if (value === 'folder') {
+    return 'rootFolder';
+  }
+  return value;
+}
+
 // Column visibility controls component
 type ColumnVisibilityControlsProps = {
   columnVisibility: ColumnVisibility;
@@ -295,159 +248,123 @@ const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
   }
 );
 
-type PreviewPanelTokenSummaryProps = {
+/**
+ * PreviewPanelFooter - Consolidated footer with token controls and report actions.
+ *
+ * Groups related functionality:
+ * - Token meter and usage stats (how much context you're generating)
+ * - Budget control (set your limit)
+ * - Include project tree toggle (affects token count)
+ * - Report actions (download/copy the context)
+ */
+type PreviewPanelFooterProps = {
   totalFiles: number;
-  includeProjectTree: boolean;
-  tokenStatus: TokenStatus;
+  tokenCounting: TokenCountingState;
   tokenUsage: TokenUsageMetrics;
-  onTokenBudgetChange?: ((budget: number) => void) | undefined;
-};
-
-const PreviewPanelTokenSummary = memo<PreviewPanelTokenSummaryProps>(
-  function PreviewPanelTokenSummary(props) {
-    const { totalFiles, includeProjectTree, tokenStatus, tokenUsage, onTokenBudgetChange } = props;
-    const StatusIcon = tokenStatus.icon;
-
-    return (
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-3">
-          <Badge className="py-1.5" variant="outline">
-            {formatTokenCount(tokenUsage.usedTokens)}
-          </Badge>
-          <Badge
-            className="flex items-center gap-1 py-1.5"
-            title={tokenStatus.description}
-            variant={tokenStatus.variant}
-          >
-            <StatusIcon className={`size-3.5 ${tokenStatus.spin ? 'animate-spin' : ''}`} />
-            {tokenStatus.label}
-          </Badge>
-          <TokenBudgetControl budget={tokenUsage.budget} onBudgetChange={onTokenBudgetChange} />
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="text-muted-foreground text-xs">
-            <span className="font-medium">{totalFiles}</span> files •{' '}
-            <span className="font-medium tabular-nums">
-              {tokenUsage.usedTokens.toLocaleString()}
-            </span>{' '}
-            / <span className="font-medium tabular-nums">{tokenUsage.budget.toLocaleString()}</span>{' '}
-            tokens •{' '}
-            <span className="inline-flex items-center gap-1 tabular-nums">
-              <span aria-hidden className="size-1.5 rounded-full bg-primary" />
-              Selected {tokenUsage.selectedTokens.toLocaleString()}
-            </span>{' '}
-            •{' '}
-            <span
-              className={`inline-flex items-center gap-1 tabular-nums ${includeProjectTree ? '' : 'opacity-60'}`}
-            >
-              <span
-                aria-hidden
-                className={`size-1.5 rounded-full bg-[hsl(var(--chart-2))] ${includeProjectTree ? '' : 'opacity-60'}`}
-              />
-              Tree {tokenUsage.treeLabel}
-            </span>{' '}
-            •{' '}
-            <span className={`tabular-nums ${tokenUsage.isOverBudget ? 'text-destructive' : ''}`}>
-              {tokenUsage.remainingLabel}
-            </span>
-          </div>
-          <div className="w-32">
-            <div
-              aria-valuemax={100}
-              aria-valuemin={0}
-              aria-valuenow={Math.round(tokenUsage.usedPercent)}
-              className={`relative h-2.5 w-full overflow-hidden rounded-full bg-secondary shadow-inner ring-1 ring-inset ${tokenUsage.isOverBudget ? 'ring-destructive/70' : 'ring-border/60'}`}
-              data-testid="progress"
-              data-value={tokenUsage.usedPercent}
-              role="progressbar"
-              title={`Selected ${tokenUsage.selectedTokens.toLocaleString()} • Tree ${tokenUsage.treeLabel} • ${tokenUsage.usedTokens.toLocaleString()} / ${tokenUsage.budget.toLocaleString()} tokens`}
-            >
-              <div className="flex h-full w-full">
-                {tokenUsage.treePercent > 0 && (
-                  <div
-                    className={`h-full bg-[hsl(var(--chart-2))] ${tokenUsage.selectedPercent > 0 ? 'border-background/70 border-r' : ''}`}
-                    data-testid="token-bar-tree"
-                    style={{ width: `${tokenUsage.treePercent}%` }}
-                  />
-                )}
-                {tokenUsage.selectedPercent > 0 && (
-                  <div
-                    className="h-full bg-primary"
-                    data-testid="token-bar-selected"
-                    style={{ width: `${tokenUsage.selectedPercent}%` }}
-                  />
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="text-[10px] text-muted-foreground">{tokenStatus.description}</div>
-      </div>
-    );
-  }
-);
-
-type PreviewPanelReportActionsProps = {
-  selectedFilesCount: number;
   includeProjectTree: boolean;
+  treeLoading?: boolean;
+  onTokenBudgetChange?: ((budget: number) => void) | undefined;
+  selectedFilesCount: number;
   onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
   onDownloadReport?: (() => void) | undefined;
   onCopyReport?: (() => void) | undefined;
 };
 
-const PreviewPanelReportActions = memo<PreviewPanelReportActionsProps>(
-  function PreviewPanelReportActionsComponent(props) {
+const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
+  function PreviewPanelFooterComponent(props) {
     const {
-      selectedFilesCount,
+      totalFiles,
+      tokenCounting,
+      tokenUsage,
       includeProjectTree,
+      treeLoading = false,
+      onTokenBudgetChange,
+      selectedFilesCount,
       onIncludeProjectTreeChange,
       onDownloadReport,
       onCopyReport,
     } = props;
 
-    if (!(onIncludeProjectTreeChange || onDownloadReport || onCopyReport)) {
-      return null;
-    }
-
     return (
-      <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t bg-background p-3">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-shrink-0 flex-col gap-2 border-t bg-background p-3">
+        {/* Row 1: Token visualization and stats */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Token Meter - compact radial visualization */}
+          <TokenMeter
+            budget={tokenUsage.budget}
+            includeTree={includeProjectTree}
+            isOverBudget={tokenUsage.isOverBudget}
+            selectedTokens={tokenUsage.selectedTokens}
+            size="md"
+            treeTokens={tokenUsage.includedTreeTokens}
+            usedTokens={tokenUsage.usedTokens}
+          />
+
+          {/* Token Summary Stats - responsive horizontal bar */}
+          <TokenSummaryBar
+            budget={tokenUsage.budget}
+            includeTree={includeProjectTree}
+            isOverBudget={tokenUsage.isOverBudget}
+            selectedTokens={tokenUsage.selectedTokens}
+            tokenCounting={tokenCounting}
+            totalFiles={totalFiles}
+            treeLoading={treeLoading}
+            treeTokens={tokenUsage.includedTreeTokens}
+          />
+        </div>
+
+        {/* Row 2: Controls and actions */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Budget Control - popover with presets */}
+          <TokenBudgetControl budget={tokenUsage.budget} onBudgetChange={onTokenBudgetChange} />
+
+          {/* Visual separator */}
+          {onIncludeProjectTreeChange && <div aria-hidden className="h-6 w-px bg-border" />}
+
+          {/* Include Project Tree toggle */}
           {onIncludeProjectTreeChange && (
             <IncludeProjectTreeSetting
               checked={includeProjectTree}
               onChange={onIncludeProjectTreeChange}
             />
           )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {onDownloadReport && (
-            <Button
-              aria-label={
-                selectedFilesCount === 0 ? 'Download Report (no files selected)' : 'Download Report'
-              }
-              disabled={selectedFilesCount === 0}
-              onClick={onDownloadReport}
-              size="sm"
-              variant="outline"
-            >
-              <Download className="mr-1 size-3.5" />
-              Download Report
-            </Button>
-          )}
-          {onCopyReport && (
-            <Button
-              aria-label={
-                selectedFilesCount === 0 ? 'Copy Report (no files selected)' : 'Copy Report'
-              }
-              disabled={selectedFilesCount === 0}
-              onClick={onCopyReport}
-              size="sm"
-              variant="outline"
-            >
-              <FileText className="mr-1 size-3.5" />
-              Copy Report
-            </Button>
-          )}
+
+          {/* Spacer to push report buttons to the right */}
+          <div className="flex-1" />
+
+          {/* Report action buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            {onDownloadReport && (
+              <Button
+                aria-label={
+                  selectedFilesCount === 0
+                    ? 'Download Report (no files selected)'
+                    : 'Download Report'
+                }
+                disabled={selectedFilesCount === 0}
+                onClick={onDownloadReport}
+                size="sm"
+                variant="outline"
+              >
+                <Download className="mr-1 size-3.5" />
+                Download Report
+              </Button>
+            )}
+            {onCopyReport && (
+              <Button
+                aria-label={
+                  selectedFilesCount === 0 ? 'Copy Report (no files selected)' : 'Copy Report'
+                }
+                disabled={selectedFilesCount === 0}
+                onClick={onCopyReport}
+                size="sm"
+                variant="outline"
+              >
+                <FileText className="mr-1 size-3.5" />
+                Copy Report
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -814,7 +731,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   );
 
   const [groupingConfig, setGroupingConfig] = useState<string>(() =>
-    getStoredValue(storageKey, 'groupingConfig', 'none')
+    migrateGroupingConfig(getStoredValue(storageKey, 'groupingConfig', 'none'))
   );
 
   const effectiveColumnVisibility = useMemo(() => {
@@ -860,8 +777,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     tokenCounting,
     performUndoableAction,
   });
-
-  const tokenStatus = getTokenStatus(tokenCounting);
 
   const { totalStats, flatListItems } = state;
 
@@ -1094,12 +1009,17 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         <div className="flex-1 p-4">
           <p className="text-gray-500 text-sm">No files selected</p>
         </div>
-        <PreviewPanelReportActions
+        <PreviewPanelFooter
           includeProjectTree={includeProjectTree}
           onCopyReport={onCopyReport}
           onDownloadReport={onDownloadReport}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+          onTokenBudgetChange={onTokenBudgetChange}
           selectedFilesCount={selectedFiles.size}
+          tokenCounting={tokenCounting}
+          tokenUsage={tokenUsage}
+          totalFiles={0}
+          treeLoading={projectTreeTokenCountLoading}
         />
       </div>
     );
@@ -1107,82 +1027,71 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header with stats and controls */}
-      <div className="border-b bg-background p-3">
-        <div className="flex flex-col gap-3">
-          <PreviewPanelTokenSummary
-            includeProjectTree={includeProjectTree}
-            onTokenBudgetChange={onTokenBudgetChange}
-            tokenStatus={tokenStatus}
-            tokenUsage={tokenUsage}
-            totalFiles={totalStats.totalFiles}
-          />
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-muted-foreground text-sm">Group by:</span>
-              <select
-                className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                onChange={(e) => {
-                  setGroupingConfig(e.target.value);
-                  setCollapsedGroups(new Set());
-                }}
-                value={groupingConfig}
-              >
-                {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
-                  <option key={key} value={key}>
-                    {config.label}
-                  </option>
-                ))}
-              </select>
-              {groupingConfig !== 'none' && groupedData.length > 1 && (
-                <>
-                  <Button
-                    onClick={() => setCollapsedGroups(new Set())}
-                    size="sm"
-                    title="Expand all groups"
-                    variant="outline"
-                  >
-                    Expand All Groups
-                  </Button>
-                  <Button
-                    onClick={() =>
-                      setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
-                    }
-                    size="sm"
-                    title="Collapse all groups"
-                    variant="outline"
-                  >
-                    Collapse All Groups
-                  </Button>
-                </>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
+      {/* Header with table controls only */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-background p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-muted-foreground text-sm">Group by:</span>
+          <select
+            className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            onChange={(e) => {
+              setGroupingConfig(e.target.value);
+              setCollapsedGroups(new Set());
+            }}
+            value={groupingConfig}
+          >
+            {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
+              <option key={key} value={key}>
+                {config.label}
+              </option>
+            ))}
+          </select>
+          {groupingConfig !== 'none' && groupedData.length > 1 && (
+            <>
               <Button
-                disabled={isAllSelected(flattenedData)}
-                onClick={() => groupSelection.selectAll(flattenedData)}
+                onClick={() => setCollapsedGroups(new Set())}
                 size="sm"
-                title="Select all files across all pages"
+                title="Expand all groups"
                 variant="outline"
               >
-                Select All ({flattenedData.length})
+                Expand All Groups
               </Button>
-              {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
-                <Button
-                  onClick={resetSort}
-                  size="sm"
-                  title="Reset sort to default (by folder)"
-                  variant="outline"
-                >
-                  Reset Sort
-                </Button>
-              )}
-              <ColumnVisibilityControls
-                columnVisibility={columnVisibility}
-                onColumnVisibilityChange={setColumnVisibility}
-              />
-            </div>
-          </div>
+              <Button
+                onClick={() =>
+                  setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
+                }
+                size="sm"
+                title="Collapse all groups"
+                variant="outline"
+              >
+                Collapse All Groups
+              </Button>
+            </>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            disabled={isAllSelected(flattenedData)}
+            onClick={() => groupSelection.selectAll(flattenedData)}
+            size="sm"
+            title="Select all files across all pages"
+            variant="outline"
+          >
+            Select All ({flattenedData.length})
+          </Button>
+          {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
+            <Button
+              onClick={resetSort}
+              size="sm"
+              title="Reset sort to default (by folder)"
+              variant="outline"
+            >
+              Reset Sort
+            </Button>
+          )}
+          <ColumnVisibilityControls
+            columnVisibility={columnVisibility}
+            onColumnVisibilityChange={setColumnVisibility}
+          />
         </div>
       </div>
 
@@ -1247,12 +1156,17 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         </div>
       )}
 
-      <PreviewPanelReportActions
+      <PreviewPanelFooter
         includeProjectTree={includeProjectTree}
         onCopyReport={onCopyReport}
         onDownloadReport={onDownloadReport}
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+        onTokenBudgetChange={onTokenBudgetChange}
         selectedFilesCount={selectedFiles.size}
+        tokenCounting={tokenCounting}
+        tokenUsage={tokenUsage}
+        totalFiles={totalStats.totalFiles}
+        treeLoading={projectTreeTokenCountLoading}
       />
     </div>
   );
