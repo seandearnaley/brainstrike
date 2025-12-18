@@ -39,7 +39,7 @@ test.describe('File Explorer', () => {
 
       await expect(dialog.getByRole('heading', { name: 'Workspace Settings' })).toBeVisible();
       await expect(dialog.getByLabel('Max Selection Count')).toBeVisible();
-      await expect(dialog.getByLabel('Folder Summary Threshold')).toBeVisible();
+      // Note: Folder Summary Threshold was moved to Preview Panel footer
       await expect(dialog.getByPlaceholder('e.g. *.ts, src/**/*.js')).toBeVisible();
       await expect(dialog.getByPlaceholder('e.g. *.test.js, node_modules/**')).toBeVisible();
       await expect(dialog.getByRole('switch', { name: 'Use Regex' })).toBeVisible();
@@ -217,11 +217,10 @@ test.describe('File Explorer', () => {
         },
       },
       {
-        name: 'clamps Folder Summary Threshold and Max Selection Count values',
+        name: 'clamps Max Selection Count values',
         tree: { 'a.ts': null, 'b.ts': null },
         execute: async ({ page, openDialog }) => {
           const dialog = await openDialog();
-          await dialog.getByLabel('Folder Summary Threshold').fill('-10');
           await dialog.getByLabel('Max Selection Count').fill('0');
           await dialog.getByRole('button', { name: 'Apply Settings' }).click();
           await expect(dialog).not.toBeVisible();
@@ -229,10 +228,8 @@ test.describe('File Explorer', () => {
           await reloadExplorer(page);
 
           const reopened = await openDialog();
-          await expect(reopened.getByLabel('Folder Summary Threshold')).toHaveValue('0');
           await expect(reopened.getByLabel('Max Selection Count')).toHaveValue('1');
 
-          await reopened.getByLabel('Folder Summary Threshold').fill('999999');
           await reopened.getByLabel('Max Selection Count').fill('5000');
           await reopened.getByRole('button', { name: 'Apply Settings' }).click();
           await expect(reopened).not.toBeVisible();
@@ -240,12 +237,11 @@ test.describe('File Explorer', () => {
           await reloadExplorer(page);
 
           const finalDialog = await openDialog();
-          await expect(finalDialog.getByLabel('Folder Summary Threshold')).toHaveValue('1000');
           await expect(finalDialog.getByLabel('Max Selection Count')).toHaveValue('1000');
         },
       },
       {
-        name: 'persists include/exclude filters and Folder Summary Threshold',
+        name: 'persists include/exclude filters',
         tree: {
           src: {
             'a.ts': null,
@@ -255,7 +251,6 @@ test.describe('File Explorer', () => {
           const dialog = await openDialog();
           await dialog.getByLabel('Files to Include:').fill('*.foo, lib/**');
           await dialog.getByLabel('Files to Exclude:').fill('node_modules/**, *.test.ts');
-          await dialog.getByLabel('Folder Summary Threshold').fill('7');
           await dialog.getByRole('button', { name: 'Apply Settings' }).click();
           await expect(dialog).not.toBeVisible();
 
@@ -266,7 +261,7 @@ test.describe('File Explorer', () => {
           await expect(reopened.getByLabel('Files to Exclude:')).toHaveValue(
             'node_modules/**, *.test.ts'
           );
-          await expect(reopened.getByLabel('Folder Summary Threshold')).toHaveValue('7');
+          // Note: Folder Summary Threshold persistence is tested in report-folder-summary.test.ts
         },
       },
       {
