@@ -53,9 +53,60 @@ export const GROUPING_CONFIGS = {
     label: 'No Grouping',
     groupBy: () => 'all',
   },
-  folder: {
-    id: 'folder',
-    label: 'By Folder',
+  directory: {
+    id: 'directory',
+    label: 'By Directory',
+    groupBy: (item: TableRowData) => {
+      // Inline implementation to avoid import issues with const satisfies
+      const filePath = item.path;
+      const rootFolderId = item.rootFolderId;
+
+      // Split file path to get directory
+      const normalized = filePath.replace(/\\/g, '/').replace(/\/+$/, '');
+      const lastSlashIndex = normalized.lastIndexOf('/');
+
+      if (lastSlashIndex === -1) {
+        return '.';
+      }
+
+      const dirPath = normalized.slice(0, lastSlashIndex);
+      if (!dirPath) {
+        return '.';
+      }
+
+      // Check if absolute path and extract folder-relative portion
+      const isAbsolute =
+        dirPath.startsWith('/') || /^[A-Za-z]:\//.test(dirPath) || dirPath.startsWith('//');
+
+      if (!(isAbsolute && rootFolderId)) {
+        return dirPath || '.';
+      }
+
+      // Find root folder in path segments and return everything after it
+      const segments = dirPath.split('/').filter(Boolean);
+      const rootIdx = segments.findIndex((seg) => seg.toLowerCase() === rootFolderId.toLowerCase());
+
+      if (rootIdx === -1) {
+        return dirPath;
+      }
+
+      const relativePath = segments.slice(rootIdx + 1).join('/');
+      return relativePath || '.';
+    },
+    sortGroups: (a: GroupKey, b: GroupKey) => {
+      // Sort '.' (root) first, then alphabetically
+      if (a === '.') {
+        return -1;
+      }
+      if (b === '.') {
+        return 1;
+      }
+      return String(a).localeCompare(String(b));
+    },
+  },
+  rootFolder: {
+    id: 'rootFolder',
+    label: 'By Root Folder',
     groupBy: (item: TableRowData) => item.rootFolderId,
     sortGroups: (a: GroupKey, b: GroupKey) => String(a).localeCompare(String(b)),
   },

@@ -194,3 +194,44 @@ export function formatDirPathForDisplay(args: {
 
   return buildShortenedDirPath({ segments, options });
 }
+
+/**
+ * Extracts the folder-relative directory path from a full file path.
+ * Used for grouping files by their directory.
+ *
+ * @example
+ * getDirPathForGrouping({
+ *   filePath: '/Users/me/project/src/components/Button.tsx',
+ *   rootFolderId: 'project'
+ * })
+ * // Returns: 'src/components'
+ *
+ * getDirPathForGrouping({
+ *   filePath: '/Users/me/project/index.ts',
+ *   rootFolderId: 'project'
+ * })
+ * // Returns: '.' (file at project root)
+ */
+export function getDirPathForGrouping(args: { filePath: string; rootFolderId: string }): string {
+  const { dirPath } = splitFilePath(args.filePath);
+
+  if (!dirPath) {
+    return '.';
+  }
+
+  const normalized = stripTrailingSlashes(normalizeSeparators(dirPath));
+  if (!normalized) {
+    return '.';
+  }
+
+  const { segments, trimmedToFolderRoot } = getFolderRelativeSegments({
+    normalizedDirPath: normalized,
+    rootFolderId: args.rootFolderId,
+  });
+
+  if (segments.length === 0) {
+    return trimmedToFolderRoot ? '.' : dirPath;
+  }
+
+  return segments.join('/');
+}

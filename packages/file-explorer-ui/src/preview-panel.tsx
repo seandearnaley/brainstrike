@@ -818,8 +818,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   );
 
   const effectiveColumnVisibility = useMemo(() => {
-    // Avoid redundant "Folder" column when grouping by folder (group headers already show it).
-    if (groupingConfig === 'folder') {
+    // Avoid redundant "Folder" column when grouping by directory or root folder (group headers already show it).
+    if (groupingConfig === 'directory' || groupingConfig === 'rootFolder') {
       return { ...columnVisibility, rootFolderId: false };
     }
     return columnVisibility;
