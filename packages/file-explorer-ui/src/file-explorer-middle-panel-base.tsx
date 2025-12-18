@@ -41,6 +41,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     excludeFilters,
     useRegex,
     folderSummaryThreshold,
+    setFolderSummaryThreshold,
   ] = store(
     (s) =>
       [
@@ -52,6 +53,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
         s.excludeFilters,
         s.useRegex,
         s.folderSummaryThreshold,
+        s.setFolderSummaryThreshold,
       ] as const
   );
 
@@ -160,11 +162,13 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
               {...(estimateTokenCost ? { estimateTokenCost } : {})}
               fileContents={fileContents}
               fileSizes={fileSizes}
+              folderSummaryThreshold={folderSummaryThreshold}
               includeProjectTree={includeProjectTree}
               loadingFiles={loadingFiles}
               onCopyReport={handleCopyReport}
               onDownloadReport={handleDownloadReport}
               onFileClick={handleFileClick}
+              onFolderSummaryThresholdChange={setFolderSummaryThreshold}
               onIncludeProjectTreeChange={setIncludeProjectTree}
               onSelectionChange={handleSelectionChange}
               onTokenBudgetChange={setTokenBudget}

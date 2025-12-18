@@ -12,7 +12,6 @@ import * as React from 'react';
 import { useCallback, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileExtensionFilter from './file-extension-filter';
-import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
 import InlineFixtureSetting from './inline-fixture-setting';
 import MaxSelectionCountSetting from './max-selection-count-setting';
 import UseRegexSetting from './use-regex-setting';
@@ -150,16 +149,10 @@ const ConfigDialogContent: React.FC<{
         </DialogDescription>
       </div>
       <div className="@container flex flex-col gap-4 bg-card p-4 text-foreground">
-        <div className="grid @md/settings:grid-cols-2 gap-4">
-          <MaxSelectionCountSetting
-            onChange={(value) => onSettingsChange('maxSelectionCount', value)}
-            value={settings.maxSelectionCount}
-          />
-          <FolderSummaryThresholdSetting
-            onChange={(value) => onSettingsChange('folderSummaryThreshold', value)}
-            value={settings.folderSummaryThreshold}
-          />
-        </div>
+        <MaxSelectionCountSetting
+          onChange={(value) => onSettingsChange('maxSelectionCount', value)}
+          value={settings.maxSelectionCount}
+        />
         <FileExtensionFilter
           excludeFilters={settings.excludeFilters}
           filterError={filterError}

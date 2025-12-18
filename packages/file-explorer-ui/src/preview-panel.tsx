@@ -115,6 +115,8 @@ type PreviewPanelProps = {
   projectTreeTokenCountLoading?: boolean;
   tokenBudget?: number;
   onTokenBudgetChange?: (budget: number) => void;
+  folderSummaryThreshold?: number;
+  onFolderSummaryThresholdChange?: (threshold: number) => void;
 };
 
 // Column configuration
@@ -268,6 +270,8 @@ type PreviewPanelFooterProps = {
   onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
   onDownloadReport?: (() => void) | undefined;
   onCopyReport?: (() => void) | undefined;
+  folderSummaryThreshold?: number;
+  onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
 };
 
 const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
@@ -283,6 +287,8 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       onIncludeProjectTreeChange,
       onDownloadReport,
       onCopyReport,
+      folderSummaryThreshold = 5,
+      onFolderSummaryThresholdChange,
     } = props;
 
     return (
@@ -327,6 +333,36 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
               checked={includeProjectTree}
               onChange={onIncludeProjectTreeChange}
             />
+          )}
+
+          {/* Folder Summary Threshold - only show when tree is included and handler exists */}
+          {includeProjectTree && onFolderSummaryThresholdChange && (
+            <>
+              <div aria-hidden className="h-6 w-px bg-border" />
+              <div className="flex items-center gap-2">
+                <label
+                  className="whitespace-nowrap text-muted-foreground text-xs"
+                  htmlFor="folder-summary-threshold-footer"
+                  title="Number of files shown per folder in the project tree before summarizing. Set to 0 to show all."
+                >
+                  Tree detail:
+                </label>
+                <input
+                  className="h-7 w-14 rounded-md border border-input bg-background px-2 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                  id="folder-summary-threshold-footer"
+                  min="0"
+                  onChange={(e) => {
+                    const value = Number.parseInt(e.target.value, 10);
+                    if (!Number.isNaN(value) && value >= 0) {
+                      onFolderSummaryThresholdChange(value);
+                    }
+                  }}
+                  title="Files per folder before summarizing (0 = show all)"
+                  type="number"
+                  value={folderSummaryThreshold}
+                />
+              </div>
+            </>
           )}
 
           {/* Spacer to push report buttons to the right */}
@@ -710,6 +746,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     projectTreeTokenCountLoading = false,
     tokenBudget,
     onTokenBudgetChange,
+    folderSummaryThreshold,
+    onFolderSummaryThresholdChange,
   } = props;
 
   // Local selection state for preview panel - separate from file tree selections
@@ -1010,9 +1048,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           <p className="text-gray-500 text-sm">No files selected</p>
         </div>
         <PreviewPanelFooter
+          folderSummaryThreshold={folderSummaryThreshold ?? 5}
           includeProjectTree={includeProjectTree}
           onCopyReport={onCopyReport}
           onDownloadReport={onDownloadReport}
+          onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
           onTokenBudgetChange={onTokenBudgetChange}
           selectedFilesCount={selectedFiles.size}
@@ -1157,9 +1197,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       )}
 
       <PreviewPanelFooter
+        folderSummaryThreshold={folderSummaryThreshold ?? 5}
         includeProjectTree={includeProjectTree}
         onCopyReport={onCopyReport}
         onDownloadReport={onDownloadReport}
+        onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
         onTokenBudgetChange={onTokenBudgetChange}
         selectedFilesCount={selectedFiles.size}

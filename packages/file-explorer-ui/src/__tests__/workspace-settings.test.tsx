@@ -81,22 +81,8 @@ describe('WorkspaceSettings', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('updates folder summary threshold', async () => {
-    act(() => {
-      renderWithProviders(<WorkspaceSettings {...defaultProps} />);
-    });
-    const button = screen.getByRole('button');
-    await userEvent.click(button);
-
-    const input = screen.getByLabelText(/Folder Summary Threshold/i);
-    fireEvent.change(input, { target: { value: '10' } });
-
-    const applyButton = screen.getByRole('button', { name: /Apply Settings/i });
-    await userEvent.click(applyButton);
-
-    // Just verify UI interaction works
-    expect(defaultProps.onFilterChange).toHaveBeenCalled();
-  });
+  // Note: Folder Summary Threshold was moved to the Preview Panel footer
+  // See preview-panel.test.tsx for folder summary threshold tests
 
   it('updates max selection count', async () => {
     renderWithProviders(<WorkspaceSettings {...defaultProps} />);
