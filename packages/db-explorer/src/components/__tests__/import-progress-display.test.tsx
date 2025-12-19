@@ -51,7 +51,8 @@ describe('ImportProgressDisplay', () => {
     expect(screen.getByText('42 chunks created')).toBeInTheDocument();
 
     // Check progress bar value: (2/5) * 100 = 40%
-    expect(screen.getByText('40%')).toBeInTheDocument();
+    const progressBars = screen.getAllByTestId('progress-bar');
+    expect(progressBars.some((bar) => bar.textContent === '40%')).toBe(true);
   });
 
   it('renders embedding progress details', () => {
@@ -76,7 +77,8 @@ describe('ImportProgressDisplay', () => {
     expect(screen.getByText('Model: text-embedding-3-small')).toBeInTheDocument();
 
     // Check progress bar value: (10/20) * 100 = 50%
-    expect(screen.getByText('50%')).toBeInTheDocument();
+    const progressBars = screen.getAllByTestId('progress-bar');
+    expect(progressBars.some((bar) => bar.textContent === '50%')).toBe(true);
   });
 
   it('does not render chunking details when not in chunking phase', () => {
@@ -146,7 +148,8 @@ describe('ImportProgressDisplay', () => {
     render(<ImportProgressDisplay onClose={vi.fn()} progress={mockProgress} />);
 
     // Check progress bar shows 100%
-    expect(screen.getByText('100%')).toBeInTheDocument();
+    const progressBars = screen.getAllByTestId('progress-bar');
+    expect(progressBars.some((bar) => bar.textContent === '100%')).toBe(true);
     expect(screen.getByText('5/5')).toBeInTheDocument();
   });
 

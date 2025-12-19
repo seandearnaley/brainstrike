@@ -6,6 +6,8 @@ import { TransformersEmbeddingProvider } from '../transformers-provider';
 // Skip these tests in CI - they require downloading large ML models which times out
 // These tests were previously skipped in CI (see successful run #426)
 const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+const slowTestTimeoutMs = 30_000;
+const slowTest = (name: string, fn: () => Promise<void> | void) => it(name, fn, slowTestTimeoutMs);
 
 describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
   let provider: TransformersEmbeddingProvider;
@@ -36,12 +38,12 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
   });
 
   describe('initialization', () => {
-    it('can be initialized', async () => {
+    slowTest('can be initialized', async () => {
       await provider.initialize();
       expect(provider.getStatus()).toBe('ready');
     });
 
-    it('tracks initialization progress', async () => {
+    slowTest('tracks initialization progress', async () => {
       const progressEvents: Array<{ stage: string; progress?: number }> = [];
 
       await provider.initialize((progress) => {
@@ -53,7 +55,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       expect(provider.getStatus()).toBe('ready');
     });
 
-    it('throws error for invalid model key', async () => {
+    slowTest('throws error for invalid model key', async () => {
       const invalidProvider = new TransformersEmbeddingProvider('nonexistent-model');
 
       await expect(invalidProvider.initialize()).rejects.toThrow();
@@ -61,7 +63,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
   });
 
   describe('embedding generation', () => {
-    it('auto-initializes if not ready', async () => {
+    slowTest('auto-initializes if not ready', async () => {
       const input: EmbeddingInput = {
         text: 'hello world',
         modelId: 'jinaai/jina-embeddings-v2-base-code',
@@ -80,7 +82,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       }
     });
 
-    it('generates embedding for text', async () => {
+    slowTest('generates embedding for text', async () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
@@ -99,7 +101,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       }
     });
 
-    it('returns consistent embeddings for same input', async () => {
+    slowTest('returns consistent embeddings for same input', async () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
@@ -119,7 +121,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       }
     });
 
-    it('generates different embeddings for different inputs', async () => {
+    slowTest('generates different embeddings for different inputs', async () => {
       await provider.initialize();
 
       const input1: EmbeddingInput = {
@@ -144,7 +146,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       }
     });
 
-    it('handles empty text input', async () => {
+    slowTest('handles empty text input', async () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
@@ -188,7 +190,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       }
     });
 
-    it('validates generated embeddings automatically', async () => {
+    slowTest('validates generated embeddings automatically', async () => {
       await provider.initialize();
 
       const input: EmbeddingInput = {
@@ -207,7 +209,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
   });
 
   describe('provider availability', () => {
-    it('returns true when initialized', async () => {
+    slowTest('returns true when initialized', async () => {
       await provider.initialize();
 
       const available = await provider.isAvailable();
@@ -215,14 +217,14 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       expect(available).toBe(true);
     });
 
-    it('auto-initializes when checking availability', async () => {
+    slowTest('auto-initializes when checking availability', async () => {
       const available = await provider.isAvailable();
 
       expect(available).toBe(true);
       expect(provider.getStatus()).toBe('ready');
     });
 
-    it('returns false for invalid model', async () => {
+    slowTest('returns false for invalid model', async () => {
       const invalidProvider = new TransformersEmbeddingProvider('invalid-model');
 
       const available = await invalidProvider.isAvailable();
@@ -251,7 +253,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
   });
 
   describe('resource management', () => {
-    it('can be disposed', async () => {
+    slowTest('can be disposed', async () => {
       await provider.initialize();
       expect(provider.getStatus()).toBe('ready');
 
@@ -260,7 +262,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       expect(provider.getStatus()).toBe('idle');
     });
 
-    it('can be reinitialized after disposal', async () => {
+    slowTest('can be reinitialized after disposal', async () => {
       await provider.initialize();
       await provider.dispose();
 
@@ -271,7 +273,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
   });
 
   describe('error handling with Result pattern', () => {
-    it('returns Result error instead of throwing for invalid model', async () => {
+    slowTest('returns Result error instead of throwing for invalid model', async () => {
       const invalidProvider = new TransformersEmbeddingProvider('invalid-model-key');
 
       const input: EmbeddingInput = {
@@ -292,7 +294,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       }
     });
 
-    it('handles service errors gracefully', async () => {
+    slowTest('handles service errors gracefully', async () => {
       await provider.initialize();
 
       // Access internal service to mock an error
@@ -349,7 +351,7 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       expect(provider.getCurrentModelKey()).toBeNull();
     });
 
-    it('returns model key after initialization', async () => {
+    slowTest('returns model key after initialization', async () => {
       await provider.initialize();
 
       const modelKey = provider.getCurrentModelKey();
