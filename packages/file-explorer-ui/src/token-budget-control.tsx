@@ -1,4 +1,4 @@
-import { DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
+import { DEFAULT_TOKEN_BUDGET, MAX_TOKEN_BUDGET } from '@brainstrike/types';
 import {
   Button,
   Input,
@@ -109,6 +109,11 @@ export const TokenBudgetControl = memo<TokenBudgetControlProps>(function TokenBu
     const parsed = parseBudgetInput(draft);
     if (parsed === null) {
       setError('Enter a valid number (e.g., 100k, 200000)');
+      return;
+    }
+
+    if (parsed > MAX_TOKEN_BUDGET) {
+      setError(`Maximum budget is ${MAX_TOKEN_BUDGET.toLocaleString()} tokens`);
       return;
     }
 

@@ -197,4 +197,24 @@ describe('TokenBudgetControl', () => {
     // Should show compact "100K" instead of "100,000"
     expect(screen.getByText('100K')).toBeVisible();
   });
+
+  it('shows an error when value exceeds maximum budget', () => {
+    const onBudgetChange = vi.fn();
+    render(<TokenBudgetControl budget={100_000} onBudgetChange={onBudgetChange} />);
+
+    // Click to open popover
+    const trigger = screen.getByRole('button', { name: /click to edit token budget/i });
+    fireEvent.click(trigger);
+
+    // Change to a value exceeding MAX_TOKEN_BUDGET (100,000,000)
+    const input = screen.getByLabelText(/token budget input/i);
+    fireEvent.change(input, { target: { value: '200b' } }); // 200 billion
+
+    // Click apply button
+    const applyButton = screen.getByRole('button', { name: /apply budget/i });
+    fireEvent.click(applyButton);
+
+    expect(onBudgetChange).not.toHaveBeenCalled();
+    expect(screen.getByText(/maximum budget is/i)).toBeInTheDocument();
+  });
 });
