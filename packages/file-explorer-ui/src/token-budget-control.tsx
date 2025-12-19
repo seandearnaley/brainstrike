@@ -1,10 +1,30 @@
-import { DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
-import { Badge, Button, Input } from '@brainstrike/ui';
-import { Check, Pencil, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { DEFAULT_TOKEN_BUDGET, MAX_TOKEN_BUDGET } from '@brainstrike/types';
+import {
+  Button,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@brainstrike/ui';
+import { Check, Pencil, Target, X } from 'lucide-react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 
 function formatBudget(budget: number): string {
   return budget.toLocaleString();
+}
+
+function formatBudgetCompact(budget: number): string {
+  if (budget >= 1_000_000) {
+    return `${(budget / 1_000_000).toFixed(budget % 1_000_000 === 0 ? 0 : 1)}M`;
+  }
+  if (budget >= 1000) {
+    return `${(budget / 1000).toFixed(budget % 1000 === 0 ? 0 : 1)}K`;
+  }
+  return budget.toString();
 }
 
 function parseBudgetInput(raw: string): number | null {
@@ -36,131 +56,216 @@ function parseBudgetInput(raw: string): number | null {
   return value > 0 ? value : null;
 }
 
+// Quick budget preset buttons
+const BUDGET_PRESETS = [
+  { label: '32K', value: 32_000 },
+  { label: '64K', value: 64_000 },
+  { label: '100K', value: 100_000 },
+  { label: '128K', value: 128_000 },
+  { label: '200K', value: 200_000 },
+] as const;
+
 export type TokenBudgetControlProps = {
   budget?: number;
   onBudgetChange?: ((budget: number) => void) | undefined;
+  /** Compact mode for smaller layouts */
+  compact?: boolean;
 };
 
 export const TokenBudgetControl = memo<TokenBudgetControlProps>(function TokenBudgetControl({
   budget = DEFAULT_TOKEN_BUDGET,
   onBudgetChange,
+  compact = false,
 }) {
   const isEditable = typeof onBudgetChange === 'function';
-  const [isEditing, setIsEditing] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
   const [draft, setDraft] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  useEffect(() => {
-    if (!isEditing) {
-      return;
-    }
-
-    queueMicrotask(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    });
-  }, [isEditing]);
-
-  const startEditing = useCallback(() => {
-    if (!isEditable) {
-      return;
-    }
-
-    setIsEditing(true);
-    setDraft(String(budget));
-    setError(null);
-  }, [budget, isEditable]);
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      setIsOpen(open);
+      if (open) {
+        // Initialize draft with current budget when opening
+        setDraft(String(budget));
+        setError(null);
+        // Focus and select input after render
+        queueMicrotask(() => {
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        });
+      }
+    },
+    [budget]
+  );
 
   const commit = useCallback(() => {
     if (typeof onBudgetChange !== 'function') {
-      setIsEditing(false);
+      setIsOpen(false);
       return;
     }
 
     const parsed = parseBudgetInput(draft);
     if (parsed === null) {
-      setError('Enter a valid token budget');
+      setError('Enter a valid number (e.g., 100k, 200000)');
+      return;
+    }
+
+    if (parsed > MAX_TOKEN_BUDGET) {
+      setError(`Maximum budget is ${MAX_TOKEN_BUDGET.toLocaleString()} tokens`);
       return;
     }
 
     onBudgetChange(parsed);
-    setIsEditing(false);
+    setIsOpen(false);
   }, [draft, onBudgetChange]);
 
-  const cancel = useCallback(() => {
-    setIsEditing(false);
-    setDraft(formatBudget(budget));
-    setError(null);
-  }, [budget]);
+  const applyPreset = useCallback(
+    (value: number) => {
+      if (typeof onBudgetChange === 'function') {
+        onBudgetChange(value);
+        setIsOpen(false);
+      }
+    },
+    [onBudgetChange]
+  );
 
-  const description = useMemo(() => {
+  const tooltipLabel = useMemo(() => {
     if (!isEditable) {
       return 'Token budget (read-only)';
     }
-    return 'Token budget';
+    return 'Click to edit token budget';
   }, [isEditable]);
 
-  if (!isEditing) {
+  const displayValue = compact ? formatBudgetCompact(budget) : formatBudget(budget);
+
+  const triggerButton = (
+    <button
+      aria-label={tooltipLabel}
+      className={`group flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:border-accent-foreground/20 hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${
+        isEditable ? 'cursor-pointer' : 'cursor-default'
+      }`}
+      disabled={!isEditable}
+      onClick={() => isEditable && handleOpenChange(true)}
+      type="button"
+    >
+      <Target className="size-3.5 text-muted-foreground" />
+      <span className="font-medium tabular-nums">{displayValue}</span>
+      {isEditable && (
+        <Pencil className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
+      )}
+    </button>
+  );
+
+  if (!isEditable) {
     return (
-      <Badge className="flex items-center gap-1 py-1.5" title={description} variant="outline">
-        <span className="text-muted-foreground text-xs">Budget</span>
-        <span className="font-medium tabular-nums">{formatBudget(budget)}</span>
-        {isEditable && (
-          <Button
-            aria-label="Edit token budget"
-            className="h-6 w-6"
-            onClick={startEditing}
-            size="icon"
-            variant="ghost"
-          >
-            <Pencil className="size-3.5" />
-          </Button>
-        )}
-      </Badge>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>{triggerButton}</TooltipTrigger>
+          <TooltipContent side="bottom">
+            <div className="text-xs">
+              <div className="font-medium">Token Budget</div>
+              <div className="text-muted-foreground">{formatBudget(budget)} tokens (read-only)</div>
+            </div>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
     );
   }
 
   return (
-    <Badge className="flex items-center gap-1 py-1.5" title={description} variant="outline">
-      <span className="text-muted-foreground text-xs">Budget</span>
-      <Input
-        aria-label="Token budget input"
-        className="h-7 w-28 px-2 py-1 text-xs tabular-nums"
-        inputMode="numeric"
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            commit();
-          }
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            cancel();
-          }
-        }}
-        ref={inputRef}
-        value={draft}
-      />
-      <Button
-        aria-label="Save token budget"
-        className="h-6 w-6"
-        onClick={commit}
-        size="icon"
-        variant="ghost"
-      >
-        <Check className="size-3.5" />
-      </Button>
-      <Button
-        aria-label="Cancel token budget edit"
-        className="h-6 w-6"
-        onClick={cancel}
-        size="icon"
-        variant="ghost"
-      >
-        <X className="size-3.5" />
-      </Button>
-      {error && <span className="ml-1 text-[10px] text-destructive">{error}</span>}
-    </Badge>
+    <Popover onOpenChange={handleOpenChange} open={isOpen}>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>{triggerButton}</PopoverTrigger>
+          </TooltipTrigger>
+          {!isOpen && (
+            <TooltipContent side="bottom">
+              <div className="text-xs">Click to edit budget</div>
+            </TooltipContent>
+          )}
+        </Tooltip>
+      </TooltipProvider>
+      <PopoverContent align="start" className="w-64 p-3" side="bottom">
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <label className="font-medium text-foreground text-xs" htmlFor="budget-input">
+              Token Budget
+            </label>
+            <div className="flex gap-1.5">
+              <Input
+                aria-label="Token budget input"
+                className="h-8 flex-1 px-2 text-sm tabular-nums"
+                id="budget-input"
+                inputMode="numeric"
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    commit();
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setIsOpen(false);
+                  }
+                }}
+                placeholder="e.g., 100k"
+                ref={inputRef}
+                value={draft}
+              />
+              <Button
+                aria-label="Apply budget"
+                className="h-8 w-8"
+                onClick={commit}
+                size="icon"
+                variant="default"
+              >
+                <Check className="size-4" />
+              </Button>
+              <Button
+                aria-label="Cancel"
+                className="h-8 w-8"
+                onClick={() => setIsOpen(false)}
+                size="icon"
+                variant="ghost"
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+            {error && <p className="text-[11px] text-destructive">{error}</p>}
+          </div>
+
+          <div className="space-y-1.5">
+            <span className="text-[11px] text-muted-foreground">Quick presets</span>
+            <div className="flex flex-wrap gap-1.5">
+              {BUDGET_PRESETS.map((preset) => (
+                <Button
+                  className={`h-7 px-2.5 text-xs ${
+                    budget === preset.value
+                      ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                      : ''
+                  }`}
+                  key={preset.value}
+                  onClick={() => applyPreset(preset.value)}
+                  size="sm"
+                  variant={budget === preset.value ? 'default' : 'outline'}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <p className="text-[10px] text-muted-foreground">
+            Supports: numbers, k (thousands), m (millions)
+          </p>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 });

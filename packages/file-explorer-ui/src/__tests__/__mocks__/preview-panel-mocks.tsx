@@ -118,6 +118,22 @@ export const createUiModuleMock = () => ({
   }: MockComponentProps & { ref?: React.RefObject<HTMLInputElement | null> }) => (
     <input data-testid="input" ref={ref} {...props} />
   ),
+  TooltipProvider: ({ children }: MockComponentProps) => <>{children}</>,
+  Tooltip: ({ children }: MockComponentProps) => <>{children}</>,
+  TooltipTrigger: ({
+    children,
+    asChild: _asChild,
+    ...props
+  }: MockComponentProps & { asChild?: boolean }) => (
+    <div data-testid="tooltip-trigger" {...props}>
+      {children}
+    </div>
+  ),
+  TooltipContent: ({ children, ...props }: MockComponentProps) => (
+    <div data-testid="tooltip-content" {...props}>
+      {children}
+    </div>
+  ),
   Checkbox: ({
     checked,
     onCheckedChange,
@@ -416,10 +432,14 @@ export const createLucideModuleMock = () => ({
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
   Loader2: () => <div data-testid="loader" />,
-  CheckCircle2: () => <div data-testid="check" />,
+  CheckCircle2: () => <div data-testid="check-circle" />,
   AlertTriangle: () => <div data-testid="alert" />,
   MinusCircle: () => <div data-testid="minus" />,
   Pencil: () => <div data-testid="pencil" />,
   Check: () => <div data-testid="checkmark" />,
   X: () => <div data-testid="x" />,
+  Target: () => <div data-testid="target" />,
+  TreePine: () => <div data-testid="tree-pine" />,
+  Layers: () => <div data-testid="layers" />,
+  Files: () => <div data-testid="files" />,
 });

@@ -188,11 +188,8 @@ describe('PreviewPanel', () => {
     it('should render file list with proper data', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      // Check stats display
-      expect(screen.getByText(/Selected 1,500/i)).toBeInTheDocument();
-      const progress = screen.getByTestId('progress');
-      expect(progress.getAttribute('title')).toContain('1,500 / 100,000 tokens');
-      expect(progress.getAttribute('title')).toContain('Selected 1,500');
+      // Check stats display - new UI shows "selected" in the summary bar
+      expect(screen.getByText(/1,500 selected/i)).toBeInTheDocument();
 
       // Check files are displayed
       expect(screen.getByText('file1.txt')).toBeInTheDocument();
@@ -208,10 +205,8 @@ describe('PreviewPanel', () => {
     it('should display token counting status badge', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      expect(screen.getByText('Accurate tokens (WASM)')).toBeInTheDocument();
-      expect(
-        screen.getByText(/Counts generated with the tiktoken WASM encoder/i)
-      ).toBeInTheDocument();
+      // New UI shows compact "WASM" badge for accurate mode
+      expect(screen.getByText('WASM')).toBeInTheDocument();
     });
 
     it('should surface heuristic fallback messaging when configured', () => {
@@ -228,8 +223,8 @@ describe('PreviewPanel', () => {
 
       render(<PreviewPanel {...props} />);
 
-      expect(screen.getByText('Heuristic fallback')).toBeInTheDocument();
-      expect(screen.getByText(/WASM tokenizer is unavailable/i)).toBeInTheDocument();
+      // New UI shows "Heuristic" badge for heuristic mode
+      expect(screen.getByText('Heuristic')).toBeInTheDocument();
     });
 
     it('should handle file click events', () => {
@@ -242,7 +237,7 @@ describe('PreviewPanel', () => {
       }
     });
 
-    it('should render progress with correct value for total tokens', () => {
+    it('should render token meter with proper aria label', () => {
       const totalTokens = 2000;
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
@@ -251,12 +246,12 @@ describe('PreviewPanel', () => {
 
       render(<PreviewPanel {...mockProps} />);
 
-      const progress = screen.getByTestId('progress');
-      const expected = Math.min((totalTokens / 100_000) * 100, 100);
-      expect(progress).toHaveAttribute('data-value', expected.toString());
+      // New UI uses a meter role with aria-label for token usage
+      const meter = screen.getByRole('meter');
+      expect(meter).toHaveAttribute('aria-label', expect.stringContaining('Token usage'));
     });
 
-    it('should render a segmented token bar for selected vs tree tokens', () => {
+    it('should display tree tokens in summary when include project tree is enabled', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
         totalStats: { totalFiles: 3, totalTokens: 50_000 },
@@ -271,14 +266,11 @@ describe('PreviewPanel', () => {
         />
       );
 
-      const treeSegment = screen.getByTestId('token-bar-tree');
-      const selectedSegment = screen.getByTestId('token-bar-selected');
-
-      expect(treeSegment).toHaveStyle({ width: '25%' });
-      expect(selectedSegment).toHaveStyle({ width: '50%' });
+      // The TokenSummaryBar should show tree token count
+      expect(screen.getByText(/25,000 tree/i)).toBeInTheDocument();
     });
 
-    it('should not render the tree segment when Include Project Tree is disabled', () => {
+    it('should show muted tree indicator when include project tree is disabled', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
         totalStats: { totalFiles: 3, totalTokens: 50_000 },
@@ -293,11 +285,11 @@ describe('PreviewPanel', () => {
         />
       );
 
-      expect(screen.queryByTestId('token-bar-tree')).not.toBeInTheDocument();
-      expect(screen.getByTestId('token-bar-selected')).toHaveStyle({ width: '50%' });
+      // The tree indicator should still be visible but show 0 when disabled
+      expect(screen.getByText(/0 tree/i)).toBeInTheDocument();
     });
 
-    it('should render only the tree segment when selected tokens are zero', () => {
+    it('should show zero tokens text when selected tokens are zero', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
         totalStats: { totalFiles: 3, totalTokens: 0 },
@@ -312,11 +304,11 @@ describe('PreviewPanel', () => {
         />
       );
 
-      expect(screen.getByTestId('token-bar-tree')).toHaveStyle({ width: '25%' });
-      expect(screen.queryByTestId('token-bar-selected')).not.toBeInTheDocument();
+      // Should show 0 selected
+      expect(screen.getByText(/0 selected/i)).toBeInTheDocument();
     });
 
-    it('should keep both segments visible when over budget', () => {
+    it('should show over budget status when over budget', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
         totalStats: { totalFiles: 3, totalTokens: 50_000 },
@@ -331,18 +323,12 @@ describe('PreviewPanel', () => {
         />
       );
 
-      const treeSegment = screen.getByTestId('token-bar-tree');
-      const selectedSegment = screen.getByTestId('token-bar-selected');
-      const progress = screen.getByTestId('progress');
-
-      const treeWidth = Number.parseFloat((treeSegment as HTMLElement).style.width);
-      const selectedWidth = Number.parseFloat((selectedSegment as HTMLElement).style.width);
-      expect(treeWidth + selectedWidth).toBeCloseTo(100, 2);
-      expect(progress).toHaveAttribute('data-value', '100');
-      expect(progress).toHaveClass('ring-destructive/70');
+      // The BudgetStatus component has "over" text in a separate span
+      // Match just the "over" text (exact word match to avoid tooltip matches)
+      expect(screen.getByText(/^over$/i)).toBeInTheDocument();
     });
 
-    it('should surface tree loading state in the progress title', () => {
+    it('should surface tree loading state in the summary', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
         totalStats: { totalFiles: 3, totalTokens: 50_000 },
@@ -358,8 +344,9 @@ describe('PreviewPanel', () => {
         />
       );
 
-      const progress = screen.getByTestId('progress');
-      expect(progress.getAttribute('title')).toContain('Tree …');
+      // When treeLoading is true, the StatItem value shows just "…"
+      // (without " tree" suffix - that's only shown when not loading)
+      expect(screen.getByText('…')).toBeInTheDocument();
     });
 
     it('allows editing the token budget', async () => {
@@ -373,13 +360,15 @@ describe('PreviewPanel', () => {
         />
       );
 
-      const editButton = screen.getByRole('button', { name: /edit token budget/i });
+      // Click the trigger button to open the popover
+      const editButton = screen.getByRole('button', { name: /click to edit token budget/i });
       fireEvent.click(editButton);
 
       const input = screen.getByLabelText(/token budget input/i);
       fireEvent.change(input, { target: { value: '1,000,000' } });
 
-      const saveButton = screen.getByRole('button', { name: /save token budget/i });
+      // Use "apply budget" instead of "save token budget"
+      const saveButton = screen.getByRole('button', { name: /apply budget/i });
       fireEvent.click(saveButton);
 
       expect(onTokenBudgetChange).toHaveBeenCalledWith(1_000_000);
@@ -753,23 +742,60 @@ describe('PreviewPanel', () => {
 
       // Check that all grouping options are available
       const options = screen.getByRole('combobox').querySelectorAll('option');
-      expect(options).toHaveLength(5); // none, folder, fileType, sizeSteps, tokenSteps
+      expect(options).toHaveLength(6); // none, directory, rootFolder, fileType, sizeSteps, tokenSteps
+    });
+
+    it('should migrate legacy "folder" grouping to "rootFolder"', () => {
+      // Simulate legacy stored preference
+      localStorage.setItem(
+        'previewPanelPreferences.v1',
+        JSON.stringify({ groupingConfig: 'folder' })
+      );
+
+      render(<PreviewPanel {...mockProps} />);
+
+      // Should show "By Root Folder" selected (migrated from legacy "folder")
+      const groupingSelect = screen.getByRole('combobox');
+      expect(groupingSelect).toHaveValue('rootFolder');
+
+      // Clean up
+      localStorage.removeItem('previewPanelPreferences.v1');
     });
 
     it('should change grouping when dropdown selection changes', () => {
       render(<PreviewPanel {...mockProps} />);
 
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
 
-      expect(groupingSelect).toHaveValue('folder');
+      expect(groupingSelect).toHaveValue('directory');
+    });
+
+    it('should hide the folder column when grouping by directory', () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      const groupingSelect = screen.getByDisplayValue('No Grouping');
+      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+
+      expect(screen.queryByRole('columnheader', { name: 'Folder' })).not.toBeInTheDocument();
+    });
+
+    it('should hide the folder column when grouping by root folder', () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      const groupingSelect = screen.getByDisplayValue('No Grouping');
+      fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
+
+      expect(screen.queryByRole('columnheader', { name: 'Folder' })).not.toBeInTheDocument();
     });
 
     it('should show group control buttons when grouping is enabled', () => {
       render(<PreviewPanel {...mockProps} />);
 
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      // Use rootFolder grouping which creates multiple groups with the mock data
+      // (each file has a different folderId: folder-file1, folder-file2, folder-file3)
+      fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
 
       expect(screen.getByText('Expand All Groups')).toBeInTheDocument();
       expect(screen.getByText('Collapse All Groups')).toBeInTheDocument();
@@ -779,7 +805,8 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} />);
 
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      // Use rootFolder grouping which creates multiple groups with the mock data
+      fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
 
       const expandAllButton = screen.getByText('Expand All Groups');
       const collapseAllButton = screen.getByText('Collapse All Groups');
@@ -791,7 +818,57 @@ describe('PreviewPanel', () => {
       fireEvent.click(expandAllButton);
     });
 
-    it('should group files by folder correctly', () => {
+    it('should group files by directory correctly', () => {
+      const mixedDirectoriesState = {
+        ...mockState,
+        flatListItems: [
+          {
+            type: 'file' as const,
+            compositeKey: 'file1',
+            folderId: 'project',
+            path: 'src/components/file1.tsx',
+            size: 1024,
+            tokens: 500,
+          },
+          {
+            type: 'file' as const,
+            compositeKey: 'file2',
+            folderId: 'project',
+            path: 'src/components/file2.tsx',
+            size: 2048,
+            tokens: 750,
+          },
+          {
+            type: 'file' as const,
+            compositeKey: 'file3',
+            folderId: 'project',
+            path: 'src/utils/file3.ts',
+            size: 512,
+            tokens: 250,
+          },
+        ],
+      };
+
+      const propsWithMixedDirectories = {
+        ...mockProps,
+        decodeFileSelection: vi.fn((key: string) => ({
+          folderId: 'project',
+          path: key === 'file3' ? 'src/utils/file3.ts' : `src/components/${key}.tsx`,
+        })),
+      };
+
+      mockUsePreviewPanelState.mockReturnValue(mixedDirectoriesState);
+      render(<PreviewPanel {...propsWithMixedDirectories} />);
+
+      const groupingSelect = screen.getByDisplayValue('No Grouping');
+      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
+
+      // Should show directory groups - both directories should appear as group headers
+      expect(screen.getAllByText('src/components').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('src/utils').length).toBeGreaterThan(0);
+    });
+
+    it('should group files by root folder correctly', () => {
       const mixedFoldersState = {
         ...mockState,
         flatListItems: [
@@ -834,9 +911,9 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...propsWithMixedFolders} />);
 
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
 
-      // Should show grouped structure - use getAllByText since groups appear in headers and rows
+      // Should show grouped structure by root folder
       expect(screen.getAllByText('folder-a').length).toBeGreaterThan(0);
       expect(screen.getAllByText('folder-b').length).toBeGreaterThan(0);
     });
@@ -954,7 +1031,7 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...propsWithMixedFolders} />);
 
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
 
       // Click "Select All" button
       const selectAllButton = screen.getByText(/Select All/);
@@ -1019,7 +1096,7 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} />);
 
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
 
       // Should have aria-expanded and aria-label on group buttons
       const groupHeaders = screen.getAllByRole('button', { name: /Collapse group/ });
@@ -1034,7 +1111,7 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} />);
 
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
 
       // Should have group selection checkboxes
       const groupCheckboxes = screen.getAllByLabelText(/Select all files in group/);
@@ -1084,7 +1161,7 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...propsWithMixedFolders} />);
 
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
 
       // Click group checkbox for folder-a
       const groupCheckboxes = screen.getAllByLabelText(/Select all files in group/);
@@ -1135,7 +1212,8 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...propsWithMixedFolders} />);
 
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      // Use rootFolder grouping to test partial selection within a root folder group
+      fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
 
       // Select only one file in the group
       const fileCheckboxes = screen.getAllByTestId('checkbox');
@@ -1156,7 +1234,7 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} />);
 
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
 
       // Should still be able to select individual files
       const fileCheckboxes = screen.getAllByTestId('checkbox');
@@ -1187,7 +1265,7 @@ describe('PreviewPanel', () => {
 
       // Enable grouping
       const groupingSelect = screen.getByDisplayValue('No Grouping');
-      fireEvent.change(groupingSelect, { target: { value: 'folder' } });
+      fireEvent.change(groupingSelect, { target: { value: 'directory' } });
 
       // After grouping change, the checkbox should still work for new selections
       const groupedFileCheckboxes = screen.getAllByTestId('checkbox');
