@@ -1,3 +1,4 @@
+import { MAX_SELECTION_COUNT, MIN_MAX_SELECTION_COUNT } from '@brainstrike/types';
 import {
   Button,
   Input,
@@ -12,14 +13,30 @@ import {
 import { Check, Files, Pencil, X } from 'lucide-react';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 
-function parseCountInput(raw: string): number | null {
+/**
+ * Parses user input for selection count validation.
+ * Rejects empty strings, non-numeric input, decimals, zero, negative numbers, and non-finite values.
+ * @param raw - The raw string input from the user
+ * @returns The parsed positive integer, or null if invalid
+ */
+export function parseCountInput(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) {
     return null;
   }
 
+  // Explicitly reject decimal numbers
+  if (trimmed.includes('.')) {
+    return null;
+  }
+
+  // Validate that the entire string is numeric
+  if (!/^\d+$/.test(trimmed)) {
+    return null;
+  }
+
   const value = Number.parseInt(trimmed, 10);
-  if (!Number.isFinite(value) || value <= 0) {
+  if (!Number.isFinite(value) || value < 0) {
     return null;
   }
 
@@ -88,12 +105,17 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
 
     const parsed = parseCountInput(draft);
     if (parsed === null) {
-      setError('Enter a valid positive number');
+      setError('Please enter a whole number (no decimals)');
       return;
     }
 
-    if (parsed > 10_000) {
-      setError('Maximum selection count is 10,000');
+    if (parsed < MIN_MAX_SELECTION_COUNT) {
+      setError(`Minimum selection count is ${MIN_MAX_SELECTION_COUNT}`);
+      return;
+    }
+
+    if (parsed > MAX_SELECTION_COUNT) {
+      setError(`Maximum selection count is ${MAX_SELECTION_COUNT.toLocaleString()}`);
       return;
     }
 
@@ -233,7 +255,11 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
                   <X className="size-4" />
                 </Button>
               </div>
-              {error && <p className="text-[11px] text-destructive">{error}</p>}
+              {error && (
+                <p aria-live="polite" className="text-[11px] text-destructive" role="alert">
+                  {error}
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">

@@ -262,7 +262,7 @@ test.describe('File Explorer', () => {
           await page.getByRole('button', { name: 'Apply selection count' }).click();
 
           // Should show error message
-          await expect(page.getByText('Enter a valid positive number')).toBeVisible();
+          await expect(page.getByText('Minimum selection count is 1')).toBeVisible();
 
           // Cancel and close popover
           await page.getByRole('button', { name: 'Cancel' }).click();

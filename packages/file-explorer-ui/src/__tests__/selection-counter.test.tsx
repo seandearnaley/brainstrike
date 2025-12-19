@@ -1,6 +1,62 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { SelectionCounter } from '../selection-counter';
+import { parseCountInput, SelectionCounter } from '../selection-counter';
+
+describe('parseCountInput', () => {
+  it('returns valid positive integers', () => {
+    expect(parseCountInput('10')).toBe(10);
+    expect(parseCountInput('100')).toBe(100);
+    expect(parseCountInput('1000')).toBe(1000);
+  });
+
+  it('handles leading and trailing whitespace', () => {
+    expect(parseCountInput('  50  ')).toBe(50);
+    expect(parseCountInput('\t25\n')).toBe(25);
+    expect(parseCountInput('   100   ')).toBe(100);
+  });
+
+  it('returns null for empty strings', () => {
+    expect(parseCountInput('')).toBe(null);
+    expect(parseCountInput('   ')).toBe(null);
+    expect(parseCountInput('\t\n')).toBe(null);
+  });
+
+  it('returns null for non-numeric input', () => {
+    expect(parseCountInput('abc')).toBe(null);
+    expect(parseCountInput('hello')).toBe(null);
+    expect(parseCountInput('12abc')).toBe(null);
+  });
+
+  it('returns zero as a valid number (minimum validation happens separately)', () => {
+    expect(parseCountInput('0')).toBe(0);
+  });
+
+  it('returns null for negative numbers', () => {
+    expect(parseCountInput('-1')).toBe(null);
+    expect(parseCountInput('-100')).toBe(null);
+  });
+
+  it('returns null for decimal numbers', () => {
+    expect(parseCountInput('1.5')).toBe(null);
+    expect(parseCountInput('100.5')).toBe(null);
+    expect(parseCountInput('0.5')).toBe(null);
+  });
+
+  it('returns null for Infinity', () => {
+    expect(parseCountInput('Infinity')).toBe(null);
+    expect(parseCountInput('-Infinity')).toBe(null);
+  });
+
+  it('returns null for NaN', () => {
+    expect(parseCountInput('NaN')).toBe(null);
+  });
+
+  it('handles edge case numbers correctly', () => {
+    expect(parseCountInput('1')).toBe(1);
+    expect(parseCountInput('10000')).toBe(10_000);
+    expect(parseCountInput('999999')).toBe(999_999);
+  });
+});
 
 describe('SelectionCounter', () => {
   describe('read-only mode', () => {
@@ -150,7 +206,7 @@ describe('SelectionCounter', () => {
       fireEvent.click(applyButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/Enter a valid positive number/i)).toBeInTheDocument();
+        expect(screen.getByText(/Please enter a whole number/i)).toBeInTheDocument();
       });
 
       expect(onChange).not.toHaveBeenCalled();
@@ -212,6 +268,214 @@ describe('SelectionCounter', () => {
       // Files icon should not be present in compact mode
       const filesIcon = container.querySelector('.lucide-files');
       expect(filesIcon).not.toBeInTheDocument();
+    });
+
+    it('uses numeric input mode for mobile keyboards', async () => {
+      const onChange = vi.fn();
+      render(
+        <SelectionCounter
+          maxSelectionCount={100}
+          onMaxSelectionCountChange={onChange}
+          selectedCount={5}
+        />
+      );
+
+      // Open popover
+      const badge = screen.getByTestId('selection-count').closest('button');
+      fireEvent.click(badge!);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+      });
+
+      const input = screen.getByLabelText(/Maximum selection count input/i);
+      expect(input).toHaveAttribute('inputMode', 'numeric');
+    });
+
+    it('closes popover on Escape key', async () => {
+      const onChange = vi.fn();
+      render(
+        <SelectionCounter
+          maxSelectionCount={100}
+          onMaxSelectionCountChange={onChange}
+          selectedCount={5}
+        />
+      );
+
+      // Open popover
+      const badge = screen.getByTestId('selection-count').closest('button');
+      fireEvent.click(badge!);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+      });
+
+      const input = screen.getByLabelText(/Maximum selection count input/i);
+      fireEvent.keyDown(input, { key: 'Escape' });
+
+      await waitFor(() => {
+        expect(screen.queryByLabelText(/Maximum selection count input/i)).not.toBeInTheDocument();
+      });
+
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('submits value on Enter key', async () => {
+      const onChange = vi.fn();
+      render(
+        <SelectionCounter
+          maxSelectionCount={100}
+          onMaxSelectionCountChange={onChange}
+          selectedCount={5}
+        />
+      );
+
+      // Open popover
+      const badge = screen.getByTestId('selection-count').closest('button');
+      fireEvent.click(badge!);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+      });
+
+      const input = screen.getByLabelText(/Maximum selection count input/i);
+      fireEvent.change(input, { target: { value: '75' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(onChange).toHaveBeenCalledWith(75);
+    });
+
+    it('clears error message when user corrects invalid input', async () => {
+      const onChange = vi.fn();
+      render(
+        <SelectionCounter
+          maxSelectionCount={100}
+          onMaxSelectionCountChange={onChange}
+          selectedCount={5}
+        />
+      );
+
+      // Open popover
+      const badge = screen.getByTestId('selection-count').closest('button');
+      fireEvent.click(badge!);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+      });
+
+      const input = screen.getByLabelText(/Maximum selection count input/i);
+
+      // Enter invalid value
+      fireEvent.change(input, { target: { value: 'invalid' } });
+      const applyButton = screen.getByLabelText(/Apply selection count/i);
+      fireEvent.click(applyButton);
+
+      // Error should appear
+      await waitFor(() => {
+        expect(screen.getByText(/Please enter a whole number/i)).toBeInTheDocument();
+      });
+
+      // Correct the input
+      fireEvent.change(input, { target: { value: '50' } });
+
+      // Error should disappear
+      await waitFor(() => {
+        expect(screen.queryByText(/Please enter a whole number/i)).not.toBeInTheDocument();
+      });
+    });
+
+    it('shows minimum validation error', async () => {
+      const onChange = vi.fn();
+      render(
+        <SelectionCounter
+          maxSelectionCount={100}
+          onMaxSelectionCountChange={onChange}
+          selectedCount={5}
+        />
+      );
+
+      // Open popover
+      const badge = screen.getByTestId('selection-count').closest('button');
+      fireEvent.click(badge!);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+      });
+
+      const input = screen.getByLabelText(/Maximum selection count input/i);
+      fireEvent.change(input, { target: { value: '0' } });
+
+      const applyButton = screen.getByLabelText(/Apply selection count/i);
+      fireEvent.click(applyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Minimum selection count is 1/i)).toBeInTheDocument();
+      });
+
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('shows maximum validation error with formatted number', async () => {
+      const onChange = vi.fn();
+      render(
+        <SelectionCounter
+          maxSelectionCount={100}
+          onMaxSelectionCountChange={onChange}
+          selectedCount={5}
+        />
+      );
+
+      // Open popover
+      const badge = screen.getByTestId('selection-count').closest('button');
+      fireEvent.click(badge!);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+      });
+
+      const input = screen.getByLabelText(/Maximum selection count input/i);
+      fireEvent.change(input, { target: { value: '50000' } });
+
+      const applyButton = screen.getByLabelText(/Apply selection count/i);
+      fireEvent.click(applyButton);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Maximum selection count is 10,000/i)).toBeInTheDocument();
+      });
+
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('has accessible error messages with aria-live', async () => {
+      const onChange = vi.fn();
+      render(
+        <SelectionCounter
+          maxSelectionCount={100}
+          onMaxSelectionCountChange={onChange}
+          selectedCount={5}
+        />
+      );
+
+      // Open popover
+      const badge = screen.getByTestId('selection-count').closest('button');
+      fireEvent.click(badge!);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText(/Maximum selection count input/i)).toBeInTheDocument();
+      });
+
+      const input = screen.getByLabelText(/Maximum selection count input/i);
+      fireEvent.change(input, { target: { value: 'abc' } });
+
+      const applyButton = screen.getByLabelText(/Apply selection count/i);
+      fireEvent.click(applyButton);
+
+      await waitFor(() => {
+        const errorElement = screen.getByRole('alert');
+        expect(errorElement).toBeInTheDocument();
+        expect(errorElement).toHaveAttribute('aria-live', 'polite');
+        expect(errorElement).toHaveTextContent(/Please enter a whole number/i);
+      });
     });
   });
 });
