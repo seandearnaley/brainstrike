@@ -246,22 +246,49 @@ test.describe('File Explorer', () => {
         },
       },
       {
-        name: 'clamps Max Selection Count values',
+        name: 'validates Max Selection Count values',
         tree: { 'a.ts': null, 'b.ts': null },
         execute: async ({ page }) => {
-          await setMaxSelectionCount(page, 0);
+          // Try to set invalid value (too low)
+          const counterButton = page.getByRole('button', {
+            name: /Click to edit maximum selection count/i,
+          });
+          await counterButton.click();
 
-          await reloadExplorer(page);
+          const input = page.getByLabel('Maximum selection count input');
+          await expect(input).toBeVisible();
 
+          await input.fill('0');
+          await page.getByRole('button', { name: 'Apply selection count' }).click();
+
+          // Should show error message
+          await expect(page.getByText('Enter a valid positive number')).toBeVisible();
+
+          // Cancel and close popover
+          await page.getByRole('button', { name: 'Cancel' }).click();
+          await expect(input).not.toBeVisible();
+
+          // Value should still be default (10)
           let maxCount = await getMaxSelectionCount(page);
-          expect(maxCount).toBe('1');
+          expect(maxCount).toBe('10');
 
-          await setMaxSelectionCount(page, 50_000);
+          // Try to set invalid value (too high)
+          await counterButton.click();
+          await expect(input).toBeVisible();
 
-          await reloadExplorer(page);
+          await input.fill('50000');
+          await page.getByRole('button', { name: 'Apply selection count' }).click();
 
+          // Should show error message
+          await expect(page.getByText('Maximum selection count is 10,000')).toBeVisible();
+
+          // Cancel and close popover
+          await page.getByRole('button', { name: 'Cancel' }).click();
+          await expect(input).not.toBeVisible();
+
+          // Value should still be 10
           maxCount = await getMaxSelectionCount(page);
-          expect(maxCount).toBe('10000');
+          expect(maxCount).toBe('10');
         },
       },
       {
