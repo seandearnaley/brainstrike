@@ -132,9 +132,12 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
       <div className="flex items-center gap-2 text-[10px]" data-testid="status-bar-queue">
         <Tooltip>
           <TooltipTrigger asChild>
-            <output
+            {/* biome-ignore lint/a11y/useSemanticElements: Status text isn't a form calculation result. */}
+            <div
               aria-label={`Embedding queue: ${queued} queued, ${running} running, ${failed} failed, ${succeeded} succeeded`}
+              aria-live="polite"
               className="flex items-center gap-2 rounded px-1 py-0.5 text-[10px] text-muted-foreground"
+              role="status"
             >
               <span className="font-medium text-foreground">Queue</span>
               <span className="flex items-center gap-1">
@@ -157,7 +160,7 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
                 <span>OK</span>
                 <span className="font-semibold text-foreground">{succeeded}</span>
               </span>
-            </output>
+            </div>
           </TooltipTrigger>
           <TooltipContent side="top" sideOffset={6}>
             <div className="space-y-1 text-xs">

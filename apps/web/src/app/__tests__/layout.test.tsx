@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, test, vi } from 'vitest';
 import RootLayout from '../layout';
 
@@ -17,36 +17,33 @@ vi.mock('@brainstrike/ui', () => ({
 
 describe('RootLayout', () => {
   test('renders with correct structure and meta information', () => {
-    render(
+    const markup = renderToStaticMarkup(
       <RootLayout>
         <div>Test Content</div>
       </RootLayout>
     );
+    const doc = new DOMParser().parseFromString(markup, 'text/html');
 
     // Check for correct title and meta tags
-    expect(document.title).toBe('BrainStrike.ai');
-    expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
+    expect(doc.title).toBe('BrainStrike.ai');
+    expect(doc.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
       'Multi-app dashboard'
     );
 
     // Check for RouterProvider
-    expect(screen.getByTestId('router-provider')).toBeInTheDocument();
-    expect(screen.getByText('Test Content')).toBeInTheDocument();
+    expect(doc.querySelector('[data-testid="router-provider"]')).not.toBeNull();
+    expect(doc.body.textContent).toContain('Test Content');
   });
 
   test('renders correctly in the DOM', () => {
-    render(
+    const markup = renderToStaticMarkup(
       <RootLayout>
         <div>Test Content</div>
       </RootLayout>
     );
-
-    // Verify the RouterProvider and content are rendered
-    expect(screen.getByTestId('router-provider')).toBeInTheDocument();
-    expect(screen.getByText('Test Content')).toBeInTheDocument();
+    const doc = new DOMParser().parseFromString(markup, 'text/html');
 
     // Verify HTML structure
-    const htmlElement = document.documentElement;
-    expect(htmlElement.getAttribute('lang')).toBe('en');
+    expect(doc.documentElement.getAttribute('lang')).toBe('en');
   });
 });
