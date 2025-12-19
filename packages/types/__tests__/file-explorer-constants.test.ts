@@ -295,8 +295,8 @@ describe('file-explorer-constants', () => {
       expect(typeof MAX_SELECTION_COUNT).toBe('number');
     });
 
-    it('should be 1000', () => {
-      expect(MAX_SELECTION_COUNT).toBe(1000);
+    it('should be 10000', () => {
+      expect(MAX_SELECTION_COUNT).toBe(10_000);
     });
 
     it('should be positive', () => {
@@ -426,7 +426,7 @@ describe('file-explorer-constants', () => {
 
       expect(validateSelectionCount(50)).toBe(true);
       expect(validateSelectionCount(0)).toBe(false);
-      expect(validateSelectionCount(2000)).toBe(false);
+      expect(validateSelectionCount(20_000)).toBe(false);
       expect(validateSelectionCount(50.5)).toBe(false);
     });
   });
