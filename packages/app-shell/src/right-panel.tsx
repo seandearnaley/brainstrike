@@ -79,7 +79,10 @@ export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactEle
             <VectorsTab embeddingQueue={embeddingQueue} />
           </TabsContent>
 
-          <TabsContent className="mt-0 min-h-0 flex-1 overflow-y-auto" value="database">
+          <TabsContent
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            value="database"
+          >
             {/* CRITICAL: Pass embeddingQueue to DatabaseTab
                 This ensures import operations use the app's embedding queue */}
             <DatabaseTab embeddingQueue={embeddingQueue} />

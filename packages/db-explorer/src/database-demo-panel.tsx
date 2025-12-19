@@ -367,7 +367,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col" data-testid="database-demo-panel">
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="database-demo-panel">
       <PanelGroup className="min-h-0 flex-1" direction="vertical">
         <Panel className="min-h-0" defaultSize={38} maxSize={60} minSize={26}>
           <div className="flex h-full flex-col gap-3 overflow-auto px-4 py-3">

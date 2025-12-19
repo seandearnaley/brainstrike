@@ -30,7 +30,7 @@ type DatabaseTabProps = {
  */
 export function DatabaseTab({ embeddingQueue = null }: DatabaseTabProps): React.ReactElement {
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col">
       {/* Pass embeddingQueue to DatabaseDemoPanel for import operations */}
       <DatabaseDemoPanel embeddingQueue={embeddingQueue} />
     </div>
