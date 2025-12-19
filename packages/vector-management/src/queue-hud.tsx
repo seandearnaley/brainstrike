@@ -9,7 +9,9 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
+  useToast,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { RotateCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -28,14 +30,20 @@ type QueueHudProps = {
   variant?: QueueHudVariant;
 };
 
+const logger = createLogger('QueueHud');
+
+const EMBEDDING_QUEUE_NAME = 'embeddings';
+const RETRY_BATCH_SIZE = 20;
+const QUEUE_POLL_INTERVAL_MS = 2000;
+
 function isQueueEnabled(): boolean {
   try {
     // In browser contexts, treat the queue as enabled so HUD reflects runtime activity.
     if (typeof window !== 'undefined') {
       return true;
     }
-    // @ts-expect-error process may not exist
-    const v = process?.env?.EMBED_QUEUE_ENABLED;
+    const env = typeof process !== 'undefined' ? process.env : undefined;
+    const v = env?.['EMBED_QUEUE_ENABLED'];
     return String(v ?? 'false').toLowerCase() === 'true';
   } catch {
     return typeof window !== 'undefined';
@@ -47,12 +55,12 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
   const enabled = isQueueEnabled();
 
   const db = usePGliteDatabase();
+  const { toast } = useToast();
   const [stats, setStats] = useState<QueueStats[] | null>(null);
   const [busy, setBusy] = useState(false);
 
   const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);
-  const nodeEnv =
-    typeof process !== 'undefined' ? (process.env?.['NODE_ENV'] as string | undefined) : undefined;
+  const nodeEnv = typeof process !== 'undefined' ? process.env?.['NODE_ENV'] : undefined;
   const shouldPoll = typeof window !== 'undefined' && nodeEnv !== 'test';
 
   useEffect(() => {
@@ -61,9 +69,9 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
     }
 
     let canceled = false;
-    const fetchStats = async () => {
+    const fetchStats = async (): Promise<void> => {
       try {
-        const s = await jobQueue.getQueueStats('embeddings');
+        const s = await jobQueue.getQueueStats(EMBEDDING_QUEUE_NAME);
         if (!canceled) {
           setStats(s);
         }
@@ -79,7 +87,7 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
       };
     }
 
-    const id = setInterval(fetchStats, 2000);
+    const id = setInterval(fetchStats, QUEUE_POLL_INTERVAL_MS);
     return () => {
       canceled = true;
       clearInterval(id);
@@ -97,15 +105,36 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
   const succeeded = s?.succeeded ?? 0;
   const retryDisabled = busy || !jobQueue || failed === 0;
 
+  const handleRetry = async (): Promise<void> => {
+    if (!jobQueue) {
+      return;
+    }
+    try {
+      setBusy(true);
+      await jobQueue.requeueFailed(EMBEDDING_QUEUE_NAME, RETRY_BATCH_SIZE);
+      const nextStats = await jobQueue.getQueueStats(EMBEDDING_QUEUE_NAME);
+      setStats(nextStats);
+    } catch (error) {
+      logger.error('Failed to retry embedding queue jobs', { error });
+      const message = error instanceof Error ? error.message : String(error);
+      toast({
+        title: 'Failed to retry jobs',
+        description: message || 'Unable to retry failed embedding jobs.',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (variant === 'status-bar') {
     return (
       <div className="flex items-center gap-2 text-[10px]" data-testid="status-bar-queue">
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <output
               aria-label={`Embedding queue: ${queued} queued, ${running} running, ${failed} failed, ${succeeded} succeeded`}
               className="flex items-center gap-2 rounded px-1 py-0.5 text-[10px] text-muted-foreground"
-              type="button"
             >
               <span className="font-medium text-foreground">Queue</span>
               <span className="flex items-center gap-1">
@@ -128,7 +157,7 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
                 <span>OK</span>
                 <span className="font-semibold text-foreground">{succeeded}</span>
               </span>
-            </button>
+            </output>
           </TooltipTrigger>
           <TooltipContent side="top" sideOffset={6}>
             <div className="space-y-1 text-xs">
@@ -151,19 +180,7 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
               aria-label="Retry failed jobs"
               className="h-5 w-5 p-0"
               disabled={retryDisabled}
-              onClick={async () => {
-                if (!jobQueue) {
-                  return;
-                }
-                try {
-                  setBusy(true);
-                  await jobQueue.requeueFailed('embeddings', 20);
-                  const s = await jobQueue.getQueueStats('embeddings');
-                  setStats(s);
-                } finally {
-                  setBusy(false);
-                }
-              }}
+              onClick={handleRetry}
               size="sm"
               variant="ghost"
             >
@@ -192,19 +209,7 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
             aria-label="Retry failed jobs"
             className="h-5 px-2 text-[10px]"
             disabled={retryDisabled}
-            onClick={async () => {
-              if (!jobQueue) {
-                return;
-              }
-              try {
-                setBusy(true);
-                await jobQueue.requeueFailed('embeddings', 20);
-                const s = await jobQueue.getQueueStats('embeddings');
-                setStats(s);
-              } finally {
-                setBusy(false);
-              }
-            }}
+            onClick={handleRetry}
             size="sm"
             variant="outline"
           >
