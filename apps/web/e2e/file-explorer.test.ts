@@ -9,6 +9,38 @@ import {
 } from './utils/file-explorer-setup';
 import type { FileTree } from './utils/mock-fs';
 
+/**
+ * Helper to open the selection counter popover and set the max selection count
+ */
+async function setMaxSelectionCount(page: Page, value: number | string): Promise<void> {
+  // Click the selection counter button to open the popover
+  const counterButton = page.getByRole('button', {
+    name: /Click to edit maximum selection count/i,
+  });
+  await counterButton.click();
+
+  // Wait for popover to be visible
+  const input = page.getByLabel('Maximum selection count input');
+  await expect(input).toBeVisible();
+
+  // Fill in the value
+  await input.fill(String(value));
+
+  // Click the apply button (checkmark)
+  await page.getByRole('button', { name: 'Apply selection count' }).click();
+
+  // Wait for popover to close
+  await expect(input).not.toBeVisible();
+}
+
+/**
+ * Helper to get the current max selection count from the selection counter
+ */
+async function getMaxSelectionCount(page: Page): Promise<string> {
+  const text = await page.getByTestId('selection-max').textContent();
+  return text || '';
+}
+
 test.describe('File Explorer', () => {
   test.describe('core experience', () => {
     let explorer: FileExplorerPage;
@@ -38,7 +70,7 @@ test.describe('File Explorer', () => {
       const dialog = await openExplorerSettings(page, explorer);
 
       await expect(dialog.getByRole('heading', { name: 'Workspace Settings' })).toBeVisible();
-      await expect(dialog.getByLabel('Max Selection Count')).toBeVisible();
+      // Note: Max Selection Count was moved to SelectionCounter component
       // Note: Folder Summary Threshold was moved to Preview Panel footer
       await expect(dialog.getByPlaceholder('e.g. *.ts, src/**/*.js')).toBeVisible();
       await expect(dialog.getByPlaceholder('e.g. *.test.js, node_modules/**')).toBeVisible();
@@ -204,40 +236,32 @@ test.describe('File Explorer', () => {
       {
         name: 'persists updates to max selection count',
         tree: { 'example.ts': null },
-        execute: async ({ page, openDialog }) => {
-          const dialog = await openDialog();
-          await dialog.getByLabel('Max Selection Count').fill('5');
-          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
-          await expect(dialog).not.toBeVisible();
+        execute: async ({ page }) => {
+          await setMaxSelectionCount(page, 5);
 
           await reloadExplorer(page);
 
-          const reopened = await openDialog();
-          await expect(reopened.getByLabel('Max Selection Count')).toHaveValue('5');
+          const maxCount = await getMaxSelectionCount(page);
+          expect(maxCount).toBe('5');
         },
       },
       {
         name: 'clamps Max Selection Count values',
         tree: { 'a.ts': null, 'b.ts': null },
-        execute: async ({ page, openDialog }) => {
-          const dialog = await openDialog();
-          await dialog.getByLabel('Max Selection Count').fill('0');
-          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
-          await expect(dialog).not.toBeVisible();
+        execute: async ({ page }) => {
+          await setMaxSelectionCount(page, 0);
 
           await reloadExplorer(page);
 
-          const reopened = await openDialog();
-          await expect(reopened.getByLabel('Max Selection Count')).toHaveValue('1');
+          let maxCount = await getMaxSelectionCount(page);
+          expect(maxCount).toBe('1');
 
-          await reopened.getByLabel('Max Selection Count').fill('5000');
-          await reopened.getByRole('button', { name: 'Apply Settings' }).click();
-          await expect(reopened).not.toBeVisible();
+          await setMaxSelectionCount(page, 50_000);
 
           await reloadExplorer(page);
 
-          const finalDialog = await openDialog();
-          await expect(finalDialog.getByLabel('Max Selection Count')).toHaveValue('1000');
+          maxCount = await getMaxSelectionCount(page);
+          expect(maxCount).toBe('10000');
         },
       },
       {
@@ -293,11 +317,8 @@ test.describe('File Explorer', () => {
       {
         name: 'caps selections when Max Selection Count is reduced',
         tree: { 'a.ts': null, 'b.ts': null },
-        execute: async ({ explorer, openDialog, page }) => {
-          const dialog = await openDialog();
-          await dialog.getByLabel('Max Selection Count').fill('1');
-          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
-          await expect(dialog).not.toBeVisible();
+        execute: async ({ explorer, page }) => {
+          await setMaxSelectionCount(page, 1);
 
           await explorer.selectRoot();
 
