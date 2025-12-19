@@ -28,7 +28,9 @@ export type RootLayoutContentProps = {
    * - Desktop: apps/desktop/src/renderer/create-embedding-queue.ts
    * - Web: apps/web/src/create-embedding-queue.ts
    *
-   * The queue is passed down from here to RightPanel → DatabaseTab → VectorStatusWithDialog
+   * The queue is passed down from here to:
+   * - RightPanel → VectorsTab → VectorStatusWithDialog
+   * - RightPanel → DatabaseTab → DatabaseDemoPanel (import operations)
    * to ensure all embedding operations use the same queue instance.
    *
    * DO NOT make this prop optional or remove it! It's critical for:
@@ -66,7 +68,9 @@ export function RootLayoutContent({
   );
 
   // CRITICAL: Pass embeddingQueue to RightPanel
-  // The queue flows: RootLayoutContent → RightPanel → DatabaseTab → VectorStatusWithDialog
+  // The queue flows:
+  // - RootLayoutContent → RightPanel → VectorsTab → VectorStatusWithDialog
+  // - RootLayoutContent → RightPanel → DatabaseTab → DatabaseDemoPanel (import operations)
   const rightPanelContent = useMemo(
     () => <RightPanel embeddingQueue={embeddingQueue ?? null} />,
     [embeddingQueue]

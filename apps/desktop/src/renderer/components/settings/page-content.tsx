@@ -1,4 +1,3 @@
-import { QueueHud, VectorStatusWithDialog } from '@brainstrike/app-shell';
 import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
@@ -8,8 +7,7 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences';
-import { Badge } from '@brainstrike/ui';
-import { Cpu, FileCog, Layers } from 'lucide-react';
+import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';
 import { McpConfigStatus } from './mcp-config-status';
@@ -45,27 +43,6 @@ function EmbeddingModelsCategory() {
   );
 }
 
-function EmbeddingWorkerCategory() {
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <h3 className="flex items-center gap-2 font-semibold text-lg">
-          Embedding Worker
-          <Badge variant="secondary">experimental</Badge>
-        </h3>
-        <p className="text-muted-foreground text-sm">
-          Monitor the embedding job queue and inspect vector store connectivity without leaving the
-          settings screen.
-        </p>
-      </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <QueueHud />
-        <VectorStatusWithDialog />
-      </div>
-    </div>
-  );
-}
-
 export default function SettingsPageContent() {
   const categories = useMemo<SettingsCategory[]>(
     () => [
@@ -79,14 +56,6 @@ export default function SettingsPageContent() {
         keywords: ['embeddings', 'models', 'providers', 'vector'],
         icon: Layers,
         render: () => <EmbeddingModelsCategory />,
-      },
-      {
-        id: 'embedding-worker',
-        title: 'Embedding Worker',
-        description: 'Check queue throughput and vector status for desktop embeddings.',
-        keywords: ['embeddings', 'worker', 'queue', 'vector', 'database'],
-        icon: Cpu,
-        render: () => <EmbeddingWorkerCategory />,
       },
       {
         id: 'logging',

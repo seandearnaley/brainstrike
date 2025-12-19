@@ -67,21 +67,10 @@ vi.mock('@brainstrike/db-explorer', async () => {
     DatabaseDemoPanel: () => <div data-testid="mock-database-panel">DatabasePanel</div>,
     EmbeddingsPanel: () => (
       <div data-testid="mock-embeddings-panel">
-        <div>Text Embeddings</div>
-        <div>Generate embeddings and calculate text similarity</div>
+        <div>Embedding Playground</div>
+        <div>Test individual models and similarity (not tied to your vector DB)</div>
       </div>
     ),
-  };
-});
-
-vi.mock('@brainstrike/vector-management', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/vector-management')>(
-    '@brainstrike/vector-management'
-  );
-  return {
-    ...actual,
-    VectorStatusWithDialog: () => <div data-testid="mock-vector-status">VectorStatus</div>,
-    QueueHud: () => <div data-testid="mock-queue-hud">QueueHud</div>,
   };
 });
 
@@ -109,6 +98,11 @@ vi.mock('../database-tab-chunk', () => ({
   DatabaseTab: () => <div data-testid="mock-database-panel">Database mock</div>,
 }));
 
+// Mock the vectors tab chunk to avoid loading real vector dashboards in tests
+vi.mock('../vectors-tab-chunk', () => ({
+  VectorsTab: () => <div data-testid="mock-vectors-panel">Vectors mock</div>,
+}));
+
 describe('RightPanel', () => {
   test('renders with all tabs', async () => {
     render(<RightPanel />);
@@ -116,6 +110,7 @@ describe('RightPanel', () => {
     // Check that all tab triggers are present
     expect(screen.getByRole('tab', { name: /assistant/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /embed/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /vectors/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /db/i })).toBeInTheDocument();
 
     // Wait for async state updates to complete
@@ -140,10 +135,16 @@ describe('RightPanel', () => {
     // Click on the embeddings tab
     await user.click(screen.getByRole('tab', { name: /embed/i }));
 
-    expect(await screen.findByText('Text Embeddings')).toBeInTheDocument();
+    expect(await screen.findByText('Embedding Playground')).toBeInTheDocument();
     expect(
-      await screen.findByText('Generate embeddings and calculate text similarity')
+      await screen.findByText('Test individual models and similarity (not tied to your vector DB)')
     ).toBeInTheDocument();
+
+    // Click on the vectors tab
+    await user.click(screen.getByRole('tab', { name: /vectors/i }));
+    const vectorsPanel = await screen.findByRole('tabpanel', { name: /vectors/i });
+    expect(vectorsPanel).toBeInTheDocument();
+    expect(await within(vectorsPanel).findByTestId('mock-vectors-panel')).toBeInTheDocument();
 
     // Click on the database tab
     await user.click(screen.getByRole('tab', { name: /db/i }));
@@ -169,12 +170,13 @@ describe('RightPanel', () => {
     expect(tabList).toBeInTheDocument();
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(3);
+    expect(tabs).toHaveLength(4);
 
     // Each tab should have text content
     expect(tabs[0]).toHaveTextContent('Assistant');
     expect(tabs[1]).toHaveTextContent('Embed');
-    expect(tabs[2]).toHaveTextContent('DB');
+    expect(tabs[2]).toHaveTextContent('Vectors');
+    expect(tabs[3]).toHaveTextContent('DB');
   });
 
   test('maintains content state when switching tabs', async () => {
@@ -184,13 +186,17 @@ describe('RightPanel', () => {
     await screen.findByTestId('assistant-chat-card');
 
     await user.click(screen.getByRole('tab', { name: /embed/i }));
-    expect(await screen.findByText('Text Embeddings')).toBeInTheDocument();
+    expect(await screen.findByText('Embedding Playground')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /assistant/i }));
     expect(await screen.findByText(/Assistant disabled/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /embed/i }));
-    expect(await screen.findByText('Text Embeddings')).toBeInTheDocument();
+    expect(await screen.findByText('Embedding Playground')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('tab', { name: /vectors/i }));
+    const vectorsPanel = await screen.findByRole('tabpanel', { name: /vectors/i });
+    expect(await within(vectorsPanel).findByTestId('mock-vectors-panel')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /db/i }));
     const dbPanel = await screen.findByRole('tabpanel', { name: /db/i });

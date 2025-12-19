@@ -4,12 +4,12 @@
 
 ## What this package is
 
-A reusable **React 19** application shell and IDE chrome for Brainstrike apps. It provides the outer layout, navigation, right-hand panels (Assistant, Embeddings, Search, Database), CSV export utilities, and light state slices (Zustand). It intentionally keeps business logic thin and delegates to sibling packages (`@brainstrike/ui`, `@brainstrike/db`, `@brainstrike/embeddings`, `@brainstrike/file-explorer-*`, etc.).
+A reusable **React 19** application shell and IDE chrome for Brainstrike apps. It provides the outer layout, navigation, right-hand panels (Assistant, Embeddings, Vectors, Database), CSV export utilities, and light state slices (Zustand). It intentionally keeps business logic thin and delegates to sibling packages (`@brainstrike/ui`, `@brainstrike/db`, `@brainstrike/embeddings`, `@brainstrike/file-explorer-*`, etc.).
 
 ### Key exports (from `src/`)
 
 * **Layout:** `AppLayout`, `createAppConfig`, `RootLayoutContent`, `PageWrapper`, `navigationItems`
-* **Right panel:** `RightPanel` (tabs: Properties / Assistant / Embeddings / Search / Database)
+* **Right panel:** `RightPanel` (tabs: Assistant / Embeddings / Vectors / Database)
 * **Database utilities:** `DatabaseDemoPanel`, `VectorStatusWithDb`, `QueueHud`
 * **CSV:** `generateCSV`, `createCSVBlob`, `generateCSVFilename`, and richer exporters for files/chunks/embeddings
 * **Stores (Zustand):** `panel-layout-store`, `right-panel-store`, `search-panel-store`, `db-panel-store`, `import-settings-store`, `vector-*` stores
@@ -56,7 +56,7 @@ export function App() {
 
 ### Heavy component lazy-loading
 
-Heavy components (Database, Assistant) are lazy-loaded via `React.lazy()` for automatic code splitting and bundle optimization. This keeps the initial bundle lean while making all features available.
+Heavy components (Database, Assistant, Vectors) are lazy-loaded via `React.lazy()` for automatic code splitting and bundle optimization. This keeps the initial bundle lean while making all features available.
 
 **Assistant status resolution:** The Assistant panel calls `GET {base}/assistant/status`. In web builds it defaults to `/api/assistant/status`; in Electron you can provide `window.assistant.getUrl()` or `window.assistant.url` to override (see `resolveAssistantStatusUrl()`).
 
@@ -87,7 +87,7 @@ All slices are compact, selector-first, and **SSR/test-safe** via `createJSONSto
 
 ### Vector, embeddings & queue integration
 
-The shell surfaces a **Vector Status** HUD, an **Embeddings** panel, and a **Queue HUD**. The heavy lifting lives in sibling packages, but there are app-shell specific UX expectations:
+The shell surfaces a **Vector Status** panel (Vectors tab), an **Embeddings** playground, and a compact **Queue** summary in the status bar. The heavy lifting lives in sibling packages, but there are app-shell specific UX expectations:
 
 * **Devices:** we heuristically detect the best device (WebGPU when available) and let users override to WASM/CPU. WebGPU drastically improves on-device inference latency; fall back to WASM where unsupported. ([ONNX Runtime][7])
 * **Backfilling:** when an embedding set becomes active **and** coverage is partial, the shell attempts an auto-backfill (enqueue jobs) if the local worker is running.
@@ -128,7 +128,8 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 
 * **Assistant:** calls `GET {assistantBase}/assistant/status -> {enabled:boolean,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing.
 * **Embeddings panel:** uses `SimpleEmbeddingService` (browser-local). It’s demo-scale by design; for production retrieval, lean on pgvector+queue path exposed in the DB views.
-* **Search panel:** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.
+* **Vectors tab:** hosts `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `RightPanel` into this tab.
+* **Search panel (optional):** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.
 * **DB tab:** lazy-loaded chunk that initializes PGlite when the tab is accessed.
 
 ## CSV export expectations
@@ -137,7 +138,7 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 
 ## Performance tips (battle-tested)
 
-* **Defer heavy components:** Keep `DatabaseTab` and `AssistantUiPanel` behind `lazy()` and flags. Don’t “accidentally” import them in top-level modules.
+* **Defer heavy components:** Keep `DatabaseTab`, `VectorsTab`, and `AssistantUiPanel` behind `lazy()` and flags. Don’t “accidentally” import them in top-level modules.
 * **WebGPU first, WASM second:** for local models, choose WebGPU when available; fall back gracefully. Avoid device thrashing—reinitialize models only every N chunks (user-tunable). ([ONNX Runtime][7])
 * **App-Shell first paint:** Keep the shell static CSS and icons small; don’t let the right panel pull big deps until opened. (This echoes modern App-Shell guidance.) ([Medium][13])
 * **Zustand selectors:** Always destructure selectors outside render loops; prefer tuple selectors to minimize render churn. (Matches official persistence guidance.) ([Zustand Documentation][6])

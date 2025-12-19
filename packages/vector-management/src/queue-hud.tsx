@@ -1,5 +1,16 @@
 import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
-import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@brainstrike/ui';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@brainstrike/ui';
+import { RotateCw } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 type QueueStats = {
@@ -9,6 +20,12 @@ type QueueStats = {
   failed: number;
   succeeded: number;
   nextRunnableAt?: string | null;
+};
+
+type QueueHudVariant = 'card' | 'status-bar';
+
+type QueueHudProps = {
+  variant?: QueueHudVariant;
 };
 
 function isQueueEnabled(): boolean {
@@ -25,7 +42,7 @@ function isQueueEnabled(): boolean {
   }
 }
 
-export function QueueHud() {
+export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
   // Compute flag without hooks to avoid initializing DB when disabled
   const enabled = isQueueEnabled();
 
@@ -73,6 +90,94 @@ export function QueueHud() {
   if (!enabled) {
     return null;
   }
+
+  const queued = s?.queued ?? 0;
+  const running = s?.running ?? 0;
+  const failed = s?.failed ?? 0;
+  const succeeded = s?.succeeded ?? 0;
+  const retryDisabled = busy || !jobQueue || failed === 0;
+
+  if (variant === 'status-bar') {
+    return (
+      <div className="flex items-center gap-2 text-[10px]" data-testid="status-bar-queue">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              aria-label={`Embedding queue: ${queued} queued, ${running} running, ${failed} failed, ${succeeded} succeeded`}
+              className="flex items-center gap-2 rounded px-1 py-0.5 text-[10px] text-muted-foreground"
+              type="button"
+            >
+              <span className="font-medium text-foreground">Queue</span>
+              <span className="flex items-center gap-1">
+                <span>Q</span>
+                <span className="font-semibold text-foreground">{queued}</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span>R</span>
+                <span className="font-semibold text-foreground">{running}</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span>F</span>
+                <span
+                  className={`font-semibold ${failed > 0 ? 'text-destructive' : 'text-foreground'}`}
+                >
+                  {failed}
+                </span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span>OK</span>
+                <span className="font-semibold text-foreground">{succeeded}</span>
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={6}>
+            <div className="space-y-1 text-xs">
+              <div className="font-medium">Embedding queue</div>
+              <div>Queued: {queued}</div>
+              <div>Running: {running}</div>
+              <div>Failed: {failed}</div>
+              <div>Success: {succeeded}</div>
+              {s?.nextRunnableAt && (
+                <div>
+                  Next: <span className="font-mono">{s.nextRunnableAt}</span>
+                </div>
+              )}
+            </div>
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              aria-label="Retry failed jobs"
+              className="h-5 w-5 p-0"
+              disabled={retryDisabled}
+              onClick={async () => {
+                if (!jobQueue) {
+                  return;
+                }
+                try {
+                  setBusy(true);
+                  await jobQueue.requeueFailed('embeddings', 20);
+                  const s = await jobQueue.getQueueStats('embeddings');
+                  setStats(s);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              size="sm"
+              variant="ghost"
+            >
+              <RotateCw className="h-3 w-3" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={6}>
+            Retry failed jobs
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    );
+  }
+
   return (
     <Card>
       <CardHeader className="border-b px-3 py-1.5">
@@ -86,7 +191,7 @@ export function QueueHud() {
           <Button
             aria-label="Retry failed jobs"
             className="h-5 px-2 text-[10px]"
-            disabled={busy || !jobQueue || (s?.failed ?? 0) === 0}
+            disabled={retryDisabled}
             onClick={async () => {
               if (!jobQueue) {
                 return;
@@ -111,20 +216,20 @@ export function QueueHud() {
         <div className="grid grid-cols-4 gap-3">
           <div>
             <div className="text-[9px] text-muted-foreground">Queued</div>
-            <div className="font-semibold text-sm">{s?.queued ?? 0}</div>
+            <div className="font-semibold text-sm">{queued}</div>
           </div>
           <div>
             <div className="text-[9px] text-muted-foreground">Running</div>
-            <div className="font-semibold text-sm">{s?.running ?? 0}</div>
+            <div className="font-semibold text-sm">{running}</div>
           </div>
           <div>
             <div className="text-[9px] text-muted-foreground">Failed</div>
-            <div className="font-semibold text-destructive text-sm">{s?.failed ?? 0}</div>
+            <div className="font-semibold text-destructive text-sm">{failed}</div>
           </div>
           <div>
             <div className="text-[9px] text-muted-foreground">Success</div>
             <div className="font-semibold text-green-600 text-sm dark:text-green-400">
-              {s?.succeeded ?? 0}
+              {succeeded}
             </div>
           </div>
         </div>

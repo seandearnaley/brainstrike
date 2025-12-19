@@ -26,6 +26,7 @@ import {
 } from '@brainstrike/vector-management';
 import { ChevronDown, ChevronRight, Database, FileText, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import {
   ClearDatabaseDialog,
   CollectionBrowserView,
@@ -366,129 +367,138 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden" data-testid="database-demo-panel">
-      <div className="flex-shrink-0 border-b p-4">
-        <div className="mb-1 flex items-center gap-2 font-medium text-sm">
-          <Database className="h-4 w-4" />
-          Enhanced Database Demo
-        </div>
-        <div className="mb-3 text-muted-foreground text-xs">
-          PGlite WASM with pgvector, chunking, and embeddings
-        </div>
+    <div className="flex h-full min-h-0 flex-col" data-testid="database-demo-panel">
+      <PanelGroup className="min-h-0 flex-1" direction="vertical">
+        <Panel className="min-h-0" defaultSize={38} maxSize={60} minSize={26}>
+          <div className="flex h-full flex-col gap-3 overflow-auto px-4 py-3">
+            <div>
+              <div className="mb-1 flex items-center gap-2 font-medium text-sm">
+                <Database className="h-4 w-4" />
+                Enhanced Database Demo
+              </div>
+              <div className="text-muted-foreground text-xs">
+                PGlite WASM with pgvector, chunking, and embeddings
+              </div>
+            </div>
 
-        <SearchCollectionSelector
-          activeCollectionId={activeCollectionId}
-          db={dbContext}
-          onCollectionChange={handleCollectionChange}
-          onCreateCollection={handleCreateCollection}
-          onManageCollections={handleManageCollections}
-        />
+            <SearchCollectionSelector
+              activeCollectionId={activeCollectionId}
+              db={dbContext}
+              onCollectionChange={handleCollectionChange}
+              onCreateCollection={handleCreateCollection}
+              onManageCollections={handleManageCollections}
+            />
 
-        {/* Settings Panel */}
-        <div className="mb-3">
-          <Button
-            className="h-6 px-2"
-            onClick={() => setShowSettings(!showSettings)}
-            size="sm"
-            variant="ghost"
-          >
-            {showSettings ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
+            {/* Settings Panel */}
+            <div>
+              <Button
+                className="h-6 px-2"
+                onClick={() => setShowSettings(!showSettings)}
+                size="sm"
+                variant="ghost"
+              >
+                {showSettings ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+                Import Settings
+              </Button>
+
+              <div className={showSettings ? '' : 'hidden'}>
+                <SettingsPanel
+                  clearDatabaseProps={{
+                    clearAllData,
+                    records,
+                    chunks,
+                    clearing,
+                    showClearDialog,
+                    setShowClearDialog,
+                    onClear: handleClearDatabase,
+                  }}
+                  importSettings={importSettings}
+                />
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                className="flex items-center gap-1"
+                disabled={
+                  importFlow.isImporting ||
+                  !activeCollectionId ||
+                  importFlow.selectedFileCount === 0
+                }
+                onClick={importFlow.handleImportClick}
+                size="sm"
+                title={
+                  importFlow.selectedFileCount === 0
+                    ? 'Select files to import first'
+                    : activeCollectionId
+                      ? undefined
+                      : 'Select a collection first'
+                }
+              >
+                <FileText className="h-3 w-3" />
+                Import Selected Files ({importFlow.selectedFileCount})
+              </Button>
+              <Button
+                className="flex items-center gap-1"
+                disabled={refreshing}
+                onClick={handleManualRefresh}
+                size="sm"
+                variant="outline"
+              >
+                <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <ExportDropdown
+                chunks={filteredChunks}
+                exportHandlers={exportHandlers}
+                records={filteredRecords}
+              />
+            </div>
+
+            {importFlow.showImportProgress && importFlow.progress && (
+              <ImportProgressDisplay
+                onClose={() => importFlow.setShowImportProgress(false)}
+                progress={importFlow.progress as EnhancedImportProgress}
+              />
             )}
-            Import Settings
-          </Button>
-
-          <div className={showSettings ? '' : 'hidden'}>
-            <SettingsPanel
-              clearDatabaseProps={{
-                clearAllData,
-                records,
-                chunks,
-                clearing,
-                showClearDialog,
-                setShowClearDialog,
-                onClear: handleClearDatabase,
-              }}
-              importSettings={importSettings}
-            />
           </div>
-        </div>
+        </Panel>
 
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-2 pt-2">
-          <Button
-            className="flex items-center gap-1"
-            disabled={
-              importFlow.isImporting || !activeCollectionId || importFlow.selectedFileCount === 0
-            }
-            onClick={importFlow.handleImportClick}
-            size="sm"
-            title={
-              importFlow.selectedFileCount === 0
-                ? 'Select files to import first'
-                : activeCollectionId
-                  ? undefined
-                  : 'Select a collection first'
-            }
-          >
-            <FileText className="h-3 w-3" />
-            Import Selected Files ({importFlow.selectedFileCount})
-          </Button>
-          <Button
-            className="flex items-center gap-1"
-            disabled={refreshing}
-            onClick={handleManualRefresh}
-            size="sm"
-            variant="outline"
-          >
-            <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
-          <ExportDropdown
-            chunks={filteredChunks}
-            exportHandlers={exportHandlers}
-            records={filteredRecords}
-          />
-        </div>
+        <PanelResizeHandle className="h-1 bg-border/60 transition-colors hover:bg-border" />
 
-        {/* Clear Database Dialog - triggered from Import Settings */}
-        <ClearDatabaseDialog
-          chunks={chunks}
-          clearing={clearing}
-          onClear={handleClearDatabase}
-          records={records}
-          setShowClearDialog={setShowClearDialog}
-          showClearDialog={showClearDialog}
-        />
-
-        {importFlow.showImportProgress && importFlow.progress && (
-          <div className="mt-4">
-            <ImportProgressDisplay
-              onClose={() => importFlow.setShowImportProgress(false)}
-              progress={importFlow.progress as EnhancedImportProgress}
-            />
+        <Panel className="min-h-0" defaultSize={62} minSize={30}>
+          <div className="flex h-full min-h-0 flex-col overflow-hidden">
+            <SemanticSearchProvider
+              {...(semanticSearchExecutor ? { searchExecutor: semanticSearchExecutor } : {})}
+            >
+              <CollectionBrowserView
+                activeCollectionId={activeCollectionId}
+                chunks={chunks}
+                embeddingSets={embeddingSets}
+                height="100%"
+                isLoading={embeddingSetsLoading || refreshing}
+                pendingChunkIds={pendingChunkIds}
+                records={records}
+              />
+            </SemanticSearchProvider>
           </div>
-        )}
-      </div>
+        </Panel>
+      </PanelGroup>
 
-      {/* Content Area - Collection Browser (unified hierarchical tree view) */}
-      <div className="flex-1 overflow-hidden">
-        <SemanticSearchProvider
-          {...(semanticSearchExecutor ? { searchExecutor: semanticSearchExecutor } : {})}
-        >
-          <CollectionBrowserView
-            activeCollectionId={activeCollectionId}
-            chunks={chunks}
-            embeddingSets={embeddingSets}
-            height="100%"
-            isLoading={embeddingSetsLoading || refreshing}
-            pendingChunkIds={pendingChunkIds}
-            records={records}
-          />
-        </SemanticSearchProvider>
-      </div>
+      {/* Clear Database Dialog - triggered from Import Settings */}
+      <ClearDatabaseDialog
+        chunks={chunks}
+        clearing={clearing}
+        onClear={handleClearDatabase}
+        records={records}
+        setShowClearDialog={setShowClearDialog}
+        showClearDialog={showClearDialog}
+      />
 
       {/* Create Collection Dialog */}
       {createCollectionOpen && (

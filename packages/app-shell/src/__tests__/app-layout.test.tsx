@@ -50,8 +50,20 @@ vi.mock('@brainstrike/ui', () => ({
     </div>
   ),
   ThemeToggle: () => <div data-testid="theme-toggle" />,
-  StatusBar: ({ leftContent }: { leftContent?: React.ReactNode }) => (
-    <div data-testid="status-bar">{leftContent}</div>
+  StatusBar: ({
+    leftContent,
+    centerContent,
+    rightContent,
+  }: {
+    leftContent?: React.ReactNode;
+    centerContent?: React.ReactNode;
+    rightContent?: React.ReactNode;
+  }) => (
+    <div data-testid="status-bar">
+      <div data-testid="status-bar-left">{leftContent}</div>
+      <div data-testid="status-bar-center">{centerContent}</div>
+      <div data-testid="status-bar-right">{rightContent}</div>
+    </div>
   ),
   // biome-ignore lint/style/useReactFunctionComponents: Class component needed for ErrorBoundary mock
   ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {
@@ -64,6 +76,7 @@ vi.mock('@brainstrike/ui', () => ({
 // Mock the status items
 vi.mock('../status-items', () => ({
   DatabaseStatusItem: () => <div data-testid="database-status-item">DB Status</div>,
+  QueueStatusItem: () => <div data-testid="queue-status-item">Queue Status</div>,
 }));
 
 // Mock the file-explorer-hooks package
@@ -104,6 +117,7 @@ describe('AppLayout', () => {
     );
     expect(screen.getByTestId('status-bar')).toBeInTheDocument();
     expect(screen.getByTestId('database-status-item')).toBeInTheDocument();
+    expect(screen.getByTestId('queue-status-item')).toBeInTheDocument();
   });
 
   it('should pass correct props to NavigationSidebar', () => {
