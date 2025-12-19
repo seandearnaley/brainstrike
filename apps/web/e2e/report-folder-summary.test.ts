@@ -74,9 +74,9 @@ test.describe('Report Folder Summary Threshold', () => {
     expect(content1).not.toContain('file6.ts');
 
     // Enable Include Project Tree to access the threshold setting in the footer
-    const includeTreeCheckbox = page.getByRole('checkbox', { name: 'Include Project Tree' });
-    await includeTreeCheckbox.click();
-    await expect(includeTreeCheckbox).toBeChecked();
+    const includeTreeSwitch = page.getByRole('switch', { name: 'Include Project Tree' });
+    await includeTreeSwitch.click();
+    await expect(includeTreeSwitch).toBeChecked();
 
     // Change threshold to 2 via the footer input (now visible since tree is included)
     const thresholdInput = page.locator('#folder-summary-threshold-footer');
