@@ -152,9 +152,7 @@ export const TokenBudgetControl = memo<TokenBudgetControlProps>(function TokenBu
     >
       <Target className="size-3.5 text-muted-foreground" />
       <span className="font-medium tabular-nums">{displayValue}</span>
-      {isEditable && (
-        <Pencil className="size-3 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
-      )}
+      {isEditable && <Pencil className="size-3 text-muted-foreground" />}
     </button>
   );
 

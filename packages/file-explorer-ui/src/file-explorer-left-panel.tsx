@@ -106,6 +106,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     currentFolderId,
     setCurrentFolderId,
     maxSelectionCount,
+    setMaxSelectionCount,
     devInlineFixtureEnabled,
     setDevInlineFixtureEnabled,
     setRootDirectoryHandle,
@@ -118,6 +119,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.currentFolderId,
         s.setCurrentFolderId,
         s.maxSelectionCount,
+        s.setMaxSelectionCount,
         s.devInlineFixtureEnabled,
         s.setDevInlineFixtureEnabled,
         s.setRootDirectoryHandle,
@@ -477,6 +479,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             maxSelectionCount={maxSelectionCount}
             onDirectorySelect={handleDirectorySelect}
             onFilterChange={handleFilterChange}
+            onMaxSelectionCountChange={setMaxSelectionCount}
             quickFilter={quickFilter}
             rootDirectoryHandle={rootDirectoryHandle}
             selectedCount={safeSelectedFilesList.length}
