@@ -13,7 +13,15 @@ import {
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { RotateCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  type Dispatch,
+  type ReactElement,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 
 type QueueStats = {
   queue: string;
@@ -29,6 +37,23 @@ type QueueHudVariant = 'card' | 'status-bar';
 type QueueHudProps = {
   variant?: QueueHudVariant;
 };
+
+type QueueMetrics = {
+  queued: number;
+  running: number;
+  failed: number;
+  succeeded: number;
+  nextRunnableAt?: string | null;
+};
+
+type QueueHudViewProps = {
+  metrics: QueueMetrics;
+  retryDisabled: boolean;
+  retryLabel: string;
+  onRetry: () => Promise<void>;
+};
+
+type ToastFn = ReturnType<typeof useToast>['toast'];
 
 const logger = createLogger('QueueHud');
 
@@ -50,18 +75,30 @@ function isQueueEnabled(): boolean {
   }
 }
 
-export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
-  // Compute flag without hooks to avoid initializing DB when disabled
-  const enabled = isQueueEnabled();
+function getQueueMetrics(stats: QueueStats[] | null): QueueMetrics {
+  const s = stats?.[0];
+  return {
+    queued: s?.queued ?? 0,
+    running: s?.running ?? 0,
+    failed: s?.failed ?? 0,
+    succeeded: s?.succeeded ?? 0,
+    nextRunnableAt: s?.nextRunnableAt ?? null,
+  };
+}
 
-  const db = usePGliteDatabase();
-  const { toast } = useToast();
+function getRetryLabel(failed: number): string {
+  if (failed <= 0) {
+    return 'Retry failed jobs';
+  }
+
+  return `Retry ${failed} failed job${failed === 1 ? '' : 's'}`;
+}
+
+function useQueueStats(
+  jobQueue: JobQueue | null,
+  shouldPoll: boolean
+): [QueueStats[] | null, Dispatch<SetStateAction<QueueStats[] | null>>] {
   const [stats, setStats] = useState<QueueStats[] | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);
-  const nodeEnv = typeof process !== 'undefined' ? process.env?.['NODE_ENV'] : undefined;
-  const shouldPoll = typeof window !== 'undefined' && nodeEnv !== 'test';
 
   useEffect(() => {
     if (!jobQueue) {
@@ -94,18 +131,17 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
     };
   }, [jobQueue, shouldPoll]);
 
-  const s = stats?.[0];
-  if (!enabled) {
-    return null;
-  }
+  return [stats, setStats];
+}
 
-  const queued = s?.queued ?? 0;
-  const running = s?.running ?? 0;
-  const failed = s?.failed ?? 0;
-  const succeeded = s?.succeeded ?? 0;
-  const retryDisabled = busy || !jobQueue || failed === 0;
+function useQueueRetry(
+  jobQueue: JobQueue | null,
+  setStats: Dispatch<SetStateAction<QueueStats[] | null>>,
+  toast: ToastFn
+): { busy: boolean; handleRetry: () => Promise<void> } {
+  const [busy, setBusy] = useState(false);
 
-  const handleRetry = async (): Promise<void> => {
+  const handleRetry = useCallback(async (): Promise<void> => {
     if (!jobQueue) {
       return;
     }
@@ -125,78 +161,96 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
     } finally {
       setBusy(false);
     }
-  };
+  }, [jobQueue, setStats, toast]);
 
-  if (variant === 'status-bar') {
-    return (
-      <div className="flex items-center gap-2 text-[10px]" data-testid="status-bar-queue">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            {/* biome-ignore lint/a11y/useSemanticElements: Status text isn't a form calculation result. */}
-            <div
-              aria-label={`Embedding queue: ${queued} queued, ${running} running, ${failed} failed, ${succeeded} succeeded`}
-              aria-live="polite"
-              className="flex items-center gap-2 rounded px-1 py-0.5 text-[10px] text-muted-foreground"
-              role="status"
-            >
-              <span className="font-medium text-foreground">Queue</span>
-              <span className="flex items-center gap-1">
-                <span>Q</span>
-                <span className="font-semibold text-foreground">{queued}</span>
+  return { busy, handleRetry };
+}
+
+function QueueHudStatusBar({
+  metrics,
+  retryDisabled,
+  retryLabel,
+  onRetry,
+}: QueueHudViewProps): ReactElement {
+  const { queued, running, failed, succeeded, nextRunnableAt } = metrics;
+
+  return (
+    <div className="flex items-center gap-2 text-[10px]" data-testid="status-bar-queue">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          {/* biome-ignore lint/a11y/useSemanticElements: Status text isn't a form calculation result. */}
+          <div
+            aria-label={`Embedding queue: ${queued} queued, ${running} running, ${failed} failed, ${succeeded} succeeded`}
+            aria-live="polite"
+            className="flex items-center gap-2 rounded px-1 py-0.5 text-[10px] text-muted-foreground"
+            role="status"
+          >
+            <span className="font-medium text-foreground">Queue</span>
+            <span className="flex items-center gap-1">
+              <span>Q</span>
+              <span className="font-semibold text-foreground">{queued}</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span>R</span>
+              <span className="font-semibold text-foreground">{running}</span>
+            </span>
+            <span className="flex items-center gap-1">
+              <span>F</span>
+              <span
+                className={`font-semibold ${failed > 0 ? 'text-destructive' : 'text-foreground'}`}
+              >
+                {failed}
               </span>
-              <span className="flex items-center gap-1">
-                <span>R</span>
-                <span className="font-semibold text-foreground">{running}</span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span>F</span>
-                <span
-                  className={`font-semibold ${failed > 0 ? 'text-destructive' : 'text-foreground'}`}
-                >
-                  {failed}
-                </span>
-              </span>
-              <span className="flex items-center gap-1">
-                <span>OK</span>
-                <span className="font-semibold text-foreground">{succeeded}</span>
-              </span>
-            </div>
-          </TooltipTrigger>
-          <TooltipContent side="top" sideOffset={6}>
-            <div className="space-y-1 text-xs">
-              <div className="font-medium">Embedding queue</div>
-              <div>Queued: {queued}</div>
-              <div>Running: {running}</div>
-              <div>Failed: {failed}</div>
-              <div>Success: {succeeded}</div>
-              {s?.nextRunnableAt && (
-                <div>
-                  Next: <span className="font-mono">{s.nextRunnableAt}</span>
-                </div>
-              )}
-            </div>
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              aria-label="Retry failed jobs"
-              className="h-5 w-5 p-0"
-              disabled={retryDisabled}
-              onClick={handleRetry}
-              size="sm"
-              variant="ghost"
-            >
-              <RotateCw className="h-3 w-3" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="top" sideOffset={6}>
-            Retry failed jobs
-          </TooltipContent>
-        </Tooltip>
-      </div>
-    );
-  }
+            </span>
+            <span className="flex items-center gap-1">
+              <span>OK</span>
+              <span className="font-semibold text-foreground">{succeeded}</span>
+            </span>
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="top" sideOffset={6}>
+          <div className="space-y-1 text-xs">
+            <div className="font-medium">Embedding queue</div>
+            <div>Queued: {queued}</div>
+            <div>Running: {running}</div>
+            <div>Failed: {failed}</div>
+            <div>Success: {succeeded}</div>
+            {nextRunnableAt && (
+              <div>
+                Next: <span className="font-mono">{nextRunnableAt}</span>
+              </div>
+            )}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            aria-label={retryLabel}
+            className="h-5 w-5 p-0"
+            disabled={retryDisabled}
+            onClick={onRetry}
+            size="sm"
+            variant="ghost"
+          >
+            <RotateCw className="h-3 w-3" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="top" sideOffset={6}>
+          Retry failed jobs
+        </TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
+function QueueHudCard({
+  metrics,
+  retryDisabled,
+  retryLabel,
+  onRetry,
+}: QueueHudViewProps): ReactElement {
+  const { queued, running, failed, succeeded, nextRunnableAt } = metrics;
 
   return (
     <Card>
@@ -209,10 +263,10 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
             </Badge>
           </div>
           <Button
-            aria-label="Retry failed jobs"
+            aria-label={retryLabel}
             className="h-5 px-2 text-[10px]"
             disabled={retryDisabled}
-            onClick={handleRetry}
+            onClick={onRetry}
             size="sm"
             variant="outline"
           >
@@ -241,12 +295,51 @@ export function QueueHud({ variant = 'card' }: QueueHudProps = {}) {
             </div>
           </div>
         </div>
-        {s?.nextRunnableAt && (
+        {nextRunnableAt && (
           <div className="mt-2 border-t pt-2 text-[9px] text-muted-foreground">
-            Next: <span className="font-mono">{s.nextRunnableAt}</span>
+            Next: <span className="font-mono">{nextRunnableAt}</span>
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+export function QueueHud({ variant = 'card' }: QueueHudProps = {}): ReactElement | null {
+  // Compute flag without hooks to avoid initializing DB when disabled
+  const enabled = isQueueEnabled();
+
+  const db = usePGliteDatabase();
+  const { toast } = useToast();
+
+  const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);
+  const nodeEnv = typeof process !== 'undefined' ? process.env?.['NODE_ENV'] : undefined;
+  const shouldPoll = typeof window !== 'undefined' && nodeEnv !== 'test';
+
+  const [stats, setStats] = useQueueStats(jobQueue, shouldPoll);
+  const { busy, handleRetry } = useQueueRetry(jobQueue, setStats, toast);
+  const metrics = getQueueMetrics(stats);
+
+  if (!enabled) {
+    return null;
+  }
+
+  const retryDisabled = busy || !jobQueue || metrics.failed === 0;
+  const retryLabel = getRetryLabel(metrics.failed);
+
+  return variant === 'status-bar' ? (
+    <QueueHudStatusBar
+      metrics={metrics}
+      onRetry={handleRetry}
+      retryDisabled={retryDisabled}
+      retryLabel={retryLabel}
+    />
+  ) : (
+    <QueueHudCard
+      metrics={metrics}
+      onRetry={handleRetry}
+      retryDisabled={retryDisabled}
+      retryLabel={retryLabel}
+    />
   );
 }

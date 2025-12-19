@@ -90,7 +90,7 @@ pnpm install -D @vitest/browser-webdriver
 
 ### Configuration
 
-Create or update `vitest.config.ts` in affected packages:
+Create or update `vitest.config.mts` in affected packages:
 
 ```typescript
 import { defineConfig } from 'vitest/config';
@@ -178,7 +178,7 @@ Begin with tests that are currently disabled/mocked:
 
 For BrainStrike's Turborepo structure:
 
-- **Per-Package Configuration:** Each package can have its own `vitest.config.ts`
+- **Per-Package Configuration:** Each package can have its own `vitest.config.mts`
 - **Shared Configuration:** Consider shared base config in `packages/config`
 - **Turbo Integration:** Ensure `pnpm turbo run test:browser` works correctly
 - **Cache Management:** Browser mode may interact with Turborepo caching differently
@@ -187,15 +187,15 @@ For BrainStrike's Turborepo structure:
 ```
 packages/
 ├── db/
-│   └── vitest.config.ts          # Browser mode for WASM/IndexedDB tests
+│   └── vitest.config.mts          # Browser mode for WASM/IndexedDB tests
 ├── queue/
-│   └── vitest.config.ts          # Browser mode for IndexedDB tests
+│   └── vitest.config.mts          # Browser mode for IndexedDB tests
 ├── storage/
-│   └── vitest.config.ts          # Browser mode for storage tests
+│   └── vitest.config.mts          # Browser mode for storage tests
 ├── ui/
-│   └── vitest.config.ts          # Browser mode for visual regression
+│   └── vitest.config.mts          # Browser mode for visual regression
 └── hooks/
-    └── vitest.config.ts          # jsdom for hook logic (no browser APIs needed)
+    └── vitest.config.mts          # jsdom for hook logic (no browser APIs needed)
 ```
 
 ### 2. **Mixed Test Environments**

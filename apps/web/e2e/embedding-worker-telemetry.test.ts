@@ -25,6 +25,6 @@ test.describe('Embedding Worker Telemetry', () => {
 
     const queueStatus = page.getByTestId('status-bar-queue');
     await expect(queueStatus).toBeVisible();
-    await expect(queueStatus.getByRole('button', { name: 'Retry failed jobs' })).toBeVisible();
+    await expect(queueStatus.getByRole('button', { name: /retry/i })).toBeVisible();
   });
 });

@@ -477,7 +477,7 @@ pnpm test:coverage
 ### From Jest to Vitest
 
 1. **Update Configuration**
-   - Replace `jest.config.js` with `vitest.config.ts`
+   - Replace `jest.config.js` with `vitest.config.mts`
    - Update test scripts in `package.json`
 
 2. **Update Imports**

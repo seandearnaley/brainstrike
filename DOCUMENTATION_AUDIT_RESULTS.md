@@ -86,13 +86,13 @@ All errors have been corrected.
 
 **Actual File**: 
 ```
-vitest.config.ts (exists in root)
+vitest.config.mts (exists in root)
 vitest.workspace.ts (does NOT exist)
 ```
 
 **Fixed to**:
 ```markdown
-- **Vitest** is used for unit/integration tests (see `vitest.config.ts`). Supports both jsdom and browser environments for comprehensive testing coverage.
+- **Vitest** is used for unit/integration tests (see `vitest.config.mts`). Supports both jsdom and browser environments for comprehensive testing coverage.
 ```
 
 **Rationale**: The root vitest configuration uses the modern `test.projects` API (which it documents as replacing separate workspace files). The reference was pointing to a non-existent file.
@@ -337,7 +337,7 @@ First Round (4 fixes):
 - Update Vitest version from 3.2.4 to 4.0.14 in docs/onboarding.md
 - Add browser mode testing support to Vitest description
 - Update E2E test paths to include apps/desktop/e2e
-- Fix vitest.workspace.ts reference to vitest.config.ts
+- Fix vitest.workspace.ts reference to vitest.config.mts
 
 Second Round (6 fixes):
 - Update CLAUDE.md package count from 27 to 28

@@ -77,7 +77,7 @@ This project utilizes a modern stack focused on performance, type safety, and de
   - **React Router**: Handles client-side routing. (Setup likely in `apps/web/src/main.tsx` or similar)
   - **`react-helmet-async`**: Manages document head elements (`<title>`, `<meta>`).
 - **Testing**:
-  - **Vitest `^4.0.14`**: Fast unit and integration testing framework with browser mode support via Playwright, configured for the workspace. ([`vitest.config.ts`](./vitest.config.ts))
+  - **Vitest `^4.0.14`**: Fast unit and integration testing framework with browser mode support via Playwright, configured for the workspace. ([`vitest.config.mts`](./vitest.config.mts))
   - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` and `apps/desktop` directories. (See `apps/web/e2e/` and `apps/desktop/e2e/`). See [docs/playwright-ci-optimization.md](./docs/playwright-ci-optimization.md) for our current Playwright guidance.
   - **NYC `17.1.0`**: Generates code coverage reports.
 - **Code Quality & Formatting**:

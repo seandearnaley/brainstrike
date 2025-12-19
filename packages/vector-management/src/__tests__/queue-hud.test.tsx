@@ -129,7 +129,7 @@ describe('QueueHud', () => {
       expect(screen.getByText('3')).toBeInTheDocument();
     });
 
-    const retryButton = screen.getByRole('button', { name: /retry failed/i });
+    const retryButton = screen.getByRole('button', { name: 'Retry 3 failed jobs' });
     expect(retryButton).not.toBeDisabled();
 
     await user.click(retryButton);
@@ -159,7 +159,7 @@ describe('QueueHud', () => {
       expect(screen.getByText('5')).toBeInTheDocument();
     });
 
-    const retryButton = screen.getByRole('button', { name: /retry failed/i });
+    const retryButton = screen.getByRole('button', { name: 'Retry failed jobs' });
     expect(retryButton).toBeDisabled();
   });
 
@@ -168,7 +168,7 @@ describe('QueueHud', () => {
 
     render(<QueueHud />);
 
-    const retryButton = screen.getByRole('button', { name: /retry failed/i });
+    const retryButton = screen.getByRole('button', { name: 'Retry failed jobs' });
     expect(retryButton).toBeDisabled();
   });
 
@@ -295,7 +295,7 @@ describe('QueueHud', () => {
       expect(screen.getByText('3')).toBeInTheDocument();
     });
 
-    const retryButton = screen.getByRole('button', { name: /retry failed/i });
+    const retryButton = screen.getByRole('button', { name: /retry 3 failed jobs/i });
     expect(retryButton).not.toBeDisabled();
 
     // Start the retry operation
@@ -414,7 +414,7 @@ describe('QueueHud', () => {
 
     renderStatusBar();
 
-    const retryButton = await screen.findByRole('button', { name: /retry failed jobs/i });
+    const retryButton = await screen.findByRole('button', { name: 'Retry 2 failed jobs' });
     expect(retryButton).not.toBeDisabled();
 
     await user.click(retryButton);
