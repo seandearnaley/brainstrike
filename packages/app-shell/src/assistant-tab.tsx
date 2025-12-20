@@ -1,4 +1,3 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import React, { lazy, type ReactElement } from 'react';
 import { useAssistantAvailability } from './hooks/use-assistant-availability';
 import { McpBanner } from './mcp-banner';
@@ -11,14 +10,14 @@ export function AssistantTab(): ReactElement {
   const status = useAssistantAvailability();
 
   return (
-    <Card className="flex h-full flex-col overflow-hidden" data-testid="assistant-chat-card">
-      <CardHeader className="flex-shrink-0 pb-3">
-        <CardTitle className="text-sm">Assistant</CardTitle>
-        <CardDescription className="text-xs">
+    <div className="flex h-full flex-col overflow-hidden" data-testid="assistant-chat-card">
+      <div className="flex flex-shrink-0 flex-col space-y-1.5 px-4 py-3">
+        <h3 className="font-semibold text-sm leading-none tracking-tight">Assistant</h3>
+        <p className="text-muted-foreground text-xs">
           Chat with the Brainstrike assistant for guidance while editing props.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+        </p>
+      </div>
+      <div className="flex min-h-0 flex-1 flex-col p-0">
         {status.state === 'loading' && (
           <div className="p-4 text-xs opacity-70">Checking assistant availability…</div>
         )}
@@ -54,8 +53,8 @@ export function AssistantTab(): ReactElement {
             </React.Suspense>
           </>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
 

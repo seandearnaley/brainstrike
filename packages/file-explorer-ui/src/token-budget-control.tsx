@@ -68,7 +68,6 @@ const BUDGET_PRESETS = [
 export type TokenBudgetControlProps = {
   budget?: number;
   onBudgetChange?: ((budget: number) => void) | undefined;
-  /** Compact mode for smaller layouts */
   compact?: boolean;
 };
 
@@ -138,8 +137,6 @@ export const TokenBudgetControl = memo<TokenBudgetControlProps>(function TokenBu
     return 'Click to edit token budget';
   }, [isEditable]);
 
-  const displayValue = compact ? formatBudgetCompact(budget) : formatBudget(budget);
-
   const triggerButton = (
     <button
       aria-label={tooltipLabel}
@@ -151,7 +148,18 @@ export const TokenBudgetControl = memo<TokenBudgetControlProps>(function TokenBu
       type="button"
     >
       <Target className="size-3.5 text-muted-foreground" />
-      <span className="font-medium tabular-nums">{displayValue}</span>
+      {compact ? (
+        <span className="font-medium tabular-nums">{formatBudgetCompact(budget)}</span>
+      ) : (
+        <>
+          <span className="@[600px]:inline hidden font-medium tabular-nums">
+            {formatBudget(budget)}
+          </span>
+          <span className="inline @[600px]:hidden font-medium tabular-nums">
+            {formatBudgetCompact(budget)}
+          </span>
+        </>
+      )}
       {isEditable && <Pencil className="size-3 text-muted-foreground" />}
     </button>
   );

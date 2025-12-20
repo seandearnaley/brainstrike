@@ -314,7 +314,7 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     } = props;
 
     return (
-      <div className="flex flex-shrink-0 flex-col gap-2 border-t bg-background p-3">
+      <div className="@container flex flex-shrink-0 flex-col gap-2 border-t bg-background p-3">
         {/* Row 1: Token visualization and stats */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Token Meter - compact radial visualization */}
@@ -347,30 +347,44 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           <TokenBudgetControl budget={tokenUsage.budget} onBudgetChange={onTokenBudgetChange} />
 
           {/* Visual separator */}
-          {onIncludeProjectTreeChange && <div aria-hidden className="h-6 w-px bg-border" />}
+          {onIncludeProjectTreeChange && (
+            <div aria-hidden className="@[450px]:block hidden h-6 w-px bg-border" />
+          )}
 
           {/* Include Project Tree toggle */}
           {onIncludeProjectTreeChange && (
-            <IncludeProjectTreeSetting
-              checked={includeProjectTree}
-              onChange={onIncludeProjectTreeChange}
-            />
+            <div className="flex items-center gap-2">
+              <TooltipProvider delayDuration={400}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2">
+                      <IncludeProjectTreeSetting
+                        checked={includeProjectTree}
+                        onChange={onIncludeProjectTreeChange}
+                      />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>Include project tree in the context</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           )}
 
           {/* Folder Summary Threshold - only show when tree is included and handler exists */}
           {includeProjectTree && onFolderSummaryThresholdChange && (
             <>
-              <div aria-hidden className="h-6 w-px bg-border" />
+              <div aria-hidden className="@[650px]:block hidden h-6 w-px bg-border" />
               <div className="flex items-center gap-2">
                 <label
                   className="whitespace-nowrap text-muted-foreground text-xs"
                   htmlFor="folder-summary-threshold-footer"
                   title="Number of files shown per folder in the project tree before summarizing. Set to 0 to show all."
                 >
-                  Tree detail:
+                  <span className="@[700px]:inline hidden">Tree detail:</span>
+                  <span className="@[500px]:inline @[700px]:hidden hidden">Detail:</span>
                 </label>
                 <input
-                  className="h-7 w-14 rounded-md border border-input bg-background px-2 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="h-7 @[500px]:w-14 w-12 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   id="folder-summary-threshold-footer"
                   min="0"
                   onChange={(e) => {
@@ -388,40 +402,56 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           )}
 
           {/* Spacer to push report buttons to the right */}
-          <div className="flex-1" />
+          <div className="@[850px]:block hidden flex-1" />
 
           {/* Report action buttons */}
           <div className="flex flex-wrap items-center gap-2">
-            {onDownloadReport && (
-              <Button
-                aria-label={
-                  selectedFilesCount === 0
-                    ? 'Download Report (no files selected)'
-                    : 'Download Report'
-                }
-                disabled={selectedFilesCount === 0}
-                onClick={onDownloadReport}
-                size="sm"
-                variant="outline"
-              >
-                <Download className="mr-1 size-3.5" />
-                Download Report
-              </Button>
-            )}
-            {onCopyReport && (
-              <Button
-                aria-label={
-                  selectedFilesCount === 0 ? 'Copy Report (no files selected)' : 'Copy Report'
-                }
-                disabled={selectedFilesCount === 0}
-                onClick={onCopyReport}
-                size="sm"
-                variant="outline"
-              >
-                <FileText className="mr-1 size-3.5" />
-                Copy Report
-              </Button>
-            )}
+            <TooltipProvider delayDuration={400}>
+              {onDownloadReport && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      aria-label={
+                        selectedFilesCount === 0
+                          ? 'Download Report (no files selected)'
+                          : 'Download Report'
+                      }
+                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      disabled={selectedFilesCount === 0}
+                      onClick={onDownloadReport}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Download className="@[600px]:mr-2 size-3.5" />
+                      <span className="@[700px]:inline hidden">Download Report</span>
+                      <span className="@[500px]:inline @[700px]:hidden hidden">Download</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Download report as file</TooltipContent>
+                </Tooltip>
+              )}
+              {onCopyReport && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      aria-label={
+                        selectedFilesCount === 0 ? 'Copy Report (no files selected)' : 'Copy Report'
+                      }
+                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      disabled={selectedFilesCount === 0}
+                      onClick={onCopyReport}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <FileText className="@[600px]:mr-2 size-3.5" />
+                      <span className="@[700px]:inline hidden">Copy Report</span>
+                      <span className="@[500px]:inline @[700px]:hidden hidden">Copy</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Copy report to clipboard</TooltipContent>
+                </Tooltip>
+              )}
+            </TooltipProvider>
           </div>
         </div>
       </div>

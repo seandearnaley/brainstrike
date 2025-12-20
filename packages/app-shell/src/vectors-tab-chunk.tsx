@@ -29,7 +29,7 @@ type VectorsTabProps = {
  */
 export function VectorsTab({ embeddingQueue = null }: VectorsTabProps): React.ReactElement {
   return (
-    <div className="space-y-3">
+    <div className="flex h-full flex-col space-y-3 px-4 py-3">
       <div className="text-muted-foreground text-xs">
         Manage embedding sets, worker status, and queue health for your active collections.
       </div>

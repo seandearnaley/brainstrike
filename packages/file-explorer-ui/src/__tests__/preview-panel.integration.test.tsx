@@ -402,6 +402,8 @@ vi.mock('lucide-react', () => ({
   TreePine: () => <div data-testid="tree-pine" />,
   Layers: () => <div data-testid="layers" />,
   Files: () => <div data-testid="files" />,
+  CheckSquare: () => <div data-testid="check-square" />,
+  RotateCcw: () => <div data-testid="rotate-ccw" />,
 }));
 
 describe('PreviewPanel Integration Tests', () => {
@@ -579,7 +581,7 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Select all files globally
-      const selectAllButton = screen.getByText(/Select All \(200\)/);
+      const selectAllButton = screen.getByRole('button', { name: /Select All \(200\)/ });
       act(() => {
         fireEvent.click(selectAllButton);
       });

@@ -469,10 +469,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           </div>
         </Panel>
 
-        <PanelResizeHandle className="h-1 bg-border/60 transition-colors hover:bg-border" />
+        <PanelResizeHandle className="h-1 bg-border transition-colors hover:bg-border/80" />
 
         <Panel className="min-h-0" defaultSize={62} minSize={30}>
-          <div className="flex h-full min-h-0 flex-col overflow-hidden">
+          <div className="flex h-full min-h-0 flex-col overflow-hidden border-border border-t">
             <SemanticSearchProvider
               {...(semanticSearchExecutor ? { searchExecutor: semanticSearchExecutor } : {})}
             >
