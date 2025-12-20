@@ -1,4 +1,5 @@
-import { renderToStaticMarkup } from 'react-dom/server';
+import { render, screen, waitFor } from '@testing-library/react';
+import { HelmetProvider } from 'react-helmet-async';
 import { describe, expect, test, vi } from 'vitest';
 import RootLayout from '../layout';
 
@@ -16,34 +17,42 @@ vi.mock('@brainstrike/ui', () => ({
 }));
 
 describe('RootLayout', () => {
-  test('renders with correct structure and meta information', () => {
-    const markup = renderToStaticMarkup(
-      <RootLayout>
-        <div>Test Content</div>
-      </RootLayout>
+  test('renders with correct structure and meta information', async () => {
+    render(
+      <HelmetProvider>
+        <RootLayout>
+          <div>Test Content</div>
+        </RootLayout>
+      </HelmetProvider>
     );
-    const doc = new DOMParser().parseFromString(markup, 'text/html');
 
     // Check for correct title and meta tags
-    expect(doc.title).toBe('BrainStrike.ai');
-    expect(doc.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
-      'Multi-app dashboard'
-    );
+    await waitFor(() => {
+      expect(document.title).toBe('BrainStrike.ai');
+    });
+    await waitFor(() => {
+      expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
+        'Multi-app dashboard'
+      );
+    });
 
     // Check for RouterProvider
-    expect(doc.querySelector('[data-testid="router-provider"]')).not.toBeNull();
-    expect(doc.body.textContent).toContain('Test Content');
+    expect(screen.getByTestId('router-provider')).toBeInTheDocument();
+    expect(screen.getByText('Test Content')).toBeInTheDocument();
   });
 
-  test('renders correctly in the DOM', () => {
-    const markup = renderToStaticMarkup(
-      <RootLayout>
-        <div>Test Content</div>
-      </RootLayout>
+  test('renders correctly in the DOM', async () => {
+    render(
+      <HelmetProvider>
+        <RootLayout>
+          <div>Test Content</div>
+        </RootLayout>
+      </HelmetProvider>
     );
-    const doc = new DOMParser().parseFromString(markup, 'text/html');
 
     // Verify HTML structure
-    expect(doc.documentElement.getAttribute('lang')).toBe('en');
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute('lang')).toBe('en');
+    });
   });
 });
