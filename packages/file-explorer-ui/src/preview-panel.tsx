@@ -33,6 +33,7 @@ import {
   Table as TableIcon,
 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useGroupSelection } from './hooks/use-group-selection';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import IncludeProjectTreeSetting from './include-project-tree-setting';
@@ -1333,7 +1334,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
           value="tapestry"
         >
-          <TapestryView />
+          <FileExplorerErrorBoundary>
+            <TapestryView />
+          </FileExplorerErrorBoundary>
         </TabsContent>
       </Tabs>
 

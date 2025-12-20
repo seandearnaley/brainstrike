@@ -242,7 +242,7 @@ test.describe('Database Persistence', () => {
       await page.waitForTimeout(200);
     }
 
-    const importButton = page.locator('button:has-text("Import")');
+    const importButton = page.locator('button:has-text(/^Import\\s*\\(/)');
     if ((await importButton.isVisible()) && !(await importButton.isDisabled())) {
       await importButton.click();
       await page.waitForTimeout(5000);
@@ -546,7 +546,7 @@ test.describe('Database Persistence', () => {
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
-    await expect(activeWindow.locator('button:has-text("Import")')).toBeVisible();
+    await expect(activeWindow.locator('button:has-text(/^Import\\s*\\(/)')).toBeVisible();
     await activeWindow.click(REFRESH_BUTTON_SELECTOR);
     await activeWindow.waitForTimeout(500);
     await verifyUIFunctionalityAndState(activeWindow);
@@ -602,7 +602,7 @@ test.describe('Database Persistence', () => {
       .textContent();
     expect(relaunchedStatusText).toContain('Storage:');
     expect(relaunchedStatusText).toMatch(/IPC|PGlite/i);
-    await expect(relaunchedWindow.locator('button:has-text("Import")')).toBeVisible();
+    await expect(relaunchedWindow.locator('button:has-text(/^Import\\s*\\(/)')).toBeVisible();
     await expect(
       relaunchedWindow.locator('[data-testid="database-demo-panel"]').first()
     ).toBeVisible();

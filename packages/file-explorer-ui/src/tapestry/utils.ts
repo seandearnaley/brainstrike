@@ -94,13 +94,13 @@ const generateContent = (_lines: number, structure: LineData[]): string[] => {
     const indentStr = '  '.repeat(line.indent);
 
     // Pick a random fragment or make generic code
+    // Note: COMMENTS and CODE_FRAGMENTS are non-empty constant arrays
     if (Math.random() < 0.1) {
-      const comment = COMMENTS[Math.floor(Math.random() * COMMENTS.length)] ?? '// ...';
+      const comment = COMMENTS[Math.floor(Math.random() * COMMENTS.length)] as string;
       return indentStr + comment;
     }
 
-    const fragment =
-      CODE_FRAGMENTS[Math.floor(Math.random() * CODE_FRAGMENTS.length)] ?? 'return null;';
+    const fragment = CODE_FRAGMENTS[Math.floor(Math.random() * CODE_FRAGMENTS.length)] as string;
     // Trim fragment and apply current indent
     return indentStr + fragment.trim();
   });
@@ -146,4 +146,5 @@ const COLORS = [
   '#ec4899', // pink-500
 ];
 
-export const generateColor = (index: number) => COLORS[index % COLORS.length] ?? '#3b82f6';
+// Note: COLORS is a non-empty constant array
+export const generateColor = (index: number) => COLORS[index % COLORS.length] as string;

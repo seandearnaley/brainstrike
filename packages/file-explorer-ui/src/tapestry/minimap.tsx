@@ -89,7 +89,7 @@ const RangeItem = memo(
           handled = true;
           break;
         case 'End':
-          newStartLine = file.totalLines - rangeHeight;
+          newStartLine = Math.max(0, file.totalLines - rangeHeight);
           handled = true;
           break;
         case 'Enter':
