@@ -1,4 +1,5 @@
 import type { BrowserContext, Locator, Page } from '@playwright/test';
+import { waitForAppReady } from './electron-helpers';
 
 /**
  * Layout test utilities for Desktop E2E panel testing
@@ -14,6 +15,7 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
 
   for (let attempt = 0; attempt < 2; attempt++) {
     activePage = await resolveActivePage(activePage);
+    await waitForAppReady(activePage);
     await activePage
       .locator('[data-panel-id="middle-panel"]')
       .waitFor({ state: 'attached', timeout: 10_000 })
@@ -74,6 +76,17 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
       .click()
       .catch((clickError) => {
         console.warn('⚠️ Failed to click database tab:', clickError);
+      });
+    const activeDatabaseTab = rightPanel
+      .locator('[role="tablist"] [role="tab"][data-state="active"]')
+      .filter({ hasText: /db|database/i })
+      .or(rightPanel.locator('button[value="database"][data-state="active"]'))
+      .or(rightPanel.locator('[data-value="database"][data-state="active"]'));
+    await activeDatabaseTab
+      .first()
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .catch(() => {
+        console.warn('⚠️ Database tab did not become active after click.');
       });
 
     // Wait for either the database demo panel OR the database error to be visible
@@ -138,11 +151,12 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
  */
 export async function waitForDatabaseReady(page: Page): Promise<Page> {
   const activePage = await resolveActivePage(page);
+  await waitForAppReady(activePage);
+  const errorPanel = activePage.locator('[data-testid="db-init-error"]');
+  const successPanel = activePage.locator('[data-testid="database-demo-panel"]');
   // Check if we're in error state or success state
-  const hasErrorPanel = await activePage.locator('[data-testid="db-init-error"]').isVisible();
-  const hasSuccessPanel = await activePage
-    .locator('[data-testid="database-demo-panel"]')
-    .isVisible();
+  const hasErrorPanel = await errorPanel.isVisible().catch(() => false);
+  const hasSuccessPanel = await successPanel.isVisible().catch(() => false);
 
   if (hasErrorPanel) {
     console.log('⚠️ Database is in error state - skipping database readiness checks');
@@ -153,17 +167,22 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
     // Wait for the database demo panel to be visible if it's not already
     // We race against the error panel to avoid waiting for timeout if error occurs
     await Promise.race([
-      activePage.locator('[data-testid="database-demo-panel"]').waitFor({
+      successPanel.waitFor({
         state: 'visible',
         timeout: 15_000,
       }),
-      activePage.locator('[data-testid="db-init-error"]').waitFor({
+      errorPanel.waitFor({
         state: 'visible',
         timeout: 15_000,
       }),
     ]).catch(() => {
       // Ignore timeout errors here, we'll check visibility next
     });
+  }
+
+  if (await errorPanel.isVisible().catch(() => false)) {
+    console.log('⚠️ Database entered error state during initialization - skipping readiness checks');
+    return activePage;
   }
 
   // Wait for any loading states to complete
@@ -179,25 +198,57 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
     console.log('⚡ Database loaded quickly or loading indicator not found');
   }
 
-  // Wait for connection status to be ready (either success or failure indicator)
-  // Try multiple approaches to detect database readiness
-  try {
-    await activePage.locator('text=✓').or(activePage.locator('text=✗')).first().waitFor({
-      state: 'visible',
-      timeout: 20_000, // Increased timeout for database initialization
-    });
-  } catch (_error) {
-    console.warn('⚠️ Database status indicator not found, trying alternative detection...');
+  const statusConnected = activePage.locator('[data-testid="status-bar-db-connected"]');
+  const statusDisconnected = activePage.locator('[data-testid="status-bar-db-disconnected"]');
+  const statusLoading = activePage.locator('[data-testid="status-bar-db-loading"]');
+  const refreshButton = activePage.locator('button:has-text("Refresh")');
 
-    // Alternative: wait for any database-related text or UI elements
-    const databaseReady = activePage
-      .locator('text=Database')
-      .or(activePage.locator('text=connected'))
-      .or(activePage.locator('[data-testid="database-content"]'));
-    await databaseReady.first().waitFor({
-      state: 'visible',
-      timeout: 10_000,
-    });
+  // Wait for connection status to be ready (either success or failure indicator)
+  try {
+    await Promise.race([
+      statusConnected.waitFor({ state: 'visible', timeout: 20_000 }),
+      statusDisconnected.waitFor({ state: 'visible', timeout: 20_000 }),
+      statusLoading.waitFor({ state: 'visible', timeout: 20_000 }),
+      refreshButton.waitFor({ state: 'visible', timeout: 20_000 }),
+      errorPanel.waitFor({ state: 'visible', timeout: 20_000 }),
+    ]);
+  } catch (_error) {
+    const bodyText = await activePage
+      .locator('body')
+      .textContent()
+      .catch(() => 'Could not get body text');
+    throw new Error(
+      `Database readiness signals not found (status bar, refresh button, or error). Body snippet: ${bodyText?.slice(0, 300)}`
+    );
+  }
+
+  if (await errorPanel.isVisible().catch(() => false)) {
+    console.log('⚠️ Database is in error state after status check - skipping readiness checks');
+    return activePage;
+  }
+
+  if (await statusLoading.isVisible().catch(() => false)) {
+    try {
+      await Promise.race([
+        statusConnected.waitFor({ state: 'visible', timeout: 20_000 }),
+        statusDisconnected.waitFor({ state: 'visible', timeout: 20_000 }),
+        refreshButton.waitFor({ state: 'visible', timeout: 20_000 }),
+        errorPanel.waitFor({ state: 'visible', timeout: 20_000 }),
+      ]);
+    } catch (_error) {
+      const bodyText = await activePage
+        .locator('body')
+        .textContent()
+        .catch(() => 'Could not get body text');
+      throw new Error(
+        `Database stayed in loading state without resolving (connected/disconnected/refresh). Body snippet: ${bodyText?.slice(0, 300)}`
+      );
+    }
+  }
+
+  if (await errorPanel.isVisible().catch(() => false)) {
+    console.log('⚠️ Database is in error state after loading - skipping readiness checks');
+    return activePage;
   }
 
   // Additional wait to ensure database operations are ready
@@ -207,9 +258,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
 
   // Final check: ensure the panel is interactive
   try {
-    await activePage
-      .locator('button:has-text("Refresh")')
-      .waitFor({ state: 'visible', timeout: 5000 });
+    await refreshButton.waitFor({ state: 'visible', timeout: 5000 });
     console.log('✅ Database panel is ready and interactive');
   } catch (_error) {
     console.warn('⚠️ Refresh button not found, database panel might not be fully loaded');
@@ -456,11 +505,15 @@ function sleep(ms: number): Promise<void> {
 export function getDatabasePanelElements(page: Page) {
   return {
     panel: page.locator('[data-testid="database-demo-panel"]'),
-    importButton: page.locator('button:has-text("Import Selected Files")'),
+    importButton: page.locator('button:has-text("Import")'),
     refreshButton: page.locator('button:has-text("Refresh")'),
     tableRows: page.locator('tbody tr'),
     deleteButtons: page.locator('tbody tr button[title="Remove record"]'),
-    connectionStatus: page.locator('text=✓').or(page.locator('text=✗')).first(),
+    connectionStatus: page
+      .locator('[data-testid="status-bar-db-connected"]')
+      .or(page.locator('[data-testid="status-bar-db-disconnected"]'))
+      .or(page.locator('[data-testid="status-bar-db-loading"]'))
+      .first(),
     storageInfo: page.locator('text=NodeFS:').or(page.locator('text=IndexedDB')),
   };
 }

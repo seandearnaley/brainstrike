@@ -21,6 +21,36 @@ const mockUsePreviewPanelState = vi.mocked(
   await import('../use-preview-panel-state')
 ).usePreviewPanelState;
 
+type TabsContextValue = {
+  value?: string;
+  onValueChange?: (value: string) => void;
+};
+
+type TabsProps = {
+  children: React.ReactNode;
+  value?: string;
+  defaultValue?: string;
+  onValueChange?: (value: string) => void;
+  [key: string]: unknown;
+};
+
+type TabsTriggerProps = {
+  children: React.ReactNode;
+  value: string;
+  disabled?: boolean;
+  onClick?: () => void;
+  [key: string]: unknown;
+};
+
+type TabsContentProps = {
+  children: React.ReactNode;
+  value: string;
+  forceMount?: boolean;
+  [key: string]: unknown;
+};
+
+const TabsContext = React.createContext<TabsContextValue | null>(null);
+
 // Mock UI component types
 type MockBadgeProps = {
   children: React.ReactNode;
@@ -105,7 +135,7 @@ vi.mock('@brainstrike/ui', () => ({
   Popover: ({
     children,
     open,
-    onOpenChange,
+    onOpenChange: _onOpenChange,
     ...props
   }: {
     children: React.ReactNode;
@@ -324,6 +354,78 @@ vi.mock('@brainstrike/ui', () => ({
       </td>
     </tr>
   ),
+  Tabs: ({ children, value, defaultValue, onValueChange, ...props }: TabsProps) => {
+    const [internalValue, setInternalValue] = React.useState<string | undefined>(defaultValue);
+    const isControlled = value !== undefined;
+    const activeValue = isControlled ? value : internalValue;
+
+    const handleValueChange = (nextValue: string) => {
+      if (!isControlled) {
+        setInternalValue(nextValue);
+      }
+      onValueChange?.(nextValue);
+    };
+
+    const contextValue: TabsContextValue =
+      activeValue === undefined
+        ? { onValueChange: handleValueChange }
+        : { value: activeValue, onValueChange: handleValueChange };
+
+    return (
+      <TabsContext.Provider value={contextValue}>
+        <div data-testid="tabs" {...props}>
+          {children}
+        </div>
+      </TabsContext.Provider>
+    );
+  },
+  TabsList: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
+    <div data-testid="tabs-list" role="tablist" {...props}>
+      {children}
+    </div>
+  ),
+  TabsTrigger: ({ children, value, disabled, onClick, ...props }: TabsTriggerProps) => {
+    const context = React.useContext(TabsContext);
+    const isActive = context?.value === value;
+
+    const handleClick = () => {
+      context?.onValueChange?.(value);
+      onClick?.();
+    };
+
+    return (
+      <button
+        aria-selected={isActive}
+        data-state={isActive ? 'active' : 'inactive'}
+        disabled={disabled}
+        onClick={handleClick}
+        role="tab"
+        type="button"
+        {...props}
+      >
+        {children}
+      </button>
+    );
+  },
+  TabsContent: ({ children, value, forceMount, ...props }: TabsContentProps) => {
+    const context = React.useContext(TabsContext);
+    const isActive = context?.value === value;
+
+    if (!(isActive || forceMount)) {
+      return null;
+    }
+
+    return (
+      <div
+        data-state={isActive ? 'active' : 'inactive'}
+        hidden={!isActive}
+        role="tabpanel"
+        {...props}
+      >
+        {children}
+      </div>
+    );
+  },
 }));
 
 // Mock hooks with React state
@@ -403,7 +505,9 @@ vi.mock('lucide-react', () => ({
   Layers: () => <div data-testid="layers" />,
   Files: () => <div data-testid="files" />,
   CheckSquare: () => <div data-testid="check-square" />,
+  LayoutGrid: () => <div data-testid="layout-grid" />,
   RotateCcw: () => <div data-testid="rotate-ccw" />,
+  Table: () => <div data-testid="table" />,
 }));
 
 describe('PreviewPanel Integration Tests', () => {

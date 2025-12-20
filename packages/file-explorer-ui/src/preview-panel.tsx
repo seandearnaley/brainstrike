@@ -9,6 +9,10 @@ import {
   SortableTableHeader,
   TableGroupHeader,
   TablePagination,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Tooltip,
   TooltipContent,
   TooltipProvider,
@@ -22,15 +26,18 @@ import {
   FileText,
   FileX2,
   FolderOpen,
+  LayoutGrid,
   Maximize2,
   Minimize2,
   RotateCcw,
+  Table as TableIcon,
 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import IncludeProjectTreeSetting from './include-project-tree-setting';
 import { PreviewTableRow } from './preview-table-row';
+import { TapestryView } from './tapestry/tapestry-view';
 import { TokenBudgetControl } from './token-budget-control';
 import { TokenMeter } from './token-meter';
 import { TokenSummaryBar } from './token-summary-bar';
@@ -829,6 +836,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     migrateGroupingConfig(getStoredValue(storageKey, 'groupingConfig', 'none'))
   );
 
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    getStoredValue(storageKey, 'activeTab', 'table')
+  );
+
   const effectiveColumnVisibility = useMemo(() => {
     // Avoid redundant "Folder" column when grouping by directory or root folder (group headers already show it).
     if (groupingConfig === 'directory' || groupingConfig === 'rootFolder') {
@@ -851,6 +862,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           sortField,
           sortDirection,
           groupingConfig,
+          activeTab,
           collapsedGroups: Array.from(collapsedGroups),
         };
         localStorage.setItem(storageKey, JSON.stringify(settings));
@@ -862,7 +874,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }, 250);
 
     return () => clearTimeout(timeoutId);
-  }, [columnVisibility, sortField, sortDirection, groupingConfig, collapsedGroups]);
+  }, [columnVisibility, sortField, sortDirection, groupingConfig, collapsedGroups, activeTab]);
 
   const state = usePreviewPanelState({
     selectedFiles,
@@ -1125,168 +1137,205 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }
 
   return (
-    <div className="@container flex h-full flex-col">
-      {/* Header with table controls only */}
-      <TooltipProvider delayDuration={400}>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-background p-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="@[550px]:inline hidden text-muted-foreground text-sm">Group by:</span>
-            <select
-              className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              onChange={(e) => {
-                setGroupingConfig(e.target.value);
-                setCollapsedGroups(new Set());
-              }}
-              value={groupingConfig}
+    <div className="@container flex h-full flex-col overflow-hidden">
+      <Tabs className="flex min-h-0 flex-1 flex-col" onValueChange={setActiveTab} value={activeTab}>
+        <div className="flex flex-shrink-0 items-center justify-between border-b bg-muted/20 px-3">
+          <TabsList className="h-9 gap-4 bg-transparent p-0">
+            <TabsTrigger
+              className="h-9 rounded-none border-transparent border-b-2 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+              value="table"
             >
-              {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
-                <option key={key} value={key}>
-                  {config.label}
-                </option>
-              ))}
-            </select>
-            {groupingConfig !== 'none' && groupedData.length > 1 && (
-              <div className="flex items-center gap-2">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                      onClick={() => setCollapsedGroups(new Set())}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <Maximize2 className="@[600px]:mr-2 size-3.5" />
-                      <span className="@[800px]:inline hidden">Expand All Groups</span>
-                      <span className="@[600px]:inline @[800px]:hidden hidden">Expand All</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Expand all groups</TooltipContent>
-                </Tooltip>
+              <TableIcon className="mr-2 size-3.5" />
+              Table View
+            </TabsTrigger>
+            <TabsTrigger
+              className="h-9 rounded-none border-transparent border-b-2 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+              value="tapestry"
+            >
+              <LayoutGrid className="mr-2 size-3.5" />
+              Tapestry View
+            </TabsTrigger>
+          </TabsList>
+        </div>
 
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                      onClick={() =>
-                        setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
-                      }
-                      size="sm"
-                      variant="outline"
-                    >
-                      <Minimize2 className="@[600px]:mr-2 size-3.5" />
-                      <span className="@[800px]:inline hidden">Collapse All Groups</span>
-                      <span className="@[600px]:inline @[800px]:hidden hidden">Collapse All</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Collapse all groups</TooltipContent>
-                </Tooltip>
-              </div>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                  disabled={isAllSelected(flattenedData)}
-                  onClick={() => groupSelection.selectAll(flattenedData)}
-                  size="sm"
-                  variant="outline"
+        <TabsContent
+          className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+          value="table"
+        >
+          {/* Header with table controls only */}
+          <TooltipProvider delayDuration={400}>
+            <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-background p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="@[550px]:inline hidden text-muted-foreground text-sm">
+                  Group by:
+                </span>
+                <select
+                  className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(e) => {
+                    setGroupingConfig(e.target.value);
+                    setCollapsedGroups(new Set());
+                  }}
+                  value={groupingConfig}
                 >
-                  <CheckSquare className="@[600px]:mr-2 size-3.5" />
-                  <span className="@[750px]:inline hidden">
-                    Select All ({flattenedData.length})
-                  </span>
-                  <span className="@[550px]:inline @[750px]:hidden hidden">Select All</span>
+                  {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
+                    <option key={key} value={key}>
+                      {config.label}
+                    </option>
+                  ))}
+                </select>
+                {groupingConfig !== 'none' && groupedData.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                          onClick={() => setCollapsedGroups(new Set())}
+                          size="sm"
+                          variant="outline"
+                        >
+                          <Maximize2 className="@[600px]:mr-2 size-3.5" />
+                          <span className="@[800px]:inline hidden">Expand All Groups</span>
+                          <span className="@[600px]:inline @[800px]:hidden hidden">Expand All</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Expand all groups</TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                          onClick={() =>
+                            setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
+                          }
+                          size="sm"
+                          variant="outline"
+                        >
+                          <Minimize2 className="@[600px]:mr-2 size-3.5" />
+                          <span className="@[800px]:inline hidden">Collapse All Groups</span>
+                          <span className="@[600px]:inline @[800px]:hidden hidden">
+                            Collapse All
+                          </span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Collapse all groups</TooltipContent>
+                    </Tooltip>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      disabled={isAllSelected(flattenedData)}
+                      onClick={() => groupSelection.selectAll(flattenedData)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <CheckSquare className="@[600px]:mr-2 size-3.5" />
+                      <span className="@[750px]:inline hidden">
+                        Select All ({flattenedData.length})
+                      </span>
+                      <span className="@[550px]:inline @[750px]:hidden hidden">Select All</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Select all files across all pages</TooltipContent>
+                </Tooltip>
+
+                {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                        onClick={resetSort}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <RotateCcw className="@[600px]:mr-2 size-3.5" />
+                        <span className="@[600px]:inline hidden">Reset Sort</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Reset sort to default (by folder)</TooltipContent>
+                  </Tooltip>
+                )}
+                <ColumnVisibilityControls
+                  columnVisibility={columnVisibility}
+                  onColumnVisibilityChange={setColumnVisibility}
+                />
+              </div>
+            </div>
+          </TooltipProvider>
+
+          {/* Table */}
+          <PreviewTable
+            collapsedGroups={collapsedGroups}
+            columnVisibility={effectiveColumnVisibility}
+            currentPageData={currentPageData}
+            groupedData={groupedData}
+            groupingConfig={groupingConfig}
+            handleGroupDeselectAll={handleGroupDeselectAll}
+            handleGroupSelectAll={handleGroupSelectAll}
+            isAllSelected={isAllSelected}
+            isGroupFullySelected={isGroupFullySelected}
+            isGroupPartiallySelected={isGroupPartiallySelected}
+            onDeselectAll={deselectAll}
+            onFileClick={onFileClick}
+            onSelectAllOnPage={selectAllOnPage}
+            onSort={handleSort}
+            onToggleSelection={toggleItemSelection}
+            pagination={pagination}
+            previewSelections={previewSelections}
+            sortDirection={sortDirection}
+            sortField={sortField}
+            toggleGroupCollapse={toggleGroupCollapse}
+          />
+
+          {flattenedData.length === 0 && (
+            <div className="p-8 text-center text-muted-foreground">
+              No files match your selection criteria
+            </div>
+          )}
+
+          {/* Pagination */}
+          <TablePagination
+            currentPage={currentPage}
+            onPageChange={goToPage}
+            totalItems={flattenedData.length}
+            totalPages={pagination.totalPages}
+            {...(groupingConfig !== 'none' && groupedData.length > 1
+              ? { pageInfo: `(${flattenedData.length} total files, ${groupedData.length} groups)` }
+              : {})}
+          />
+
+          {/* Fixed bottom action bar */}
+          {previewSelections.size > 0 && (
+            <div className="flex flex-shrink-0 items-center justify-between border-t bg-yellow-50 p-3 dark:bg-yellow-900/20">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-sm">
+                  {previewSelections.size} files selected in preview
+                </span>
+                <Button onClick={deselectAll} size="sm" variant="outline">
+                  Clear Preview Selection
                 </Button>
-              </TooltipTrigger>
-              <TooltipContent>Select all files across all pages</TooltipContent>
-            </Tooltip>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleBatchRemove} size="sm" variant="destructive">
+                  <FileX2 className="mr-1 size-3.5" />
+                  Remove Selected from Project
+                </Button>
+              </div>
+            </div>
+          )}
+        </TabsContent>
 
-            {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                    onClick={resetSort}
-                    size="sm"
-                    variant="outline"
-                  >
-                    <RotateCcw className="@[600px]:mr-2 size-3.5" />
-                    <span className="@[600px]:inline hidden">Reset Sort</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Reset sort to default (by folder)</TooltipContent>
-              </Tooltip>
-            )}
-            <ColumnVisibilityControls
-              columnVisibility={columnVisibility}
-              onColumnVisibilityChange={setColumnVisibility}
-            />
-          </div>
-        </div>
-      </TooltipProvider>
-
-      {/* Table */}
-      <PreviewTable
-        collapsedGroups={collapsedGroups}
-        columnVisibility={effectiveColumnVisibility}
-        currentPageData={currentPageData}
-        groupedData={groupedData}
-        groupingConfig={groupingConfig}
-        handleGroupDeselectAll={handleGroupDeselectAll}
-        handleGroupSelectAll={handleGroupSelectAll}
-        isAllSelected={isAllSelected}
-        isGroupFullySelected={isGroupFullySelected}
-        isGroupPartiallySelected={isGroupPartiallySelected}
-        onDeselectAll={deselectAll}
-        onFileClick={onFileClick}
-        onSelectAllOnPage={selectAllOnPage}
-        onSort={handleSort}
-        onToggleSelection={toggleItemSelection}
-        pagination={pagination}
-        previewSelections={previewSelections}
-        sortDirection={sortDirection}
-        sortField={sortField}
-        toggleGroupCollapse={toggleGroupCollapse}
-      />
-
-      {flattenedData.length === 0 && (
-        <div className="p-8 text-center text-muted-foreground">
-          No files match your selection criteria
-        </div>
-      )}
-
-      {/* Pagination */}
-      <TablePagination
-        currentPage={currentPage}
-        onPageChange={goToPage}
-        totalItems={flattenedData.length}
-        totalPages={pagination.totalPages}
-        {...(groupingConfig !== 'none' && groupedData.length > 1
-          ? { pageInfo: `(${flattenedData.length} total files, ${groupedData.length} groups)` }
-          : {})}
-      />
-
-      {/* Fixed bottom action bar */}
-      {previewSelections.size > 0 && (
-        <div className="flex flex-shrink-0 items-center justify-between border-t bg-yellow-50 p-3 dark:bg-yellow-900/20">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">
-              {previewSelections.size} files selected in preview
-            </span>
-            <Button onClick={deselectAll} size="sm" variant="outline">
-              Clear Preview Selection
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={handleBatchRemove} size="sm" variant="destructive">
-              <FileX2 className="mr-1 size-3.5" />
-              Remove Selected from Project
-            </Button>
-          </div>
-        </div>
-      )}
+        <TabsContent
+          className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+          value="tapestry"
+        >
+          <TapestryView />
+        </TabsContent>
+      </Tabs>
 
       <PreviewPanelFooter
         folderSummaryThreshold={folderSummaryThreshold ?? 5}

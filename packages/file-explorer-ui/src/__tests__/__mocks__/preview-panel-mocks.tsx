@@ -36,6 +36,30 @@ interface MockTableGroupHeaderProps extends MockComponentProps {
   isPartiallySelected?: boolean;
 }
 
+type TabsContextValue = {
+  value?: string;
+  onValueChange?: (value: string) => void;
+};
+
+type TabsProps = MockComponentProps & {
+  value?: string;
+  defaultValue?: string;
+  onValueChange?: (value: string) => void;
+};
+
+type TabsTriggerProps = MockComponentProps & {
+  value: string;
+  disabled?: boolean;
+  onClick?: () => void;
+};
+
+type TabsContentProps = MockComponentProps & {
+  value: string;
+  forceMount?: boolean;
+};
+
+const TabsContext = React.createContext<TabsContextValue | null>(null);
+
 type UsePaginationOptions = {
   totalItems: number;
   pageSize?: number;
@@ -180,7 +204,12 @@ export const createUiModuleMock = () => ({
   Progress: ({ value, ...props }: MockComponentProps & { value?: number }) => (
     <div data-testid="progress" data-value={value} {...props} />
   ),
-  Popover: ({ children, open, ...props }: MockComponentProps & { open?: boolean }) => (
+  Popover: ({
+    children,
+    open,
+    onOpenChange: _onOpenChange,
+    ...props
+  }: MockComponentProps & { open?: boolean; onOpenChange?: (open: boolean) => void }) => (
     <div data-open={open} data-testid="popover" {...props}>
       {children}
     </div>
@@ -355,6 +384,78 @@ export const createUiModuleMock = () => ({
       </td>
     </tr>
   ),
+  Tabs: ({ children, value, defaultValue, onValueChange, ...props }: TabsProps) => {
+    const [internalValue, setInternalValue] = React.useState<string | undefined>(defaultValue);
+    const isControlled = value !== undefined;
+    const activeValue = isControlled ? value : internalValue;
+
+    const handleValueChange = (nextValue: string) => {
+      if (!isControlled) {
+        setInternalValue(nextValue);
+      }
+      onValueChange?.(nextValue);
+    };
+
+    const contextValue: TabsContextValue =
+      activeValue === undefined
+        ? { onValueChange: handleValueChange }
+        : { value: activeValue, onValueChange: handleValueChange };
+
+    return (
+      <TabsContext.Provider value={contextValue}>
+        <div data-testid="tabs" {...props}>
+          {children}
+        </div>
+      </TabsContext.Provider>
+    );
+  },
+  TabsList: ({ children, ...props }: MockComponentProps) => (
+    <div data-testid="tabs-list" role="tablist" {...props}>
+      {children}
+    </div>
+  ),
+  TabsTrigger: ({ children, value, disabled, onClick, ...props }: TabsTriggerProps) => {
+    const context = React.useContext(TabsContext);
+    const isActive = context?.value === value;
+
+    const handleClick = () => {
+      context?.onValueChange?.(value);
+      onClick?.();
+    };
+
+    return (
+      <button
+        aria-selected={isActive}
+        data-state={isActive ? 'active' : 'inactive'}
+        disabled={disabled}
+        onClick={handleClick}
+        role="tab"
+        type="button"
+        {...props}
+      >
+        {children}
+      </button>
+    );
+  },
+  TabsContent: ({ children, value, forceMount, ...props }: TabsContentProps) => {
+    const context = React.useContext(TabsContext);
+    const isActive = context?.value === value;
+
+    if (!(isActive || forceMount)) {
+      return null;
+    }
+
+    return (
+      <div
+        data-state={isActive ? 'active' : 'inactive'}
+        hidden={!isActive}
+        role="tabpanel"
+        {...props}
+      >
+        {children}
+      </div>
+    );
+  },
 });
 
 export const createHooksModuleMock = () => {
@@ -443,7 +544,9 @@ export const createLucideModuleMock = () => ({
   Layers: () => <div data-testid="layers" />,
   Files: () => <div data-testid="files" />,
   CheckSquare: () => <div data-testid="check-square" />,
+  LayoutGrid: () => <div data-testid="layout-grid" />,
   Maximize2: () => <div data-testid="maximize" />,
   Minimize2: () => <div data-testid="minimize" />,
   RotateCcw: () => <div data-testid="rotate-ccw" />,
+  Table: () => <div data-testid="table" />,
 });

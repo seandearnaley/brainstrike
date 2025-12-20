@@ -12,7 +12,7 @@ test.describe.configure({ mode: 'serial' });
 test.describe('Database Persistence', () => {
   const ERROR_LOCATOR = '[data-testid="db-init-error"]';
   const REFRESH_BUTTON_SELECTOR = 'button:has-text("Refresh")';
-  const IMPORT_SETTINGS_SELECTOR = 'button:has-text("Import Settings")';
+  const IMPORT_SETTINGS_SELECTOR = 'button[aria-label="Import Settings"]';
 
   async function isDatabaseError(page: Page): Promise<boolean> {
     try {
@@ -27,8 +27,12 @@ test.describe('Database Persistence', () => {
    * The Clear Database button was moved to Import Settings > Danger Zone.
    */
   async function expandImportSettings(page: Page): Promise<void> {
-    const importSettingsButton = page.locator(IMPORT_SETTINGS_SELECTOR);
-    const clearDatabaseButton = page.locator('button:has-text("Clear Database")');
+    const panelScope = page.locator('[data-testid="database-demo-panel"]');
+    const importSettingsButton = panelScope
+      .locator(IMPORT_SETTINGS_SELECTOR)
+      .or(panelScope.locator('button:has-text("Import Settings")'))
+      .or(panelScope.locator('button:has-text("Settings")'));
+    const clearDatabaseButton = panelScope.locator('button:has-text("Clear Database")');
 
     // Check if settings are already expanded (Clear Database button visible)
     const isAlreadyExpanded = await clearDatabaseButton
@@ -238,7 +242,7 @@ test.describe('Database Persistence', () => {
       await page.waitForTimeout(200);
     }
 
-    const importButton = page.locator('button:has-text("Import Selected Files")');
+    const importButton = page.locator('button:has-text("Import")');
     if ((await importButton.isVisible()) && !(await importButton.isDisabled())) {
       await importButton.click();
       await page.waitForTimeout(5000);
@@ -542,7 +546,7 @@ test.describe('Database Persistence', () => {
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
-    await expect(activeWindow.locator('button:has-text("Import Selected Files")')).toBeVisible();
+    await expect(activeWindow.locator('button:has-text("Import")')).toBeVisible();
     await activeWindow.click(REFRESH_BUTTON_SELECTOR);
     await activeWindow.waitForTimeout(500);
     await verifyUIFunctionalityAndState(activeWindow);
@@ -598,9 +602,7 @@ test.describe('Database Persistence', () => {
       .textContent();
     expect(relaunchedStatusText).toContain('Storage:');
     expect(relaunchedStatusText).toMatch(/IPC|PGlite/i);
-    await expect(
-      relaunchedWindow.locator('button:has-text("Import Selected Files")')
-    ).toBeVisible();
+    await expect(relaunchedWindow.locator('button:has-text("Import")')).toBeVisible();
     await expect(
       relaunchedWindow.locator('[data-testid="database-demo-panel"]').first()
     ).toBeVisible();
