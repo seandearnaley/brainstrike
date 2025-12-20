@@ -136,6 +136,27 @@ export const createUiModuleMock = () => ({
       {children}
     </button>
   ),
+  // biome-ignore lint/style/useReactFunctionComponents: ErrorBoundary must be a class component
+  ErrorBoundary: class ErrorBoundary extends React.Component<
+    MockComponentProps,
+    { hasError: boolean }
+  > {
+    constructor(props: MockComponentProps) {
+      super(props);
+      this.state = { hasError: false };
+    }
+
+    static getDerivedStateFromError() {
+      return { hasError: true };
+    }
+
+    override render() {
+      if (this.state.hasError) {
+        return <div data-testid="error-boundary">Error occurred</div>;
+      }
+      return this.props.children;
+    }
+  },
   Input: ({
     ref,
     ...props

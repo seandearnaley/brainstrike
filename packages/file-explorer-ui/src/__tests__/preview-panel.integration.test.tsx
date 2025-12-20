@@ -426,6 +426,27 @@ vi.mock('@brainstrike/ui', () => ({
       </div>
     );
   },
+  // biome-ignore lint/style/useReactFunctionComponents: ErrorBoundary must be a class component
+  ErrorBoundary: class ErrorBoundary extends React.Component<
+    { children: React.ReactNode },
+    { hasError: boolean }
+  > {
+    constructor(props: { children: React.ReactNode }) {
+      super(props);
+      this.state = { hasError: false };
+    }
+
+    static getDerivedStateFromError() {
+      return { hasError: true };
+    }
+
+    override render() {
+      if (this.state.hasError) {
+        return <div data-testid="error-boundary">Error occurred</div>;
+      }
+      return this.props.children;
+    }
+  },
 }));
 
 // Mock hooks with React state
