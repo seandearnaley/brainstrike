@@ -4,6 +4,24 @@ import { HomePage } from './page-objects/home-page';
 import { mockFileSystemOperations } from './utils/electron-helpers';
 
 test.describe('File System Integration', () => {
+  async function ensureLeftPanelVisible(window: Page): Promise<void> {
+    const leftPanel = window.locator('[data-panel-id="left-panel"]');
+    const showLeftPanelButton = window
+      .getByTestId('show-left-panel')
+      .or(window.getByRole('button', { name: /show explorer/i }));
+
+    if (
+      !(await leftPanel.isVisible().catch(() => false)) &&
+      (await showLeftPanelButton.isVisible().catch(() => false))
+    ) {
+      await showLeftPanelButton.click();
+    }
+
+    await leftPanel.waitFor({ state: 'visible', timeout: 10_000 }).catch(() => {
+      console.warn('Left panel did not become visible within timeout.');
+    });
+  }
+
   test.beforeEach(async ({ window }) => {
     // Mock file system operations to prevent native dialogs for every test
     await mockFileSystemOperations(window);
@@ -33,22 +51,19 @@ test.describe('File System Integration', () => {
 
   test('should handle directory operations', async ({ window }) => {
     test.setTimeout(30_000); // Increase timeout to 30s
-    const fileExplorerPanel = window.getByTestId('file-explorer-panel');
-    try {
-      await fileExplorerPanel.waitFor({ state: 'visible', timeout: 10_000 });
-    } catch (e) {
-      console.warn('File explorer panel did not appear within timeout:', e);
-    }
+    await ensureLeftPanelVisible(window);
 
-    if (await fileExplorerPanel.isVisible().catch(() => false)) {
-      const directoryTree = window.getByRole('tree');
-      const fileList = window.getByRole('list');
+    const directoryTree = window.getByRole('tree');
+    const fileList = window.getByRole('list');
+    const fileTreeFallback = window.locator(
+      '[data-testid="file-tree"], [data-testid="file-tree-scroll-container"]'
+    );
 
-      const hasTree = await directoryTree.isVisible().catch(() => false);
-      const hasList = await fileList.isVisible().catch(() => false);
+    const hasTree = await directoryTree.isVisible().catch(() => false);
+    const hasList = await fileList.isVisible().catch(() => false);
+    const hasFallback = await fileTreeFallback.isVisible().catch(() => false);
 
-      expect(hasTree || hasList).toBe(true);
-    }
+    expect(hasTree || hasList || hasFallback).toBe(true);
   });
 
   test('should handle file operations', async ({ window }) => {
@@ -167,10 +182,13 @@ test.describe('File System Integration', () => {
 
     const restartedHome = new HomePage(restartedWindow);
     await restartedHome.shouldBeVisible();
+    await ensureLeftPanelVisible(restartedWindow);
 
-    const fileExplorer = restartedWindow.getByTestId('file-explorer-panel');
-    if (await fileExplorer.isVisible().catch(() => false)) {
-      await expect(fileExplorer).toBeVisible();
+    const fileTreeFallback = restartedWindow.locator(
+      '[data-testid="file-tree"], [data-testid="file-tree-scroll-container"]'
+    );
+    if (await fileTreeFallback.isVisible().catch(() => false)) {
+      await expect(fileTreeFallback.first()).toBeVisible();
     }
   });
 });

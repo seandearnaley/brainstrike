@@ -10,8 +10,7 @@ export default function RootLayout({
 }>) {
   return (
     <>
-      <Helmet>
-        <html lang="en" />
+      <Helmet htmlAttributes={{ lang: 'en' }}>
         <title>BrainStrike.ai</title>
         <meta content="Multi-app dashboard" name="description" />
       </Helmet>

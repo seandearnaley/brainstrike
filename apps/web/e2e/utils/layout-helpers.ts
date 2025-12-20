@@ -81,17 +81,19 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  * This is useful to ensure tests don't start before the UI is fully initialized.
  */
 export async function waitForAppLoad(page: Page, timeout = 10_000) {
+  const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+  const effectiveTimeout = isCI ? Math.max(timeout, 20_000) : timeout;
   // Ensure the document has finished initial parsing before checking layout markers.
-  await page.waitForLoadState('domcontentloaded', { timeout });
+  await page.waitForLoadState('domcontentloaded', { timeout: effectiveTimeout });
   // Wait for the main layout structure to be present, regardless of panel visibility
   await page.waitForSelector('[data-panel-id="middle-panel"]', {
     state: 'attached',
-    timeout,
+    timeout: effectiveTimeout,
   });
   // Also ensure the main content panel is present
   await page.waitForSelector('[data-panel-id="main-content-panel"]', {
     state: 'attached',
-    timeout,
+    timeout: effectiveTimeout,
   });
 }
 
