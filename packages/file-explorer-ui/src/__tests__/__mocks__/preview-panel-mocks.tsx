@@ -442,4 +442,8 @@ export const createLucideModuleMock = () => ({
   TreePine: () => <div data-testid="tree-pine" />,
   Layers: () => <div data-testid="layers" />,
   Files: () => <div data-testid="files" />,
+  CheckSquare: () => <div data-testid="check-square" />,
+  Maximize2: () => <div data-testid="maximize" />,
+  Minimize2: () => <div data-testid="minimize" />,
+  RotateCcw: () => <div data-testid="rotate-ccw" />,
 });

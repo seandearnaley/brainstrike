@@ -9,9 +9,23 @@ import {
   SortableTableHeader,
   TableGroupHeader,
   TablePagination,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { Columns3, Download, FileText, FileX2, FolderOpen } from 'lucide-react';
+import {
+  CheckSquare,
+  Columns3,
+  Download,
+  FileText,
+  FileX2,
+  FolderOpen,
+  Maximize2,
+  Minimize2,
+  RotateCcw,
+} from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
@@ -214,12 +228,17 @@ const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
   function ColumnVisibilityControlsComponent({ columnVisibility, onColumnVisibilityChange }) {
     return (
       <Popover>
-        <PopoverTrigger asChild>
-          <Button size="sm" variant="outline">
-            <Columns3 className="mr-1 size-3.5" />
-            Columns
-          </Button>
-        </PopoverTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button className="@[600px]:h-9 h-8 @[600px]:px-3 px-2" size="sm" variant="outline">
+                <Columns3 className="@[600px]:mr-2 size-3.5" />
+                <span className="@[600px]:inline hidden">Columns</span>
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Select visible columns</TooltipContent>
+        </Tooltip>
         <PopoverContent align="end" className="w-48 p-2">
           <div className="space-y-1">
             {COLUMN_CONFIGS.filter((col) => col.canHide).map((column) => (
@@ -1071,74 +1090,107 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="@container flex h-full flex-col">
       {/* Header with table controls only */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-background p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-muted-foreground text-sm">Group by:</span>
-          <select
-            className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            onChange={(e) => {
-              setGroupingConfig(e.target.value);
-              setCollapsedGroups(new Set());
-            }}
-            value={groupingConfig}
-          >
-            {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
-              <option key={key} value={key}>
-                {config.label}
-              </option>
-            ))}
-          </select>
-          {groupingConfig !== 'none' && groupedData.length > 1 && (
-            <>
-              <Button
-                onClick={() => setCollapsedGroups(new Set())}
-                size="sm"
-                title="Expand all groups"
-                variant="outline"
-              >
-                Expand All Groups
-              </Button>
-              <Button
-                onClick={() =>
-                  setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
-                }
-                size="sm"
-                title="Collapse all groups"
-                variant="outline"
-              >
-                Collapse All Groups
-              </Button>
-            </>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            disabled={isAllSelected(flattenedData)}
-            onClick={() => groupSelection.selectAll(flattenedData)}
-            size="sm"
-            title="Select all files across all pages"
-            variant="outline"
-          >
-            Select All ({flattenedData.length})
-          </Button>
-          {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
-            <Button
-              onClick={resetSort}
-              size="sm"
-              title="Reset sort to default (by folder)"
-              variant="outline"
+      <TooltipProvider delayDuration={400}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-background p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="@[550px]:inline hidden text-muted-foreground text-sm">Group by:</span>
+            <select
+              className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              onChange={(e) => {
+                setGroupingConfig(e.target.value);
+                setCollapsedGroups(new Set());
+              }}
+              value={groupingConfig}
             >
-              Reset Sort
-            </Button>
-          )}
-          <ColumnVisibilityControls
-            columnVisibility={columnVisibility}
-            onColumnVisibilityChange={setColumnVisibility}
-          />
+              {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
+                <option key={key} value={key}>
+                  {config.label}
+                </option>
+              ))}
+            </select>
+            {groupingConfig !== 'none' && groupedData.length > 1 && (
+              <div className="flex items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      onClick={() => setCollapsedGroups(new Set())}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Maximize2 className="@[600px]:mr-2 size-3.5" />
+                      <span className="@[800px]:inline hidden">Expand All Groups</span>
+                      <span className="@[600px]:inline @[800px]:hidden hidden">Expand All</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Expand all groups</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      onClick={() =>
+                        setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
+                      }
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Minimize2 className="@[600px]:mr-2 size-3.5" />
+                      <span className="@[800px]:inline hidden">Collapse All Groups</span>
+                      <span className="@[600px]:inline @[800px]:hidden hidden">Collapse All</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Collapse all groups</TooltipContent>
+                </Tooltip>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                  disabled={isAllSelected(flattenedData)}
+                  onClick={() => groupSelection.selectAll(flattenedData)}
+                  size="sm"
+                  variant="outline"
+                >
+                  <CheckSquare className="@[600px]:mr-2 size-3.5" />
+                  <span className="@[750px]:inline hidden">
+                    Select All ({flattenedData.length})
+                  </span>
+                  <span className="@[550px]:inline @[750px]:hidden hidden">Select All</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Select all files across all pages</TooltipContent>
+            </Tooltip>
+
+            {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                    onClick={resetSort}
+                    size="sm"
+                    variant="outline"
+                  >
+                    <RotateCcw className="@[600px]:mr-2 size-3.5" />
+                    <span className="@[600px]:inline hidden">Reset Sort</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Reset sort to default (by folder)</TooltipContent>
+              </Tooltip>
+            )}
+            <ColumnVisibilityControls
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
+            />
+          </div>
         </div>
-      </div>
+      </TooltipProvider>
 
       {/* Table */}
       <PreviewTable
