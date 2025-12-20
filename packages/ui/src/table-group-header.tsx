@@ -40,7 +40,7 @@ export const TableGroupHeader = memo<TableGroupHeaderProps>(function TableGroupH
 
   return (
     <tr className="border-muted-foreground/20 border-b-2 bg-muted/50">
-      <td className="w-12 p-4">
+      <td className="w-12 px-4 py-2">
         <Checkbox
           aria-label={`Select all items in group ${groupLabel}`}
           checked={checkboxState}
@@ -48,7 +48,7 @@ export const TableGroupHeader = memo<TableGroupHeaderProps>(function TableGroupH
           onClick={(e) => e.stopPropagation()}
         />
       </td>
-      <td className="p-4" colSpan={colSpan}>
+      <td className="px-4 py-2" colSpan={colSpan}>
         <button
           aria-expanded={!isCollapsed}
           aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} group ${groupLabel}`}

@@ -588,6 +588,11 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
     pagination,
   } = props;
 
+  const totalVisibleColumns = useMemo(
+    () => Object.values(columnVisibility).filter(Boolean).length,
+    [columnVisibility]
+  );
+
   const visibleFilesOnPage = useMemo(
     () =>
       getVisibleFilesOnPage({
@@ -625,6 +630,7 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
 
     return (
       <TableGroupHeader
+        colSpan={totalVisibleColumns - 1}
         groupKey={group.groupKey}
         groupLabel={group.groupLabel}
         icon={<FolderOpen className="size-4 text-muted-foreground" />}
@@ -689,11 +695,11 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
   return (
     <div className="flex-1 overflow-auto">
       <div className="min-w-full">
-        <table className="w-full table-fixed border-collapse">
-          <thead className="sticky top-0 border-b bg-background">
+        <table className="w-full min-w-full table-fixed border-collapse">
+          <thead className="sticky top-0 z-10 border-b bg-background">
             <tr>
               {columnVisibility.checkbox && (
-                <th className="w-12 px-4 py-3" scope="col">
+                <th className="w-12 bg-background px-4 py-2" scope="col">
                   <Checkbox
                     aria-label="Select all files on current page"
                     checked={isAllCurrentPageSelected}
@@ -716,7 +722,6 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
               )}
               {columnVisibility.path && (
                 <SortableTableHeader
-                  className="min-w-0"
                   field="path"
                   onSort={onSort}
                   sortDirection={sortDirection}
