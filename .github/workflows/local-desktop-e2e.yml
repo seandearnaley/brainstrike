@@ -19,6 +19,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.run_id }}
   cancel-in-progress: true
 
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+
 jobs:
   desktop-e2e-local:
     name: Desktop E2E (Shard ${{ inputs.shardIndex || 2 }}/${{ inputs.shardTotal || 2 }})

@@ -20,6 +20,10 @@ permissions:
   pull-requests: write
   security-events: write
 
+# Skip ONNX Runtime CUDA binary download in CI to avoid flaky external fetches.
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+
 # CI environment variable is already set by GitHub Actions
 
 jobs:
