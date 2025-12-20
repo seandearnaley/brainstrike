@@ -36,6 +36,7 @@ export const TapestryControls = memo(
               Density
             </span>
             <input
+              aria-label="Density"
               className="h-1 w-32 cursor-pointer appearance-none rounded-lg bg-secondary accent-indigo-500"
               max="16"
               min="2"

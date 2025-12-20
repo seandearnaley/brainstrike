@@ -245,13 +245,13 @@ const SettingsDialogContainer: React.FC<
       <DialogTrigger asChild>
         <Button
           aria-label="Open settings"
-          className="flex gap-2"
+          className="@[300px]:h-9 h-8 @[300px]:px-3 px-2"
           data-testid="settings-button"
           size="sm"
           variant="outline"
         >
-          <Settings className="size-4" data-testid="settings-icon" />
-          <span className="hidden md:inline">Settings</span>
+          <Settings className="@[300px]:mr-2 size-4" data-testid="settings-icon" />
+          <span className="@[300px]:inline hidden">Settings</span>
         </Button>
       </DialogTrigger>
       {isOpen && (

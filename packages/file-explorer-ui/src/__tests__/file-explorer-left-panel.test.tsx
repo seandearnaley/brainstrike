@@ -1,7 +1,12 @@
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
-import { screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { FileExplorerLeftPanel } from '../file-explorer-left-panel';
+import { useFileExplorerStoreContext } from '../file-explorer-provider';
+import { useFileExplorer } from '../use-file-explorer-context';
+import { useSelectionManager } from '../use-selection-manager-context';
+import { FileExplorerTestWrapper } from './test-helpers';
 
 // biome-ignore lint/suspicious/noVar: var required for vi.mock hoisting - let creates temporal dead zone
 var FileExplorerSidebarMock: ReturnType<typeof vi.fn> | undefined;
@@ -102,12 +107,6 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
     })),
   };
 });
-
-import { FileExplorerLeftPanel } from '../file-explorer-left-panel';
-import { useFileExplorerStoreContext } from '../file-explorer-provider';
-import { useFileExplorer } from '../use-file-explorer-context';
-import { useSelectionManager } from '../use-selection-manager-context';
-import { FileExplorerTestWrapper } from './test-helpers';
 
 const Wrapper = composeWrappers(({ children }) => (
   <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
@@ -448,5 +447,299 @@ describe('FileExplorerLeftPanel', () => {
       const sidebarProps = FileExplorerSidebarMock.mock.calls[0]?.[0];
       expect(sidebarProps?.filterError).toEqual(new Error('Invalid filter pattern'));
     }
+  });
+
+  it('handles expand all and collapse all', async () => {
+    const user = userEvent.setup();
+    const expandAllDirectories = vi.fn();
+    const collapseAllDirectories = vi.fn();
+
+    const storeState = {
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+      setFilters: vi.fn(),
+      currentFolderId: 'root',
+      setCurrentFolderId: vi.fn(),
+      maxSelectionCount: 5,
+      includeProjectTree: true,
+      setIncludeProjectTree: vi.fn(),
+      folderSummaryThreshold: 5,
+      expandAllDirectories,
+      collapseAllDirectories,
+      quickFilter: '',
+      setQuickFilter: vi.fn(),
+      clearQuickFilter: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+    };
+
+    const mockStore = Object.assign(
+      (selector?: (s: any) => unknown) =>
+        typeof selector === 'function' ? selector(storeState) : storeState,
+      { getState: () => storeState }
+    );
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(mockStore as any);
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      ...fileExplorerReturnValue,
+      fileTree: [
+        {
+          path: '/dir',
+          name: 'dir',
+          type: 'directory',
+          handle: {} as any,
+          depth: 0,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+        },
+      ],
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    await user.click(screen.getByTestId('expand-all-button-small'));
+    expect(expandAllDirectories).toHaveBeenCalled();
+
+    await user.click(screen.getByTestId('collapse-all-button-small'));
+    expect(collapseAllDirectories).toHaveBeenCalled();
+  });
+
+  it('filters the tree correctly with quick filter', async () => {
+    const storeState = {
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+      setFilters: vi.fn(),
+      currentFolderId: 'root',
+      setCurrentFolderId: vi.fn(),
+      maxSelectionCount: 5,
+      includeProjectTree: true,
+      setIncludeProjectTree: vi.fn(),
+      folderSummaryThreshold: 5,
+      expandAllDirectories: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      quickFilter: 'foo',
+      setQuickFilter: vi.fn(),
+      clearQuickFilter: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+    };
+
+    const mockStore = Object.assign(
+      (selector?: (s: any) => unknown) =>
+        typeof selector === 'function' ? selector(storeState) : storeState,
+      { getState: () => storeState }
+    );
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(mockStore as any);
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      ...fileExplorerReturnValue,
+      fileTree: [
+        {
+          path: '/foo.ts',
+          name: 'foo.ts',
+          type: 'file',
+          handle: {} as any,
+          depth: 0,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+        },
+        {
+          path: '/bar.ts',
+          name: 'bar.ts',
+          type: 'file',
+          handle: {} as any,
+          depth: 0,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+        },
+        {
+          path: '/dir',
+          name: 'dir',
+          type: 'directory',
+          handle: {} as any,
+          depth: 0,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+          children: [
+            {
+              path: '/dir/foo-in-dir.ts',
+              name: 'foo-in-dir.ts',
+              type: 'file',
+              handle: {} as any,
+              depth: 1,
+              selectionState: 'unchecked',
+              rootFolderId: 'root',
+            },
+          ],
+        },
+      ],
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(FileExplorerSidebarMock).toHaveBeenCalled();
+    const lastCall = FileExplorerSidebarMock?.mock.calls.at(-1);
+    const filteredTree = lastCall?.[0]?.quickFilteredTree;
+
+    // Should include foo.ts and the directory (because it contains a foo file)
+    expect(filteredTree).toHaveLength(2);
+    expect(filteredTree[0].name).toBe('foo.ts');
+    expect(filteredTree[1].name).toBe('dir');
+    expect(filteredTree[1].children).toHaveLength(1);
+  });
+
+  it('collects visible files for action buttons', async () => {
+    vi.mocked(useFileExplorer).mockReturnValue({
+      ...fileExplorerReturnValue,
+      fileTree: [
+        {
+          path: '/foo.ts',
+          name: 'foo.ts',
+          type: 'file',
+          isVisible: true,
+          handle: {} as any,
+          depth: 0,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+        },
+        {
+          path: '/hidden.ts',
+          name: 'hidden.ts',
+          type: 'file',
+          isVisible: false,
+          handle: {} as any,
+          depth: 0,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+        },
+        {
+          path: '/dir',
+          name: 'dir',
+          type: 'directory',
+          handle: {} as any,
+          depth: 0,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+          children: [
+            {
+              path: '/dir/bar.ts',
+              name: 'bar.ts',
+              type: 'file',
+              handle: {} as any,
+              depth: 1,
+              selectionState: 'unchecked',
+              rootFolderId: 'root',
+            },
+          ],
+        },
+      ],
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(ActionButtonsMock).toHaveBeenCalled();
+    const lastCall = ActionButtonsMock?.mock.calls.at(-1);
+    const displayedFiles = lastCall?.[0]?.displayedFiles;
+
+    expect(displayedFiles).toContain('/foo.ts');
+    expect(displayedFiles).not.toContain('/hidden.ts');
+    expect(displayedFiles).toContain('/dir/bar.ts');
+  });
+
+  it('syncs current folder ID with root directory handle', async () => {
+    const setCurrentFolderId = vi.fn();
+    const storeState = {
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+      setFilters: vi.fn(),
+      currentFolderId: 'old-root',
+      setCurrentFolderId,
+      maxSelectionCount: 5,
+      includeProjectTree: true,
+      setIncludeProjectTree: vi.fn(),
+      folderSummaryThreshold: 5,
+      expandAllDirectories: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      quickFilter: '',
+      setQuickFilter: vi.fn(),
+      clearQuickFilter: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+    };
+
+    const mockStore = Object.assign(
+      (selector?: (s: any) => unknown) =>
+        typeof selector === 'function' ? selector(storeState) : storeState,
+      { getState: () => storeState }
+    );
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(mockStore as any);
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      ...fileExplorerReturnValue,
+      rootDirectoryHandle: {
+        path: '/new-root',
+        name: 'new-root',
+        kind: 'directory',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      },
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(setCurrentFolderId).toHaveBeenCalledWith('new-root');
+  });
+
+  it('handles inline fixture toggling', async () => {
+    const setDevInlineFixtureEnabled = vi.fn();
+    const loadInlineFixture = vi.fn().mockResolvedValue({ name: 'fixture' });
+    const clearInlineFixture = vi.fn().mockResolvedValue(undefined);
+
+    const storeState = {
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+      setFilters: vi.fn(),
+      currentFolderId: 'root',
+      setCurrentFolderId: vi.fn(),
+      maxSelectionCount: 5,
+      includeProjectTree: true,
+      setIncludeProjectTree: vi.fn(),
+      folderSummaryThreshold: 5,
+      expandAllDirectories: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      quickFilter: '',
+      setQuickFilter: vi.fn(),
+      clearQuickFilter: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+      devInlineFixtureEnabled: true,
+      setDevInlineFixtureEnabled,
+    };
+
+    const mockStore = Object.assign(
+      (selector?: (s: any) => unknown) =>
+        typeof selector === 'function' ? selector(storeState) : storeState,
+      { getState: () => storeState }
+    );
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(mockStore as any);
+
+    const { useAdapters } = await import('@brainstrike/file-explorer-hooks');
+    vi.mocked(useAdapters).mockReturnValue({
+      fileSystemAdapter: {
+        canLoadInlineFixture: true,
+        loadInlineFixture,
+        clearInlineFixture,
+        isInlineFixtureActive: () => false,
+      },
+      storageAdapter: {},
+    } as any);
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    await act(async () => {
+      await Promise.resolve(); // Wait for effect
+    });
+
+    expect(loadInlineFixture).toHaveBeenCalled();
   });
 });
