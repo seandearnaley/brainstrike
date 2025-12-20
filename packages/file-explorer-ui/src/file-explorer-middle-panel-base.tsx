@@ -10,6 +10,7 @@ import { PreviewPanel } from './preview-panel';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 import { useTokenCounting } from './use-token-counting';
+import { buildFileNodeCache } from './utils/file-node-cache';
 
 type FileExplorerMiddlePanelBaseProps = {
   estimateTokenCost?: (tokens: number) => number;
@@ -40,6 +41,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     excludeFilters,
     useRegex,
     folderSummaryThreshold,
+    setFolderSummaryThreshold,
   ] = store(
     (s) =>
       [
@@ -51,12 +53,37 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
         s.excludeFilters,
         s.useRegex,
         s.folderSummaryThreshold,
+        s.setFolderSummaryThreshold,
       ] as const
   );
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitError,
   });
+
+  const fileNodeCache = useMemo(() => buildFileNodeCache(fileTree), [fileTree]);
+
+  const fileSizes = useMemo(() => {
+    if (selectedFilePaths.size === 0 || fileNodeCache.size === 0) {
+      return {};
+    }
+
+    const sizes: Record<string, number> = {};
+
+    for (const compositeKey of selectedFilePaths) {
+      try {
+        const { folderId, path } = decodeFileSelection(compositeKey);
+        const node = fileNodeCache.get(folderId)?.get(path);
+        if (node?.type === 'file' && typeof node.size === 'number') {
+          sizes[compositeKey] = node.size;
+        }
+      } catch {
+        // Ignore invalid composite keys
+      }
+    }
+
+    return sizes;
+  }, [fileNodeCache, selectedFilePaths]);
 
   const { handleDownloadReport, handleCopyReport } = usePreviewPanelReportActions({
     store,
@@ -134,11 +161,14 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
               decodeFileSelection={decodeFileSelection}
               {...(estimateTokenCost ? { estimateTokenCost } : {})}
               fileContents={fileContents}
+              fileSizes={fileSizes}
+              folderSummaryThreshold={folderSummaryThreshold}
               includeProjectTree={includeProjectTree}
               loadingFiles={loadingFiles}
               onCopyReport={handleCopyReport}
               onDownloadReport={handleDownloadReport}
               onFileClick={handleFileClick}
+              onFolderSummaryThresholdChange={setFolderSummaryThreshold}
               onIncludeProjectTreeChange={setIncludeProjectTree}
               onSelectionChange={handleSelectionChange}
               onTokenBudgetChange={setTokenBudget}

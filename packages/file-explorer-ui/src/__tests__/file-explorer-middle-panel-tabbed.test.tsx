@@ -1,3 +1,4 @@
+import type { IFileNode } from '@brainstrike/types';
 import type { UndoableActionOptions } from '@brainstrike/ui';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -199,6 +200,66 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       fileContents,
       loadingFiles,
     });
+  });
+
+  it('should pass file sizes derived from file tree metadata to preview panel', async () => {
+    const compositeKey = 'folder1|@|file1.ts';
+    const fileTree: IFileNode[] = [
+      {
+        name: 'file1.ts',
+        path: 'file1.ts',
+        type: 'file',
+        handle: {} as FileSystemFileHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'folder1',
+        size: 4096,
+      },
+    ];
+
+    vi.mocked(useSelectionManager).mockReturnValue({
+      selectedFilePaths: new Set([compositeKey]),
+      selectedFilesList: [compositeKey],
+      setSelectedFilesFromList: vi.fn(),
+      handleSelectionChange: vi.fn(),
+      wouldExceedSelectionLimit: vi.fn(() => false),
+    } as unknown as ReturnType<typeof useSelectionManager>);
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree,
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
+      fileContents: {},
+      loadingFiles: new Set<string>(),
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      loadFileContent: vi.fn(),
+      loadMultipleFileContents: vi.fn(),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
+      clearRootDirectory: vi.fn(),
+    });
+
+    const previewPanelModule = await import('../preview-panel');
+    const { PreviewPanel } = vi.mocked(previewPanelModule);
+
+    render(
+      <TestWrapper>
+        <FileExplorerMiddlePanelTabbed />
+      </TestWrapper>
+    );
+
+    await waitFor(() => expect(PreviewPanel).toHaveBeenCalled());
+    const props = PreviewPanel.mock.calls.at(-1)?.[0] as { fileSizes?: Record<string, number> };
+    expect(props.fileSizes).toEqual({ [compositeKey]: 4096 });
   });
 
   it('should handle selection changes', async () => {

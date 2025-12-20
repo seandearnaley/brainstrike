@@ -9,6 +9,38 @@ import {
 } from './utils/file-explorer-setup';
 import type { FileTree } from './utils/mock-fs';
 
+/**
+ * Helper to open the selection counter popover and set the max selection count
+ */
+async function setMaxSelectionCount(page: Page, value: number | string): Promise<void> {
+  // Click the selection counter button to open the popover
+  const counterButton = page.getByRole('button', {
+    name: /Click to edit maximum selection count/i,
+  });
+  await counterButton.click();
+
+  // Wait for popover to be visible
+  const input = page.getByLabel('Maximum selection count input');
+  await expect(input).toBeVisible();
+
+  // Fill in the value
+  await input.fill(String(value));
+
+  // Click the apply button (checkmark)
+  await page.getByRole('button', { name: 'Apply selection count' }).click();
+
+  // Wait for popover to close
+  await expect(input).not.toBeVisible();
+}
+
+/**
+ * Helper to get the current max selection count from the selection counter
+ */
+async function getMaxSelectionCount(page: Page): Promise<string> {
+  const text = await page.getByTestId('selection-max').textContent();
+  return text || '';
+}
+
 test.describe('File Explorer', () => {
   test.describe('core experience', () => {
     let explorer: FileExplorerPage;
@@ -38,8 +70,8 @@ test.describe('File Explorer', () => {
       const dialog = await openExplorerSettings(page, explorer);
 
       await expect(dialog.getByRole('heading', { name: 'Workspace Settings' })).toBeVisible();
-      await expect(dialog.getByLabel('Max Selection Count')).toBeVisible();
-      await expect(dialog.getByLabel('Folder Summary Threshold')).toBeVisible();
+      // Note: Max Selection Count was moved to SelectionCounter component
+      // Note: Folder Summary Threshold was moved to Preview Panel footer
       await expect(dialog.getByPlaceholder('e.g. *.ts, src/**/*.js')).toBeVisible();
       await expect(dialog.getByPlaceholder('e.g. *.test.js, node_modules/**')).toBeVisible();
       await expect(dialog.getByRole('switch', { name: 'Use Regex' })).toBeVisible();
@@ -204,48 +236,63 @@ test.describe('File Explorer', () => {
       {
         name: 'persists updates to max selection count',
         tree: { 'example.ts': null },
-        execute: async ({ page, openDialog }) => {
-          const dialog = await openDialog();
-          await dialog.getByLabel('Max Selection Count').fill('5');
-          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
-          await expect(dialog).not.toBeVisible();
+        execute: async ({ page }) => {
+          await setMaxSelectionCount(page, 5);
 
           await reloadExplorer(page);
 
-          const reopened = await openDialog();
-          await expect(reopened.getByLabel('Max Selection Count')).toHaveValue('5');
+          const maxCount = await getMaxSelectionCount(page);
+          expect(maxCount).toBe('5');
         },
       },
       {
-        name: 'clamps Folder Summary Threshold and Max Selection Count values',
+        name: 'validates Max Selection Count values',
         tree: { 'a.ts': null, 'b.ts': null },
-        execute: async ({ page, openDialog }) => {
-          const dialog = await openDialog();
-          await dialog.getByLabel('Folder Summary Threshold').fill('-10');
-          await dialog.getByLabel('Max Selection Count').fill('0');
-          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
-          await expect(dialog).not.toBeVisible();
+        execute: async ({ page }) => {
+          // Try to set invalid value (too low)
+          const counterButton = page.getByRole('button', {
+            name: /Click to edit maximum selection count/i,
+          });
+          await counterButton.click();
 
-          await reloadExplorer(page);
+          const input = page.getByLabel('Maximum selection count input');
+          await expect(input).toBeVisible();
 
-          const reopened = await openDialog();
-          await expect(reopened.getByLabel('Folder Summary Threshold')).toHaveValue('0');
-          await expect(reopened.getByLabel('Max Selection Count')).toHaveValue('1');
+          await input.fill('0');
+          await page.getByRole('button', { name: 'Apply selection count' }).click();
 
-          await reopened.getByLabel('Folder Summary Threshold').fill('999999');
-          await reopened.getByLabel('Max Selection Count').fill('5000');
-          await reopened.getByRole('button', { name: 'Apply Settings' }).click();
-          await expect(reopened).not.toBeVisible();
+          // Should show error message
+          await expect(page.getByText('Minimum selection count is 1')).toBeVisible();
 
-          await reloadExplorer(page);
+          // Cancel and close popover
+          await page.getByRole('button', { name: 'Cancel' }).click();
+          await expect(input).not.toBeVisible();
 
-          const finalDialog = await openDialog();
-          await expect(finalDialog.getByLabel('Folder Summary Threshold')).toHaveValue('1000');
-          await expect(finalDialog.getByLabel('Max Selection Count')).toHaveValue('1000');
+          // Value should still be default (10)
+          let maxCount = await getMaxSelectionCount(page);
+          expect(maxCount).toBe('10');
+
+          // Try to set invalid value (too high)
+          await counterButton.click();
+          await expect(input).toBeVisible();
+
+          await input.fill('50000');
+          await page.getByRole('button', { name: 'Apply selection count' }).click();
+
+          // Should show error message
+          await expect(page.getByText('Maximum selection count is 10,000')).toBeVisible();
+
+          // Cancel and close popover
+          await page.getByRole('button', { name: 'Cancel' }).click();
+          await expect(input).not.toBeVisible();
+
+          // Value should still be 10
+          maxCount = await getMaxSelectionCount(page);
+          expect(maxCount).toBe('10');
         },
       },
       {
-        name: 'persists include/exclude filters and Folder Summary Threshold',
+        name: 'persists include/exclude filters',
         tree: {
           src: {
             'a.ts': null,
@@ -255,7 +302,6 @@ test.describe('File Explorer', () => {
           const dialog = await openDialog();
           await dialog.getByLabel('Files to Include:').fill('*.foo, lib/**');
           await dialog.getByLabel('Files to Exclude:').fill('node_modules/**, *.test.ts');
-          await dialog.getByLabel('Folder Summary Threshold').fill('7');
           await dialog.getByRole('button', { name: 'Apply Settings' }).click();
           await expect(dialog).not.toBeVisible();
 
@@ -266,7 +312,7 @@ test.describe('File Explorer', () => {
           await expect(reopened.getByLabel('Files to Exclude:')).toHaveValue(
             'node_modules/**, *.test.ts'
           );
-          await expect(reopened.getByLabel('Folder Summary Threshold')).toHaveValue('7');
+          // Note: Folder Summary Threshold persistence is tested in report-folder-summary.test.ts
         },
       },
       {
@@ -298,11 +344,8 @@ test.describe('File Explorer', () => {
       {
         name: 'caps selections when Max Selection Count is reduced',
         tree: { 'a.ts': null, 'b.ts': null },
-        execute: async ({ explorer, openDialog, page }) => {
-          const dialog = await openDialog();
-          await dialog.getByLabel('Max Selection Count').fill('1');
-          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
-          await expect(dialog).not.toBeVisible();
+        execute: async ({ explorer, page }) => {
+          await setMaxSelectionCount(page, 1);
 
           await explorer.selectRoot();
 

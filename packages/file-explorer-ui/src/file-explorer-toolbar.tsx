@@ -1,9 +1,10 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
-import { Badge, Button } from '@brainstrike/ui';
+import { Button } from '@brainstrike/ui';
 import { Folder } from 'lucide-react';
 import * as React from 'react';
 import { FileFilterBar } from './file-filter-bar';
+import { SelectionCounter } from './selection-counter';
 import WorkspaceSettings from './workspace-settings';
 
 type FileExplorerToolbarProps = {
@@ -17,6 +18,7 @@ type FileExplorerToolbarProps = {
   rootDirectoryHandle: DirectoryHandle | null;
   selectedCount: number;
   maxSelectionCount: number;
+  onMaxSelectionCountChange?: (count: number) => void;
   inlineFixtureSetting?: {
     available: boolean;
     loading: boolean;
@@ -35,6 +37,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
     rootDirectoryHandle,
     selectedCount,
     maxSelectionCount,
+    onMaxSelectionCountChange,
     inlineFixtureSetting,
   }) => (
     <div className="flex flex-col gap-2 border-b px-2 py-2">
@@ -56,15 +59,11 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
           />
         </div>
-        <output>
-          <Badge
-            className="whitespace-nowrap text-xs sm:text-sm"
-            variant={selectedCount === maxSelectionCount ? 'destructive' : 'secondary'}
-          >
-            <span data-testid="selection-count">{selectedCount}</span>/
-            <span data-testid="selection-max">{maxSelectionCount}</span>
-          </Badge>
-        </output>
+        <SelectionCounter
+          maxSelectionCount={maxSelectionCount}
+          onMaxSelectionCountChange={onMaxSelectionCountChange}
+          selectedCount={selectedCount}
+        />
       </div>
       {rootDirectoryHandle && (
         <FileFilterBar onChange={setQuickFilter} onClear={clearQuickFilter} value={quickFilter} />

@@ -46,7 +46,7 @@ describe('PreviewTableRow', () => {
     expect(screen.getByLabelText('Select /src/components/Button.tsx')).toBeInTheDocument();
     expect(screen.getByText('root')).toBeInTheDocument();
     expect(screen.getByText('Button.tsx')).toBeInTheDocument();
-    expect(screen.getByText('/src/components')).toBeInTheDocument();
+    expect(screen.getByText('src/components')).toBeInTheDocument();
     expect(screen.getByText('file')).toBeInTheDocument();
     expect(screen.getByText('1.5K')).toBeInTheDocument();
     expect(screen.getByText('5.0 KB')).toBeInTheDocument();
@@ -221,6 +221,88 @@ describe('PreviewTableRow', () => {
 
     expect(screen.getByText('README.md')).toBeInTheDocument();
     expect(screen.queryByText('/')).not.toBeInTheDocument();
+  });
+
+  it("shows '.' for files in the root of an absolute folder path", () => {
+    const absoluteRootItem: TableRowData = {
+      ...mockItem,
+      id: 'id-root-absolute',
+      compositeKey: 'file-absolute-root',
+      rootFolderId: 'project',
+      path: '/Users/me/project/file.txt',
+      type: 'TXT',
+    };
+
+    render(
+      <table>
+        <tbody>
+          <PreviewTableRow
+            columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={absoluteRootItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
+          />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByText('file.txt')).toBeInTheDocument();
+    expect(screen.getByText('.')).toBeInTheDocument();
+  });
+
+  it('parses Windows path separators and displays a folder-relative directory path', () => {
+    const windowsPath = 'C:\\Users\\me\\project\\src\\components\\Button.tsx';
+    const windowsItem: TableRowData = {
+      ...mockItem,
+      rootFolderId: 'project',
+      path: windowsPath,
+    };
+
+    render(
+      <table>
+        <tbody>
+          <PreviewTableRow
+            columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={windowsItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
+          />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByLabelText(`Select ${windowsPath}`)).toBeInTheDocument();
+    expect(screen.getByText('Button.tsx')).toBeInTheDocument();
+    expect(screen.getByText('src/components')).toBeInTheDocument();
+  });
+
+  it('shortens long absolute directory paths to avoid horizontal scrolling', () => {
+    const longPath =
+      '/Users/me/Projects/brainstrike/packages/file-explorer-ui/src/components/very/deep/__tests__/PreviewTableRow.test.tsx';
+    const longItem: TableRowData = {
+      ...mockItem,
+      rootFolderId: 'brainstrike',
+      path: longPath,
+    };
+
+    render(
+      <table>
+        <tbody>
+          <PreviewTableRow
+            columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={longItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
+          />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByText('PreviewTableRow.test.tsx')).toBeInTheDocument();
+    expect(screen.getByText('packages/…/deep/__tests__')).toBeInTheDocument();
   });
 
   it('displays selected state correctly', () => {

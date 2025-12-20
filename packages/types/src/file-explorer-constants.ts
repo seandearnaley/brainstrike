@@ -98,7 +98,7 @@ export const MAX_FOLDER_SUMMARY_THRESHOLD = 1000;
 
 // Minimum and Maximum allowed value for Max Selection Count setting
 export const MIN_MAX_SELECTION_COUNT = 1;
-export const MAX_SELECTION_COUNT = 1000;
+export const MAX_SELECTION_COUNT = 10_000;
 
 // Minimum and Maximum allowed value for Token Budget setting
 export const MIN_TOKEN_BUDGET = 1;

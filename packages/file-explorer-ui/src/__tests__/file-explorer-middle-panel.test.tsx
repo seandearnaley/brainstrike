@@ -114,6 +114,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+import type { IFileNode } from '@brainstrike/types';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
 import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
@@ -243,5 +244,71 @@ describe('FileExplorerMiddlePanel', () => {
 
     // Should not crash when openFileInTab is undefined
     expect(await screen.findByTestId('header')).toBeInTheDocument();
+  });
+
+  it('passes fileSizes to preview panel based on file tree metadata', async () => {
+    const compositeKey = 'root|@|test-file';
+    const fileTree: IFileNode[] = [
+      {
+        name: 'test-file',
+        path: 'test-file',
+        type: 'file',
+        handle: {} as FileSystemFileHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        size: 2048,
+      },
+    ];
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree,
+      fileContents: {},
+      loadingFiles: new Set<string>(),
+      loadFileContent: vi.fn(),
+      loadMultipleFileContents: vi.fn(),
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
+      rootDirectoryHandle: {
+        path: '/root',
+        name: 'root',
+        kind: 'directory',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      },
+      isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+      refreshFileExplorer: vi.fn(),
+      applyFileFilters: vi.fn().mockReturnValue([]),
+      filterError: null,
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
+      clearRootDirectory: vi.fn(),
+    });
+
+    vi.mocked(useSelectionManager).mockReturnValue({
+      selectedFilePaths: new Set<string>([compositeKey]),
+      selectedFilesList: [compositeKey],
+      setSelectedFilesFromList: vi.fn(),
+      handleSelectionChange: handleSelectionChangeMock,
+      wouldExceedSelectionLimit: vi.fn(),
+    } as unknown as ReturnType<typeof useSelectionManager>);
+
+    act(() => {
+      renderWithProviders(<FileExplorerMiddlePanel />);
+    });
+
+    expect(await screen.findByTestId('preview')).toBeInTheDocument();
+
+    expect(previewPanelMock).toHaveBeenCalled();
+    const lastCallProps = (
+      previewPanelMock as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls.at(-1)?.[0] as { fileSizes?: Record<string, number> } | undefined;
+
+    expect(lastCallProps?.fileSizes).toEqual({ [compositeKey]: 2048 });
   });
 });

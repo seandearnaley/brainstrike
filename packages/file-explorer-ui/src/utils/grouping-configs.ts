@@ -1,3 +1,5 @@
+import { getDirPathForGrouping } from './path-display';
+
 // Grouping system types
 export type GroupKey = string | number;
 export type GroupFunction<T = unknown> = (item: T) => GroupKey;
@@ -53,9 +55,28 @@ export const GROUPING_CONFIGS = {
     label: 'No Grouping',
     groupBy: () => 'all',
   },
-  folder: {
-    id: 'folder',
-    label: 'By Folder',
+  directory: {
+    id: 'directory',
+    label: 'By Directory',
+    groupBy: (item: TableRowData) =>
+      getDirPathForGrouping({
+        filePath: item.path,
+        rootFolderId: item.rootFolderId,
+      }),
+    sortGroups: (a: GroupKey, b: GroupKey) => {
+      // Sort '.' (root) first, then alphabetically
+      if (a === '.') {
+        return -1;
+      }
+      if (b === '.') {
+        return 1;
+      }
+      return String(a).localeCompare(String(b));
+    },
+  },
+  rootFolder: {
+    id: 'rootFolder',
+    label: 'By Root Folder',
     groupBy: (item: TableRowData) => item.rootFolderId,
     sortGroups: (a: GroupKey, b: GroupKey) => String(a).localeCompare(String(b)),
   },

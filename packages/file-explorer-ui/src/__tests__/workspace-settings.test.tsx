@@ -81,37 +81,11 @@ describe('WorkspaceSettings', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('updates folder summary threshold', async () => {
-    act(() => {
-      renderWithProviders(<WorkspaceSettings {...defaultProps} />);
-    });
-    const button = screen.getByRole('button');
-    await userEvent.click(button);
+  // Note: Folder Summary Threshold was moved to the Preview Panel footer
+  // See preview-panel.test.tsx for folder summary threshold tests
 
-    const input = screen.getByLabelText(/Folder Summary Threshold/i);
-    fireEvent.change(input, { target: { value: '10' } });
-
-    const applyButton = screen.getByRole('button', { name: /Apply Settings/i });
-    await userEvent.click(applyButton);
-
-    // Just verify UI interaction works
-    expect(defaultProps.onFilterChange).toHaveBeenCalled();
-  });
-
-  it('updates max selection count', async () => {
-    renderWithProviders(<WorkspaceSettings {...defaultProps} />);
-    const button = screen.getByRole('button');
-    await userEvent.click(button);
-
-    const input = screen.getByLabelText(/Max Selection Count/i);
-    fireEvent.change(input, { target: { value: '20' } });
-
-    const applyButton = screen.getByRole('button', { name: /Apply Settings/i });
-    await userEvent.click(applyButton);
-
-    // Just verify UI interaction works
-    expect(defaultProps.onFilterChange).toHaveBeenCalled();
-  });
+  // Note: Max Selection Count was moved to the Selection Counter component
+  // See selection-counter.test.tsx for max selection count tests
 
   it('shows inline fixture toggle when available', async () => {
     renderWithProviders(

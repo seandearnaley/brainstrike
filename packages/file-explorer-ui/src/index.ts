@@ -22,7 +22,6 @@ export { default as FolderSummaryThresholdSetting } from './folder-summary-thres
 export * from './hooks';
 export { default as IncludeProjectTreeSetting } from './include-project-tree-setting';
 export * from './loading-overlay';
-export { default as MaxSelectionCountSetting } from './max-selection-count-setting';
 export { default as NodeCheckbox } from './node-checkbox';
 export { default as NodeIcon } from './node-icon';
 export { default as OptimizedFileTree } from './optimized-file-tree';
