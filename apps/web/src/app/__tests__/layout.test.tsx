@@ -26,33 +26,17 @@ describe('RootLayout', () => {
       </HelmetProvider>
     );
 
-    // Check for correct title and meta tags
+    // Check for correct title, meta tags, and lang attribute in a single waitFor
     await waitFor(() => {
       expect(document.title).toBe('BrainStrike.ai');
-    });
-    await waitFor(() => {
       expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
         'Multi-app dashboard'
       );
-    });
-
-    // Check for RouterProvider
-    expect(screen.getByTestId('router-provider')).toBeInTheDocument();
-    expect(screen.getByText('Test Content')).toBeInTheDocument();
-  });
-
-  test('renders correctly in the DOM', async () => {
-    render(
-      <HelmetProvider>
-        <RootLayout>
-          <div>Test Content</div>
-        </RootLayout>
-      </HelmetProvider>
-    );
-
-    // Verify HTML structure
-    await waitFor(() => {
       expect(document.documentElement.getAttribute('lang')).toBe('en');
     });
+
+    // Check for RouterProvider and content (synchronous assertions)
+    expect(screen.getByTestId('router-provider')).toBeInTheDocument();
+    expect(screen.getByText('Test Content')).toBeInTheDocument();
   });
 });

@@ -111,7 +111,7 @@ function ErrorList({
       </Button>
 
       {showErrors && (
-        <div className="mt-2 max-h-32 space-y-1 overflow-y-auto">
+        <div className="fade-in slide-in-from-top-2 mt-2 max-h-32 animate-in space-y-1 overflow-y-auto duration-200">
           {errors.map((error) => (
             <div
               className="rounded border-destructive border-l-2 bg-destructive/10 p-2 text-xs"
@@ -188,7 +188,7 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
         </div>
 
         {showDetails && (
-          <div className="grid gap-2 md:grid-cols-3">
+          <div className="fade-in slide-in-from-top-2 grid animate-in gap-2 duration-200 md:grid-cols-3">
             {progress.chunkingProgress && (
               <ChunkingProgressCard progress={progress.chunkingProgress} />
             )}
