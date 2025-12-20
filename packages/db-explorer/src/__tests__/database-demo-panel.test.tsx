@@ -231,15 +231,11 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Basic Rendering', () => {
-    it('renders database demo panel with title', async () => {
+    it('renders database demo panel', async () => {
       render(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
-        expect(screen.getByText('Enhanced Database Demo')).toBeInTheDocument();
-        expect(
-          screen.getByText('PGlite WASM with pgvector, chunking, and embeddings')
-        ).toBeInTheDocument();
       });
     });
 

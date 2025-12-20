@@ -338,7 +338,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm">
             <Database className="h-4 w-4" />
-            Enhanced Database Demo
           </CardTitle>
           <CardDescription className="text-red-600 text-xs">
             Database failed to initialize
@@ -362,7 +361,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-sm">
             <Database className="h-4 w-4" />
-            Enhanced Database Demo
           </CardTitle>
           <CardDescription className="text-xs">Database is initializing...</CardDescription>
         </CardHeader>
@@ -379,16 +377,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         <Panel className="min-h-0" defaultSize={38} maxSize={60} minSize={26}>
           <div className="flex h-full flex-col overflow-hidden">
             <div className="flex flex-1 flex-col gap-3 overflow-auto px-4 py-3">
-              <div>
-                <div className="mb-1 flex items-center gap-2 font-medium text-sm">
-                  <Database className="h-4 w-4" />
-                  Enhanced Database Demo
-                </div>
-                <div className="text-muted-foreground text-xs">
-                  PGlite WASM with pgvector, chunking, and embeddings
-                </div>
-              </div>
-
               <SearchCollectionSelector
                 activeCollectionId={activeCollectionId}
                 db={dbContext}
