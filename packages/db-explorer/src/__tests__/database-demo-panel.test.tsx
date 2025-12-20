@@ -316,10 +316,10 @@ describe('DatabaseDemoPanel', () => {
       render(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Import Selected Files/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       });
 
-      const importButton = screen.getByRole('button', { name: /Import Selected Files/ });
+      const importButton = screen.getByRole('button', { name: /^Import\s*\(/ });
       await user.click(importButton);
 
       // The component should attempt to call import, even if it fails due to missing adapters
@@ -336,10 +336,10 @@ describe('DatabaseDemoPanel', () => {
       render(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Import Selected Files/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       });
 
-      const importButton = screen.getByRole('button', { name: /Import Selected Files/ });
+      const importButton = screen.getByRole('button', { name: /^Import\s*\(/ });
       await user.click(importButton);
 
       // The component should show an import error

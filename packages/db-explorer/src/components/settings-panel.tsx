@@ -3,6 +3,7 @@ import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrik
 import {
   Badge,
   Button,
+  cn,
   Input,
   Label,
   Select,
@@ -27,7 +28,11 @@ interface ExtendedSettingsPanelProps extends SettingsPanelProps {
   };
 }
 
-export function SettingsPanel({ importSettings, clearDatabaseProps }: ExtendedSettingsPanelProps) {
+export function SettingsPanel({
+  importSettings,
+  clearDatabaseProps,
+  className,
+}: ExtendedSettingsPanelProps) {
   const chunkingId = 'enable-chunking';
   const presetCaps = ['2048', '4096', '6144', '8192'];
   const selectedPreset = presetCaps.includes(String(importSettings.chunkTokenLimit))
@@ -35,7 +40,7 @@ export function SettingsPanel({ importSettings, clearDatabaseProps }: ExtendedSe
     : 'custom';
   const accurateCounting = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   return (
-    <div className="mt-2 space-y-3 rounded bg-muted/50 p-3">
+    <div className={cn('mt-2 space-y-3 rounded bg-muted/50 p-3', className)}>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label className="text-xs" htmlFor={chunkingId}>

@@ -17,6 +17,13 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
@@ -24,7 +31,7 @@ import {
   CreateEmbeddingSetDialog,
   ManageEmbeddingSetsDialog,
 } from '@brainstrike/vector-management';
-import { ChevronDown, ChevronRight, Database, FileText, RefreshCw } from 'lucide-react';
+import { Database, FileText, Pencil, RefreshCw, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import {
@@ -370,102 +377,132 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     <div className="flex min-h-0 flex-1 flex-col" data-testid="database-demo-panel">
       <PanelGroup className="min-h-0 flex-1" direction="vertical">
         <Panel className="min-h-0" defaultSize={38} maxSize={60} minSize={26}>
-          <div className="flex h-full flex-col gap-3 overflow-auto px-4 py-3">
-            <div>
-              <div className="mb-1 flex items-center gap-2 font-medium text-sm">
-                <Database className="h-4 w-4" />
-                Enhanced Database Demo
+          <div className="flex h-full flex-col overflow-hidden">
+            <div className="flex flex-1 flex-col gap-3 overflow-auto px-4 py-3">
+              <div>
+                <div className="mb-1 flex items-center gap-2 font-medium text-sm">
+                  <Database className="h-4 w-4" />
+                  Enhanced Database Demo
+                </div>
+                <div className="text-muted-foreground text-xs">
+                  PGlite WASM with pgvector, chunking, and embeddings
+                </div>
               </div>
-              <div className="text-muted-foreground text-xs">
-                PGlite WASM with pgvector, chunking, and embeddings
-              </div>
-            </div>
 
-            <SearchCollectionSelector
-              activeCollectionId={activeCollectionId}
-              db={dbContext}
-              onCollectionChange={handleCollectionChange}
-              onCreateCollection={handleCreateCollection}
-              onManageCollections={handleManageCollections}
-            />
+              <SearchCollectionSelector
+                activeCollectionId={activeCollectionId}
+                db={dbContext}
+                onCollectionChange={handleCollectionChange}
+                onCreateCollection={handleCreateCollection}
+                onManageCollections={handleManageCollections}
+              />
 
-            {/* Settings Panel */}
-            <div>
-              <Button
-                className="h-6 px-2"
-                onClick={() => setShowSettings(!showSettings)}
-                size="sm"
-                variant="ghost"
-              >
-                {showSettings ? (
-                  <ChevronDown className="h-3 w-3" />
-                ) : (
-                  <ChevronRight className="h-3 w-3" />
-                )}
-                Import Settings
-              </Button>
-
-              <div className={showSettings ? '' : 'hidden'}>
-                <SettingsPanel
-                  clearDatabaseProps={{
-                    clearAllData,
-                    records,
-                    chunks,
-                    clearing,
-                    showClearDialog,
-                    setShowClearDialog,
-                    onClear: handleClearDatabase,
-                  }}
-                  importSettings={importSettings}
+              {importFlow.showImportProgress && importFlow.progress && (
+                <ImportProgressDisplay
+                  onClose={() => importFlow.setShowImportProgress(false)}
+                  progress={importFlow.progress as EnhancedImportProgress}
                 />
+              )}
+            </div>
+
+            {/* Sticky Footer */}
+            <div className="flex flex-shrink-0 items-center justify-between border-t bg-background p-2 px-4">
+              <div className="flex items-center gap-2">
+                <Popover onOpenChange={setShowSettings} open={showSettings}>
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <PopoverTrigger asChild>
+                          <button
+                            aria-label="Import Settings"
+                            className="group flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm transition-colors hover:border-accent-foreground/20 hover:bg-accent focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+                            type="button"
+                          >
+                            <Settings2 className="size-3.5 text-muted-foreground" />
+                            <span className="font-medium">Settings</span>
+                            <Pencil className="size-3 text-muted-foreground" />
+                          </button>
+                        </PopoverTrigger>
+                      </TooltipTrigger>
+                      {!showSettings && (
+                        <TooltipContent side="top">
+                          <div className="text-xs">Configure import and chunking</div>
+                        </TooltipContent>
+                      )}
+                    </Tooltip>
+                  </TooltipProvider>
+                  <PopoverContent align="start" className="w-80 p-0" side="top">
+                    <SettingsPanel
+                      className="mt-0 border-none bg-transparent"
+                      clearDatabaseProps={{
+                        clearAllData,
+                        records,
+                        chunks,
+                        clearing,
+                        showClearDialog,
+                        setShowClearDialog,
+                        onClear: handleClearDatabase,
+                      }}
+                      importSettings={importSettings}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        className="h-8 w-8 p-0"
+                        disabled={refreshing}
+                        onClick={handleManualRefresh}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                        <span className="sr-only">Refresh</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Refresh database records</TooltipContent>
+                  </Tooltip>
+
+                  <ExportDropdown
+                    chunks={filteredChunks}
+                    exportHandlers={exportHandlers}
+                    records={filteredRecords}
+                  />
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        className="flex h-8 items-center gap-1.5"
+                        disabled={
+                          importFlow.isImporting ||
+                          !activeCollectionId ||
+                          importFlow.selectedFileCount === 0
+                        }
+                        onClick={importFlow.handleImportClick}
+                        size="sm"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        <span className="font-medium">Import</span>
+                        <span className="text-[10px] opacity-70">
+                          ({importFlow.selectedFileCount})
+                        </span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {importFlow.selectedFileCount === 0
+                        ? 'Select files to import first'
+                        : activeCollectionId
+                          ? `Import ${importFlow.selectedFileCount} files to collection`
+                          : 'Select a collection first'}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                className="flex items-center gap-1"
-                disabled={
-                  importFlow.isImporting ||
-                  !activeCollectionId ||
-                  importFlow.selectedFileCount === 0
-                }
-                onClick={importFlow.handleImportClick}
-                size="sm"
-                title={
-                  importFlow.selectedFileCount === 0
-                    ? 'Select files to import first'
-                    : activeCollectionId
-                      ? undefined
-                      : 'Select a collection first'
-                }
-              >
-                <FileText className="h-3 w-3" />
-                Import Selected Files ({importFlow.selectedFileCount})
-              </Button>
-              <Button
-                className="flex items-center gap-1"
-                disabled={refreshing}
-                onClick={handleManualRefresh}
-                size="sm"
-                variant="outline"
-              >
-                <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
-                Refresh
-              </Button>
-              <ExportDropdown
-                chunks={filteredChunks}
-                exportHandlers={exportHandlers}
-                records={filteredRecords}
-              />
-            </div>
-
-            {importFlow.showImportProgress && importFlow.progress && (
-              <ImportProgressDisplay
-                onClose={() => importFlow.setShowImportProgress(false)}
-                progress={importFlow.progress as EnhancedImportProgress}
-              />
-            )}
           </div>
         </Panel>
 
