@@ -330,7 +330,7 @@ test.describe('IDE Layout Persistence', () => {
     test('should handle corrupted localStorage gracefully', async ({ page }) => {
       // Corrupt the layout storage
       await page.evaluate(() => {
-        localStorage.setItem('panelLayout.v1', 'invalid-json');
+        localStorage.setItem('panel-layout-store.v1', 'invalid-json');
       });
 
       // Reload page

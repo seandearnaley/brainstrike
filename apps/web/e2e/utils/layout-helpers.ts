@@ -100,7 +100,7 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
  */
 export async function resetLayoutState(page: Page): Promise<void> {
   await page.evaluate(() => {
-    localStorage.removeItem('panelLayout.v1');
+    localStorage.removeItem('panel-layout-store.v1');
   });
   // Wait for the page to finish navigating before continuing. Using
   // `networkidle` helps avoid flaky reload errors in CI where the
@@ -456,7 +456,7 @@ export async function testPanelSizeConstraints(
  */
 export async function corruptLayoutStorage(page: Page): Promise<void> {
   await page.evaluate(() => {
-    localStorage.setItem('panelLayout.v1', 'invalid-json');
+    localStorage.setItem('panel-layout-store.v1', 'invalid-json');
   });
 }
 

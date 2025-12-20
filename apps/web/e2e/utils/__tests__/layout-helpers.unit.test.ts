@@ -42,6 +42,6 @@ describe('layout-helpers (unit)', () => {
     } as unknown as Page;
     await resetLayoutState(page);
     expect(page.reload).toHaveBeenCalled();
-    expect(evalCalls.join('\n')).toContain('panelLayout.v1');
+    expect(evalCalls.join('\n')).toContain('panel-layout-store.v1');
   });
 });

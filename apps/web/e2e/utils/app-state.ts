@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
  */
 export async function resetAppState(page: Page): Promise<void> {
   await page.evaluate(() => {
-    localStorage.removeItem('panelLayout.v1');
+    localStorage.removeItem('panel-layout-store.v1');
     localStorage.removeItem('fileExplorerSettings');
   });
 }

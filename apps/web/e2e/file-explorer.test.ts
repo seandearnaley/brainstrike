@@ -151,7 +151,7 @@ test.describe('File Explorer', () => {
       tree,
       projectName: 'test-project',
       resetSettings: true,
-      clearStorageKeys: ['panelLayout.v1'],
+      clearStorageKeys: ['panel-layout-store.v1'],
     };
 
     let explorer: FileExplorerPage;
