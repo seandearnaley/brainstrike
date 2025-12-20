@@ -13,7 +13,6 @@ import { useCallback, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileExtensionFilter from './file-extension-filter';
 import InlineFixtureSetting from './inline-fixture-setting';
-import MaxSelectionCountSetting from './max-selection-count-setting';
 import UseRegexSetting from './use-regex-setting';
 
 // Types
@@ -21,7 +20,6 @@ type FileExplorerSettings = {
   includeFilters: string[];
   excludeFilters: string[];
   useRegex: boolean;
-  maxSelectionCount: number;
   folderSummaryThreshold: number;
   devInlineFixtureEnabled: boolean;
 };
@@ -67,7 +65,6 @@ const ConfigDialogContent: React.FC<{
     key: K,
     value: FileExplorerSettings[K]
   ) => void;
-  setMaxSelectionCount: (v: number) => void;
   setUseRegex: (v: boolean) => void;
   setFilters: (i: string[], e: string[]) => void;
   setFolderSummaryThreshold: (v: number) => void;
@@ -83,7 +80,6 @@ const ConfigDialogContent: React.FC<{
   onClose,
   settings,
   onSettingsChange,
-  setMaxSelectionCount,
   setUseRegex,
   setFilters,
   setFolderSummaryThreshold,
@@ -93,7 +89,6 @@ const ConfigDialogContent: React.FC<{
 }) => {
   const handleApplySettings = async () => {
     const {
-      maxSelectionCount: m,
       useRegex: r,
       includeFilters: i,
       excludeFilters: e,
@@ -101,7 +96,6 @@ const ConfigDialogContent: React.FC<{
       devInlineFixtureEnabled: fixtureEnabled,
     } = settings;
 
-    setMaxSelectionCount(m);
     setUseRegex(r);
     setFilters(i, e);
     setFolderSummaryThreshold(f);
@@ -112,7 +106,6 @@ const ConfigDialogContent: React.FC<{
     // Defensive: ask store's persist storage to write a merged patch synchronously if available
     try {
       await persistPatch({
-        maxSelectionCount: m,
         useRegex: r,
         includeFilters: i,
         excludeFilters: e,
@@ -149,10 +142,6 @@ const ConfigDialogContent: React.FC<{
         </DialogDescription>
       </div>
       <div className="@container flex flex-col gap-4 bg-card p-4 text-foreground">
-        <MaxSelectionCountSetting
-          onChange={(value) => onSettingsChange('maxSelectionCount', value)}
-          value={settings.maxSelectionCount}
-        />
         <FileExtensionFilter
           excludeFilters={settings.excludeFilters}
           filterError={filterError}
@@ -201,12 +190,10 @@ const SettingsDialogContainer: React.FC<
       includeFilters: string[];
       excludeFilters: string[];
       useRegex: boolean;
-      maxSelectionCount: number;
       folderSummaryThreshold: number;
       devInlineFixtureEnabled: boolean;
     };
     actions: {
-      setMaxSelectionCount: (v: number) => void;
       setUseRegex: (v: boolean) => void;
       setFilters: (i: string[], e: string[]) => void;
       setFolderSummaryThreshold: (v: number) => void;
@@ -220,7 +207,6 @@ const SettingsDialogContainer: React.FC<
     includeFilters: selectors.includeFilters,
     excludeFilters: selectors.excludeFilters,
     useRegex: selectors.useRegex,
-    maxSelectionCount: selectors.maxSelectionCount,
     folderSummaryThreshold: selectors.folderSummaryThreshold,
     devInlineFixtureEnabled: selectors.devInlineFixtureEnabled,
   }));
@@ -242,7 +228,6 @@ const SettingsDialogContainer: React.FC<
       includeFilters: selectors.includeFilters ?? prev.includeFilters,
       excludeFilters: selectors.excludeFilters ?? prev.excludeFilters,
       useRegex: selectors.useRegex ?? prev.useRegex,
-      maxSelectionCount: selectors.maxSelectionCount ?? prev.maxSelectionCount,
       folderSummaryThreshold: selectors.folderSummaryThreshold ?? prev.folderSummaryThreshold,
       devInlineFixtureEnabled: selectors.devInlineFixtureEnabled ?? prev.devInlineFixtureEnabled,
     }));
@@ -251,7 +236,6 @@ const SettingsDialogContainer: React.FC<
     selectors.includeFilters,
     selectors.excludeFilters,
     selectors.useRegex,
-    selectors.maxSelectionCount,
     selectors.folderSummaryThreshold,
     selectors.devInlineFixtureEnabled,
   ]);
@@ -284,7 +268,6 @@ const SettingsDialogContainer: React.FC<
             setDevInlineFixtureEnabled={actions.setDevInlineFixtureEnabled}
             setFilters={actions.setFilters}
             setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
-            setMaxSelectionCount={actions.setMaxSelectionCount}
             settings={settings}
             setUseRegex={actions.setUseRegex}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
@@ -303,10 +286,8 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
       includeFilters,
       excludeFilters,
       useRegex,
-      maxSelectionCount,
       folderSummaryThreshold,
       devInlineFixtureEnabled,
-      setMaxSelectionCount,
       setUseRegex,
       setFilters,
       setFolderSummaryThreshold,
@@ -317,10 +298,8 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
           s.includeFilters,
           s.excludeFilters,
           s.useRegex,
-          s.maxSelectionCount,
           s.folderSummaryThreshold,
           s.devInlineFixtureEnabled,
-          s.setMaxSelectionCount,
           s.setUseRegex,
           s.setFilters,
           s.setFolderSummaryThreshold,
@@ -392,7 +371,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
     return (
       <SettingsDialogContainer
         actions={{
-          setMaxSelectionCount,
           setUseRegex,
           setFilters,
           setFolderSummaryThreshold,
@@ -405,7 +383,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
           includeFilters,
           excludeFilters,
           useRegex,
-          maxSelectionCount,
           folderSummaryThreshold,
           devInlineFixtureEnabled,
         }}
