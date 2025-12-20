@@ -379,29 +379,29 @@
   }
 
   /* Subtle press effect for all clickable elements */
-  button:not(:disabled):active,
-  [role="button"]:not([aria-disabled="true"]):active,
-  [role="menuitem"]:not([aria-disabled="true"]):active,
-  [role="option"]:not([aria-disabled="true"]):active,
-  [role="tab"]:not([aria-disabled="true"]):active,
-  input[type="checkbox"]:not(:disabled):active,
-  input[type="radio"]:not(:disabled):active,
-  input[type="submit"]:not(:disabled):active,
-  input[type="button"]:not(:disabled):active {
+  button:not(:disabled):not(.no-depress):active,
+  [role="button"]:not([aria-disabled="true"]):not(.no-depress):active,
+  [role="menuitem"]:not([aria-disabled="true"]):not(.no-depress):active,
+  [role="option"]:not([aria-disabled="true"]):not(.no-depress):active,
+  [role="tab"]:not([aria-disabled="true"]):not(.no-depress):active,
+  input[type="checkbox"]:not(:disabled):not(.no-depress):active,
+  input[type="radio"]:not(:disabled):not(.no-depress):active,
+  input[type="submit"]:not(:disabled):not(.no-depress):active,
+  input[type="button"]:not(:disabled):not(.no-depress):active {
     transform: scale(0.97);
   }
 
   /* Smooth transition for interactive elements */
-  button,
-  [role="button"],
-  [role="menuitem"],
-  [role="option"],
-  [role="tab"],
-  [role="switch"],
-  input[type="checkbox"],
-  input[type="radio"],
-  a,
-  select {
+  button:not(.no-depress),
+  [role="button"]:not(.no-depress),
+  [role="menuitem"]:not(.no-depress),
+  [role="option"]:not(.no-depress),
+  [role="tab"]:not(.no-depress),
+  [role="switch"]:not(.no-depress),
+  input[type="checkbox"]:not(.no-depress),
+  input[type="radio"]:not(.no-depress),
+  a:not(.no-depress),
+  select:not(.no-depress) {
     transition:
       transform 0.1s ease-out,
       background-color 0.15s ease-out,

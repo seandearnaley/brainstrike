@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Minimap } from './minimap';
 import { TapestryControls } from './tapestry-controls';
 import type { DragState, FileTapestry, InteractionMode, TapestryRange } from './types';
@@ -142,7 +142,8 @@ function useTapestryDrag(
         dragState.mode === 'IDLE' ||
         !dragState.fileId ||
         !dragState.rangeId ||
-        !dragState.initialRange
+        !dragState.initialRange ||
+        scale <= 0
       ) {
         return;
       }
@@ -186,16 +187,28 @@ function useTapestryDrag(
     setDragState({ mode: 'IDLE', fileId: null, rangeId: null, startY: 0, initialRange: null });
   }, []);
 
+  // Store latest handlers in ref to avoid recreating event listeners
+  const handlersRef = useRef({ handleMouseMove, handleMouseUp });
+
+  useEffect(() => {
+    handlersRef.current = { handleMouseMove, handleMouseUp };
+  }, [handleMouseMove, handleMouseUp]);
+
   useEffect(() => {
     if (dragState.mode !== 'IDLE') {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      const moveHandler = (e: MouseEvent) => handlersRef.current.handleMouseMove(e);
+      const upHandler = () => handlersRef.current.handleMouseUp();
+
+      window.addEventListener('mousemove', moveHandler);
+      window.addEventListener('mouseup', upHandler);
+
+      return () => {
+        window.removeEventListener('mousemove', moveHandler);
+        window.removeEventListener('mouseup', upHandler);
+      };
     }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [dragState.mode, handleMouseMove, handleMouseUp]);
+    return;
+  }, [dragState.mode]);
 
   const startDrag = useCallback(
     (
@@ -298,6 +311,24 @@ export const TapestryView = memo(() => {
     );
   }, []);
 
+  const handleMoveRange = useCallback(
+    (fileId: string, rangeId: string, newStartLine: number, newEndLine: number) => {
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileId
+            ? {
+                ...f,
+                selections: f.selections.map((s) =>
+                  s.id === rangeId ? { ...s, startLine: newStartLine, endLine: newEndLine } : s
+                ),
+              }
+            : f
+        )
+      );
+    },
+    []
+  );
+
   const activeRangesCount = useMemo(
     () => files.reduce((acc, f) => acc + f.selections.filter((s) => s.isActive).length, 0),
     [files]
@@ -340,6 +371,7 @@ export const TapestryView = memo(() => {
                 getGlobalIndex={getGlobalIndex}
                 key={file.id}
                 onInteractionStart={() => {}}
+                onMoveRange={handleMoveRange}
                 onToggleRange={handleToggleRange}
                 scale={scale}
                 smartStart={startDrag}

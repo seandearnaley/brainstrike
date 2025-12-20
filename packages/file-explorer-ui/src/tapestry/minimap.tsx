@@ -21,6 +21,7 @@ type MinimapProps = {
     clickedLine?: number
   ) => void;
   onToggleRange: (fileId: string, rangeId: string) => void;
+  onMoveRange?: (fileId: string, rangeId: string, newStartLine: number, newEndLine: number) => void;
   getGlobalIndex: (rangeId: string) => number;
 };
 
@@ -32,6 +33,7 @@ const RangeItem = memo(
     handleStart,
     getGlobalIndex,
     onToggleRange,
+    onMoveRange,
     hoveredRangeId,
     setHoveredRangeId,
   }: {
@@ -46,6 +48,12 @@ const RangeItem = memo(
     ) => void;
     getGlobalIndex: (rangeId: string) => number;
     onToggleRange: (fileId: string, rangeId: string) => void;
+    onMoveRange?: (
+      fileId: string,
+      rangeId: string,
+      newStartLine: number,
+      newEndLine: number
+    ) => void;
     hoveredRangeId: string | null;
     setHoveredRangeId: (id: string | null) => void;
   }) => {
@@ -53,6 +61,53 @@ const RangeItem = memo(
     const height = (range.endLine - range.startLine) * scale;
     const globalIndex = getGlobalIndex(range.id);
     const isHovered = hoveredRangeId === range.id;
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+      const rangeHeight = range.endLine - range.startLine;
+      let newStartLine = range.startLine;
+      let handled = false;
+
+      switch (e.key) {
+        case 'ArrowUp':
+          newStartLine = Math.max(0, range.startLine - 1);
+          handled = true;
+          break;
+        case 'ArrowDown':
+          newStartLine = Math.min(file.totalLines - rangeHeight, range.startLine + 1);
+          handled = true;
+          break;
+        case 'PageUp':
+          newStartLine = Math.max(0, range.startLine - 10);
+          handled = true;
+          break;
+        case 'PageDown':
+          newStartLine = Math.min(file.totalLines - rangeHeight, range.startLine + 10);
+          handled = true;
+          break;
+        case 'Home':
+          newStartLine = 0;
+          handled = true;
+          break;
+        case 'End':
+          newStartLine = file.totalLines - rangeHeight;
+          handled = true;
+          break;
+        case 'Enter':
+        case ' ':
+          onToggleRange(file.id, range.id);
+          handled = true;
+          break;
+      }
+
+      if (handled) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (newStartLine !== range.startLine && onMoveRange) {
+          onMoveRange(file.id, range.id, newStartLine, newStartLine + rangeHeight);
+        }
+      }
+    };
 
     return (
       <div
@@ -65,6 +120,7 @@ const RangeItem = memo(
           range.isActive ? 'opacity-100' : 'opacity-40 grayscale',
           isHovered ? 'z-50' : 'z-20'
         )}
+        onKeyDown={handleKeyDown}
         onMouseDown={(e) => {
           e.stopPropagation();
           if (e.button === 0 && !e.shiftKey) {
@@ -93,7 +149,7 @@ const RangeItem = memo(
         <button
           aria-label={range.isActive ? 'Deactivate range' : 'Activate range'}
           className={cn(
-            '-top-1.5 -right-1.5 absolute z-50 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-all',
+            '-top-1.5 -right-1.5 no-depress absolute z-50 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-all',
             range.isActive ? 'scale-100 bg-background' : 'scale-90 bg-muted hover:scale-110'
           )}
           onMouseDown={(e) => {
@@ -159,7 +215,7 @@ const RangeItem = memo(
         {/* Resize Handles */}
         <button
           aria-label="Resize range top"
-          className="-top-1 absolute right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
+          className="-top-1 no-depress absolute right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
           onMouseDown={(e) => {
             e.stopPropagation();
             handleStart('RESIZING_TOP', range.id, e.clientY, range);
@@ -169,7 +225,7 @@ const RangeItem = memo(
 
         <button
           aria-label="Resize range bottom"
-          className="-bottom-1 absolute right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
+          className="-bottom-1 no-depress absolute right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
           onMouseDown={(e) => {
             e.stopPropagation();
             handleStart('RESIZING_BOTTOM', range.id, e.clientY, range);
@@ -208,6 +264,7 @@ export const Minimap = memo(
     onInteractionStart,
     smartStart,
     onToggleRange,
+    onMoveRange,
     getGlobalIndex,
   }: MinimapProps) => {
     const containerRef = useRef<HTMLButtonElement>(null);
@@ -274,7 +331,7 @@ export const Minimap = memo(
 
         <button
           aria-label={`Create range in ${file.name}`}
-          className="group relative w-full cursor-crosshair overflow-visible rounded-md border border-border bg-muted/30 shadow-xs transition-colors hover:border-accent"
+          className="group no-depress relative w-full cursor-crosshair overflow-visible rounded-md border border-border bg-muted/30 shadow-xs transition-colors hover:border-accent"
           onMouseDown={handleMouseDown}
           ref={containerRef}
           style={{ height: totalHeight }}
@@ -317,6 +374,7 @@ export const Minimap = memo(
               handleStart={handleStart}
               hoveredRangeId={hoveredRangeId}
               key={range.id}
+              {...(onMoveRange ? { onMoveRange } : {})}
               onToggleRange={onToggleRange}
               range={range}
               scale={scale}
