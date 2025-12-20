@@ -1,6 +1,7 @@
 import './globals.css';
 import { RouterProvider } from '@brainstrike/ui';
 import type React from 'react';
+import { Helmet } from 'react-helmet-async';
 
 export default function RootLayout({
   children,
@@ -8,14 +9,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <head>
+    <>
+      <Helmet htmlAttributes={{ lang: 'en' }}>
         <title>BrainStrike.ai</title>
         <meta content="Multi-app dashboard" name="description" />
-      </head>
-      <body>
-        <RouterProvider>{children}</RouterProvider>
-      </body>
-    </html>
+      </Helmet>
+      <RouterProvider>{children}</RouterProvider>
+    </>
   );
 }

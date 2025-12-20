@@ -1,6 +1,6 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
-import { Brain, Database, MessageCircle } from 'lucide-react';
+import { Brain, Database, Layers, MessageCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { AssistantTab } from './assistant-tab';
 import { DatabaseTab } from './database-tab';
@@ -10,22 +10,24 @@ import {
   rightPanelSelectors,
   useRightPanelStore,
 } from './stores/right-panel-store';
+import { VectorsTab } from './vectors-tab';
 
 type RightPanelProps = {
   /**
    * CRITICAL: The app-specific embedding queue from RootLayoutContent.
    *
-   * This queue flows through: RootLayoutContent → RightPanel (HERE) → DatabaseTab → VectorStatusWithDialog
+   * This queue flows through: RootLayoutContent → RightPanel (HERE) → VectorsTab → VectorStatusWithDialog
    *
-   * MUST be passed through to DatabaseTab! Without it, embedding operations will fail.
+   * MUST be passed through to VectorsTab and DatabaseTab! Without it, embedding
+   * management and import operations will fail.
    */
   embeddingQueue?: QueueAdapter | null;
 };
 
 /**
- * Right panel containing Assistant, Embeddings, and Database tabs.
+ * Right panel containing Assistant, Embeddings, Vectors, and Database tabs.
  *
- * IMPORTANT: The embeddingQueue prop must be forwarded to DatabaseTab to ensure
+ * IMPORTANT: The embeddingQueue prop must be forwarded to VectorsTab to ensure
  * the manage embedding sets button and embedding operations work correctly.
  */
 export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactElement {
@@ -48,6 +50,10 @@ export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactEle
             <Brain className="h-3 w-3" />
             <span className="hidden sm:inline">Embed</span>
           </TabsTrigger>
+          <TabsTrigger className="flex items-center gap-1" value="vectors">
+            <Layers className="h-3 w-3" />
+            <span className="hidden sm:inline">Vectors</span>
+          </TabsTrigger>
           <TabsTrigger className="flex items-center gap-1" value="database">
             <Database className="h-3 w-3" />
             <span className="hidden sm:inline">DB</span>
@@ -67,9 +73,18 @@ export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactEle
             <EmbeddingsTab />
           </TabsContent>
 
-          <TabsContent className="mt-0 min-h-0 flex-1 overflow-y-auto" value="database">
-            {/* CRITICAL: Pass embeddingQueue to DatabaseTab
+          <TabsContent className="mt-0 min-h-0 flex-1 overflow-y-auto" value="vectors">
+            {/* CRITICAL: Pass embeddingQueue to VectorsTab
                 This ensures VectorStatusWithDialog gets the app's embedding queue */}
+            <VectorsTab embeddingQueue={embeddingQueue} />
+          </TabsContent>
+
+          <TabsContent
+            className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden"
+            value="database"
+          >
+            {/* CRITICAL: Pass embeddingQueue to DatabaseTab
+                This ensures import operations use the app's embedding queue */}
             <DatabaseTab embeddingQueue={embeddingQueue} />
           </TabsContent>
         </div>

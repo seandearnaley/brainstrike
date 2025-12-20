@@ -335,8 +335,8 @@ function isQueueEnabled(): boolean {
     if (typeof window !== 'undefined') {
       return true;
     }
-    // @ts-expect-error process may not exist in browser
-    const v = process?.env?.EMBED_QUEUE_ENABLED;
+    const env = typeof process !== 'undefined' ? process.env : undefined;
+    const v = env?.['EMBED_QUEUE_ENABLED'];
     if (typeof v !== 'undefined') {
       return String(v).toLowerCase() === 'true';
     }

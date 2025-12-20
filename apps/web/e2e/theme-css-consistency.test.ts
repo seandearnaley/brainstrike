@@ -20,6 +20,22 @@ async function clickSettingsThemeButton(page: Page, themeName: 'Light' | 'Dark' 
     .click();
 }
 
+async function waitForThemeApplied(page: Page, mode: 'light' | 'dark'): Promise<void> {
+  const shouldBeDark = mode === 'dark';
+  await page.waitForFunction((expectDark) => {
+    const root = document.documentElement;
+    const styles = getComputedStyle(root);
+    const bsBackground = styles.getPropertyValue('--bs-background').trim();
+
+    if (!bsBackground) {
+      return false;
+    }
+
+    const isDark = root.classList.contains('dark');
+    return expectDark ? isDark : !isDark;
+  }, shouldBeDark);
+}
+
 test.describe('Theme CSS Consistency (E2E)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
@@ -33,7 +49,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     // Switch to light mode (use settings-specific selector to avoid nav button conflict)
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await clickSettingsThemeButton(page, 'Light');
-    await page.waitForTimeout(200);
+    await waitForThemeApplied(page, 'light');
 
     // Check CSS variables are defined
     const variables = await page.evaluate(() => {
@@ -60,7 +76,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     // Switch to dark mode
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await clickSettingsThemeButton(page, 'Dark');
-    await page.waitForTimeout(200);
+    await waitForThemeApplied(page, 'dark');
 
     // Check CSS variables are defined
     const variables = await page.evaluate(() => {
@@ -88,7 +104,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   test('should maintain warm neutral theme in dark mode (not pure black)', async ({ page }) => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await clickSettingsThemeButton(page, 'Dark');
-    await page.waitForTimeout(200);
+    await waitForThemeApplied(page, 'dark');
 
     const themeValues = await page.evaluate(() => {
       const root = document.documentElement;
@@ -119,7 +135,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   test('should ensure --background equals --bs-background', async ({ page }) => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await clickSettingsThemeButton(page, 'Dark');
-    await page.waitForTimeout(200);
+    await waitForThemeApplied(page, 'dark');
 
     const isConsistent = await page.evaluate(() => {
       const root = document.documentElement;
@@ -144,7 +160,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   test('should verify all theme variables are consistent', async ({ page }) => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await clickSettingsThemeButton(page, 'Dark');
-    await page.waitForTimeout(200);
+    await waitForThemeApplied(page, 'dark');
 
     const inconsistentVars = await page.evaluate(() => {
       const root = document.documentElement;
@@ -184,7 +200,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   test('should not have assistant-ui hardcoded values overriding theme', async ({ page }) => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await clickSettingsThemeButton(page, 'Dark');
-    await page.waitForTimeout(200);
+    await waitForThemeApplied(page, 'dark');
 
     const hasOldValues = await page.evaluate(() => {
       const root = document.documentElement;
@@ -210,7 +226,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   test('should have visible gradients with sufficient color separation', async ({ page }) => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await clickSettingsThemeButton(page, 'Dark');
-    await page.waitForTimeout(200);
+    await waitForThemeApplied(page, 'dark');
 
     const colorSeparation = await page.evaluate(() => {
       const root = document.documentElement;
@@ -235,7 +251,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   test('should maintain theme when opening assistant panel', async ({ page }) => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await clickSettingsThemeButton(page, 'Dark');
-    await page.waitForTimeout(200);
+    await waitForThemeApplied(page, 'dark');
 
     // Navigate back to main page
     await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
@@ -261,7 +277,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
   test('should apply theme to assistant panel elements', async ({ page }) => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     await clickSettingsThemeButton(page, 'Dark');
-    await page.waitForTimeout(200);
+    await waitForThemeApplied(page, 'dark');
 
     await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
     await ensureRightPanelVisible(page);

@@ -77,7 +77,7 @@ const config = {
   testRunner: 'vitest',
   vitest: {
     // Root config aggregates all projects
-    configFile: 'vitest.config.ts'
+    configFile: 'vitest.config.mts'
   },
   checkers: ['typescript'],
   mutate: [
@@ -264,7 +264,7 @@ jobs:
 Ensure your Vitest config includes proper path resolution:
 
 ```typescript
-// vitest.config.ts
+// vitest.config.mts
 export default defineConfig({
   resolve: {
     alias: {

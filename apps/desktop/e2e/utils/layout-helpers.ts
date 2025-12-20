@@ -9,87 +9,125 @@ import type { BrowserContext, Locator, Page } from '@playwright/test';
  * Navigate to and show the database demo panel in the right panel
  */
 export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
-  const activePage = await resolveActivePage(page);
+  let activePage = await resolveActivePage(page);
   console.log('🗄️ Navigating to database demo panel...');
 
-  // First, check if the right panel is already visible
-  const rightPanel = activePage.locator('[data-panel-id="right-panel"]');
-  const showRightPanelButton = activePage.locator('button[aria-label="Show right panel"]');
-  const hideRightPanelButton = activePage.locator('button[aria-label="Hide right panel"]');
-  let rightPanelVisible = await rightPanel.isVisible().catch(() => false);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    activePage = await resolveActivePage(activePage);
+    await activePage
+      .locator('[data-panel-id="middle-panel"]')
+      .waitFor({ state: 'attached', timeout: 10_000 })
+      .catch(() => {});
 
-  // If we cannot determine visibility yet, fall back to checking the hide button
-  if (!rightPanelVisible) {
-    rightPanelVisible = (await hideRightPanelButton.count()) > 0;
-  }
+    // First, check if the right panel is already visible
+    const rightPanel = activePage.locator('[data-panel-id="right-panel"]');
+    const showRightPanelButton = activePage
+      .locator('[data-testid="show-right-panel"]')
+      .or(activePage.locator('button[aria-label="Show right panel"]'));
+    const hideRightPanelButton = activePage
+      .locator('[data-testid="hide-right-panel"]')
+      .or(activePage.locator('button[aria-label="Hide right panel"]'));
+    let rightPanelVisible = await rightPanel.isVisible().catch(() => false);
 
-  if (!rightPanelVisible) {
-    console.log('👉 Showing right panel...');
-    if ((await showRightPanelButton.count()) > 0) {
-      await showRightPanelButton.first().click();
-      await rightPanel.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
-        console.warn('⚠️ Right panel did not become visible after clicking show button.');
-      });
-    } else {
-      console.warn('⚠️ Show right panel button not found; assuming panel is already visible.');
+    // If we cannot determine visibility yet, fall back to checking the hide button
+    if (!rightPanelVisible) {
+      rightPanelVisible = (await hideRightPanelButton.count()) > 0;
     }
-  }
 
-  if (!activePage.isClosed()) {
-    // Wait a moment for panel to stabilize
-    await activePage.waitForTimeout(500);
-  }
+    if (!rightPanelVisible) {
+      console.log('👉 Showing right panel...');
+      if ((await showRightPanelButton.count()) > 0) {
+        await showRightPanelButton.first().click();
+        await rightPanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
+          console.warn('⚠️ Right panel did not become visible after clicking show button.');
+        });
+      } else {
+        console.warn('⚠️ Show right panel button not found; waiting for panel to appear.');
+        await rightPanel.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
+          console.warn('⚠️ Right panel still not visible after waiting.');
+        });
+      }
+    }
 
-  // Now navigate to the database tab within the right panel
-  // Try multiple selectors for the database tab
-  console.log('🗂️ Clicking database tab...');
-  const databaseTab = activePage
-    .locator('button[value="database"]')
-    .or(activePage.locator('[value="database"]'))
-    .or(activePage.locator('text=DB'))
-    .or(activePage.locator('[role="tab"]:has-text("DB")'));
+    if (!activePage.isClosed()) {
+      // Wait a moment for panel to stabilize
+      await activePage.waitForTimeout(500);
+    }
 
-  await databaseTab.first().click();
+    // Now navigate to the database tab within the right panel
+    console.log('🗂️ Clicking database tab...');
+    const tabScope = rightPanel.locator('[role="tablist"]').first();
+    const databaseTab = tabScope
+      .locator('button[value="database"]')
+      .or(tabScope.locator('[data-value="database"]'))
+      .or(tabScope.getByRole('tab', { name: /db|database/i }))
+      .or(rightPanel.locator('button[value="database"]'));
 
-  // Wait for either the database demo panel OR the database error to be visible
-  console.log('⏳ Waiting for database panel or error to be visible...');
+    await databaseTab
+      .first()
+      .waitFor({ state: 'visible', timeout: 10_000 })
+      .catch(() => {
+        console.warn('⚠️ Database tab not visible yet; proceeding with click attempt.');
+      });
+    await databaseTab
+      .first()
+      .click()
+      .catch((clickError) => {
+        console.warn('⚠️ Failed to click database tab:', clickError);
+      });
 
-  // Wait for either the success state or error state
-  // Increased timeout for fresh Electron restarts where database may take longer to initialize
-  try {
-    await Promise.race([
-      activePage.locator('[data-testid="database-demo-panel"]').waitFor({
-        state: 'visible',
-        timeout: 30_000,
-      }),
-      activePage.locator('[data-testid="db-init-error"]').waitFor({
-        state: 'visible',
-        timeout: 30_000,
-      }),
-    ]);
-  } catch (waitError) {
-    console.warn('⚠️ Database panel did not appear within timeout, checking current state...');
-    // Take a screenshot or log current page state for debugging
-    const bodyText = await activePage
-      .locator('body')
-      .textContent()
-      .catch(() => 'Could not get body text');
-    console.log('Current page content snippet:', bodyText?.slice(0, 500));
-    throw waitError;
-  }
+    // Wait for either the database demo panel OR the database error to be visible
+    console.log('⏳ Waiting for database panel or error to be visible...');
 
-  // Check which state we're in
-  const hasSuccessPanel = await activePage
-    .locator('[data-testid="database-demo-panel"]')
-    .isVisible();
-  const hasErrorPanel = await activePage.locator('[data-testid="db-init-error"]').isVisible();
+    // Wait for either the success state or error state
+    // Increased timeout for fresh Electron restarts where database may take longer to initialize
+    try {
+      await Promise.race([
+        activePage.locator('[data-testid="database-demo-panel"]').waitFor({
+          state: 'visible',
+          timeout: 45_000,
+        }),
+        activePage.locator('[data-testid="db-init-error"]').waitFor({
+          state: 'visible',
+          timeout: 45_000,
+        }),
+      ]);
 
-  if (hasSuccessPanel) {
-    console.log('✅ Database demo panel is visible and ready');
-  } else if (hasErrorPanel) {
-    const errorText = await activePage.locator('[data-testid="db-init-error"]').textContent();
-    console.log('⚠️ Database initialization failed:', errorText);
-    console.log('✅ Database error panel is visible (this is expected in E2E environment)');
+      // Check which state we're in
+      const hasSuccessPanel = await activePage
+        .locator('[data-testid="database-demo-panel"]')
+        .isVisible();
+      const hasErrorPanel = await activePage.locator('[data-testid="db-init-error"]').isVisible();
+
+      if (hasSuccessPanel) {
+        console.log('✅ Database demo panel is visible and ready');
+      } else if (hasErrorPanel) {
+        const errorText = await activePage.locator('[data-testid="db-init-error"]').textContent();
+        console.log('⚠️ Database initialization failed:', errorText);
+        console.log('✅ Database error panel is visible (this is expected in E2E environment)');
+      }
+
+      return activePage;
+    } catch (waitError) {
+      console.warn('⚠️ Database panel did not appear within timeout, checking current state...');
+      const bodyText = await activePage
+        .locator('body')
+        .textContent()
+        .catch(() => 'Could not get body text');
+      console.log('Current page content snippet:', bodyText?.slice(0, 500));
+
+      if (attempt < 1 && activePage.isClosed()) {
+        console.warn('⚠️ Active window closed; retrying database panel lookup.');
+        continue;
+      }
+
+      if (attempt < 1) {
+        await activePage.waitForTimeout(1000);
+        continue;
+      }
+
+      throw waitError;
+    }
   }
 
   return activePage;

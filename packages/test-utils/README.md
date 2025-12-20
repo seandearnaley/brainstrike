@@ -37,7 +37,7 @@ This package provides testing infrastructure used across all BrainStrike package
 
 Extend the base Vitest configuration in your package:
 
-**vitest.config.ts:**
+**vitest.config.mts:**
 ```typescript
 import { defineConfig, mergeConfig } from 'vitest/config';
 import { vitestBaseConfig } from '@brainstrike/test-utils/vitest.base';

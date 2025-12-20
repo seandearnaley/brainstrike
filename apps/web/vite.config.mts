@@ -248,7 +248,7 @@ export default defineConfig({
       }
       return false;
     },
-    // Coverage consolidated at root vitest.config.ts
+    // Coverage consolidated at root vitest.config.mts
     mockReset: true,
     // Vitest 4: deps.inline moved to server.deps.inline
     server: {

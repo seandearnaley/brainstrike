@@ -21,11 +21,14 @@ describe('layout-helpers (unit)', () => {
 
   it('waitForAppLoad waits for key selectors', async () => {
     const waited: string[] = [];
+    const loadStates: string[] = [];
     const page = {
+      waitForLoadState: vi.fn(async (state: string) => void loadStates.push(state)),
       waitForSelector: vi.fn(async (sel: string) => void waited.push(sel)),
     } as unknown as Page;
     await waitForAppLoad(page, 10_000);
-    expect(waited).toContain('#root');
+    expect(loadStates).toContain('domcontentloaded');
+    expect(waited).toContain('[data-panel-id="middle-panel"]');
     expect(waited).toContain('[data-panel-id="main-content-panel"]');
   });
 
@@ -34,10 +37,11 @@ describe('layout-helpers (unit)', () => {
     const page = {
       evaluate: vi.fn(async (fn: () => unknown) => evalCalls.push(fn.toString())),
       reload: vi.fn(async () => {}),
+      waitForLoadState: vi.fn(async () => {}),
       waitForSelector: vi.fn(async () => {}),
     } as unknown as Page;
     await resetLayoutState(page);
     expect(page.reload).toHaveBeenCalled();
-    expect(evalCalls.join('\n')).toContain('panelLayout.v1');
+    expect(evalCalls.join('\n')).toContain('panel-layout-store.v1');
   });
 });

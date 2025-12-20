@@ -16,7 +16,7 @@ export default defineConfig({
     pool: 'threads',
     // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
     maxWorkers: 4,
-    // Coverage consolidated at root vitest.config.ts
+    // Coverage consolidated at root vitest.config.mts
     coverage: {
       enabled: true,
       provider: 'v8',

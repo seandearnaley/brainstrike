@@ -18,7 +18,7 @@ export default defineConfig({
     maxWorkers: 4,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
-    // Coverage consolidated at root vitest.config.ts
+    // Coverage consolidated at root vitest.config.mts
   },
   resolve: {
     alias: {

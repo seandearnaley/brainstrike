@@ -81,17 +81,19 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
  * This is useful to ensure tests don't start before the UI is fully initialized.
  */
 export async function waitForAppLoad(page: Page, timeout = 10_000) {
-  // Wait for the app root to attach instead of relying on body text content
-  await page.waitForSelector('#root', { state: 'attached', timeout });
+  const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+  const effectiveTimeout = isCI ? Math.max(timeout, 20_000) : timeout;
+  // Ensure the document has finished initial parsing before checking layout markers.
+  await page.waitForLoadState('domcontentloaded', { timeout: effectiveTimeout });
   // Wait for the main layout structure to be present, regardless of panel visibility
   await page.waitForSelector('[data-panel-id="middle-panel"]', {
     state: 'attached',
-    timeout,
+    timeout: effectiveTimeout,
   });
   // Also ensure the main content panel is present
   await page.waitForSelector('[data-panel-id="main-content-panel"]', {
     state: 'attached',
-    timeout,
+    timeout: effectiveTimeout,
   });
 }
 
@@ -100,7 +102,7 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
  */
 export async function resetLayoutState(page: Page): Promise<void> {
   await page.evaluate(() => {
-    localStorage.removeItem('panelLayout.v1');
+    localStorage.removeItem('panel-layout-store.v1');
   });
   // Wait for the page to finish navigating before continuing. Using
   // `networkidle` helps avoid flaky reload errors in CI where the
@@ -456,7 +458,7 @@ export async function testPanelSizeConstraints(
  */
 export async function corruptLayoutStorage(page: Page): Promise<void> {
   await page.evaluate(() => {
-    localStorage.setItem('panelLayout.v1', 'invalid-json');
+    localStorage.setItem('panel-layout-store.v1', 'invalid-json');
   });
 }
 

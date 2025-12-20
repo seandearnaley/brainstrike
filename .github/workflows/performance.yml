@@ -29,6 +29,9 @@ permissions:
   contents: read
   pull-requests: write
 
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+
 jobs:
   web-perf:
     name: Web Performance Tests
@@ -110,4 +113,3 @@ jobs:
           name: perf-blob-report
           path: apps/web/blob-report
           retention-days: 7
-

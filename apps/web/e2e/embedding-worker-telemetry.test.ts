@@ -1,34 +1,30 @@
 import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
+import { ensureRightPanelVisible } from './utils/layout-helpers';
 
 test.describe('Embedding Worker Telemetry', () => {
-  test('surfaces queue metrics and vector trends in settings', async ({ page }) => {
+  test('surfaces queue metrics and vector trends in the vectors tab', async ({ page }) => {
     const home = new HomePage(page);
 
     await home.goto();
-    await home.navigateToSettings();
+    await ensureRightPanelVisible(page);
 
-    const embeddingWorkerNav = page.getByRole('button', { name: 'Embedding Worker' });
-    await expect(embeddingWorkerNav).toBeVisible();
-    await embeddingWorkerNav.click();
+    const vectorsTab = page.getByRole('tab', { name: /vectors/i });
+    await expect(vectorsTab).toBeVisible();
+    await vectorsTab.click();
 
-    const embeddingCategory = page.getByTestId('settings-category-embedding-worker');
-    await expect(embeddingCategory).toBeVisible();
+    const vectorsPanel = page.getByRole('tabpanel', { name: /vectors/i });
+    await expect(vectorsPanel).toBeVisible();
 
-    const queueHeading = embeddingCategory.getByRole('heading', { name: 'Queue' }).first();
-    await expect(queueHeading).toBeVisible();
-    await expect(
-      embeddingCategory.getByRole('button', { name: 'Retry failed jobs' }).first()
-    ).toBeVisible();
-    await expect(embeddingCategory.getByText(/Jobs\/min/i)).toBeVisible();
-    await expect(
-      embeddingCategory.getByRole('img', { name: 'Queue throughput trend' })
-    ).toBeVisible();
-    await expect(embeddingCategory.getByRole('img', { name: 'Queue error trend' })).toBeVisible();
-
-    const vectorStatusHeading = embeddingCategory.getByRole('heading', { name: 'Vector Status' });
+    const vectorStatusHeading = vectorsPanel.getByRole('heading', { name: 'Vector Status' });
     await expect(vectorStatusHeading).toBeVisible();
-    await expect(embeddingCategory.getByText(/Latency \(ms\)/i)).toBeVisible();
-    await expect(embeddingCategory.getByRole('img', { name: 'Queue latency trend' })).toBeVisible();
+    await expect(vectorsPanel.getByText(/Jobs\/min/i)).toBeVisible();
+    await expect(vectorsPanel.getByRole('img', { name: 'Queue throughput trend' })).toBeVisible();
+    await expect(vectorsPanel.getByRole('img', { name: 'Queue error trend' })).toBeVisible();
+    await expect(vectorsPanel.getByRole('img', { name: 'Queue latency trend' })).toBeVisible();
+
+    const queueStatus = page.getByTestId('status-bar-queue');
+    await expect(queueStatus).toBeVisible();
+    await expect(queueStatus.getByRole('button', { name: /retry/i })).toBeVisible();
   });
 });

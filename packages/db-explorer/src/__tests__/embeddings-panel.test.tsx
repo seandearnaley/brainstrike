@@ -131,9 +131,9 @@ describe('EmbeddingsPanel - Simple Coverage Tests', () => {
     it('renders main UI elements', () => {
       render(<EmbeddingsPanel />);
 
-      expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
+      expect(screen.getByText('Embedding Playground')).toBeInTheDocument();
       expect(
-        screen.getByText('Generate embeddings and calculate text similarity')
+        screen.getByText('Test individual models and similarity (not tied to your vector DB)')
       ).toBeInTheDocument();
       expect(screen.getByText('Not initialized')).toBeInTheDocument();
     });

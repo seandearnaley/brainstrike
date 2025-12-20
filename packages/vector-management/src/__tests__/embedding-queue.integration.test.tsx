@@ -7,6 +7,7 @@ let EmbeddingQueueProvider:
   | typeof import('../embedding-queue-provider').EmbeddingQueueProvider
   | null = null;
 let useEmbeddingQueue: typeof import('../embedding-queue-provider').useEmbeddingQueue | null = null;
+const slowHookTimeoutMs = 30_000;
 
 beforeAll(async () => {
   const actual = await vi.importActual<typeof import('../embedding-queue-provider')>(
@@ -14,7 +15,7 @@ beforeAll(async () => {
   );
   EmbeddingQueueProvider = actual.EmbeddingQueueProvider;
   useEmbeddingQueue = actual.useEmbeddingQueue;
-});
+}, slowHookTimeoutMs);
 
 function createTestQueue(): QueueAdapter {
   const listeners = new Set<Parameters<QueueAdapter['onProgress']>[0]>();

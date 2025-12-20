@@ -321,10 +321,10 @@ export function EmbeddingsPanel() {
           <div>
             <CardTitle className="flex items-center gap-2 text-sm">
               <Brain className="h-4 w-4" />
-              Text Embeddings
+              Embedding Playground
             </CardTitle>
             <CardDescription className="text-xs">
-              Generate embeddings and calculate text similarity
+              Test individual models and similarity (not tied to your vector DB)
             </CardDescription>
           </div>
           <Badge className="text-xs" variant={getStatusColor(status)}>

@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import { HelmetProvider } from 'react-helmet-async';
 import { describe, expect, test, vi } from 'vitest';
 import RootLayout from '../layout';
 
@@ -16,37 +17,42 @@ vi.mock('@brainstrike/ui', () => ({
 }));
 
 describe('RootLayout', () => {
-  test('renders with correct structure and meta information', () => {
+  test('renders with correct structure and meta information', async () => {
     render(
-      <RootLayout>
-        <div>Test Content</div>
-      </RootLayout>
+      <HelmetProvider>
+        <RootLayout>
+          <div>Test Content</div>
+        </RootLayout>
+      </HelmetProvider>
     );
 
     // Check for correct title and meta tags
-    expect(document.title).toBe('BrainStrike.ai');
-    expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
-      'Multi-app dashboard'
-    );
+    await waitFor(() => {
+      expect(document.title).toBe('BrainStrike.ai');
+    });
+    await waitFor(() => {
+      expect(document.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
+        'Multi-app dashboard'
+      );
+    });
 
     // Check for RouterProvider
     expect(screen.getByTestId('router-provider')).toBeInTheDocument();
     expect(screen.getByText('Test Content')).toBeInTheDocument();
   });
 
-  test('renders correctly in the DOM', () => {
+  test('renders correctly in the DOM', async () => {
     render(
-      <RootLayout>
-        <div>Test Content</div>
-      </RootLayout>
+      <HelmetProvider>
+        <RootLayout>
+          <div>Test Content</div>
+        </RootLayout>
+      </HelmetProvider>
     );
 
-    // Verify the RouterProvider and content are rendered
-    expect(screen.getByTestId('router-provider')).toBeInTheDocument();
-    expect(screen.getByText('Test Content')).toBeInTheDocument();
-
     // Verify HTML structure
-    const htmlElement = document.documentElement;
-    expect(htmlElement.getAttribute('lang')).toBe('en');
+    await waitFor(() => {
+      expect(document.documentElement.getAttribute('lang')).toBe('en');
+    });
   });
 });

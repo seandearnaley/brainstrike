@@ -267,7 +267,7 @@
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
-        // jsdom is provided by Vitest for environment: 'jsdom' in vitest.config.ts
+        // jsdom is provided by Vitest for environment: 'jsdom' in vitest.config.mts
         "jsdom",
         // react is an optional peerDependency that IS used by the hooks - Knip flags it incorrectly
         "react"

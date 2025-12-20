@@ -1,5 +1,6 @@
 import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
-import { render, screen, waitFor } from '@testing-library/react';
+import { TooltipProvider } from '@brainstrike/ui';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { QueueHud } from '../queue-hud';
@@ -38,6 +39,13 @@ describe('QueueHud', () => {
       Object.assign(this, mockJobQueue);
     });
   });
+
+  const renderStatusBar = () =>
+    render(
+      <TooltipProvider delayDuration={0}>
+        <QueueHud variant="status-bar" />
+      </TooltipProvider>
+    );
 
   it('renders when queue is enabled in browser', () => {
     // In browser environment, queue is always considered enabled
@@ -121,7 +129,7 @@ describe('QueueHud', () => {
       expect(screen.getByText('3')).toBeInTheDocument();
     });
 
-    const retryButton = screen.getByRole('button', { name: /retry failed/i });
+    const retryButton = screen.getByRole('button', { name: 'Retry 3 failed jobs' });
     expect(retryButton).not.toBeDisabled();
 
     await user.click(retryButton);
@@ -151,7 +159,7 @@ describe('QueueHud', () => {
       expect(screen.getByText('5')).toBeInTheDocument();
     });
 
-    const retryButton = screen.getByRole('button', { name: /retry failed/i });
+    const retryButton = screen.getByRole('button', { name: 'Retry failed jobs' });
     expect(retryButton).toBeDisabled();
   });
 
@@ -160,7 +168,7 @@ describe('QueueHud', () => {
 
     render(<QueueHud />);
 
-    const retryButton = screen.getByRole('button', { name: /retry failed/i });
+    const retryButton = screen.getByRole('button', { name: 'Retry failed jobs' });
     expect(retryButton).toBeDisabled();
   });
 
@@ -287,7 +295,7 @@ describe('QueueHud', () => {
       expect(screen.getByText('3')).toBeInTheDocument();
     });
 
-    const retryButton = screen.getByRole('button', { name: /retry failed/i });
+    const retryButton = screen.getByRole('button', { name: /retry 3 failed jobs/i });
     expect(retryButton).not.toBeDisabled();
 
     // Start the retry operation
@@ -328,5 +336,91 @@ describe('QueueHud', () => {
     });
 
     expect(screen.queryByText(/Next:/)).not.toBeInTheDocument();
+  });
+
+  it('renders status-bar summary with queue counts', async () => {
+    const mockDb = {} as never;
+    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
+
+    mockGetQueueStats.mockResolvedValue([
+      {
+        queue: 'embeddings',
+        queued: 2,
+        running: 1,
+        failed: 3,
+        succeeded: 4,
+      },
+    ]);
+
+    renderStatusBar();
+
+    const status = await screen.findByRole('status', { name: /embedding queue/i });
+    const summary = within(status);
+    expect(summary.getByText('Queue')).toBeInTheDocument();
+    expect(summary.getByText('Q')).toBeInTheDocument();
+    expect(summary.getByText('2')).toBeInTheDocument();
+    expect(summary.getByText('R')).toBeInTheDocument();
+    expect(summary.getByText('1')).toBeInTheDocument();
+    expect(summary.getByText('F')).toBeInTheDocument();
+    expect(summary.getByText('3')).toBeInTheDocument();
+    expect(summary.getByText('OK')).toBeInTheDocument();
+    expect(summary.getByText('4')).toBeInTheDocument();
+  });
+
+  it('shows tooltip details for status-bar variant', async () => {
+    const user = userEvent.setup();
+    const mockDb = {} as never;
+    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
+
+    mockGetQueueStats.mockResolvedValue([
+      {
+        queue: 'embeddings',
+        queued: 2,
+        running: 1,
+        failed: 0,
+        succeeded: 4,
+        nextRunnableAt: '2025-01-01T00:00:00Z',
+      },
+    ]);
+
+    renderStatusBar();
+
+    const status = await screen.findByRole('status', { name: /embedding queue/i });
+    await user.hover(status);
+
+    const headings = await screen.findAllByText('Embedding queue');
+    expect(headings.length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Queued: 2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Running: 1').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Failed: 0').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Success: 4').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Next:/).length).toBeGreaterThan(0);
+  });
+
+  it('handles retry action in status-bar variant', async () => {
+    const user = userEvent.setup();
+    const mockDb = {} as never;
+    vi.mocked(usePGliteDatabase).mockReturnValue(mockDb);
+
+    mockGetQueueStats.mockResolvedValue([
+      {
+        queue: 'embeddings',
+        queued: 0,
+        running: 0,
+        failed: 2,
+        succeeded: 0,
+      },
+    ]);
+
+    renderStatusBar();
+
+    const retryButton = await screen.findByRole('button', { name: 'Retry 2 failed jobs' });
+    expect(retryButton).not.toBeDisabled();
+
+    await user.click(retryButton);
+
+    await waitFor(() => {
+      expect(mockRequeueFailed).toHaveBeenCalledWith('embeddings', 20);
+    });
   });
 });
