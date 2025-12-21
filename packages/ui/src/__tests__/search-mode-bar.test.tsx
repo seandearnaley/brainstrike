@@ -176,4 +176,12 @@ describe('SearchModeBar', () => {
     expect(screen.getByRole('button', { name: 'Toggle filters' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Toggle search settings' })).toBeInTheDocument();
   });
+
+  it('allows switching back to quick mode', () => {
+    const onModeChange = vi.fn();
+    render(<SearchModeBar {...createProps({ mode: 'semantic', onModeChange })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Quick filter mode' }));
+    expect(onModeChange).toHaveBeenCalledWith('quick');
+  });
 });

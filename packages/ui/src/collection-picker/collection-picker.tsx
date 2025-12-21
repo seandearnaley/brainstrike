@@ -48,10 +48,14 @@ export function CollectionPicker({
 }: CollectionPickerProps) {
   const handleSelect = useCallback(
     (id: string) => {
-      // Always select, do not toggle to null
+      // Click-to-select, click-again-to-deselect (supports "no collection selected" state)
+      if (selectedId === id) {
+        onSelect(null);
+        return;
+      }
       onSelect(id);
     },
-    [onSelect]
+    [onSelect, selectedId]
   );
 
   const handleEdit = useCallback(
@@ -88,7 +92,7 @@ export function CollectionPicker({
   }
 
   return (
-    <div className={className} role="listbox">
+    <div aria-label={headerLabel} className={className} role="listbox">
       {showHeader && <CollectionPickerHeader label={headerLabel} onCreate={onCreate} />}
 
       <ScrollArea className="pr-3" style={{ maxHeight }}>
