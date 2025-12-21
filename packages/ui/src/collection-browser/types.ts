@@ -110,12 +110,10 @@ export type FilterBarProps = {
   filters: CollectionBrowserFilters;
   /** Callback when filters change */
   onFiltersChange: (filters: CollectionBrowserFilters) => void;
-  /** Callback to expand all nodes */
-  onExpandAll?: () => void;
-  /** Callback to collapse all nodes */
-  onCollapseAll?: () => void;
-  /** Whether expand/collapse buttons are shown */
-  showExpandControls?: boolean;
+  /** Whether the panel is expanded */
+  isExpanded: boolean;
+  /** Callback when expansion state changes */
+  onExpandedChange: (expanded: boolean) => void;
   /** Custom class name */
   className?: string;
   /** Number of visible results (for display) */
@@ -268,14 +266,14 @@ export type SearchModeBarProps = {
   onSemanticSearch: () => void;
   /** Whether semantic search is in progress */
   isSearching: boolean;
-  /** Search configuration */
-  searchConfig: SearchConfig;
-  /** Callback when search config changes */
-  onSearchConfigChange: (config: SearchConfig) => void;
   /** Whether config panel is expanded */
   isConfigExpanded: boolean;
   /** Callback when config expansion changes */
   onConfigExpandedChange: (expanded: boolean) => void;
+  /** Whether the filter bar is visible */
+  isFilterVisible?: boolean;
+  /** Callback when filter visibility changes */
+  onFilterVisibleChange?: (visible: boolean) => void;
   /** Number of visible results */
   resultCount?: number;
   /** Total number of nodes */
@@ -286,6 +284,12 @@ export type SearchModeBarProps = {
   onCollapseAll?: () => void;
   /** Whether semantic search has been executed */
   hasSearched?: boolean;
+  /** Current filter state (controlled) */
+  filters?: CollectionBrowserFilters;
+  /** Callback when filters change (controlled) */
+  onFiltersChange?: (filters: CollectionBrowserFilters) => void;
+  /** Callback to reset filters */
+  onResetFilters?: () => void;
   /** Custom class name */
   className?: string;
 };

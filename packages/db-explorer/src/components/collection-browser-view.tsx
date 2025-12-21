@@ -16,10 +16,15 @@ import type { FileChunk, FileRecord } from '@brainstrike/db';
 import {
   type BrowserNodeData,
   CollectionBrowser,
+  type CollectionBrowserFilters,
+  type CollectionNodeType,
   type CollectionSortState,
   type CollectionTreeInput,
+  type EmbeddingStatus,
+  FilterBar,
   NodeInspector,
   type SearchConfig,
+  SearchConfigPanel,
   type SearchMode,
   SearchModeBar,
 } from '@brainstrike/ui';
@@ -219,6 +224,13 @@ export function CollectionBrowserView({
     setSelectedId,
     setSortState,
     setInspectorCollapsed,
+    // Filter state from store
+    searchQuery,
+    nodeTypes,
+    embeddingStatus,
+    setSearchQuery,
+    setNodeTypes,
+    setEmbeddingStatus,
     // Semantic search state from store
     searchMode,
     semanticQuery,
@@ -226,13 +238,67 @@ export function CollectionBrowserView({
     searchConfigLimit,
     searchConfigDistanceMetric,
     searchConfigExpanded,
+    isFilterVisible,
     setSearchMode,
     setSemanticQuery,
     setSearchConfigThreshold,
     setSearchConfigLimit,
     setSearchConfigDistanceMetric,
     setSearchConfigExpanded,
+    setIsFilterVisible,
   } = useCollectionBrowserStore();
+
+  // Convert store filter state to CollectionBrowserFilters format
+  const filters = useMemo(
+    (): CollectionBrowserFilters => ({
+      searchQuery,
+      nodeTypes: new Set(nodeTypes as CollectionNodeType[]),
+      embeddingStatus: embeddingStatus as EmbeddingStatus | 'all',
+      searchMatchesOnly: false,
+    }),
+    [searchQuery, nodeTypes, embeddingStatus]
+  );
+
+  // Handle filter changes from CollectionBrowser
+  const handleFiltersChange = useCallback(
+    (newFilters: CollectionBrowserFilters) => {
+      setSearchQuery(newFilters.searchQuery);
+      setNodeTypes(Array.from(newFilters.nodeTypes));
+      setEmbeddingStatus(newFilters.embeddingStatus);
+    },
+    [setSearchQuery, setNodeTypes, setEmbeddingStatus]
+  );
+
+  // Handle filter reset
+  const handleResetFilters = useCallback(() => {
+    setSearchQuery('');
+    setNodeTypes(['collection', 'file', 'chunk', 'embedding']);
+    setEmbeddingStatus('all');
+  }, [setSearchQuery, setNodeTypes, setEmbeddingStatus]);
+
+  // Handle expand all
+  const handleExpandAll = useCallback(() => {
+    const allExpandableIds = new Set<string>();
+    for (const record of records) {
+      const fileId = `file-${record.id}`;
+      allExpandableIds.add(fileId);
+
+      const fileChunks = chunks.filter((c) => c.fileRecordId === record.id);
+      for (const chunk of fileChunks) {
+        const chunkId = `chunk-${chunk.id}`;
+        // Chunks are expandable if they have embeddings
+        if (chunk.embedding && chunk.embedding.length > 0) {
+          allExpandableIds.add(chunkId);
+        }
+      }
+    }
+    setExpandedIds(Array.from(allExpandableIds));
+  }, [records, chunks, setExpandedIds]);
+
+  // Handle collapse all
+  const handleCollapseAll = useCallback(() => {
+    setExpandedIds([]);
+  }, [setExpandedIds]);
 
   // Get semantic search transient state from context
   const {
@@ -340,9 +406,10 @@ export function CollectionBrowserView({
   // Handle semantic search execution
   const handleSearch = useCallback(() => {
     if (semanticQuery.trim()) {
+      setSearchMode('semantic');
       void executeSearch(semanticQuery, searchConfig, activeCollectionId);
     }
-  }, [semanticQuery, searchConfig, activeCollectionId, executeSearch]);
+  }, [semanticQuery, searchConfig, activeCollectionId, executeSearch, setSearchMode]);
 
   // Transform data for CollectionBrowser
   const treeData = useMemo(
@@ -385,21 +452,44 @@ export function CollectionBrowserView({
 
   return (
     <div className="flex h-full flex-col" style={{ height }}>
-      {/* Search mode bar */}
+      {/* Search mode bar - Top level controls */}
       <SearchModeBar
         className="border-border border-b"
+        filters={filters}
         hasSearched={hasSearched}
         isConfigExpanded={searchConfigExpanded}
+        isFilterVisible={isFilterVisible}
         isSearching={isSearching}
         mode={searchMode}
+        onCollapseAll={handleCollapseAll}
         onConfigExpandedChange={setSearchConfigExpanded}
+        onExpandAll={handleExpandAll}
+        onFilterVisibleChange={setIsFilterVisible}
         onModeChange={handleSearchModeChange}
-        onSearchConfigChange={handleSearchConfigChange}
+        onResetFilters={handleResetFilters}
         onSemanticQueryChange={setSemanticQuery}
         onSemanticSearch={handleSearch}
         resultCount={searchResults.length}
-        searchConfig={searchConfig}
         semanticQuery={semanticQuery}
+        totalCount={records.length}
+      />
+
+      {/* Advanced Search Options Panel */}
+      <SearchConfigPanel
+        config={searchConfig}
+        isExpanded={searchConfigExpanded}
+        onConfigChange={handleSearchConfigChange}
+        onExpandedChange={setSearchConfigExpanded}
+      />
+
+      {/* Quick Filters Panel */}
+      <FilterBar
+        filters={filters}
+        isExpanded={isFilterVisible}
+        onExpandedChange={setIsFilterVisible}
+        onFiltersChange={handleFiltersChange}
+        resultCount={searchResults.length || records.length} // Simplified count display
+        totalCount={records.length}
       />
 
       {/* Error message display */}
@@ -412,36 +502,37 @@ export function CollectionBrowserView({
       {/* Main content area */}
       <div className="flex min-h-0 flex-1">
         {/* Main browser */}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 border-r">
           <CollectionBrowser
             className="h-full"
             data={treeData}
             emptyMessage={emptyMessage}
             expandedIds={expandedIdsSet}
+            filters={filters}
+            hasSearched={hasSearched}
             height="100%"
             isLoading={isLoading}
+            isSearching={isSearching}
             onExpandedIdsChange={handleExpandedIdsChange}
+            onFiltersChange={handleFiltersChange}
             onSelect={handleSelect}
             onSelectedIdChange={handleSelectedIdChange}
-            selectedId={selectedId}
-            {...(sortState ? { sortState } : {})}
             onSortChange={handleSortChange}
             searchMode={searchMode}
-            showFilterBar={searchMode === 'quick'}
+            selectedId={selectedId}
+            {...(sortState ? { sortState } : {})}
             {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
-            hasSearched={hasSearched}
-            isSearching={isSearching}
           />
         </div>
 
         {/* Inspector panel - narrower in semantic mode to give more room for score column */}
         <NodeInspector
+          isCollapsed={isInspectorCollapsed}
           nodeData={actualSelectedNodeData}
           nodeType={selectedNodeType ?? null}
-          {...(selectedNodeId ? { nodeId: selectedNodeId } : {})}
-          isCollapsed={isInspectorCollapsed}
           onCollapseChange={handleCollapseChange}
           width={searchMode === 'semantic' ? 240 : 280}
+          {...(selectedNodeId ? { nodeId: selectedNodeId } : {})}
         />
       </div>
     </div>

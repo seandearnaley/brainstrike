@@ -43,6 +43,8 @@ type CollectionBrowserData = {
   searchConfigDistanceMetric: DistanceMetric;
   /** Whether the search config panel is expanded */
   searchConfigExpanded: boolean;
+  /** Whether the filter bar is visible */
+  isFilterVisible: boolean;
 };
 
 /**
@@ -86,6 +88,8 @@ type CollectionBrowserActions = {
   setSearchConfigDistanceMetric: (metric: DistanceMetric) => void;
   /** Set search config panel expanded state */
   setSearchConfigExpanded: (expanded: boolean) => void;
+  /** Set filter bar visibility */
+  setIsFilterVisible: (visible: boolean) => void;
   /** Reset all state to defaults */
   reset: () => void;
 };
@@ -106,12 +110,13 @@ const DEFAULT_STATE: CollectionBrowserData = {
   nodeTypes: ['collection', 'file', 'chunk', 'embedding'],
   embeddingStatus: 'all',
   // Semantic search defaults
-  searchMode: 'quick',
+  searchMode: 'semantic',
   semanticQuery: '',
   searchConfigThreshold: 0.5,
   searchConfigLimit: 20,
   searchConfigDistanceMetric: 'cosine',
   searchConfigExpanded: false,
+  isFilterVisible: false,
 };
 
 /**
@@ -214,6 +219,8 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setSearchConfigExpanded: (expanded) => set({ searchConfigExpanded: expanded }),
 
+      setIsFilterVisible: (visible) => set({ isFilterVisible: visible }),
+
       // Reset action
       reset: () => set(DEFAULT_STATE),
     }),
@@ -236,6 +243,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigLimit: s.searchConfigLimit,
         searchConfigDistanceMetric: s.searchConfigDistanceMetric,
         searchConfigExpanded: s.searchConfigExpanded,
+        isFilterVisible: s.isFilterVisible,
       }),
     }
   )
@@ -266,6 +274,7 @@ export const collectionBrowserSelectors = {
     distanceMetric: s.searchConfigDistanceMetric,
   }),
   searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
+  isFilterVisible: (s: CollectionBrowserStore) => s.isFilterVisible,
 };
 
 /**

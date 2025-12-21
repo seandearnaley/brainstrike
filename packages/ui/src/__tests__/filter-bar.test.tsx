@@ -21,14 +21,28 @@ function createFilters(
 describe('FilterBar', () => {
   describe('rendering', () => {
     it('renders search input', () => {
-      render(<FilterBar filters={createFilters()} onFiltersChange={() => {}} />);
+      render(
+        <FilterBar
+          filters={createFilters()}
+          isExpanded={true}
+          onExpandedChange={() => {}}
+          onFiltersChange={() => {}}
+        />
+      );
 
       expect(screen.getByTestId('filter-search-input')).toBeInTheDocument();
-      expect(screen.getByPlaceholderText(/search collections/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/filter by name/i)).toBeInTheDocument();
     });
 
     it('renders node type filter chips', () => {
-      render(<FilterBar filters={createFilters()} onFiltersChange={() => {}} />);
+      render(
+        <FilterBar
+          filters={createFilters()}
+          isExpanded={true}
+          onExpandedChange={() => {}}
+          onFiltersChange={() => {}}
+        />
+      );
 
       expect(screen.getByText('All')).toBeInTheDocument();
       expect(screen.getByText('Collections')).toBeInTheDocument();
@@ -38,42 +52,24 @@ describe('FilterBar', () => {
     });
 
     it('renders embedding status dropdown', () => {
-      render(<FilterBar filters={createFilters()} onFiltersChange={() => {}} />);
+      render(
+        <FilterBar
+          filters={createFilters()}
+          isExpanded={true}
+          onExpandedChange={() => {}}
+          onFiltersChange={() => {}}
+        />
+      );
 
       expect(screen.getByRole('combobox')).toBeInTheDocument();
-    });
-
-    it('renders expand/collapse buttons by default', () => {
-      render(
-        <FilterBar
-          filters={createFilters()}
-          onCollapseAll={() => {}}
-          onExpandAll={() => {}}
-          onFiltersChange={() => {}}
-        />
-      );
-
-      expect(screen.getByLabelText('Expand all')).toBeInTheDocument();
-      expect(screen.getByLabelText('Collapse all')).toBeInTheDocument();
-    });
-
-    it('hides expand/collapse buttons when showExpandControls is false', () => {
-      render(
-        <FilterBar
-          filters={createFilters()}
-          onFiltersChange={() => {}}
-          showExpandControls={false}
-        />
-      );
-
-      expect(screen.queryByLabelText('Expand all')).not.toBeInTheDocument();
-      expect(screen.queryByLabelText('Collapse all')).not.toBeInTheDocument();
     });
 
     it('renders result count when provided', () => {
       render(
         <FilterBar
           filters={createFilters()}
+          isExpanded={true}
+          onExpandedChange={() => {}}
           onFiltersChange={() => {}}
           resultCount={50}
           totalCount={100}
@@ -87,6 +83,8 @@ describe('FilterBar', () => {
       render(
         <FilterBar
           filters={createFilters()}
+          isExpanded={true}
+          onExpandedChange={() => {}}
           onFiltersChange={() => {}}
           resultCount={100}
           totalCount={100}
@@ -98,10 +96,31 @@ describe('FilterBar', () => {
 
     it('applies custom className', () => {
       const { container } = render(
-        <FilterBar className="custom-class" filters={createFilters()} onFiltersChange={() => {}} />
+        <FilterBar
+          className="custom-class"
+          filters={createFilters()}
+          isExpanded={true}
+          onExpandedChange={() => {}}
+          onFiltersChange={() => {}}
+        />
       );
 
       expect(container.firstChild).toHaveClass('custom-class');
+    });
+
+    it('toggles visibility when header is clicked', () => {
+      const onExpandedChange = vi.fn();
+      render(
+        <FilterBar
+          filters={createFilters()}
+          isExpanded={false}
+          onExpandedChange={onExpandedChange}
+          onFiltersChange={() => {}}
+        />
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: /quick filters/i }));
+      expect(onExpandedChange).toHaveBeenCalledWith(true);
     });
   });
 
@@ -110,6 +129,8 @@ describe('FilterBar', () => {
       render(
         <FilterBar
           filters={createFilters({ searchQuery: 'test query' })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
           onFiltersChange={() => {}}
         />
       );
@@ -119,7 +140,14 @@ describe('FilterBar', () => {
 
     it('calls onFiltersChange when search input changes', () => {
       const handleChange = vi.fn();
-      render(<FilterBar filters={createFilters()} onFiltersChange={handleChange} />);
+      render(
+        <FilterBar
+          filters={createFilters()}
+          isExpanded={true}
+          onExpandedChange={() => {}}
+          onFiltersChange={handleChange}
+        />
+      );
 
       fireEvent.change(screen.getByTestId('filter-search-input'), {
         target: { value: 'new search' },
@@ -132,14 +160,26 @@ describe('FilterBar', () => {
 
     it('shows clear button when search has value', () => {
       render(
-        <FilterBar filters={createFilters({ searchQuery: 'test' })} onFiltersChange={() => {}} />
+        <FilterBar
+          filters={createFilters({ searchQuery: 'test' })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
+          onFiltersChange={() => {}}
+        />
       );
 
       expect(screen.getByLabelText('Clear search')).toBeInTheDocument();
     });
 
     it('hides clear button when search is empty', () => {
-      render(<FilterBar filters={createFilters({ searchQuery: '' })} onFiltersChange={() => {}} />);
+      render(
+        <FilterBar
+          filters={createFilters({ searchQuery: '' })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
+          onFiltersChange={() => {}}
+        />
+      );
 
       expect(screen.queryByLabelText('Clear search')).not.toBeInTheDocument();
     });
@@ -149,6 +189,8 @@ describe('FilterBar', () => {
       render(
         <FilterBar
           filters={createFilters({ searchQuery: 'test' })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
           onFiltersChange={handleChange}
         />
       );
@@ -161,7 +203,14 @@ describe('FilterBar', () => {
 
   describe('node type filtering', () => {
     it('shows All chip as active when all types selected', () => {
-      render(<FilterBar filters={createFilters()} onFiltersChange={() => {}} />);
+      render(
+        <FilterBar
+          filters={createFilters()}
+          isExpanded={true}
+          onExpandedChange={() => {}}
+          onFiltersChange={() => {}}
+        />
+      );
 
       const allChip = screen.getByText('All').closest('button');
       expect(allChip).toHaveAttribute('aria-pressed', 'true');
@@ -173,6 +222,8 @@ describe('FilterBar', () => {
           filters={createFilters({
             nodeTypes: new Set(['file', 'chunk']),
           })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
           onFiltersChange={() => {}}
         />
       );
@@ -196,6 +247,8 @@ describe('FilterBar', () => {
           filters={createFilters({
             nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
           })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
           onFiltersChange={handleChange}
         />
       );
@@ -214,6 +267,8 @@ describe('FilterBar', () => {
           filters={createFilters({
             nodeTypes: new Set(['file']),
           })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
           onFiltersChange={handleChange}
         />
       );
@@ -231,6 +286,8 @@ describe('FilterBar', () => {
           filters={createFilters({
             nodeTypes: new Set(['file']),
           })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
           onFiltersChange={handleChange}
         />
       );
@@ -248,6 +305,8 @@ describe('FilterBar', () => {
       render(
         <FilterBar
           filters={createFilters({ embeddingStatus: 'complete' })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
           onFiltersChange={() => {}}
         />
       );
@@ -261,6 +320,8 @@ describe('FilterBar', () => {
       render(
         <FilterBar
           filters={createFilters({ embeddingStatus: 'all' })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
           onFiltersChange={handleChange}
         />
       );
@@ -276,40 +337,6 @@ describe('FilterBar', () => {
       expect(handleChange).toHaveBeenCalledWith(
         expect.objectContaining({ embeddingStatus: 'complete' })
       );
-    });
-  });
-
-  describe('expand/collapse controls', () => {
-    it('calls onExpandAll when expand button clicked', () => {
-      const handleExpand = vi.fn();
-      render(
-        <FilterBar
-          filters={createFilters()}
-          onCollapseAll={() => {}}
-          onExpandAll={handleExpand}
-          onFiltersChange={() => {}}
-        />
-      );
-
-      fireEvent.click(screen.getByLabelText('Expand all'));
-
-      expect(handleExpand).toHaveBeenCalledTimes(1);
-    });
-
-    it('calls onCollapseAll when collapse button clicked', () => {
-      const handleCollapse = vi.fn();
-      render(
-        <FilterBar
-          filters={createFilters()}
-          onCollapseAll={handleCollapse}
-          onExpandAll={() => {}}
-          onFiltersChange={() => {}}
-        />
-      );
-
-      fireEvent.click(screen.getByLabelText('Collapse all'));
-
-      expect(handleCollapse).toHaveBeenCalledTimes(1);
     });
   });
 });

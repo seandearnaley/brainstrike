@@ -364,7 +364,12 @@ test.describe('Database Persistence', () => {
     const recordCountAfter = await page.locator('tbody tr').count();
     expect(recordCountAfter).toBe(0);
 
-    await expect(page.locator('text=No files imported yet')).toBeVisible();
+    // After clearing, we should see an empty state message
+    await expect(
+      page.locator(
+        'text=/No files in this collection|No files imported yet|No collection selected/'
+      )
+    ).toBeVisible();
   }
 
   test('should clear database via UI button workflow', async ({ window }) => {
@@ -519,7 +524,9 @@ test.describe('Database Persistence', () => {
 
     if (currentFileRows === 0 && currentTableRows === 0) {
       const emptyStateSelectors = [
+        page.locator('text=/No files in this collection/'),
         page.locator('text=/No files imported yet/'),
+        page.locator('text=/No collection selected/'),
         page.locator('.text-muted-foreground:has-text("No files imported")'),
         page.locator('text=/No chunks available/'),
         page.locator('text="Enter a search query to find similar content."'),

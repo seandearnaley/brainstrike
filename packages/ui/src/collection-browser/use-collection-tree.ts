@@ -17,6 +17,7 @@ import type {
   FileData,
   SemanticSearchResult,
 } from './types';
+import { EMBEDDING_STATUS_CONFIG } from './types';
 
 /**
  * Input data for building the collection tree
@@ -162,20 +163,44 @@ function getChunkEmbeddingStatus(
 /**
  * Get searchable text fields from node data
  */
-function getSearchableFields(data: BrowserNodeData): string[] {
-  const fields: string[] = [];
-  if ('name' in data && typeof data.name === 'string') {
-    fields.push(data.name);
+function getSearchableFields(node: TreeNode<BrowserNodeData>): string[] {
+  const { data, type } = node;
+  const fields: string[] = [type, node.id.replace(/^(collection|file|chunk|embedding)-/, '')];
+
+  // Strings
+  const stringFields = ['name', 'description', 'path', 'content'];
+  for (const key of stringFields) {
+    if (key in data && data[key as keyof typeof data]) {
+      fields.push(String(data[key as keyof typeof data]));
+    }
   }
-  if ('description' in data && typeof data.description === 'string') {
-    fields.push(data.description);
+
+  // Status and labels
+  if ('embeddingStatus' in data && data.embeddingStatus) {
+    fields.push(data.embeddingStatus);
+    const config =
+      EMBEDDING_STATUS_CONFIG[data.embeddingStatus as keyof typeof EMBEDDING_STATUS_CONFIG];
+    if (config?.label) {
+      fields.push(config.label);
+    }
   }
-  if ('path' in data && typeof data.path === 'string') {
-    fields.push(data.path);
+
+  // Numbers
+  const numFields = ['size', 'index', 'dimensions'];
+  for (const key of numFields) {
+    if (key in data && data[key as keyof typeof data] !== undefined) {
+      fields.push(String(data[key as keyof typeof data]));
+    }
   }
-  if ('content' in data && typeof data.content === 'string') {
-    fields.push(data.content);
+
+  // Context for chunks
+  if (type === 'chunk') {
+    const chunkData = data as ChunkData;
+    if (chunkData.metadata?.['fileName']) {
+      fields.push(chunkData.metadata['fileName'] as string);
+    }
   }
+
   return fields;
 }
 
@@ -320,7 +345,7 @@ function matchesSearch(node: TreeNode<BrowserNodeData>, searchQuery: string): bo
     return true;
   }
   const query = searchQuery.toLowerCase();
-  const fields = getSearchableFields(node.data);
+  const fields = getSearchableFields(node);
   return fields.some((field) => field.toLowerCase().includes(query));
 }
 
@@ -360,7 +385,8 @@ function createChunkNode(
   chunk: CollectionTreeInput['chunks'][0],
   parentId: string,
   pendingChunkIds: Set<string> | undefined,
-  ctx: TreeBuildContext
+  ctx: TreeBuildContext,
+  fileName?: string
 ): TreeNode<BrowserNodeData> {
   const chunkStatus = getChunkEmbeddingStatus(chunk, pendingChunkIds);
   const hasEmbedding = Boolean(chunk.embedding && chunk.embedding.length > 0);
@@ -371,6 +397,10 @@ function createChunkNode(
     tokenCount: chunk.tokenCount,
     embeddingStatus: chunkStatus,
   };
+
+  if (fileName) {
+    chunkData.metadata = { fileName };
+  }
 
   const chunkNode: TreeNode<BrowserNodeData> = {
     id: `chunk-${chunk.id}`,
@@ -432,7 +462,7 @@ function createFileNode(
 
   // Create chunk nodes
   const chunkNodes = fileChunks.map((chunk) =>
-    createChunkNode(chunk, fileNode.id, data.pendingChunkIds, ctx)
+    createChunkNode(chunk, fileNode.id, data.pendingChunkIds, ctx, file.name)
   );
   ctx.children.set(fileNode.id, chunkNodes);
 
@@ -650,6 +680,42 @@ function computeAggregatedScores(
 }
 
 /**
+ * Filter and build visible node IDs for semantic search results
+ */
+function buildSemanticVisibleNodeIds(
+  semanticResults: SemanticSearchResult[],
+  allNodes: TreeNode<BrowserNodeData>[],
+  filterFn: (node: TreeNode<BrowserNodeData>) => TreeNode<BrowserNodeData> | null
+): { visibleNodeIds: Set<string>; matchingCount: number } {
+  const visibleNodeIds = new Set<string>();
+  let matchingCount = 0;
+
+  // Build node map for faster lookup
+  const nodeMap = new Map<string, TreeNode<BrowserNodeData>>();
+  for (const node of allNodes) {
+    nodeMap.set(node.id, node);
+  }
+
+  for (const result of semanticResults) {
+    const node = nodeMap.get(result.nodeId);
+    if (node && filterFn(node)) {
+      visibleNodeIds.add(result.nodeId);
+      matchingCount++;
+
+      // Walk up the tree and mark all ancestors for visibility
+      let currentParentId = node.parentId;
+      while (currentParentId) {
+        visibleNodeIds.add(currentParentId);
+        const parent = nodeMap.get(currentParentId);
+        currentParentId = parent?.parentId ?? null;
+      }
+    }
+  }
+
+  return { visibleNodeIds, matchingCount };
+}
+
+/**
  * Hook to transform flat data into a hierarchical tree structure
  */
 export function useCollectionTree({
@@ -757,23 +823,20 @@ export function useCollectionTree({
     // If semantic filter is active, filter to matching nodes and ancestors
     // This includes the case where semanticResults is an empty array (0 results)
     if (filterToSemanticResults && semanticResults) {
-      // Build set of all nodes to show (matching chunks + their ancestors)
-      const visibleNodeIds = new Set<string>();
+      // Create filter context (use sorted children map)
+      const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
+      const filterFn = (node: TreeNode<BrowserNodeData>) => filterTreeNode(node, filterCtx);
 
-      // Add all matching chunks
-      for (const result of semanticResults) {
-        visibleNodeIds.add(result.nodeId);
-      }
+      const { visibleNodeIds, matchingCount } = buildSemanticVisibleNodeIds(
+        semanticResults,
+        allNodes,
+        filterFn
+      );
 
-      // Add all ancestors
-      for (const id of semanticExpandIds) {
-        visibleNodeIds.add(id);
-      }
-
-      // Filter root nodes (will be empty if no results)
+      // Filter root nodes (will be empty if no results pass filters)
       const filtered = sortedRootNodes.filter((root) => visibleNodeIds.has(root.id));
 
-      return { filteredRoots: filtered, filteredCount: semanticResults.length };
+      return { filteredRoots: filtered, filteredCount: matchingCount };
     }
 
     // Standard text filter logic
