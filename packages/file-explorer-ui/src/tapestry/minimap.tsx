@@ -1,4 +1,4 @@
-import { cn } from '@brainstrike/ui';
+import { cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { memo, useRef, useState } from 'react';
 import type { FileTapestry, InteractionMode, TapestryRange } from './types';
 
@@ -110,147 +110,152 @@ const RangeItem = memo(
     };
 
     return (
-      <div
-        aria-label={`Range ${range.startLine} to ${range.endLine} in ${file.name}`}
-        aria-valuemax={file.totalLines}
-        aria-valuemin={0}
-        aria-valuenow={range.startLine}
-        className={cn(
-          'group/range absolute right-0 left-0 transition-all duration-75 ease-out focus-visible:ring-2 focus-visible:ring-ring',
-          range.isActive ? 'opacity-100' : 'opacity-40 grayscale',
-          isHovered ? 'z-40' : 'z-20'
-        )}
-        onKeyDown={handleKeyDown}
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          if (e.button === 0 && !e.shiftKey) {
-            handleStart('MOVING', range.id, e.clientY, range);
-          }
-        }}
-        onMouseEnter={() => setHoveredRangeId(range.id)}
-        onMouseLeave={() => setHoveredRangeId(null)}
-        role="slider"
-        style={{
-          top,
-          height: Math.max(scale, height),
-          backgroundColor: `${range.color}20`,
-          borderLeft: `3px solid ${range.color}`,
-          boxShadow: range.isActive ? `inset 0 0 20px -10px ${range.color}` : 'none',
-        }}
-        tabIndex={0}
-      >
-        {/* Header bar for dragging/info */}
-        <div
-          className="absolute top-0 left-0 h-[1px] w-full opacity-50"
-          style={{ backgroundColor: range.color }}
-        />
-
-        {/* Active Toggle */}
-        <button
-          aria-label={range.isActive ? 'Deactivate range' : 'Activate range'}
-          className={cn(
-            '-top-1.5 -right-1.5 no-depress absolute z-40 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-all',
-            range.isActive ? 'scale-100 bg-background' : 'scale-90 bg-muted hover:scale-110'
-          )}
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onToggleRange(file.id, range.id);
-          }}
-          style={{ borderColor: range.color }}
-          type="button"
-        >
+      <Tooltip open={isHovered}>
+        <TooltipTrigger asChild>
           <div
+            aria-label={`Range ${range.startLine} to ${range.endLine} in ${file.name}`}
+            aria-valuemax={file.totalLines}
+            aria-valuemin={0}
+            aria-valuenow={range.startLine}
             className={cn(
-              'h-2 w-2 rounded-full transition-colors',
-              !range.isActive && 'bg-muted-foreground'
+              'group/range absolute right-0 left-0 transition-all duration-75 ease-out focus-visible:ring-2 focus-visible:ring-ring',
+              range.isActive ? 'opacity-100' : 'opacity-40 grayscale',
+              isHovered ? 'z-40' : 'z-20'
             )}
-            style={{ backgroundColor: range.isActive ? range.color : undefined }}
-          />
-        </button>
-
-        {/* Index Badge */}
-        {range.isActive && (
-          <div
-            className="-top-2 pointer-events-none absolute right-4 z-40 select-none rounded border border-border bg-background px-1 font-mono text-[9px] shadow-xs"
-            style={{ color: range.color, borderColor: range.color }}
+            onKeyDown={handleKeyDown}
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              if (e.button === 0 && !e.shiftKey) {
+                handleStart('MOVING', range.id, e.clientY, range);
+              }
+            }}
+            onMouseEnter={() => setHoveredRangeId(range.id)}
+            onMouseLeave={() => setHoveredRangeId(null)}
+            role="slider"
+            style={{
+              top,
+              height: Math.max(scale, height),
+              backgroundColor: `${range.color}20`,
+              borderLeft: `3px solid ${range.color}`,
+              boxShadow: range.isActive ? `inset 0 0 20px -10px ${range.color}` : 'none',
+            }}
+            tabIndex={0}
           >
-            #{globalIndex}
-          </div>
-        )}
+            {/* Header bar for dragging/info */}
+            <div
+              className="absolute top-0 left-0 h-[1px] w-full opacity-50"
+              style={{ backgroundColor: range.color }}
+            />
 
-        {/* Peek Tooltip */}
-        {isHovered && (
+            {/* Active Toggle */}
+            <button
+              aria-label={range.isActive ? 'Deactivate range' : 'Activate range'}
+              className={cn(
+                '-top-1.5 -right-1.5 no-depress absolute z-40 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-all',
+                range.isActive ? 'scale-100 bg-background' : 'scale-90 bg-muted hover:scale-110'
+              )}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                onToggleRange(file.id, range.id);
+              }}
+              style={{ borderColor: range.color }}
+              type="button"
+            >
+              <div
+                className={cn(
+                  'h-2 w-2 rounded-full transition-colors',
+                  !range.isActive && 'bg-muted-foreground'
+                )}
+                style={{ backgroundColor: range.isActive ? range.color : undefined }}
+              />
+            </button>
+
+            {/* Index Badge */}
+            {range.isActive && (
+              <div
+                className="-top-2 pointer-events-none absolute right-4 z-40 select-none rounded border border-border bg-background px-1 font-mono text-[9px] shadow-xs"
+                style={{ color: range.color, borderColor: range.color }}
+              >
+                #{globalIndex}
+              </div>
+            )}
+
+            {/* Resize Handles */}
+            <button
+              aria-label="Resize range top"
+              className="-top-1 no-depress absolute right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                handleStart('RESIZING_TOP', range.id, e.clientY, range);
+              }}
+              type="button"
+            />
+
+            <button
+              aria-label="Resize range bottom"
+              className="-bottom-1 no-depress absolute right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                handleStart('RESIZING_BOTTOM', range.id, e.clientY, range);
+              }}
+              type="button"
+            />
+
+            {/* Line Numbers Overlay */}
+            {height > 12 && (
+              <div
+                className="pointer-events-none absolute top-0.5 left-1.5 flex select-none flex-col font-bold font-mono text-[9px] leading-none"
+                style={{ color: range.color }}
+              >
+                <span>{range.startLine}</span>
+              </div>
+            )}
+            {height > 24 && (
+              <div
+                className="pointer-events-none absolute bottom-0.5 left-1.5 flex select-none flex-col font-bold font-mono text-[9px] leading-none opacity-70"
+                style={{ color: range.color }}
+              >
+                <span>{range.endLine}</span>
+              </div>
+            )}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent
+          align="start"
+          className="pointer-events-none z-[100] w-72 border-border p-0 shadow-2xl ring-1 ring-border"
+          side="right"
+          sideOffset={16}
+        >
+          <div className="flex items-center justify-between border-border border-b bg-muted p-2">
+            <span className="font-bold text-[10px] text-foreground">{file.name}</span>
+            <span className="font-mono text-[10px] text-muted-foreground">
+              Lines {range.startLine}-{range.endLine}
+            </span>
+          </div>
           <div
-            className="fade-in slide-in-from-left-2 pointer-events-none absolute top-0 left-full z-[100] ml-4 w-72 animate-in overflow-hidden rounded-lg border border-border bg-popover p-0 shadow-2xl ring-1 ring-border duration-150"
+            className="relative overflow-hidden bg-background p-3"
             style={{ minHeight: '100px' }}
           >
-            <div className="flex items-center justify-between border-border border-b bg-muted p-2">
-              <span className="font-bold text-[10px] text-foreground">{file.name}</span>
-              <span className="font-mono text-[10px] text-muted-foreground">
-                Lines {range.startLine}-{range.endLine}
-              </span>
-            </div>
-            <div className="relative overflow-hidden bg-background p-3">
-              <div className="whitespace-pre font-medium font-mono text-[10px] text-foreground leading-relaxed">
-                {file.content
-                  .slice(range.startLine, Math.min(range.startLine + 8, range.endLine))
-                  .map((line, i) => (
-                    <div className="flex gap-3" key={`${range.id}-line-${i}`}>
-                      <span className="w-6 select-none text-right text-muted-foreground/50 opacity-50">
-                        {range.startLine + i}
-                      </span>
-                      <span className="opacity-90">{line || ' '}</span>
-                    </div>
-                  ))}
-                {range.endLine - range.startLine > 8 && (
-                  <div className="mt-2 pl-9 text-muted-foreground italic">
-                    ... {range.endLine - range.startLine - 8} more lines
+            <div className="whitespace-pre font-medium font-mono text-[10px] text-foreground leading-relaxed">
+              {file.content
+                .slice(range.startLine, Math.min(range.startLine + 8, range.endLine))
+                .map((line, i) => (
+                  <div className="flex gap-3" key={`${range.id}-line-${i}`}>
+                    <span className="w-6 select-none text-right text-muted-foreground/50 opacity-50">
+                      {range.startLine + i}
+                    </span>
+                    <span className="opacity-90">{line || ' '}</span>
                   </div>
-                )}
-              </div>
+                ))}
+              {range.endLine - range.startLine > 8 && (
+                <div className="mt-2 pl-9 text-muted-foreground italic">
+                  ... {range.endLine - range.startLine - 8} more lines
+                </div>
+              )}
             </div>
           </div>
-        )}
-
-        {/* Resize Handles */}
-        <button
-          aria-label="Resize range top"
-          className="-top-1 no-depress absolute right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            handleStart('RESIZING_TOP', range.id, e.clientY, range);
-          }}
-          type="button"
-        />
-
-        <button
-          aria-label="Resize range bottom"
-          className="-bottom-1 no-depress absolute right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            handleStart('RESIZING_BOTTOM', range.id, e.clientY, range);
-          }}
-          type="button"
-        />
-
-        {/* Line Numbers Overlay */}
-        {height > 12 && (
-          <div
-            className="pointer-events-none absolute top-0.5 left-1.5 flex select-none flex-col font-bold font-mono text-[9px] leading-none"
-            style={{ color: range.color }}
-          >
-            <span>{range.startLine}</span>
-          </div>
-        )}
-        {height > 24 && (
-          <div
-            className="pointer-events-none absolute bottom-0.5 left-1.5 flex select-none flex-col font-bold font-mono text-[9px] leading-none opacity-70"
-            style={{ color: range.color }}
-          >
-            <span>{range.endLine}</span>
-          </div>
-        )}
-      </div>
+        </TooltipContent>
+      </Tooltip>
     );
   }
 );
@@ -329,45 +334,51 @@ export const Minimap = memo(
           </div>
         </div>
 
-        <button
-          aria-label={`Create range in ${file.name}`}
-          className="group no-depress relative w-full cursor-crosshair overflow-visible rounded-md border border-border bg-muted/30 shadow-xs transition-colors hover:border-accent"
-          onMouseDown={handleMouseDown}
-          ref={containerRef}
+        <div
+          className="group relative w-full overflow-visible rounded-md border border-border bg-muted/30 shadow-xs transition-colors hover:border-accent"
           style={{ height: totalHeight }}
-          type="button"
         >
-          <div className="absolute inset-0 z-0 overflow-hidden rounded-md" id="minimap-bg" />
+          {/* Background button for range creation */}
+          <button
+            aria-label={`Create range in ${file.name}`}
+            className="no-depress absolute inset-0 z-0 h-full w-full cursor-crosshair rounded-md bg-transparent"
+            onMouseDown={handleMouseDown}
+            ref={containerRef}
+            type="button"
+          >
+            <div className="absolute inset-0 overflow-hidden rounded-md" id="minimap-bg" />
 
-          {/* Structure Visualization */}
-          <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
-            <svg
-              aria-label={`Visual structure of ${file.name}`}
-              className="z-10 h-full w-full opacity-60"
-              preserveAspectRatio="none"
-              role="img"
-            >
-              <title>File structure minimap</title>
-              <desc>Non-interactive overview of file structure by line density.</desc>
-              {file.structure.map((line, i) => {
-                if (line.isEmpty) {
-                  return null;
-                }
-                return (
-                  <rect
-                    className="text-muted-foreground/40"
-                    fill="currentColor"
-                    height={lineThickness}
-                    key={`${file.id}-struct-${i}`}
-                    width={`${line.width}%`}
-                    x={`${line.indent * 5}%`}
-                    y={i * scale}
-                  />
-                );
-              })}
-            </svg>
-          </div>
+            {/* Structure Visualization */}
+            <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
+              <svg
+                aria-label={`Visual structure of ${file.name}`}
+                className="z-10 h-full w-full opacity-60"
+                preserveAspectRatio="none"
+                role="img"
+              >
+                <title>File structure minimap</title>
+                <desc>Non-interactive overview of file structure by line density.</desc>
+                {file.structure.map((line, i) => {
+                  if (line.isEmpty) {
+                    return null;
+                  }
+                  return (
+                    <rect
+                      className="text-muted-foreground/40"
+                      fill="currentColor"
+                      height={lineThickness}
+                      key={`${file.id}-struct-${i}`}
+                      width={`${line.width}%`}
+                      x={`${line.indent * 5}%`}
+                      y={i * scale}
+                    />
+                  );
+                })}
+              </svg>
+            </div>
+          </button>
 
+          {/* Ranges rendered as siblings of the background button to avoid nesting */}
           {file.selections.map((range) => (
             <RangeItem
               file={file}
@@ -382,7 +393,7 @@ export const Minimap = memo(
               setHoveredRangeId={setHoveredRangeId}
             />
           ))}
-        </button>
+        </div>
       </div>
     );
   }

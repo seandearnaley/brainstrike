@@ -1,3 +1,4 @@
+import { TooltipProvider } from '@brainstrike/ui';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Minimap } from './minimap';
 import { TapestryControls } from './tapestry-controls';
@@ -347,46 +348,48 @@ export const TapestryView = memo(() => {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
-      <TapestryControls
-        activeRanges={activeRangesCount}
-        allowOverlap={allowOverlap}
-        onReset={regenerate}
-        scale={scale}
-        setAllowOverlap={setAllowOverlap}
-        setScale={setScale}
-        totalFiles={files.length}
-        totalLinesSelected={totalLinesSelected}
-      />
+    <TooltipProvider delayDuration={0}>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground">
+        <TapestryControls
+          activeRanges={activeRangesCount}
+          allowOverlap={allowOverlap}
+          onReset={regenerate}
+          scale={scale}
+          setAllowOverlap={setAllowOverlap}
+          setScale={setScale}
+          totalFiles={files.length}
+          totalLinesSelected={totalLinesSelected}
+        />
 
-      <div className="scrollbar-thin flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-[1600px]">
-          <div
-            className="grid items-start gap-6"
-            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}
-          >
-            {files.map((file) => (
-              <Minimap
-                file={file}
-                getGlobalIndex={getGlobalIndex}
-                key={file.id}
-                onInteractionStart={() => {}}
-                onMoveRange={handleMoveRange}
-                onToggleRange={handleToggleRange}
-                scale={scale}
-                smartStart={startDrag}
-              />
-            ))}
+        <div className="scrollbar-thin flex-1 overflow-y-auto p-6">
+          <div className="mx-auto max-w-[1600px]">
+            <div
+              className="grid items-start gap-6"
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}
+            >
+              {files.map((file) => (
+                <Minimap
+                  file={file}
+                  getGlobalIndex={getGlobalIndex}
+                  key={file.id}
+                  onInteractionStart={() => {}}
+                  onMoveRange={handleMoveRange}
+                  onToggleRange={handleToggleRange}
+                  scale={scale}
+                  smartStart={startDrag}
+                />
+              ))}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="flex justify-end gap-4 border-border border-t bg-muted/20 p-2 text-[10px] text-muted-foreground">
-        <span>Hold drag to resize</span>
-        <span>Click headers to toggle</span>
-        <span>Drag body to move</span>
+        <div className="flex justify-end gap-4 border-border border-t bg-muted/20 p-2 text-[10px] text-muted-foreground">
+          <span>Hold drag to resize</span>
+          <span>Click headers to toggle</span>
+          <span>Drag body to move</span>
+        </div>
       </div>
-    </div>
+    </TooltipProvider>
   );
 });
 

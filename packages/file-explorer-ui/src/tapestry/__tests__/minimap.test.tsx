@@ -1,3 +1,4 @@
+import { TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Minimap } from '../minimap';
@@ -49,14 +50,16 @@ describe('Minimap', () => {
     const onToggleRange = vi.fn();
 
     render(
-      <Minimap
-        file={file}
-        getGlobalIndex={() => 1}
-        onInteractionStart={onInteractionStart}
-        onToggleRange={onToggleRange}
-        scale={2}
-        smartStart={smartStart}
-      />
+      <TooltipProvider>
+        <Minimap
+          file={file}
+          getGlobalIndex={() => 1}
+          onInteractionStart={onInteractionStart}
+          onToggleRange={onToggleRange}
+          scale={2}
+          smartStart={smartStart}
+        />
+      </TooltipProvider>
     );
 
     const container = screen.getByRole('button', { name: /create range in app\.tsx/i });
@@ -75,13 +78,15 @@ describe('Minimap', () => {
     const onInteractionStart = vi.fn();
 
     render(
-      <Minimap
-        file={file}
-        getGlobalIndex={() => 1}
-        onInteractionStart={onInteractionStart}
-        onToggleRange={vi.fn()}
-        scale={2}
-      />
+      <TooltipProvider>
+        <Minimap
+          file={file}
+          getGlobalIndex={() => 1}
+          onInteractionStart={onInteractionStart}
+          onToggleRange={vi.fn()}
+          scale={2}
+        />
+      </TooltipProvider>
     );
 
     const range = screen.getByRole('slider', { name: /range 2 to 6 in app\.tsx/i });
@@ -101,13 +106,15 @@ describe('Minimap', () => {
     const onToggleRange = vi.fn();
 
     render(
-      <Minimap
-        file={file}
-        getGlobalIndex={() => 1}
-        onInteractionStart={vi.fn()}
-        onToggleRange={onToggleRange}
-        scale={2}
-      />
+      <TooltipProvider>
+        <Minimap
+          file={file}
+          getGlobalIndex={() => 1}
+          onInteractionStart={vi.fn()}
+          onToggleRange={onToggleRange}
+          scale={2}
+        />
+      </TooltipProvider>
     );
 
     const toggle = screen.getByRole('button', { name: /deactivate range/i });
