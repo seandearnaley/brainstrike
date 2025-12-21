@@ -177,9 +177,7 @@ function loadStoredPreferences(storageKey: string) {
     const stored = localStorage.getItem(storageKey);
     return stored ? JSON.parse(stored) : null;
   } catch (error) {
-    if (process.env['NODE_ENV'] === 'development') {
-      logger.warn('Failed to parse stored preferences', { storageKey, error });
-    }
+    logger.warn('Failed to parse stored preferences', { storageKey, error });
     return null;
   }
 }
@@ -870,9 +868,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         };
         localStorage.setItem(storageKey, JSON.stringify(settings));
       } catch (error) {
-        if (process.env['NODE_ENV'] === 'development') {
-          logger.warn('Failed to save preferences to localStorage', { error });
-        }
+        logger.warn('Failed to save preferences to localStorage', { storageKey, error });
       }
     }, 250);
 
@@ -902,6 +898,33 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Use deferred value for expensive transformations to prevent blocking
   const deferredFlatListItems = useDeferredValue(flatListItems);
+  const decodedSelectionCacheRef = useRef<Map<string, { folderId: string; path: string } | null>>(
+    new Map()
+  );
+
+  useEffect(() => {
+    decodedSelectionCacheRef.current.clear();
+  }, [decodeFileSelection]);
+
+  const getDecodedSelection = useCallback(
+    (compositeKey: string): { folderId: string; path: string } | null => {
+      const cache = decodedSelectionCacheRef.current;
+      if (cache.has(compositeKey)) {
+        return cache.get(compositeKey) ?? null;
+      }
+
+      try {
+        const decoded = decodeFileSelection(compositeKey);
+        cache.set(compositeKey, decoded);
+        return decoded;
+      } catch (error) {
+        logger.warn('Failed to decode composite key:', compositeKey, error);
+        cache.set(compositeKey, null);
+        return null;
+      }
+    },
+    [decodeFileSelection]
+  );
 
   // Transform list items to simplified table data - only files
   const tableData: TableRowData[] = useMemo(() => {
@@ -911,31 +934,31 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
     return fileItems
       .map((fileItem): TableRowData | null => {
-        try {
-          const { folderId, path } = decodeFileSelection(fileItem.compositeKey);
-          const result: TableRowData = {
-            id: fileItem.compositeKey,
-            rootFolderId: folderId,
-            path,
-            type: path.split('.').pop()?.toUpperCase() || 'FILE',
-            compositeKey: fileItem.compositeKey,
-          };
-
-          if (fileItem.size !== undefined) {
-            result.size = fileItem.size;
-          }
-          if (fileItem.tokens !== undefined) {
-            result.tokens = fileItem.tokens;
-          }
-
-          return result;
-        } catch (error) {
-          logger.warn('Failed to decode composite key:', fileItem.compositeKey, error);
+        const decoded = getDecodedSelection(fileItem.compositeKey);
+        if (!decoded) {
           return null;
         }
+
+        const { folderId, path } = decoded;
+        const result: TableRowData = {
+          id: fileItem.compositeKey,
+          rootFolderId: folderId,
+          path,
+          type: path.split('.').pop()?.toUpperCase() || 'FILE',
+          compositeKey: fileItem.compositeKey,
+        };
+
+        if (fileItem.size !== undefined) {
+          result.size = fileItem.size;
+        }
+        if (fileItem.tokens !== undefined) {
+          result.tokens = fileItem.tokens;
+        }
+
+        return result;
       })
       .filter((item): item is TableRowData => item !== null);
-  }, [deferredFlatListItems, decodeFileSelection]);
+  }, [deferredFlatListItems, getDecodedSelection]);
 
   // Toggle group collapse
   const toggleGroupCollapse = useCallback((groupKey: GroupKey) => {

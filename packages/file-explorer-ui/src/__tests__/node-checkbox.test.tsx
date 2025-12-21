@@ -158,16 +158,20 @@ describe('NodeCheckbox', () => {
   it('stops propagation on click', async () => {
     const user = userEvent.setup();
     const parentClickHandler = vi.fn();
+    const parentKeyHandler: React.KeyboardEventHandler<HTMLDivElement> = (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        parentClickHandler(event);
+      }
+    };
 
     render(
-      <button
+      // biome-ignore lint/a11y/useSemanticElements: test harness avoids nested buttons.
+      <div
+        data-testid="selection-wrapper"
         onClick={parentClickHandler}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            parentClickHandler();
-          }
-        }}
-        type="button"
+        onKeyDown={parentKeyHandler}
+        role="button"
+        tabIndex={0}
       >
         <NodeCheckboxWrapper
           checked={false}
@@ -177,7 +181,7 @@ describe('NodeCheckbox', () => {
           onSelect={mockOnSelect}
           wouldExceedLimit={false}
         />
-      </button>
+      </div>
     );
 
     const checkbox = screen.getByLabelText('Select test.txt');

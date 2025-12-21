@@ -347,7 +347,8 @@ export const Minimap = memo(
               preserveAspectRatio="none"
               role="img"
             >
-              <title>File Structure Minimap</title>
+              <title>File structure minimap</title>
+              <desc>Non-interactive overview of file structure by line density.</desc>
               {file.structure.map((line, i) => {
                 if (line.isEmpty) {
                   return null;

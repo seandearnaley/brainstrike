@@ -62,6 +62,14 @@ type DatabaseDemoPanelProps = {
 };
 
 const logger = createLogger('DatabaseDemoPanel');
+type DbContext = ReturnType<typeof usePGliteDatabase>;
+type DbWithExec = NonNullable<DbContext> & {
+  exec: (sql: string, params?: unknown) => Promise<unknown>;
+};
+
+function isDbWithExec(db: DbContext): db is DbWithExec {
+  return Boolean(db && typeof db.exec === 'function');
+}
 
 // Factory reset is now provided via the shared Preferences UI (FactoryResetPanel).
 export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
@@ -88,10 +96,13 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
 
   // Create embedding sets repository
-  const embeddingSetsRepository = useMemo(
-    () => (dbContext ? new EmbeddingSetsRepository(dbContext as never) : null),
-    [dbContext]
-  );
+  const embeddingSetsRepository = useMemo(() => {
+    if (!isDbWithExec(dbContext)) {
+      logger.warn('EmbeddingSetsRepository unavailable: db context missing exec');
+      return null;
+    }
+    return new EmbeddingSetsRepository(dbContext);
+  }, [dbContext]);
 
   // Live query for embedding sets (for CollectionBrowserView)
   // Using Record type to represent SQL row with snake_case column names from database schema

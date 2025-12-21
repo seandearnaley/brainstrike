@@ -1,16 +1,9 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TapestryView } from '../tapestry-view';
 
-// Mock crypto.randomUUID
-if (typeof crypto === 'undefined') {
-  (global as any).crypto = {
-    randomUUID: () => Math.random().toString(36).substring(2),
-  };
-} else if (!crypto.randomUUID) {
-  (crypto as any).randomUUID = () => Math.random().toString(36).substring(2);
-}
+const fallbackRandomUUID = () => Math.random().toString(36).substring(2);
 
 // Mock generateMockFiles to have predictable data
 vi.mock('../utils', async (importOriginal) => {
@@ -47,6 +40,13 @@ describe('TapestryView', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    if (!globalThis.crypto || typeof globalThis.crypto.randomUUID !== 'function') {
+      vi.stubGlobal('crypto', { randomUUID: fallbackRandomUUID });
+    }
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('renders correctly with mock files', async () => {
