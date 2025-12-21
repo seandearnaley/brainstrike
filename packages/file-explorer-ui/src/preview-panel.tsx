@@ -1193,6 +1193,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                         <Button
                           aria-label="Expand all groups"
                           className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                          data-testid="expand-all-groups-button"
                           onClick={() => setCollapsedGroups(new Set())}
                           size="sm"
                           variant="outline"
@@ -1210,6 +1211,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                         <Button
                           aria-label="Collapse all groups"
                           className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                          data-testid="collapse-all-groups-button"
                           onClick={() =>
                             setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
                           }
@@ -1234,6 +1236,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                     <Button
                       aria-label={`Select all ${flattenedData.length} files`}
                       className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      data-testid="select-all-button"
                       disabled={isAllSelected(flattenedData)}
                       onClick={() => groupSelection.selectAll(flattenedData)}
                       size="sm"
@@ -1255,6 +1258,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                       <Button
                         aria-label="Reset sort"
                         className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                        data-testid="reset-sort-button"
                         onClick={resetSort}
                         size="sm"
                         variant="outline"

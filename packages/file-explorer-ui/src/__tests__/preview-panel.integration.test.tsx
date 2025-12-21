@@ -706,7 +706,7 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Select all files globally
-      const selectAllButton = screen.getByRole('button', { name: /Select All \(200\)/ });
+      const selectAllButton = screen.getByTestId('select-all-button');
       act(() => {
         fireEvent.click(selectAllButton);
       });

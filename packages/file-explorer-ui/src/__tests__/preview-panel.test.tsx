@@ -458,11 +458,11 @@ describe('PreviewPanel', () => {
       fireEvent.click(pathHeader);
 
       // Reset sort
-      const resetButton = screen.getByRole('button', { name: /Reset Sort/ });
+      const resetButton = screen.getByTestId('reset-sort-button');
       fireEvent.click(resetButton);
 
       // Should no longer show reset button
-      expect(screen.queryByRole('button', { name: /Reset Sort/ })).not.toBeInTheDocument();
+      expect(screen.queryByTestId('reset-sort-button')).not.toBeInTheDocument();
     });
   });
 
@@ -500,7 +500,7 @@ describe('PreviewPanel', () => {
     it('should handle global select all', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const selectAllButton = screen.getByRole('button', { name: /Select All/ });
+      const selectAllButton = screen.getByTestId('select-all-button');
       fireEvent.click(selectAllButton);
 
       // Should be disabled after selection
@@ -797,8 +797,8 @@ describe('PreviewPanel', () => {
       // (each file has a different folderId: folder-file1, folder-file2, folder-file3)
       fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
 
-      expect(screen.getByRole('button', { name: /Expand All/ })).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /Collapse All/ })).toBeInTheDocument();
+      expect(screen.getByTestId('expand-all-groups-button')).toBeInTheDocument();
+      expect(screen.getByTestId('collapse-all-groups-button')).toBeInTheDocument();
     });
 
     it('should handle group expansion and collapse', () => {
@@ -808,8 +808,8 @@ describe('PreviewPanel', () => {
       // Use rootFolder grouping which creates multiple groups with the mock data
       fireEvent.change(groupingSelect, { target: { value: 'rootFolder' } });
 
-      const expandAllButton = screen.getByRole('button', { name: /Expand All/ });
-      const collapseAllButton = screen.getByRole('button', { name: /Collapse All/ });
+      const expandAllButton = screen.getByTestId('expand-all-groups-button');
+      const collapseAllButton = screen.getByTestId('collapse-all-groups-button');
 
       expect(expandAllButton).toBeInTheDocument();
       expect(collapseAllButton).toBeInTheDocument();
@@ -1034,7 +1034,7 @@ describe('PreviewPanel', () => {
       fireEvent.change(groupingSelect, { target: { value: 'directory' } });
 
       // Click "Select All" button
-      const selectAllButton = screen.getByRole('button', { name: /Select All/ });
+      const selectAllButton = screen.getByTestId('select-all-button');
       fireEvent.click(selectAllButton);
 
       // Should select files across all groups
