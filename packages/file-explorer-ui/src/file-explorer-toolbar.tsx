@@ -40,18 +40,20 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
     onMaxSelectionCountChange,
     inlineFixtureSetting,
   }) => (
-    <div className="flex flex-col gap-2 border-b px-2 py-2">
+    <div className="@container flex flex-col gap-2 border-b px-2 py-2">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Button
+            aria-label={FileExplorerStrings.selectRoot}
+            className="@[300px]:h-9 h-8 @[300px]:px-3 px-2"
             data-testid="select-root-button"
             disabled={isLoading}
             onClick={onDirectorySelect}
             size="sm"
             variant="outline"
           >
-            <Folder className="mr-2 h-4 w-4" />
-            {FileExplorerStrings.selectRoot}
+            <Folder className="@[300px]:mr-2 size-4" />
+            <span className="@[300px]:inline hidden">{FileExplorerStrings.selectRoot}</span>
           </Button>
           <WorkspaceSettings
             filterError={filterError}

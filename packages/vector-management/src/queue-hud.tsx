@@ -58,7 +58,11 @@ type ToastFn = ReturnType<typeof useToast>['toast'];
 const logger = createLogger('QueueHud');
 
 const EMBEDDING_QUEUE_NAME = 'embeddings';
+// Retry up to 20 failed jobs at a time to avoid overwhelming the queue
+// and provide better visibility into individual failures
 const RETRY_BATCH_SIZE = 20;
+// Poll every 2 seconds to balance UI responsiveness with database load
+// Frequent enough to feel real-time without excessive queries
 const QUEUE_POLL_INTERVAL_MS = 2000;
 
 function isQueueEnabled(): boolean {
@@ -77,12 +81,23 @@ function isQueueEnabled(): boolean {
 
 function getQueueMetrics(stats: QueueStats[] | null): QueueMetrics {
   const s = stats?.[0];
+  // If no stats available, return zeros for all metrics
+  if (!s) {
+    return {
+      queued: 0,
+      running: 0,
+      failed: 0,
+      succeeded: 0,
+      nextRunnableAt: null,
+    };
+  }
+  // DB schema guarantees non-null values for count fields
   return {
-    queued: s?.queued ?? 0,
-    running: s?.running ?? 0,
-    failed: s?.failed ?? 0,
-    succeeded: s?.succeeded ?? 0,
-    nextRunnableAt: s?.nextRunnableAt ?? null,
+    queued: s.queued,
+    running: s.running,
+    failed: s.failed,
+    succeeded: s.succeeded,
+    nextRunnableAt: s.nextRunnableAt ?? null,
   };
 }
 
@@ -112,8 +127,10 @@ function useQueueStats(
         if (!canceled) {
           setStats(s);
         }
-      } catch {
-        // ignore errors in HUD
+      } catch (error) {
+        // Log errors but don't break the UI
+        logger.error('Failed to fetch queue stats', { error });
+        // Keep existing stats to avoid UI flickering on transient errors
       }
     };
 

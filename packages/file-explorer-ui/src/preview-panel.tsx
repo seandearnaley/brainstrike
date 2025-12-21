@@ -9,14 +9,36 @@ import {
   SortableTableHeader,
   TableGroupHeader,
   TablePagination,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { Columns3, Download, FileText, FileX2, FolderOpen } from 'lucide-react';
+import {
+  CheckSquare,
+  Columns3,
+  Download,
+  FileText,
+  FileX2,
+  FolderOpen,
+  LayoutGrid,
+  Maximize2,
+  Minimize2,
+  RotateCcw,
+  Table as TableIcon,
+} from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useGroupSelection } from './hooks/use-group-selection';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import IncludeProjectTreeSetting from './include-project-tree-setting';
 import { PreviewTableRow } from './preview-table-row';
+import { TapestryView } from './tapestry/tapestry-view';
 import { TokenBudgetControl } from './token-budget-control';
 import { TokenMeter } from './token-meter';
 import { TokenSummaryBar } from './token-summary-bar';
@@ -214,12 +236,17 @@ const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
   function ColumnVisibilityControlsComponent({ columnVisibility, onColumnVisibilityChange }) {
     return (
       <Popover>
-        <PopoverTrigger asChild>
-          <Button size="sm" variant="outline">
-            <Columns3 className="mr-1 size-3.5" />
-            Columns
-          </Button>
-        </PopoverTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <PopoverTrigger asChild>
+              <Button className="@[600px]:h-9 h-8 @[600px]:px-3 px-2" size="sm" variant="outline">
+                <Columns3 className="@[600px]:mr-2 size-3.5" />
+                <span className="@[600px]:inline hidden">Columns</span>
+              </Button>
+            </PopoverTrigger>
+          </TooltipTrigger>
+          <TooltipContent>Select visible columns</TooltipContent>
+        </Tooltip>
         <PopoverContent align="end" className="w-48 p-2">
           <div className="space-y-1">
             {COLUMN_CONFIGS.filter((col) => col.canHide).map((column) => (
@@ -295,7 +322,7 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     } = props;
 
     return (
-      <div className="flex flex-shrink-0 flex-col gap-2 border-t bg-background p-3">
+      <div className="@container flex flex-shrink-0 flex-col gap-2 border-t bg-background p-3">
         {/* Row 1: Token visualization and stats */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Token Meter - compact radial visualization */}
@@ -328,30 +355,44 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           <TokenBudgetControl budget={tokenUsage.budget} onBudgetChange={onTokenBudgetChange} />
 
           {/* Visual separator */}
-          {onIncludeProjectTreeChange && <div aria-hidden className="h-6 w-px bg-border" />}
+          {onIncludeProjectTreeChange && (
+            <div aria-hidden className="@[450px]:block hidden h-6 w-px bg-border" />
+          )}
 
           {/* Include Project Tree toggle */}
           {onIncludeProjectTreeChange && (
-            <IncludeProjectTreeSetting
-              checked={includeProjectTree}
-              onChange={onIncludeProjectTreeChange}
-            />
+            <div className="flex items-center gap-2">
+              <TooltipProvider delayDuration={400}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-2">
+                      <IncludeProjectTreeSetting
+                        checked={includeProjectTree}
+                        onChange={onIncludeProjectTreeChange}
+                      />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>Include project tree in the context</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           )}
 
           {/* Folder Summary Threshold - only show when tree is included and handler exists */}
           {includeProjectTree && onFolderSummaryThresholdChange && (
             <>
-              <div aria-hidden className="h-6 w-px bg-border" />
+              <div aria-hidden className="@[650px]:block hidden h-6 w-px bg-border" />
               <div className="flex items-center gap-2">
                 <label
                   className="whitespace-nowrap text-muted-foreground text-xs"
                   htmlFor="folder-summary-threshold-footer"
                   title="Number of files shown per folder in the project tree before summarizing. Set to 0 to show all."
                 >
-                  Tree detail:
+                  <span className="@[700px]:inline hidden">Tree detail:</span>
+                  <span className="@[500px]:inline @[700px]:hidden hidden">Detail:</span>
                 </label>
                 <input
-                  className="h-7 w-14 rounded-md border border-input bg-background px-2 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                  className="h-7 @[500px]:w-14 w-12 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   id="folder-summary-threshold-footer"
                   min="0"
                   onChange={(e) => {
@@ -369,40 +410,58 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
           )}
 
           {/* Spacer to push report buttons to the right */}
-          <div className="flex-1" />
+          <div className="@[850px]:block hidden flex-1" />
 
           {/* Report action buttons */}
           <div className="flex flex-wrap items-center gap-2">
-            {onDownloadReport && (
-              <Button
-                aria-label={
-                  selectedFilesCount === 0
-                    ? 'Download Report (no files selected)'
-                    : 'Download Report'
-                }
-                disabled={selectedFilesCount === 0}
-                onClick={onDownloadReport}
-                size="sm"
-                variant="outline"
-              >
-                <Download className="mr-1 size-3.5" />
-                Download Report
-              </Button>
-            )}
-            {onCopyReport && (
-              <Button
-                aria-label={
-                  selectedFilesCount === 0 ? 'Copy Report (no files selected)' : 'Copy Report'
-                }
-                disabled={selectedFilesCount === 0}
-                onClick={onCopyReport}
-                size="sm"
-                variant="outline"
-              >
-                <FileText className="mr-1 size-3.5" />
-                Copy Report
-              </Button>
-            )}
+            <TooltipProvider delayDuration={400}>
+              {onDownloadReport && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      aria-label={
+                        selectedFilesCount === 0
+                          ? 'Download Report (no files selected)'
+                          : 'Download Report'
+                      }
+                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      data-testid="download-report-button"
+                      disabled={selectedFilesCount === 0}
+                      onClick={onDownloadReport}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <Download className="@[600px]:mr-2 size-3.5" />
+                      <span className="@[700px]:inline hidden">Download Report</span>
+                      <span className="@[500px]:inline @[700px]:hidden hidden">Download</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Download report as file</TooltipContent>
+                </Tooltip>
+              )}
+              {onCopyReport && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      aria-label={
+                        selectedFilesCount === 0 ? 'Copy Report (no files selected)' : 'Copy Report'
+                      }
+                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      data-testid="copy-report-button"
+                      disabled={selectedFilesCount === 0}
+                      onClick={onCopyReport}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <FileText className="@[600px]:mr-2 size-3.5" />
+                      <span className="@[700px]:inline hidden">Copy Report</span>
+                      <span className="@[500px]:inline @[700px]:hidden hidden">Copy</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Copy report to clipboard</TooltipContent>
+                </Tooltip>
+              )}
+            </TooltipProvider>
           </div>
         </div>
       </div>
@@ -539,6 +598,11 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
     pagination,
   } = props;
 
+  const totalVisibleColumns = useMemo(
+    () => Object.values(columnVisibility).filter(Boolean).length,
+    [columnVisibility]
+  );
+
   const visibleFilesOnPage = useMemo(
     () =>
       getVisibleFilesOnPage({
@@ -576,6 +640,7 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
 
     return (
       <TableGroupHeader
+        colSpan={totalVisibleColumns - 1}
         groupKey={group.groupKey}
         groupLabel={group.groupLabel}
         icon={<FolderOpen className="size-4 text-muted-foreground" />}
@@ -640,11 +705,11 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
   return (
     <div className="flex-1 overflow-auto">
       <div className="min-w-full">
-        <table className="w-full table-fixed border-collapse">
-          <thead className="sticky top-0 border-b bg-background">
+        <table className="w-full min-w-full table-fixed border-collapse">
+          <thead className="sticky top-0 z-10 border-b bg-background">
             <tr>
               {columnVisibility.checkbox && (
-                <th className="w-12 px-4 py-3" scope="col">
+                <th className="w-12 bg-background px-4 py-2" scope="col">
                   <Checkbox
                     aria-label="Select all files on current page"
                     checked={isAllCurrentPageSelected}
@@ -667,7 +732,6 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
               )}
               {columnVisibility.path && (
                 <SortableTableHeader
-                  className="min-w-0"
                   field="path"
                   onSort={onSort}
                   sortDirection={sortDirection}
@@ -775,6 +839,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     migrateGroupingConfig(getStoredValue(storageKey, 'groupingConfig', 'none'))
   );
 
+  const [activeTab, setActiveTab] = useState<string>(() =>
+    getStoredValue(storageKey, 'activeTab', 'table')
+  );
+
   const effectiveColumnVisibility = useMemo(() => {
     // Avoid redundant "Folder" column when grouping by directory or root folder (group headers already show it).
     if (groupingConfig === 'directory' || groupingConfig === 'rootFolder') {
@@ -797,6 +865,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           sortField,
           sortDirection,
           groupingConfig,
+          activeTab,
           collapsedGroups: Array.from(collapsedGroups),
         };
         localStorage.setItem(storageKey, JSON.stringify(settings));
@@ -808,7 +877,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }, 250);
 
     return () => clearTimeout(timeoutId);
-  }, [columnVisibility, sortField, sortDirection, groupingConfig, collapsedGroups]);
+  }, [columnVisibility, sortField, sortDirection, groupingConfig, collapsedGroups, activeTab]);
 
   const state = usePreviewPanelState({
     selectedFiles,
@@ -1071,135 +1140,215 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header with table controls only */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-background p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-muted-foreground text-sm">Group by:</span>
-          <select
-            className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-            onChange={(e) => {
-              setGroupingConfig(e.target.value);
-              setCollapsedGroups(new Set());
-            }}
-            value={groupingConfig}
-          >
-            {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
-              <option key={key} value={key}>
-                {config.label}
-              </option>
-            ))}
-          </select>
-          {groupingConfig !== 'none' && groupedData.length > 1 && (
-            <>
-              <Button
-                onClick={() => setCollapsedGroups(new Set())}
-                size="sm"
-                title="Expand all groups"
-                variant="outline"
-              >
-                Expand All Groups
-              </Button>
-              <Button
-                onClick={() =>
-                  setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
-                }
-                size="sm"
-                title="Collapse all groups"
-                variant="outline"
-              >
-                Collapse All Groups
-              </Button>
-            </>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            disabled={isAllSelected(flattenedData)}
-            onClick={() => groupSelection.selectAll(flattenedData)}
-            size="sm"
-            title="Select all files across all pages"
-            variant="outline"
-          >
-            Select All ({flattenedData.length})
-          </Button>
-          {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
-            <Button
-              onClick={resetSort}
-              size="sm"
-              title="Reset sort to default (by folder)"
-              variant="outline"
+    <div className="@container flex h-full flex-col overflow-hidden">
+      <Tabs className="flex min-h-0 flex-1 flex-col" onValueChange={setActiveTab} value={activeTab}>
+        <div className="flex flex-shrink-0 items-center justify-between border-b bg-muted/20 px-3">
+          <TabsList className="h-9 gap-4 bg-transparent p-0">
+            <TabsTrigger
+              className="h-9 rounded-none border-transparent border-b-2 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+              value="table"
             >
-              Reset Sort
-            </Button>
-          )}
-          <ColumnVisibilityControls
-            columnVisibility={columnVisibility}
-            onColumnVisibilityChange={setColumnVisibility}
+              <TableIcon className="mr-2 size-3.5" />
+              Table View
+            </TabsTrigger>
+            <TabsTrigger
+              className="h-9 rounded-none border-transparent border-b-2 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
+              value="tapestry"
+            >
+              <LayoutGrid className="mr-2 size-3.5" />
+              Tapestry View
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent
+          className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+          value="table"
+        >
+          {/* Header with table controls only */}
+          <TooltipProvider delayDuration={400}>
+            <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-background p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="@[550px]:inline hidden text-muted-foreground text-sm">
+                  Group by:
+                </span>
+                <select
+                  className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  onChange={(e) => {
+                    setGroupingConfig(e.target.value);
+                    setCollapsedGroups(new Set());
+                  }}
+                  value={groupingConfig}
+                >
+                  {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
+                    <option key={key} value={key}>
+                      {config.label}
+                    </option>
+                  ))}
+                </select>
+                {groupingConfig !== 'none' && groupedData.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          aria-label="Expand all groups"
+                          className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                          data-testid="expand-all-groups-button"
+                          onClick={() => setCollapsedGroups(new Set())}
+                          size="sm"
+                          variant="outline"
+                        >
+                          <Maximize2 className="@[600px]:mr-2 size-3.5" />
+                          <span className="@[800px]:inline hidden">Expand All Groups</span>
+                          <span className="@[600px]:inline @[800px]:hidden hidden">Expand All</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Expand all groups</TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          aria-label="Collapse all groups"
+                          className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                          data-testid="collapse-all-groups-button"
+                          onClick={() =>
+                            setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
+                          }
+                          size="sm"
+                          variant="outline"
+                        >
+                          <Minimize2 className="@[600px]:mr-2 size-3.5" />
+                          <span className="@[800px]:inline hidden">Collapse All Groups</span>
+                          <span className="@[600px]:inline @[800px]:hidden hidden">
+                            Collapse All
+                          </span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>Collapse all groups</TooltipContent>
+                    </Tooltip>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      aria-label={`Select all ${flattenedData.length} files`}
+                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      data-testid="select-all-button"
+                      disabled={isAllSelected(flattenedData)}
+                      onClick={() => groupSelection.selectAll(flattenedData)}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <CheckSquare className="@[600px]:mr-2 size-3.5" />
+                      <span className="@[750px]:inline hidden">
+                        Select All ({flattenedData.length})
+                      </span>
+                      <span className="@[550px]:inline @[750px]:hidden hidden">Select All</span>
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Select all files across all pages</TooltipContent>
+                </Tooltip>
+
+                {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        aria-label="Reset sort"
+                        className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                        data-testid="reset-sort-button"
+                        onClick={resetSort}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <RotateCcw className="@[600px]:mr-2 size-3.5" />
+                        <span className="@[600px]:inline hidden">Reset Sort</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Reset sort to default (by folder)</TooltipContent>
+                  </Tooltip>
+                )}
+                <ColumnVisibilityControls
+                  columnVisibility={columnVisibility}
+                  onColumnVisibilityChange={setColumnVisibility}
+                />
+              </div>
+            </div>
+          </TooltipProvider>
+
+          {/* Table */}
+          <PreviewTable
+            collapsedGroups={collapsedGroups}
+            columnVisibility={effectiveColumnVisibility}
+            currentPageData={currentPageData}
+            groupedData={groupedData}
+            groupingConfig={groupingConfig}
+            handleGroupDeselectAll={handleGroupDeselectAll}
+            handleGroupSelectAll={handleGroupSelectAll}
+            isAllSelected={isAllSelected}
+            isGroupFullySelected={isGroupFullySelected}
+            isGroupPartiallySelected={isGroupPartiallySelected}
+            onDeselectAll={deselectAll}
+            onFileClick={onFileClick}
+            onSelectAllOnPage={selectAllOnPage}
+            onSort={handleSort}
+            onToggleSelection={toggleItemSelection}
+            pagination={pagination}
+            previewSelections={previewSelections}
+            sortDirection={sortDirection}
+            sortField={sortField}
+            toggleGroupCollapse={toggleGroupCollapse}
           />
-        </div>
-      </div>
 
-      {/* Table */}
-      <PreviewTable
-        collapsedGroups={collapsedGroups}
-        columnVisibility={effectiveColumnVisibility}
-        currentPageData={currentPageData}
-        groupedData={groupedData}
-        groupingConfig={groupingConfig}
-        handleGroupDeselectAll={handleGroupDeselectAll}
-        handleGroupSelectAll={handleGroupSelectAll}
-        isAllSelected={isAllSelected}
-        isGroupFullySelected={isGroupFullySelected}
-        isGroupPartiallySelected={isGroupPartiallySelected}
-        onDeselectAll={deselectAll}
-        onFileClick={onFileClick}
-        onSelectAllOnPage={selectAllOnPage}
-        onSort={handleSort}
-        onToggleSelection={toggleItemSelection}
-        pagination={pagination}
-        previewSelections={previewSelections}
-        sortDirection={sortDirection}
-        sortField={sortField}
-        toggleGroupCollapse={toggleGroupCollapse}
-      />
+          {flattenedData.length === 0 && (
+            <div className="p-8 text-center text-muted-foreground">
+              No files match your selection criteria
+            </div>
+          )}
 
-      {flattenedData.length === 0 && (
-        <div className="p-8 text-center text-muted-foreground">
-          No files match your selection criteria
-        </div>
-      )}
+          {/* Pagination */}
+          <TablePagination
+            currentPage={currentPage}
+            onPageChange={goToPage}
+            totalItems={flattenedData.length}
+            totalPages={pagination.totalPages}
+            {...(groupingConfig !== 'none' && groupedData.length > 1
+              ? { pageInfo: `(${flattenedData.length} total files, ${groupedData.length} groups)` }
+              : {})}
+          />
 
-      {/* Pagination */}
-      <TablePagination
-        currentPage={currentPage}
-        onPageChange={goToPage}
-        totalItems={flattenedData.length}
-        totalPages={pagination.totalPages}
-        {...(groupingConfig !== 'none' && groupedData.length > 1
-          ? { pageInfo: `(${flattenedData.length} total files, ${groupedData.length} groups)` }
-          : {})}
-      />
+          {/* Fixed bottom action bar */}
+          {previewSelections.size > 0 && (
+            <div className="flex flex-shrink-0 items-center justify-between border-t bg-yellow-50 p-3 dark:bg-yellow-900/20">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-sm">
+                  {previewSelections.size} files selected in preview
+                </span>
+                <Button onClick={deselectAll} size="sm" variant="outline">
+                  Clear Preview Selection
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleBatchRemove} size="sm" variant="destructive">
+                  <FileX2 className="mr-1 size-3.5" />
+                  Remove Selected from Project
+                </Button>
+              </div>
+            </div>
+          )}
+        </TabsContent>
 
-      {/* Fixed bottom action bar */}
-      {previewSelections.size > 0 && (
-        <div className="flex flex-shrink-0 items-center justify-between border-t bg-yellow-50 p-3 dark:bg-yellow-900/20">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-sm">
-              {previewSelections.size} files selected in preview
-            </span>
-            <Button onClick={deselectAll} size="sm" variant="outline">
-              Clear Preview Selection
-            </Button>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={handleBatchRemove} size="sm" variant="destructive">
-              <FileX2 className="mr-1 size-3.5" />
-              Remove Selected from Project
-            </Button>
-          </div>
-        </div>
-      )}
+        <TabsContent
+          className="m-0 flex min-h-0 flex-1 flex-col overflow-hidden data-[state=inactive]:hidden"
+          value="tapestry"
+        >
+          <FileExplorerErrorBoundary>
+            <TapestryView />
+          </FileExplorerErrorBoundary>
+        </TabsContent>
+      </Tabs>
 
       <PreviewPanelFooter
         folderSummaryThreshold={folderSummaryThreshold ?? 5}

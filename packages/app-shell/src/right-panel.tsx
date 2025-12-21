@@ -41,26 +41,38 @@ export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactEle
         onValueChange={(value) => setActiveTab((value as RightPanelTab) ?? 'assistant')}
         value={activeTab}
       >
-        <TabsList className="mx-2 mt-2 mb-2 grid flex-shrink-0 grid-cols-4">
-          <TabsTrigger className="flex items-center gap-1" value="assistant">
-            <MessageCircle className="h-3 w-3" />
+        <TabsList className="flex h-9 w-full justify-start rounded-none border-b bg-transparent p-0">
+          <TabsTrigger
+            className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            value="assistant"
+          >
+            <MessageCircle className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Assistant</span>
           </TabsTrigger>
-          <TabsTrigger className="flex items-center gap-1" value="embeddings">
-            <Brain className="h-3 w-3" />
+          <TabsTrigger
+            className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            value="embeddings"
+          >
+            <Brain className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Embed</span>
           </TabsTrigger>
-          <TabsTrigger className="flex items-center gap-1" value="vectors">
-            <Layers className="h-3 w-3" />
+          <TabsTrigger
+            className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            value="vectors"
+          >
+            <Layers className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Vectors</span>
           </TabsTrigger>
-          <TabsTrigger className="flex items-center gap-1" value="database">
-            <Database className="h-3 w-3" />
+          <TabsTrigger
+            className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            value="database"
+          >
+            <Database className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">DB</span>
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex min-h-0 flex-1 flex-col px-2">
+        <div className="flex min-h-0 flex-1 flex-col">
           <TabsContent
             className="flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden"
             forceMount

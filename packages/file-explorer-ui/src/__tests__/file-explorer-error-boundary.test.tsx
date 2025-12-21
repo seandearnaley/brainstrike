@@ -186,6 +186,34 @@ describe('FileExplorerErrorBoundary', () => {
     });
   });
 
+  test('handles clipboard error in handleCopyErrorDetails', async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error('Clipboard error'));
+    // @ts-expect-error - allow assigning clipboard for test
+    navigator.clipboard = { writeText };
+
+    const restoreConsole = suppressConsoleNoise();
+    try {
+      render(
+        <FileExplorerErrorBoundary showDetails={true}>
+          <ErrorThrowingComponent error={new Error('Copy error')} />
+        </FileExplorerErrorBoundary>
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Copy Details'));
+        await Promise.resolve();
+      });
+    } finally {
+      restoreConsole();
+    }
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(mockToast).not.toHaveBeenCalledWith({
+      title: 'Success',
+      description: 'Error details copied to clipboard',
+    });
+  });
+
   test('renders generic error message for unknown error', () => {
     const restoreConsole = suppressConsoleNoise();
     try {

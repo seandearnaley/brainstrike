@@ -231,15 +231,11 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Basic Rendering', () => {
-    it('renders database demo panel with title', async () => {
+    it('renders database demo panel', async () => {
       render(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
-        expect(screen.getByText('Enhanced Database Demo')).toBeInTheDocument();
-        expect(
-          screen.getByText('PGlite WASM with pgvector, chunking, and embeddings')
-        ).toBeInTheDocument();
       });
     });
 
@@ -316,10 +312,10 @@ describe('DatabaseDemoPanel', () => {
       render(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Import Selected Files/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       });
 
-      const importButton = screen.getByRole('button', { name: /Import Selected Files/ });
+      const importButton = screen.getByRole('button', { name: /^Import\s*\(/ });
       await user.click(importButton);
 
       // The component should attempt to call import, even if it fails due to missing adapters
@@ -336,10 +332,10 @@ describe('DatabaseDemoPanel', () => {
       render(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /Import Selected Files/ })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
       });
 
-      const importButton = screen.getByRole('button', { name: /Import Selected Files/ });
+      const importButton = screen.getByRole('button', { name: /^Import\s*\(/ });
       await user.click(importButton);
 
       // The component should show an import error

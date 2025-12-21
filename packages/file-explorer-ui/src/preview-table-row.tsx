@@ -27,7 +27,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
   return (
     <tr className="border-b transition-colors hover:bg-muted/50">
       {columnVisibility.checkbox && (
-        <td className="w-12 p-4">
+        <td className="w-12 px-4 py-2">
           <Checkbox
             aria-label={`Select ${item.path}`}
             checked={isSelected}
@@ -37,7 +37,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
         </td>
       )}
       {columnVisibility.rootFolderId && (
-        <td className="p-4">
+        <td className="px-4 py-2">
           <div className="flex min-w-0 items-center gap-2">
             <FolderOpen className="size-4 flex-shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate font-mono text-sm" title={item.rootFolderId}>
@@ -47,7 +47,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
         </td>
       )}
       {columnVisibility.path && (
-        <td className="p-4">
+        <td className="px-4 py-2">
           <button
             aria-label={fileName}
             className="block w-full min-w-0 overflow-hidden text-left transition-colors hover:text-primary"
@@ -70,14 +70,14 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
         </td>
       )}
       {columnVisibility.type && (
-        <td className="w-20 p-4">
+        <td className="w-20 px-4 py-2">
           <Badge className="text-xs" variant="secondary">
             {item.type}
           </Badge>
         </td>
       )}
       {columnVisibility.tokens && (
-        <td className="w-24 whitespace-nowrap p-4 text-right tabular-nums">
+        <td className="w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums">
           {item.tokens ? (
             <span className="whitespace-nowrap font-mono text-sm tabular-nums">
               {formatTokenCount(item.tokens)}
@@ -88,7 +88,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
         </td>
       )}
       {columnVisibility.size && (
-        <td className="w-24 whitespace-nowrap p-4 text-right tabular-nums">
+        <td className="w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums">
           {item.size ? (
             <span className="whitespace-nowrap font-mono text-sm tabular-nums">
               {(item.size / 1024).toFixed(1)} KB

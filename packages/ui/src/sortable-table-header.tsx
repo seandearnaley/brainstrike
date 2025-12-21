@@ -23,7 +23,7 @@ function SortableTableHeaderComponent<T extends string | number | symbol>({
   return (
     <th
       aria-sort={isActive ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
-      className={`cursor-pointer px-4 py-3 text-left font-medium text-muted-foreground text-sm hover:text-foreground ${className}`}
+      className={`cursor-pointer bg-background px-4 py-2 text-left font-medium text-muted-foreground text-sm hover:text-foreground ${className}`}
       onClick={() => onSort(field)}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {

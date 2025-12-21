@@ -154,20 +154,22 @@ export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCo
   const triggerButton = (
     <button
       aria-label={tooltipLabel}
-      className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${statusStyles} ${
+      className={`flex @[300px]:h-9 h-8 items-center @[300px]:gap-1.5 gap-1 rounded-md border @[300px]:px-2.5 px-2 py-1.5 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 ${statusStyles} ${
         isEditable ? 'cursor-pointer' : 'cursor-default'
       }`}
       disabled={!isEditable}
       onClick={() => isEditable && handleOpenChange(true)}
       type="button"
     >
-      {!compact && <Files className="size-3.5 text-muted-foreground" />}
+      {!compact && <Files className="@[300px]:mr-2 size-3.5 text-muted-foreground" />}
       <span className="font-medium tabular-nums">
         <span data-testid="selection-count">{selectedCount}</span>
         <span className="mx-0.5">/</span>
         <span data-testid="selection-max">{maxSelectionCount}</span>
       </span>
-      {isEditable && <Pencil className="size-3 text-muted-foreground" />}
+      {isEditable && (
+        <Pencil className="@[300px]:ml-2 @[300px]:inline hidden size-3 text-muted-foreground" />
+      )}
     </button>
   );
 

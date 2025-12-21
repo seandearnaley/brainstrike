@@ -55,6 +55,7 @@ export type ImportProgressDisplayProps = {
 export type SettingsPanelProps = {
   importSettings: ImportSettings;
   onFactoryReset?: (() => Promise<void>) | undefined;
+  className?: string;
 };
 
 export type ExportButtonsProps = {

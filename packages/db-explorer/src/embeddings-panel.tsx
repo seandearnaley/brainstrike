@@ -6,11 +6,6 @@ import {
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Input,
   Label,
   Progress,
@@ -315,25 +310,25 @@ export function EmbeddingsPanel() {
   );
 
   return (
-    <Card className="h-full">
-      <CardHeader className="pb-3">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex flex-col space-y-1.5 px-4 py-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2 text-sm">
+            <h3 className="flex items-center gap-2 font-semibold text-sm leading-none tracking-tight">
               <Brain className="h-4 w-4" />
               Embedding Playground
-            </CardTitle>
-            <CardDescription className="text-xs">
+            </h3>
+            <p className="text-muted-foreground text-xs">
               Test individual models and similarity (not tied to your vector DB)
-            </CardDescription>
+            </p>
           </div>
           <Badge className="text-xs" variant={getStatusColor(status)}>
             {getStatusText(status)}
           </Badge>
         </div>
-      </CardHeader>
+      </div>
 
-      <CardContent className="space-y-3 text-xs">
+      <div className="flex-1 space-y-3 overflow-auto px-4 pt-0 pb-6 text-xs">
         {/* Model Selector */}
         {status === 'idle' && (
           <div className="space-y-2">
@@ -437,7 +432,7 @@ export function EmbeddingsPanel() {
             ))}
           </ul>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

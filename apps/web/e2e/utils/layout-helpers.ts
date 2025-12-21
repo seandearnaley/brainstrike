@@ -1,8 +1,20 @@
-import { expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 
 /**
  * Layout test utilities for IDE panel testing
  */
+
+type PlaywrightExpect = typeof import('@playwright/test').expect;
+
+let cachedExpect: PlaywrightExpect | null = null;
+
+async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
+  if (!cachedExpect) {
+    const mod = await import('@playwright/test');
+    cachedExpect = mod.expect;
+  }
+  return cachedExpect;
+}
 
 export type PanelElements = {
   leftPanel: ReturnType<Page['locator']>;
@@ -234,6 +246,7 @@ export async function togglePanelVisibility(
   panel: ReturnType<Page['locator']>,
   isVisibleAfterToggle: boolean
 ) {
+  const expect = await getPlaywrightExpect();
   await expect(button).toBeVisible();
   await button.click();
   if (isVisibleAfterToggle) {
@@ -252,6 +265,7 @@ export async function verifyPersistenceAfterReload(
   shouldBeVisible: boolean,
   dimensions?: { width?: number; height?: number }
 ): Promise<void> {
+  const expect = await getPlaywrightExpect();
   await page.reload({ waitUntil: 'load' });
   await waitForAppLoad(page);
 
@@ -312,6 +326,7 @@ export async function verifyComplexLayout(
     rightPanelHidden?: boolean;
   }
 ): Promise<void> {
+  const expect = await getPlaywrightExpect();
   const elements = getPanelElements(page);
 
   if (expectedState.leftPanelHidden) {
@@ -357,6 +372,7 @@ export async function testPanelSizeConstraints(
   minPercentage: number,
   maxPercentage: number
 ): Promise<void> {
+  const expect = await getPlaywrightExpect();
   const viewportSize = page.viewportSize();
   if (!viewportSize) {
     throw new Error('Viewport size not available');
@@ -482,6 +498,7 @@ type DefaultLayoutState = {
  * This function can be customized to check for different default configurations.
  */
 export async function verifyDefaultLayout(page: Page, expectedState: DefaultLayoutState = {}) {
+  const expect = await getPlaywrightExpect();
   const elements = getPanelElements(page);
 
   // Left panel should be visible by default
@@ -533,6 +550,7 @@ export async function testLayoutPersistenceAcrossNavigation(
   setupCallback: () => Promise<void>,
   verifyCallback: () => Promise<void>
 ): Promise<void> {
+  const expect = await getPlaywrightExpect();
   // Setup layout state
   await setupCallback();
 
