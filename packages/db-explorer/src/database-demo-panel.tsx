@@ -29,7 +29,8 @@ import {
 import { createLogger } from '@brainstrike/utils';
 import {
   CreateEmbeddingSetDialog,
-  ManageEmbeddingSetsDialog,
+  DeleteEmbeddingSetDialog,
+  RenameEmbeddingSetDialog,
 } from '@brainstrike/vector-management';
 import { Database, FileText, Pencil, RefreshCw, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -38,14 +39,19 @@ import {
   ClearDatabaseDialog,
   CollectionBrowserView,
   ExportDropdown,
-  ImportProgressDisplay,
+  ImportProgressBar,
   SearchCollectionSelector,
   SettingsPanel,
 } from './components';
 import { SemanticSearchProvider } from './contexts/semantic-search-context';
 import {
   createImportCompletionHandler,
+  type EmbeddingSetRow,
+  useAvailableModels,
+  useAvailableProviders,
+  useCollectionDialogs,
   useDatabaseErrorBoundary,
+  useEmbeddingSetsData,
   useExportHandlers,
   useImportSettings,
   useSemanticSearchExecutor,
@@ -72,6 +78,7 @@ function isDbWithExec(db: DbContext): db is DbWithExec {
 }
 
 // Factory reset is now provided via the shared Preferences UI (FactoryResetPanel).
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Legacy component with complex UI state - refactor tracked separately
 export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
   const repository = useFileRecordRepository();
   const dbChunkRepository = useFileChunkRepository();
@@ -89,8 +96,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   const [clearing, setClearing] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
-  const [manageCollectionsOpen, setManageCollectionsOpen] = useState(false);
-  const [createCollectionOpen, setCreateCollectionOpen] = useState(false);
+
+  // Collection dialog management (create, rename, delete)
+  const collectionDialogs = useCollectionDialogs();
+
   // Use Zustand store directly as single source of truth for collection selection
   const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
@@ -105,21 +114,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   }, [dbContext]);
 
   // Live query for embedding sets (for CollectionBrowserView)
-  // Using Record type to represent SQL row with snake_case column names from database schema
-  type EmbeddingSetRow = Record<string, unknown> & {
-    id: string;
-    // biome-ignore lint/style/useNamingConvention: SQL column name
-    model_key: string;
-    // biome-ignore lint/style/useNamingConvention: SQL column name
-    model_id: string;
-    dimensions: number;
-    distance: string;
-    // biome-ignore lint/style/useNamingConvention: SQL column name
-    created_at: string;
-    name: string | null;
-    description: string | null;
-  };
-
   const { rows: embeddingSetRows, loading: embeddingSetsLoading } =
     usePGliteLiveQuery<EmbeddingSetRow>({
       query:
@@ -127,27 +121,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       enabled: Boolean(dbContext),
     });
 
-  const embeddingSets = useMemo<EmbeddingSet[]>(
-    () =>
-      embeddingSetRows.map((row) => {
-        const set: EmbeddingSet = {
-          id: row.id,
-          modelKey: row.model_key,
-          modelId: row.model_id,
-          dimensions: row.dimensions,
-          distance: row.distance as 'cosine' | 'l2' | 'ip',
-          createdAt: row.created_at,
-        };
-        if (row.name) {
-          set.name = row.name;
-        }
-        if (row.description) {
-          set.description = row.description;
-        }
-        return set;
-      }),
-    [embeddingSetRows]
-  );
+  const embeddingSets = useEmbeddingSetsData(embeddingSetRows);
 
   // Get enabled models from model registry
   const { models, providers, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();
@@ -158,37 +132,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       void fetchRegistry(dbContext);
     }
   }, [dbContext, fetchRegistry]);
-  const availableModels = useMemo(
-    () =>
-      models
-        .filter((m) => m.isEnabled && m.capabilities.type === 'embedding')
-        .map((m) => ({
-          id: m.providerId === 'local' ? m.id : `${m.providerId}::${m.id}`,
-          providerId: m.providerId,
-          name: m.name,
-          description: m.description,
-          capabilities: m.capabilities,
-          ...(m.parameters && 'pricePer1MTokens' in m.parameters
-            ? {
-                pricePer1MTokensInput: (m.parameters as { pricePer1MTokens: number })
-                  .pricePer1MTokens,
-              }
-            : {}),
-        })),
-    [models]
-  );
 
-  const availableProviders = useMemo(
-    () =>
-      providers
-        .filter((p) => p.isEnabled)
-        .map((p) => ({
-          id: p.id,
-          name: p.name,
-          icon: p.icon,
-        })),
-    [providers]
-  );
+  const availableModels = useAvailableModels(models);
+  const availableProviders = useAvailableProviders(providers);
 
   const showSettings = useDatabaseDemoStore((s) => s.showSettings);
   const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
@@ -329,14 +275,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     [setActiveCollectionId]
   );
 
-  const handleManageCollections = useCallback(() => {
-    setManageCollectionsOpen(true);
-  }, []);
-
-  const handleCreateCollection = useCallback(() => {
-    setCreateCollectionOpen(true);
-  }, []);
-
   const handleManualRefresh = useCallback(() => {
     void (async () => {
       await Promise.allSettled([loadRecords(), loadChunks()]);
@@ -392,17 +330,19 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 activeCollectionId={activeCollectionId}
                 db={dbContext}
                 onCollectionChange={handleCollectionChange}
-                onCreateCollection={handleCreateCollection}
-                onManageCollections={handleManageCollections}
+                onCreateCollection={collectionDialogs.handleCreateCollection}
+                onDeleteCollection={collectionDialogs.handleDeleteCollection}
+                onEditCollection={collectionDialogs.handleEditCollection}
               />
-
-              {importFlow.showImportProgress && importFlow.progress && (
-                <ImportProgressDisplay
-                  onClose={() => importFlow.setShowImportProgress(false)}
-                  progress={importFlow.progress as EnhancedImportProgress}
-                />
-              )}
             </div>
+
+            {/* Import Progress Bar - above footer */}
+            {importFlow.showImportProgress && importFlow.progress && (
+              <ImportProgressBar
+                onClose={() => importFlow.setShowImportProgress(false)}
+                progress={importFlow.progress as EnhancedImportProgress}
+              />
+            )}
 
             {/* Sticky Footer */}
             <div className="flex flex-shrink-0 items-center justify-between border-t bg-background p-2 px-4">
@@ -508,7 +448,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         <PanelResizeHandle className="h-1 bg-border transition-colors hover:bg-border/80" />
 
         <Panel className="min-h-0" defaultSize={62} minSize={30}>
-          <div className="flex h-full min-h-0 flex-col overflow-hidden border-border border-t">
+          <div className="relative flex h-full min-h-0 flex-col overflow-hidden border-border border-t">
             <SemanticSearchProvider
               {...(semanticSearchExecutor ? { searchExecutor: semanticSearchExecutor } : {})}
             >
@@ -522,6 +462,39 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 records={records}
               />
             </SemanticSearchProvider>
+
+            {/* Empty state when no collection is selected */}
+            {!activeCollectionId && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-background">
+                <div className="flex max-w-sm flex-col items-center gap-6 px-8 text-center">
+                  {/* Icon with subtle ring */}
+                  <div className="relative">
+                    <div className="-inset-4 absolute rounded-full bg-gradient-to-br from-primary/5 to-primary/10" />
+                    <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl border border-border/50 bg-card shadow-sm">
+                      <Database className="h-7 w-7 text-muted-foreground" />
+                    </div>
+                  </div>
+
+                  {/* Text content */}
+                  <div className="space-y-2">
+                    <h3 className="font-semibold text-foreground text-lg tracking-tight">
+                      No collection selected
+                    </h3>
+                    <p className="text-muted-foreground text-sm leading-relaxed">
+                      Create or select a collection to start importing files and searching with
+                      semantic embeddings
+                    </p>
+                  </div>
+
+                  {/* Decorative dots */}
+                  <div className="flex items-center gap-1.5 pt-2">
+                    <div className="h-1 w-1 rounded-full bg-muted-foreground/20" />
+                    <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
+                    <div className="h-1 w-1 rounded-full bg-muted-foreground/20" />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </Panel>
       </PanelGroup>
@@ -537,35 +510,106 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       />
 
       {/* Create Collection Dialog */}
-      {createCollectionOpen && (
+      {collectionDialogs.createCollectionOpen && (
         <CreateEmbeddingSetDialog
           isLoading={modelsLoading}
           models={availableModels}
-          onOpenChange={setCreateCollectionOpen}
+          onOpenChange={(open) => {
+            if (!open) {
+              collectionDialogs.closeCreateDialog();
+            }
+          }}
           onSetCreated={(newSetId?: string) => {
             if (newSetId) {
               handleCollectionChange(newSetId);
             }
-            setCreateCollectionOpen(false);
+            collectionDialogs.closeCreateDialog();
             // Reload collections (SearchCollectionSelector listens to event)
           }}
-          open={createCollectionOpen}
+          open={collectionDialogs.createCollectionOpen}
           providers={availableProviders}
           repository={embeddingSetsRepository}
         />
       )}
 
-      {/* Collection Management Dialog */}
-      {manageCollectionsOpen && (
-        <ManageEmbeddingSetsDialog
-          db={dbContext as never}
-          onOpenChange={setManageCollectionsOpen}
-          onSetSelected={(setId: string) => {
-            handleCollectionChange(setId);
-            setManageCollectionsOpen(false);
+      {/* Rename Collection Dialog */}
+      {collectionDialogs.renameDialogOpen && collectionDialogs.selectedCollection && (
+        <RenameEmbeddingSetDialog
+          embeddingSet={
+            {
+              id: collectionDialogs.selectedCollection.id,
+              modelKey: collectionDialogs.selectedCollection.modelKey,
+              modelId: collectionDialogs.selectedCollection.modelId,
+              dimensions: collectionDialogs.selectedCollection.dimensions,
+              distance: collectionDialogs.selectedCollection.distance,
+              createdAt: collectionDialogs.selectedCollection.createdAt,
+              ...(collectionDialogs.selectedCollection.name && {
+                name: collectionDialogs.selectedCollection.name,
+              }),
+              ...(collectionDialogs.selectedCollection.description && {
+                description: collectionDialogs.selectedCollection.description,
+              }),
+              ...(collectionDialogs.selectedCollection.tags && {
+                tags: collectionDialogs.selectedCollection.tags,
+              }),
+              ...(collectionDialogs.selectedCollection.category && {
+                category: collectionDialogs.selectedCollection.category,
+              }),
+            } satisfies EmbeddingSet
+          }
+          onOpenChange={(open) => {
+            if (!open) {
+              collectionDialogs.closeRenameDialog();
+            }
           }}
-          open={manageCollectionsOpen}
+          onSetRenamed={() => {
+            collectionDialogs.closeRenameDialog();
+          }}
+          open={collectionDialogs.renameDialogOpen}
           repository={embeddingSetsRepository}
+        />
+      )}
+
+      {/* Delete Collection Dialog */}
+      {collectionDialogs.deleteDialogOpen && collectionDialogs.selectedCollection && (
+        <DeleteEmbeddingSetDialog
+          db={dbContext as never}
+          embeddingSet={{
+            id: collectionDialogs.selectedCollection.id,
+            modelKey: collectionDialogs.selectedCollection.modelKey,
+            modelId: collectionDialogs.selectedCollection.modelId,
+            dimensions: collectionDialogs.selectedCollection.dimensions,
+            distance: collectionDialogs.selectedCollection.distance,
+            createdAt: collectionDialogs.selectedCollection.createdAt,
+            ...(collectionDialogs.selectedCollection.name && {
+              name: collectionDialogs.selectedCollection.name,
+            }),
+            ...(collectionDialogs.selectedCollection.description && {
+              description: collectionDialogs.selectedCollection.description,
+            }),
+            ...(collectionDialogs.selectedCollection.tags && {
+              tags: collectionDialogs.selectedCollection.tags,
+            }),
+            ...(collectionDialogs.selectedCollection.category && {
+              category: collectionDialogs.selectedCollection.category,
+            }),
+            chunkCount: chunks.filter(
+              (c) => c.embeddingSetId === collectionDialogs.selectedCollection?.id
+            ).length,
+          }}
+          onOpenChange={(open) => {
+            if (!open) {
+              collectionDialogs.closeDeleteDialog();
+            }
+          }}
+          onSetDeleted={(deletedId) => {
+            collectionDialogs.closeDeleteDialog();
+            // Clear selection if deleted collection was active
+            if (activeCollectionId === deletedId) {
+              setActiveCollectionId(null);
+            }
+          }}
+          open={collectionDialogs.deleteDialogOpen}
         />
       )}
     </div>

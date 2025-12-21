@@ -437,11 +437,8 @@ export function CollectionBrowserView({
     if (searchMode === 'semantic' && hasSearched && searchResults.length === 0) {
       return 'No matching results found. Try adjusting your query or threshold.';
     }
-    if (!activeCollectionId) {
-      return 'Select a collection to view its contents.';
-    }
     return 'No files in this collection. Import files to get started.';
-  }, [searchMode, hasSearched, searchResults.length, activeCollectionId]);
+  }, [searchMode, hasSearched, searchResults.length]);
 
   return (
     <div className="flex h-full flex-col" style={{ height }}>

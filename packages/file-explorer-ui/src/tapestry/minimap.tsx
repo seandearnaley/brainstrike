@@ -118,7 +118,7 @@ const RangeItem = memo(
         className={cn(
           'group/range absolute right-0 left-0 transition-all duration-75 ease-out focus-visible:ring-2 focus-visible:ring-ring',
           range.isActive ? 'opacity-100' : 'opacity-40 grayscale',
-          isHovered ? 'z-50' : 'z-20'
+          isHovered ? 'z-40' : 'z-20'
         )}
         onKeyDown={handleKeyDown}
         onMouseDown={(e) => {
@@ -149,7 +149,7 @@ const RangeItem = memo(
         <button
           aria-label={range.isActive ? 'Deactivate range' : 'Activate range'}
           className={cn(
-            '-top-1.5 -right-1.5 no-depress absolute z-50 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-all',
+            '-top-1.5 -right-1.5 no-depress absolute z-40 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-all',
             range.isActive ? 'scale-100 bg-background' : 'scale-90 bg-muted hover:scale-110'
           )}
           onMouseDown={(e) => {
@@ -313,7 +313,7 @@ export const Minimap = memo(
       <div
         className={cn(
           'fade-in zoom-in flex w-full animate-in flex-col gap-2 duration-300',
-          isAnyHovered ? 'relative z-50' : 'relative z-0'
+          isAnyHovered ? 'relative z-40' : 'relative z-0'
         )}
       >
         <div className="flex select-none items-center justify-between px-2 text-muted-foreground text-xs">

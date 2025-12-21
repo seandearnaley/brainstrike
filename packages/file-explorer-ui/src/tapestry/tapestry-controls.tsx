@@ -24,7 +24,7 @@ export const TapestryControls = memo(
     allowOverlap,
     setAllowOverlap,
   }: TapestryControlsProps) => (
-    <div className="sticky top-0 z-50 flex w-full flex-wrap items-center justify-between gap-4 border-border border-b bg-background/80 p-4 shadow-sm backdrop-blur-md">
+    <div className="sticky top-0 z-40 flex w-full flex-wrap items-center justify-between gap-4 border-border border-b bg-background/80 p-4 shadow-sm backdrop-blur-md">
       <div className="flex items-center gap-6">
         <h2 className="bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text font-bold text-lg text-transparent">
           Tapestry

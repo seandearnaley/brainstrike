@@ -14,6 +14,7 @@ export * from './button';
 export * from './card';
 export * from './checkbox';
 export * from './collection-browser';
+export * from './collection-picker';
 export * from './data-table';
 export * from './dialog';
 export * from './dropdown-menu';
