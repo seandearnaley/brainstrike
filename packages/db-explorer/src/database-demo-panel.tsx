@@ -6,7 +6,6 @@ import {
   useFileChunkRepository,
   useFileRecordRepository,
   usePGliteDatabase,
-  usePGliteLiveQuery,
 } from '@brainstrike/db';
 import { useModelRegistryStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
@@ -17,6 +16,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  EmptyState,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -32,7 +32,7 @@ import {
   DeleteEmbeddingSetDialog,
   RenameEmbeddingSetDialog,
 } from '@brainstrike/vector-management';
-import { Database, FileText, Pencil, RefreshCw, Settings2 } from 'lucide-react';
+import { Database, FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import {
@@ -46,12 +46,10 @@ import {
 import { SemanticSearchProvider } from './contexts/semantic-search-context';
 import {
   createImportCompletionHandler,
-  type EmbeddingSetRow,
   useAvailableModels,
   useAvailableProviders,
   useCollectionDialogs,
   useDatabaseErrorBoundary,
-  useEmbeddingSetsData,
   useExportHandlers,
   useImportSettings,
   useSemanticSearchExecutor,
@@ -112,16 +110,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     }
     return new EmbeddingSetsRepository(dbContext);
   }, [dbContext]);
-
-  // Live query for embedding sets (for CollectionBrowserView)
-  const { rows: embeddingSetRows, loading: embeddingSetsLoading } =
-    usePGliteLiveQuery<EmbeddingSetRow>({
-      query:
-        'SELECT id, model_key, model_id, dimensions, distance, created_at, name, description FROM embedding_sets ORDER BY created_at DESC',
-      enabled: Boolean(dbContext),
-    });
-
-  const embeddingSets = useEmbeddingSetsData(embeddingSetRows);
 
   // Get enabled models from model registry
   const { models, providers, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();
@@ -324,7 +312,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     <div className="flex min-h-0 flex-1 flex-col" data-testid="database-demo-panel">
       <PanelGroup className="min-h-0 flex-1" direction="vertical">
         <Panel className="min-h-0" defaultSize={38} maxSize={60} minSize={26}>
-          <div className="flex h-full flex-col overflow-hidden">
+          <div className="flex h-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
             <div className="flex flex-1 flex-col gap-3 overflow-auto px-4 py-3">
               <SearchCollectionSelector
                 activeCollectionId={activeCollectionId}
@@ -347,6 +335,19 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             {/* Sticky Footer */}
             <div className="flex flex-shrink-0 items-center justify-between border-t bg-background p-2 px-4">
               <div className="flex items-center gap-2">
+                <Button
+                  className="h-8 gap-1.5 px-2.5 font-medium text-xs"
+                  onClick={collectionDialogs.handleCreateCollection}
+                  size="sm"
+                  title="Create new collection"
+                  variant="ghost"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>New</span>
+                </Button>
+
+                <div className="mx-1 h-4 w-px bg-border" />
+
                 <Popover onOpenChange={setShowSettings} open={showSettings}>
                   <TooltipProvider delayDuration={200}>
                     <Tooltip>
@@ -439,6 +440,24 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                           : 'Select a collection first'}
                     </TooltipContent>
                   </Tooltip>
+
+                  <div className="mx-1 h-4 w-px bg-border" />
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button className="h-8 w-8 p-0" size="sm" variant="ghost">
+                        <HelpCircle className="h-4 w-4 text-muted-foreground" />
+                        <span className="sr-only">Help</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-[300px]" side="top">
+                      <p className="text-sm">
+                        Collections let you search files with different AI models. Create separate
+                        collections for code, documentation, or general content to get better search
+                        results optimized for each use case.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
                 </TooltipProvider>
               </div>
             </div>
@@ -455,9 +474,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               <CollectionBrowserView
                 activeCollectionId={activeCollectionId}
                 chunks={chunks}
-                embeddingSets={embeddingSets}
                 height="100%"
-                isLoading={embeddingSetsLoading || refreshing}
+                isLoading={refreshing}
                 pendingChunkIds={pendingChunkIds}
                 records={records}
               />
@@ -465,34 +483,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
             {/* Empty state when no collection is selected */}
             {!activeCollectionId && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-background">
-                <div className="flex max-w-sm flex-col items-center gap-6 px-8 text-center">
-                  {/* Icon with subtle ring */}
-                  <div className="relative">
-                    <div className="-inset-4 absolute rounded-full bg-gradient-to-br from-primary/5 to-primary/10" />
-                    <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl border border-border/50 bg-card shadow-sm">
-                      <Database className="h-7 w-7 text-muted-foreground" />
-                    </div>
-                  </div>
-
-                  {/* Text content */}
-                  <div className="space-y-2">
-                    <h3 className="font-semibold text-foreground text-lg tracking-tight">
-                      No collection selected
-                    </h3>
-                    <p className="text-muted-foreground text-sm leading-relaxed">
-                      Create or select a collection to start importing files and searching with
-                      semantic embeddings
-                    </p>
-                  </div>
-
-                  {/* Decorative dots */}
-                  <div className="flex items-center gap-1.5 pt-2">
-                    <div className="h-1 w-1 rounded-full bg-muted-foreground/20" />
-                    <div className="h-1.5 w-1.5 rounded-full bg-muted-foreground/30" />
-                    <div className="h-1 w-1 rounded-full bg-muted-foreground/20" />
-                  </div>
-                </div>
+              <div className="absolute inset-0 z-10">
+                <EmptyState
+                  description="Create or select a collection to start importing files and searching with semantic embeddings"
+                  icon={<Database />}
+                  title="No collection selected"
+                />
               </div>
             )}
           </div>

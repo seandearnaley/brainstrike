@@ -67,7 +67,9 @@ describe('FileExplorerSidebar', () => {
     });
 
     expect(screen.getByText('No directory selected')).toBeInTheDocument();
-    expect(screen.getByText('Use the folder button to select a directory')).toBeInTheDocument();
+    expect(
+      screen.getByText('Connect a directory to browse your project and select files')
+    ).toBeInTheDocument();
   });
 
   it('displays error message when treeError exists', () => {

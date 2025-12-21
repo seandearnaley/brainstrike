@@ -11,7 +11,6 @@ import type {
   BrowserNodeData,
   ChunkData,
   CollectionBrowserFilters,
-  CollectionData,
   CollectionNodeType,
   EmbeddingData,
   EmbeddingStatus,
@@ -23,14 +22,6 @@ import type {
  * Input data for building the collection tree
  */
 export type CollectionTreeInput = {
-  /** Embedding sets / collections */
-  collections: Array<{
-    id: string;
-    name?: string;
-    description?: string;
-    modelId: string;
-    dimensions: number;
-  }>;
   /** File records */
   files: Array<{
     id: string;
@@ -58,10 +49,10 @@ export type CollectionTreeInput = {
 /**
  * Sort key for hierarchical sorting.
  * Each key applies contextually to different node types:
- * - 'name': collections/files by name, chunks by index
+ * - 'name': files by name, chunks by index
  * - 'size': files by file size, chunks by token count
  * - 'status': by embedding completion status
- * - 'count': collections by file count, files by chunk count
+ * - 'count': files by chunk count
  */
 export type CollectionSortKey = 'name' | 'size' | 'status' | 'count' | 'score';
 
@@ -200,26 +191,6 @@ const STATUS_PRIORITY: Record<EmbeddingStatus, number> = {
 };
 
 /**
- * Get sort value for a collection node
- */
-function getCollectionSortValue(data: CollectionData, sortKey: CollectionSortKey): string | number {
-  switch (sortKey) {
-    case 'name':
-      return data.name.toLowerCase();
-    case 'size':
-      return data.embeddingCount;
-    case 'status':
-      // Collections don't have status, sort by completion ratio
-      return data.chunkCount > 0 ? data.embeddingCount / data.chunkCount : 0;
-    case 'count':
-      return data.fileCount;
-    case 'score':
-      // Score sorting is handled specially in sortNodes using similarityScores map
-      return 0;
-  }
-}
-
-/**
  * Get sort value for a file node
  */
 function getFileSortValue(data: FileData, sortKey: CollectionSortKey): string | number {
@@ -284,8 +255,6 @@ function getNodeSortValue(
   sortKey: CollectionSortKey
 ): string | number {
   switch (node.type) {
-    case 'collection':
-      return getCollectionSortValue(node.data as CollectionData, sortKey);
     case 'file':
       return getFileSortValue(node.data as FileData, sortKey);
     case 'chunk':
@@ -377,7 +346,7 @@ function createEmbeddingNode(
   return {
     id: `embedding-${chunk.id}`,
     type: 'embedding',
-    depth: 3,
+    depth: 2,
     data: embeddingData,
     parentId,
     hasChildren: false,
@@ -406,7 +375,7 @@ function createChunkNode(
   const chunkNode: TreeNode<BrowserNodeData> = {
     id: `chunk-${chunk.id}`,
     type: 'chunk',
-    depth: 2,
+    depth: 1,
     data: chunkData,
     parentId,
     hasChildren: hasEmbedding,
@@ -428,7 +397,7 @@ function createChunkNode(
  */
 function createFileNode(
   file: CollectionTreeInput['files'][0],
-  parentId: string,
+  parentId: string | null,
   data: CollectionTreeInput,
   ctx: TreeBuildContext
 ): TreeNode<BrowserNodeData> {
@@ -453,7 +422,7 @@ function createFileNode(
   const fileNode: TreeNode<BrowserNodeData> = {
     id: `file-${file.id}`,
     type: 'file',
-    depth: 1,
+    depth: 0,
     data: fileData,
     parentId,
     hasChildren: fileChunks.length > 0,
@@ -468,52 +437,6 @@ function createFileNode(
   ctx.children.set(fileNode.id, chunkNodes);
 
   return fileNode;
-}
-
-/**
- * Create a collection node with its file children
- */
-function createCollectionNode(
-  collection: CollectionTreeInput['collections'][0],
-  data: CollectionTreeInput,
-  ctx: TreeBuildContext
-): TreeNode<BrowserNodeData> {
-  const collectionFiles = data.files.filter((f) => f.embeddingSetId === collection.id);
-  const collectionChunks = data.chunks.filter((c) => c.embeddingSetId === collection.id);
-  const embeddingCount = collectionChunks.filter(
-    (c) => c.embedding && c.embedding.length > 0
-  ).length;
-
-  const collectionData: CollectionData = {
-    name: collection.name ?? `Collection ${collection.id.slice(0, 8)}`,
-    modelId: collection.modelId,
-    dimensions: collection.dimensions,
-    fileCount: collectionFiles.length,
-    chunkCount: collectionChunks.length,
-    embeddingCount,
-  };
-  if (collection.description !== undefined) {
-    collectionData.description = collection.description;
-  }
-
-  const collectionNode: TreeNode<BrowserNodeData> = {
-    id: `collection-${collection.id}`,
-    type: 'collection',
-    depth: 0,
-    data: collectionData,
-    parentId: null,
-    hasChildren: collectionFiles.length > 0,
-  };
-
-  ctx.all.push(collectionNode);
-
-  // Create file nodes
-  const fileNodes = collectionFiles.map((file) =>
-    createFileNode(file, collectionNode.id, data, ctx)
-  );
-  ctx.children.set(collectionNode.id, fileNodes);
-
-  return collectionNode;
 }
 
 /**
@@ -559,13 +482,7 @@ function checkTypeFilter(
 
   // Type doesn't pass, but check children
   const nodeChildren = ctx.childrenMap.get(node.id) ?? [];
-  const hasVisibleChildren = nodeChildren.some((child) => filterFn(child) !== null);
-
-  // Keep collections if they have visible children
-  if (hasVisibleChildren && nodeType === 'collection') {
-    return node;
-  }
-  return null;
+  return nodeChildren.some((child) => filterFn(child) !== null) ? node : null;
 }
 
 /**
@@ -726,9 +643,8 @@ function computeAggregatedScores(
     scores.set(result.nodeId, result.similarity);
   }
 
-  // Aggregate file scores from chunks, then collection scores from files
+  // Aggregate file scores from chunks
   aggregateScoresForType('file', allNodes, childrenMap, scores);
-  aggregateScoresForType('collection', allNodes, childrenMap, scores);
 
   return scores;
 }
@@ -751,7 +667,7 @@ export function useCollectionTree({
       children: new Map<string, TreeNode<BrowserNodeData>[]>(),
     };
 
-    const roots = data.collections.map((collection) => createCollectionNode(collection, data, ctx));
+    const roots = data.files.map((file) => createFileNode(file, null, data, ctx));
 
     return { rootNodes: roots, allNodes: ctx.all, childrenMap: ctx.children };
   }, [data]);

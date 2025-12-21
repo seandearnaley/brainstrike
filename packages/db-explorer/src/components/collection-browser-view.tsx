@@ -12,7 +12,7 @@
  * - Semantic search mode and configuration
  */
 
-import type { EmbeddingSet, FileChunk, FileRecord } from '@brainstrike/db';
+import type { FileChunk, FileRecord } from '@brainstrike/db';
 import {
   type BrowserNodeData,
   CollectionBrowser,
@@ -28,8 +28,6 @@ import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
 export type CollectionBrowserViewProps = {
-  /** Embedding sets / collections */
-  embeddingSets: EmbeddingSet[];
   /** File records */
   records: FileRecord[];
   /** File chunks */
@@ -52,17 +50,11 @@ export type CollectionBrowserViewProps = {
  * Transform database data into CollectionTreeInput format
  */
 function transformToTreeInput(
-  embeddingSets: EmbeddingSet[],
   records: FileRecord[],
   chunks: FileChunk[],
   activeCollectionId: string | null,
   pendingChunkIds?: Set<string>
 ): CollectionTreeInput {
-  // Filter to active collection only, or show all if none selected
-  const filteredSets = activeCollectionId
-    ? embeddingSets.filter((s) => s.id === activeCollectionId)
-    : embeddingSets;
-
   const filteredRecords = activeCollectionId
     ? records.filter((r) => r.embeddingSetId === activeCollectionId)
     : records;
@@ -72,26 +64,6 @@ function transformToTreeInput(
     : chunks;
 
   return {
-    collections: filteredSets.map((set) => {
-      const collection: {
-        id: string;
-        name?: string;
-        description?: string;
-        modelId: string;
-        dimensions: number;
-      } = {
-        id: set.id,
-        modelId: set.modelId,
-        dimensions: set.dimensions,
-      };
-      if (set.name) {
-        collection.name = set.name;
-      }
-      if (set.description) {
-        collection.description = set.description;
-      }
-      return collection;
-    }),
     files: filteredRecords.map((record) => {
       const file: {
         id: string;
@@ -143,31 +115,6 @@ function transformToTreeInput(
       return chunkItem;
     }),
     ...(pendingChunkIds ? { pendingChunkIds } : {}),
-  };
-}
-
-/**
- * Build collection node data from the selected collection
- */
-function buildCollectionData(
-  collectionId: string,
-  embeddingSets: EmbeddingSet[],
-  records: FileRecord[],
-  chunks: FileChunk[]
-): BrowserNodeData | null {
-  const set = embeddingSets.find((s) => s.id === collectionId);
-  if (!set) {
-    return null;
-  }
-  const collFiles = records.filter((r) => r.embeddingSetId === set.id);
-  const collChunks = chunks.filter((c) => c.embeddingSetId === set.id);
-  return {
-    name: set.name ?? `Collection ${set.id.slice(0, 8)}`,
-    modelId: set.modelId,
-    dimensions: set.dimensions,
-    fileCount: collFiles.length,
-    chunkCount: collChunks.length,
-    embeddingCount: collChunks.filter((c) => c.embedding && c.embedding.length > 0).length,
   };
 }
 
@@ -234,13 +181,10 @@ function buildEmbeddingData(chunkId: string, chunks: FileChunk[]): BrowserNodeDa
 function buildSelectedNodeData(
   nodeType: string,
   nodeId: string,
-  embeddingSets: EmbeddingSet[],
   records: FileRecord[],
   chunks: FileChunk[]
 ): BrowserNodeData | null {
   switch (nodeType) {
-    case 'collection':
-      return buildCollectionData(nodeId, embeddingSets, records, chunks);
     case 'file':
       return buildFileData(nodeId, records, chunks);
     case 'chunk':
@@ -256,7 +200,6 @@ function buildSelectedNodeData(
  * CollectionBrowserView - Connects CollectionBrowser to database data
  */
 export function CollectionBrowserView({
-  embeddingSets,
   records,
   chunks,
   pendingChunkIds,
@@ -327,8 +270,8 @@ export function CollectionBrowserView({
       return null;
     }
 
-    return buildSelectedNodeData(selectedNodeType, selectedNodeId, embeddingSets, records, chunks);
-  }, [selectedId, selectedNodeType, selectedNodeId, embeddingSets, records, chunks]);
+    return buildSelectedNodeData(selectedNodeType, selectedNodeId, records, chunks);
+  }, [selectedId, selectedNodeType, selectedNodeId, records, chunks]);
 
   // Handle expansion state changes
   const handleExpandedIdsChange = useCallback(
@@ -403,8 +346,8 @@ export function CollectionBrowserView({
 
   // Transform data for CollectionBrowser
   const treeData = useMemo(
-    () => transformToTreeInput(embeddingSets, records, chunks, activeCollectionId, pendingChunkIds),
-    [embeddingSets, records, chunks, activeCollectionId, pendingChunkIds]
+    () => transformToTreeInput(records, chunks, activeCollectionId, pendingChunkIds),
+    [records, chunks, activeCollectionId, pendingChunkIds]
   );
 
   // Handle node selection - stores the ID and calls external handlers

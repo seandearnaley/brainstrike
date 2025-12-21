@@ -3,6 +3,7 @@ import { DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
 import {
   Button,
   Checkbox,
+  EmptyState,
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -320,10 +321,9 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
     } = props;
 
     return (
-      <div className="@container flex flex-shrink-0 flex-col gap-2 border-t bg-background p-3">
-        {/* Row 1: Token visualization and stats */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Token Meter - compact radial visualization */}
+      <div className="@container flex flex-shrink-0 flex-row gap-3 border-t bg-background p-3">
+        {/* Left column: Token Meter - visually spanning multiple rows */}
+        <div className="flex flex-shrink-0 items-center">
           <TokenMeter
             budget={tokenUsage.budget}
             includeTree={includeProjectTree}
@@ -333,133 +333,140 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
             treeTokens={tokenUsage.includedTreeTokens}
             usedTokens={tokenUsage.usedTokens}
           />
-
-          {/* Token Summary Stats - responsive horizontal bar */}
-          <TokenSummaryBar
-            budget={tokenUsage.budget}
-            includeTree={includeProjectTree}
-            isOverBudget={tokenUsage.isOverBudget}
-            selectedTokens={tokenUsage.selectedTokens}
-            tokenCounting={tokenCounting}
-            totalFiles={totalFiles}
-            treeLoading={treeLoading}
-            treeTokens={tokenUsage.includedTreeTokens}
-          />
         </div>
 
-        {/* Row 2: Controls and actions */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Budget Control - popover with presets */}
-          <TokenBudgetControl budget={tokenUsage.budget} onBudgetChange={onTokenBudgetChange} />
+        {/* Right column: Stats and controls in two rows */}
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-2.5">
+          {/* Top row: Token Summary Stats */}
+          <div className="flex min-w-0 items-center">
+            <TokenSummaryBar
+              budget={tokenUsage.budget}
+              includeTree={includeProjectTree}
+              isOverBudget={tokenUsage.isOverBudget}
+              selectedTokens={tokenUsage.selectedTokens}
+              tokenCounting={tokenCounting}
+              totalFiles={totalFiles}
+              treeLoading={treeLoading}
+              treeTokens={tokenUsage.includedTreeTokens}
+            />
+          </div>
 
-          {/* Visual separator */}
-          {onIncludeProjectTreeChange && (
-            <div aria-hidden className="@[450px]:block hidden h-6 w-px bg-border" />
-          )}
+          {/* Bottom row: Controls and actions */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Budget Control - popover with presets */}
+            <TokenBudgetControl budget={tokenUsage.budget} onBudgetChange={onTokenBudgetChange} />
 
-          {/* Include Project Tree toggle */}
-          {onIncludeProjectTreeChange && (
-            <div className="flex items-center gap-2">
+            {/* Visual separator */}
+            {onIncludeProjectTreeChange && (
+              <div aria-hidden className="@[450px]:block hidden h-6 w-px bg-border" />
+            )}
+
+            {/* Include Project Tree toggle */}
+            {onIncludeProjectTreeChange && (
+              <div className="flex items-center gap-2">
+                <TooltipProvider delayDuration={400}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-2">
+                        <IncludeProjectTreeSetting
+                          checked={includeProjectTree}
+                          onChange={onIncludeProjectTreeChange}
+                        />
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>Include project tree in the context</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            )}
+
+            {/* Folder Summary Threshold - only show when tree is included and handler exists */}
+            {includeProjectTree && onFolderSummaryThresholdChange && (
+              <>
+                <div aria-hidden className="@[650px]:block hidden h-6 w-px bg-border" />
+                <div className="flex items-center gap-2">
+                  <label
+                    className="whitespace-nowrap text-muted-foreground text-xs"
+                    htmlFor="folder-summary-threshold-footer"
+                    title="Number of files shown per folder in the project tree before summarizing. Set to 0 to show all."
+                  >
+                    <span className="@[700px]:inline hidden">Tree detail:</span>
+                    <span className="@[500px]:inline @[700px]:hidden hidden">Detail:</span>
+                  </label>
+                  <input
+                    className="h-7 @[500px]:w-14 w-12 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
+                    id="folder-summary-threshold-footer"
+                    min="0"
+                    onChange={(e) => {
+                      const value = Number.parseInt(e.target.value, 10);
+                      if (!Number.isNaN(value) && value >= 0) {
+                        onFolderSummaryThresholdChange(value);
+                      }
+                    }}
+                    title="Files per folder before summarizing (0 = show all)"
+                    type="number"
+                    value={folderSummaryThreshold}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Spacer to push report buttons to the right */}
+            <div className="@[850px]:block hidden flex-1" />
+
+            {/* Report action buttons */}
+            <div className="flex flex-wrap items-center gap-2">
               <TooltipProvider delayDuration={400}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className="flex items-center gap-2">
-                      <IncludeProjectTreeSetting
-                        checked={includeProjectTree}
-                        onChange={onIncludeProjectTreeChange}
-                      />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent>Include project tree in the context</TooltipContent>
-                </Tooltip>
+                {onDownloadReport && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        aria-label={
+                          selectedFilesCount === 0
+                            ? 'Download Report (no files selected)'
+                            : 'Download Report'
+                        }
+                        className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                        data-testid="download-report-button"
+                        disabled={selectedFilesCount === 0}
+                        onClick={onDownloadReport}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <Download className="@[600px]:mr-2 size-3.5" />
+                        <span className="@[700px]:inline hidden">Download Report</span>
+                        <span className="@[500px]:inline @[700px]:hidden hidden">Download</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Download report as file</TooltipContent>
+                  </Tooltip>
+                )}
+                {onCopyReport && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        aria-label={
+                          selectedFilesCount === 0
+                            ? 'Copy Report (no files selected)'
+                            : 'Copy Report'
+                        }
+                        className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                        data-testid="copy-report-button"
+                        disabled={selectedFilesCount === 0}
+                        onClick={onCopyReport}
+                        size="sm"
+                        variant="outline"
+                      >
+                        <FileText className="@[600px]:mr-2 size-3.5" />
+                        <span className="@[700px]:inline hidden">Copy Report</span>
+                        <span className="@[500px]:inline @[700px]:hidden hidden">Copy</span>
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Copy report to clipboard</TooltipContent>
+                  </Tooltip>
+                )}
               </TooltipProvider>
             </div>
-          )}
-
-          {/* Folder Summary Threshold - only show when tree is included and handler exists */}
-          {includeProjectTree && onFolderSummaryThresholdChange && (
-            <>
-              <div aria-hidden className="@[650px]:block hidden h-6 w-px bg-border" />
-              <div className="flex items-center gap-2">
-                <label
-                  className="whitespace-nowrap text-muted-foreground text-xs"
-                  htmlFor="folder-summary-threshold-footer"
-                  title="Number of files shown per folder in the project tree before summarizing. Set to 0 to show all."
-                >
-                  <span className="@[700px]:inline hidden">Tree detail:</span>
-                  <span className="@[500px]:inline @[700px]:hidden hidden">Detail:</span>
-                </label>
-                <input
-                  className="h-7 @[500px]:w-14 w-12 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
-                  id="folder-summary-threshold-footer"
-                  min="0"
-                  onChange={(e) => {
-                    const value = Number.parseInt(e.target.value, 10);
-                    if (!Number.isNaN(value) && value >= 0) {
-                      onFolderSummaryThresholdChange(value);
-                    }
-                  }}
-                  title="Files per folder before summarizing (0 = show all)"
-                  type="number"
-                  value={folderSummaryThreshold}
-                />
-              </div>
-            </>
-          )}
-
-          {/* Spacer to push report buttons to the right */}
-          <div className="@[850px]:block hidden flex-1" />
-
-          {/* Report action buttons */}
-          <div className="flex flex-wrap items-center gap-2">
-            <TooltipProvider delayDuration={400}>
-              {onDownloadReport && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      aria-label={
-                        selectedFilesCount === 0
-                          ? 'Download Report (no files selected)'
-                          : 'Download Report'
-                      }
-                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                      data-testid="download-report-button"
-                      disabled={selectedFilesCount === 0}
-                      onClick={onDownloadReport}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <Download className="@[600px]:mr-2 size-3.5" />
-                      <span className="@[700px]:inline hidden">Download Report</span>
-                      <span className="@[500px]:inline @[700px]:hidden hidden">Download</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Download report as file</TooltipContent>
-                </Tooltip>
-              )}
-              {onCopyReport && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      aria-label={
-                        selectedFilesCount === 0 ? 'Copy Report (no files selected)' : 'Copy Report'
-                      }
-                      className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                      data-testid="copy-report-button"
-                      disabled={selectedFilesCount === 0}
-                      onClick={onCopyReport}
-                      size="sm"
-                      variant="outline"
-                    >
-                      <FileText className="@[600px]:mr-2 size-3.5" />
-                      <span className="@[700px]:inline hidden">Copy Report</span>
-                      <span className="@[500px]:inline @[700px]:hidden hidden">Copy</span>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>Copy report to clipboard</TooltipContent>
-                </Tooltip>
-              )}
-            </TooltipProvider>
           </div>
         </div>
       </div>
@@ -1141,8 +1148,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   if (selectedFiles.size === 0) {
     return (
       <div className="flex h-full flex-col">
-        <div className="flex-1 p-4">
-          <p className="text-gray-500 text-sm">No files selected</p>
+        <div className="flex-1">
+          <EmptyState
+            description="Select files from the explorer to include them in your project context"
+            icon={<FileText />}
+            title="No files selected"
+          />
         </div>
         <PreviewPanelFooter
           folderSummaryThreshold={folderSummaryThreshold ?? 5}
@@ -1163,9 +1174,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }
 
   return (
-    <div className="@container flex h-full flex-col overflow-hidden">
+    <div className="@container flex h-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
       <Tabs className="flex min-h-0 flex-1 flex-col" onValueChange={setActiveTab} value={activeTab}>
-        <div className="flex flex-shrink-0 items-center justify-between border-b bg-muted/20 px-3">
+        <div className="flex flex-shrink-0 items-center justify-between border-b bg-muted/30 px-3">
           <TabsList className="h-9 gap-4 bg-transparent p-0">
             <TabsTrigger
               className="h-9 rounded-none border-transparent border-b-2 shadow-none data-[state=active]:border-primary data-[state=active]:bg-transparent"
@@ -1326,8 +1337,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           />
 
           {flattenedData.length === 0 && (
-            <div className="p-8 text-center text-muted-foreground">
-              No files match your selection criteria
+            <div className="flex-1">
+              <EmptyState
+                description="Try adjusting your filters or selecting more files"
+                icon={<FileX2 />}
+                title="No matching files"
+              />
             </div>
           )}
 

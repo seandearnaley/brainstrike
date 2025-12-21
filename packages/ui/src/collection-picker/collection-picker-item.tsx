@@ -106,6 +106,11 @@ export function CollectionPickerItem({
               {collection.fileCount.toLocaleString()}{' '}
               {collection.fileCount === 1 ? 'file' : 'files'}
             </span>
+            <span>
+              {collection.chunkCount.toLocaleString()}{' '}
+              {collection.chunkCount === 1 ? 'chunk' : 'chunks'}
+            </span>
+            <span>{collection.embeddingCount.toLocaleString()} embeddings</span>
           </div>
         </div>
 

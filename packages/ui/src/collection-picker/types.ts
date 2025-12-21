@@ -27,8 +27,10 @@ export type CollectionPickerCollection = {
   category: string | null;
   /** Number of files imported into this collection */
   fileCount: number;
-  /** Number of chunks (optional - for extended info) */
-  chunkCount?: number;
+  /** Number of chunks */
+  chunkCount: number;
+  /** Number of embeddings generated */
+  embeddingCount: number;
 };
 
 /**

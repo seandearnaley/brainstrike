@@ -225,6 +225,21 @@ export const createUiModuleMock = () => ({
   Progress: ({ value, ...props }: MockComponentProps & { value?: number }) => (
     <div data-testid="progress" data-value={value} {...props} />
   ),
+  EmptyState: ({
+    title,
+    description,
+    icon,
+  }: {
+    title: string;
+    description?: string;
+    icon?: React.ReactNode;
+  }) => (
+    <div data-testid="empty-state">
+      {icon && <div data-testid="empty-state-icon">{icon}</div>}
+      {title && <h3>{title}</h3>}
+      {description && <p>{description}</p>}
+    </div>
+  ),
   Popover: ({
     children,
     open,

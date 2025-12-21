@@ -48,10 +48,10 @@ export function CollectionPicker({
 }: CollectionPickerProps) {
   const handleSelect = useCallback(
     (id: string) => {
-      // Toggle selection: if already selected, deselect
-      onSelect(id === selectedId ? null : id);
+      // Always select, do not toggle to null
+      onSelect(id);
     },
-    [onSelect, selectedId]
+    [onSelect]
   );
 
   const handleEdit = useCallback(
