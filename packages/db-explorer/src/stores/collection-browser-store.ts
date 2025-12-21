@@ -24,6 +24,8 @@ type CollectionBrowserData = {
   sortState: CollectionSortState | null;
   /** Whether the inspector panel is collapsed */
   isInspectorCollapsed: boolean;
+  /** Width of the inspector panel as a percentage (0-100) */
+  inspectorWidth: number;
   /** Filter state - search query (quick filter mode) */
   searchQuery: string;
   /** Filter state - enabled node types */
@@ -67,6 +69,8 @@ type CollectionBrowserActions = {
   toggleSort: (key: CollectionSortKey) => void;
   /** Set inspector collapsed state */
   setInspectorCollapsed: (collapsed: boolean) => void;
+  /** Set the width of the inspector panel */
+  setInspectorWidth: (width: number) => void;
   /** Set search query (quick filter mode) */
   setSearchQuery: (query: string) => void;
   /** Set enabled node types */
@@ -106,6 +110,7 @@ const DEFAULT_STATE: CollectionBrowserData = {
   selectedId: null,
   sortState: null,
   isInspectorCollapsed: false,
+  inspectorWidth: 25,
   searchQuery: '',
   nodeTypes: ['collection', 'file', 'chunk', 'embedding'],
   embeddingStatus: 'all',
@@ -187,6 +192,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       // Inspector actions
       setInspectorCollapsed: (collapsed) => set({ isInspectorCollapsed: collapsed }),
+      setInspectorWidth: (width) => set({ inspectorWidth: width }),
 
       // Filter actions
       setSearchQuery: (query) => set({ searchQuery: query }),
@@ -233,6 +239,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         selectedId: s.selectedId,
         sortState: s.sortState,
         isInspectorCollapsed: s.isInspectorCollapsed,
+        inspectorWidth: s.inspectorWidth,
         searchQuery: s.searchQuery,
         nodeTypes: s.nodeTypes,
         embeddingStatus: s.embeddingStatus,
@@ -257,6 +264,7 @@ export const collectionBrowserSelectors = {
   selectedId: (s: CollectionBrowserStore) => s.selectedId,
   sortState: (s: CollectionBrowserStore) => s.sortState,
   isInspectorCollapsed: (s: CollectionBrowserStore) => s.isInspectorCollapsed,
+  inspectorWidth: (s: CollectionBrowserStore) => s.inspectorWidth,
   searchQuery: (s: CollectionBrowserStore) => s.searchQuery,
   nodeTypes: (s: CollectionBrowserStore) => s.nodeTypes,
   embeddingStatus: (s: CollectionBrowserStore) => s.embeddingStatus,

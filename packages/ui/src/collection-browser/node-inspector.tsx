@@ -48,7 +48,7 @@ export type NodeInspectorProps = {
   actions?: React.ReactNode;
   /** Custom class name */
   className?: string;
-  /** Width of the panel when expanded */
+  /** Width of the panel when expanded (optional, defaults to 100%) */
   width?: number | string;
   /** Whether the panel is collapsed */
   isCollapsed?: boolean;
@@ -362,30 +362,28 @@ function InspectorContent({ nodeType, nodeData }: { nodeType: string; nodeData: 
 function CollapsedView({
   className,
   nodeType,
-  nodeData,
   onToggle,
 }: {
   className?: string | undefined;
   nodeType: string | null;
-  nodeData: BrowserNodeData | null;
   onToggle: () => void;
 }) {
-  const TypeIcon = nodeType ? getNodeTypeIcon(nodeType) : Info;
-  const typeConfig = nodeType ? NODE_TYPE_CONFIG[nodeType as keyof typeof NODE_TYPE_CONFIG] : null;
+  const TypeIcon = nodeType ? getNodeTypeIcon(nodeType) : Sparkles;
+  const typeConfig = nodeType
+    ? NODE_TYPE_CONFIG[nodeType as keyof typeof NODE_TYPE_CONFIG]
+    : NODE_TYPE_CONFIG.embedding;
 
   return (
     <div
       className={cn('flex h-full flex-col items-center border-l bg-muted/20', className)}
       style={{ width: COLLAPSED_WIDTH }}
     >
-      <div className="flex w-full justify-center border-b p-1">
+      <div className="flex h-12 w-full items-center justify-center border-b">
         <CollapseToggleButton isCollapsed onToggle={onToggle} />
       </div>
-      {nodeType && nodeData && (
-        <div className="flex flex-1 flex-col items-center justify-center">
-          <TypeIcon className={cn('h-5 w-5', typeConfig?.color ?? 'text-muted-foreground')} />
-        </div>
-      )}
+      <div className="flex flex-1 flex-col items-center justify-center">
+        <TypeIcon className={cn('h-5 w-5', typeConfig?.color ?? 'text-muted-foreground')} />
+      </div>
     </div>
   );
 }
@@ -404,8 +402,8 @@ function EmptyView({
 }) {
   return (
     <div className={cn('flex h-full flex-col border-l bg-muted/20', className)} style={{ width }}>
-      <div className="flex items-center justify-between border-b p-2">
-        <span className="text-muted-foreground text-sm">Inspector</span>
+      <div className="flex h-12 items-center justify-between border-b px-3">
+        <span className="font-medium text-muted-foreground text-sm">Inspector</span>
         <CollapseToggleButton isCollapsed={false} onToggle={onToggle} />
       </div>
       <div className="flex flex-1 flex-col items-center justify-center">
@@ -425,38 +423,38 @@ export function NodeInspector({
   nodeId,
   actions,
   className,
-  width = 300,
+  width,
   isCollapsed = false,
   onCollapseChange,
 }: NodeInspectorProps) {
   const handleToggle = () => onCollapseChange?.(!isCollapsed);
 
   if (isCollapsed) {
-    return (
-      <CollapsedView
-        className={className}
-        nodeData={nodeData}
-        nodeType={nodeType}
-        onToggle={handleToggle}
-      />
-    );
+    return <CollapsedView className={className} nodeType={nodeType} onToggle={handleToggle} />;
   }
 
   if (!(nodeType && nodeData)) {
-    return <EmptyView className={className} onToggle={handleToggle} width={width} />;
+    return <EmptyView className={className} onToggle={handleToggle} width={width ?? '100%'} />;
   }
 
   const TypeIcon = getNodeTypeIcon(nodeType);
   const typeConfig = NODE_TYPE_CONFIG[nodeType as keyof typeof NODE_TYPE_CONFIG];
 
   return (
-    <div className={cn('flex h-full flex-col border-l bg-background', className)} style={{ width }}>
-      <div className="flex items-center gap-2 border-b p-3">
+    <div
+      className={cn('flex h-full flex-col border-l bg-background', className)}
+      style={{ width: width ?? '100%' }}
+    >
+      <div className="flex h-12 items-center gap-2 border-b px-3">
         <TypeIcon className={cn('h-5 w-5', typeConfig?.color ?? 'text-muted-foreground')} />
         <div className="min-w-0 flex-1">
-          <div className="truncate font-medium">{typeConfig?.label ?? 'Item'} Details</div>
+          <div className="truncate font-medium leading-none">
+            {typeConfig?.label ?? 'Item'} Details
+          </div>
           {nodeId && (
-            <div className="truncate font-mono text-muted-foreground text-xs">{nodeId}</div>
+            <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground leading-none">
+              {nodeId}
+            </div>
           )}
         </div>
         <CollapseToggleButton isCollapsed={false} onToggle={handleToggle} />

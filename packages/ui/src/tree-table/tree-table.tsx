@@ -350,7 +350,7 @@ export function TreeTable<T>({
   return (
     <div
       aria-label={ariaLabel}
-      className={cn('overflow-auto rounded-md border', className)}
+      className={cn('overflow-auto', className)}
       onKeyDown={keyboard.onKeyDown}
       ref={parentRef}
       role="treegrid"

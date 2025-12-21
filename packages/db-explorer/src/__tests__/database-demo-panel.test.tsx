@@ -236,6 +236,41 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   }),
 }));
 
+vi.mock('react-resizable-panels', () => {
+  const React = require('react');
+  return {
+    PanelGroup: ({
+      children,
+      onLayout,
+    }: {
+      children: React.ReactNode;
+      onLayout?: (sizes: number[]) => void;
+    }) => {
+      React.useEffect(() => {
+        if (onLayout) {
+          onLayout([75, 25]);
+        }
+      }, [onLayout]);
+      return <div data-testid="panel-group">{children}</div>;
+    },
+    Panel: React.forwardRef(
+      (
+        {
+          children,
+          id,
+        }: {
+          children: React.ReactNode;
+          id?: string;
+          onCollapse?: () => void;
+          onExpand?: () => void;
+        },
+        _ref: React.Ref<unknown>
+      ) => <div data-testid={`panel-${id}`}>{children}</div>
+    ),
+    PanelResizeHandle: () => <div data-testid="resize-handle" />,
+  };
+});
+
 describe('DatabaseDemoPanel', () => {
   beforeEach(() => {
     __resetDatabaseDemoStoreForTests();

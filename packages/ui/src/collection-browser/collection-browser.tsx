@@ -778,6 +778,7 @@ export function CollectionBrowser({
             <div className="p-4 text-muted-foreground text-sm">{displayEmptyMessage}</div>
           }
           highlightedIds={highlightedIds}
+          maxHeight="none"
           onRowContextMenu={handleContextMenu}
           onRowDoubleClick={handleDoubleClick}
           rowHeight={48}

@@ -28,7 +28,13 @@ import {
   type SearchMode,
   SearchModeBar,
 } from '@brainstrike/ui';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
+import {
+  type ImperativePanelHandle,
+  Panel,
+  PanelGroup,
+  PanelResizeHandle,
+} from 'react-resizable-panels';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
@@ -220,10 +226,12 @@ export function CollectionBrowserView({
     selectedId,
     sortState,
     isInspectorCollapsed,
+    inspectorWidth,
     setExpandedIds,
     setSelectedId,
     setSortState,
     setInspectorCollapsed,
+    setInspectorWidth,
     // Filter state from store
     searchQuery,
     nodeTypes,
@@ -363,14 +371,6 @@ export function CollectionBrowserView({
     [setSortState]
   );
 
-  // Handle inspector collapse
-  const handleCollapseChange = useCallback(
-    (collapsed: boolean) => {
-      setInspectorCollapsed(collapsed);
-    },
-    [setInspectorCollapsed]
-  );
-
   // Build search config from store values
   const searchConfig: SearchConfig = useMemo(
     () => ({
@@ -415,6 +415,32 @@ export function CollectionBrowserView({
   const treeData = useMemo(
     () => transformToTreeInput(records, chunks, activeCollectionId, pendingChunkIds),
     [records, chunks, activeCollectionId, pendingChunkIds]
+  );
+
+  // Inspector panel ref for imperative control
+  const inspectorPanelRef = useRef<ImperativePanelHandle>(null);
+
+  // Handle inspector toggle from within the component
+  const handleInspectorCollapse = useCallback(
+    (collapsed: boolean) => {
+      setInspectorCollapsed(collapsed);
+      if (collapsed) {
+        inspectorPanelRef.current?.collapse();
+      } else {
+        inspectorPanelRef.current?.expand();
+      }
+    },
+    [setInspectorCollapsed]
+  );
+
+  // Handle panel layout changes to persist size
+  const handleLayoutChange = useCallback(
+    (sizes: number[]) => {
+      if (sizes.length === 2 && sizes[1] !== undefined && sizes[1] > 0) {
+        setInspectorWidth(sizes[1]);
+      }
+    },
+    [setInspectorWidth]
   );
 
   // Handle node selection - stores the ID and calls external handlers
@@ -500,40 +526,71 @@ export function CollectionBrowserView({
       )}
 
       {/* Main content area */}
-      <div className="flex min-h-0 flex-1">
-        {/* Main browser */}
-        <div className="min-w-0 flex-1 border-r">
-          <CollectionBrowser
-            className="h-full"
-            data={treeData}
-            emptyMessage={emptyMessage}
-            expandedIds={expandedIdsSet}
-            filters={filters}
-            hasSearched={hasSearched}
-            height="100%"
-            isLoading={isLoading}
-            isSearching={isSearching}
-            onExpandedIdsChange={handleExpandedIdsChange}
-            onFiltersChange={handleFiltersChange}
-            onSelect={handleSelect}
-            onSelectedIdChange={handleSelectedIdChange}
-            onSortChange={handleSortChange}
-            searchMode={searchMode}
-            selectedId={selectedId}
-            {...(sortState ? { sortState } : {})}
-            {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
-          />
-        </div>
+      <div className="flex min-h-0 flex-1 border-t">
+        <PanelGroup direction="horizontal" onLayout={handleLayoutChange}>
+          {/* Main browser */}
+          <Panel
+            className="min-w-0"
+            defaultSize={100 - (isInspectorCollapsed ? 0 : inspectorWidth)}
+            minSize={30}
+          >
+            <CollectionBrowser
+              className="h-full"
+              data={treeData}
+              emptyMessage={emptyMessage}
+              expandedIds={expandedIdsSet}
+              filters={filters}
+              hasSearched={hasSearched}
+              height="100%"
+              isLoading={isLoading}
+              isSearching={isSearching}
+              onExpandedIdsChange={handleExpandedIdsChange}
+              onFiltersChange={handleFiltersChange}
+              onSelect={handleSelect}
+              onSelectedIdChange={handleSelectedIdChange}
+              onSortChange={handleSortChange}
+              searchMode={searchMode}
+              selectedId={selectedId}
+              {...(sortState ? { sortState } : {})}
+              {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
+            />
+          </Panel>
 
-        {/* Inspector panel - narrower in semantic mode to give more room for score column */}
-        <NodeInspector
-          isCollapsed={isInspectorCollapsed}
-          nodeData={actualSelectedNodeData}
-          nodeType={selectedNodeType ?? null}
-          onCollapseChange={handleCollapseChange}
-          width={searchMode === 'semantic' ? 240 : 280}
-          {...(selectedNodeId ? { nodeId: selectedNodeId } : {})}
-        />
+          {!isInspectorCollapsed && (
+            <>
+              <PanelResizeHandle className="w-1 bg-border transition-colors hover:bg-primary/20" />
+
+              {/* Inspector panel */}
+              <Panel
+                collapsedSize={0}
+                collapsible
+                defaultSize={inspectorWidth}
+                minSize={15}
+                onCollapse={() => setInspectorCollapsed(true)}
+                ref={inspectorPanelRef}
+              >
+                <NodeInspector
+                  isCollapsed={false}
+                  nodeData={actualSelectedNodeData}
+                  nodeType={selectedNodeType ?? null}
+                  onCollapseChange={handleInspectorCollapse}
+                  {...(selectedNodeId ? { nodeId: selectedNodeId } : {})}
+                />
+              </Panel>
+            </>
+          )}
+        </PanelGroup>
+
+        {isInspectorCollapsed && (
+          <NodeInspector
+            className="border-t-0"
+            isCollapsed={true}
+            nodeData={actualSelectedNodeData}
+            nodeType={selectedNodeType ?? null}
+            onCollapseChange={handleInspectorCollapse}
+            {...(selectedNodeId ? { nodeId: selectedNodeId } : {})}
+          />
+        )}
       </div>
     </div>
   );
