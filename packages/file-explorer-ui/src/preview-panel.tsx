@@ -425,6 +425,7 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
                           : 'Download Report'
                       }
                       className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      data-testid="download-report-button"
                       disabled={selectedFilesCount === 0}
                       onClick={onDownloadReport}
                       size="sm"
@@ -446,6 +447,7 @@ const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
                         selectedFilesCount === 0 ? 'Copy Report (no files selected)' : 'Copy Report'
                       }
                       className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
+                      data-testid="copy-report-button"
                       disabled={selectedFilesCount === 0}
                       onClick={onCopyReport}
                       size="sm"
@@ -1189,6 +1191,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
+                          aria-label="Expand all groups"
                           className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
                           onClick={() => setCollapsedGroups(new Set())}
                           size="sm"
@@ -1205,6 +1208,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
+                          aria-label="Collapse all groups"
                           className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
                           onClick={() =>
                             setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
@@ -1228,6 +1232,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
+                      aria-label={`Select all ${flattenedData.length} files`}
                       className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
                       disabled={isAllSelected(flattenedData)}
                       onClick={() => groupSelection.selectAll(flattenedData)}
@@ -1248,6 +1253,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
+                        aria-label="Reset sort"
                         className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
                         onClick={resetSort}
                         size="sm"

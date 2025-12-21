@@ -44,6 +44,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Button
+            aria-label={FileExplorerStrings.selectRoot}
             className="@[300px]:h-9 h-8 @[300px]:px-3 px-2"
             data-testid="select-root-button"
             disabled={isLoading}

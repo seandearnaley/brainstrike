@@ -5,11 +5,11 @@ export class FileExplorerPage {
   constructor(public readonly page: Page) {}
 
   get selectRootButton(): Locator {
-    return this.page.getByRole('button', { name: 'Select Root' });
+    return this.page.getByTestId('select-root-button');
   }
 
   get openSettingsButton(): Locator {
-    return this.page.getByRole('button', { name: 'Open settings' });
+    return this.page.getByTestId('settings-button');
   }
 
   get fileTree(): Locator {
@@ -29,19 +29,15 @@ export class FileExplorerPage {
   }
 
   get filterInput(): Locator {
-    return this.page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')");
+    return this.page.getByTestId('file-filter-input');
   }
 
   get downloadReportButton(): Locator {
-    return this.page.getByRole('button', { name: 'Download Report' });
+    return this.page.getByTestId('download-report-button');
   }
 
   get copyReportButton(): Locator {
-    return this.page
-      .locator(
-        'button:has-text("Copy Report"), button:has-text("Copy"):not(:has-text("Copy Report"))'
-      )
-      .first();
+    return this.page.getByTestId('copy-report-button');
   }
 
   get selectAllButton(): Locator {

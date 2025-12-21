@@ -7,5 +7,8 @@ export async function resetAppState(page: Page): Promise<void> {
   await page.evaluate(() => {
     localStorage.removeItem('panel-layout-store.v1');
     localStorage.removeItem('fileExplorerSettings');
+    localStorage.removeItem('file-explorer-storage-v4');
+    localStorage.removeItem('previewPanelPreferences.v1');
+    localStorage.removeItem('right-panel.v1');
   });
 }
