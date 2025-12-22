@@ -78,16 +78,20 @@ test.describe('Navigation Panel State Preservation', () => {
     // Step 2: Expand multiple nested folders using the filter + expand all pattern
     // Filter by 'ts' to match both .ts and .tsx files (including utils/helpers.ts)
     await explorer.filterInput.fill('ts');
-    // Wait for filter to be applied (look for a matching file)
-    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 5000 });
+    // Wait for filter input to have value
+    await expect(explorer.filterInput).toHaveValue('ts');
 
-    // Expand all matching items
-    await page.getByTestId('expand-all-button-small').click();
-    // Wait for expansion to complete
+    // Expand all matching items - this reveals nested files
+    const expandAllBtn = page.getByTestId('expand-all-button-small');
+    await expect(expandAllBtn).toBeVisible({ timeout: 5000 });
+    await expandAllBtn.click();
+    // Wait for expansion to complete - now nested files should be visible
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('helpers.ts')).toBeVisible({ timeout: 5000 });
 
     // Clear filter to see full tree with expanded folders
     await explorer.filterInput.fill('');
+    await expect(explorer.filterInput).toHaveValue('');
     // Wait for filter to clear - package.json should now be visible
     await expect(fileTree.getByText('package.json')).toBeVisible({ timeout: 5000 });
 
@@ -230,16 +234,20 @@ test.describe('Navigation Panel State Preservation', () => {
 
     // First expand folders to see nested files - use 'ts' to match all TypeScript files
     await explorer.filterInput.fill('ts');
-    // Wait for filter to apply
-    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 5000 });
+    await expect(explorer.filterInput).toHaveValue('ts');
 
-    await page.getByTestId('expand-all-button-small').click();
-    // Wait for expansion
+    // Expand all to reveal nested files
+    const expandAllBtn = page.getByTestId('expand-all-button-small');
+    await expect(expandAllBtn).toBeVisible({ timeout: 5000 });
+    await expandAllBtn.click();
+    // Wait for expansion - nested files should now be visible
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('Input.tsx')).toBeVisible({ timeout: 5000 });
 
     // Now apply the actual filter - use 'tsx -test' to exclude test files
     await explorer.filterInput.fill('tsx -test');
-    // Wait for filter to apply - Button.tsx should still be visible
+    await expect(explorer.filterInput).toHaveValue('tsx -test');
+    // Button.tsx should still be visible (matches tsx, not a test file)
     await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 5000 });
 
     // Verify filtered results - these are nested tsx files that should be visible
@@ -287,15 +295,19 @@ test.describe('Navigation Panel State Preservation', () => {
 
     // Expand some folders using filter pattern - use 'ts' to match all TypeScript files
     await explorer.filterInput.fill('ts');
-    // Wait for filter to apply
-    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 5000 });
+    await expect(explorer.filterInput).toHaveValue('ts');
 
-    await page.getByTestId('expand-all-button-small').click();
-    // Wait for expansion - check for a nested file
+    // Expand all to reveal nested files
+    const expandAllBtn = page.getByTestId('expand-all-button-small');
+    await expect(expandAllBtn).toBeVisible({ timeout: 5000 });
+    await expandAllBtn.click();
+    // Wait for expansion - nested files should now be visible
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
     await expect(fileTree.getByText('Input.tsx')).toBeVisible({ timeout: 5000 });
 
     // Clear filter
     await explorer.filterInput.fill('');
+    await expect(explorer.filterInput).toHaveValue('');
     // Wait for filter to clear - package.json should now be visible
     await expect(fileTree.getByText('package.json')).toBeVisible({ timeout: 5000 });
 
