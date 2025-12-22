@@ -1,4 +1,5 @@
-import { useCallback } from 'react';
+import { useCallback, useId, useState } from 'react';
+import { Label } from '../label';
 import { cn } from '../lib/utils';
 import { ScrollArea } from '../scroll-area';
 import { CollectionPickerEmpty } from './collection-picker-empty';
@@ -14,7 +15,8 @@ import type { CollectionPickerCollection, CollectionPickerProps } from './types'
  *
  * Features:
  * - Scrollable list of collections with unique colors per collection
- * - Click to select, click again to deselect
+ * - Click or arrow keys to navigate, Enter/Space to select
+ * - Full WCAG 2.1 keyboard navigation support
  * - Inline edit and delete buttons (visible on hover)
  * - Optional header with label and create button
  * - Empty state with create CTA
@@ -46,6 +48,10 @@ export function CollectionPicker({
   headerLabel = 'Search Collection',
   className,
 }: CollectionPickerProps) {
+  const [focusedIndex, setFocusedIndex] = useState<number>(0);
+  const listboxId = useId();
+  const labelId = `${listboxId}-label`;
+
   const handleSelect = useCallback(
     (id: string) => {
       // Always select, do not toggle to null
@@ -68,6 +74,37 @@ export function CollectionPicker({
     [onDelete]
   );
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      switch (e.key) {
+        case 'ArrowDown':
+          e.preventDefault();
+          setFocusedIndex((prev) => Math.min(prev + 1, collections.length - 1));
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          setFocusedIndex((prev) => Math.max(prev - 1, 0));
+          break;
+        case 'Home':
+          e.preventDefault();
+          setFocusedIndex(0);
+          break;
+        case 'End':
+          e.preventDefault();
+          setFocusedIndex(collections.length - 1);
+          break;
+        case 'Enter':
+        case ' ':
+          e.preventDefault();
+          if (collections[focusedIndex]) {
+            handleSelect(collections[focusedIndex].id);
+          }
+          break;
+      }
+    },
+    [collections, focusedIndex, handleSelect]
+  );
+
   // Loading state
   if (loading) {
     return (
@@ -88,23 +125,44 @@ export function CollectionPicker({
   }
 
   return (
-    <div className={className} role="listbox">
-      {showHeader && <CollectionPickerHeader label={headerLabel} onCreate={onCreate} />}
-
-      <ScrollArea className="pr-3" style={{ maxHeight }}>
-        <div className="space-y-2 py-1">
-          {collections.map((collection) => (
-            <CollectionPickerItem
-              collection={collection}
-              isSelected={collection.id === selectedId}
-              key={collection.id}
-              onDelete={handleDelete}
-              onEdit={handleEdit}
-              onSelect={handleSelect}
-            />
-          ))}
+    <div className={className}>
+      {showHeader && (
+        <div className="mb-2 flex items-center justify-between">
+          <Label className="font-medium text-sm" id={labelId}>
+            {headerLabel}
+          </Label>
+          <CollectionPickerHeader label={headerLabel} onCreate={onCreate} showLabel={false} />
         </div>
-      </ScrollArea>
+      )}
+
+      <div
+        aria-activedescendant={
+          focusedIndex >= 0 ? `collection-option-${collections[focusedIndex]?.id}` : undefined
+        }
+        aria-label={showHeader ? undefined : headerLabel}
+        aria-labelledby={showHeader ? labelId : undefined}
+        className="outline-none"
+        onKeyDown={handleKeyDown}
+        role="listbox"
+        tabIndex={0}
+      >
+        <ScrollArea className="pr-3" style={{ maxHeight }}>
+          <div className="space-y-2 py-1">
+            {collections.map((collection, index) => (
+              <CollectionPickerItem
+                collection={collection}
+                id={`collection-option-${collection.id}`}
+                isFocused={index === focusedIndex}
+                isSelected={collection.id === selectedId}
+                key={collection.id}
+                onDelete={handleDelete}
+                onEdit={handleEdit}
+                onSelect={handleSelect}
+              />
+            ))}
+          </div>
+        </ScrollArea>
+      </div>
     </div>
   );
 }

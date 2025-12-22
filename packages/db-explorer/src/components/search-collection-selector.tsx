@@ -1,5 +1,10 @@
 import type { usePGliteDatabase } from '@brainstrike/db';
-import { CollectionPicker, type CollectionPickerCollection, useToast } from '@brainstrike/ui';
+import {
+  CollectionPicker,
+  type CollectionPickerCollection,
+  ErrorBoundary,
+  useToast,
+} from '@brainstrike/ui';
 import { useCollections } from '@brainstrike/vector-management';
 import { useCallback, useEffect, useRef } from 'react';
 
@@ -96,17 +101,19 @@ export function SearchCollectionSelector({
   const isLoading = loading || !db;
 
   return (
-    <CollectionPicker
-      collections={collections}
-      loading={isLoading}
-      maxHeight="260px"
-      onCreate={onCreateCollection}
-      onDelete={handleDelete}
-      onEdit={handleEdit}
-      onSelect={onCollectionChange}
-      selectedId={activeCollectionId}
-      showHeader={false}
-    />
+    <ErrorBoundary>
+      <CollectionPicker
+        collections={collections}
+        loading={isLoading}
+        maxHeight="260px"
+        onCreate={onCreateCollection}
+        onDelete={handleDelete}
+        onEdit={handleEdit}
+        onSelect={onCollectionChange}
+        selectedId={activeCollectionId}
+        showHeader={false}
+      />
+    </ErrorBoundary>
   );
 }
 

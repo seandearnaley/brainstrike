@@ -81,8 +81,14 @@ export type CollectionPickerItemProps = {
   /** Collection data */
   collection: CollectionPickerCollection;
 
+  /** Unique ID for accessibility */
+  id?: string;
+
   /** Whether this collection is currently selected */
   isSelected: boolean;
+
+  /** Whether this collection currently has keyboard focus */
+  isFocused?: boolean;
 
   /** Callback when this collection is clicked */
   onSelect: (id: string) => void;
@@ -103,6 +109,9 @@ export type CollectionPickerHeaderProps = {
 
   /** Callback when create button is clicked */
   onCreate: () => void;
+
+  /** Whether to show the label (default: true) */
+  showLabel?: boolean;
 };
 
 /**

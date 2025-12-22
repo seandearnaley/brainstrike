@@ -18,12 +18,18 @@ export function useCollectionDialogs() {
     setCreateCollectionOpen(true);
   }, []);
 
-  const handleEditCollection = useCallback((collection: CollectionPickerCollection) => {
+  const handleEditCollection = useCallback((collection: CollectionPickerCollection | null) => {
+    if (!collection) {
+      return;
+    }
     setSelectedCollection(collection);
     setRenameDialogOpen(true);
   }, []);
 
-  const handleDeleteCollection = useCallback((collection: CollectionPickerCollection) => {
+  const handleDeleteCollection = useCallback((collection: CollectionPickerCollection | null) => {
+    if (!collection) {
+      return;
+    }
     setSelectedCollection(collection);
     setDeleteDialogOpen(true);
   }, []);

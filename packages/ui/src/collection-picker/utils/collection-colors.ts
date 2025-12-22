@@ -11,10 +11,26 @@ export type CollectionColorResult = {
 };
 
 /**
+ * Sanitize and validate HSL color values to prevent injection.
+ * Ensures the value is a finite number and clamped between 0 and max.
+ */
+function sanitizeHslValue(value: number, max: number): number {
+  const clamped = Math.max(0, Math.min(max, value));
+  if (!Number.isFinite(clamped)) {
+    // Fallback for non-finite numbers to prevent invalid CSS
+    return 0;
+  }
+  return Math.floor(clamped);
+}
+
+/**
  * Generate a hash from a string for consistent color generation.
  * Uses djb2 hash algorithm for good distribution.
  */
 function hashString(str: string): number {
+  if (!str) {
+    return 0;
+  }
   let hash = 5381;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
@@ -62,12 +78,12 @@ export function getCollectionColor(
   theme: ResolvedTheme
 ): CollectionColorResult {
   const hash = hashString(collectionId);
-  const hue = hash % 360;
-  const saturation = 55;
-  const lightness = theme === 'light' ? 40 : 55;
+  const hue = sanitizeHslValue(hash % 360, 360);
+  const saturation = sanitizeHslValue(55, 100);
+  const lightness = sanitizeHslValue(theme === 'light' ? 40 : 55, 100);
 
   const primary = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-  const bgLightness = theme === 'light' ? 97 : 15;
+  const bgLightness = sanitizeHslValue(theme === 'light' ? 97 : 15, 100);
   const background = `hsl(${hue}, ${saturation}%, ${bgLightness}%)`;
 
   return { primary, background };

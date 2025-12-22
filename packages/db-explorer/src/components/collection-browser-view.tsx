@@ -256,17 +256,15 @@ export function CollectionBrowserView({
     setIsFilterVisible,
   } = useCollectionBrowserStore();
 
-  const nodeTypesSet = useMemo(() => new Set(nodeTypes as CollectionNodeType[]), [nodeTypes]);
-
   // Convert store filter state to CollectionBrowserFilters format
   const filters = useMemo(
     (): CollectionBrowserFilters => ({
       searchQuery,
-      nodeTypes: nodeTypesSet,
+      nodeTypes: new Set(nodeTypes as CollectionNodeType[]),
       embeddingStatus: embeddingStatus as EmbeddingStatus | 'all',
       searchMatchesOnly: false,
     }),
-    [searchQuery, nodeTypesSet, embeddingStatus]
+    [searchQuery, nodeTypes, embeddingStatus]
   );
 
   // Handle filter changes from CollectionBrowser

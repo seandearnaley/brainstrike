@@ -18,7 +18,9 @@ import { formatProviderLabel, getCollectionColor } from './utils/collection-colo
  */
 export function CollectionPickerItem({
   collection,
+  id,
   isSelected,
+  isFocused,
   onSelect,
   onEdit,
   onDelete,
@@ -63,10 +65,12 @@ export function CollectionPickerItem({
     <div
       aria-selected={isSelected}
       className={cn(
-        'group relative cursor-pointer rounded-md border p-3 transition-all',
-        'hover:border-accent-foreground/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        isSelected && 'border-l-2'
+        'group relative cursor-pointer rounded-md border p-3 outline-none transition-all',
+        'hover:border-accent-foreground/20 focus-visible:ring-2 focus-visible:ring-ring',
+        isSelected && 'border-l-2',
+        isFocused && 'border-accent-foreground/30 ring-2 ring-ring ring-offset-2'
       )}
+      id={id}
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       role="option"
@@ -74,7 +78,7 @@ export function CollectionPickerItem({
         borderLeftColor: isSelected ? primary : undefined,
         backgroundColor: isSelected ? background : undefined,
       }}
-      tabIndex={0}
+      tabIndex={-1}
     >
       <div className="flex items-start justify-between gap-2">
         {/* Left: Content */}

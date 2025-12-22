@@ -27,8 +27,8 @@ export function useResolvedTheme(): ResolvedTheme {
       return () => mediaQuery.removeEventListener('change', handler);
     }
 
-    setResolvedTheme(configuredTheme);
-    return;
+    setResolvedTheme(configuredTheme as ResolvedTheme);
+    return () => {};
   }, [configuredTheme]);
 
   return resolvedTheme;

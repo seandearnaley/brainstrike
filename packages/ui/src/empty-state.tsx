@@ -41,12 +41,15 @@ export function EmptyState({
             {/* Minimalist circular background with alt shade */}
             <div className="relative flex h-20 w-20 items-center justify-center rounded-full bg-muted/40 transition-colors duration-500">
               {React.isValidElement(icon)
-                ? React.cloneElement(icon as React.ReactElement<{ className?: string }>, {
-                    className: cn(
-                      'h-9 w-9 text-muted-foreground/80',
-                      (icon.props as { className?: string }).className
-                    ),
-                  })
+                ? React.cloneElement(
+                    icon as React.ReactElement<React.HTMLAttributes<HTMLElement>>,
+                    {
+                      className: cn(
+                        'h-9 w-9 text-muted-foreground/80',
+                        (icon.props as React.HTMLAttributes<HTMLElement>).className
+                      ),
+                    }
+                  )
                 : icon}
             </div>
           </div>

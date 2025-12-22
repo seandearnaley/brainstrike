@@ -8,12 +8,16 @@ import type { CollectionPickerHeaderProps } from './types';
  *
  * Displays the section label and a "Create" button for adding new collections.
  */
-export function CollectionPickerHeader({ label, onCreate }: CollectionPickerHeaderProps) {
+export function CollectionPickerHeader({
+  label,
+  onCreate,
+  showLabel = true,
+}: CollectionPickerHeaderProps) {
   return (
     <div className="mb-2 flex items-center justify-between">
-      <Label className="font-medium text-sm">{label}</Label>
+      {showLabel && <Label className="font-medium text-sm">{label}</Label>}
       <Button
-        className="h-7 gap-1 px-2 text-xs"
+        className="ml-auto h-7 gap-1 px-2 text-xs"
         onClick={onCreate}
         size="sm"
         title="Create new collection"
