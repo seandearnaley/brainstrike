@@ -78,15 +78,18 @@ test.describe('Navigation Panel State Preservation', () => {
     // Step 2: Expand multiple nested folders using the filter + expand all pattern
     // Filter by 'ts' to match both .ts and .tsx files (including utils/helpers.ts)
     await explorer.filterInput.fill('ts');
-    await page.waitForTimeout(300);
+    // Wait for filter to be applied (look for a matching file)
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 5000 });
 
     // Expand all matching items
     await page.getByTestId('expand-all-button-small').click();
-    await page.waitForTimeout(300);
+    // Wait for expansion to complete
+    await expect(fileTree.getByText('helpers.ts')).toBeVisible({ timeout: 5000 });
 
     // Clear filter to see full tree with expanded folders
     await explorer.filterInput.fill('');
-    await page.waitForTimeout(300);
+    // Wait for filter to clear - package.json should now be visible
+    await expect(fileTree.getByText('package.json')).toBeVisible({ timeout: 5000 });
 
     // Verify folders are expanded by checking if nested items are visible
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
@@ -223,21 +226,25 @@ test.describe('Navigation Panel State Preservation', () => {
     await explorer.selectRoot();
     await expect(explorer.filterInput).toBeVisible();
 
-    // First expand folders to see nested files
-    await explorer.filterInput.fill('tsx');
-    await page.waitForTimeout(300);
-    await page.getByTestId('expand-all-button-small').click();
-    await page.waitForTimeout(300);
-
-    // Now apply the actual filter
-    await explorer.filterInput.fill('tsx -test');
-    await page.waitForTimeout(300);
-
-    // Verify filtered results
     const fileTree = explorer.fileTree;
-    await expect(fileTree.getByText('Button.tsx')).toBeVisible();
+
+    // First expand folders to see nested files - use 'ts' to match all TypeScript files
+    await explorer.filterInput.fill('ts');
+    // Wait for filter to apply
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 5000 });
+
+    await page.getByTestId('expand-all-button-small').click();
+    // Wait for expansion
+    await expect(fileTree.getByText('Input.tsx')).toBeVisible({ timeout: 5000 });
+
+    // Now apply the actual filter - use 'tsx -test' to exclude test files
+    await explorer.filterInput.fill('tsx -test');
+    // Wait for filter to apply - Button.tsx should still be visible
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 5000 });
+
+    // Verify filtered results - these are nested tsx files that should be visible
     await expect(fileTree.getByText('Input.tsx')).toBeVisible();
-    await expect(fileTree.getByText('App.tsx')).toBeVisible();
+    await expect(fileTree.getByText('Header.tsx')).toBeVisible();
 
     // Test files should not be visible due to -test filter
     await expect(fileTree.getByText('Button.test.tsx')).not.toBeVisible();
@@ -278,19 +285,32 @@ test.describe('Navigation Panel State Preservation', () => {
     await explorer.selectRoot();
     const fileTree = explorer.fileTree;
 
-    // Expand some folders using filter pattern
-    await explorer.filterInput.fill('tsx');
-    await page.waitForTimeout(200);
+    // Expand some folders using filter pattern - use 'ts' to match all TypeScript files
+    await explorer.filterInput.fill('ts');
+    // Wait for filter to apply
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 5000 });
+
     await page.getByTestId('expand-all-button-small').click();
+    // Wait for expansion - check for a nested file
+    await expect(fileTree.getByText('Input.tsx')).toBeVisible({ timeout: 5000 });
+
+    // Clear filter
     await explorer.filterInput.fill('');
-    await page.waitForTimeout(200);
+    // Wait for filter to clear - package.json should now be visible
+    await expect(fileTree.getByText('package.json')).toBeVisible({ timeout: 5000 });
 
-    // Select multiple files
+    // Select multiple files - use files that are definitely visible after expansion
     const buttonCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
-    const appCheckbox = fileTree.getByRole('checkbox', { name: 'Select App.tsx' });
+    const inputCheckbox = fileTree.getByRole('checkbox', { name: 'Select Input.tsx' });
 
+    await expect(buttonCheckbox).toBeVisible({ timeout: 5000 });
     await buttonCheckbox.click({ force: true });
-    await appCheckbox.click({ force: true });
+    await expect(buttonCheckbox).toBeChecked();
+
+    await expect(inputCheckbox).toBeVisible({ timeout: 5000 });
+    await inputCheckbox.click({ force: true });
+    await expect(inputCheckbox).toBeChecked();
+
     await expect(page.getByText('2/10')).toBeVisible();
 
     // Get panel and button references
@@ -313,7 +333,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(fileTree).toBeVisible();
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(buttonCheckbox).toBeChecked();
-    await expect(appCheckbox).toBeChecked();
+    await expect(inputCheckbox).toBeChecked();
     await expect(page.getByText('2/10')).toBeVisible();
   });
 });
