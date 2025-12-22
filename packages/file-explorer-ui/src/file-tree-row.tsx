@@ -243,7 +243,7 @@ const FileTreeRow = memo<FileTreeRowProps>(
             {node.type === 'directory' && (
               <button
                 aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
-                className="flex cursor-pointer items-center justify-center rounded p-0.5 transition-all duration-150 hover:bg-accent active:scale-90"
+                className="flex cursor-pointer items-center justify-center rounded p-0.5 transition-all duration-150 hover:bg-accent"
                 data-testid={EXPAND_COLLAPSE_TEST_ID}
                 onClick={handleExpansionClick}
                 type="button"

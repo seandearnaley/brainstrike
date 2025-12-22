@@ -12,24 +12,33 @@
  * - Semantic search mode and configuration
  */
 
-import type { EmbeddingSet, FileChunk, FileRecord } from '@brainstrike/db';
+import type { FileChunk, FileRecord } from '@brainstrike/db';
 import {
   type BrowserNodeData,
   CollectionBrowser,
+  type CollectionBrowserFilters,
+  type CollectionNodeType,
   type CollectionSortState,
   type CollectionTreeInput,
+  type EmbeddingStatus,
+  FilterBar,
   NodeInspector,
   type SearchConfig,
+  SearchConfigPanel,
   type SearchMode,
   SearchModeBar,
 } from '@brainstrike/ui';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
+import {
+  type ImperativePanelHandle,
+  Panel,
+  PanelGroup,
+  PanelResizeHandle,
+} from 'react-resizable-panels';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
 export type CollectionBrowserViewProps = {
-  /** Embedding sets / collections */
-  embeddingSets: EmbeddingSet[];
   /** File records */
   records: FileRecord[];
   /** File chunks */
@@ -52,17 +61,11 @@ export type CollectionBrowserViewProps = {
  * Transform database data into CollectionTreeInput format
  */
 function transformToTreeInput(
-  embeddingSets: EmbeddingSet[],
   records: FileRecord[],
   chunks: FileChunk[],
   activeCollectionId: string | null,
   pendingChunkIds?: Set<string>
 ): CollectionTreeInput {
-  // Filter to active collection only, or show all if none selected
-  const filteredSets = activeCollectionId
-    ? embeddingSets.filter((s) => s.id === activeCollectionId)
-    : embeddingSets;
-
   const filteredRecords = activeCollectionId
     ? records.filter((r) => r.embeddingSetId === activeCollectionId)
     : records;
@@ -72,26 +75,6 @@ function transformToTreeInput(
     : chunks;
 
   return {
-    collections: filteredSets.map((set) => {
-      const collection: {
-        id: string;
-        name?: string;
-        description?: string;
-        modelId: string;
-        dimensions: number;
-      } = {
-        id: set.id,
-        modelId: set.modelId,
-        dimensions: set.dimensions,
-      };
-      if (set.name) {
-        collection.name = set.name;
-      }
-      if (set.description) {
-        collection.description = set.description;
-      }
-      return collection;
-    }),
     files: filteredRecords.map((record) => {
       const file: {
         id: string;
@@ -143,31 +126,6 @@ function transformToTreeInput(
       return chunkItem;
     }),
     ...(pendingChunkIds ? { pendingChunkIds } : {}),
-  };
-}
-
-/**
- * Build collection node data from the selected collection
- */
-function buildCollectionData(
-  collectionId: string,
-  embeddingSets: EmbeddingSet[],
-  records: FileRecord[],
-  chunks: FileChunk[]
-): BrowserNodeData | null {
-  const set = embeddingSets.find((s) => s.id === collectionId);
-  if (!set) {
-    return null;
-  }
-  const collFiles = records.filter((r) => r.embeddingSetId === set.id);
-  const collChunks = chunks.filter((c) => c.embeddingSetId === set.id);
-  return {
-    name: set.name ?? `Collection ${set.id.slice(0, 8)}`,
-    modelId: set.modelId,
-    dimensions: set.dimensions,
-    fileCount: collFiles.length,
-    chunkCount: collChunks.length,
-    embeddingCount: collChunks.filter((c) => c.embedding && c.embedding.length > 0).length,
   };
 }
 
@@ -234,13 +192,10 @@ function buildEmbeddingData(chunkId: string, chunks: FileChunk[]): BrowserNodeDa
 function buildSelectedNodeData(
   nodeType: string,
   nodeId: string,
-  embeddingSets: EmbeddingSet[],
   records: FileRecord[],
   chunks: FileChunk[]
 ): BrowserNodeData | null {
   switch (nodeType) {
-    case 'collection':
-      return buildCollectionData(nodeId, embeddingSets, records, chunks);
     case 'file':
       return buildFileData(nodeId, records, chunks);
     case 'chunk':
@@ -256,7 +211,6 @@ function buildSelectedNodeData(
  * CollectionBrowserView - Connects CollectionBrowser to database data
  */
 export function CollectionBrowserView({
-  embeddingSets,
   records,
   chunks,
   pendingChunkIds,
@@ -272,10 +226,19 @@ export function CollectionBrowserView({
     selectedId,
     sortState,
     isInspectorCollapsed,
+    inspectorWidth,
     setExpandedIds,
     setSelectedId,
     setSortState,
     setInspectorCollapsed,
+    setInspectorWidth,
+    // Filter state from store
+    searchQuery,
+    nodeTypes,
+    embeddingStatus,
+    setSearchQuery,
+    setNodeTypes,
+    setEmbeddingStatus,
     // Semantic search state from store
     searchMode,
     semanticQuery,
@@ -283,13 +246,67 @@ export function CollectionBrowserView({
     searchConfigLimit,
     searchConfigDistanceMetric,
     searchConfigExpanded,
+    isFilterVisible,
     setSearchMode,
     setSemanticQuery,
     setSearchConfigThreshold,
     setSearchConfigLimit,
     setSearchConfigDistanceMetric,
     setSearchConfigExpanded,
+    setIsFilterVisible,
   } = useCollectionBrowserStore();
+
+  // Convert store filter state to CollectionBrowserFilters format
+  const filters = useMemo(
+    (): CollectionBrowserFilters => ({
+      searchQuery,
+      nodeTypes: new Set(nodeTypes as CollectionNodeType[]),
+      embeddingStatus: embeddingStatus as EmbeddingStatus | 'all',
+      searchMatchesOnly: false,
+    }),
+    [searchQuery, nodeTypes, embeddingStatus]
+  );
+
+  // Handle filter changes from CollectionBrowser
+  const handleFiltersChange = useCallback(
+    (newFilters: CollectionBrowserFilters) => {
+      setSearchQuery(newFilters.searchQuery);
+      setNodeTypes(Array.from(newFilters.nodeTypes));
+      setEmbeddingStatus(newFilters.embeddingStatus);
+    },
+    [setSearchQuery, setNodeTypes, setEmbeddingStatus]
+  );
+
+  // Handle filter reset
+  const handleResetFilters = useCallback(() => {
+    setSearchQuery('');
+    setNodeTypes(['collection', 'file', 'chunk', 'embedding']);
+    setEmbeddingStatus('all');
+  }, [setSearchQuery, setNodeTypes, setEmbeddingStatus]);
+
+  // Handle expand all
+  const handleExpandAll = useCallback(() => {
+    const allExpandableIds = new Set<string>();
+    for (const record of records) {
+      const fileId = `file-${record.id}`;
+      allExpandableIds.add(fileId);
+
+      const fileChunks = chunks.filter((c) => c.fileRecordId === record.id);
+      for (const chunk of fileChunks) {
+        const chunkId = `chunk-${chunk.id}`;
+        // Chunks are expandable if they have embeddings
+        if (chunk.embedding && chunk.embedding.length > 0) {
+          allExpandableIds.add(chunkId);
+        }
+      }
+    }
+    setExpandedIds(Array.from(allExpandableIds));
+  }, [records, chunks, setExpandedIds]);
+
+  // Handle collapse all
+  const handleCollapseAll = useCallback(() => {
+    setExpandedIds([]);
+  }, [setExpandedIds]);
 
   // Get semantic search transient state from context
   const {
@@ -327,8 +344,8 @@ export function CollectionBrowserView({
       return null;
     }
 
-    return buildSelectedNodeData(selectedNodeType, selectedNodeId, embeddingSets, records, chunks);
-  }, [selectedId, selectedNodeType, selectedNodeId, embeddingSets, records, chunks]);
+    return buildSelectedNodeData(selectedNodeType, selectedNodeId, records, chunks);
+  }, [selectedId, selectedNodeType, selectedNodeId, records, chunks]);
 
   // Handle expansion state changes
   const handleExpandedIdsChange = useCallback(
@@ -352,14 +369,6 @@ export function CollectionBrowserView({
       setSortState(newSortState);
     },
     [setSortState]
-  );
-
-  // Handle inspector collapse
-  const handleCollapseChange = useCallback(
-    (collapsed: boolean) => {
-      setInspectorCollapsed(collapsed);
-    },
-    [setInspectorCollapsed]
   );
 
   // Build search config from store values
@@ -397,14 +406,41 @@ export function CollectionBrowserView({
   // Handle semantic search execution
   const handleSearch = useCallback(() => {
     if (semanticQuery.trim()) {
+      setSearchMode('semantic');
       void executeSearch(semanticQuery, searchConfig, activeCollectionId);
     }
-  }, [semanticQuery, searchConfig, activeCollectionId, executeSearch]);
+  }, [semanticQuery, searchConfig, activeCollectionId, executeSearch, setSearchMode]);
 
   // Transform data for CollectionBrowser
   const treeData = useMemo(
-    () => transformToTreeInput(embeddingSets, records, chunks, activeCollectionId, pendingChunkIds),
-    [embeddingSets, records, chunks, activeCollectionId, pendingChunkIds]
+    () => transformToTreeInput(records, chunks, activeCollectionId, pendingChunkIds),
+    [records, chunks, activeCollectionId, pendingChunkIds]
+  );
+
+  // Inspector panel ref for imperative control
+  const inspectorPanelRef = useRef<ImperativePanelHandle>(null);
+
+  // Handle inspector toggle from within the component
+  const handleInspectorCollapse = useCallback(
+    (collapsed: boolean) => {
+      setInspectorCollapsed(collapsed);
+      if (collapsed) {
+        inspectorPanelRef.current?.collapse();
+      } else {
+        inspectorPanelRef.current?.expand();
+      }
+    },
+    [setInspectorCollapsed]
+  );
+
+  // Handle panel layout changes to persist size
+  const handleLayoutChange = useCallback(
+    (sizes: number[]) => {
+      if (sizes.length === 2 && sizes[1] !== undefined && sizes[1] > 0) {
+        setInspectorWidth(sizes[1]);
+      }
+    },
+    [setInspectorWidth]
   );
 
   // Handle node selection - stores the ID and calls external handlers
@@ -437,29 +473,49 @@ export function CollectionBrowserView({
     if (searchMode === 'semantic' && hasSearched && searchResults.length === 0) {
       return 'No matching results found. Try adjusting your query or threshold.';
     }
-    if (!activeCollectionId) {
-      return 'Select a collection to view its contents.';
-    }
     return 'No files in this collection. Import files to get started.';
-  }, [searchMode, hasSearched, searchResults.length, activeCollectionId]);
+  }, [searchMode, hasSearched, searchResults.length]);
 
   return (
     <div className="flex h-full flex-col" style={{ height }}>
-      {/* Search mode bar */}
+      {/* Search mode bar - Top level controls */}
       <SearchModeBar
         className="border-border border-b"
+        filters={filters}
         hasSearched={hasSearched}
         isConfigExpanded={searchConfigExpanded}
+        isFilterVisible={isFilterVisible}
         isSearching={isSearching}
         mode={searchMode}
+        onCollapseAll={handleCollapseAll}
         onConfigExpandedChange={setSearchConfigExpanded}
+        onExpandAll={handleExpandAll}
+        onFilterVisibleChange={setIsFilterVisible}
         onModeChange={handleSearchModeChange}
-        onSearchConfigChange={handleSearchConfigChange}
+        onResetFilters={handleResetFilters}
         onSemanticQueryChange={setSemanticQuery}
         onSemanticSearch={handleSearch}
         resultCount={searchResults.length}
-        searchConfig={searchConfig}
         semanticQuery={semanticQuery}
+        totalCount={records.length}
+      />
+
+      {/* Advanced Search Options Panel */}
+      <SearchConfigPanel
+        config={searchConfig}
+        isExpanded={searchConfigExpanded}
+        onConfigChange={handleSearchConfigChange}
+        onExpandedChange={setSearchConfigExpanded}
+      />
+
+      {/* Quick Filters Panel */}
+      <FilterBar
+        filters={filters}
+        isExpanded={isFilterVisible}
+        onExpandedChange={setIsFilterVisible}
+        onFiltersChange={handleFiltersChange}
+        resultCount={searchResults.length || records.length} // Simplified count display
+        totalCount={records.length}
       />
 
       {/* Error message display */}
@@ -470,39 +526,71 @@ export function CollectionBrowserView({
       )}
 
       {/* Main content area */}
-      <div className="flex min-h-0 flex-1">
-        {/* Main browser */}
-        <div className="min-w-0 flex-1">
-          <CollectionBrowser
-            className="h-full"
-            data={treeData}
-            emptyMessage={emptyMessage}
-            expandedIds={expandedIdsSet}
-            height="100%"
-            isLoading={isLoading}
-            onExpandedIdsChange={handleExpandedIdsChange}
-            onSelect={handleSelect}
-            onSelectedIdChange={handleSelectedIdChange}
-            selectedId={selectedId}
-            {...(sortState ? { sortState } : {})}
-            onSortChange={handleSortChange}
-            searchMode={searchMode}
-            showFilterBar={searchMode === 'quick'}
-            {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
-            hasSearched={hasSearched}
-            isSearching={isSearching}
-          />
-        </div>
+      <div className="flex min-h-0 flex-1 border-t">
+        <PanelGroup direction="horizontal" onLayout={handleLayoutChange}>
+          {/* Main browser */}
+          <Panel
+            className="min-w-0"
+            defaultSize={100 - (isInspectorCollapsed ? 0 : inspectorWidth)}
+            minSize={30}
+          >
+            <CollectionBrowser
+              className="h-full"
+              data={treeData}
+              emptyMessage={emptyMessage}
+              expandedIds={expandedIdsSet}
+              filters={filters}
+              hasSearched={hasSearched}
+              height="100%"
+              isLoading={isLoading}
+              isSearching={isSearching}
+              onExpandedIdsChange={handleExpandedIdsChange}
+              onFiltersChange={handleFiltersChange}
+              onSelect={handleSelect}
+              onSelectedIdChange={handleSelectedIdChange}
+              onSortChange={handleSortChange}
+              searchMode={searchMode}
+              selectedId={selectedId}
+              {...(sortState ? { sortState } : {})}
+              {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
+            />
+          </Panel>
 
-        {/* Inspector panel - narrower in semantic mode to give more room for score column */}
-        <NodeInspector
-          nodeData={actualSelectedNodeData}
-          nodeType={selectedNodeType ?? null}
-          {...(selectedNodeId ? { nodeId: selectedNodeId } : {})}
-          isCollapsed={isInspectorCollapsed}
-          onCollapseChange={handleCollapseChange}
-          width={searchMode === 'semantic' ? 240 : 280}
-        />
+          {!isInspectorCollapsed && (
+            <>
+              <PanelResizeHandle className="w-1 bg-border transition-colors hover:bg-primary/20" />
+
+              {/* Inspector panel */}
+              <Panel
+                collapsedSize={0}
+                collapsible
+                defaultSize={inspectorWidth}
+                minSize={15}
+                onCollapse={() => setInspectorCollapsed(true)}
+                ref={inspectorPanelRef}
+              >
+                <NodeInspector
+                  isCollapsed={false}
+                  nodeData={actualSelectedNodeData}
+                  nodeType={selectedNodeType ?? null}
+                  onCollapseChange={handleInspectorCollapse}
+                  {...(selectedNodeId ? { nodeId: selectedNodeId } : {})}
+                />
+              </Panel>
+            </>
+          )}
+        </PanelGroup>
+
+        {isInspectorCollapsed && (
+          <NodeInspector
+            className="border-t-0"
+            isCollapsed={true}
+            nodeData={actualSelectedNodeData}
+            nodeType={selectedNodeType ?? null}
+            onCollapseChange={handleInspectorCollapse}
+            {...(selectedNodeId ? { nodeId: selectedNodeId } : {})}
+          />
+        )}
       </div>
     </div>
   );

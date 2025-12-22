@@ -82,6 +82,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
         aria-controls="search-config-content"
         aria-expanded={isExpanded}
         className="h-auto w-full justify-between px-3 py-2 hover:bg-muted/50"
+        depress={false}
         onClick={handleToggle}
         size="sm"
         variant="ghost"
@@ -105,78 +106,91 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
         )}
         id="search-config-content"
       >
-        <div className="space-y-4 p-3 pt-2">
+        <div className="space-y-3 p-3 pt-1.5">
           {/* Threshold slider */}
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label className="text-xs" htmlFor="threshold">
+              <Label
+                className="text-[10px] text-muted-foreground uppercase tracking-wider"
+                htmlFor="threshold"
+              >
                 Similarity Threshold
               </Label>
-              <span className="font-mono text-muted-foreground text-xs">
+              <span className="font-mono text-[10px] text-primary">
                 {config.threshold.toFixed(2)}
               </span>
             </div>
-            <input
-              aria-label="Similarity threshold"
-              className="h-2 w-full cursor-pointer rounded-lg bg-muted accent-primary"
-              id="threshold"
-              max="1"
-              min="0"
-              onChange={handleThresholdChange}
-              step="0.05"
-              type="range"
-              value={config.threshold}
-            />
-            <div className="flex justify-between text-muted-foreground text-xs">
-              <span>Broad</span>
-              <span>Precise</span>
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-muted-foreground/50 uppercase">Broad</span>
+              <input
+                aria-label="Similarity threshold"
+                className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
+                id="threshold"
+                max="1"
+                min="0"
+                onChange={handleThresholdChange}
+                step="0.05"
+                type="range"
+                value={config.threshold}
+              />
+              <span className="text-[9px] text-muted-foreground/50 uppercase">Precise</span>
             </div>
           </div>
 
-          {/* Result limit */}
-          <div className="space-y-2">
-            <Label className="text-xs" htmlFor="limit">
-              Max Results
-            </Label>
-            <Select onValueChange={handleLimitChange} value={String(config.resultLimit)}>
-              <SelectTrigger className="h-8 text-xs" id="limit">
-                <SelectValue placeholder="Select limit" />
-              </SelectTrigger>
-              <SelectContent>
-                {RESULT_LIMITS.map((limit) => (
-                  <SelectItem className="text-xs" key={limit} value={String(limit)}>
-                    {limit} results
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Result limit */}
+            <div className="space-y-1">
+              <Label
+                className="text-[10px] text-muted-foreground uppercase tracking-wider"
+                htmlFor="limit"
+              >
+                Max Results
+              </Label>
+              <Select onValueChange={handleLimitChange} value={String(config.resultLimit)}>
+                <SelectTrigger className="h-7 text-[11px]" id="limit">
+                  <SelectValue placeholder="Limit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {RESULT_LIMITS.map((limit) => (
+                    <SelectItem className="text-[11px]" key={limit} value={String(limit)}>
+                      {limit} results
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          {/* Distance metric */}
-          <div className="space-y-2">
-            <Label className="text-xs" htmlFor="metric">
-              Distance Metric
-              {collectionDistanceMetric && collectionDistanceMetric !== config.distanceMetric && (
-                <span className="ml-1 text-amber-500">
-                  (collection uses {collectionDistanceMetric})
-                </span>
-              )}
-            </Label>
-            <Select onValueChange={handleMetricChange} value={config.distanceMetric}>
-              <SelectTrigger className="h-8 text-xs" id="metric">
-                <SelectValue placeholder="Select metric" />
-              </SelectTrigger>
-              <SelectContent>
-                {DISTANCE_METRICS.map((metric) => (
-                  <SelectItem className="text-xs" key={metric.value} value={metric.value}>
-                    <div className="flex flex-col">
-                      <span>{metric.label}</span>
-                      <span className="text-muted-foreground text-xs">{metric.description}</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Distance metric */}
+            <div className="space-y-1">
+              <Label
+                className="text-[10px] text-muted-foreground uppercase tracking-wider"
+                htmlFor="metric"
+              >
+                Distance Metric
+                {collectionDistanceMetric && collectionDistanceMetric !== config.distanceMetric && (
+                  <span className="ml-1 text-amber-500/80 lowercase">
+                    ({collectionDistanceMetric})
+                  </span>
+                )}
+              </Label>
+              <Select onValueChange={handleMetricChange} value={config.distanceMetric}>
+                <SelectTrigger className="h-7 text-[11px]" id="metric">
+                  <SelectValue placeholder="Metric" />
+                </SelectTrigger>
+                <SelectContent>
+                  {DISTANCE_METRICS.map((metric) => (
+                    <SelectItem className="text-[11px]" key={metric.value} value={metric.value}>
+                      <div className="flex flex-col">
+                        <span>{metric.label}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {metric.description}
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
       </div>

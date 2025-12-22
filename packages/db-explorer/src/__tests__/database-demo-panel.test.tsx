@@ -132,7 +132,38 @@ vi.mock('@brainstrike/ui', async () => {
     useToast: () => ({
       toast: mockToast,
     }),
+    useTheme: () => ({ theme: 'light', setTheme: vi.fn() }),
     ModelPicker: () => <div data-testid="mock-model-picker" />,
+    CollectionPicker: ({
+      collections,
+      selectedId,
+      onSelect,
+      onCreate,
+    }: {
+      collections: Array<{ id: string; name: string }>;
+      selectedId: string | null;
+      onSelect: (id: string | null) => void;
+      onCreate?: () => void;
+    }) => (
+      <div data-testid="mock-collection-picker">
+        {onCreate && (
+          <button onClick={onCreate} title="Create new collection" type="button">
+            Create
+          </button>
+        )}
+        {collections.map((c) => (
+          <button
+            data-selected={selectedId === c.id}
+            data-testid={`collection-${c.id}`}
+            key={c.id}
+            onClick={() => onSelect(c.id)}
+            type="button"
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+    ),
   };
 });
 
@@ -204,6 +235,41 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
     selectedFilePaths: new Set(['folder-1|@|/test/test-file.txt']),
   }),
 }));
+
+vi.mock('react-resizable-panels', () => {
+  const React = require('react');
+  return {
+    PanelGroup: ({
+      children,
+      onLayout,
+    }: {
+      children: React.ReactNode;
+      onLayout?: (sizes: number[]) => void;
+    }) => {
+      React.useEffect(() => {
+        if (onLayout) {
+          onLayout([75, 25]);
+        }
+      }, [onLayout]);
+      return <div data-testid="panel-group">{children}</div>;
+    },
+    Panel: React.forwardRef(
+      (
+        {
+          children,
+          id,
+        }: {
+          children: React.ReactNode;
+          id?: string;
+          onCollapse?: () => void;
+          onExpand?: () => void;
+        },
+        _ref: React.Ref<unknown>
+      ) => <div data-testid={`panel-${id}`}>{children}</div>
+    ),
+    PanelResizeHandle: () => <div data-testid="resize-handle" />,
+  };
+});
 
 describe('DatabaseDemoPanel', () => {
   beforeEach(() => {
@@ -415,9 +481,12 @@ describe('DatabaseDemoPanel', () => {
 
       render(<DatabaseDemoPanel />);
 
-      // Open create collection dialog
+      // Open create collection dialog (use getAllByTitle since both header and picker have create buttons)
       const user = userEvent.setup();
-      await user.click(screen.getByTitle('Create new collection')); // Assuming there's a button to open it
+      const createButtons = screen.getAllByTitle('Create new collection');
+      const firstButton = createButtons[0];
+      expect(firstButton).toBeDefined();
+      await user.click(firstButton as HTMLElement);
 
       // Since we can't easily check props passed to a child component without more complex mocking or integration testing,
       // and we are already testing the dialog's behavior in its own test file,

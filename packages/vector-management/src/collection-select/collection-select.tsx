@@ -18,6 +18,8 @@ export type CollectionRow = {
   tags: string | null;
   category: string | null;
   fileCount: string | number;
+  chunkCount: string | number;
+  embeddingCount: string | number;
 };
 
 /**
@@ -25,7 +27,8 @@ export type CollectionRow = {
  *
  * Terminology:
  * - fileCount: Number of imported files (file_records) in this collection
- * - For chunk counts, see Vector Status coverage which shows chunks with/without embeddings
+ * - chunkCount: Number of chunks (file_chunks) in this collection
+ * - embeddingCount: Number of chunks with embeddings in this collection
  */
 export type CollectionWithDocCount = {
   id: string;
@@ -40,33 +43,37 @@ export type CollectionWithDocCount = {
   category: string | null;
   /** Number of files imported into this collection */
   fileCount: number;
+  /** Number of chunks in this collection */
+  chunkCount: number;
+  /** Number of embeddings in this collection */
+  embeddingCount: number;
 };
 
 /**
  * SQL query to fetch all embedding sets with their file counts.
  * Uses LEFT JOIN to include collections with zero files.
- *
- * Note: This counts file_records (imported files), not file_chunks.
- * For chunk/embedding counts, see Vector Status coverage stats.
  */
 const COLLECTIONS_QUERY = `
-  SELECT
-    s.id,
-    s.model_key AS "modelKey",
-    s.model_id AS "modelId",
-    s.dimensions,
-    s.distance,
-    s.created_at AS "createdAt",
-    s.name,
-    s.description,
-    s.tags,
-    s.category,
-    COUNT(DISTINCT fr.id) AS "fileCount"
-  FROM embedding_sets s
-  LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
-  GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at, s.name, s.description, s.tags, s.category
-  ORDER BY s.created_at DESC
-`.trim();
+    SELECT
+      s.id,
+      s.model_key AS "modelKey",
+      s.model_id AS "modelId",
+      s.dimensions,
+      s.distance,
+      s.created_at AS "createdAt",
+      s.name,
+      s.description,
+      s.tags,
+      s.category,
+      COUNT(DISTINCT fr.id) AS "fileCount",
+      COUNT(DISTINCT fc.id) AS "chunkCount",
+      COUNT(DISTINCT CASE WHEN fc.embedding IS NOT NULL THEN fc.id END) AS "embeddingCount"
+    FROM embedding_sets s
+    LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
+    LEFT JOIN file_chunks fc ON fc.embedding_set_id = s.id
+    GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at, s.name, s.description, s.tags, s.category
+    ORDER BY s.created_at DESC
+  `.trim();
 
 export type CollectionSelectSize = 'compact' | 'default';
 
@@ -223,6 +230,8 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
         tags: row.tags,
         category: row.category,
         fileCount: Number(row.fileCount ?? 0),
+        chunkCount: Number(row.chunkCount ?? 0),
+        embeddingCount: Number(row.embeddingCount ?? 0),
       })),
     [rawCollections]
   );

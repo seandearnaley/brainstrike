@@ -15,7 +15,6 @@ import { TreeTable } from '../tree-table/tree-table';
 import type { SortDirection, SortState, TreeNode, TreeTableColumn } from '../tree-table/types';
 import type { BulkAction } from './bulk-action-bar';
 import { BulkActionBar } from './bulk-action-bar';
-import { FilterBar } from './filter-bar';
 import type {
   BrowserNodeData,
   ChunkData,
@@ -118,10 +117,6 @@ export type CollectionBrowserProps = {
     data: BrowserNodeData,
     event: React.MouseEvent
   ) => void;
-  /** Initial filter state */
-  initialFilters?: Partial<CollectionBrowserFilters>;
-  /** Whether to show the filter bar */
-  showFilterBar?: boolean;
   /** Height of the component */
   height?: number | string;
   /** Custom class name */
@@ -156,6 +151,10 @@ export type CollectionBrowserProps = {
   isSearching?: boolean;
   /** Whether a semantic search has been executed at least once */
   hasSearched?: boolean;
+  /** Current filter state (controlled) */
+  filters?: CollectionBrowserFilters;
+  /** Callback when filters change (controlled) */
+  onFiltersChange?: (filters: CollectionBrowserFilters) => void;
 };
 
 /**
@@ -276,8 +275,6 @@ export function CollectionBrowser({
   onMultiSelect,
   onDoubleClick,
   onContextMenu,
-  initialFilters,
-  showFilterBar = true,
   height = 600,
   className,
   multiSelectEnabled = false,
@@ -295,13 +292,14 @@ export function CollectionBrowser({
   semanticResults,
   isSearching = false,
   hasSearched = false,
+  filters: controlledFilters,
 }: CollectionBrowserProps) {
-  // Filter state
-  const [filters, setFilters] = React.useState<CollectionBrowserFilters>(() => ({
+  // Filter state - support controlled and uncontrolled modes
+  const [internalFilters] = React.useState<CollectionBrowserFilters>(() => ({
     ...DEFAULT_FILTERS,
     nodeTypes: new Set(DEFAULT_FILTERS.nodeTypes),
-    ...initialFilters,
   }));
+  const filters = controlledFilters ?? internalFilters;
 
   // Selection state - support controlled and uncontrolled modes
   const [internalSelectedId, setInternalSelectedId] = React.useState<string | null>(null);
@@ -326,10 +324,6 @@ export function CollectionBrowser({
   // Build tree structure with hierarchical sorting
   const {
     nodes,
-    rootNodes,
-    totalCount,
-    filteredCount,
-    getChildren,
     searchMatchIds,
     searchExpandIds,
     similarityScores,
@@ -422,37 +416,6 @@ export function CollectionBrowser({
     },
     [isControlledExpansion, controlledExpandedIds, internalExpandedIds, onExpandedIdsChange]
   );
-
-  // Handle expand all
-  const handleExpandAll = React.useCallback(() => {
-    const allExpandableIds = new Set<string>();
-    function addExpandable(nodeId: string): void {
-      const children = getChildren(nodeId);
-      if (children.length > 0) {
-        allExpandableIds.add(nodeId);
-        for (const child of children) {
-          addExpandable(child.id);
-        }
-      }
-    }
-    for (const root of rootNodes) {
-      addExpandable(root.id);
-    }
-    if (isControlledExpansion && onExpandedIdsChange) {
-      onExpandedIdsChange(allExpandableIds);
-    } else {
-      setInternalExpandedIds(allExpandableIds);
-    }
-  }, [rootNodes, getChildren, isControlledExpansion, onExpandedIdsChange]);
-
-  // Handle collapse all
-  const handleCollapseAll = React.useCallback(() => {
-    if (isControlledExpansion && onExpandedIdsChange) {
-      onExpandedIdsChange(new Set());
-    } else {
-      setInternalExpandedIds(new Set());
-    }
-  }, [isControlledExpansion, onExpandedIdsChange]);
 
   // Handle selection
   const handleSelect = React.useCallback(
@@ -788,17 +751,6 @@ export function CollectionBrowser({
 
   return (
     <div className={cn('relative flex flex-col bg-background', className)} style={{ height }}>
-      {showFilterBar && (
-        <FilterBar
-          filters={filters}
-          onCollapseAll={handleCollapseAll}
-          onExpandAll={handleExpandAll}
-          onFiltersChange={setFilters}
-          resultCount={filteredCount}
-          totalCount={totalCount}
-        />
-      )}
-
       <div className="relative flex-1 overflow-hidden">
         {/* Search loading overlay */}
         {isSearching && (
@@ -826,6 +778,7 @@ export function CollectionBrowser({
             <div className="p-4 text-muted-foreground text-sm">{displayEmptyMessage}</div>
           }
           highlightedIds={highlightedIds}
+          maxHeight="none"
           onRowContextMenu={handleContextMenu}
           onRowDoubleClick={handleDoubleClick}
           rowHeight={48}

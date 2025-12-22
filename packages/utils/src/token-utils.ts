@@ -30,6 +30,13 @@ const isBrowserLike = () =>
   (typeof self !== 'undefined' &&
     typeof (self as { importScripts?: unknown }).importScripts === 'function');
 
+const isTestRuntime = () => {
+  if (typeof process === 'undefined') {
+    return false;
+  }
+  return process.env['NODE_ENV'] === 'test' || process.env['VITEST'] === 'true';
+};
+
 function tryCreateEncoder(factory: EncoderFactory | undefined, input: string): EncodeFn | null {
   if (!factory) {
     return null;
@@ -171,6 +178,9 @@ async function loadBrowserEncoder(): Promise<EncodeFn | null> {
 }
 
 async function resolveEncoder(): Promise<EncodeFn | null> {
+  if (isTestRuntime()) {
+    return loadNodeEncoder();
+  }
   return isBrowserLike() ? loadBrowserEncoder() : loadNodeEncoder();
 }
 

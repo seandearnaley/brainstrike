@@ -24,6 +24,8 @@ type CollectionBrowserData = {
   sortState: CollectionSortState | null;
   /** Whether the inspector panel is collapsed */
   isInspectorCollapsed: boolean;
+  /** Width of the inspector panel as a percentage (0-100) */
+  inspectorWidth: number;
   /** Filter state - search query (quick filter mode) */
   searchQuery: string;
   /** Filter state - enabled node types */
@@ -43,6 +45,8 @@ type CollectionBrowserData = {
   searchConfigDistanceMetric: DistanceMetric;
   /** Whether the search config panel is expanded */
   searchConfigExpanded: boolean;
+  /** Whether the filter bar is visible */
+  isFilterVisible: boolean;
 };
 
 /**
@@ -65,6 +69,8 @@ type CollectionBrowserActions = {
   toggleSort: (key: CollectionSortKey) => void;
   /** Set inspector collapsed state */
   setInspectorCollapsed: (collapsed: boolean) => void;
+  /** Set the width of the inspector panel */
+  setInspectorWidth: (width: number) => void;
   /** Set search query (quick filter mode) */
   setSearchQuery: (query: string) => void;
   /** Set enabled node types */
@@ -86,6 +92,8 @@ type CollectionBrowserActions = {
   setSearchConfigDistanceMetric: (metric: DistanceMetric) => void;
   /** Set search config panel expanded state */
   setSearchConfigExpanded: (expanded: boolean) => void;
+  /** Set filter bar visibility */
+  setIsFilterVisible: (visible: boolean) => void;
   /** Reset all state to defaults */
   reset: () => void;
 };
@@ -102,16 +110,18 @@ const DEFAULT_STATE: CollectionBrowserData = {
   selectedId: null,
   sortState: null,
   isInspectorCollapsed: false,
+  inspectorWidth: 25,
   searchQuery: '',
   nodeTypes: ['collection', 'file', 'chunk', 'embedding'],
   embeddingStatus: 'all',
   // Semantic search defaults
-  searchMode: 'quick',
+  searchMode: 'semantic',
   semanticQuery: '',
   searchConfigThreshold: 0.5,
   searchConfigLimit: 20,
   searchConfigDistanceMetric: 'cosine',
   searchConfigExpanded: false,
+  isFilterVisible: false,
 };
 
 /**
@@ -182,6 +192,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       // Inspector actions
       setInspectorCollapsed: (collapsed) => set({ isInspectorCollapsed: collapsed }),
+      setInspectorWidth: (width) => set({ inspectorWidth: width }),
 
       // Filter actions
       setSearchQuery: (query) => set({ searchQuery: query }),
@@ -214,6 +225,8 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setSearchConfigExpanded: (expanded) => set({ searchConfigExpanded: expanded }),
 
+      setIsFilterVisible: (visible) => set({ isFilterVisible: visible }),
+
       // Reset action
       reset: () => set(DEFAULT_STATE),
     }),
@@ -226,6 +239,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         selectedId: s.selectedId,
         sortState: s.sortState,
         isInspectorCollapsed: s.isInspectorCollapsed,
+        inspectorWidth: s.inspectorWidth,
         searchQuery: s.searchQuery,
         nodeTypes: s.nodeTypes,
         embeddingStatus: s.embeddingStatus,
@@ -236,6 +250,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigLimit: s.searchConfigLimit,
         searchConfigDistanceMetric: s.searchConfigDistanceMetric,
         searchConfigExpanded: s.searchConfigExpanded,
+        isFilterVisible: s.isFilterVisible,
       }),
     }
   )
@@ -249,6 +264,7 @@ export const collectionBrowserSelectors = {
   selectedId: (s: CollectionBrowserStore) => s.selectedId,
   sortState: (s: CollectionBrowserStore) => s.sortState,
   isInspectorCollapsed: (s: CollectionBrowserStore) => s.isInspectorCollapsed,
+  inspectorWidth: (s: CollectionBrowserStore) => s.inspectorWidth,
   searchQuery: (s: CollectionBrowserStore) => s.searchQuery,
   nodeTypes: (s: CollectionBrowserStore) => s.nodeTypes,
   embeddingStatus: (s: CollectionBrowserStore) => s.embeddingStatus,
@@ -266,6 +282,7 @@ export const collectionBrowserSelectors = {
     distanceMetric: s.searchConfigDistanceMetric,
   }),
   searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
+  isFilterVisible: (s: CollectionBrowserStore) => s.isFilterVisible,
 };
 
 /**

@@ -10,8 +10,18 @@ let cachedExpect: PlaywrightExpect | null = null;
 
 async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
   if (!cachedExpect) {
-    const mod = await import('@playwright/test');
-    cachedExpect = mod.expect;
+    try {
+      const mod = await import('@playwright/test');
+      if (!mod.expect) {
+        throw new Error('Missing expect export from @playwright/test');
+      }
+      cachedExpect = mod.expect;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Failed to load Playwright expect. Ensure @playwright/test is installed and available. Original error: ${message}`
+      );
+    }
   }
   return cachedExpect;
 }

@@ -1,13 +1,16 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
+import { EmptyState } from '@brainstrike/ui';
+import { FolderOpen } from 'lucide-react';
 import type * as React from 'react';
 import OptimizedFileTree from './optimized-file-tree';
 
 const NoFilesSelected = () => (
-  <div className="p-8 text-center text-muted-foreground">
-    <p>No directory selected</p>
-    <p className="mt-2 text-sm">Use the folder button to select a directory</p>
-  </div>
+  <EmptyState
+    description="Connect a directory to browse your project and select files"
+    icon={<FolderOpen />}
+    title="No directory selected"
+  />
 );
 
 type FileExplorerSidebarProps = {
@@ -39,10 +42,8 @@ const ErrorDisplay = ({
   </div>
 );
 
-const EmptyState = ({
+const EmptyStateComponent = ({
   isLoading,
-  quickFilteredTree,
-  rootDirectoryHandle,
 }: {
   isLoading: boolean;
   quickFilteredTree: IFileNode[] | null;
@@ -50,12 +51,6 @@ const EmptyState = ({
 }) => (
   <div className="py-8 text-center text-muted-foreground">
     {isLoading ? 'Loading files...' : 'No matching files found'}
-    {process.env['NODE_ENV'] === 'development' && (
-      <div className="mt-2 text-xs opacity-50">
-        Debug: quickFilteredTree={quickFilteredTree ? quickFilteredTree.length : 'null'}, isLoading=
-        {String(isLoading)}, rootHandle={rootDirectoryHandle ? 'present' : 'null'}
-      </div>
-    )}
   </div>
 );
 
@@ -74,10 +69,10 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   const hasContent = quickFilteredTree && quickFilteredTree.length > 0;
 
   return (
-    <div className="w-full">
+    <div className="flex h-full w-full flex-col bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
       {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
       {rootDirectoryHandle ? (
-        <div className="px-3 pt-4">
+        <div className="flex-1 overflow-auto px-3 pt-4">
           {hasContent ? (
             <OptimizedFileTree
               fileTree={quickFilteredTree}
@@ -86,7 +81,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
               onRender={onTreeRender || undefined}
             />
           ) : (
-            <EmptyState
+            <EmptyStateComponent
               isLoading={isLoading}
               quickFilteredTree={quickFilteredTree}
               rootDirectoryHandle={rootDirectoryHandle}
@@ -94,7 +89,9 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
           )}
         </div>
       ) : (
-        <NoFilesSelected />
+        <div className="flex-1">
+          <NoFilesSelected />
+        </div>
       )}
     </div>
   );

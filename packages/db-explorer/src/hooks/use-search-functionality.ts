@@ -346,8 +346,8 @@ function getDefaultSearchThreshold(): number {
   let raw: unknown;
   try {
     // Vite-style
-    // biome-ignore lint/suspicious/noExplicitAny: env access differs across runtimes
-    const viteEnv = (import.meta as any)?.env?.VITE_SEARCH_DEFAULT_THRESHOLD;
+    const meta = import.meta as unknown as { env?: Record<string, string> };
+    const viteEnv = meta?.env?.['VITE_SEARCH_DEFAULT_THRESHOLD'];
     if (viteEnv !== undefined) {
       raw = viteEnv;
     }
@@ -383,16 +383,16 @@ function getReRankWeights(): {
   let lexical = 0.1;
   let adjacency = 0.05;
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: env access differs across runtimes
-    const env = (import.meta as any)?.env || (typeof process !== 'undefined' ? process.env : {});
+    const meta = import.meta as unknown as { env?: Record<string, string> };
+    const env = meta?.env || (typeof process !== 'undefined' ? process.env : {});
     const num = (v: unknown) => {
       const n = typeof v === 'string' ? Number.parseFloat(v) : Number(v);
       return Number.isFinite(n) ? n : undefined;
     };
-    vector = num(env?.VITE_RERANK_VECTOR ?? env?.RERANK_VECTOR) ?? vector;
-    fileBoost = num(env?.VITE_RERANK_FILE_BOOST ?? env?.RERANK_FILE_BOOST) ?? fileBoost;
-    lexical = num(env?.VITE_RERANK_LEXICAL ?? env?.RERANK_LEXICAL) ?? lexical;
-    adjacency = num(env?.VITE_RERANK_ADJACENCY ?? env?.RERANK_ADJACENCY) ?? adjacency;
+    vector = num(env?.['VITE_RERANK_VECTOR'] ?? env?.['RERANK_VECTOR']) ?? vector;
+    fileBoost = num(env?.['VITE_RERANK_FILE_BOOST'] ?? env?.['RERANK_FILE_BOOST']) ?? fileBoost;
+    lexical = num(env?.['VITE_RERANK_LEXICAL'] ?? env?.['RERANK_LEXICAL']) ?? lexical;
+    adjacency = num(env?.['VITE_RERANK_ADJACENCY'] ?? env?.['RERANK_ADJACENCY']) ?? adjacency;
   } catch {}
   return { vector, fileBoost, lexical, adjacency };
 }

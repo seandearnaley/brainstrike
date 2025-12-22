@@ -1,5 +1,3 @@
-import type { PGlite } from '@electric-sql/pglite';
-
 /**
  * Helper functions for creating and managing dimension-based HNSW indexes.
  * These indexes use partial indexes with expression casting to support
@@ -9,6 +7,11 @@ import type { PGlite } from '@electric-sql/pglite';
 type HnswParams = {
   m: number;
   ef: number;
+};
+
+type DimensionIndexDb = {
+  exec(sql: string, params?: unknown): Promise<unknown>;
+  query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
 };
 
 /**
@@ -49,7 +52,7 @@ function indexName(dimension: number): string {
  * @param params - HNSW tuning parameters (m, ef_construction)
  */
 export async function createDimensionIndex(
-  db: Pick<PGlite, 'exec' | 'query'>,
+  db: DimensionIndexDb,
   dimension: number,
   params: HnswParams
 ): Promise<void> {
@@ -82,7 +85,7 @@ export async function createDimensionIndex(
  * @param dimension - The embedding dimension whose index to drop
  */
 export async function dropDimensionIndex(
-  db: Pick<PGlite, 'exec'>,
+  db: Pick<DimensionIndexDb, 'exec'>,
   dimension: number
 ): Promise<void> {
   const name = indexName(dimension);
@@ -99,7 +102,9 @@ export async function dropDimensionIndex(
  * @param db - PGlite database instance
  * @returns Array of distinct dimension values
  */
-export async function getDistinctDimensions(db: Pick<PGlite, 'query'>): Promise<number[]> {
+export async function getDistinctDimensions(
+  db: Pick<DimensionIndexDb, 'query'>
+): Promise<number[]> {
   const result = await db.query<{ dimensions: number }>(
     'SELECT DISTINCT dimensions FROM embedding_sets WHERE dimensions IS NOT NULL ORDER BY dimensions'
   );
@@ -114,7 +119,7 @@ export async function getDistinctDimensions(db: Pick<PGlite, 'query'>): Promise<
  * @param dimension - The embedding dimension to ensure index for
  */
 export async function ensureDimensionIndexExists(
-  db: Pick<PGlite, 'exec' | 'query'>,
+  db: DimensionIndexDb,
   dimension: number
 ): Promise<void> {
   const params = hnswParams();
@@ -129,7 +134,7 @@ export async function ensureDimensionIndexExists(
  * @returns true if index exists
  */
 export async function dimensionIndexExists(
-  db: Pick<PGlite, 'query'>,
+  db: Pick<DimensionIndexDb, 'query'>,
   dimension: number
 ): Promise<boolean> {
   const name = indexName(dimension);
@@ -148,7 +153,7 @@ export async function dimensionIndexExists(
  * @param dimensions - Array of dimensions whose indexes to drop
  */
 export async function dropAllDimensionIndexes(
-  db: Pick<PGlite, 'exec'>,
+  db: Pick<DimensionIndexDb, 'exec'>,
   dimensions: number[]
 ): Promise<void> {
   for (const dim of dimensions) {

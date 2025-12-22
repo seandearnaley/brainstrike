@@ -1,25 +1,27 @@
 /**
  * SearchModeBar Component
  *
- * Mode toggle and search input container for the Collection Browser.
- * Provides explicit switching between Quick Filter and Semantic Search modes.
+ * Unified top bar for semantic search controls.
+ * Quick filtering is handled separately via the FilterBar toggle.
+ *
+ * When the semantic query is cleared, the component signals mode reset
+ * via `onModeChange('quick')` to restore the full tree view.
  */
 
-import { ChevronDown, ChevronUp, Filter, Loader2, Search, Sparkles, X } from 'lucide-react';
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Filter,
+  Loader2,
+  Settings,
+  Sparkles,
+  X,
+} from 'lucide-react';
 import * as React from 'react';
 import { Button } from '../button';
 import { ExpandableTextarea } from '../expandable-textarea';
 import { cn } from '../lib/utils';
-import { SearchConfigPanel } from './search-config-panel';
-import type { SearchMode, SearchModeBarProps } from './types';
-
-/**
- * Mode toggle tabs configuration
- */
-const MODE_TABS: Array<{ mode: SearchMode; label: string; icon: React.ReactNode }> = [
-  { mode: 'quick', label: 'Quick Filter', icon: <Filter className="h-3 w-3" /> },
-  { mode: 'semantic', label: 'Semantic Search', icon: <Sparkles className="h-3 w-3" /> },
-];
+import type { SearchModeBarProps } from './types';
 
 /**
  * SearchModeBar - Mode toggle and search input container
@@ -31,14 +33,16 @@ export const SearchModeBar = React.memo(function SearchModeBar({
   onSemanticQueryChange,
   onSemanticSearch,
   isSearching,
-  searchConfig,
-  onSearchConfigChange,
   isConfigExpanded,
   onConfigExpandedChange,
-  resultCount,
-  totalCount,
+  isFilterVisible,
+  onFilterVisibleChange,
+  filters,
+  onResetFilters,
   onExpandAll,
   onCollapseAll,
+  resultCount,
+  totalCount,
   hasSearched,
   className,
 }: SearchModeBarProps) {
@@ -46,26 +50,30 @@ export const SearchModeBar = React.memo(function SearchModeBar({
   const handleSemanticQueryChange = React.useCallback(
     (value: string) => {
       onSemanticQueryChange(value);
+      if (value.trim() === '' && mode === 'semantic' && hasSearched) {
+        onModeChange('quick');
+      }
     },
-    [onSemanticQueryChange]
+    [onSemanticQueryChange, mode, hasSearched, onModeChange]
   );
 
   // Handle clear semantic query
   const handleClearSemanticQuery = React.useCallback(() => {
     onSemanticQueryChange('');
-  }, [onSemanticQueryChange]);
+    if (mode === 'semantic' && hasSearched) {
+      onModeChange('quick');
+    }
+  }, [onSemanticQueryChange, mode, hasSearched, onModeChange]);
 
   // Handle keyboard shortcuts for semantic search
   const handleSemanticKeyDown = React.useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Cmd/Ctrl + Enter to search
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         if (!isSearching && semanticQuery.trim()) {
           onSemanticSearch();
         }
       }
-      // Escape to blur
       if (e.key === 'Escape') {
         e.currentTarget.blur();
       }
@@ -73,155 +81,169 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     [isSearching, semanticQuery, onSemanticSearch]
   );
 
-  // Handle mode tab click
-  const handleModeClick = React.useCallback(
-    (newMode: SearchMode) => {
-      if (newMode !== mode) {
-        onModeChange(newMode);
-      }
-    },
-    [mode, onModeChange]
-  );
+  // Check if any filters are active
+  const hasActiveFilters = React.useMemo(() => {
+    if (!filters) {
+      return false;
+    }
+    return (
+      filters.searchQuery !== '' ||
+      filters.nodeTypes.size !== 4 ||
+      filters.embeddingStatus !== 'all'
+    );
+  }, [filters]);
+
+  const resultInfo = React.useMemo(() => {
+    if (resultCount === undefined || totalCount === undefined || !hasSearched) {
+      return null;
+    }
+    return mode === 'semantic'
+      ? `${resultCount} match${resultCount !== 1 ? 'es' : ''}`
+      : `${resultCount} of ${totalCount}`;
+  }, [resultCount, totalCount, hasSearched, mode]);
 
   return (
-    <div className={cn('border-border border-b bg-background', className)}>
-      {/* Mode toggle tabs */}
-      <div className="flex items-center border-border border-b">
-        <div aria-label="Search mode" className="flex flex-1" role="tablist">
-          {MODE_TABS.map((tab) => (
-            <button
-              aria-controls={`${tab.mode}-search-panel`}
-              aria-selected={mode === tab.mode}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-2 font-medium text-xs transition-colors',
-                '-mb-px border-b-2',
-                mode === tab.mode
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:border-muted-foreground/50 hover:text-foreground'
-              )}
-              key={tab.mode}
-              onClick={() => handleModeClick(tab.mode)}
-              role="tab"
-              type="button"
+    <div className={cn('bg-background', className)}>
+      <div className="flex flex-col gap-1.5 p-1.5 px-2">
+        <div className="flex items-start gap-2">
+          <div className="relative flex-1">
+            <ExpandableTextarea
+              aria-label="Semantic search query"
+              className="min-h-[36px] pr-8 text-xs"
+              disabled={isSearching}
+              maxLength={10_000}
+              maxRows={6}
+              minRows={1}
+              onChange={handleSemanticQueryChange}
+              onKeyDown={handleSemanticKeyDown}
+              placeholder="Ask a question... (Cmd+Enter)"
+              value={semanticQuery}
+            />
+            {semanticQuery && !isSearching && (
+              <Button
+                aria-label="Clear query"
+                className="absolute top-1.5 right-1 h-5 w-5 p-0"
+                onClick={handleClearSemanticQuery}
+                size="sm"
+                variant="ghost"
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1">
+            <Button
+              className="h-[36px] gap-1.5 px-3"
+              disabled={isSearching || !semanticQuery.trim()}
+              onClick={onSemanticSearch}
+              size="sm"
             >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </div>
+              {isSearching ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              <span className="hidden sm:inline">Query</span>
+            </Button>
 
-        {/* Expand/Collapse controls (only in quick mode) */}
-        {mode === 'quick' && (onExpandAll || onCollapseAll) && (
-          <div className="flex items-center gap-1 px-2">
-            {onExpandAll && (
-              <Button
-                aria-label="Expand all nodes"
-                className="h-6 w-6 p-0"
-                onClick={onExpandAll}
-                size="sm"
-                title="Expand all"
-                variant="ghost"
-              >
-                <ChevronDown className="h-3 w-3" />
-              </Button>
-            )}
-            {onCollapseAll && (
-              <Button
-                aria-label="Collapse all nodes"
-                className="h-6 w-6 p-0"
-                onClick={onCollapseAll}
-                size="sm"
-                title="Collapse all"
-                variant="ghost"
-              >
-                <ChevronUp className="h-3 w-3" />
-              </Button>
-            )}
-          </div>
-        )}
+            <div className="ml-1 flex items-center gap-1 border-l pl-1">
+              {(onExpandAll || onCollapseAll) && (
+                <div className="mr-0.5 flex items-center gap-0.5 border-r pr-1">
+                  {onExpandAll && (
+                    <Button
+                      aria-label="Expand all"
+                      className="h-7 w-7 p-0"
+                      onClick={onExpandAll}
+                      size="sm"
+                      title="Expand all"
+                      variant="ghost"
+                    >
+                      <ChevronsUpDown className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                  {onCollapseAll && (
+                    <Button
+                      aria-label="Collapse all"
+                      className="h-7 w-7 p-0"
+                      onClick={onCollapseAll}
+                      size="sm"
+                      title="Collapse all"
+                      variant="ghost"
+                    >
+                      <ChevronsDownUp className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
+                </div>
+              )}
 
-        {/* Result count */}
-        {resultCount !== undefined && totalCount !== undefined && (
-          <div className="px-3 text-muted-foreground text-xs">
-            {mode === 'semantic' && hasSearched
-              ? `${resultCount} match${resultCount !== 1 ? 'es' : ''}`
-              : `${resultCount} of ${totalCount}`}
-          </div>
-        )}
-      </div>
-
-      {/* Quick Filter mode - no panel needed, CollectionBrowser's FilterBar handles it */}
-
-      {/* Semantic Search Panel */}
-      {mode === 'semantic' && (
-        <div
-          aria-labelledby="semantic-tab"
-          className="p-2"
-          id="semantic-search-panel"
-          role="tabpanel"
-        >
-          <div className="space-y-2">
-            {/* Search input */}
-            <div className="relative">
-              <ExpandableTextarea
-                aria-label="Semantic search query"
-                className="pr-8"
-                disabled={isSearching}
-                maxRows={6}
-                minRows={1}
-                onChange={handleSemanticQueryChange}
-                onKeyDown={handleSemanticKeyDown}
-                placeholder="Enter semantic search query... (Cmd/Ctrl+Enter to search)"
-                value={semanticQuery}
-              />
-              {semanticQuery && !isSearching && (
+              <div className="relative">
                 <Button
-                  aria-label="Clear query"
-                  className="absolute top-2 right-1 h-6 w-6 p-0"
-                  onClick={handleClearSemanticQuery}
+                  aria-label="Toggle filters"
+                  className={cn(
+                    'h-7 w-7 p-0',
+                    (isFilterVisible || hasActiveFilters) && 'bg-accent text-accent-foreground'
+                  )}
+                  onClick={() => onFilterVisibleChange?.(!isFilterVisible)}
                   size="sm"
+                  title="Filters"
                   variant="ghost"
                 >
-                  <X className="h-3 w-3" />
+                  <Filter className="h-3.5 w-3.5" />
                 </Button>
-              )}
-            </div>
-
-            {/* Search button */}
-            <div className="flex items-center justify-between">
-              <Button
-                className="gap-1.5"
-                disabled={isSearching || !semanticQuery.trim()}
-                onClick={onSemanticSearch}
-                size="sm"
-              >
-                {isSearching ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Searching...
-                  </>
-                ) : (
-                  <>
-                    <Search className="h-3 w-3" />
-                    Search
-                  </>
+                {hasActiveFilters && (
+                  <span className="absolute top-1 right-1 h-1 w-1 rounded-full bg-primary" />
                 )}
-              </Button>
+              </div>
 
-              <span className="text-muted-foreground text-xs">Cmd/Ctrl+Enter to search</span>
+              <Button
+                aria-label="Toggle search settings"
+                className={cn(
+                  'h-7 w-7 p-0',
+                  isConfigExpanded && 'bg-accent text-accent-foreground'
+                )}
+                onClick={() => onConfigExpandedChange(!isConfigExpanded)}
+                size="sm"
+                title="Search Settings"
+                variant="ghost"
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </Button>
             </div>
           </div>
-
-          {/* Config panel */}
-          <SearchConfigPanel
-            className="-mx-2 -mb-2 mt-2"
-            config={searchConfig}
-            isExpanded={isConfigExpanded}
-            onConfigChange={onSearchConfigChange}
-            onExpandedChange={onConfigExpandedChange}
-          />
         </div>
-      )}
+
+        <div className="flex items-center justify-between px-0.5">
+          <div className="flex items-center gap-2">
+            {resultInfo && (
+              <div className="font-medium text-[10px] text-muted-foreground uppercase tracking-wider">
+                {resultInfo}
+              </div>
+            )}
+
+            {hasActiveFilters && (
+              <div className={cn('flex items-center gap-1.5', resultInfo && 'border-l pl-2')}>
+                <span className="text-[10px] text-muted-foreground/70 uppercase tracking-tighter">
+                  Filtered
+                </span>
+                <button
+                  className="rounded-sm px-1 text-[10px] text-primary transition-colors hover:bg-primary/10"
+                  onClick={onResetFilters}
+                  type="button"
+                >
+                  Reset
+                </button>
+              </div>
+            )}
+          </div>
+
+          {!isSearching && semanticQuery.trim() && (
+            <span className="text-[9px] text-muted-foreground/40 uppercase tracking-widest">
+              Cmd+Enter to query
+            </span>
+          )}
+        </div>
+      </div>
     </div>
   );
 });

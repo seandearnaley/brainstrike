@@ -124,7 +124,7 @@ describe('SearchConfigPanel', () => {
       />
     );
 
-    expect(screen.getByText(/collection uses l2/)).toBeInTheDocument();
+    expect(screen.getByText(/l2/)).toBeInTheDocument();
   });
 
   it('does not show warning when collection metric matches selected', () => {

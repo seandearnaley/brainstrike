@@ -75,6 +75,12 @@ describe('ExpandableTextarea', () => {
     expect(screen.getByRole('textbox')).toHaveAttribute('aria-label', 'Search input');
   });
 
+  it('applies maxLength when provided', () => {
+    const onChange = vi.fn();
+    render(<ExpandableTextarea maxLength={123} onChange={onChange} value="" />);
+    expect(screen.getByRole('textbox')).toHaveAttribute('maxLength', '123');
+  });
+
   it('calls onKeyDown when key is pressed', () => {
     const onChange = vi.fn();
     const onKeyDown = vi.fn();

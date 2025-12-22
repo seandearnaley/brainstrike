@@ -159,6 +159,11 @@ describe('collection-browser-store', () => {
       useCollectionBrowserStore.getState().setInspectorCollapsed(false);
       expect(useCollectionBrowserStore.getState().isInspectorCollapsed).toBe(false);
     });
+
+    it('sets inspector width', () => {
+      useCollectionBrowserStore.getState().setInspectorWidth(40);
+      expect(useCollectionBrowserStore.getState().inspectorWidth).toBe(40);
+    });
   });
 
   describe('filter state', () => {
@@ -199,6 +204,39 @@ describe('collection-browser-store', () => {
     });
   });
 
+  describe('semantic search state', () => {
+    it('initializes with semantic defaults', () => {
+      const state = useCollectionBrowserStore.getState();
+      expect(state.searchMode).toBe('semantic');
+      expect(state.semanticQuery).toBe('');
+      expect(state.searchConfigThreshold).toBe(0.5);
+      expect(state.searchConfigLimit).toBe(20);
+      expect(state.searchConfigDistanceMetric).toBe('cosine');
+      expect(state.searchConfigExpanded).toBe(false);
+      expect(state.isFilterVisible).toBe(false);
+    });
+
+    it('updates semantic search state', () => {
+      const store = useCollectionBrowserStore.getState();
+      store.setSearchMode('quick');
+      store.setSemanticQuery('what is this?');
+      store.setSearchConfigThreshold(0.9);
+      store.setSearchConfigLimit(5);
+      store.setSearchConfigDistanceMetric('l2');
+      store.setSearchConfigExpanded(true);
+      store.setIsFilterVisible(true);
+
+      const state = useCollectionBrowserStore.getState();
+      expect(state.searchMode).toBe('quick');
+      expect(state.semanticQuery).toBe('what is this?');
+      expect(state.searchConfigThreshold).toBe(0.9);
+      expect(state.searchConfigLimit).toBe(5);
+      expect(state.searchConfigDistanceMetric).toBe('l2');
+      expect(state.searchConfigExpanded).toBe(true);
+      expect(state.isFilterVisible).toBe(true);
+    });
+  });
+
   describe('reset', () => {
     it('resets all state to defaults', () => {
       const store = useCollectionBrowserStore.getState();
@@ -208,9 +246,17 @@ describe('collection-browser-store', () => {
       store.setSelectedId('file-123');
       store.setSortState({ key: 'name', direction: 'asc' });
       store.setInspectorCollapsed(true);
+      store.setInspectorWidth(40);
       store.setSearchQuery('test');
       store.setNodeTypes(['file']);
       store.setEmbeddingStatus('complete');
+      store.setSearchMode('quick');
+      store.setSemanticQuery('test semantic');
+      store.setSearchConfigThreshold(0.9);
+      store.setSearchConfigLimit(5);
+      store.setSearchConfigDistanceMetric('l2');
+      store.setSearchConfigExpanded(true);
+      store.setIsFilterVisible(true);
 
       // Reset
       store.reset();
@@ -221,9 +267,17 @@ describe('collection-browser-store', () => {
       expect(state.selectedId).toBeNull();
       expect(state.sortState).toBeNull();
       expect(state.isInspectorCollapsed).toBe(false);
+      expect(state.inspectorWidth).toBe(25);
       expect(state.searchQuery).toBe('');
       expect(state.nodeTypes).toEqual(['collection', 'file', 'chunk', 'embedding']);
       expect(state.embeddingStatus).toBe('all');
+      expect(state.searchMode).toBe('semantic');
+      expect(state.semanticQuery).toBe('');
+      expect(state.searchConfigThreshold).toBe(0.5);
+      expect(state.searchConfigLimit).toBe(20);
+      expect(state.searchConfigDistanceMetric).toBe('cosine');
+      expect(state.searchConfigExpanded).toBe(false);
+      expect(state.isFilterVisible).toBe(false);
     });
   });
 

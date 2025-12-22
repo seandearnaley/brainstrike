@@ -1,12 +1,16 @@
 import { createLogger, generateUUID } from '@brainstrike/utils';
-import type { PGlite } from '@electric-sql/pglite';
 import { ensureDimensionIndexExists } from '../migrations/dimension-index-helpers.js';
 import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
+
+type EmbeddingSetsDb = {
+  exec(sql: string, params?: unknown): Promise<unknown>;
+  query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
+};
 
 export class EmbeddingSetsRepository {
   private readonly logger = createLogger('EmbeddingSetsRepository');
 
-  constructor(private readonly db: PGlite) {}
+  constructor(private readonly db: EmbeddingSetsDb) {}
 
   async getOrCreateSet(
     modelKey: string,

@@ -11,26 +11,18 @@ import type {
   BrowserNodeData,
   ChunkData,
   CollectionBrowserFilters,
-  CollectionData,
   CollectionNodeType,
   EmbeddingData,
   EmbeddingStatus,
   FileData,
   SemanticSearchResult,
 } from './types';
+import { EMBEDDING_STATUS_CONFIG } from './types';
 
 /**
  * Input data for building the collection tree
  */
 export type CollectionTreeInput = {
-  /** Embedding sets / collections */
-  collections: Array<{
-    id: string;
-    name?: string;
-    description?: string;
-    modelId: string;
-    dimensions: number;
-  }>;
   /** File records */
   files: Array<{
     id: string;
@@ -58,10 +50,10 @@ export type CollectionTreeInput = {
 /**
  * Sort key for hierarchical sorting.
  * Each key applies contextually to different node types:
- * - 'name': collections/files by name, chunks by index
+ * - 'name': files by name, chunks by index
  * - 'size': files by file size, chunks by token count
  * - 'status': by embedding completion status
- * - 'count': collections by file count, files by chunk count
+ * - 'count': files by chunk count
  */
 export type CollectionSortKey = 'name' | 'size' | 'status' | 'count' | 'score';
 
@@ -171,20 +163,44 @@ function getChunkEmbeddingStatus(
 /**
  * Get searchable text fields from node data
  */
-function getSearchableFields(data: BrowserNodeData): string[] {
-  const fields: string[] = [];
-  if ('name' in data && typeof data.name === 'string') {
-    fields.push(data.name);
+function getSearchableFields(node: TreeNode<BrowserNodeData>): string[] {
+  const { data, type } = node;
+  const fields: string[] = [type, node.id.replace(/^(collection|file|chunk|embedding)-/, '')];
+
+  // Strings
+  const stringFields = ['name', 'description', 'path', 'content'];
+  for (const key of stringFields) {
+    if (key in data && data[key as keyof typeof data]) {
+      fields.push(String(data[key as keyof typeof data]));
+    }
   }
-  if ('description' in data && typeof data.description === 'string') {
-    fields.push(data.description);
+
+  // Status and labels
+  if ('embeddingStatus' in data && data.embeddingStatus) {
+    fields.push(data.embeddingStatus);
+    const config =
+      EMBEDDING_STATUS_CONFIG[data.embeddingStatus as keyof typeof EMBEDDING_STATUS_CONFIG];
+    if (config?.label) {
+      fields.push(config.label);
+    }
   }
-  if ('path' in data && typeof data.path === 'string') {
-    fields.push(data.path);
+
+  // Numbers
+  const numFields = ['size', 'index', 'dimensions'];
+  for (const key of numFields) {
+    if (key in data && data[key as keyof typeof data] !== undefined) {
+      fields.push(String(data[key as keyof typeof data]));
+    }
   }
-  if ('content' in data && typeof data.content === 'string') {
-    fields.push(data.content);
+
+  // Context for chunks
+  if (type === 'chunk') {
+    const chunkData = data as ChunkData;
+    if (chunkData.metadata?.['fileName']) {
+      fields.push(chunkData.metadata['fileName'] as string);
+    }
   }
+
   return fields;
 }
 
@@ -198,26 +214,6 @@ const STATUS_PRIORITY: Record<EmbeddingStatus, number> = {
   failed: 3,
   none: 4,
 };
-
-/**
- * Get sort value for a collection node
- */
-function getCollectionSortValue(data: CollectionData, sortKey: CollectionSortKey): string | number {
-  switch (sortKey) {
-    case 'name':
-      return data.name.toLowerCase();
-    case 'size':
-      return data.embeddingCount;
-    case 'status':
-      // Collections don't have status, sort by completion ratio
-      return data.chunkCount > 0 ? data.embeddingCount / data.chunkCount : 0;
-    case 'count':
-      return data.fileCount;
-    case 'score':
-      // Score sorting is handled specially in sortNodes using similarityScores map
-      return 0;
-  }
-}
 
 /**
  * Get sort value for a file node
@@ -284,8 +280,6 @@ function getNodeSortValue(
   sortKey: CollectionSortKey
 ): string | number {
   switch (node.type) {
-    case 'collection':
-      return getCollectionSortValue(node.data as CollectionData, sortKey);
     case 'file':
       return getFileSortValue(node.data as FileData, sortKey);
     case 'chunk':
@@ -351,7 +345,7 @@ function matchesSearch(node: TreeNode<BrowserNodeData>, searchQuery: string): bo
     return true;
   }
   const query = searchQuery.toLowerCase();
-  const fields = getSearchableFields(node.data);
+  const fields = getSearchableFields(node);
   return fields.some((field) => field.toLowerCase().includes(query));
 }
 
@@ -377,7 +371,7 @@ function createEmbeddingNode(
   return {
     id: `embedding-${chunk.id}`,
     type: 'embedding',
-    depth: 3,
+    depth: 2,
     data: embeddingData,
     parentId,
     hasChildren: false,
@@ -391,7 +385,8 @@ function createChunkNode(
   chunk: CollectionTreeInput['chunks'][0],
   parentId: string,
   pendingChunkIds: Set<string> | undefined,
-  ctx: TreeBuildContext
+  ctx: TreeBuildContext,
+  fileName?: string
 ): TreeNode<BrowserNodeData> {
   const chunkStatus = getChunkEmbeddingStatus(chunk, pendingChunkIds);
   const hasEmbedding = Boolean(chunk.embedding && chunk.embedding.length > 0);
@@ -403,10 +398,14 @@ function createChunkNode(
     embeddingStatus: chunkStatus,
   };
 
+  if (fileName) {
+    chunkData.metadata = { fileName };
+  }
+
   const chunkNode: TreeNode<BrowserNodeData> = {
     id: `chunk-${chunk.id}`,
     type: 'chunk',
-    depth: 2,
+    depth: 1,
     data: chunkData,
     parentId,
     hasChildren: hasEmbedding,
@@ -428,7 +427,7 @@ function createChunkNode(
  */
 function createFileNode(
   file: CollectionTreeInput['files'][0],
-  parentId: string,
+  parentId: string | null,
   data: CollectionTreeInput,
   ctx: TreeBuildContext
 ): TreeNode<BrowserNodeData> {
@@ -453,7 +452,7 @@ function createFileNode(
   const fileNode: TreeNode<BrowserNodeData> = {
     id: `file-${file.id}`,
     type: 'file',
-    depth: 1,
+    depth: 0,
     data: fileData,
     parentId,
     hasChildren: fileChunks.length > 0,
@@ -463,57 +462,11 @@ function createFileNode(
 
   // Create chunk nodes
   const chunkNodes = fileChunks.map((chunk) =>
-    createChunkNode(chunk, fileNode.id, data.pendingChunkIds, ctx)
+    createChunkNode(chunk, fileNode.id, data.pendingChunkIds, ctx, file.name)
   );
   ctx.children.set(fileNode.id, chunkNodes);
 
   return fileNode;
-}
-
-/**
- * Create a collection node with its file children
- */
-function createCollectionNode(
-  collection: CollectionTreeInput['collections'][0],
-  data: CollectionTreeInput,
-  ctx: TreeBuildContext
-): TreeNode<BrowserNodeData> {
-  const collectionFiles = data.files.filter((f) => f.embeddingSetId === collection.id);
-  const collectionChunks = data.chunks.filter((c) => c.embeddingSetId === collection.id);
-  const embeddingCount = collectionChunks.filter(
-    (c) => c.embedding && c.embedding.length > 0
-  ).length;
-
-  const collectionData: CollectionData = {
-    name: collection.name ?? `Collection ${collection.id.slice(0, 8)}`,
-    modelId: collection.modelId,
-    dimensions: collection.dimensions,
-    fileCount: collectionFiles.length,
-    chunkCount: collectionChunks.length,
-    embeddingCount,
-  };
-  if (collection.description !== undefined) {
-    collectionData.description = collection.description;
-  }
-
-  const collectionNode: TreeNode<BrowserNodeData> = {
-    id: `collection-${collection.id}`,
-    type: 'collection',
-    depth: 0,
-    data: collectionData,
-    parentId: null,
-    hasChildren: collectionFiles.length > 0,
-  };
-
-  ctx.all.push(collectionNode);
-
-  // Create file nodes
-  const fileNodes = collectionFiles.map((file) =>
-    createFileNode(file, collectionNode.id, data, ctx)
-  );
-  ctx.children.set(collectionNode.id, fileNodes);
-
-  return collectionNode;
 }
 
 /**
@@ -559,13 +512,7 @@ function checkTypeFilter(
 
   // Type doesn't pass, but check children
   const nodeChildren = ctx.childrenMap.get(node.id) ?? [];
-  const hasVisibleChildren = nodeChildren.some((child) => filterFn(child) !== null);
-
-  // Keep collections if they have visible children
-  if (hasVisibleChildren && nodeType === 'collection') {
-    return node;
-  }
-  return null;
+  return nodeChildren.some((child) => filterFn(child) !== null) ? node : null;
 }
 
 /**
@@ -726,11 +673,46 @@ function computeAggregatedScores(
     scores.set(result.nodeId, result.similarity);
   }
 
-  // Aggregate file scores from chunks, then collection scores from files
+  // Aggregate file scores from chunks
   aggregateScoresForType('file', allNodes, childrenMap, scores);
-  aggregateScoresForType('collection', allNodes, childrenMap, scores);
 
   return scores;
+}
+
+/**
+ * Filter and build visible node IDs for semantic search results
+ */
+function buildSemanticVisibleNodeIds(
+  semanticResults: SemanticSearchResult[],
+  allNodes: TreeNode<BrowserNodeData>[],
+  filterFn: (node: TreeNode<BrowserNodeData>) => TreeNode<BrowserNodeData> | null
+): { visibleNodeIds: Set<string>; matchingCount: number } {
+  const visibleNodeIds = new Set<string>();
+  let matchingCount = 0;
+
+  // Build node map for faster lookup
+  const nodeMap = new Map<string, TreeNode<BrowserNodeData>>();
+  for (const node of allNodes) {
+    nodeMap.set(node.id, node);
+  }
+
+  for (const result of semanticResults) {
+    const node = nodeMap.get(result.nodeId);
+    if (node && filterFn(node)) {
+      visibleNodeIds.add(result.nodeId);
+      matchingCount++;
+
+      // Walk up the tree and mark all ancestors for visibility
+      let currentParentId = node.parentId;
+      while (currentParentId) {
+        visibleNodeIds.add(currentParentId);
+        const parent = nodeMap.get(currentParentId);
+        currentParentId = parent?.parentId ?? null;
+      }
+    }
+  }
+
+  return { visibleNodeIds, matchingCount };
 }
 
 /**
@@ -751,7 +733,7 @@ export function useCollectionTree({
       children: new Map<string, TreeNode<BrowserNodeData>[]>(),
     };
 
-    const roots = data.collections.map((collection) => createCollectionNode(collection, data, ctx));
+    const roots = data.files.map((file) => createFileNode(file, null, data, ctx));
 
     return { rootNodes: roots, allNodes: ctx.all, childrenMap: ctx.children };
   }, [data]);
@@ -841,23 +823,20 @@ export function useCollectionTree({
     // If semantic filter is active, filter to matching nodes and ancestors
     // This includes the case where semanticResults is an empty array (0 results)
     if (filterToSemanticResults && semanticResults) {
-      // Build set of all nodes to show (matching chunks + their ancestors)
-      const visibleNodeIds = new Set<string>();
+      // Create filter context (use sorted children map)
+      const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
+      const filterFn = (node: TreeNode<BrowserNodeData>) => filterTreeNode(node, filterCtx);
 
-      // Add all matching chunks
-      for (const result of semanticResults) {
-        visibleNodeIds.add(result.nodeId);
-      }
+      const { visibleNodeIds, matchingCount } = buildSemanticVisibleNodeIds(
+        semanticResults,
+        allNodes,
+        filterFn
+      );
 
-      // Add all ancestors
-      for (const id of semanticExpandIds) {
-        visibleNodeIds.add(id);
-      }
-
-      // Filter root nodes (will be empty if no results)
+      // Filter root nodes (will be empty if no results pass filters)
       const filtered = sortedRootNodes.filter((root) => visibleNodeIds.has(root.id));
 
-      return { filteredRoots: filtered, filteredCount: semanticResults.length };
+      return { filteredRoots: filtered, filteredCount: matchingCount };
     }
 
     // Standard text filter logic

@@ -30,7 +30,7 @@ const getNavItemStyles = (isActive: boolean): string =>
     // Hover state - uses accent color for consistent look with theme toggle
     'hover:bg-accent hover:text-accent-foreground hover:shadow-sm',
     // Active press state
-    'active:scale-95',
+    'kinetic-depress',
     // Focus visible state for keyboard navigation
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
     // Active/selected state styling - prominent background for clear indication
