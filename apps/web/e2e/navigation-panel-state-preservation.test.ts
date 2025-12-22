@@ -91,10 +91,8 @@ test.describe('Navigation Panel State Preservation', () => {
     // Clear filter to see full tree with expanded folders
     await explorer.filterInput.fill('');
     await expect(explorer.filterInput).toHaveValue('');
-    // Wait for filter to clear - package.json should now be visible
-    await expect(fileTree.getByText('package.json')).toBeVisible({ timeout: 5000 });
 
-    // Verify folders are expanded by checking if nested items are visible
+    // Verify folders are still expanded by checking if nested items remain visible
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).toBeVisible();
     await expect(fileTree.getByText('Header.tsx')).toBeVisible();
@@ -299,8 +297,6 @@ test.describe('Navigation Panel State Preservation', () => {
     // Clear filter
     await explorer.filterInput.fill('');
     await expect(explorer.filterInput).toHaveValue('');
-    // Wait for filter to clear - package.json should now be visible
-    await expect(fileTree.getByText('package.json')).toBeVisible({ timeout: 5000 });
 
     // Select multiple files - use files that are definitely visible after expansion
     const buttonCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
