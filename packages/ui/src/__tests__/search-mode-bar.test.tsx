@@ -57,6 +57,51 @@ describe('SearchModeBar', () => {
     expect(onSemanticQueryChange).toHaveBeenCalledWith('');
   });
 
+  it('exits semantic results when clearing the query after a search', () => {
+    const onSemanticQueryChange = vi.fn();
+    const onModeChange = vi.fn();
+
+    render(
+      <SearchModeBar
+        {...createProps({
+          hasSearched: true,
+          mode: 'semantic',
+          onModeChange,
+          onSemanticQueryChange,
+          semanticQuery: 'test',
+        })}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear query' }));
+
+    expect(onSemanticQueryChange).toHaveBeenCalledWith('');
+    expect(onModeChange).toHaveBeenCalledWith('quick');
+  });
+
+  it('exits semantic results when the query is manually cleared', () => {
+    const onSemanticQueryChange = vi.fn();
+    const onModeChange = vi.fn();
+
+    render(
+      <SearchModeBar
+        {...createProps({
+          hasSearched: true,
+          mode: 'semantic',
+          onModeChange,
+          onSemanticQueryChange,
+          semanticQuery: 'test',
+        })}
+      />
+    );
+
+    const input = screen.getByPlaceholderText(SEARCH_PLACEHOLDER);
+    fireEvent.change(input, { target: { value: '' } });
+
+    expect(onSemanticQueryChange).toHaveBeenCalledWith('');
+    expect(onModeChange).toHaveBeenCalledWith('quick');
+  });
+
   it('disables search button when query is empty', () => {
     render(<SearchModeBar {...createProps({ semanticQuery: '' })} />);
 

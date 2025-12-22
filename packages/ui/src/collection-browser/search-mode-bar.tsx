@@ -1,8 +1,11 @@
 /**
  * SearchModeBar Component
  *
- * Mode toggle and search input container for the Collection Browser.
- * Provides explicit switching between Quick Filter and Semantic Search modes.
+ * Unified top bar for semantic search + quick filter controls.
+ *
+ * Note: This component does **not** render an explicit "mode toggle". Instead,
+ * it provides a clear path to exit semantic results (return to full tree) by
+ * delegating to `onModeChange('quick')` when the semantic query is cleared.
  */
 
 import {
@@ -25,6 +28,7 @@ import type { SearchModeBarProps } from './types';
  */
 export const SearchModeBar = React.memo(function SearchModeBar({
   mode,
+  onModeChange,
   semanticQuery,
   onSemanticQueryChange,
   onSemanticSearch,
@@ -46,14 +50,20 @@ export const SearchModeBar = React.memo(function SearchModeBar({
   const handleSemanticQueryChange = React.useCallback(
     (value: string) => {
       onSemanticQueryChange(value);
+      if (value.trim() === '' && mode === 'semantic' && hasSearched) {
+        onModeChange('quick');
+      }
     },
-    [onSemanticQueryChange]
+    [onSemanticQueryChange, mode, hasSearched, onModeChange]
   );
 
   // Handle clear semantic query
   const handleClearSemanticQuery = React.useCallback(() => {
     onSemanticQueryChange('');
-  }, [onSemanticQueryChange]);
+    if (mode === 'semantic' && hasSearched) {
+      onModeChange('quick');
+    }
+  }, [onSemanticQueryChange, mode, hasSearched, onModeChange]);
 
   // Handle keyboard shortcuts for semantic search
   const handleSemanticKeyDown = React.useCallback(
@@ -101,6 +111,7 @@ export const SearchModeBar = React.memo(function SearchModeBar({
               aria-label="Semantic search query"
               className="min-h-[36px] pr-8 text-xs"
               disabled={isSearching}
+              maxLength={10_000}
               maxRows={6}
               minRows={1}
               onChange={handleSemanticQueryChange}

@@ -21,6 +21,8 @@ export type ExpandableTextareaProps = {
   maxRows?: number;
   /** Keyboard event handler */
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  /** Maximum input length */
+  maxLength?: number;
   /** Custom class name */
   className?: string;
   /** Whether the textarea is disabled */
@@ -47,6 +49,7 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
   minRows = 1,
   maxRows = 6,
   onKeyDown,
+  maxLength,
   className,
   disabled = false,
   id,
@@ -112,6 +115,7 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
       )}
       disabled={disabled}
       id={id}
+      maxLength={maxLength}
       onChange={handleChange}
       onKeyDown={onKeyDown}
       placeholder={placeholder}
