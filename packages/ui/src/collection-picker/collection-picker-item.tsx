@@ -1,5 +1,5 @@
 import { Pencil, Trash2 } from 'lucide-react';
-import { useCallback } from 'react';
+import { memo, useCallback } from 'react';
 import { Badge } from '../badge';
 import { Button } from '../button';
 import { cn } from '../lib/utils';
@@ -16,7 +16,7 @@ import { formatProviderLabel, getCollectionColor } from './utils/collection-colo
  * When selected, shows a colored left border and subtle background tint.
  * Each collection has a unique color based on hashing its ID.
  */
-export function CollectionPickerItem({
+export const CollectionPickerItem = memo(function CollectionPickerItem({
   collection,
   id,
   isSelected,
@@ -68,7 +68,7 @@ export function CollectionPickerItem({
         'group relative cursor-pointer rounded-md border p-3 outline-none transition-all',
         'hover:border-accent-foreground/20 focus-visible:ring-2 focus-visible:ring-ring',
         isSelected && 'border-l-2',
-        isFocused && 'border-accent-foreground/30 ring-2 ring-ring ring-offset-2'
+        isFocused && 'border-accent-foreground/30 ring-2 ring-ring ring-offset-1'
       )}
       id={id}
       onClick={handleClick}
@@ -103,18 +103,27 @@ export function CollectionPickerItem({
           )}
 
           {/* Metadata row */}
-          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-            <span>{collection.dimensions}D</span>
-            <span>{collection.distance}</span>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground/80">
+            <span className="flex items-center gap-1">
+              <span className="font-medium text-foreground/60">{collection.dimensions}</span>
+              <span>D</span>
+            </span>
+            <span className="h-1 w-1 rounded-full bg-border" />
+            <span className="capitalize">{collection.distance}</span>
+            <span className="h-1 w-1 rounded-full bg-border" />
             <span>
-              {collection.fileCount.toLocaleString()}{' '}
+              <span className="font-medium text-foreground/60">
+                {collection.fileCount.toLocaleString()}
+              </span>{' '}
               {collection.fileCount === 1 ? 'file' : 'files'}
             </span>
+            <span className="h-1 w-1 rounded-full bg-border" />
             <span>
-              {collection.chunkCount.toLocaleString()}{' '}
+              <span className="font-medium text-foreground/60">
+                {collection.chunkCount.toLocaleString()}
+              </span>{' '}
               {collection.chunkCount === 1 ? 'chunk' : 'chunks'}
             </span>
-            <span>{collection.embeddingCount.toLocaleString()} embeddings</span>
           </div>
         </div>
 
@@ -144,4 +153,4 @@ export function CollectionPickerItem({
       </div>
     </div>
   );
-}
+});

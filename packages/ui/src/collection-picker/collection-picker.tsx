@@ -49,6 +49,7 @@ export function CollectionPicker({
   className,
 }: CollectionPickerProps) {
   const [focusedIndex, setFocusedIndex] = useState<number>(0);
+  const [isKeyboardFocused, setIsKeyboardFocused] = useState(false);
   const listboxId = useId();
   const labelId = `${listboxId}-label`;
 
@@ -76,6 +77,7 @@ export function CollectionPicker({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      setIsKeyboardFocused(true);
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
@@ -104,6 +106,14 @@ export function CollectionPicker({
     },
     [collections, focusedIndex, handleSelect]
   );
+
+  const handleBlur = useCallback(() => {
+    setIsKeyboardFocused(false);
+  }, []);
+
+  const handlePointerDown = useCallback(() => {
+    setIsKeyboardFocused(false);
+  }, []);
 
   // Loading state
   if (loading) {
@@ -142,17 +152,19 @@ export function CollectionPicker({
         aria-label={showHeader ? undefined : headerLabel}
         aria-labelledby={showHeader ? labelId : undefined}
         className="outline-none"
+        onBlur={handleBlur}
         onKeyDown={handleKeyDown}
+        onPointerDown={handlePointerDown}
         role="listbox"
         tabIndex={0}
       >
-        <ScrollArea className="pr-3" style={{ maxHeight }}>
-          <div className="space-y-2 py-1">
+        <ScrollArea className="flex-1" style={{ maxHeight }}>
+          <div className="space-y-2 px-1 py-1">
             {collections.map((collection, index) => (
               <CollectionPickerItem
                 collection={collection}
                 id={`collection-option-${collection.id}`}
-                isFocused={index === focusedIndex}
+                isFocused={isKeyboardFocused && index === focusedIndex}
                 isSelected={collection.id === selectedId}
                 key={collection.id}
                 onDelete={handleDelete}

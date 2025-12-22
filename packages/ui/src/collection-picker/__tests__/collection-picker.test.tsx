@@ -96,16 +96,12 @@ describe('CollectionPicker', () => {
     render(<CollectionPicker {...defaultProps} />);
 
     const listbox = screen.getByRole('listbox');
-    listbox.focus();
 
-    // Initial focus on index 0
-    expect(screen.getByText('Collection 1').closest('[role="option"]')).toHaveClass('ring-2');
-
-    // ArrowDown
+    // Trigger ArrowDown to enable keyboard focus state and move to index 1
     fireEvent.keyDown(listbox, { key: 'ArrowDown' });
     expect(screen.getByText('bge-m3').closest('[role="option"]')).toHaveClass('ring-2');
 
-    // ArrowUp
+    // ArrowUp back to index 0
     fireEvent.keyDown(listbox, { key: 'ArrowUp' });
     expect(screen.getByText('Collection 1').closest('[role="option"]')).toHaveClass('ring-2');
   });
