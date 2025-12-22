@@ -82,6 +82,7 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
         aria-controls="search-config-content"
         aria-expanded={isExpanded}
         className="h-auto w-full justify-between px-3 py-2 hover:bg-muted/50"
+        depress={false}
         onClick={handleToggle}
         size="sm"
         variant="ghost"

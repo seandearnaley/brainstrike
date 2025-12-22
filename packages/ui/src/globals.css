@@ -378,21 +378,14 @@
     cursor: pointer;
   }
 
-  /* Subtle press effect for all clickable elements */
-  button:not(:disabled):not(.no-depress):active,
-  [role="button"]:not([aria-disabled="true"]):not(.no-depress):active,
-  [role="menuitem"]:not([aria-disabled="true"]):not(.no-depress):active,
-  [role="option"]:not([aria-disabled="true"]):not(.no-depress):active,
-  [role="tab"]:not([aria-disabled="true"]):not(.no-depress):active,
-  input[type="checkbox"]:not(:disabled):not(.no-depress):active,
-  input[type="radio"]:not(:disabled):not(.no-depress):active,
-  input[type="submit"]:not(:disabled):not(.no-depress):active,
-  input[type="button"]:not(:disabled):not(.no-depress):active {
+  /* Subtle press effect for specifically marked kinetic elements */
+  .kinetic-depress:not(:disabled):not([aria-disabled="true"]):not(.no-depress):active {
     transform: scale(0.97);
   }
 
   /* Smooth transition for interactive elements */
   button:not(.no-depress),
+  .kinetic-depress:not(.no-depress),
   [role="button"]:not(.no-depress),
   [role="menuitem"]:not(.no-depress),
   [role="option"]:not(.no-depress),

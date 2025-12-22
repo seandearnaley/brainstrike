@@ -98,7 +98,7 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
             {node.type === 'directory' && (
               <button
                 aria-label={isExpanded ? 'Collapse' : 'Expand'}
-                className="cursor-pointer rounded-md p-1 transition-all duration-150 hover:bg-accent active:scale-90"
+                className="cursor-pointer rounded-md p-1 transition-all duration-150 hover:bg-accent"
                 data-testid={EXPAND_COLLAPSE_TEST_ID}
                 onClick={handleExpansionClick}
                 type="button"

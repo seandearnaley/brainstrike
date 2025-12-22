@@ -34,14 +34,25 @@ export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  /**
+   * Whether to apply the kinetic depress effect on click.
+   * @default true
+   */
+  depress?: boolean;
 }
 
 // biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to button element
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
+  ({ className, variant, size, asChild = false, depress = true, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button';
     return (
-      <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }), {
+          'kinetic-depress': depress,
+        })}
+        ref={ref}
+        {...props}
+      />
     );
   }
 );
