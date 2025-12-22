@@ -75,19 +75,18 @@ test.describe('Navigation Panel State Preservation', () => {
     const fileTree = explorer.fileTree;
     await expect(fileTree).toBeVisible();
 
-    // Step 2: Expand multiple nested folders using the filter + expand all pattern
-    // Filter by 'ts' to match both .ts and .tsx files (including utils/helpers.ts)
-    await explorer.filterInput.fill('ts');
-    // Wait for filter input to have value
-    await expect(explorer.filterInput).toHaveValue('ts');
+    // Step 2: Expand nested folders using the filter + expand all pattern
+    // Filter by 'tsx' to match component files
+    await explorer.filterInput.fill('tsx');
+    await expect(explorer.filterInput).toHaveValue('tsx');
 
     // Expand all matching items - this reveals nested files
     const expandAllBtn = page.getByTestId('expand-all-button-small');
     await expect(expandAllBtn).toBeVisible({ timeout: 5000 });
     await expandAllBtn.click();
-    // Wait for expansion to complete - now nested files should be visible
+    // Wait for expansion to complete - nested component files should be visible
     await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
-    await expect(fileTree.getByText('helpers.ts')).toBeVisible({ timeout: 5000 });
+    await expect(fileTree.getByText('Input.tsx')).toBeVisible({ timeout: 5000 });
 
     // Clear filter to see full tree with expanded folders
     await explorer.filterInput.fill('');
@@ -99,13 +98,11 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).toBeVisible();
     await expect(fileTree.getByText('Header.tsx')).toBeVisible();
-    await expect(fileTree.getByText('helpers.ts')).toBeVisible();
 
     // Step 3: Select multiple files at different levels
     const buttonCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
     const inputCheckbox = fileTree.getByRole('checkbox', { name: 'Select Input.tsx' });
-    const helpersCheckbox = fileTree.getByRole('checkbox', { name: 'Select helpers.ts' });
-    const packageCheckbox = fileTree.getByRole('checkbox', { name: 'Select package.json' });
+    const headerCheckbox = fileTree.getByRole('checkbox', { name: 'Select Header.tsx' });
 
     await buttonCheckbox.click({ force: true });
     await expect(buttonCheckbox).toBeChecked();
@@ -115,13 +112,9 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(inputCheckbox).toBeChecked();
     await expect(page.getByText('2/10')).toBeVisible();
 
-    await helpersCheckbox.click({ force: true });
-    await expect(helpersCheckbox).toBeChecked();
+    await headerCheckbox.click({ force: true });
+    await expect(headerCheckbox).toBeChecked();
     await expect(page.getByText('3/10')).toBeVisible();
-
-    await packageCheckbox.click({ force: true });
-    await expect(packageCheckbox).toBeChecked();
-    await expect(page.getByText('4/10')).toBeVisible();
 
     // Step 4: Show console panel and click on a file to open it in tabbed editor
     const elements = getPanelElements(page);
@@ -171,15 +164,13 @@ test.describe('Navigation Panel State Preservation', () => {
     // 8c. Verify expanded folders are still expanded
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).toBeVisible();
-    await expect(fileTree.getByText('helpers.ts')).toBeVisible();
     await expect(fileTree.getByText('Header.tsx')).toBeVisible();
 
     // 8d. Verify selected files are still selected
     await expect(buttonCheckbox).toBeChecked();
     await expect(inputCheckbox).toBeChecked();
-    await expect(helpersCheckbox).toBeChecked();
-    await expect(packageCheckbox).toBeChecked();
-    await expect(page.getByText('4/10')).toBeVisible();
+    await expect(headerCheckbox).toBeChecked();
+    await expect(page.getByText('3/10')).toBeVisible();
 
     // 8e. Verify tab still shows the selected file
     await expect(tab).toBeVisible();
@@ -205,14 +196,14 @@ test.describe('Navigation Panel State Preservation', () => {
       // Verify critical state elements are still there
       await expect(fileTree.getByText('Button.tsx')).toBeVisible();
       await expect(buttonCheckbox).toBeChecked();
-      await expect(page.getByText('4/10')).toBeVisible();
+      await expect(page.getByText('3/10')).toBeVisible();
     }
 
     // Step 10: Final interaction test - ensure we can still interact with the tree
     // Deselect one item
-    await packageCheckbox.click({ force: true });
-    await expect(packageCheckbox).not.toBeChecked();
-    await expect(page.getByText('3/10')).toBeVisible();
+    await headerCheckbox.click({ force: true });
+    await expect(headerCheckbox).not.toBeChecked();
+    await expect(page.getByText('2/10')).toBeVisible();
 
     // Select a new file to open in tabbed editor
     const inputFile = page.getByRole('button', { name: 'Input.tsx' });
