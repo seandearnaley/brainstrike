@@ -76,8 +76,8 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(fileTree).toBeVisible();
 
     // Step 2: Expand multiple nested folders using the filter + expand all pattern
-    // This pattern has been proven to work in other tests
-    await explorer.filterInput.fill('tsx');
+    // Filter by 'ts' to match both .ts and .tsx files (including utils/helpers.ts)
+    await explorer.filterInput.fill('ts');
     await page.waitForTimeout(300);
 
     // Expand all matching items

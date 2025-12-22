@@ -27,7 +27,7 @@ export function EmptyState({
         'flex h-full w-full flex-col items-center justify-center px-8 text-center',
         // LIGHT: Warm, airy sky gradient
         // DARK: Deep, grounded obsidian/slate gradient
-        'bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]',
+        'bg-gradient-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]',
         className
       )}
       style={style}

@@ -1,11 +1,11 @@
 /**
  * SearchModeBar Component
  *
- * Unified top bar for semantic search + quick filter controls.
+ * Unified top bar for semantic search controls.
+ * Quick filtering is handled separately via the FilterBar toggle.
  *
- * Note: This component does **not** render an explicit "mode toggle". Instead,
- * it provides a clear path to exit semantic results (return to full tree) by
- * delegating to `onModeChange('quick')` when the semantic query is cleared.
+ * When the semantic query is cleared, the component signals mode reset
+ * via `onModeChange('quick')` to restore the full tree view.
  */
 
 import {
