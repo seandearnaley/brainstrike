@@ -112,11 +112,10 @@ function ErrorList({
 
       {showErrors && (
         <div className="fade-in slide-in-from-top-2 mt-2 max-h-32 animate-in space-y-1 overflow-y-auto duration-200">
-          {errors.map((error, index) => (
+          {errors.map((error) => (
             <div
               className="rounded border-destructive border-l-2 bg-destructive/10 p-2 text-xs"
-              // biome-ignore lint/suspicious/noArrayIndexKey: errors can duplicate; stable unique key not available.
-              key={index}
+              key={`${error.file}-${error.error}`}
             >
               <div className="truncate font-medium">{error.file}</div>
               <div className="mt-1 text-muted-foreground">{error.error}</div>

@@ -25,8 +25,6 @@ export type ExpandableTextareaProps = {
   className?: string;
   /** Whether the textarea is disabled */
   disabled?: boolean;
-  /** Maximum character length */
-  maxLength?: number;
   /** ID for the textarea */
   id?: string;
   /** Aria label for accessibility */
@@ -51,7 +49,6 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
   onKeyDown,
   className,
   disabled = false,
-  maxLength,
   id,
   'aria-label': ariaLabel,
 }: ExpandableTextareaProps) {
@@ -115,7 +112,6 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
       )}
       disabled={disabled}
       id={id}
-      maxLength={maxLength}
       onChange={handleChange}
       onKeyDown={onKeyDown}
       placeholder={placeholder}

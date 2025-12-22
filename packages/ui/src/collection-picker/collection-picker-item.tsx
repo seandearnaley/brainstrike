@@ -51,55 +51,9 @@ export function CollectionPickerItem({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      const current = e.currentTarget as HTMLElement;
-      const listbox = current.closest<HTMLElement>('[role="listbox"]');
-      const options = listbox?.querySelectorAll<HTMLElement>('[role="option"]');
-
-      const focusByIndex = (targetIndex: number) => {
-        if (!options || options.length === 0) {
-          return;
-        }
-        const clampedIndex = Math.max(0, Math.min(options.length - 1, targetIndex));
-        options[clampedIndex]?.focus();
-      };
-
-      const currentIndex = options ? Array.from(options).indexOf(current) : -1;
-
-      switch (e.key) {
-        case 'Enter':
-        case ' ': {
-          e.preventDefault();
-          onSelect(collection.id);
-          return;
-        }
-        case 'ArrowDown': {
-          e.preventDefault();
-          if (currentIndex >= 0) {
-            focusByIndex(currentIndex + 1);
-          }
-          return;
-        }
-        case 'ArrowUp': {
-          e.preventDefault();
-          if (currentIndex >= 0) {
-            focusByIndex(currentIndex - 1);
-          }
-          return;
-        }
-        case 'Home': {
-          e.preventDefault();
-          focusByIndex(0);
-          return;
-        }
-        case 'End': {
-          e.preventDefault();
-          if (options) {
-            focusByIndex(options.length - 1);
-          }
-          return;
-        }
-        default:
-          return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onSelect(collection.id);
       }
     },
     [collection.id, onSelect]

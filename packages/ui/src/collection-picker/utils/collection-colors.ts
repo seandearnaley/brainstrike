@@ -29,8 +29,9 @@ function hashString(str: string): number {
  */
 export function extractProviderId(modelKey: string): string | null {
   const parts = modelKey.split('::');
-  if (parts.length > 1 && parts[0]) {
-    return parts[0];
+  if (parts.length > 1) {
+    const providerId = parts[0];
+    return providerId ?? null;
   }
   return null;
 }
