@@ -1,5 +1,6 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import { ChunkingWorkerProvider } from '@brainstrike/file-import';
 import { createFileSystemAdapter, createFixtureCapableAdapter } from '@brainstrike/file-system';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
@@ -136,9 +137,11 @@ ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <HelmetProvider>
       <DbProvider dbPath="idb://web">
-        <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-          <RootLayoutContent />
-        </AdaptersProvider>
+        <ChunkingWorkerProvider>
+          <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+            <RootLayoutContent />
+          </AdaptersProvider>
+        </ChunkingWorkerProvider>
       </DbProvider>
     </HelmetProvider>
   </React.StrictMode>

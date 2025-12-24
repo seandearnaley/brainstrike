@@ -3,7 +3,10 @@ export {
   type QueueProgressEventDetail,
 } from './browser-queue-port';
 export * from './chunking';
+export * from './chunking-worker-context';
+export * from './chunking-worker-port';
 export * from './embedding';
 export * from './embedding-context';
 export * from './enhanced-import';
 export * from './types';
+export * from './use-chunking-worker';

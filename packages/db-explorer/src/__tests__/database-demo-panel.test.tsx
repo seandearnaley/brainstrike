@@ -200,6 +200,19 @@ vi.mock('file-saver', () => ({
   saveAs: vi.fn(),
 }));
 
+// Mock the file-import package to prevent chunking worker initialization
+vi.mock('@brainstrike/file-import', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-import')>();
+  return {
+    ...actual,
+    useChunkingWorker: vi.fn().mockReturnValue({
+      port: null,
+      isReady: false,
+      isProcessing: false,
+    }),
+  };
+});
+
 vi.mock('./enhanced-file-import-service', () => ({
   useEnhancedFileImportService: vi.fn().mockReturnValue({
     isImporting: false,

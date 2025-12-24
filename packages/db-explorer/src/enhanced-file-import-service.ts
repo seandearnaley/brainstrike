@@ -21,6 +21,7 @@ import {
   createBrowserEmbeddingQueuePort,
   type QueueProgressEventDetail,
   runEnhancedImport,
+  useChunkingWorkerContext,
 } from '@brainstrike/file-import';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
@@ -59,15 +60,18 @@ type EnhancedFileImportServiceReturn = {
   importFiles: (
     selectedFilePaths: Set<string>,
     fileTree: IFileNode[],
-    fileContents: Record<string, string>
+    fileContents: Record<string, string>,
+    abortSignal?: AbortSignal
   ) => Promise<void>;
   isImporting: boolean;
   progress: EnhancedImportProgress | null;
   chunkRepository: ReturnType<typeof useFileChunkRepository>;
+  cancelImport: () => void;
 };
 
 type EnhancedImportParams = Parameters<typeof runEnhancedImport<IFileNode>>[0];
 type EmbeddingConfig = NonNullable<EnhancedImportParams['embedding']>;
+type ChunkingWorkerPort = import('@brainstrike/file-import').ChunkingWorkerPort;
 
 async function backfillEmbeddingSetAssignments(
   sql: SqlExecutorPort | null,
@@ -135,7 +139,8 @@ function createPorts(
 function createChunkingConfig(
   options: EnhancedFileImportOptions,
   repository: ReturnType<typeof useFileRecordRepository>,
-  chunkRepository: ReturnType<typeof useFileChunkRepository>
+  chunkRepository: ReturnType<typeof useFileChunkRepository>,
+  chunkingWorkerPort: import('@brainstrike/file-import').ChunkingWorkerPort | null
 ): EnhancedImportParams['chunking'] {
   const config: EnhancedImportParams['chunking'] = {
     enabled: Boolean(options.enableChunking),
@@ -157,6 +162,10 @@ function createChunkingConfig(
   if (options.chunkTokenLimit !== undefined) {
     config.tokenLimit = options.chunkTokenLimit;
   }
+  // Use worker for off-main-thread chunking (if available)
+  if (chunkingWorkerPort) {
+    config.chunkingWorkerPort = chunkingWorkerPort;
+  }
   return config;
 }
 
@@ -173,12 +182,97 @@ function createProgressHandlers(
   return handlers;
 }
 
+type ImportFlowDeps = {
+  controller: AbortController;
+  selectedFilePaths: Set<string>;
+  fileTree: IFileNode[];
+  fileContents: Record<string, string>;
+  options: EnhancedFileImportOptions;
+  baseImportRunner: BaseImportRunner<IFileNode>;
+  repository: ReturnType<typeof useFileRecordRepository>;
+  chunkRepository: ReturnType<typeof useFileChunkRepository>;
+  chunkingWorkerPort: ChunkingWorkerPort | null;
+  queuePort: EmbeddingJobQueuePort | null;
+  sqlPort: SqlExecutorPort | null;
+  setProgress: Dispatch<SetStateAction<EnhancedImportProgress | null>>;
+  activeSetIdRef: { current: string | null };
+};
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Import orchestration requires multiple conditional branches.
+async function runImportFlow({
+  controller,
+  selectedFilePaths,
+  fileTree,
+  fileContents,
+  options,
+  baseImportRunner,
+  repository,
+  chunkRepository,
+  chunkingWorkerPort,
+  queuePort,
+  sqlPort,
+  setProgress,
+  activeSetIdRef,
+}: ImportFlowDeps): Promise<void> {
+  try {
+    // Check if already aborted
+    if (controller.signal.aborted) {
+      logger.info('Import aborted before starting');
+      return;
+    }
+
+    logger.info('Preparing embedding config for enhanced import', {
+      activeSetId: activeSetIdRef.current,
+    });
+    const embeddingConfig = createEmbeddingConfig(
+      chunkRepository,
+      () => activeSetIdRef.current ?? null
+    );
+    logger.debug('Embedding config created', { embeddingConfig });
+    const ports = createPorts(queuePort, sqlPort);
+    // Direct setProgress - worker is in context so re-renders don't affect it
+    const progressHandlers = createProgressHandlers(setProgress, options.onProgress);
+
+    const params: EnhancedImportParams = {
+      request: { selectedFilePaths, fileTree, fileContents },
+      baseImportRunner,
+      chunking: createChunkingConfig(options, repository, chunkRepository, chunkingWorkerPort),
+      embedding: embeddingConfig,
+      progressHandlers,
+      ...(ports ? { ports } : {}),
+    };
+
+    const results = await runEnhancedImport<IFileNode>(params);
+
+    // Check if aborted after import
+    if (controller.signal.aborted) {
+      logger.info('Import completed but was cancelled - keeping imported files/chunks');
+      return;
+    }
+
+    await backfillEmbeddingSetAssignments(
+      sqlPort ?? null,
+      activeSetIdRef.current ?? null,
+      results.map((result) => result.id)
+    );
+
+    options.onComplete?.(results);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      logger.info('Import aborted', { error });
+      return;
+    }
+    options.onError?.(error instanceof Error ? error : new Error('Import failed'));
+  }
+}
+
 export function useEnhancedFileImportService(
   options: EnhancedFileImportOptions = {}
 ): EnhancedFileImportServiceReturn {
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState<EnhancedImportProgress | null>(null);
   const activeSetIdRef = useRef<string | null>(options.resolveTargetEmbeddingSetId?.() ?? null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   const baseCallbacksRef = useRef<{
     onProgress?: (progress: ImportProgress) => void;
     onComplete?: (results: FileImportResult[]) => void;
@@ -188,6 +282,9 @@ export function useEnhancedFileImportService(
   const repository = useFileRecordRepository();
   const chunkRepository = useFileChunkRepository();
   const db = usePGliteDatabase();
+
+  // Get chunking worker from context - initialized at app root, not affected by progress re-renders
+  const { port: chunkingWorkerPort } = useChunkingWorkerContext();
 
   // Feature flag to control embedding queue producer (Phase 3)
   const embedQueueEnabled = (() => {
@@ -238,6 +335,8 @@ export function useEnhancedFileImportService(
         return;
       }
 
+      // Direct setProgress is fine now - chunking worker is in context,
+      // so re-renders here don't re-invoke the worker
       setProgress((prev) => {
         if (!prev) {
           return prev;
@@ -372,8 +471,18 @@ export function useEnhancedFileImportService(
     async (
       selectedFilePaths: Set<string>,
       fileTree: IFileNode[],
-      fileContents: Record<string, string>
+      fileContents: Record<string, string>,
+      abortSignal?: AbortSignal
     ) => {
+      // Create internal abort controller if none provided
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      // Link external signal if provided
+      if (abortSignal) {
+        abortSignal.addEventListener('abort', () => controller.abort());
+      }
+
       setIsImporting(true);
 
       activeSetIdRef.current = options.resolveTargetEmbeddingSetId?.() ?? getActiveEmbeddingSetId();
@@ -390,43 +499,35 @@ export function useEnhancedFileImportService(
       options.onProgress?.(initialProgress);
 
       try {
-        logger.info('Preparing embedding config for enhanced import', {
-          activeSetId: activeSetIdRef.current,
-        });
-        const embeddingConfig = createEmbeddingConfig(
-          chunkRepository,
-          () => activeSetIdRef.current ?? null
-        );
-        logger.debug('Embedding config created', { embeddingConfig });
-        const ports = createPorts(queuePort, sqlPort);
-        const progressHandlers = createProgressHandlers(setProgress, options.onProgress);
-
-        const params: EnhancedImportParams = {
-          request: { selectedFilePaths, fileTree, fileContents },
+        await runImportFlow({
+          controller,
+          selectedFilePaths,
+          fileTree,
+          fileContents,
+          options,
           baseImportRunner,
-          chunking: createChunkingConfig(options, repository, chunkRepository),
-          embedding: embeddingConfig,
-          progressHandlers,
-          ...(ports ? { ports } : {}),
-        };
-
-        const results = await runEnhancedImport<IFileNode>(params);
-
-        await backfillEmbeddingSetAssignments(
-          sqlPort ?? null,
-          activeSetIdRef.current ?? null,
-          results.map((result) => result.id)
-        );
-
-        options.onComplete?.(results);
-      } catch (error) {
-        options.onError?.(error instanceof Error ? error : new Error('Import failed'));
+          repository,
+          chunkRepository,
+          chunkingWorkerPort: chunkingWorkerPort ?? null,
+          queuePort,
+          sqlPort: sqlPort ?? null,
+          setProgress,
+          activeSetIdRef,
+        });
       } finally {
         setIsImporting(false);
+        abortControllerRef.current = null;
       }
     },
-    [baseImportRunner, chunkRepository, options, queuePort, repository, sqlPort]
+    [baseImportRunner, chunkRepository, chunkingWorkerPort, options, queuePort, repository, sqlPort]
   );
+
+  const cancelImport = useCallback(() => {
+    if (abortControllerRef.current) {
+      logger.info('Cancelling import');
+      abortControllerRef.current.abort();
+    }
+  }, []);
 
   return useMemo(
     () => ({
@@ -434,7 +535,8 @@ export function useEnhancedFileImportService(
       isImporting,
       progress,
       chunkRepository,
+      cancelImport,
     }),
-    [importFiles, isImporting, progress, chunkRepository]
+    [importFiles, isImporting, progress, chunkRepository, cancelImport]
   );
 }

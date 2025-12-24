@@ -6,7 +6,7 @@ import {
   useVectorEnabled,
 } from '@brainstrike/db';
 import { TransformersBackend } from '@brainstrike/embeddings';
-import { useVectorPreferencesStore } from '@brainstrike/preferences';
+import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Badge,
@@ -447,6 +447,10 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   const verboseOrtLogs = useVectorPreferencesStore((s) => s.verboseOrtLogs);
   const setVerboseOrtLogs = useVectorPreferencesStore((s) => s.setVerboseOrtLogs);
 
+  // Get isImporting from shared Zustand store - synced by DatabaseDemoPanel during bulk operations
+  // This pauses the 5 live queries in useVectorQueueState to prevent O(n²) performance degradation
+  const isImporting = useVectorStatusUIStore((s) => s.isImporting);
+
   useEffect(() => {
     try {
       TransformersBackend.setVerboseOrtLogs(verboseOrtLogs);
@@ -498,6 +502,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     service,
     activeEmbeddingSetId: activeId,
     shouldAutoBackfill: workerControls.workerLocalRunning,
+    isImporting,
   });
 
   backfillRef.current = queueState.backfillActiveSet;

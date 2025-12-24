@@ -125,6 +125,9 @@ importers:
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../../packages/file-explorer-ui
+      '@brainstrike/file-import':
+        specifier: workspace:*
+        version: link:../../packages/file-import
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
@@ -270,6 +273,9 @@ importers:
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../../packages/file-explorer-ui
+      '@brainstrike/file-import':
+        specifier: workspace:*
+        version: link:../../packages/file-import
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
@@ -547,6 +553,49 @@ importers:
       '@types/node':
         specifier: ^24.10.1
         version: 24.10.1
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(@swc/core@1.15.3(@swc/helpers@0.5.17))(jiti@2.6.1)(postcss@8.5.6)(tsx@4.19.2)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.14
+        version: 4.0.14(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(@vitest/browser-playwright@4.0.14)(@vitest/ui@4.0.14)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.19.2)
+
+  packages/chunking-worker:
+    dependencies:
+      '@babel/parser':
+        specifier: ^7.27.4
+        version: 7.28.5
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
+      '@langchain/textsplitters':
+        specifier: ^0.1.0
+        version: 0.1.0(@langchain/core@0.3.78(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.203.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0)))
+      tiktoken:
+        specifier: ^1.0.22
+        version: 1.0.22
+      xxhash-wasm:
+        specifier: ^1.1.0
+        version: 1.1.0
+    devDependencies:
+      '@testing-library/react':
+        specifier: ^16.3.0
+        version: 16.3.0(@testing-library/dom@10.4.1)(@types/react-dom@19.2.3(@types/react@19.2.7))(@types/react@19.2.7)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.10.1
+      '@types/react':
+        specifier: ^19.1.8
+        version: 19.2.7
+      react:
+        specifier: ^19.1.0
+        version: 19.2.0
+      rimraf:
+        specifier: ^6.1.2
+        version: 6.1.2
       tsup:
         specifier: ^8.5.0
         version: 8.5.1(@swc/core@1.15.3(@swc/helpers@0.5.17))(jiti@2.6.1)(postcss@8.5.6)(tsx@4.19.2)(typescript@5.9.3)
@@ -1012,6 +1061,9 @@ importers:
       '@brainstrike/agent':
         specifier: workspace:*
         version: link:../agent
+      '@brainstrike/chunking-worker':
+        specifier: workspace:*
+        version: link:../chunking-worker
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
@@ -1037,9 +1089,15 @@ importers:
       '@types/node':
         specifier: ^24.10.1
         version: 24.10.1
+      '@types/react':
+        specifier: ^19.1.8
+        version: 19.2.7
       jsdom:
         specifier: 26.1.0
         version: 26.1.0
+      react:
+        specifier: ^19.1.0
+        version: 19.2.0
       rimraf:
         specifier: ^6.1.2
         version: 6.1.2
@@ -3332,6 +3390,12 @@ packages:
   '@langchain/core@0.3.78':
     resolution: {integrity: sha512-Nn0x9erQlK3zgtRU1Z8NUjLuyW0gzdclMsvLQ6wwLeDqV91pE+YKl6uQb+L2NUDs4F0N7c2Zncgz46HxrvPzuA==}
     engines: {node: '>=18'}
+
+  '@langchain/textsplitters@0.1.0':
+    resolution: {integrity: sha512-djI4uw9rlkAb5iMhtLED+xJebDdAG935AdP4eRTB02R7OB/act55Bj9wsskhZsvuyQRpO4O1wQOp85s6T6GWmw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@langchain/core': '>=0.2.21 <0.4.0'
 
   '@langchain/textsplitters@1.0.1':
     resolution: {integrity: sha512-rheJlB01iVtrOUzttscutRgLybPH9qR79EyzBEbf1u97ljWyuxQfCwIWK+SjoQTM9O8M7GGLLRBSYE26Jmcoww==}
@@ -12744,6 +12808,11 @@ snapshots:
       - '@opentelemetry/sdk-trace-base'
       - openai
 
+  '@langchain/textsplitters@0.1.0(@langchain/core@0.3.78(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.203.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0)))':
+    dependencies:
+      '@langchain/core': 0.3.78(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.203.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))
+      js-tiktoken: 1.0.21
+
   '@langchain/textsplitters@1.0.1(@langchain/core@0.3.78(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.203.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0)))':
     dependencies:
       '@langchain/core': 0.3.78(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.203.0(@opentelemetry/api@1.9.0))(@opentelemetry/sdk-trace-base@2.2.0(@opentelemetry/api@1.9.0))
@@ -15711,7 +15780,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vitest: 4.0.14(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(@vitest/browser-playwright@4.0.14)(@vitest/ui@4.0.14)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.19.2)
+      vitest: 4.0.14(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(@vitest/browser-playwright@4.0.14)(@vitest/ui@4.0.14)(happy-dom@19.0.2)(jiti@1.21.7)(jsdom@26.1.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.19.2)
 
   '@vitest/utils@4.0.14':
     dependencies:

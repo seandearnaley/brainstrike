@@ -1,5 +1,6 @@
 import type { ColorScheme, FolderColors } from './color-utils';
 
+export * from './bulk-operation-context';
 export * from './color-utils';
 export * from './console-guard';
 export * from './crypto-utils';
@@ -14,7 +15,7 @@ export * from './file-utils';
 export * from './filter-utils';
 export * from './hash-utils';
 export * from './log-buffer';
-export * from './log-buffer';
+export * from './log-sampling';
 export * from './logger';
 export * from './logging/install-renderer-error-hooks';
 export * from './logging-initializer';
@@ -25,9 +26,9 @@ export * from './quick-filter-utils';
 export * from './report-generator';
 export * from './safe-storage';
 export * from './selection-utils';
+export * from './throttled-state';
 export * from './token-utils';
 export * from './tree-generator';
-// export * from './git-utils'; // Removed
 export * from './url-utils';
 
 export type { ColorScheme, FolderColors };

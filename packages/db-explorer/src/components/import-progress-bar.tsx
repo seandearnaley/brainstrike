@@ -5,6 +5,8 @@ import type { EnhancedImportProgress } from '../types';
 type ImportProgressBarProps = {
   progress: EnhancedImportProgress;
   onClose?: () => void;
+  onCancel?: () => void;
+  isCancelling?: boolean;
 };
 
 /**
@@ -13,11 +15,18 @@ type ImportProgressBarProps = {
  * Designed to sit above the footer toolbar with minimal height.
  * Shows dual progress bars for files and chunks side by side.
  */
-export function ImportProgressBar({ progress, onClose }: ImportProgressBarProps) {
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Progress rendering branches on multiple phases.
+export function ImportProgressBar({
+  progress,
+  onClose,
+  onCancel,
+  isCancelling,
+}: ImportProgressBarProps) {
   const { total, completed, errors } = progress;
   const filePercentage = total > 0 ? Math.round((completed / total) * 100) : 0;
   const isComplete = total > 0 && completed >= total;
   const hasErrors = errors.length > 0;
+  const showCancelButton = onCancel && !isComplete && !isCancelling;
 
   // Chunk progress from chunkingProgress or queueProgress
   const chunkProgress = progress.chunkingProgress ?? progress.queueProgress;
@@ -39,11 +48,13 @@ export function ImportProgressBar({ progress, onClose }: ImportProgressBarProps)
       <div className="flex items-center gap-2">
         {isComplete ? (
           <CheckCircle className="h-4 w-4 text-emerald-500" />
+        ) : isCancelling ? (
+          <div className="h-4 w-4 animate-pulse rounded-full bg-amber-500/50" />
         ) : (
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         )}
         <span className="whitespace-nowrap font-medium text-xs">
-          {isComplete ? 'Complete' : 'Importing'}
+          {isComplete ? 'Complete' : isCancelling ? 'Cancelling...' : 'Importing'}
         </span>
       </div>
 
@@ -85,18 +96,31 @@ export function ImportProgressBar({ progress, onClose }: ImportProgressBarProps)
         </span>
       )}
 
-      {/* Close button */}
-      {onClose && (
-        <Button
-          aria-label="Close import progress"
-          className="h-6 w-6 shrink-0 p-0"
-          onClick={onClose}
-          size="sm"
-          variant="ghost"
-        >
-          <X className="h-3.5 w-3.5" />
-        </Button>
-      )}
+      {/* Action buttons */}
+      <div className="flex items-center gap-1">
+        {showCancelButton && (
+          <Button
+            aria-label="Cancel import"
+            className="h-6 gap-1 px-2 font-medium text-[11px]"
+            onClick={onCancel}
+            size="sm"
+            variant="destructive"
+          >
+            Cancel
+          </Button>
+        )}
+        {onClose && isComplete && (
+          <Button
+            aria-label="Close import progress"
+            className="h-6 w-6 shrink-0 p-0"
+            onClick={onClose}
+            size="sm"
+            variant="ghost"
+          >
+            <X className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
     </div>
   );
 }

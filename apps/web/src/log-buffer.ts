@@ -1,16 +1,43 @@
-import { addLogListener, LogBuffer } from '@brainstrike/utils';
+import { addLogListener, LogBuffer, registerBulkOperationPauseCallback } from '@brainstrike/utils';
 
-const webLogBuffer = new LogBuffer({ size: 1000 });
+// Use smaller buffer with arg size limits for better memory performance
+const webLogBuffer = new LogBuffer({
+  size: 500, // Reduced from 1000 for memory efficiency
+  maxArgSize: 500, // Limit arg size to 500 chars
+});
+
 const removeListener = addLogListener((record) => {
   webLogBuffer.push(record);
 });
 
+// Register with bulk operation context - pause during bulk ops
+const unregisterBulkOp = registerBulkOperationPauseCallback(
+  () => webLogBuffer.pause(),
+  () => webLogBuffer.resume()
+);
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     removeListener();
+    unregisterBulkOp();
   });
 }
 
 export function getWebLogBuffer(): LogBuffer {
   return webLogBuffer;
+}
+
+/**
+ * Manually pause the log buffer during intensive operations.
+ * Prefer using withBulkOperation() which handles this automatically.
+ */
+export function pauseWebLogBuffer(): void {
+  webLogBuffer.pause();
+}
+
+/**
+ * Resume the log buffer after intensive operations.
+ */
+export function resumeWebLogBuffer(): void {
+  webLogBuffer.resume();
 }

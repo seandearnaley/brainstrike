@@ -76,6 +76,8 @@ type ChunkingOptions = {
   // Phase 5: opt-in streaming for large files
   useStreamingForLargeFiles?: boolean;
   streamBatchSize?: number;
+  // Worker port for off-main-thread chunking
+  chunkingWorkerPort?: import('./chunking-worker-port').ChunkingWorkerPort;
 };
 
 type ChunkingProgressSnapshot = {
@@ -300,6 +302,7 @@ async function prepareChunkingExecution(
   };
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Chunking flow coordinates multiple paths.
 export async function processFileChunking(
   result: FileImportResult,
   index: number,
@@ -354,7 +357,69 @@ export async function processFileChunking(
     !!options.useStreamingForLargeFiles &&
     fileRecord.content.length > CHUNKING_CONFIG.veryLargeContentThreshold;
 
+  // Log which chunking path will be taken
+  logger.info('Chunking path decision', {
+    fileId: result.id,
+    hasWorkerPort: !!options.chunkingWorkerPort,
+    workerPortIsReady: options.chunkingWorkerPort?.isReady?.() ?? false,
+    shouldStream,
+    contentLength: fileRecord.content.length,
+  });
+
+  // Use worker if available (preferred path - moves chunking off main thread)
+  if (options.chunkingWorkerPort) {
+    // Wait for worker to be ready (max 5 seconds)
+    if (!options.chunkingWorkerPort.isReady()) {
+      logger.info('Waiting for chunking worker to be ready...', { fileId: result.id });
+      const startWait = Date.now();
+      while (!options.chunkingWorkerPort.isReady() && Date.now() - startWait < 5000) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!options.chunkingWorkerPort.isReady()) {
+        throw new Error('Chunking worker failed to become ready within 5 seconds');
+      }
+    }
+    logger.info('Using WORKER path for chunking', { fileId: result.id });
+    const workerResult = await processFileChunkingWorkerPath(
+      options.chunkingWorkerPort,
+      fileRecord.content,
+      result,
+      strategy,
+      repository,
+      chunkRepository,
+      fileRecord.name,
+      fileRecord.path,
+      options,
+      forceStrategy,
+      hasUserOverrides
+    );
+    logger.info('File chunked successfully (worker)', {
+      fileId: result.id,
+      fileName: fileRecord.name,
+      chunksCreated: workerResult.chunksCreated,
+      requestedStrategy: strategy,
+      strategyUsed: workerResult.strategyUsed,
+    });
+    options.updateProgress((prev) =>
+      prev
+        ? {
+            ...prev,
+            phase: 'chunking',
+            chunkingProgress: {
+              filesProcessed: index + 1,
+              totalFiles,
+              currentFile: fileRecord.name,
+              chunksCreated: totalChunksCreated + workerResult.chunksCreated,
+              strategyUsed: workerResult.strategyUsed,
+            },
+          }
+        : null
+    );
+    return workerResult;
+  }
+
   if (shouldStream) {
+    logger.info('Using STREAMING path for chunking', { fileId: result.id });
     const streamed = await processFileChunkingStreamPath(
       chunkingService,
       fileRecord.content,
@@ -393,6 +458,7 @@ export async function processFileChunking(
     return streamed;
   }
 
+  logger.info('Using MAIN-THREAD path for chunking', { fileId: result.id });
   const chunkingResult = await chunkingService.chunkContent(fileRecord.content, result.id, {
     strategy,
     ...(chunkSizeOverride !== undefined ? { maxTokens: chunkSizeOverride } : {}),
@@ -580,6 +646,106 @@ async function flushBatch(
   }
   batch.length = 0;
   return inserted.length;
+}
+
+/**
+ * Process file chunking using the Web Worker (off main thread).
+ * This is the preferred path when a worker port is available.
+ */
+async function processFileChunkingWorkerPath(
+  workerPort: NonNullable<ChunkingOptions['chunkingWorkerPort']>,
+  content: string,
+  result: FileImportResult,
+  strategy: ChunkingStrategy,
+  repository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileRecordRepository>>,
+  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  fileName: string,
+  filePath: string,
+  options: ChunkingOptions,
+  forceStrategy: boolean,
+  hasUserOverrides: boolean
+): Promise<{
+  enhancedResult: EnhancedImportResult;
+  chunksCreated: number;
+  chunks?: FileChunk[];
+  strategyUsed: ChunkingStrategy;
+}> {
+  const { toFileChunkInserts } = await import('./chunking-worker-port');
+
+  // Build worker options, only including defined properties
+  const workerOptions: import('@brainstrike/chunking-worker').ChunkingRequestOptions = {
+    strategy,
+    forceStrategy,
+    ignoreFileTypeRecommendations: hasUserOverrides,
+    ...(options.chunkSize !== undefined ? { maxTokens: options.chunkSize } : {}),
+    ...(options.chunkOverlap !== undefined ? { overlap: options.chunkOverlap } : {}),
+  };
+
+  // Call worker to chunk content
+  const workerResult = await workerPort.chunkFile(
+    result.id,
+    content,
+    fileName,
+    filePath,
+    workerOptions
+  );
+
+  if (workerResult.skipped) {
+    logger.warn('Chunking skipped for file (worker)', {
+      fileId: result.id,
+      fileName,
+      skipReason: workerResult.skipReason,
+    });
+    await updateFileRecordWithChunkInfo(repository, result.id, 0, workerResult.strategyUsed);
+    return {
+      enhancedResult: {
+        ...result,
+        chunksCreated: 0,
+        error: `Chunking skipped: ${workerResult.skipReason}`,
+        chunkingStrategy: workerResult.strategyUsed,
+      },
+      chunksCreated: 0,
+      strategyUsed: workerResult.strategyUsed,
+    };
+  }
+
+  // Convert portable chunks to database inserts
+  const chunks = toFileChunkInserts(result.id, workerResult.chunks, options.targetEmbeddingSetId);
+
+  // Insert chunks into database (on main thread)
+  const shouldUseTransaction =
+    options.embedQueueEnabled && options.runInTransaction && options.enqueueJobsForChunksTx;
+
+  if (shouldUseTransaction && options.runInTransaction) {
+    await options.runInTransaction(async (tx) => {
+      await insertChunksWithTransaction(tx, chunkRepository, chunks);
+      await options.enqueueJobsForChunksTx?.(tx, chunks, result.id);
+      return undefined as unknown as undefined;
+    });
+  } else {
+    await chunkRepository.insertMany(chunks);
+    if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
+      await options.enqueueJobsForChunks(chunks, result.id);
+    }
+  }
+
+  await updateFileRecordWithChunkInfo(
+    repository,
+    result.id,
+    chunks.length,
+    workerResult.strategyUsed
+  );
+
+  return {
+    enhancedResult: {
+      ...result,
+      chunksCreated: chunks.length,
+      chunkingStrategy: workerResult.strategyUsed,
+    },
+    chunksCreated: chunks.length,
+    chunks,
+    strategyUsed: workerResult.strategyUsed,
+  };
 }
 
 /**

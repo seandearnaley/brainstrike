@@ -174,14 +174,6 @@ export function useBackgroundTokenIndexerIntegration({
   // Get the token cache context (may be null if not in provider)
   const tokenCache = useOptionalTokenCacheContext();
 
-  // Log context availability on mount and changes
-  logger.debug('Hook initialized', {
-    hasTokenCache: !!tokenCache,
-    tokenCacheIsReady: tokenCache?.isReady ?? false,
-    countingMode: tokenCache?.countingMode ?? 'N/A',
-    hasStore: !!tokenCache?.store,
-  });
-
   // Track which files we've already queued for indexing
   const indexedFilesRef = useRef<Set<string>>(new Set());
   // Track files currently in flight to avoid re-queuing while a batch is running
@@ -270,13 +262,6 @@ export function useBackgroundTokenIndexerIntegration({
     mode: tokenCache?.countingMode ?? 'heuristic',
     onFileIndexed: handleFileIndexed,
     onFileError: handleFileError,
-  });
-
-  // Log indexer state for debugging
-  logger.debug('Background indexer state', {
-    isReady: backgroundIndexer.isReady,
-    isIndexing: backgroundIndexer.isIndexing,
-    selectedFilesCount: selectedFiles.size,
   });
 
   // Stable ref for backgroundIndexer to avoid callback instability

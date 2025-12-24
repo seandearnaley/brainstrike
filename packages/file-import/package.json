@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
+    "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/queue": "workspace:*",
@@ -32,10 +33,20 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",
     "@types/node": "^24.10.1",
+    "@types/react": "^19.1.8",
     "jsdom": "^27.2.0",
+    "react": "^19.1.0",
     "rimraf": "^6.1.2",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14"

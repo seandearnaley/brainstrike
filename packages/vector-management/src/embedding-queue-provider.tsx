@@ -1,4 +1,5 @@
 import { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } from '@brainstrike/embeddings';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import {
   addQueueTelemetryListener,
   createBrowserEmbeddingQueue,
@@ -73,6 +74,7 @@ export function EmbeddingQueueProvider({
   }
 
   const [metrics, setMetrics] = useState<QueueMetrics>(INITIAL_METRICS);
+  const setIsEmbeddingActive = useVectorStatusUIStore((s) => s.setIsEmbeddingActive);
   const canUseTelemetry = typeof window !== 'undefined' && typeof window.Worker !== 'undefined';
   const telemetryAggregatorRef = useRef(canUseTelemetry ? createQueueTelemetryAggregator() : null);
 
@@ -241,6 +243,10 @@ export function EmbeddingQueueProvider({
       resetEmbeddingQueueFactory();
     };
   }, [instrumentedQueue]);
+
+  useEffect(() => {
+    setIsEmbeddingActive(metrics.active > 0);
+  }, [metrics.active, setIsEmbeddingActive]);
 
   const contextValue = useMemo<EmbeddingQueueContextValue>(
     () => ({ queue: instrumentedQueue.queue, metrics }),

@@ -1,5 +1,6 @@
 import type { usePGliteDatabase } from '@brainstrike/db';
 import { usePGliteLiveQuery } from '@brainstrike/db';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 
@@ -207,13 +208,16 @@ function useResolvedCollectionData(
  * Hook to fetch and normalize collection data
  */
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
+  const isImporting = useVectorStatusUIStore((s) => s.isImporting);
+  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
+  const liveQueryEnabled = Boolean(db) && !isImporting && !isEmbeddingActive;
   const {
     rows: rawCollections,
     loading,
     error,
   } = usePGliteLiveQuery<CollectionRow>({
     query: COLLECTIONS_QUERY,
-    enabled: Boolean(db),
+    enabled: liveQueryEnabled,
   });
 
   const collections = useMemo<CollectionWithDocCount[]>(
@@ -236,7 +240,16 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     [rawCollections]
   );
 
-  return { collections, loading, error };
+  const snapshotRef = useRef<CollectionWithDocCount[]>([]);
+  if (liveQueryEnabled) {
+    snapshotRef.current = collections;
+  }
+
+  return {
+    collections: liveQueryEnabled ? collections : snapshotRef.current,
+    loading: liveQueryEnabled ? loading : false,
+    error: liveQueryEnabled ? error : null,
+  };
 }
 
 /**

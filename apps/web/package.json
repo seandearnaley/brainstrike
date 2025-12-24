@@ -31,6 +31,7 @@
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
+    "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",

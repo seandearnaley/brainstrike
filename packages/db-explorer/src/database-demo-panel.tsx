@@ -98,9 +98,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   // Collection dialog management (create, rename, delete)
   const collectionDialogs = useCollectionDialogs();
 
-  // Use Zustand store directly as single source of truth for collection selection
+  // Use Zustand store directly as single source of truth for collection selection and import state
   const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
+  const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
+  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
+  const setIsEmbeddingActive = useVectorStatusUIStore((s) => s.setIsEmbeddingActive);
 
   // Create embedding sets repository
   const embeddingSetsRepository = useMemo(() => {
@@ -132,12 +135,17 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     useState<UseImportFlowResult['chunkRepository']>(null);
   const resolveActiveCollectionId = useCallback(() => activeCollectionId, [activeCollectionId]);
 
+  // Read import state from Zustand store (shared with VectorStatus for query pausing)
+  const isImportActive = useVectorStatusUIStore((s) => s.isImporting);
+
   const data = useDatabaseDemoData({
     repository,
     chunkRepository,
     toast,
     database: dbContext,
     activeCollectionId,
+    isImporting: isImportActive,
+    isEmbeddingActive,
   });
   const { records, chunks, refreshing, loadRecords, loadChunks } = data;
 
@@ -159,6 +167,11 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     database: dbContext,
     resolveActiveSetId: resolveActiveCollectionId,
   });
+
+  // Track embedding activity to pause heavy live queries during embedding generation
+  useEffect(() => {
+    setIsEmbeddingActive(pendingChunkIds.size > 0);
+  }, [pendingChunkIds, setIsEmbeddingActive]);
 
   const exportHandlers = useExportHandlers(filteredRecords, filteredChunks, toast);
 
@@ -207,6 +220,13 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     embeddingQueue,
     resolveActiveCollectionId,
   });
+
+  // Sync import state to Zustand store to pause live queries during bulk operations
+  // This prevents O(n²) performance degradation from live queries firing on every DB mutation
+  // The store is also read by VectorStatus to pause its queue monitoring queries
+  useEffect(() => {
+    setIsImporting(importFlow.isImporting);
+  }, [importFlow.isImporting, setIsImporting]);
 
   const handleClearDatabase = useCallback(async () => {
     if (!clearAllData) {
@@ -327,6 +347,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             {/* Import Progress Bar - above footer */}
             {importFlow.showImportProgress && importFlow.progress && (
               <ImportProgressBar
+                isCancelling={importFlow.isCancelling}
+                onCancel={importFlow.handleCancelImport}
                 onClose={() => importFlow.setShowImportProgress(false)}
                 progress={importFlow.progress as EnhancedImportProgress}
               />

@@ -49,6 +49,10 @@ export type UseDatabaseDemoDataOptions = {
   toast: ReturnType<typeof useToast>['toast'];
   database?: ReturnType<typeof usePGliteDatabase>;
   activeCollectionId: string | null;
+  /** When true, live queries are paused to avoid performance degradation during bulk operations */
+  isImporting?: boolean;
+  /** When true, live queries are paused to avoid performance degradation during embedding generation */
+  isEmbeddingActive?: boolean;
 };
 
 type DatabaseLoaders = {
@@ -301,6 +305,8 @@ export function useDatabaseDemoData({
   toast,
   database,
   activeCollectionId,
+  isImporting = false,
+  isEmbeddingActive = false,
 }: UseDatabaseDemoDataOptions): UseDatabaseDemoDataResult {
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
   const [schemaReady, setSchemaReady] = useState(false);
@@ -409,6 +415,12 @@ export function useDatabaseDemoData({
     [activeCollectionId]
   );
 
+  // Pause live queries during import to avoid performance degradation
+  // Live queries fire on every DB mutation, causing O(n²) work during bulk inserts
+  const liveQueryEnabled = Boolean(
+    database && schemaReady && activeCollectionId && !isImporting && !isEmbeddingActive
+  );
+
   const {
     rows: recordRows,
     loading: recordsLoading,
@@ -417,7 +429,7 @@ export function useDatabaseDemoData({
   } = usePGliteLiveQuery<FileRecordRow>({
     query: FILE_RECORDS_LIVE_QUERY,
     ...(recordQueryParams ? { params: recordQueryParams } : {}),
-    enabled: Boolean(database && schemaReady && activeCollectionId),
+    enabled: liveQueryEnabled,
   });
 
   const {
@@ -428,7 +440,7 @@ export function useDatabaseDemoData({
   } = usePGliteLiveQuery<FileChunkRow>({
     query: FILE_CHUNKS_LIVE_QUERY,
     ...(chunkQueryParams ? { params: chunkQueryParams } : {}),
-    enabled: Boolean(database && schemaReady && activeCollectionId),
+    enabled: liveQueryEnabled,
   });
 
   const records = useMemo<FileRecord[]>(() => {
