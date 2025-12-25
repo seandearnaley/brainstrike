@@ -312,6 +312,13 @@ export function useDatabaseDemoData({
   const [schemaReady, setSchemaReady] = useState(false);
   const manualRefreshCountRef = useRef(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
+  const cachedRecordsRef = useRef<Map<string, FileRecord[]>>(new Map());
+  const cachedChunksRef = useRef<Map<string, FileChunk[]>>(new Map());
+  const loadedRecordsRef = useRef<Set<string>>(new Set());
+  const loadedChunksRef = useRef<Set<string>>(new Set());
+  const [cacheVersion, setCacheVersion] = useState(0);
+  const [fallbackLoading, setFallbackLoading] = useState(false);
+  const [fallbackError, setFallbackError] = useState<Error | null>(null);
   const schemaStateRef = useRef<{
     db: ReturnType<typeof usePGliteDatabase> | null;
     ensured: boolean;
@@ -333,6 +340,13 @@ export function useDatabaseDemoData({
         promise: null,
       };
       setSchemaReady(false);
+      cachedRecordsRef.current.clear();
+      cachedChunksRef.current.clear();
+      loadedRecordsRef.current.clear();
+      loadedChunksRef.current.clear();
+      setCacheVersion((prev) => prev + 1);
+      setFallbackLoading(false);
+      setFallbackError(null);
     }
   }, [database]);
 
@@ -390,6 +404,7 @@ export function useDatabaseDemoData({
 
   const recordErrorRef = useRef<string | null>(null);
   const chunkErrorRef = useRef<string | null>(null);
+  const fallbackErrorRef = useRef<string | null>(null);
 
   const runManualRefresh = useCallback(async (task: () => Promise<void>) => {
     manualRefreshCountRef.current += 1;
@@ -457,6 +472,129 @@ export function useDatabaseDemoData({
     return chunkRows.map(mapChunkRow);
   }, [chunkRows, schemaReady, activeCollectionId]);
 
+  useEffect(() => {
+    if (!(liveQueryEnabled && activeCollectionId) || recordsLoading) {
+      return;
+    }
+    cachedRecordsRef.current.set(activeCollectionId, records);
+    loadedRecordsRef.current.add(activeCollectionId);
+    setCacheVersion((prev) => prev + 1);
+    setFallbackError(null);
+  }, [activeCollectionId, liveQueryEnabled, records, recordsLoading]);
+
+  useEffect(() => {
+    if (!(liveQueryEnabled && activeCollectionId) || chunksLoading) {
+      return;
+    }
+    cachedChunksRef.current.set(activeCollectionId, chunks);
+    loadedChunksRef.current.add(activeCollectionId);
+    setCacheVersion((prev) => prev + 1);
+    setFallbackError(null);
+  }, [activeCollectionId, liveQueryEnabled, chunks, chunksLoading]);
+
+  const cachedRecords = useMemo<FileRecord[]>(() => {
+    if (!(schemaReady && activeCollectionId)) {
+      return [];
+    }
+    return cachedRecordsRef.current.get(activeCollectionId) ?? [];
+  }, [activeCollectionId, cacheVersion, schemaReady]);
+
+  const cachedChunks = useMemo<FileChunk[]>(() => {
+    if (!(schemaReady && activeCollectionId)) {
+      return [];
+    }
+    return cachedChunksRef.current.get(activeCollectionId) ?? [];
+  }, [activeCollectionId, cacheVersion, schemaReady]);
+
+  const fetchSnapshot = useCallback(
+    async (options: { includeRecords: boolean; includeChunks: boolean }) => {
+      if (!(database && schemaReady && activeCollectionId)) {
+        return;
+      }
+      if (typeof (database as { query?: unknown }).query !== 'function') {
+        return;
+      }
+      const recordParams = recordQueryParams ?? [activeCollectionId];
+      const chunkParams = chunkQueryParams ?? [activeCollectionId];
+      const [recordsResult, chunksResult] = await Promise.all([
+        options.includeRecords
+          ? (
+              database as {
+                query: <T>(query: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
+              }
+            ).query<FileRecordRow>(FILE_RECORDS_LIVE_QUERY, recordParams)
+          : Promise.resolve(null),
+        options.includeChunks
+          ? (
+              database as {
+                query: <T>(query: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
+              }
+            ).query<FileChunkRow>(FILE_CHUNKS_LIVE_QUERY, chunkParams)
+          : Promise.resolve(null),
+      ]);
+
+      if (recordsResult) {
+        cachedRecordsRef.current.set(activeCollectionId, recordsResult.rows.map(mapRecordRow));
+        loadedRecordsRef.current.add(activeCollectionId);
+      }
+
+      if (chunksResult) {
+        cachedChunksRef.current.set(activeCollectionId, chunksResult.rows.map(mapChunkRow));
+        loadedChunksRef.current.add(activeCollectionId);
+      }
+
+      setCacheVersion((prev) => prev + 1);
+    },
+    [activeCollectionId, chunkQueryParams, database, recordQueryParams, schemaReady]
+  );
+
+  useEffect(() => {
+    if (liveQueryEnabled) {
+      return;
+    }
+    if (!(database && schemaReady && activeCollectionId)) {
+      return;
+    }
+    if (fallbackLoading) {
+      return;
+    }
+    const needsRecords = !loadedRecordsRef.current.has(activeCollectionId);
+    const needsChunks = !loadedChunksRef.current.has(activeCollectionId);
+    if (!(needsRecords || needsChunks)) {
+      return;
+    }
+
+    let cancelled = false;
+    setFallbackLoading(true);
+    setFallbackError(null);
+
+    const runFallback = async () => {
+      try {
+        await fetchSnapshot({ includeRecords: needsRecords, includeChunks: needsChunks });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const normalized = error instanceof Error ? error : new Error(String(error));
+        logger.error('Failed to load database demo snapshot', { error: normalized });
+        setFallbackError(normalized);
+      } finally {
+        if (!cancelled) {
+          setFallbackLoading(false);
+        }
+      }
+    };
+
+    void runFallback();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCollectionId, database, fetchSnapshot, fallbackLoading, liveQueryEnabled, schemaReady]);
+
+  const resolvedRecords = liveQueryEnabled ? records : cachedRecords;
+  const resolvedChunks = liveQueryEnabled ? chunks : cachedChunks;
+
   const loadRecords = useCallback(async () => {
     if (!(database && schemaReady && activeCollectionId)) {
       return;
@@ -464,7 +602,11 @@ export function useDatabaseDemoData({
 
     await runManualRefresh(async () => {
       try {
-        await refreshRecordsQuery();
+        if (liveQueryEnabled) {
+          await refreshRecordsQuery();
+        } else {
+          await fetchSnapshot({ includeRecords: true, includeChunks: false });
+        }
       } catch (error) {
         logger.error('Failed to refresh database records', { error });
         const message = extractErrorMessage(error);
@@ -478,7 +620,16 @@ export function useDatabaseDemoData({
         });
       }
     });
-  }, [database, schemaReady, activeCollectionId, refreshRecordsQuery, runManualRefresh, toast]);
+  }, [
+    activeCollectionId,
+    database,
+    fetchSnapshot,
+    liveQueryEnabled,
+    refreshRecordsQuery,
+    runManualRefresh,
+    schemaReady,
+    toast,
+  ]);
 
   const loadChunks = useCallback(async () => {
     if (!(database && schemaReady && activeCollectionId)) {
@@ -487,7 +638,11 @@ export function useDatabaseDemoData({
 
     await runManualRefresh(async () => {
       try {
-        await refreshChunksQuery();
+        if (liveQueryEnabled) {
+          await refreshChunksQuery();
+        } else {
+          await fetchSnapshot({ includeRecords: false, includeChunks: true });
+        }
       } catch (error) {
         logger.error('Failed to refresh database chunks', { error });
         const message = extractErrorMessage(error);
@@ -501,7 +656,16 @@ export function useDatabaseDemoData({
         });
       }
     });
-  }, [database, schemaReady, activeCollectionId, refreshChunksQuery, runManualRefresh, toast]);
+  }, [
+    activeCollectionId,
+    database,
+    fetchSnapshot,
+    liveQueryEnabled,
+    refreshChunksQuery,
+    runManualRefresh,
+    schemaReady,
+    toast,
+  ]);
 
   useEffect(() => {
     if (!recordsError) {
@@ -540,6 +704,23 @@ export function useDatabaseDemoData({
       variant: 'destructive',
     });
   }, [chunksError, toast]);
+
+  useEffect(() => {
+    if (!fallbackError) {
+      fallbackErrorRef.current = null;
+      return;
+    }
+    const message = extractErrorMessage(fallbackError) ?? 'Failed to load database snapshot';
+    if (fallbackErrorRef.current === message) {
+      return;
+    }
+    fallbackErrorRef.current = message;
+    toast({
+      title: 'Error',
+      description: message,
+      variant: 'destructive',
+    });
+  }, [fallbackError, toast]);
 
   const testDatabaseConnection = useCallback(async () => {
     const location = resolveStorageLocation(repository);
@@ -682,7 +863,7 @@ export function useDatabaseDemoData({
     };
   }, [database]);
 
-  const refreshing = manualRefreshing || recordsLoading || chunksLoading;
+  const refreshing = manualRefreshing || recordsLoading || chunksLoading || fallbackLoading;
 
   // Sync local dbInfo state to global store for status bar
   useEffect(() => {
@@ -697,8 +878,8 @@ export function useDatabaseDemoData({
   }, [dbInfo]);
 
   return {
-    records,
-    chunks,
+    records: resolvedRecords,
+    chunks: resolvedChunks,
     refreshing,
     dbInfo,
     setDbInfo,

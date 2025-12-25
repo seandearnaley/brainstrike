@@ -2,7 +2,7 @@ import type { usePGliteDatabase } from '@brainstrike/db';
 import { usePGliteLiveQuery } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * Row shape returned by the collections query
@@ -219,10 +219,32 @@ function useResolvedCollectionData(
 /**
  * Hook to fetch and normalize collection data
  */
+function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[] {
+  return rows.map((row) => ({
+    id: row.id,
+    modelKey: row.modelKey,
+    modelId: row.modelId,
+    dimensions: row.dimensions,
+    distance: row.distance as 'cosine' | 'l2' | 'ip',
+    createdAt: row.createdAt,
+    name: row.name,
+    description: row.description,
+    tags: row.tags,
+    category: row.category,
+    fileCount: Number(row.fileCount ?? 0),
+    chunkCount: Number(row.chunkCount ?? 0),
+    embeddingCount: Number(row.embeddingCount ?? 0),
+  }));
+}
+
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
   const liveQueryEnabled = Boolean(db) && !isImporting && !isEmbeddingActive;
+  const [cachedCollections, setCachedCollections] = useState<CollectionWithDocCount[]>([]);
+  const [cachedLoaded, setCachedLoaded] = useState(false);
+  const [cachedLoading, setCachedLoading] = useState(false);
+  const [cachedError, setCachedError] = useState<Error | null>(null);
   const {
     rows: rawCollections,
     loading,
@@ -233,34 +255,73 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
   });
 
   const collections = useMemo<CollectionWithDocCount[]>(
-    () =>
-      rawCollections.map((row) => ({
-        id: row.id,
-        modelKey: row.modelKey,
-        modelId: row.modelId,
-        dimensions: row.dimensions,
-        distance: row.distance as 'cosine' | 'l2' | 'ip',
-        createdAt: row.createdAt,
-        name: row.name,
-        description: row.description,
-        tags: row.tags,
-        category: row.category,
-        fileCount: Number(row.fileCount ?? 0),
-        chunkCount: Number(row.chunkCount ?? 0),
-        embeddingCount: Number(row.embeddingCount ?? 0),
-      })),
+    () => normalizeCollectionRows(rawCollections),
     [rawCollections]
   );
 
-  const snapshotRef = useRef<CollectionWithDocCount[]>([]);
-  if (liveQueryEnabled) {
-    snapshotRef.current = collections;
-  }
+  useEffect(() => {
+    if (!liveQueryEnabled || loading) {
+      return;
+    }
+    setCachedCollections(collections);
+    setCachedError(null);
+    setCachedLoaded(true);
+  }, [collections, liveQueryEnabled, loading]);
+
+  useEffect(() => {
+    setCachedCollections([]);
+    setCachedError(null);
+    setCachedLoaded(false);
+  }, [db]);
+
+  useEffect(() => {
+    const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
+    const shouldFetch = !liveQueryEnabled && canQuery && !cachedLoaded && !cachedLoading;
+    if (!shouldFetch) {
+      return;
+    }
+
+    let cancelled = false;
+    const updateIfActive = (update: () => void) => {
+      if (!cancelled) {
+        update();
+      }
+    };
+
+    updateIfActive(() => setCachedLoading(true));
+
+    const fetchOnce = async () => {
+      try {
+        const result = await (
+          db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
+        ).query(COLLECTIONS_QUERY);
+        updateIfActive(() => {
+          setCachedCollections(normalizeCollectionRows(result.rows));
+          setCachedError(null);
+          setCachedLoaded(true);
+        });
+      } catch (err) {
+        const normalized = err instanceof Error ? err : new Error(String(err));
+        updateIfActive(() => {
+          setCachedError(normalized);
+          setCachedLoaded(true);
+        });
+      } finally {
+        updateIfActive(() => setCachedLoading(false));
+      }
+    };
+
+    void fetchOnce();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cachedLoaded, cachedLoading, db, liveQueryEnabled]);
 
   return {
-    collections: liveQueryEnabled ? collections : snapshotRef.current,
-    loading: liveQueryEnabled ? loading : false,
-    error: liveQueryEnabled ? error : null,
+    collections: liveQueryEnabled ? collections : cachedCollections,
+    loading: liveQueryEnabled ? loading : cachedLoading,
+    error: liveQueryEnabled ? error : cachedError,
   };
 }
 
