@@ -36,6 +36,7 @@ const task = await queue.add({
   model: 'bge-m3',
   texts: ['hello world'],
   truncateDim: 1024,
+  deviceHint: 'webgpu',
 });
 
 console.log(task.metadata.device, task.vectors[0]);

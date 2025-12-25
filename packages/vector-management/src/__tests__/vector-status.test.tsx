@@ -27,7 +27,7 @@ vi.mock('@brainstrike/ui', async () => {
 });
 
 vi.mock('@brainstrike/embeddings', () => ({
-  TransformersBackend: { getBestDevice: () => 'cpu' },
+  TransformersBackend: { getBestDevice: () => 'wasm' },
   SimpleEmbeddingService: {
     listModels: () => ['model1', 'model2'],
     getDefaultModelKey: () => 'model1',

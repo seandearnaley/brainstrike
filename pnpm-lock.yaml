@@ -149,6 +149,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      '@brainstrike/vector-management':
+        specifier: workspace:*
+        version: link:../../packages/vector-management
       '@electric-sql/pglite':
         specifier: ^0.3.14
         version: 0.3.14
@@ -297,6 +300,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      '@brainstrike/vector-management':
+        specifier: workspace:*
+        version: link:../../packages/vector-management
       '@fontsource-variable/geist':
         specifier: ^5.2.8
         version: 5.2.8
@@ -1067,6 +1073,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
+      '@brainstrike/embedding-worker':
+        specifier: workspace:*
+        version: link:../embedding-worker
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../embeddings

@@ -4,8 +4,8 @@
 export type EmbeddingConfig = {
   /** Model ID for the embedding model */
   modelId: string;
-  /** Device preference - will fallback automatically */
-  device?: 'webgpu' | 'wasm' | 'cpu';
+  /** Device preference (no automatic fallbacks) */
+  device?: 'webgpu' | 'wasm';
   /** Quantization level */
   quantized?: boolean;
   /** Model revision/version */

@@ -1,6 +1,11 @@
+import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EmbeddingInput } from '../../../interfaces/provider';
+import {
+  registerEmbeddingQueueFactory,
+  resetEmbeddingQueueFactory,
+} from '../../../transformers-backend';
 import { TransformersEmbeddingProvider } from '../transformers-provider';
 
 // Skip these tests in CI - they require downloading large ML models which times out
@@ -9,12 +14,74 @@ const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === '
 const slowTestTimeoutMs = 30_000;
 const slowTest = (name: string, fn: () => Promise<void> | void) => it(name, fn, slowTestTimeoutMs);
 
+type QueueAddCall = Parameters<QueueAdapter['add']>[0];
+
+function hashText(text: string): number {
+  let hash = 0;
+  for (const char of text) {
+    hash = (hash * 31 + char.charCodeAt(0)) % 1_000_000;
+  }
+  return hash;
+}
+
+function buildVector(seed: number, length: number): number[] {
+  const base = seed % 1000;
+  return Array.from({ length }, (_, index) => (base + index) / 1000);
+}
+
+function createQueueResult(id: string, vectors: Float32Array[]): QueueResult {
+  const dimensions = vectors[0]?.length ?? DEFAULT_EMBEDDING_DIMENSION;
+  return {
+    type: 'result',
+    id,
+    vectors,
+    metadata: {
+      model: 'jinaai/jina-embeddings-v2-base-code',
+      device: 'wasm',
+      dtype: 'fp32',
+      batchSize: vectors.length,
+      elapsedMs: 1,
+      fallbackApplied: false,
+      dimensions,
+    },
+  };
+}
+
+function createQueueStub() {
+  const add = vi.fn<QueueAdapter['add']>();
+  add.mockImplementation(async (task: QueueAddCall) => {
+    const dimension =
+      typeof task.targetDimension === 'number' && task.targetDimension > 0
+        ? task.targetDimension
+        : DEFAULT_EMBEDDING_DIMENSION;
+    const vectors = task.texts.map((text) =>
+      Float32Array.from(buildVector(hashText(text), dimension))
+    );
+    return createQueueResult(task.id, vectors);
+  });
+
+  const queue: QueueAdapter = {
+    add,
+    addBulk: vi.fn(async () => []),
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: vi.fn(async () => {}),
+  };
+
+  return { queue, add };
+}
+
 describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
   let provider: TransformersEmbeddingProvider;
 
   beforeEach(() => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('Worker', class {});
+    const { queue } = createQueueStub();
+    registerEmbeddingQueueFactory(() => queue);
     // Create a new provider instance for each test
-    provider = new TransformersEmbeddingProvider('jinaai/jina-embeddings-v2-base-code');
+    provider = new TransformersEmbeddingProvider('jinaai/jina-embeddings-v2-base-code', 'wasm');
   });
 
   afterEach(async () => {
@@ -24,6 +91,8 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
     } catch {
       // Ignore disposal errors in tests
     }
+    resetEmbeddingQueueFactory();
+    vi.unstubAllGlobals();
   });
 
   describe('provider metadata', () => {
@@ -335,14 +404,9 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
         'jinaai/jina-embeddings-v2-base-code',
         'wasm'
       );
-      const cpuProvider = new TransformersEmbeddingProvider(
-        'jinaai/jina-embeddings-v2-base-code',
-        'cpu'
-      );
 
       expect(webgpuProvider).toBeDefined();
       expect(wasmProvider).toBeDefined();
-      expect(cpuProvider).toBeDefined();
     });
   });
 

@@ -27,37 +27,33 @@ vi.mock('@huggingface/transformers', () => {
 describe('TransformersBackend', () => {
   beforeEach(() => {
     vi.resetModules();
-    // Simulate browser with WebGPU availability to exercise fallback
+    // Simulate browser with WebGPU availability
     vi.stubGlobal('window', {});
     vi.stubGlobal('navigator', { gpu: {} });
   });
 
-  it('selects device and falls back on initialize failure', async () => {
-    // Enable failure on first pipeline creation to trigger fallback path
+  it('throws when initialize fails for the selected device', async () => {
+    // Enable failure on first pipeline creation
     const mocked = await import('@huggingface/transformers');
     // @ts-expect-error test helper
     mocked.__setThrow?.(true);
 
     const backend = new TransformersBackend();
-    await backend.initialize({
-      modelId: 'bge-m3',
-      device: 'webgpu',
-      quantized: false,
-    });
+    await expect(
+      backend.initialize({
+        modelId: 'bge-m3',
+        device: 'webgpu',
+        quantized: false,
+      })
+    ).rejects.toThrow('creation failed');
 
-    expect(backend.isInitialized()).toBe(true);
-    // In browser fallback, we expect 'wasm' after failing 'webgpu'
-    expect(backend.getSelectedDevice()).toBe('wasm');
-
-    const result = await backend.generateEmbedding('hello', 'bge-m3');
-    expect(Array.isArray(result.embedding)).toBe(true);
-    expect(result.embedding.length).toBe(3);
+    expect(backend.isInitialized()).toBe(false);
   });
 
   it('exposes basic static helpers', () => {
     // Best device for current simulated environment (webgpu available)
     expect(TransformersBackend.getBestDevice()).toBe('webgpu');
-    expect(TransformersBackend.isDeviceAvailable('cpu')).toBe(true);
+    expect(TransformersBackend.isDeviceAvailable('cpu')).toBe(false);
     expect(TransformersBackend.isDeviceAvailable('wasm')).toBe(true);
     expect(TransformersBackend.isDeviceAvailable('webgpu')).toBe(true);
   });

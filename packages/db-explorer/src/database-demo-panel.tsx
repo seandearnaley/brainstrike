@@ -33,7 +33,7 @@ import {
   RenameEmbeddingSetDialog,
 } from '@brainstrike/vector-management';
 import { Database, FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import {
   ClearDatabaseDialog,
@@ -59,7 +59,6 @@ import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 import { useDatabaseDemoData } from './use-database-demo-data';
 import type { UseImportFlowResult } from './use-import-flow';
 import { useImportFlow } from './use-import-flow';
-import { usePendingChunks } from './use-pending-chunks';
 
 type DatabaseDemoPanelProps = {
   embeddingQueue?: QueueAdapter | null;
@@ -103,7 +102,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
-  const setIsJobQueueActive = useVectorStatusUIStore((s) => s.setIsJobQueueActive);
 
   // Create embedding sets repository
   const embeddingSetsRepository = useMemo(() => {
@@ -162,49 +160,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     }
     return chunks.filter((chunk) => chunk.embeddingSetId === activeCollectionId);
   }, [chunks, activeCollectionId]);
-
-  const { pendingChunkIds } = usePendingChunks({
-    database: dbContext,
-    resolveActiveSetId: resolveActiveCollectionId,
-  });
-
-  const jobQueueActive = pendingChunkIds.size > 0;
-  const jobQueueClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Track job_queue activity to pause heavy live queries during background embedding generation
-  useEffect(() => {
-    if (jobQueueActive) {
-      if (jobQueueClearTimeoutRef.current) {
-        clearTimeout(jobQueueClearTimeoutRef.current);
-        jobQueueClearTimeoutRef.current = null;
-      }
-      setIsJobQueueActive(true);
-      return;
-    }
-
-    if (jobQueueClearTimeoutRef.current) {
-      clearTimeout(jobQueueClearTimeoutRef.current);
-    }
-
-    jobQueueClearTimeoutRef.current = setTimeout(() => {
-      setIsJobQueueActive(false);
-      jobQueueClearTimeoutRef.current = null;
-    }, 1500);
-
-    return () => {
-      if (jobQueueClearTimeoutRef.current) {
-        clearTimeout(jobQueueClearTimeoutRef.current);
-        jobQueueClearTimeoutRef.current = null;
-      }
-    };
-  }, [jobQueueActive, setIsJobQueueActive]);
-
-  useEffect(
-    () => () => {
-      setIsJobQueueActive(false);
-    },
-    [setIsJobQueueActive]
-  );
 
   const exportHandlers = useExportHandlers(filteredRecords, filteredChunks, toast);
 
@@ -531,7 +486,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 chunks={chunks}
                 height="100%"
                 isLoading={refreshing}
-                pendingChunkIds={pendingChunkIds}
                 records={records}
               />
             </SemanticSearchProvider>

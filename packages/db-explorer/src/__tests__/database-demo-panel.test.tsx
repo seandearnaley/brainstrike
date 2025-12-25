@@ -209,6 +209,15 @@ vi.mock('@brainstrike/file-import', async (importOriginal) => {
       port: null,
       isReady: false,
       isProcessing: false,
+      error: null,
+      reinitialize: vi.fn(),
+    }),
+    useChunkingWorkerContext: vi.fn().mockReturnValue({
+      port: null,
+      isReady: false,
+      isProcessing: false,
+      error: null,
+      reinitialize: vi.fn(),
     }),
   };
 });

@@ -2,10 +2,20 @@ import { describe, expect, it } from 'vitest';
 import type { EmbedTaskPayload } from '../types';
 import { toWorkerRequest } from '../types';
 
+const basePayload = {
+  kind: 'embed' as const,
+  deviceHint: 'wasm' as const,
+};
+
+const baseRequest = {
+  type: 'embed' as const,
+  deviceHint: 'wasm' as const,
+};
+
 describe('toWorkerRequest', () => {
   it('should convert minimal EmbedTaskPayload to EmbedWorkerRequest', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello', 'world'],
@@ -14,7 +24,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello', 'world'],
@@ -23,7 +33,7 @@ describe('toWorkerRequest', () => {
 
   it('should include truncateDim when provided', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -33,7 +43,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -43,7 +53,7 @@ describe('toWorkerRequest', () => {
 
   it('should include dtype when provided', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -53,7 +63,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -61,9 +71,9 @@ describe('toWorkerRequest', () => {
     });
   });
 
-  it('should include deviceHint when provided', () => {
+  it('should include deviceHint', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -73,7 +83,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -83,7 +93,7 @@ describe('toWorkerRequest', () => {
 
   it('should include maxBatchSize when provided', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -93,7 +103,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -103,7 +113,7 @@ describe('toWorkerRequest', () => {
 
   it('should include provider when provided', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -113,7 +123,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -123,7 +133,7 @@ describe('toWorkerRequest', () => {
 
   it('should include targetDimension when provided', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -133,7 +143,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -143,7 +153,7 @@ describe('toWorkerRequest', () => {
 
   it('should include dimensionParameter when provided', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -153,7 +163,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-123',
       model: 'test-model',
       texts: ['hello'],
@@ -163,7 +173,7 @@ describe('toWorkerRequest', () => {
 
   it('should include all optional fields when all are provided', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-456',
       model: 'bert-base',
       texts: ['first', 'second', 'third'],
@@ -179,7 +189,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-456',
       model: 'bert-base',
       texts: ['first', 'second', 'third'],
@@ -195,7 +205,7 @@ describe('toWorkerRequest', () => {
 
   it('should not include optional fields when they are not provided', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-789',
       model: 'test-model',
       texts: ['text'],
@@ -205,19 +215,19 @@ describe('toWorkerRequest', () => {
 
     // Should only have required fields
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-789',
       model: 'test-model',
       texts: ['text'],
     });
 
     // Verify no extra keys are present
-    expect(Object.keys(result)).toEqual(['type', 'id', 'model', 'texts']);
+    expect(Object.keys(result)).toEqual(['type', 'id', 'model', 'texts', 'deviceHint']);
   });
 
   it('should handle empty texts array', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-empty',
       model: 'test-model',
       texts: [],
@@ -226,7 +236,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-empty',
       model: 'test-model',
       texts: [],
@@ -235,7 +245,7 @@ describe('toWorkerRequest', () => {
 
   it('should handle single text in array', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-single',
       model: 'test-model',
       texts: ['single text'],
@@ -244,7 +254,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-single',
       model: 'test-model',
       texts: ['single text'],
@@ -254,7 +264,7 @@ describe('toWorkerRequest', () => {
   it('should handle large texts array', () => {
     const texts = Array.from({ length: 1000 }, (_, index) => `text-${index}`);
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-large',
       model: 'test-model',
       texts,
@@ -269,7 +279,7 @@ describe('toWorkerRequest', () => {
 
   it('should handle zero values for numeric fields', () => {
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-zero',
       model: 'test-model',
       texts: ['hello'],
@@ -281,7 +291,7 @@ describe('toWorkerRequest', () => {
     const result = toWorkerRequest(payload);
 
     expect(result).toEqual({
-      type: 'embed',
+      ...baseRequest,
       id: 'task-zero',
       model: 'test-model',
       texts: ['hello'],
@@ -294,7 +304,7 @@ describe('toWorkerRequest', () => {
   it('should preserve readonly array characteristics', () => {
     const texts = ['immutable', 'texts'] as const;
     const payload: EmbedTaskPayload = {
-      kind: 'embed',
+      ...basePayload,
       id: 'task-readonly',
       model: 'test-model',
       texts,
@@ -314,7 +324,7 @@ describe('toWorkerRequest', () => {
 
     for (const param of parameters) {
       const payload: EmbedTaskPayload = {
-        kind: 'embed',
+        ...basePayload,
         id: `task-${param}`,
         model: 'test-model',
         texts: ['hello'],

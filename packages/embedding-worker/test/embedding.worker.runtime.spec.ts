@@ -66,6 +66,7 @@ describe('embedding worker runtime', () => {
       id: 'empty',
       model: 'bge-m3',
       texts: [],
+      deviceHint: 'wasm',
     });
     expect(result.vectors).toHaveLength(0);
     expect(result.metadata.batchSize).toBe(0);
@@ -73,24 +74,22 @@ describe('embedding worker runtime', () => {
     expect(workerEmitMock).not.toHaveBeenCalled();
   });
 
-  it('falls back to wasm when the webgpu pipeline creation fails', async () => {
+  it('throws when the webgpu pipeline creation fails', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     pipelineMock.mockRejectedValueOnce(new Error('webgpu unavailable'));
     pipelineMock.mockResolvedValueOnce(async () => new Float32Array([0.2, 0.8]));
     const runEmbedding = await loadWorker();
-    const result = await runEmbedding({
-      type: 'embed',
-      id: 'doc-1',
-      model: 'bge-m3',
-      texts: ['hello world'],
-      truncateDim: 2,
-    });
-    expect(result.metadata.device).toBe('webgpu');
-    expect(Array.from(result.vectors[0])).toHaveLength(2);
-    expect(pipelineMock).toHaveBeenCalledTimes(2);
-    expect(destructurePipelineDevices()).toEqual(['webgpu', 'wasm']);
-    expect(workerEmitMock.mock.calls[0]?.[0]).toMatchObject({ phase: 'initializing', progress: 0 });
-    expect(workerEmitMock.mock.calls.at(-1)?.[0]).toMatchObject({ phase: 'complete', progress: 1 });
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'doc-1',
+        model: 'bge-m3',
+        texts: ['hello world'],
+        truncateDim: 2,
+        deviceHint: 'webgpu',
+      })
+    ).rejects.toThrow('webgpu unavailable');
+    expect(pipelineMock).toHaveBeenCalledTimes(1);
   });
 
   it('supports tasks requesting non-default embedding dimensions', async () => {
@@ -105,36 +104,30 @@ describe('embedding worker runtime', () => {
       targetDimension: 1024,
       dimensionParameter: 'dimensions',
       provider: 'openai',
+      deviceHint: 'wasm',
     });
     expect(result.metadata.dimensions).toBe(1024);
     expect(Array.from(result.vectors[0])).toHaveLength(1024);
   });
 
-  it('shrinks batch size after pipeline errors and falls back to wasm execution', async () => {
-    vi.stubGlobal('navigator', { gpu: {} });
+  it('surfaces pipeline errors without retry', async () => {
     const failingExtractor = vi.fn(async () => {
       throw new Error('batch failed');
     });
-    const recoveringExtractor = vi.fn(async (texts: string | readonly string[]) => {
-      const inputs = Array.isArray(texts) ? texts : [texts];
-      return inputs.map(() => [0.5, 0.5]);
-    });
     pipelineMock.mockResolvedValueOnce(failingExtractor);
-    pipelineMock.mockResolvedValueOnce(recoveringExtractor);
     const runEmbedding = await loadWorker();
-    const result = await runEmbedding({
-      type: 'embed',
-      id: 'bulk',
-      model: 'bge-m3',
-      texts: Array.from({ length: 32 }, (_, index) => `text-${index}`),
-      truncateDim: 2,
-    });
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'bulk',
+        model: 'bge-m3',
+        texts: Array.from({ length: 32 }, (_, index) => `text-${index}`),
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('batch failed');
     expect(failingExtractor).toHaveBeenCalled();
-    expect(recoveringExtractor).toHaveBeenCalled();
-    expect(result.metadata.fallbackApplied).toBe(true);
-    expect(result.metadata.device).toBe('wasm');
-    expect(result.metadata.batchSize).toBeGreaterThanOrEqual(1);
-    expect(result.vectors).toHaveLength(32);
+    expect(pipelineMock).toHaveBeenCalledTimes(1);
   });
 
   it('emits an error event when the pipeline returns no tensors', async () => {
@@ -148,6 +141,7 @@ describe('embedding worker runtime', () => {
         id: 'empty-output',
         model: 'bge-m3',
         texts: ['nope'],
+        deviceHint: 'wasm',
       })
     ).rejects.toThrow('Embedding pipeline returned no tensors');
     const errorCall = workerEmitMock.mock.calls.find(([event]) => event?.type === 'error');
@@ -172,6 +166,7 @@ describe('embedding worker runtime', () => {
       model: 'bge-m3',
       texts: Array.from({ length: 9 }, (_, index) => `item-${index}`),
       truncateDim: 3,
+      deviceHint: 'wasm',
     });
     expect(result.vectors).toHaveLength(9);
     expect(Array.from(result.vectors[0])).toHaveLength(3);
@@ -179,7 +174,3 @@ describe('embedding worker runtime', () => {
     expect(length).toBeCloseTo(1, 5);
   });
 });
-
-function destructurePipelineDevices() {
-  return pipelineMock.mock.calls.map(([, , config]) => (config as { device?: string }).device);
-}

@@ -66,11 +66,20 @@ vi.mock('@brainstrike/file-import', async () => {
   return {
     ...actual,
     runEnhancedImport: runEnhancedImportMock,
-    // Mock the chunking worker hook to prevent worker initialization in tests
+    // Mock chunking worker hooks/contexts to prevent worker initialization in tests
     useChunkingWorker: vi.fn().mockReturnValue({
       port: null,
       isReady: false,
       isProcessing: false,
+      error: null,
+      reinitialize: vi.fn(),
+    }),
+    useChunkingWorkerContext: vi.fn().mockReturnValue({
+      port: null,
+      isReady: false,
+      isProcessing: false,
+      error: null,
+      reinitialize: vi.fn(),
     }),
   };
 });

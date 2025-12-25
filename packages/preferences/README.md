@@ -83,10 +83,12 @@ function VectorSettings() {
 
   return (
     <div>
-      <select value={devicePref} onChange={(e) => setDevicePref(e.target.value)}>
-        <option value="auto">Auto</option>
-        <option value="cpu">CPU</option>
+      <select
+        value={devicePref}
+        onChange={(e) => setDevicePref(e.target.value as 'webgpu' | 'wasm')}
+      >
         <option value="webgpu">WebGPU</option>
+        <option value="wasm">WASM</option>
       </select>
       <input
         type="number"

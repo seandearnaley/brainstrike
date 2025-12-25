@@ -442,8 +442,6 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   const setDevicePref = useVectorPreferencesStore((s) => s.setDevicePref);
   const reinitEveryN = useVectorPreferencesStore((s) => s.reinitEveryN);
   const setReinitEveryN = useVectorPreferencesStore((s) => s.setReinitEveryN);
-  const forceCpuAfterFailures = useVectorPreferencesStore((s) => s.forceCpuAfterFailures);
-  const setForceCpuAfterFailures = useVectorPreferencesStore((s) => s.setForceCpuAfterFailures);
   const verboseOrtLogs = useVectorPreferencesStore((s) => s.verboseOrtLogs);
   const setVerboseOrtLogs = useVectorPreferencesStore((s) => s.setVerboseOrtLogs);
 
@@ -493,7 +491,6 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     db,
     devicePreference: devicePref,
     reinitEveryN,
-    forceCpuAfterFailures,
     activeEmbeddingSetId: activeId,
     onBackfill: invokeBackfill,
     toast,
@@ -604,13 +601,11 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
           <select
             aria-label="Preferred device"
             className="h-7 rounded border px-1 text-[11px]"
-            onChange={(e) => setDevicePref(e.target.value as 'auto' | 'webgpu' | 'wasm' | 'cpu')}
+            onChange={(e) => setDevicePref(e.target.value as 'webgpu' | 'wasm')}
             value={devicePref}
           >
-            <option value="auto">Auto</option>
             <option value="webgpu">WebGPU</option>
-            <option value="wasm">WASM (CPU)</option>
-            <option value="cpu">CPU (maps to WASM)</option>
+            <option value="wasm">WASM</option>
           </select>
           <Label className="font-medium text-[9px] text-muted-foreground uppercase tracking-wider">
             Reinit
@@ -624,19 +619,6 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             title="Reinitialize model every N chunks"
             type="number"
             value={reinitEveryN}
-          />
-          <Label className="font-medium text-[9px] text-muted-foreground uppercase tracking-wider">
-            CPU after
-          </Label>
-          <input
-            className="h-7 w-16 rounded border px-1 text-[11px]"
-            max={20}
-            min={1}
-            onChange={(e) => setForceCpuAfterFailures(Number(e.target.value) || 1)}
-            step={1}
-            title="Switch to CPU/WASM after N consecutive failures"
-            type="number"
-            value={forceCpuAfterFailures}
           />
         </div>
         <div className="grid grid-cols-3 gap-1">
@@ -746,7 +728,13 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
 
 // Safe, hook-less variant for contexts without DbProvider (e.g., shallow tests)
 export function VectorStatus() {
-  const device = useMemo(() => TransformersBackend.getBestDevice(), []);
+  const device = useMemo(() => {
+    try {
+      return TransformersBackend.getBestDevice();
+    } catch {
+      return 'unavailable';
+    }
+  }, []);
   return (
     <Card>
       <CardHeader className="border-b px-3 py-1.5">

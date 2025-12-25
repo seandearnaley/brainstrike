@@ -31,9 +31,8 @@ describe('useEmbeddingWorkerControls', () => {
       const { result } = renderHook(() =>
         useEmbeddingWorkerControls({
           db,
-          devicePreference: 'auto',
+          devicePreference: 'webgpu',
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
           activeEmbeddingSetId: 'set-1',
           onBackfill,
           toast,
@@ -49,7 +48,6 @@ describe('useEmbeddingWorkerControls', () => {
           db,
           enable: true,
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
         })
       );
       // Auto-backfill on worker start is disabled - backfill must be triggered manually
@@ -71,9 +69,8 @@ describe('useEmbeddingWorkerControls', () => {
       const { result } = renderHook(() =>
         useEmbeddingWorkerControls({
           db,
-          devicePreference: 'auto',
+          devicePreference: 'webgpu',
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
           activeEmbeddingSetId: null,
           onBackfill,
           toast,
@@ -100,9 +97,8 @@ describe('useEmbeddingWorkerControls', () => {
       const { result } = renderHook(() =>
         useEmbeddingWorkerControls({
           db,
-          devicePreference: 'auto',
+          devicePreference: 'webgpu',
           reinitEveryN: 50,
-          forceCpuAfterFailures: 2,
           activeEmbeddingSetId: 'set-42',
           onBackfill,
           toast,
@@ -139,9 +135,8 @@ describe('useEmbeddingWorkerControls', () => {
       const { result } = renderHook(() =>
         useEmbeddingWorkerControls({
           db,
-          devicePreference: 'auto',
+          devicePreference: 'webgpu',
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
           activeEmbeddingSetId: 'set-1',
           onBackfill,
           toast,
@@ -185,9 +180,8 @@ describe('useEmbeddingWorkerControls', () => {
       const { result } = renderHook(() =>
         useEmbeddingWorkerControls({
           db,
-          devicePreference: 'auto',
+          devicePreference: 'webgpu',
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
           activeEmbeddingSetId: 'set-1',
           onBackfill: vi.fn(),
           toast,
@@ -220,7 +214,6 @@ describe('useEmbeddingWorkerControls', () => {
           db,
           devicePreference: 'webgpu',
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
           activeEmbeddingSetId: 'set-1',
           onBackfill: vi.fn(),
           toast,
@@ -247,9 +240,8 @@ describe('useEmbeddingWorkerControls', () => {
       const { result } = renderHook(() =>
         useEmbeddingWorkerControls({
           db,
-          devicePreference: 'auto',
+          devicePreference: 'webgpu',
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
           activeEmbeddingSetId: null,
           onBackfill: vi.fn(),
           toast,
@@ -273,9 +265,8 @@ describe('useEmbeddingWorkerControls', () => {
       const { result } = renderHook(() =>
         useEmbeddingWorkerControls({
           db: null,
-          devicePreference: 'auto',
+          devicePreference: 'webgpu',
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
           activeEmbeddingSetId: 'set-1',
           onBackfill: vi.fn(),
           toast,
@@ -300,9 +291,8 @@ describe('useEmbeddingWorkerControls', () => {
       const { result } = renderHook(() =>
         useEmbeddingWorkerControls({
           db,
-          devicePreference: 'auto',
+          devicePreference: 'webgpu',
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
           activeEmbeddingSetId: 'set-1',
           onBackfill: vi.fn(),
           toast,
@@ -331,7 +321,6 @@ describe('useEmbeddingWorkerControls', () => {
           db,
           devicePreference: 'webgpu',
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
           activeEmbeddingSetId: null,
           onBackfill: vi.fn(),
           toast,
@@ -349,7 +338,7 @@ describe('useEmbeddingWorkerControls', () => {
       );
     });
 
-    it('does not pass device when preference is auto', async () => {
+    it('passes wasm device preference to worker', async () => {
       const stop = vi.fn(async () => {});
       vi.mocked(startEmbeddingWorker).mockResolvedValue({ stop } as {
         stop: () => Promise<void>;
@@ -358,9 +347,8 @@ describe('useEmbeddingWorkerControls', () => {
       const { result } = renderHook(() =>
         useEmbeddingWorkerControls({
           db,
-          devicePreference: 'auto',
+          devicePreference: 'wasm',
           reinitEveryN: 100,
-          forceCpuAfterFailures: 3,
           activeEmbeddingSetId: null,
           onBackfill: vi.fn(),
           toast,
@@ -372,7 +360,7 @@ describe('useEmbeddingWorkerControls', () => {
       });
 
       const callArg = vi.mocked(startEmbeddingWorker).mock.calls[0]?.[0];
-      expect(callArg).not.toHaveProperty('device');
+      expect(callArg).toEqual(expect.objectContaining({ device: 'wasm' }));
     });
   });
 });

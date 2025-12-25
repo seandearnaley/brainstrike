@@ -23,7 +23,7 @@ import {
   runEnhancedImport,
   useChunkingWorkerContext,
 } from '@brainstrike/file-import';
-import { useVectorStatusUIStore } from '@brainstrike/preferences';
+import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
@@ -285,6 +285,7 @@ export function useEnhancedFileImportService(
   const repository = useFileRecordRepository();
   const chunkRepository = useFileChunkRepository();
   const db = usePGliteDatabase();
+  const devicePref = useVectorPreferencesStore((s) => s.devicePref);
 
   // Get chunking worker from context - initialized at app root, not affected by progress re-renders
   const { port: chunkingWorkerPort } = useChunkingWorkerContext();
@@ -323,8 +324,9 @@ export function useEnhancedFileImportService(
     return createBrowserEmbeddingQueuePort({
       queue: options.embeddingQueue,
       chunkRepository,
+      deviceHint: devicePref,
     });
-  }, [chunkRepository, options.embeddingQueue]);
+  }, [chunkRepository, devicePref, options.embeddingQueue]);
 
   const updateQueueProgress = useCallback(
     (detail: QueueProgressEventDetail) => {

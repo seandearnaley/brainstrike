@@ -137,6 +137,7 @@ vi.mock('@huggingface/transformers', () => ({
 
 const minimalTask = {
   kind: 'embed' as const,
+  deviceHint: 'webgpu' as const,
   id: 'task-1',
   model: 'mock-model',
   texts: ['hello', 'world'],

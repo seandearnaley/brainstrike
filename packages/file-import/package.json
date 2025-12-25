@@ -28,6 +28,7 @@
     "@brainstrike/chunking-worker": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
+    "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",

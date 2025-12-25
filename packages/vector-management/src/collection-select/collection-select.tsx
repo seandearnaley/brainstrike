@@ -55,6 +55,19 @@ export type CollectionWithDocCount = {
  * Uses LEFT JOIN to include collections with zero files.
  */
 const COLLECTIONS_QUERY = `
+    WITH file_counts AS (
+      SELECT embedding_set_id, COUNT(*)::int AS "fileCount"
+        FROM file_records
+       GROUP BY embedding_set_id
+    ),
+    chunk_counts AS (
+      SELECT
+        embedding_set_id,
+        COUNT(*)::int AS "chunkCount",
+        COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS "embeddingCount"
+      FROM file_chunks
+      GROUP BY embedding_set_id
+    )
     SELECT
       s.id,
       s.model_key AS "modelKey",
@@ -66,13 +79,12 @@ const COLLECTIONS_QUERY = `
       s.description,
       s.tags,
       s.category,
-      COUNT(DISTINCT fr.id) AS "fileCount",
-      COUNT(DISTINCT fc.id) AS "chunkCount",
-      COUNT(DISTINCT CASE WHEN fc.embedding IS NOT NULL THEN fc.id END) AS "embeddingCount"
+      COALESCE(f."fileCount", 0) AS "fileCount",
+      COALESCE(c."chunkCount", 0) AS "chunkCount",
+      COALESCE(c."embeddingCount", 0) AS "embeddingCount"
     FROM embedding_sets s
-    LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
-    LEFT JOIN file_chunks fc ON fc.embedding_set_id = s.id
-    GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at, s.name, s.description, s.tags, s.category
+    LEFT JOIN file_counts f ON f.embedding_set_id = s.id
+    LEFT JOIN chunk_counts c ON c.embedding_set_id = s.id
     ORDER BY s.created_at DESC
   `.trim();
 

@@ -38,20 +38,29 @@ export type CreateBrowserEmbeddingQueueOptions = {
   readonly preferWorkerpool?: boolean;
   readonly worker?: WorkerpoolAdapterOptions;
   readonly fallback?: PQueueAdapterOptions;
+  /** When true, require a workerpool adapter and throw if unavailable. */
+  readonly requireWorkerpool?: boolean;
 };
 
 export function createBrowserEmbeddingQueue(
   options: CreateBrowserEmbeddingQueueOptions = {}
 ): QueueAdapter {
   const preferWorkerpool = options.preferWorkerpool ?? true;
+  const requireWorkerpool = options.requireWorkerpool ?? false;
   if (preferWorkerpool && supportsWorkers()) {
     try {
       return createWorkerpoolAdapter(options.worker);
     } catch (error) {
+      if (requireWorkerpool) {
+        throw error;
+      }
       logger.warn('Failed to initialize workerpool adapter, falling back to p-queue', {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+  if (requireWorkerpool) {
+    throw new Error('Embedding queue requires Web Workers; fallback adapter disabled.');
   }
   return createPQueueAdapter(options.fallback);
 }

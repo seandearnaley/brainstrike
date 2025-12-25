@@ -125,7 +125,7 @@ describe('processFileChunking', () => {
 
     mockUpdateProgress = vi.fn();
 
-    // Create mock worker port for tests (worker is now required)
+    // Create mock worker port for tests (worker is preferred)
     mockWorkerPort = createMockChunkingWorkerPort();
 
     mockChunkingService = {
@@ -375,7 +375,7 @@ describe('processFileChunking', () => {
     );
   });
 
-  it('throws error when worker port is not provided', async () => {
+  it('uses main-thread chunking when worker port is not provided', async () => {
     mockRepository.findById.mockResolvedValue({
       id: 'file-1',
       name: 'test.txt',
@@ -383,17 +383,18 @@ describe('processFileChunking', () => {
       content: 'File content to be chunked',
     });
 
-    // Worker port is required - test that it throws when not provided
-    await expect(
-      processFileChunking(
-        { id: 'file-1', imported: true, existed: false },
-        0,
-        1,
-        0,
-        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-        { updateProgress: mockUpdateProgress }
-      )
-    ).rejects.toThrow('Chunking worker is required but not available');
+    const result = await processFileChunking(
+      { id: 'file-1', imported: true, existed: false },
+      0,
+      1,
+      0,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { updateProgress: mockUpdateProgress }
+    );
+
+    expect(mockChunkingService.chunkContent).toHaveBeenCalled();
+    expect(result.chunksCreated).toBe(1);
+    expect(result.strategyUsed).toBe('sentence');
   });
 
   it('updates progress correctly via worker', async () => {

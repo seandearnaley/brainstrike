@@ -213,9 +213,8 @@ export type EmbeddingWorkerOptions = {
   service?: EmbeddingService; // optional DI for tests or custom backends
   metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
   enable?: boolean; // explicit runtime toggle; overrides env flag
-  device?: 'webgpu' | 'wasm' | 'cpu'; // preferred device for transformers backend
+  device?: 'webgpu' | 'wasm'; // preferred device for transformers backend
   reinitEveryN?: number; // reinitialize service every N successes (default from env or 200)
-  forceCpuAfterFailures?: number; // switch to CPU after consecutive failures (default 3)
   cacheDir?: string; // directory to cache/load models from
   onDownloadProgress?: (modelId: string, progress: number) => void;
 };
@@ -745,23 +744,19 @@ export async function startEmbeddingWorker(
       const parsed = Number(raw);
       return Number.isFinite(parsed) && parsed > 0 ? parsed : 100;
     })();
-  const forceCpuAfterFailures = Math.max(1, options.forceCpuAfterFailures ?? 3);
-
   async function ensureLocalModel(
     targetModelId: string,
     targetCompositeKey: string,
-    opts?: { forceReinit?: boolean; forceCpu?: boolean }
+    opts?: { forceReinit?: boolean }
   ): Promise<void> {
     const forceReinit = opts?.forceReinit ?? false;
-    const forceCpu = opts?.forceCpu ?? false;
-    const shouldReinitialize = forceCpu || forceReinit || targetModelId !== activeModelId;
+    const shouldReinitialize = forceReinit || targetModelId !== activeModelId;
 
     workerLogger.debug('ensureLocalModel check', {
       targetModelId,
       activeModelId,
       shouldReinitialize,
       forceReinit,
-      forceCpu,
     });
 
     if (!shouldReinitialize) {
@@ -796,10 +791,9 @@ export async function startEmbeddingWorker(
       workerLogger.warn('Failed to dispose embedding service during reinitialization', { error });
     }
 
-    const device = forceCpu ? 'cpu' : options.device;
     const nextService = new SimpleEmbeddingService();
     // Pass the MODEL CONFIG from DB (not just the key) to bypass static registry
-    await nextService.initializeWithModel(cfg, undefined, device);
+    await nextService.initializeWithModel(cfg, undefined, options.device);
     service = nextService;
     modelConfig = cfg;
 
@@ -817,10 +811,9 @@ export async function startEmbeddingWorker(
     consecutiveFailures = 0;
   }
 
-  async function resetService(forceCpu = false) {
+  async function resetService() {
     await ensureLocalModel(activeModelId, activeCompositeKey, {
       forceReinit: true,
-      forceCpu,
     });
   }
 
@@ -1027,9 +1020,6 @@ export async function startEmbeddingWorker(
     const isExplicitTerminalStatus =
       statusCode !== undefined && [400, 401, 403, 422].includes(statusCode);
 
-    const looksLikeModelExecError =
-      /model execution/i.test(truncated) || /\b\d{6,}\b/.test(truncated);
-
     const isTerminal =
       isExplicitTerminalStatus ||
       isHostedTerminal ||
@@ -1039,7 +1029,6 @@ export async function startEmbeddingWorker(
     return {
       backoffMs,
       isTerminal,
-      looksLikeModelExecError,
       truncated,
     };
   }
@@ -1068,7 +1057,7 @@ export async function startEmbeddingWorker(
       stack: error instanceof Error ? error.stack : undefined,
     });
 
-    const { backoffMs, isTerminal, looksLikeModelExecError, truncated } = classifyFailure(error);
+    const { backoffMs, isTerminal, truncated } = classifyFailure(error);
 
     // Fail all jobs in the batch with the same error
     await Promise.all(
@@ -1086,17 +1075,11 @@ export async function startEmbeddingWorker(
     metrics.jobsFailed += jobs.length;
     consecutiveFailures += 1;
 
-    if (looksLikeModelExecError && consecutiveFailures >= forceCpuAfterFailures) {
-      workerLogger.warn(
-        `Consecutive model execution failures (${consecutiveFailures}); forcing CPU reset.`
-      );
-      await resetService(true);
-      consecutiveFailures = 0;
-    } else if (consecutiveFailures >= reinitEveryN) {
+    if (consecutiveFailures >= reinitEveryN) {
       workerLogger.warn(
         `Consecutive failures (${consecutiveFailures}); forcing service reinitialization.`
       );
-      await resetService(false);
+      await resetService();
       consecutiveFailures = 0;
     }
   }
@@ -1342,7 +1325,7 @@ export async function startEmbeddingWorker(
     workerLogger.info(
       `Processed ${processedSinceInit} jobs; performing scheduled reinitialization.`
     );
-    await resetService(false);
+    await resetService();
   }
 
   async function resolveJobModelOrFail(

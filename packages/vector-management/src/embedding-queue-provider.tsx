@@ -70,7 +70,7 @@ export function EmbeddingQueueProvider({
 }: PropsWithChildren<EmbeddingQueueProviderProps>): ReactNode {
   const baseAdapterRef = useRef<QueueAdapter | null>(null);
   if (baseAdapterRef.current === null) {
-    baseAdapterRef.current = adapter ?? createBrowserEmbeddingQueue();
+    baseAdapterRef.current = adapter ?? createBrowserEmbeddingQueue({ requireWorkerpool: true });
   }
 
   const [metrics, setMetrics] = useState<QueueMetrics>(INITIAL_METRICS);

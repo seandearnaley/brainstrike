@@ -1,6 +1,7 @@
 import { createBrowserEmbeddingQueue, type QueueAdapter } from '@brainstrike/queue';
 
 const singletonQueue: QueueAdapter = createBrowserEmbeddingQueue({
+  requireWorkerpool: true,
   worker: {
     name: 'desktop-renderer-embedding',
   },

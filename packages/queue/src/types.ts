@@ -19,7 +19,7 @@ export type EmbedTaskPayload = {
   readonly texts: readonly string[];
   readonly truncateDim?: number;
   readonly dtype?: EmbeddingDType;
-  readonly deviceHint?: EmbeddingDeviceHint;
+  readonly deviceHint: EmbeddingDeviceHint;
   readonly maxBatchSize?: number;
   readonly provider?: string;
   readonly targetDimension?: number;
@@ -67,7 +67,7 @@ export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {
     ...baseRequest,
     ...(payload.truncateDim !== undefined ? { truncateDim: payload.truncateDim } : {}),
     ...(payload.dtype !== undefined ? { dtype: payload.dtype } : {}),
-    ...(payload.deviceHint !== undefined ? { deviceHint: payload.deviceHint } : {}),
+    deviceHint: payload.deviceHint,
     ...(payload.maxBatchSize !== undefined ? { maxBatchSize: payload.maxBatchSize } : {}),
     ...(payload.provider !== undefined ? { provider: payload.provider } : {}),
     ...(payload.targetDimension !== undefined ? { targetDimension: payload.targetDimension } : {}),

@@ -1,5 +1,6 @@
 import { usePGliteDatabase } from '@brainstrike/db';
 import { type EmbeddingWorkerController, startEmbeddingWorker } from '@brainstrike/embeddings';
+import { useModelRegistryStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
 import { useEffect, useRef } from 'react';
 
@@ -10,8 +11,6 @@ const logger = createLogger('EmbeddingWorkerProvider');
  * The worker runs in the browser context where Web Workers (workerpool) are available.
  * This is REQUIRED for desktop - without it, backfill jobs won't be processed.
  */
-import { useModelRegistryStore } from '@brainstrike/preferences';
-
 // Helper to create worker config
 function createWorkerConfig(
   db: NonNullable<ReturnType<typeof usePGliteDatabase>>
