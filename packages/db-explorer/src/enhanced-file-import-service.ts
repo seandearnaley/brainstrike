@@ -274,7 +274,8 @@ export function useEnhancedFileImportService(
   const activeSetIdRef = useRef<string | null>(options.resolveTargetEmbeddingSetId?.() ?? null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const setIsEmbeddingQueueActive = useVectorStatusUIStore((s) => s.setIsEmbeddingQueueActive);
-  const lastQueueActiveRef = useRef<boolean | null>(null);
+  const lastQueueActiveRef = useRef(false);
+  const queueActiveClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const baseCallbacksRef = useRef<{
     onProgress?: (progress: ImportProgress) => void;
     onComplete?: (results: FileImportResult[]) => void;
@@ -325,18 +326,8 @@ export function useEnhancedFileImportService(
     });
   }, [chunkRepository, options.embeddingQueue]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !browserQueuePort) {
-      return;
-    }
-
-    const handler = (event: Event) => {
-      const custom = event as CustomEvent<QueueProgressEventDetail | undefined>;
-      const detail = custom.detail;
-      if (!detail) {
-        return;
-      }
-
+  const updateQueueProgress = useCallback(
+    (detail: QueueProgressEventDetail) => {
       // Direct setProgress is fine now - chunking worker is in context,
       // so re-renders here don't re-invoke the worker
       setProgress((prev) => {
@@ -364,21 +355,68 @@ export function useEnhancedFileImportService(
 
         return next;
       });
+    },
+    [setProgress]
+  );
 
-      const isActive = detail.pending > 0;
-      if (lastQueueActiveRef.current !== isActive) {
-        lastQueueActiveRef.current = isActive;
-        setIsEmbeddingQueueActive(isActive);
+  const updateQueueActive = useCallback(
+    (isActive: boolean) => {
+      if (isActive) {
+        if (queueActiveClearTimeoutRef.current) {
+          clearTimeout(queueActiveClearTimeoutRef.current);
+          queueActiveClearTimeoutRef.current = null;
+        }
+        if (!lastQueueActiveRef.current) {
+          lastQueueActiveRef.current = true;
+          setIsEmbeddingQueueActive(true);
+        }
+        return;
       }
+
+      if (!lastQueueActiveRef.current) {
+        return;
+      }
+
+      if (queueActiveClearTimeoutRef.current) {
+        clearTimeout(queueActiveClearTimeoutRef.current);
+      }
+
+      queueActiveClearTimeoutRef.current = setTimeout(() => {
+        lastQueueActiveRef.current = false;
+        setIsEmbeddingQueueActive(false);
+        queueActiveClearTimeoutRef.current = null;
+      }, 1500);
+    },
+    [setIsEmbeddingQueueActive]
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !browserQueuePort) {
+      return;
+    }
+
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<QueueProgressEventDetail | undefined>;
+      const detail = custom.detail;
+      if (!detail) {
+        return;
+      }
+
+      updateQueueProgress(detail);
+      updateQueueActive(detail.pending > 0);
     };
 
     window.addEventListener('brainstrike:queue-progress', handler as EventListener);
     return () => {
       window.removeEventListener('brainstrike:queue-progress', handler as EventListener);
-      lastQueueActiveRef.current = null;
+      if (queueActiveClearTimeoutRef.current) {
+        clearTimeout(queueActiveClearTimeoutRef.current);
+        queueActiveClearTimeoutRef.current = null;
+      }
+      lastQueueActiveRef.current = false;
       setIsEmbeddingQueueActive(false);
     };
-  }, [browserQueuePort, setIsEmbeddingQueueActive]);
+  }, [browserQueuePort, updateQueueActive, updateQueueProgress]);
 
   const jobQueuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
     if (browserQueuePort) {

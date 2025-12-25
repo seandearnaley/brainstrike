@@ -16,6 +16,8 @@ export type UseVectorQueueStateParams = {
   shouldAutoBackfill: boolean;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
   isImporting?: boolean;
+  /** When true, live queries are paused to avoid performance degradation during embedding generation */
+  isEmbeddingActive?: boolean;
 };
 
 export type TelemetryTrendPoint = {
@@ -130,13 +132,14 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     activeEmbeddingSetId,
     shouldAutoBackfill: _shouldAutoBackfill,
     isImporting = false,
+    isEmbeddingActive = false,
   } = params;
   const { metrics } = useEmbeddingQueue();
   const service = params.service;
 
   // Pause live queries during import to avoid performance degradation
   // These 5 queries all fire on every DB mutation, causing severe UI lag
-  const liveQueryEnabled = Boolean(service) && !isImporting;
+  const liveQueryEnabled = Boolean(service) && !isImporting && !isEmbeddingActive;
 
   const [backfilling, setBackfilling] = useState(false);
   const [backfillProgress, setBackfillProgress] = useState<BackfillProgress>(null);

@@ -244,16 +244,50 @@ export function EmbeddingQueueProvider({
     };
   }, [instrumentedQueue]);
 
-  const lastQueueActiveRef = useRef<boolean | null>(null);
+  const lastQueueActiveRef = useRef(false);
+  const queueActiveClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const isActive = metrics.active > 0;
-    if (lastQueueActiveRef.current === isActive) {
+    if (isActive) {
+      if (queueActiveClearTimeoutRef.current) {
+        clearTimeout(queueActiveClearTimeoutRef.current);
+        queueActiveClearTimeoutRef.current = null;
+      }
+      if (!lastQueueActiveRef.current) {
+        lastQueueActiveRef.current = true;
+        setIsEmbeddingQueueActive(true);
+      }
       return;
     }
-    lastQueueActiveRef.current = isActive;
-    setIsEmbeddingQueueActive(isActive);
+
+    if (!lastQueueActiveRef.current) {
+      return;
+    }
+
+    if (queueActiveClearTimeoutRef.current) {
+      clearTimeout(queueActiveClearTimeoutRef.current);
+    }
+
+    queueActiveClearTimeoutRef.current = setTimeout(() => {
+      lastQueueActiveRef.current = false;
+      setIsEmbeddingQueueActive(false);
+      queueActiveClearTimeoutRef.current = null;
+    }, 1500);
   }, [metrics.active, setIsEmbeddingQueueActive]);
+
+  // biome-ignore lint/plugin: Cleanup resets shared queue activity state on unmount.
+  useEffect(
+    () => () => {
+      if (queueActiveClearTimeoutRef.current) {
+        clearTimeout(queueActiveClearTimeoutRef.current);
+        queueActiveClearTimeoutRef.current = null;
+      }
+      lastQueueActiveRef.current = false;
+      setIsEmbeddingQueueActive(false);
+    },
+    [setIsEmbeddingQueueActive]
+  );
 
   const contextValue = useMemo<EmbeddingQueueContextValue>(
     () => ({ queue: instrumentedQueue.queue, metrics }),

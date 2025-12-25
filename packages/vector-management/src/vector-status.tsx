@@ -450,6 +450,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   // Get isImporting from shared Zustand store - synced by DatabaseDemoPanel during bulk operations
   // This pauses the 5 live queries in useVectorQueueState to prevent O(n²) performance degradation
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
+  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
 
   useEffect(() => {
     try {
@@ -503,6 +504,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     activeEmbeddingSetId: activeId,
     shouldAutoBackfill: workerControls.workerLocalRunning,
     isImporting,
+    isEmbeddingActive,
   });
 
   backfillRef.current = queueState.backfillActiveSet;
