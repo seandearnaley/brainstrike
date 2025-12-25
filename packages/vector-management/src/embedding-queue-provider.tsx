@@ -74,7 +74,7 @@ export function EmbeddingQueueProvider({
   }
 
   const [metrics, setMetrics] = useState<QueueMetrics>(INITIAL_METRICS);
-  const setIsEmbeddingActive = useVectorStatusUIStore((s) => s.setIsEmbeddingActive);
+  const setIsEmbeddingQueueActive = useVectorStatusUIStore((s) => s.setIsEmbeddingQueueActive);
   const canUseTelemetry = typeof window !== 'undefined' && typeof window.Worker !== 'undefined';
   const telemetryAggregatorRef = useRef(canUseTelemetry ? createQueueTelemetryAggregator() : null);
 
@@ -244,9 +244,16 @@ export function EmbeddingQueueProvider({
     };
   }, [instrumentedQueue]);
 
+  const lastQueueActiveRef = useRef<boolean | null>(null);
+
   useEffect(() => {
-    setIsEmbeddingActive(metrics.active > 0);
-  }, [metrics.active, setIsEmbeddingActive]);
+    const isActive = metrics.active > 0;
+    if (lastQueueActiveRef.current === isActive) {
+      return;
+    }
+    lastQueueActiveRef.current = isActive;
+    setIsEmbeddingQueueActive(isActive);
+  }, [metrics.active, setIsEmbeddingQueueActive]);
 
   const contextValue = useMemo<EmbeddingQueueContextValue>(
     () => ({ queue: instrumentedQueue.queue, metrics }),

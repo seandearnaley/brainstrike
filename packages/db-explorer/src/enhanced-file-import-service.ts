@@ -23,6 +23,7 @@ import {
   runEnhancedImport,
   useChunkingWorkerContext,
 } from '@brainstrike/file-import';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
@@ -198,7 +199,6 @@ type ImportFlowDeps = {
   activeSetIdRef: { current: string | null };
 };
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Import orchestration requires multiple conditional branches.
 async function runImportFlow({
   controller,
   selectedFilePaths,
@@ -273,6 +273,8 @@ export function useEnhancedFileImportService(
   const [progress, setProgress] = useState<EnhancedImportProgress | null>(null);
   const activeSetIdRef = useRef<string | null>(options.resolveTargetEmbeddingSetId?.() ?? null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const setIsEmbeddingQueueActive = useVectorStatusUIStore((s) => s.setIsEmbeddingQueueActive);
+  const lastQueueActiveRef = useRef<boolean | null>(null);
   const baseCallbacksRef = useRef<{
     onProgress?: (progress: ImportProgress) => void;
     onComplete?: (results: FileImportResult[]) => void;
@@ -362,13 +364,21 @@ export function useEnhancedFileImportService(
 
         return next;
       });
+
+      const isActive = detail.pending > 0;
+      if (lastQueueActiveRef.current !== isActive) {
+        lastQueueActiveRef.current = isActive;
+        setIsEmbeddingQueueActive(isActive);
+      }
     };
 
     window.addEventListener('brainstrike:queue-progress', handler as EventListener);
     return () => {
       window.removeEventListener('brainstrike:queue-progress', handler as EventListener);
+      lastQueueActiveRef.current = null;
+      setIsEmbeddingQueueActive(false);
     };
-  }, [browserQueuePort]);
+  }, [browserQueuePort, setIsEmbeddingQueueActive]);
 
   const jobQueuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
     if (browserQueuePort) {

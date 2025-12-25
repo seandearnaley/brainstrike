@@ -45,7 +45,14 @@ vi.mock('@brainstrike/db', () => ({
 // Mock preferences store for useEmbeddingSetSelection tests
 const mockStoreState = {
   activeEmbeddingSetId: null as string | null,
+  isImporting: false,
+  isEmbeddingActive: false,
+  isEmbeddingQueueActive: false,
+  isJobQueueActive: false,
   setActiveEmbeddingSetId: vi.fn(),
+  setIsImporting: vi.fn(),
+  setIsEmbeddingQueueActive: vi.fn(),
+  setIsJobQueueActive: vi.fn(),
 };
 
 vi.mock('@brainstrike/preferences', () => ({

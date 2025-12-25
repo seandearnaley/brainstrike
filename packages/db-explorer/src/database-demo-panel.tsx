@@ -33,7 +33,7 @@ import {
   RenameEmbeddingSetDialog,
 } from '@brainstrike/vector-management';
 import { Database, FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import {
   ClearDatabaseDialog,
@@ -103,7 +103,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
-  const setIsEmbeddingActive = useVectorStatusUIStore((s) => s.setIsEmbeddingActive);
+  const setIsJobQueueActive = useVectorStatusUIStore((s) => s.setIsJobQueueActive);
 
   // Create embedding sets repository
   const embeddingSetsRepository = useMemo(() => {
@@ -168,10 +168,43 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     resolveActiveSetId: resolveActiveCollectionId,
   });
 
-  // Track embedding activity to pause heavy live queries during embedding generation
+  const jobQueueActive = pendingChunkIds.size > 0;
+  const jobQueueClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Track job_queue activity to pause heavy live queries during background embedding generation
   useEffect(() => {
-    setIsEmbeddingActive(pendingChunkIds.size > 0);
-  }, [pendingChunkIds, setIsEmbeddingActive]);
+    if (jobQueueActive) {
+      if (jobQueueClearTimeoutRef.current) {
+        clearTimeout(jobQueueClearTimeoutRef.current);
+        jobQueueClearTimeoutRef.current = null;
+      }
+      setIsJobQueueActive(true);
+      return;
+    }
+
+    if (jobQueueClearTimeoutRef.current) {
+      clearTimeout(jobQueueClearTimeoutRef.current);
+    }
+
+    jobQueueClearTimeoutRef.current = setTimeout(() => {
+      setIsJobQueueActive(false);
+      jobQueueClearTimeoutRef.current = null;
+    }, 1500);
+
+    return () => {
+      if (jobQueueClearTimeoutRef.current) {
+        clearTimeout(jobQueueClearTimeoutRef.current);
+        jobQueueClearTimeoutRef.current = null;
+      }
+    };
+  }, [jobQueueActive, setIsJobQueueActive]);
+
+  useEffect(
+    () => () => {
+      setIsJobQueueActive(false);
+    },
+    [setIsJobQueueActive]
+  );
 
   const exportHandlers = useExportHandlers(filteredRecords, filteredChunks, toast);
 

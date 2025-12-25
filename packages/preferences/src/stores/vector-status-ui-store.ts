@@ -6,14 +6,19 @@ type VectorStatusUIData = {
   activeEmbeddingSetId: string | null;
   /** When true, live queries should be paused to avoid performance degradation during bulk operations */
   isImporting: boolean;
-  /** When true, embeddings are actively being generated */
+  /** When true, embeddings are actively being generated (from any source). */
   isEmbeddingActive: boolean;
+  /** When true, the local embedding queue adapter is processing tasks. */
+  isEmbeddingQueueActive: boolean;
+  /** When true, the job_queue has embedding work pending (queued/running). */
+  isJobQueueActive: boolean;
 };
 
 type VectorStatusUIActions = {
   setActiveEmbeddingSetId: (id: string | null) => void;
   setIsImporting: (importing: boolean) => void;
-  setIsEmbeddingActive: (active: boolean) => void;
+  setIsEmbeddingQueueActive: (active: boolean) => void;
+  setIsJobQueueActive: (active: boolean) => void;
 };
 
 export type VectorStatusUIStore = VectorStatusUIData & VectorStatusUIActions;
@@ -32,15 +37,26 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
       activeEmbeddingSetId: null,
       isImporting: false,
       isEmbeddingActive: false,
+      isEmbeddingQueueActive: false,
+      isJobQueueActive: false,
       setActiveEmbeddingSetId: (id) => set({ activeEmbeddingSetId: id }),
       setIsImporting: (importing) => set({ isImporting: importing }),
-      setIsEmbeddingActive: (active) => set({ isEmbeddingActive: active }),
+      setIsEmbeddingQueueActive: (active) =>
+        set((state) => ({
+          isEmbeddingQueueActive: active,
+          isEmbeddingActive: active || state.isJobQueueActive,
+        })),
+      setIsJobQueueActive: (active) =>
+        set((state) => ({
+          isJobQueueActive: active,
+          isEmbeddingActive: state.isEmbeddingQueueActive || active,
+        })),
     }),
     {
       name: STORE_NAME,
       version: 1,
       storage,
-      // Only persist activeEmbeddingSetId - isImporting is transient state
+      // Only persist activeEmbeddingSetId - import/embedding flags are transient state
       partialize: (s) => ({ activeEmbeddingSetId: s.activeEmbeddingSetId }),
     }
   )
@@ -50,6 +66,8 @@ export const vectorStatusUISelectors = {
   activeSet: (s: VectorStatusUIStore) => s.activeEmbeddingSetId,
   isImporting: (s: VectorStatusUIStore) => s.isImporting,
   isEmbeddingActive: (s: VectorStatusUIStore) => s.isEmbeddingActive,
+  isEmbeddingQueueActive: (s: VectorStatusUIStore) => s.isEmbeddingQueueActive,
+  isJobQueueActive: (s: VectorStatusUIStore) => s.isJobQueueActive,
 };
 
 export function __resetVectorStatusUIStoreForTests() {
@@ -67,5 +85,7 @@ export function __resetVectorStatusUIStoreForTests() {
     activeEmbeddingSetId: null,
     isImporting: false,
     isEmbeddingActive: false,
+    isEmbeddingQueueActive: false,
+    isJobQueueActive: false,
   });
 }
