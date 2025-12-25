@@ -21,6 +21,8 @@ export type WorkerpoolAdapterOptions = {
   readonly maxWorkers?: number;
   readonly maxQueueSize?: number;
   readonly name?: string;
+  /** Optional worker URL override (use bundler-provided worker URL in apps). */
+  readonly workerUrl?: string;
 };
 
 type WorkerEvent = QueueProgressEvent | QueueErrorEvent;
@@ -79,7 +81,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     1,
     Math.min(options.maxWorkers ?? Math.max(1, hardwareConcurrency - 1), DEFAULT_MAX_WORKERS_CAP)
   );
-  const workerScript = resolveEmbeddingWorkerUrl().href;
+  const workerScript = options.workerUrl ?? resolveEmbeddingWorkerUrl().href;
   const poolOptions: WorkerPoolOptions = {
     maxWorkers,
     maxQueueSize: options.maxQueueSize ?? Number.POSITIVE_INFINITY,
