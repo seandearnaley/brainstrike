@@ -58,5 +58,8 @@
     {
       "path": "apps/desktop"
     }
-  ]
+  ],
+  "compilerOptions": {
+    "strictNullChecks": true
+  }
 }

@@ -9,9 +9,19 @@
     "outDir": "./dist",
     "rootDir": "src",
     "declarationMap": true,
-    "lib": ["ES2022", "WebWorker"],
-    "types": []
+    "lib": [
+      "ES2022",
+      "WebWorker"
+    ],
+    "types": [],
+    "strictNullChecks": true
   },
-  "include": ["src/token-cache.worker.ts", "src/types.ts"],
-  "exclude": ["dist", "node_modules"]
+  "include": [
+    "src/token-cache.worker.ts",
+    "src/types.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
 }

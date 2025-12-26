@@ -16,15 +16,29 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
-    "types": ["node", "electron", "vite/client"],
+    "types": [
+      "node",
+      "electron",
+      "vite/client"
+    ],
     "baseUrl": ".",
     "paths": {
-      "@brainstrike/agent": ["../../packages/agent/dist/index.d.ts"],
-      "@brainstrike/agent/client": ["../../packages/agent/dist/client.d.ts"],
-      "@brainstrike/queue": ["../../packages/queue/src/index.ts"]
-    }
+      "@brainstrike/agent": [
+        "../../packages/agent/dist/index.d.ts"
+      ],
+      "@brainstrike/agent/client": [
+        "../../packages/agent/dist/client.d.ts"
+      ],
+      "@brainstrike/queue": [
+        "../../packages/queue/src/index.ts"
+      ]
+    },
+    "strictNullChecks": true
   },
-  "include": ["src/**/*", "index.html"],
+  "include": [
+    "src/**/*",
+    "index.html"
+  ],
   "exclude": [
     "node_modules",
     "dist",
@@ -35,8 +49,14 @@
     "src/**/*.spec.*"
   ],
   "references": [
-    { "path": "../../packages/app-shell" },
-    { "path": "../../packages/db" },
-    { "path": "../../packages/queue" }
+    {
+      "path": "../../packages/app-shell"
+    },
+    {
+      "path": "../../packages/db"
+    },
+    {
+      "path": "../../packages/queue"
+    }
   ]
 }

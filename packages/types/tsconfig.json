@@ -8,11 +8,18 @@
     "declaration": true,
     "emitDeclarationOnly": true,
     "declarationMap": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["dist", "node_modules", "**/*.test.ts"],
-  "references": [
-    // {"path": "../../packages/config"}
-  ]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts"
+  ],
+  "references": []
 }

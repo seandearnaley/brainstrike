@@ -8,13 +8,29 @@
     "outDir": "./dist",
     "rootDir": "src",
     "declarationMap": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.test.tsx"],
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ],
   "references": [
-    { "path": "../types" },
-    { "path": "../file-system" },
-    { "path": "../utils" }
+    {
+      "path": "../types"
+    },
+    {
+      "path": "../file-system"
+    },
+    {
+      "path": "../utils"
+    }
   ]
 }

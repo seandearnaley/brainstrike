@@ -7,17 +7,39 @@
     "declaration": true,
     "outDir": "./dist",
     "rootDir": "src",
-    "types": ["node"],
-    "baseUrl": "."
+    "types": [
+      "node"
+    ],
+    "baseUrl": ".",
+    "strictNullChecks": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.test.tsx"],
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ],
   "references": [
-    { "path": "../db" },
-    { "path": "../embedding-worker" },
-    { "path": "../embeddings" },
-    { "path": "../agent" },
-    { "path": "../utils" },
-    { "path": "../types" }
+    {
+      "path": "../db"
+    },
+    {
+      "path": "../embedding-worker"
+    },
+    {
+      "path": "../embeddings"
+    },
+    {
+      "path": "../agent"
+    },
+    {
+      "path": "../utils"
+    },
+    {
+      "path": "../types"
+    }
   ]
 }

@@ -8,15 +8,32 @@
     "outDir": "dist",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"],
-      "@web/*": ["./src/*"],
-      "@brainstrike/agent": ["../../packages/agent/src/index.ts"],
-      "@brainstrike/agent/client": ["../../packages/agent/src/client.ts"],
-      "@brainstrike/utils": ["../../packages/utils/src/index.ts"]
+      "@/*": [
+        "./src/*"
+      ],
+      "@web/*": [
+        "./src/*"
+      ],
+      "@brainstrike/agent": [
+        "../../packages/agent/src/index.ts"
+      ],
+      "@brainstrike/agent/client": [
+        "../../packages/agent/src/client.ts"
+      ],
+      "@brainstrike/utils": [
+        "../../packages/utils/src/index.ts"
+      ]
     },
-    "types": ["node", "vite/client"]
+    "types": [
+      "node",
+      "vite/client"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["src", "playwright.config.ts"],
+  "include": [
+    "src",
+    "playwright.config.ts"
+  ],
   "exclude": [
     "node_modules",
     "dist",
@@ -32,18 +49,44 @@
     "vitest.config.integration.ts"
   ],
   "references": [
-    { "path": "../../packages/app-shell" },
-    { "path": "../../packages/agent/tsconfig.build.json" },
-    { "path": "../../packages/db" },
-    { "path": "../../packages/embeddings" },
-    { "path": "../../packages/file-explorer" },
-    { "path": "../../packages/file-explorer-hooks" },
-    { "path": "../../packages/file-explorer-ui" },
-    { "path": "../../packages/hooks" },
-    { "path": "../../packages/queue" },
-    { "path": "../../packages/server-config" },
-    { "path": "../../packages/types" },
-    { "path": "../../packages/ui" },
-    { "path": "../../packages/utils" }
+    {
+      "path": "../../packages/app-shell"
+    },
+    {
+      "path": "../../packages/agent/tsconfig.build.json"
+    },
+    {
+      "path": "../../packages/db"
+    },
+    {
+      "path": "../../packages/embeddings"
+    },
+    {
+      "path": "../../packages/file-explorer"
+    },
+    {
+      "path": "../../packages/file-explorer-hooks"
+    },
+    {
+      "path": "../../packages/file-explorer-ui"
+    },
+    {
+      "path": "../../packages/hooks"
+    },
+    {
+      "path": "../../packages/queue"
+    },
+    {
+      "path": "../../packages/server-config"
+    },
+    {
+      "path": "../../packages/types"
+    },
+    {
+      "path": "../../packages/ui"
+    },
+    {
+      "path": "../../packages/utils"
+    }
   ]
 }

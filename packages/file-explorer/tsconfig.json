@@ -5,9 +5,15 @@
     "outDir": "dist",
     "composite": true,
     "declaration": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
   "exclude": [
     "dist",
     "node_modules",
@@ -16,9 +22,17 @@
     "src/**/__tests__/**"
   ],
   "references": [
-    { "path": "../types" },
-    { "path": "../utils" },
-    { "path": "../storage" },
-    { "path": "../file-system" }
+    {
+      "path": "../types"
+    },
+    {
+      "path": "../utils"
+    },
+    {
+      "path": "../storage"
+    },
+    {
+      "path": "../file-system"
+    }
   ]
 }

@@ -8,15 +8,28 @@
     "outDir": "dist",
     "declarationDir": "dist",
     "baseUrl": ".",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "paths": {
-      "@brainstrike/file-explorer-hooks": ["../file-explorer-hooks/src"],
-      "@brainstrike/file-explorer-ui": ["../file-explorer-ui/src"],
-      "@brainstrike/storage": ["../storage/src"],
-      "@brainstrike/file-import": ["../file-import/src"]
-    }
+      "@brainstrike/file-explorer-hooks": [
+        "../file-explorer-hooks/src"
+      ],
+      "@brainstrike/file-explorer-ui": [
+        "../file-explorer-ui/src"
+      ],
+      "@brainstrike/storage": [
+        "../storage/src"
+      ],
+      "@brainstrike/file-import": [
+        "../file-import/src"
+      ]
+    },
+    "strictNullChecks": true
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/*"
+  ],
   "exclude": [
     "dist",
     "node_modules",
@@ -26,15 +39,35 @@
     "vitest.config.*"
   ],
   "references": [
-    { "path": "../types" },
-    { "path": "../ui" },
-    { "path": "../file-explorer-hooks" },
-    { "path": "../file-explorer-ui" },
-    { "path": "../storage" },
-    { "path": "../file-import" },
-    { "path": "../preferences" },
-    { "path": "../db-explorer" },
-    { "path": "../vector-management" },
-    { "path": "../queue" }
+    {
+      "path": "../types"
+    },
+    {
+      "path": "../ui"
+    },
+    {
+      "path": "../file-explorer-hooks"
+    },
+    {
+      "path": "../file-explorer-ui"
+    },
+    {
+      "path": "../storage"
+    },
+    {
+      "path": "../file-import"
+    },
+    {
+      "path": "../preferences"
+    },
+    {
+      "path": "../db-explorer"
+    },
+    {
+      "path": "../vector-management"
+    },
+    {
+      "path": "../queue"
+    }
   ]
 }

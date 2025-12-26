@@ -9,12 +9,26 @@
     "emitDeclarationOnly": true,
     "outDir": "./dist",
     "rootDir": "src",
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["dist", "node_modules", "test"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "test"
+  ],
   "references": [
-    { "path": "../embedding-worker" },
-    { "path": "../utils" }
+    {
+      "path": "../embedding-worker"
+    },
+    {
+      "path": "../utils"
+    }
   ]
 }

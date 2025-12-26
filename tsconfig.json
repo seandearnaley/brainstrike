@@ -3,44 +3,110 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@brainstrike/types": ["packages/types/src"],
-      "@brainstrike/hooks": ["packages/hooks/src"],
-      "@brainstrike/ui": ["packages/ui/src"],
-      "@brainstrike/utils": ["packages/utils/src"],
-      "@brainstrike/file-explorer": ["packages/file-explorer/src"],
-      "@brainstrike/file-explorer-hooks": ["packages/file-explorer-hooks/src"],
-      "@brainstrike/file-explorer-ui": ["packages/file-explorer-ui/src"],
-      "@brainstrike/storage": ["packages/storage/src"],
-      "@brainstrike/workers": ["packages/workers"],
-      "@brainstrike/workers/*": ["packages/workers/*"],
-      "@brainstrike/db": ["packages/db/src"],
-      "@brainstrike/queue": ["packages/queue/src"],
-      "@brainstrike/build-utils": ["packages/build-utils/src"],
-      "@brainstrike/agent": ["packages/agent/dist/index.d.ts"],
-      "@web/*": ["apps/web/src/*"],
-      "@desktop/*": ["apps/desktop/src/*"]
+      "@brainstrike/types": [
+        "packages/types/src"
+      ],
+      "@brainstrike/hooks": [
+        "packages/hooks/src"
+      ],
+      "@brainstrike/ui": [
+        "packages/ui/src"
+      ],
+      "@brainstrike/utils": [
+        "packages/utils/src"
+      ],
+      "@brainstrike/file-explorer": [
+        "packages/file-explorer/src"
+      ],
+      "@brainstrike/file-explorer-hooks": [
+        "packages/file-explorer-hooks/src"
+      ],
+      "@brainstrike/file-explorer-ui": [
+        "packages/file-explorer-ui/src"
+      ],
+      "@brainstrike/storage": [
+        "packages/storage/src"
+      ],
+      "@brainstrike/workers": [
+        "packages/workers"
+      ],
+      "@brainstrike/workers/*": [
+        "packages/workers/*"
+      ],
+      "@brainstrike/db": [
+        "packages/db/src"
+      ],
+      "@brainstrike/queue": [
+        "packages/queue/src"
+      ],
+      "@brainstrike/build-utils": [
+        "packages/build-utils/src"
+      ],
+      "@brainstrike/agent": [
+        "packages/agent/dist/index.d.ts"
+      ],
+      "@web/*": [
+        "apps/web/src/*"
+      ],
+      "@desktop/*": [
+        "apps/desktop/src/*"
+      ]
     },
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "noEmit": true,
     "declaration": false,
     "sourceMap": false,
     "declarationMap": false,
-    "incremental": false
+    "incremental": false,
+    "strictNullChecks": true
   },
-  "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", ".turbo", "dist"],
+  "include": [
+    "**/*.ts",
+    "**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    ".turbo",
+    "dist"
+  ],
   "references": [
-    { "path": "./packages/types" },
-    { "path": "./packages/utils" },
-    { "path": "./packages/hooks" },
-    { "path": "./packages/ui" },
-    { "path": "./packages/app-shell" },
-    { "path": "./packages/file-explorer" },
-    { "path": "./packages/file-explorer-hooks" },
-    { "path": "./packages/file-explorer-ui" },
-    { "path": "./packages/storage" },
-    { "path": "./packages/db" },
-    { "path": "./packages/build-utils" },
-    { "path": "./apps/web" }
+    {
+      "path": "./packages/types"
+    },
+    {
+      "path": "./packages/utils"
+    },
+    {
+      "path": "./packages/hooks"
+    },
+    {
+      "path": "./packages/ui"
+    },
+    {
+      "path": "./packages/app-shell"
+    },
+    {
+      "path": "./packages/file-explorer"
+    },
+    {
+      "path": "./packages/file-explorer-hooks"
+    },
+    {
+      "path": "./packages/file-explorer-ui"
+    },
+    {
+      "path": "./packages/storage"
+    },
+    {
+      "path": "./packages/db"
+    },
+    {
+      "path": "./packages/build-utils"
+    },
+    {
+      "path": "./apps/web"
+    }
   ]
 }

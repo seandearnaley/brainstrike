@@ -5,18 +5,35 @@
     "rootDir": "src",
     "composite": true,
     "declaration": true,
-
     "declarationMap": true,
     "declarationDir": "dist",
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "module": "ESNext",
     "target": "ESNext",
-
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["dist", "node_modules"],
-  "references": [{ "path": "../types" }, { "path": "../queue" }, { "path": "../utils" }]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ],
+  "references": [
+    {
+      "path": "../types"
+    },
+    {
+      "path": "../queue"
+    },
+    {
+      "path": "../utils"
+    }
+  ]
 }
