@@ -55,6 +55,27 @@ vi.mock('@brainstrike/file-import', () => ({
     error: null,
     reinitialize: vi.fn(),
   })),
+  // Additional exports used by enhanced-file-import-service
+  createBrowserEmbeddingQueuePort: vi.fn(() => ({
+    add: vi.fn(),
+    addBulk: vi.fn(),
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: vi.fn(),
+  })),
+  runEnhancedImport: vi.fn(async () => ({
+    totalFiles: 0,
+    importedFiles: 0,
+    skippedFiles: 0,
+    chunkedFiles: 0,
+    embeddedFiles: 0,
+    totalChunks: 0,
+    totalTokens: 0,
+    errors: [],
+    embeddingErrors: [],
+    skippedPaths: [],
+  })),
 }));
 
 // Mock the file-explorer-hooks

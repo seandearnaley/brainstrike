@@ -36,6 +36,33 @@ vi.mock('@brainstrike/file-import', () => ({
     error: null,
     reinitialize: vi.fn(),
   })),
+  useChunkingWorker: vi.fn(() => ({
+    port: null,
+    isReady: false,
+    isProcessing: false,
+    error: null,
+    reinitialize: vi.fn(),
+  })),
+  createBrowserEmbeddingQueuePort: vi.fn(() => ({
+    add: vi.fn(),
+    addBulk: vi.fn(),
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: vi.fn(),
+  })),
+  runEnhancedImport: vi.fn(async () => ({
+    totalFiles: 0,
+    importedFiles: 0,
+    skippedFiles: 0,
+    chunkedFiles: 0,
+    embeddedFiles: 0,
+    totalChunks: 0,
+    totalTokens: 0,
+    errors: [],
+    embeddingErrors: [],
+    skippedPaths: [],
+  })),
 }));
 
 vi.mock('../app/root-layout-content', () => ({
