@@ -1,7 +1,42 @@
+import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
 import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
-import RootLayoutContent from '../../../renderer/components/root-layout-content';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+
+let RootLayoutContent: React.ComponentType;
+
+const createQueueStub = (): QueueAdapter => {
+  const result = {
+    type: 'result',
+    id: 'stub',
+    vectors: [new Float32Array(0)],
+    metadata: {
+      model: 'stub-model',
+      device: 'webgpu',
+      dtype: 'fp16',
+      batchSize: 1,
+      elapsedMs: 0,
+      fallbackApplied: false,
+      dimensions: 0,
+    },
+  } satisfies QueueResult;
+  return {
+    add: vi.fn(async () => result),
+    addBulk: vi.fn(async () => [result]),
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: vi.fn(async () => {}),
+  };
+};
+
+const queueStub = createQueueStub();
+
+vi.mock('../../../renderer/create-embedding-queue', () => ({
+  embeddingQueue: queueStub,
+  getEmbeddingQueue: () => queueStub,
+  createBrowserEmbeddingQueue: vi.fn(() => queueStub),
+}));
 
 // Mock the file-explorer-hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -105,6 +140,10 @@ vi.mock('../../../renderer/components/settings/page-content', () => ({
 }));
 
 describe('RootLayoutContent', () => {
+  beforeAll(async () => {
+    RootLayoutContent = (await import('../../../renderer/components/root-layout-content')).default;
+  });
+
   beforeEach(() => {
     currentDb = null;
     homeMountCount = 0;

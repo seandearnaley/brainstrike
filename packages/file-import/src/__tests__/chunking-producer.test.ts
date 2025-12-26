@@ -10,6 +10,31 @@ import { generateUUID } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { processChunking } from '../chunking';
+import type { ChunkingWorkerPort } from '../chunking-worker-port';
+
+// Helper to create a mock worker port for tests
+function createMockChunkingWorkerPort(): ChunkingWorkerPort {
+  return {
+    isReady: vi.fn().mockReturnValue(true),
+    terminate: vi.fn(),
+    chunkFile: vi.fn().mockResolvedValue({
+      fileRecordId: 'file-1',
+      chunks: [
+        {
+          chunkIndex: 0,
+          content: '# Title\ncontent here',
+          contentHash: 'hash-1',
+          tokenCount: 5,
+          chunkType: 'sentence',
+        },
+      ],
+      strategyUsed: 'sentence',
+      totalTokens: 5,
+      skipped: false,
+    }),
+    chunkBatch: vi.fn().mockResolvedValue([]),
+  };
+}
 
 describe('Chunking producer enqueues jobs', () => {
   // Increase timeouts to tolerate in-memory DB startup + migrations under load
@@ -47,6 +72,8 @@ describe('Chunking producer enqueues jobs', () => {
     const jobQueue = new JobQueue(db);
     const enqueuedIds: string[] = [];
 
+    const mockWorkerPort = createMockChunkingWorkerPort();
+
     const results = await processChunking(
       importResults,
       {
@@ -60,6 +87,7 @@ describe('Chunking producer enqueues jobs', () => {
       {
         updateProgress: () => null,
         embedQueueEnabled: true,
+        chunkingWorkerPort: mockWorkerPort,
         enqueueJobsForChunks: async (chunks, fileRecordId) => {
           for (const ch of chunks) {
             const dedupeKey = `${ch.id}:${ch.embeddingSetId ?? 'none'}:${ch.contentHash}`;

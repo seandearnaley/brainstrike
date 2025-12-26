@@ -171,7 +171,10 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell',
       '@brainstrike/workers',
-      // NOTE: @brainstrike/token-cache is NOT excluded - using dist version
+      '@brainstrike/db-explorer', // Uses file-import which has worker
+      '@brainstrike/file-import', // Contains useChunkingWorker hook - must not be pre-bundled
+      '@brainstrike/token-cache', // Worker must resolve via package exports (dist)
+      '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
     ],
   },
   define: {

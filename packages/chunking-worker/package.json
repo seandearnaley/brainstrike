@@ -1,0 +1,50 @@
+{
+  "name": "@brainstrike/chunking-worker",
+  "version": "0.1.0",
+  "description": "Web Worker for off-main-thread file chunking with AST-aware code splitting and token counting.",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/chunking.worker.d.ts",
+      "import": "./dist/chunking.worker.js"
+    }
+  },
+  "files": [
+    "dist/**"
+  ],
+  "scripts": {
+    "build": "tsup --config ./tsup.config.ts",
+    "clean": "rimraf dist",
+    "dev": "tsup --config ./tsup.config.ts --watch",
+    "lint": "pnpm -w lint --filter @brainstrike/chunking-worker",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "type-check": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.27.4",
+    "@langchain/textsplitters": "^0.1.0",
+    "tiktoken": "^1.0.22"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "rimraf": "^6.1.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14"
+  },
+  "turbo": {
+    "outputs": [
+      "dist/**"
+    ]
+  }
+}

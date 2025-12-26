@@ -82,24 +82,20 @@ const chunks = await processFileChunks({
 
 ```typescript
 import { createBrowserEmbeddingQueuePort } from '@brainstrike/file-import';
+import { createBrowserEmbeddingQueue } from '@brainstrike/queue';
 
+const queue = createBrowserEmbeddingQueue({ requireWorkerpool: true });
 const queuePort = createBrowserEmbeddingQueuePort({
-  db,
-  embeddingSetId: 'my-set-id',
-  onProgress: (detail) => {
+  queue,
+  chunkRepository,
+  deviceHint: 'webgpu',
+  dispatchProgressEvent: (detail) => {
     console.log(`Queue status: ${detail.pending} pending, ${detail.processed} processed`);
-
-    if (detail.lastEvent) {
-      console.log(`Last event: ${detail.lastEvent.status} for ${detail.lastEvent.chunkId}`);
-    }
   }
 });
 
-// Start processing queue
-await queuePort.start();
-
-// Stop when done
-await queuePort.stop();
+// Enqueue chunks for embedding
+await queuePort.enqueueBatch(chunks, fileRecordId, { model: 'your-model-id' });
 ```
 
 ## API
@@ -152,11 +148,13 @@ Generate embeddings for file chunks.
 Create a queue manager for browser-based embedding generation.
 
 **Options:**
-- `db`: Database instance
-- `embeddingSetId`: Target embedding set
-- `onProgress?: (detail: QueueProgressEventDetail) => void`
+- `queue`: Queue adapter (workerpool-backed)
+- `chunkRepository`: Repository for persisting embeddings
+- `deviceHint`: `'webgpu' | 'wasm'`
+- `dispatchProgressEvent?: (detail: QueueProgressEventDetail) => void`
+- `dispatchDrainEvent?: (embeddingSetId: string | null) => void`
 
-**Returns:** Queue port with `start()` and `stop()` methods
+**Returns:** Queue port with `enqueueBatch()` method
 
 ## Progress Types
 

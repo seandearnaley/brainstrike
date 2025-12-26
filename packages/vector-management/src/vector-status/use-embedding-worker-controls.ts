@@ -4,9 +4,8 @@ import { useCallback, useRef, useState } from 'react';
 
 export type UseEmbeddingWorkerControlsParams = {
   db: EmbeddingWorkerOptions['db'] | null;
-  devicePreference: 'auto' | 'webgpu' | 'wasm' | 'cpu';
+  devicePreference: 'webgpu' | 'wasm';
   reinitEveryN: number;
-  forceCpuAfterFailures: number;
   activeEmbeddingSetId: string | null;
   onBackfill: () => Promise<void>;
   toast: (options: { title: string; description?: string; variant?: 'destructive' }) => void;
@@ -40,7 +39,6 @@ export function useEmbeddingWorkerControls(
     db,
     devicePreference,
     reinitEveryN,
-    forceCpuAfterFailures,
     // These parameters are retained for API compatibility but currently unused
     // since auto-backfill on worker start is disabled
     activeEmbeddingSetId: _activeEmbeddingSetId,
@@ -64,8 +62,7 @@ export function useEmbeddingWorkerControls(
         db,
         enable: true,
         reinitEveryN,
-        forceCpuAfterFailures,
-        ...(devicePreference !== 'auto' && { device: devicePreference }),
+        device: devicePreference,
       };
       const controller = await startEmbeddingWorker(options);
       workerControllerRef.current = controller;
@@ -76,7 +73,7 @@ export function useEmbeddingWorkerControls(
       // over when embedding jobs are enqueued.
       toast(successToast);
     },
-    [db, devicePreference, reinitEveryN, forceCpuAfterFailures, toast]
+    [db, devicePreference, reinitEveryN, toast]
   );
 
   const startWorker = useCallback(async () => {

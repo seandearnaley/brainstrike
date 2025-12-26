@@ -1,6 +1,7 @@
 import { usePGliteLiveQuery } from '@brainstrike/db';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { createLogger } from '@brainstrike/utils';
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 
 const logger = createLogger('useIndexedChunkCount');
 export const indexedChunkCountLogger = logger;
@@ -35,6 +36,9 @@ const INDEXED_CHUNK_COUNT_QUERY = `
 `.trim();
 
 export function useIndexedChunkCount(activeCollectionId: string | null): number | undefined {
+  const isImporting = useVectorStatusUIStore((s) => s.isImporting);
+  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
+  const liveQueryEnabled = Boolean(activeCollectionId) && !isImporting && !isEmbeddingActive;
   const params = useMemo<readonly [string] | undefined>(
     () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
     [activeCollectionId]
@@ -43,11 +47,11 @@ export function useIndexedChunkCount(activeCollectionId: string | null): number 
   const { rows, error } = usePGliteLiveQuery<{ count: number }>({
     query: INDEXED_CHUNK_COUNT_QUERY,
     ...(params ? { params } : {}),
-    enabled: Boolean(activeCollectionId),
+    enabled: liveQueryEnabled,
   });
 
-  return useMemo(() => {
-    if (!activeCollectionId) {
+  const computed = useMemo(() => {
+    if (!(liveQueryEnabled && activeCollectionId)) {
       return;
     }
     if (error) {
@@ -59,7 +63,14 @@ export function useIndexedChunkCount(activeCollectionId: string | null): number 
       return 0;
     }
     return Number.isFinite(row.count) ? row.count : 0;
-  }, [activeCollectionId, rows, error]);
+  }, [activeCollectionId, error, liveQueryEnabled, rows]);
+
+  const snapshotRef = useRef<number | undefined>(undefined);
+  if (liveQueryEnabled) {
+    snapshotRef.current = computed;
+  }
+
+  return liveQueryEnabled ? computed : snapshotRef.current;
 }
 
 /**

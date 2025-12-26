@@ -22,29 +22,26 @@ describe('vector-preferences-store', () => {
     vi.restoreAllMocks();
     const store = useVectorPreferencesStore;
     store.setState({
-      devicePref: 'auto',
+      devicePref: 'webgpu',
       reinitEveryN: 200,
-      forceCpuAfterFailures: 3,
       verboseOrtLogs: false,
     });
     storeWithPersist.persist?.clearStorage?.();
   });
 
   it('initializes with defaults and updates device preference', () => {
-    expect(useVectorPreferencesStore.getState().devicePref).toBe('auto');
-    useVectorPreferencesStore.getState().setDevicePref('webgpu');
     expect(useVectorPreferencesStore.getState().devicePref).toBe('webgpu');
+    useVectorPreferencesStore.getState().setDevicePref('wasm');
+    expect(useVectorPreferencesStore.getState().devicePref).toBe('wasm');
   });
 
   it('clamps numeric preferences to safe ranges', () => {
     const store = useVectorPreferencesStore.getState();
     store.setReinitEveryN(0.2);
-    store.setForceCpuAfterFailures(-3.7);
     store.setVerboseOrtLogs('yes' as unknown as boolean);
 
     const next = useVectorPreferencesStore.getState();
     expect(next.reinitEveryN).toBe(1);
-    expect(next.forceCpuAfterFailures).toBe(0);
     expect(next.verboseOrtLogs).toBe(true);
   });
 
@@ -69,7 +66,7 @@ describe('vector-preferences-store', () => {
     });
 
     const store = useVectorPreferencesStore.getState();
-    store.setDevicePref('cpu');
+    store.setDevicePref('wasm');
     store.setReinitEveryN(16);
 
     const persistedValue = storage.getItem(options.name)!;
@@ -90,7 +87,7 @@ describe('vector-preferences-store', () => {
       };
     };
 
-    expect(snapshot.state?.devicePref).toBe('cpu');
+    expect(snapshot.state?.devicePref).toBe('wasm');
     expect(snapshot.state?.reinitEveryN).toBe(16);
 
     persistApi.clearStorage?.();

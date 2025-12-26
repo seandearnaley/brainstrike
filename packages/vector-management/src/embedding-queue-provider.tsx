@@ -1,4 +1,5 @@
 import { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } from '@brainstrike/embeddings';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import {
   addQueueTelemetryListener,
   createBrowserEmbeddingQueue,
@@ -69,10 +70,11 @@ export function EmbeddingQueueProvider({
 }: PropsWithChildren<EmbeddingQueueProviderProps>): ReactNode {
   const baseAdapterRef = useRef<QueueAdapter | null>(null);
   if (baseAdapterRef.current === null) {
-    baseAdapterRef.current = adapter ?? createBrowserEmbeddingQueue();
+    baseAdapterRef.current = adapter ?? createBrowserEmbeddingQueue({ requireWorkerpool: true });
   }
 
   const [metrics, setMetrics] = useState<QueueMetrics>(INITIAL_METRICS);
+  const setIsEmbeddingQueueActive = useVectorStatusUIStore((s) => s.setIsEmbeddingQueueActive);
   const canUseTelemetry = typeof window !== 'undefined' && typeof window.Worker !== 'undefined';
   const telemetryAggregatorRef = useRef(canUseTelemetry ? createQueueTelemetryAggregator() : null);
 
@@ -241,6 +243,51 @@ export function EmbeddingQueueProvider({
       resetEmbeddingQueueFactory();
     };
   }, [instrumentedQueue]);
+
+  const lastQueueActiveRef = useRef(false);
+  const queueActiveClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const isActive = metrics.active > 0;
+    if (isActive) {
+      if (queueActiveClearTimeoutRef.current) {
+        clearTimeout(queueActiveClearTimeoutRef.current);
+        queueActiveClearTimeoutRef.current = null;
+      }
+      if (!lastQueueActiveRef.current) {
+        lastQueueActiveRef.current = true;
+        setIsEmbeddingQueueActive(true);
+      }
+      return;
+    }
+
+    if (!lastQueueActiveRef.current) {
+      return;
+    }
+
+    if (queueActiveClearTimeoutRef.current) {
+      clearTimeout(queueActiveClearTimeoutRef.current);
+    }
+
+    queueActiveClearTimeoutRef.current = setTimeout(() => {
+      lastQueueActiveRef.current = false;
+      setIsEmbeddingQueueActive(false);
+      queueActiveClearTimeoutRef.current = null;
+    }, 1500);
+  }, [metrics.active, setIsEmbeddingQueueActive]);
+
+  // biome-ignore lint/plugin: Cleanup resets shared queue activity state on unmount.
+  useEffect(
+    () => () => {
+      if (queueActiveClearTimeoutRef.current) {
+        clearTimeout(queueActiveClearTimeoutRef.current);
+        queueActiveClearTimeoutRef.current = null;
+      }
+      lastQueueActiveRef.current = false;
+      setIsEmbeddingQueueActive(false);
+    },
+    [setIsEmbeddingQueueActive]
+  );
 
   const contextValue = useMemo<EmbeddingQueueContextValue>(
     () => ({ queue: instrumentedQueue.queue, metrics }),

@@ -56,6 +56,7 @@ describe('createBrowserEmbeddingQueuePort', () => {
     const port = createBrowserEmbeddingQueuePort({
       queue,
       chunkRepository,
+      deviceHint: 'wasm',
       dispatchProgressEvent: progressDispatch,
       dispatchDrainEvent: drainListener,
     });
@@ -72,10 +73,12 @@ describe('createBrowserEmbeddingQueuePort', () => {
       targetDimension?: number;
       provider?: EmbeddingProviderType;
       dimensionParameter?: ProviderDimensionParameter;
+      deviceHint: 'webgpu' | 'wasm';
     };
     expect(addRequest.targetDimension).toBe(768);
     expect(addRequest.provider).toBeUndefined();
     expect(addRequest.dimensionParameter).toBeUndefined();
+    expect(addRequest.deviceHint).toBe('wasm');
     expect(chunkRepository.update).toHaveBeenCalledTimes(1);
     expect(eventListener).toHaveBeenCalled();
 
@@ -113,6 +116,7 @@ describe('createBrowserEmbeddingQueuePort', () => {
     const port = createBrowserEmbeddingQueuePort({
       queue,
       chunkRepository,
+      deviceHint: 'wasm',
       dispatchProgressEvent: eventListener,
     });
 

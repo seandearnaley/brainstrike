@@ -1,6 +1,6 @@
 export type EmbeddingDevice = 'webgpu' | 'wasm';
 
-export type EmbeddingDeviceHint = EmbeddingDevice | 'auto';
+export type EmbeddingDeviceHint = EmbeddingDevice;
 
 export type EmbeddingDType = 'fp16' | 'q4' | 'fp32';
 
@@ -11,7 +11,7 @@ export type EmbedWorkerRequest = {
   readonly texts: readonly string[];
   readonly truncateDim?: number;
   readonly dtype?: EmbeddingDType;
-  readonly deviceHint?: EmbeddingDeviceHint;
+  readonly deviceHint: EmbeddingDeviceHint;
   /**
    * Optional upper bound for batch sizing. Disclosed so the queue can tweak for stress tests.
    */

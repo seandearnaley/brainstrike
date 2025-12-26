@@ -10,7 +10,7 @@ import {
   type usePGliteDatabase,
   usePGliteLiveQuery,
 } from '@brainstrike/db';
-import { useDatabaseStatusStore } from '@brainstrike/preferences';
+import { useDatabaseStatusStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -49,6 +49,10 @@ export type UseDatabaseDemoDataOptions = {
   toast: ReturnType<typeof useToast>['toast'];
   database?: ReturnType<typeof usePGliteDatabase>;
   activeCollectionId: string | null;
+  /** When true, live queries are paused to avoid performance degradation during bulk operations */
+  isImporting?: boolean;
+  /** When true, live queries are paused to avoid performance degradation during embedding generation */
+  isEmbeddingActive?: boolean;
 };
 
 type DatabaseLoaders = {
@@ -301,11 +305,20 @@ export function useDatabaseDemoData({
   toast,
   database,
   activeCollectionId,
+  isImporting = false,
+  isEmbeddingActive = false,
 }: UseDatabaseDemoDataOptions): UseDatabaseDemoDataResult {
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
   const [schemaReady, setSchemaReady] = useState(false);
   const manualRefreshCountRef = useRef(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
+  const cachedRecordsRef = useRef<Map<string, FileRecord[]>>(new Map());
+  const cachedChunksRef = useRef<Map<string, FileChunk[]>>(new Map());
+  const loadedRecordsRef = useRef<Set<string>>(new Set());
+  const loadedChunksRef = useRef<Set<string>>(new Set());
+  const [cacheVersion, setCacheVersion] = useState(0);
+  const [fallbackLoading, setFallbackLoading] = useState(false);
+  const [fallbackError, setFallbackError] = useState<Error | null>(null);
   const schemaStateRef = useRef<{
     db: ReturnType<typeof usePGliteDatabase> | null;
     ensured: boolean;
@@ -316,74 +329,157 @@ export function useDatabaseDemoData({
     promise: null,
   });
 
+  // Global schema verification cache - persists across component remounts
+  const globalSchemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
+  const setGlobalSchemaVerified = useVectorStatusUIStore((s) => s.setSchemaVerified);
+  // Global file data cache - persists across component remounts during imports
+  const globalCachedFileData = useVectorStatusUIStore((s) => s.cachedFileData);
+  const setGlobalCachedFileData = useVectorStatusUIStore((s) => s.setCachedFileData);
+
   void _chunkRepository;
 
   // biome-ignore lint/plugin: Sync state when database changes - necessary for tracking DB lifecycle
   useEffect(() => {
-    if (schemaStateRef.current.db !== database) {
+    const previousDb = schemaStateRef.current.db;
+    const databaseChanged = previousDb !== database;
+
+    if (databaseChanged) {
       schemaStateRef.current = {
         db: database ?? null,
         ensured: false,
         promise: null,
       };
-      setSchemaReady(false);
+
+      // Only clear caches if database ACTUALLY changed (not just remount)
+      // On remount with same database, keep caches intact
+      if (previousDb !== null && database !== null) {
+        cachedRecordsRef.current.clear();
+        cachedChunksRef.current.clear();
+        loadedRecordsRef.current.clear();
+        loadedChunksRef.current.clear();
+        setCacheVersion((prev) => prev + 1);
+        setFallbackLoading(false);
+        setFallbackError(null);
+        // Reset schema state when database changes
+        setSchemaReady(false);
+      }
     }
   }, [database]);
 
-  const ensureSchema = useCallback(async () => {
-    if (!database) {
-      return;
-    }
-
-    if (!schemaStateRef.current.promise) {
-      schemaStateRef.current.promise = (async () => {
-        const runner = new MigrationRunner(
-          database as unknown as ConstructorParameters<typeof MigrationRunner>[0]
-        );
-        await runner.initialize();
-        await runner.up(migrations);
-        schemaStateRef.current.ensured = true;
-      })().catch((error) => {
-        schemaStateRef.current.promise = null;
-        throw error;
+  // Restore cached data from global store on mount
+  useEffect(() => {
+    if (globalCachedFileData && activeCollectionId === globalCachedFileData.collectionId) {
+      // Restore from global cache if it matches the active collection
+      const restoredRecords: FileRecord[] = globalCachedFileData.records.map((r) => {
+        const record: FileRecord = {
+          id: r.id,
+          name: r.name,
+          path: r.path,
+          size: r.size,
+          createdAt: r.createdAt,
+          updatedAt: r.updatedAt,
+        };
+        if (r.tokenCount !== undefined) {
+          record.tokenCount = r.tokenCount;
+        }
+        if (r.chunksCount !== undefined) {
+          record.chunksCount = r.chunksCount;
+        }
+        if (r.embeddingSetId !== undefined) {
+          record.embeddingSetId = r.embeddingSetId;
+        }
+        return record;
       });
+      const restoredChunks: FileChunk[] = globalCachedFileData.chunks.map((c) => {
+        const chunk: FileChunk = {
+          id: c.id,
+          fileRecordId: c.fileRecordId,
+          chunkIndex: c.chunkIndex,
+          content: '', // Not cached - will be loaded on demand
+          contentHash: '',
+          tokenCount: c.tokenCount,
+          chunkType: c.chunkType,
+          chunkSize: 0,
+          createdAt: '',
+          updatedAt: '',
+        };
+        if (c.embeddingSetId !== undefined) {
+          chunk.embeddingSetId = c.embeddingSetId;
+        }
+        return chunk;
+      });
+      cachedRecordsRef.current.set(activeCollectionId, restoredRecords);
+      cachedChunksRef.current.set(activeCollectionId, restoredChunks);
+      loadedRecordsRef.current.add(activeCollectionId);
+      loadedChunksRef.current.add(activeCollectionId);
+      setCacheVersion((prev) => prev + 1);
     }
+  }, [activeCollectionId, globalCachedFileData]);
 
-    await schemaStateRef.current.promise;
-  }, [database]);
-
+  // Schema verification effect - runs migrations if needed, then enables queries
+  // Key principle: schemaReady is set INSIDE the promise to avoid race conditions
   useEffect(() => {
     if (!database) {
       setSchemaReady(false);
       return;
     }
 
-    let cancelled = false;
-    ensureSchema()
-      .then(() => {
-        if (!cancelled) {
-          setSchemaReady(true);
-        }
-      })
-      .catch((error) => {
-        logger.error('Failed to verify database schema', { error });
-        if (!cancelled) {
-          setSchemaReady(false);
-          toast({
-            title: 'Database Error',
-            description: 'Unable to initialize local database schema. Try Factory Reset.',
-            variant: 'destructive',
-          });
-        }
-      });
+    // If schema was already verified globally (persisted across remounts), skip migration
+    // We only check globalSchemaVerified because the ref resets on remount but the store persists
+    if (globalSchemaVerified) {
+      schemaStateRef.current.ensured = true; // Sync ref with global state
+      setSchemaReady(true);
+      return;
+    }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [database, ensureSchema, toast]);
+    // If we already have a running promise, wait for it
+    if (schemaStateRef.current.promise) {
+      let cancelled = false;
+      schemaStateRef.current.promise
+        .then(() => {
+          if (!cancelled) {
+            setSchemaReady(true);
+          }
+        })
+        .catch(() => {
+          // Error already handled by original promise
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    // Start migration - set schemaReady and globalSchemaVerified INSIDE the promise
+    // to avoid race conditions from re-renders triggered by Zustand updates
+    schemaStateRef.current.promise = (async () => {
+      const runner = new MigrationRunner(
+        database as unknown as ConstructorParameters<typeof MigrationRunner>[0]
+      );
+      await runner.initialize();
+      await runner.up(migrations);
+      schemaStateRef.current.ensured = true;
+      // Set BOTH states inside the promise - this is atomic from React's perspective
+      setGlobalSchemaVerified(true);
+      setSchemaReady(true);
+    })().catch((error) => {
+      schemaStateRef.current.promise = null;
+      logger.error('Failed to verify database schema', { error });
+      setSchemaReady(false);
+      toast({
+        title: 'Database Error',
+        description: 'Unable to initialize local database schema. Try Factory Reset.',
+        variant: 'destructive',
+      });
+      throw error;
+    });
+
+    // No cleanup needed - the promise handles state atomically
+    return;
+  }, [database, globalSchemaVerified, setGlobalSchemaVerified, toast]);
 
   const recordErrorRef = useRef<string | null>(null);
   const chunkErrorRef = useRef<string | null>(null);
+  const fallbackErrorRef = useRef<string | null>(null);
 
   const runManualRefresh = useCallback(async (task: () => Promise<void>) => {
     manualRefreshCountRef.current += 1;
@@ -409,6 +505,12 @@ export function useDatabaseDemoData({
     [activeCollectionId]
   );
 
+  // Pause live queries during import to avoid performance degradation
+  // Live queries fire on every DB mutation, causing O(n²) work during bulk inserts
+  const liveQueryEnabled = Boolean(
+    database && schemaReady && activeCollectionId && !isImporting && !isEmbeddingActive
+  );
+
   const {
     rows: recordRows,
     loading: recordsLoading,
@@ -417,7 +519,7 @@ export function useDatabaseDemoData({
   } = usePGliteLiveQuery<FileRecordRow>({
     query: FILE_RECORDS_LIVE_QUERY,
     ...(recordQueryParams ? { params: recordQueryParams } : {}),
-    enabled: Boolean(database && schemaReady && activeCollectionId),
+    enabled: liveQueryEnabled,
   });
 
   const {
@@ -428,7 +530,7 @@ export function useDatabaseDemoData({
   } = usePGliteLiveQuery<FileChunkRow>({
     query: FILE_CHUNKS_LIVE_QUERY,
     ...(chunkQueryParams ? { params: chunkQueryParams } : {}),
-    enabled: Boolean(database && schemaReady && activeCollectionId),
+    enabled: liveQueryEnabled,
   });
 
   const records = useMemo<FileRecord[]>(() => {
@@ -445,6 +547,179 @@ export function useDatabaseDemoData({
     return chunkRows.map(mapChunkRow);
   }, [chunkRows, schemaReady, activeCollectionId]);
 
+  // biome-ignore lint/plugin: This syncs live query results to cache, not fetching data
+  useEffect(() => {
+    if (!(liveQueryEnabled && activeCollectionId) || recordsLoading) {
+      return;
+    }
+    cachedRecordsRef.current.set(activeCollectionId, records);
+    loadedRecordsRef.current.add(activeCollectionId);
+    setCacheVersion((prev) => prev + 1);
+    setFallbackError(null);
+    // Update global cache for persistence across remounts
+    const cachedChunksForCollection = cachedChunksRef.current.get(activeCollectionId) ?? [];
+    setGlobalCachedFileData({
+      collectionId: activeCollectionId,
+      records: records.map((r) => ({
+        id: r.id,
+        name: r.name,
+        path: r.path,
+        size: r.size,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+        tokenCount: r.tokenCount,
+        chunksCount: r.chunksCount,
+        embeddingSetId: r.embeddingSetId,
+      })),
+      chunks: cachedChunksForCollection.map((c) => ({
+        id: c.id,
+        fileRecordId: c.fileRecordId,
+        chunkIndex: c.chunkIndex,
+        tokenCount: c.tokenCount,
+        chunkType: c.chunkType,
+        embeddingSetId: c.embeddingSetId,
+      })),
+    });
+  }, [activeCollectionId, liveQueryEnabled, records, recordsLoading, setGlobalCachedFileData]);
+
+  // biome-ignore lint/plugin: This syncs live query results to cache, not fetching data
+  useEffect(() => {
+    if (!(liveQueryEnabled && activeCollectionId) || chunksLoading) {
+      return;
+    }
+    cachedChunksRef.current.set(activeCollectionId, chunks);
+    loadedChunksRef.current.add(activeCollectionId);
+    setCacheVersion((prev) => prev + 1);
+    setFallbackError(null);
+    // Update global cache for persistence across remounts
+    const cachedRecordsForCollection = cachedRecordsRef.current.get(activeCollectionId) ?? [];
+    setGlobalCachedFileData({
+      collectionId: activeCollectionId,
+      records: cachedRecordsForCollection.map((r) => ({
+        id: r.id,
+        name: r.name,
+        path: r.path,
+        size: r.size,
+        createdAt: r.createdAt,
+        updatedAt: r.updatedAt,
+        tokenCount: r.tokenCount,
+        chunksCount: r.chunksCount,
+        embeddingSetId: r.embeddingSetId,
+      })),
+      chunks: chunks.map((c) => ({
+        id: c.id,
+        fileRecordId: c.fileRecordId,
+        chunkIndex: c.chunkIndex,
+        tokenCount: c.tokenCount,
+        chunkType: c.chunkType,
+        embeddingSetId: c.embeddingSetId,
+      })),
+    });
+  }, [activeCollectionId, liveQueryEnabled, chunks, chunksLoading, setGlobalCachedFileData]);
+
+  const cachedRecords = useMemo<FileRecord[]>(() => {
+    if (!(schemaReady && activeCollectionId)) {
+      return [];
+    }
+    return cachedRecordsRef.current.get(activeCollectionId) ?? [];
+  }, [activeCollectionId, cacheVersion, schemaReady]);
+
+  const cachedChunks = useMemo<FileChunk[]>(() => {
+    if (!(schemaReady && activeCollectionId)) {
+      return [];
+    }
+    return cachedChunksRef.current.get(activeCollectionId) ?? [];
+  }, [activeCollectionId, cacheVersion, schemaReady]);
+
+  const fetchSnapshot = useCallback(
+    async (options: { includeRecords: boolean; includeChunks: boolean }) => {
+      if (!(database && schemaReady && activeCollectionId)) {
+        return;
+      }
+      if (typeof (database as { query?: unknown }).query !== 'function') {
+        return;
+      }
+      const recordParams = recordQueryParams ?? [activeCollectionId];
+      const chunkParams = chunkQueryParams ?? [activeCollectionId];
+      const [recordsResult, chunksResult] = await Promise.all([
+        options.includeRecords
+          ? (
+              database as {
+                query: <T>(query: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
+              }
+            ).query<FileRecordRow>(FILE_RECORDS_LIVE_QUERY, recordParams)
+          : Promise.resolve(null),
+        options.includeChunks
+          ? (
+              database as {
+                query: <T>(query: string, params?: readonly unknown[]) => Promise<{ rows: T[] }>;
+              }
+            ).query<FileChunkRow>(FILE_CHUNKS_LIVE_QUERY, chunkParams)
+          : Promise.resolve(null),
+      ]);
+
+      if (recordsResult) {
+        cachedRecordsRef.current.set(activeCollectionId, recordsResult.rows.map(mapRecordRow));
+        loadedRecordsRef.current.add(activeCollectionId);
+      }
+
+      if (chunksResult) {
+        cachedChunksRef.current.set(activeCollectionId, chunksResult.rows.map(mapChunkRow));
+        loadedChunksRef.current.add(activeCollectionId);
+      }
+
+      setCacheVersion((prev) => prev + 1);
+    },
+    [activeCollectionId, chunkQueryParams, database, recordQueryParams, schemaReady]
+  );
+
+  useEffect(() => {
+    if (liveQueryEnabled) {
+      return;
+    }
+    if (!(database && schemaReady && activeCollectionId)) {
+      return;
+    }
+    if (fallbackLoading) {
+      return;
+    }
+    const needsRecords = !loadedRecordsRef.current.has(activeCollectionId);
+    const needsChunks = !loadedChunksRef.current.has(activeCollectionId);
+    if (!(needsRecords || needsChunks)) {
+      return;
+    }
+
+    let cancelled = false;
+    setFallbackLoading(true);
+    setFallbackError(null);
+
+    const runFallback = async () => {
+      try {
+        await fetchSnapshot({ includeRecords: needsRecords, includeChunks: needsChunks });
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        const normalized = error instanceof Error ? error : new Error(String(error));
+        logger.error('Failed to load database demo snapshot', { error: normalized });
+        setFallbackError(normalized);
+      } finally {
+        if (!cancelled) {
+          setFallbackLoading(false);
+        }
+      }
+    };
+
+    void runFallback();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCollectionId, database, fetchSnapshot, fallbackLoading, liveQueryEnabled, schemaReady]);
+
+  const resolvedRecords = liveQueryEnabled ? records : cachedRecords;
+  const resolvedChunks = liveQueryEnabled ? chunks : cachedChunks;
+
   const loadRecords = useCallback(async () => {
     if (!(database && schemaReady && activeCollectionId)) {
       return;
@@ -452,7 +727,11 @@ export function useDatabaseDemoData({
 
     await runManualRefresh(async () => {
       try {
-        await refreshRecordsQuery();
+        if (liveQueryEnabled) {
+          await refreshRecordsQuery();
+        } else {
+          await fetchSnapshot({ includeRecords: true, includeChunks: false });
+        }
       } catch (error) {
         logger.error('Failed to refresh database records', { error });
         const message = extractErrorMessage(error);
@@ -466,7 +745,16 @@ export function useDatabaseDemoData({
         });
       }
     });
-  }, [database, schemaReady, activeCollectionId, refreshRecordsQuery, runManualRefresh, toast]);
+  }, [
+    activeCollectionId,
+    database,
+    fetchSnapshot,
+    liveQueryEnabled,
+    refreshRecordsQuery,
+    runManualRefresh,
+    schemaReady,
+    toast,
+  ]);
 
   const loadChunks = useCallback(async () => {
     if (!(database && schemaReady && activeCollectionId)) {
@@ -475,7 +763,11 @@ export function useDatabaseDemoData({
 
     await runManualRefresh(async () => {
       try {
-        await refreshChunksQuery();
+        if (liveQueryEnabled) {
+          await refreshChunksQuery();
+        } else {
+          await fetchSnapshot({ includeRecords: false, includeChunks: true });
+        }
       } catch (error) {
         logger.error('Failed to refresh database chunks', { error });
         const message = extractErrorMessage(error);
@@ -489,7 +781,16 @@ export function useDatabaseDemoData({
         });
       }
     });
-  }, [database, schemaReady, activeCollectionId, refreshChunksQuery, runManualRefresh, toast]);
+  }, [
+    activeCollectionId,
+    database,
+    fetchSnapshot,
+    liveQueryEnabled,
+    refreshChunksQuery,
+    runManualRefresh,
+    schemaReady,
+    toast,
+  ]);
 
   useEffect(() => {
     if (!recordsError) {
@@ -528,6 +829,23 @@ export function useDatabaseDemoData({
       variant: 'destructive',
     });
   }, [chunksError, toast]);
+
+  useEffect(() => {
+    if (!fallbackError) {
+      fallbackErrorRef.current = null;
+      return;
+    }
+    const message = extractErrorMessage(fallbackError) ?? 'Failed to load database snapshot';
+    if (fallbackErrorRef.current === message) {
+      return;
+    }
+    fallbackErrorRef.current = message;
+    toast({
+      title: 'Error',
+      description: message,
+      variant: 'destructive',
+    });
+  }, [fallbackError, toast]);
 
   const testDatabaseConnection = useCallback(async () => {
     const location = resolveStorageLocation(repository);
@@ -670,7 +988,7 @@ export function useDatabaseDemoData({
     };
   }, [database]);
 
-  const refreshing = manualRefreshing || recordsLoading || chunksLoading;
+  const refreshing = manualRefreshing || recordsLoading || chunksLoading || fallbackLoading;
 
   // Sync local dbInfo state to global store for status bar
   useEffect(() => {
@@ -685,8 +1003,8 @@ export function useDatabaseDemoData({
   }, [dbInfo]);
 
   return {
-    records,
-    chunks,
+    records: resolvedRecords,
+    chunks: resolvedChunks,
     refreshing,
     dbInfo,
     setDbInfo,

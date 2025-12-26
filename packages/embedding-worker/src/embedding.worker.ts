@@ -102,11 +102,17 @@ function hasWebGPU(): boolean {
   );
 }
 
-function inferDevice(hint: EmbeddingDeviceHint = 'auto'): EmbeddingDevice {
-  if (hint === 'auto') {
-    return hasWebGPU() ? 'webgpu' : 'wasm';
+function inferDevice(hint: EmbeddingDeviceHint | undefined): EmbeddingDevice {
+  if (!hint) {
+    throw new Error('Embedding deviceHint is required.');
   }
-  return hint === 'webgpu' && hasWebGPU() ? 'webgpu' : 'wasm';
+  if (hint === 'webgpu') {
+    if (!hasWebGPU()) {
+      throw new Error('WebGPU is not available in this environment.');
+    }
+    return 'webgpu';
+  }
+  return 'wasm';
 }
 
 async function loadPipeline(
@@ -125,7 +131,6 @@ async function loadPipeline(
   // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
   console.log('[EmbeddingWorker] Loading pipeline:', { model, device, dtype });
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Pipeline loading with fallback requires nested try/catch
   const loader = (async () => {
     try {
       // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
@@ -150,22 +155,6 @@ async function loadPipeline(
         stack: errorStack,
       });
 
-      if (device === 'webgpu') {
-        // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-        console.log('[EmbeddingWorker] Falling back to WASM device...');
-        try {
-          const fallback = await pipeline('feature-extraction', model, { device: 'wasm', dtype });
-          // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-          console.log('[EmbeddingWorker] WASM fallback pipeline loaded successfully');
-          return fallback as FeatureExtractor;
-        } catch (fallbackError) {
-          const fbMsg =
-            fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-          // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-          console.error('[EmbeddingWorker] WASM fallback also failed:', { error: fbMsg });
-          throw fallbackError;
-        }
-      }
       throw error;
     }
   })();
@@ -298,7 +287,7 @@ function createInitialState(
 async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
   const context = createContext(payload);
   const { id, model, texts } = context;
-  const deviceHint = payload.deviceHint ?? 'auto';
+  const deviceHint = payload.deviceHint;
   const requestedDimension = context.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
   assertValidDimension(payload, requestedDimension);
 
@@ -328,7 +317,7 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
 
   const state = createInitialState(context, deviceHint, payload.maxBatchSize);
   try {
-    const result = await processWithFallbacks(context, state);
+    const result = await processEmbeddings(context, state);
     return result;
   } catch (error) {
     emitErrorEvent(context.id, error);
@@ -337,26 +326,18 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
   }
 }
 
-async function processWithFallbacks(
+async function processEmbeddings(
   context: EmbeddingContext,
   state: EmbeddingState
 ): Promise<EmbedWorkerSuccess> {
-  for (;;) {
-    try {
-      const extractor = await loadPipeline(context.model, state.device, context.dtype);
-      const vectors = await runBatches(context, state, extractor);
-      const success = buildSuccessResult(context, state, vectors);
-      if (vectors.length === 0) {
-        return success;
-      }
-      const transferList = vectors.map((vector) => vector.buffer);
-      return new Transfer(success, transferList) as unknown as EmbedWorkerSuccess;
-    } catch (error) {
-      if (!adjustStateOnError(state, context)) {
-        throw error;
-      }
-    }
+  const extractor = await loadPipeline(context.model, state.device, context.dtype);
+  const vectors = await runBatches(context, state, extractor);
+  const success = buildSuccessResult(context, state, vectors);
+  if (vectors.length === 0) {
+    return success;
   }
+  const transferList = vectors.map((vector) => vector.buffer);
+  return new Transfer(success, transferList) as unknown as EmbedWorkerSuccess;
 }
 
 async function runBatches(
@@ -427,22 +408,6 @@ function buildSuccessResult(
       dimensions: vectors[0]?.length ?? context.truncateDim ?? 0,
     },
   };
-}
-
-function adjustStateOnError(state: EmbeddingState, context: EmbeddingContext): boolean {
-  if (state.batchSize > 1) {
-    state.batchSize = Math.max(1, Math.floor(state.batchSize / 2));
-    return true;
-  }
-
-  if (state.device === 'webgpu') {
-    state.device = 'wasm';
-    state.fallbackApplied = true;
-    state.batchSize = computeInitialBatchSize(context.total, state.maxBatchSize);
-    return true;
-  }
-
-  return false;
 }
 
 function serializeErrorCause(error: unknown): string | undefined {

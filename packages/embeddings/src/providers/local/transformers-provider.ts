@@ -21,11 +21,11 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
    * Create a new local embedding provider
    *
    * @param modelKey - Model key from registry (e.g., 'jina-code', 'bge-base-en-v1.5')
-   * @param deviceOverride - Optional device override ('webgpu' | 'wasm' | 'cpu')
+   * @param deviceOverride - Optional device override ('webgpu' | 'wasm')
    */
   constructor(
     modelKey: string,
-    private readonly deviceOverride?: 'webgpu' | 'wasm' | 'cpu'
+    private readonly deviceOverride?: 'webgpu' | 'wasm'
   ) {
     this.service = new SimpleEmbeddingService();
     this.modelKey = modelKey;

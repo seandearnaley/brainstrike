@@ -91,7 +91,7 @@ describe('useIndexedChunkCount', () => {
     expect(result.current).toBe(20);
   });
 
-  it('clears count when collection becomes null', () => {
+  it('retains last count when collection becomes null', () => {
     mockLiveQueryState.rows = [{ count: 5 }];
 
     const { result, rerender } = renderHook(({ id }) => useIndexedChunkCount(id), {
@@ -101,6 +101,6 @@ describe('useIndexedChunkCount', () => {
     expect(result.current).toBe(5);
 
     rerender({ id: null });
-    expect(result.current).toBeUndefined();
+    expect(result.current).toBe(5);
   });
 });

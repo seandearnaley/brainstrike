@@ -16,7 +16,12 @@ import {
 } from '@brainstrike/embeddings';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { createLogger, generateUUID } from '@brainstrike/utils';
+import {
+  createBulkOperationContext,
+  createLogger,
+  generateUUID,
+  LogLevel,
+} from '@brainstrike/utils';
 import { processChunking } from './chunking';
 import { processEmbeddings } from './embedding';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
@@ -157,6 +162,8 @@ type ChunkingConfiguration = {
   streamBatchSize?: number;
   tokenTrueSizing?: boolean;
   tokenLimit?: number;
+  // Worker port for off-main-thread chunking
+  chunkingWorkerPort?: import('./chunking-worker-port').ChunkingWorkerPort;
 };
 
 type EmbeddingConfiguration = {
@@ -820,6 +827,10 @@ function applyChunkingConfiguration(
   if (chunking.tokenLimit !== undefined) {
     options.tokenLimit = chunking.tokenLimit;
   }
+  // Pass worker port for off-main-thread chunking
+  if (chunking.chunkingWorkerPort !== undefined) {
+    options.chunkingWorkerPort = chunking.chunkingWorkerPort;
+  }
 }
 
 function createCompleteProgress(
@@ -966,7 +977,18 @@ export async function runEnhancedImport<TFileNode = unknown>({
       targetEmbeddingSetId: chunkingOptions.targetEmbeddingSetId,
     });
 
-    const enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
+    // Enter bulk operation mode to reduce logging overhead during file processing
+    // This raises log level to WARN and pauses LogBuffer to prevent memory accumulation
+    const bulkContext = createBulkOperationContext({ level: LogLevel.WARN });
+    bulkContext.enter();
+
+    let enhancedResults: EnhancedImportResult[];
+    try {
+      enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
+    } finally {
+      // Always exit bulk mode, even on error
+      bulkContext.exit();
+    }
 
     logger.info('Enhanced import complete', {
       totalFiles: enhancedResults.length,

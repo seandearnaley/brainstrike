@@ -198,7 +198,10 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell',
       '@brainstrike/workers',
+      '@brainstrike/db-explorer', // Uses file-import which has worker
+      '@brainstrike/file-import', // Contains useChunkingWorker hook - must not be pre-bundled
       '@brainstrike/token-cache',
+      '@brainstrike/chunking-worker', // Worker must resolve via package exports (dist)
     ],
     include: [
       'react-helmet-async', // Explicitly include to prevent cache issues

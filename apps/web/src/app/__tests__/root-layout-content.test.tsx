@@ -1,7 +1,48 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import RootLayoutContent from '../root-layout-content';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+let RootLayoutContent: React.ComponentType;
+
+// Mock the file-import package to prevent worker initialization during tests
+vi.mock('@brainstrike/file-import', () => ({
+  ChunkingWorkerProvider: ({ children }: { children: React.ReactNode }) => children,
+  useChunkingWorkerContext: vi.fn(() => ({
+    port: null,
+    isReady: false,
+    isProcessing: false,
+    error: null,
+    reinitialize: vi.fn(),
+  })),
+  useChunkingWorker: vi.fn(() => ({
+    port: null,
+    isReady: false,
+    isProcessing: false,
+    error: null,
+    reinitialize: vi.fn(),
+  })),
+  // Additional exports used by enhanced-file-import-service
+  createBrowserEmbeddingQueuePort: vi.fn(() => ({
+    add: vi.fn(),
+    addBulk: vi.fn(),
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: vi.fn(),
+  })),
+  runEnhancedImport: vi.fn(async () => ({
+    totalFiles: 0,
+    importedFiles: 0,
+    skippedFiles: 0,
+    chunkedFiles: 0,
+    embeddedFiles: 0,
+    totalChunks: 0,
+    totalTokens: 0,
+    errors: [],
+    embeddingErrors: [],
+    skippedPaths: [],
+  })),
+}));
 
 // Mock the file-explorer-hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -12,6 +53,39 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
       set: vi.fn(),
       delete: vi.fn(),
     },
+  })),
+}));
+
+// Mock vector-management to prevent any queue-related side effects
+vi.mock('@brainstrike/vector-management', () => ({
+  EmbeddingJobQueueTracker: () => null,
+}));
+
+// Mock create-embedding-queue to prevent module-level worker pool creation
+vi.mock('../../create-embedding-queue', () => ({
+  embeddingQueue: {
+    add: vi.fn(),
+    addBulk: vi.fn(),
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: vi.fn(),
+  },
+  getEmbeddingQueue: vi.fn(() => ({
+    add: vi.fn(),
+    addBulk: vi.fn(),
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: vi.fn(),
+  })),
+  createBrowserEmbeddingQueue: vi.fn(() => ({
+    add: vi.fn(),
+    addBulk: vi.fn(),
+    onProgress: vi.fn(() => () => {}),
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: vi.fn(),
   })),
 }));
 
@@ -53,67 +127,75 @@ type MockAppConfig = {
   navigationItems: unknown[];
 };
 
-// Mock the app-shell package
-vi.mock('@brainstrike/app-shell', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/app-shell')>();
-  return {
-    ...actual,
-    AppLayout: ({ children, config, currentPath, onNavigationClick }: MockAppLayoutProps) => {
-      capturedOnNavigationClick = onNavigationClick;
-      return (
-        <div data-current-path={currentPath} data-testid="app-layout">
-          <div data-testid="app-config-title">{config.title}</div>
-          <div data-testid="navigation-items-count">{config.navigationItems.length}</div>
-          {children}
+// Mock the app-shell package completely (no importOriginal to avoid loading real modules)
+// This prevents the entire import chain from being evaluated
+vi.mock('@brainstrike/app-shell', () => ({
+  // Mock navigationItems export
+  navigationItems: [
+    { path: '/', label: 'Explorer' },
+    { path: '/settings', label: 'Settings' },
+    { path: '/prompts', label: 'Prompts' },
+  ],
+  // Mock ConnectedPromptManager
+  ConnectedPromptManager: () => null,
+  // Mock AppLayout
+  AppLayout: ({ children, config, currentPath, onNavigationClick }: MockAppLayoutProps) => {
+    capturedOnNavigationClick = onNavigationClick;
+    return (
+      <div data-current-path={currentPath} data-testid="app-layout">
+        <div data-testid="app-config-title">{config.title}</div>
+        <div data-testid="navigation-items-count">{config.navigationItems.length}</div>
+        {children}
+      </div>
+    );
+  },
+  // Mock createAppConfig
+  createAppConfig: (config: Partial<MockAppConfig>) => ({
+    title: 'BrainStrike.ai',
+    description: 'Multi-app dashboard',
+    themeStorageKey: 'app-theme',
+    navigationItems: [],
+    ...config,
+  }),
+  // Mock RootLayoutContent with internal state management
+  RootLayoutContent: ({
+    sidebarContent,
+    homePageContent,
+    settingsPageContent,
+    navigationItems,
+  }: {
+    sidebarContent?: React.ReactNode;
+    homePageContent: React.ReactNode;
+    settingsPageContent: React.ReactNode;
+    navigationItems: unknown[];
+  }) => {
+    const [activeTab, setActiveTab] = React.useState<'explorer' | 'settings'>('explorer');
+
+    const handleNavigationClick = (path: string) => {
+      if (path === '/') {
+        setActiveTab('explorer');
+      } else if (path === '/settings') {
+        setActiveTab('settings');
+      }
+    };
+
+    capturedOnNavigationClick = handleNavigationClick;
+
+    return (
+      <div data-testid="file-explorer-provider">
+        <div
+          data-current-path={activeTab === 'explorer' ? '/' : '/settings'}
+          data-testid="app-layout"
+        >
+          <div data-testid="app-config-title">BrainStrike.ai</div>
+          <div data-testid="navigation-items-count">{navigationItems.length}</div>
+          {sidebarContent && <aside>{sidebarContent}</aside>}
+          <main>{activeTab === 'explorer' ? homePageContent : settingsPageContent}</main>
         </div>
-      );
-    },
-    createAppConfig: (config: Partial<MockAppConfig>) => ({
-      title: 'BrainStrike.ai',
-      description: 'Multi-app dashboard',
-      themeStorageKey: 'app-theme',
-      navigationItems: [],
-      ...config,
-    }),
-    RootLayoutContent: ({
-      sidebarContent,
-      homePageContent,
-      settingsPageContent,
-      navigationItems,
-    }: {
-      sidebarContent?: React.ReactNode;
-      homePageContent: React.ReactNode;
-      settingsPageContent: React.ReactNode;
-      navigationItems: unknown[];
-    }) => {
-      const [activeTab, setActiveTab] = React.useState<'explorer' | 'settings'>('explorer');
-
-      const handleNavigationClick = (path: string) => {
-        if (path === '/') {
-          setActiveTab('explorer');
-        } else if (path === '/settings') {
-          setActiveTab('settings');
-        }
-      };
-
-      capturedOnNavigationClick = handleNavigationClick;
-
-      return (
-        <div data-testid="file-explorer-provider">
-          <div
-            data-current-path={activeTab === 'explorer' ? '/' : '/settings'}
-            data-testid="app-layout"
-          >
-            <div data-testid="app-config-title">BrainStrike.ai</div>
-            <div data-testid="navigation-items-count">{navigationItems.length}</div>
-            {sidebarContent && <aside>{sidebarContent}</aside>}
-            <main>{activeTab === 'explorer' ? homePageContent : settingsPageContent}</main>
-          </div>
-        </div>
-      );
-    },
-  };
-});
+      </div>
+    );
+  },
+}));
 
 // Mock the page components
 let homeMountCount = 0;
@@ -140,6 +222,10 @@ vi.mock('../settings/page-content', () => ({
 }));
 
 describe('RootLayoutContent', () => {
+  beforeAll(async () => {
+    RootLayoutContent = (await import('../root-layout-content')).default;
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     homeMountCount = 0;

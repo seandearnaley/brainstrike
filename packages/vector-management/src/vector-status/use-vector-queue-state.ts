@@ -14,6 +14,10 @@ export type UseVectorQueueStateParams = {
   service: VectorQueueService | null;
   activeEmbeddingSetId: string | null;
   shouldAutoBackfill: boolean;
+  /** When true, live queries are paused to avoid performance degradation during bulk operations */
+  isImporting?: boolean;
+  /** When true, live queries are paused to avoid performance degradation during embedding generation */
+  isEmbeddingActive?: boolean;
 };
 
 export type TelemetryTrendPoint = {
@@ -124,9 +128,18 @@ type CoverageRow = {
 
 export function useVectorQueueState(params: UseVectorQueueStateParams): UseVectorQueueStateResult {
   // shouldAutoBackfill is retained in the API for future use but currently has no effect
-  const { activeEmbeddingSetId, shouldAutoBackfill: _shouldAutoBackfill } = params;
+  const {
+    activeEmbeddingSetId,
+    shouldAutoBackfill: _shouldAutoBackfill,
+    isImporting = false,
+    isEmbeddingActive = false,
+  } = params;
   const { metrics } = useEmbeddingQueue();
   const service = params.service;
+
+  // Pause live queries during import to avoid performance degradation
+  // These 5 queries all fire on every DB mutation, causing severe UI lag
+  const liveQueryEnabled = Boolean(service) && !isImporting && !isEmbeddingActive;
 
   const [backfilling, setBackfilling] = useState(false);
   const [backfillProgress, setBackfillProgress] = useState<BackfillProgress>(null);
@@ -150,7 +163,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
     query: QUEUE_COUNTS_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
-    enabled: Boolean(service),
+    enabled: liveQueryEnabled,
   });
 
   const queueCounts = useMemo<QueueCounts>(() => {
@@ -169,7 +182,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const throughputResult = usePGliteLiveQuery<ThroughputRow>({
     query: THROUGHPUT_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
-    enabled: Boolean(service),
+    enabled: liveQueryEnabled,
   });
 
   const throughput = useMemo(() => {
@@ -183,7 +196,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const lastErrorResult = usePGliteLiveQuery<LastErrorRow>({
     query: LAST_ERROR_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
-    enabled: Boolean(service),
+    enabled: liveQueryEnabled,
   });
 
   const lastError = useMemo(() => lastErrorResult.rows[0]?.error ?? null, [lastErrorResult.rows]);
@@ -191,7 +204,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const latencyRowsResult = usePGliteLiveQuery<LatencyRow>({
     query: LATENCY_ROWS_QUERY,
     params: EMBEDDINGS_QUEUE_PARAMS,
-    enabled: Boolean(service),
+    enabled: liveQueryEnabled,
   });
 
   const latencyStatsFromQuery = useMemo(() => {
@@ -222,7 +235,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const coverageResult = usePGliteLiveQuery<CoverageRow>({
     query: COVERAGE_QUERY,
     ...(coverageParams ? { params: coverageParams } : {}),
-    enabled: Boolean(service && activeEmbeddingSetId),
+    enabled: liveQueryEnabled && Boolean(activeEmbeddingSetId),
   });
 
   const coverage = useMemo(() => {

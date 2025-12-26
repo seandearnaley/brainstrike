@@ -32,7 +32,9 @@ export type UseImportFlowOptions = {
 
 export type UseImportFlowResult = {
   handleImportClick: () => void;
+  handleCancelImport: () => void;
   isImporting: boolean;
+  isCancelling: boolean;
   progress: EnhancedImportProgress | null;
   showImportProgress: boolean;
   setShowImportProgress: (show: boolean) => void;
@@ -49,6 +51,7 @@ export function useImportFlow({
   resolveActiveCollectionId,
 }: UseImportFlowOptions): UseImportFlowResult {
   const [showImportProgress, setShowImportProgress] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const { fileContents, fileTree } = useFileExplorer();
   const { selectedFilePaths } = useSelectionManager({
     onSelectionLimitExceeded: () => {
@@ -70,28 +73,29 @@ export function useImportFlow({
     [resolveActiveCollectionId]
   );
 
-  const { isImporting, progress, importFiles, chunkRepository } = useEnhancedFileImportService({
-    onProgress: () => setShowImportProgress(true),
-    onComplete: async (results) => {
-      await onImportCompleteRef.current?.(results);
-    },
-    onError: (error) => {
-      toast({
-        title: 'Import Failed',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-    enableChunking: importSettings.enableChunking,
-    chunkingStrategy: importSettings.chunkingStrategy,
-    chunkingStrategyExplicit: importSettings.chunkingStrategyExplicit,
-    chunkSize: importSettings.chunkSize,
-    chunkOverlap: importSettings.chunkOverlap,
-    tokenTrueSizing: importSettings.tokenTrueSizing,
-    chunkTokenLimit: importSettings.chunkTokenLimit,
-    embeddingQueue: embeddingQueue ?? null,
-    resolveTargetEmbeddingSetId: resolveCollectionId,
-  });
+  const { isImporting, progress, importFiles, chunkRepository, cancelImport } =
+    useEnhancedFileImportService({
+      onProgress: () => setShowImportProgress(true),
+      onComplete: async (results) => {
+        await onImportCompleteRef.current?.(results);
+      },
+      onError: (error) => {
+        toast({
+          title: 'Import Failed',
+          description: error.message,
+          variant: 'destructive',
+        });
+      },
+      enableChunking: importSettings.enableChunking,
+      chunkingStrategy: importSettings.chunkingStrategy,
+      chunkingStrategyExplicit: importSettings.chunkingStrategyExplicit,
+      chunkSize: importSettings.chunkSize,
+      chunkOverlap: importSettings.chunkOverlap,
+      tokenTrueSizing: importSettings.tokenTrueSizing,
+      chunkTokenLimit: importSettings.chunkTokenLimit,
+      embeddingQueue: embeddingQueue ?? null,
+      resolveTargetEmbeddingSetId: resolveCollectionId,
+    });
 
   useEffect(() => {
     onChunkRepositoryChange?.(chunkRepository ?? null);
@@ -141,7 +145,11 @@ export function useImportFlow({
       return;
     }
 
-    await importFiles(selectedFilePaths, fileTree, fileContents);
+    try {
+      await importFiles(selectedFilePaths, fileTree, fileContents);
+    } finally {
+      setIsCancelling(false);
+    }
   }, [
     ensureSelection,
     ensureCollectionSelected,
@@ -152,14 +160,28 @@ export function useImportFlow({
   ]);
 
   const handleImportClick = useCallback(() => {
+    setIsCancelling(false);
     void runImport();
   }, [runImport]);
+
+  const handleCancelImport = useCallback(() => {
+    if (isImporting) {
+      setIsCancelling(true);
+      cancelImport();
+      toast({
+        title: 'Import Cancelled',
+        description: 'The import was cancelled. Already imported files and chunks have been kept.',
+      });
+    }
+  }, [isImporting, cancelImport, toast]);
 
   const memoizedProgress = useMemo(() => progress as EnhancedImportProgress | null, [progress]);
 
   return {
     handleImportClick,
+    handleCancelImport,
     isImporting,
+    isCancelling,
     progress: memoizedProgress,
     showImportProgress,
     setShowImportProgress,

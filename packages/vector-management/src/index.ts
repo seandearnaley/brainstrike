@@ -8,6 +8,7 @@ export type {
   CollectionWithDocCount,
 } from './collection-select';
 export { CollectionSelect, formatCollectionLabel, useCollections } from './collection-select';
+export { EmbeddingJobQueueTracker } from './embedding-job-queue-tracker';
 export {
   EmbeddingQueueProvider,
   useEmbeddingQueue,

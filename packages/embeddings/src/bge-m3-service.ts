@@ -49,7 +49,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
   async initializeWithModel(
     modelKeyOrConfig?: string | ModelConfig,
     onProgress?: (progress: EmbeddingProgress) => void,
-    deviceOverride?: 'webgpu' | 'wasm' | 'cpu',
+    deviceOverride?: 'webgpu' | 'wasm',
     cacheDir?: string
   ): Promise<void> {
     let modelConfig: ModelConfig | null = null;

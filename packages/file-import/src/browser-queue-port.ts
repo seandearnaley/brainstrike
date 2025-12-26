@@ -1,4 +1,5 @@
 import type { FileChunk } from '@brainstrike/db';
+import type { EmbeddingDeviceHint } from '@brainstrike/embedding-worker';
 import type { EmbeddingProviderType } from '@brainstrike/embeddings';
 import type { ProviderDimensionParameter, QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
@@ -19,6 +20,7 @@ type ChunkRepository = {
 type BrowserQueuePortOptions = {
   queue: QueueAdapter;
   chunkRepository: ChunkRepository | null;
+  deviceHint: EmbeddingDeviceHint;
   dispatchDrainEvent?: (embeddingSetId: string | null) => void;
   dispatchProgressEvent?: (detail: QueueProgressEventDetail) => void;
 };
@@ -120,6 +122,7 @@ export type QueueProgressEventDetail = {
 export function createBrowserEmbeddingQueuePort({
   queue,
   chunkRepository,
+  deviceHint,
   dispatchDrainEvent = defaultDispatchDrainEvent,
   dispatchProgressEvent = defaultDispatchProgressEvent,
 }: BrowserQueuePortOptions): EmbeddingJobQueuePort {
@@ -129,6 +132,7 @@ export function createBrowserEmbeddingQueuePort({
   const scheduleChunk = createChunkScheduler({
     queue,
     chunkRepository,
+    deviceHint,
     pendingChunks,
     dispatchDrainEvent,
     progressTracker,
@@ -190,6 +194,7 @@ type ScheduleChunkArgs = {
 type SchedulerDependencies = {
   queue: QueueAdapter;
   chunkRepository: ChunkRepository | null;
+  deviceHint: EmbeddingDeviceHint;
   pendingChunks: Set<string>;
   dispatchDrainEvent: (embeddingSetId: string | null) => void;
   progressTracker: ReturnType<typeof createQueueProgressTracker>;
@@ -197,6 +202,7 @@ type SchedulerDependencies = {
 
 function createChunkScheduler({
   queue,
+  deviceHint,
   pendingChunks,
   dispatchDrainEvent,
   progressTracker,
@@ -229,6 +235,7 @@ function createChunkScheduler({
       targetDimension: targetDimension ?? DEFAULT_EMBEDDING_DIMENSION,
       dimensionParameter: dimensionParameter ?? null,
       provider: provider ?? null,
+      deviceHint,
       progressTracker,
       pendingChunks,
       emitDrain: maybeDispatchDrain,
@@ -253,6 +260,7 @@ type ChunkTaskContext = {
   targetDimension: number;
   dimensionParameter: ProviderDimensionParameter | null;
   provider: EmbeddingProviderType | null;
+  deviceHint: EmbeddingDeviceHint;
   progressTracker: ReturnType<typeof createQueueProgressTracker>;
   pendingChunks: Set<string>;
   emitDrain: (embeddingSetId: string | null) => void;
@@ -268,6 +276,7 @@ async function runChunkTask(context: ChunkTaskContext): Promise<void> {
     targetDimension,
     dimensionParameter,
     provider,
+    deviceHint,
     progressTracker,
     pendingChunks,
     emitDrain,
@@ -284,6 +293,7 @@ async function runChunkTask(context: ChunkTaskContext): Promise<void> {
   const startedAt = timestamp();
   const queueOptions = {
     targetDimension,
+    deviceHint,
     ...(dimensionParameter ? { dimensionParameter } : {}),
     ...(provider ? { provider } : {}),
   } as const;
@@ -377,6 +387,7 @@ async function produceEmbedding(
   model: string,
   options: {
     targetDimension: number;
+    deviceHint: EmbeddingDeviceHint;
     dimensionParameter?: ProviderDimensionParameter;
     provider?: EmbeddingProviderType;
   }
@@ -387,7 +398,7 @@ async function produceEmbedding(
     id: chunk.id,
     model,
     texts: [chunk.content],
-    deviceHint: 'auto',
+    deviceHint: options.deviceHint,
     ...(options.provider ? { provider: options.provider } : {}),
     ...(options.dimensionParameter ? { dimensionParameter: options.dimensionParameter } : {}),
     targetDimension: resolvedTargetDimension,

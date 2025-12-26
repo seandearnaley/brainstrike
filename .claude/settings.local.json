@@ -183,7 +183,10 @@
       "Bash(node /Users/seandearnaley/Documents/GitHub/brainstrike/scripts/enforce-coverage.mjs:*)",
       "Bash(grep:*)",
       "Bash(BRAINSTRIKE_DISABLE_FILE_LOGS=1 pnpm test:e2e:*)",
-      "Bash(BRAINSTRIKE_DISABLE_FILE_LOGS=1 pnpm exec:*)"
+      "Bash(BRAINSTRIKE_DISABLE_FILE_LOGS=1 pnpm exec:*)",
+      "mcp__plugin_codanna-cc_codanna-cc__find_callers",
+      "WebFetch(domain:logtape.org)",
+      "Bash(jq:*)"
     ],
     "deny": [],
     "ask": []

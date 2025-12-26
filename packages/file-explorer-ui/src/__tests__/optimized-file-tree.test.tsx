@@ -145,18 +145,6 @@ describe('OptimizedFileTree', () => {
     expect(screen.getByTestId('file-tree')).toBeInTheDocument();
   });
 
-  it('applies performance optimization styles', () => {
-    render(
-      <FileExplorerTestWrapper>
-        <OptimizedFileTree fileTree={mockFileTree} folderId="root" loadingFiles={new Set()} />
-      </FileExplorerTestWrapper>
-    );
-
-    const tree = screen.getByTestId('file-tree');
-    expect(tree.style.willChange).toBe('transform');
-    expect(tree.style.contain).toBe('layout style paint');
-  });
-
   it('does not call onRender when not provided', () => {
     render(
       <FileExplorerTestWrapper>

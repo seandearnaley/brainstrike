@@ -128,6 +128,7 @@ describe('Embedding queue integration', () => {
           id: 'job-1',
           model: 'integration-model',
           texts: ['hello embeddings'],
+          deviceHint: 'webgpu',
         });
       }, [instrumentedQueue]);
 

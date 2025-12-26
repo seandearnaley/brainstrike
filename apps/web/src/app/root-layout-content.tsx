@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/app-shell';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui';
+import { EmbeddingJobQueueTracker } from '@brainstrike/vector-management';
 import type { ReactElement, ReactNode } from 'react';
 import { embeddingQueue } from '../create-embedding-queue';
 import HomePageContent from './home-page-content';
@@ -58,6 +59,7 @@ export default function RootLayoutContent() {
 
   return (
     <TokenCacheWrapper>
+      <EmbeddingJobQueueTracker />
       <RootLayout {...sharedProps} />
     </TokenCacheWrapper>
   );

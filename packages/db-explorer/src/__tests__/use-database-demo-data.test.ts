@@ -10,6 +10,24 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDatabaseDemoData } from '../use-database-demo-data';
 
+// Mock preferences store state for useVectorStatusUIStore
+const mockVectorStatusUIStore = {
+  schemaVerified: false,
+  setSchemaVerified: vi.fn((value: boolean) => {
+    mockVectorStatusUIStore.schemaVerified = value;
+  }),
+  cachedFileData: null as null | {
+    collectionId: string;
+    records: Record<string, unknown>[];
+    chunks: Record<string, unknown>[];
+  },
+  setCachedFileData: vi.fn((data: typeof mockVectorStatusUIStore.cachedFileData) => {
+    mockVectorStatusUIStore.cachedFileData = data;
+  }),
+  isImporting: false,
+  isEmbeddingActive: false,
+};
+
 // Mock the preferences store - required for dbInfo sync to global store
 vi.mock('@brainstrike/preferences', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/preferences')>(
@@ -24,6 +42,9 @@ vi.mock('@brainstrike/preferences', async () => {
         setDisconnected: vi.fn(),
       })),
     },
+    useVectorStatusUIStore: vi.fn((selector: (state: typeof mockVectorStatusUIStore) => unknown) =>
+      selector(mockVectorStatusUIStore)
+    ),
   };
 });
 
@@ -121,6 +142,14 @@ const createMockDatabase = () =>
 
 beforeEach(() => {
   mockedUsePGliteLiveQuery.mockReset();
+  // Reset mock store state between tests
+  mockVectorStatusUIStore.schemaVerified = false;
+  mockVectorStatusUIStore.cachedFileData = null;
+  mockVectorStatusUIStore.isImporting = false;
+  mockVectorStatusUIStore.isEmbeddingActive = false;
+  // Clear mock call history but preserve implementation
+  mockVectorStatusUIStore.setSchemaVerified.mockClear();
+  mockVectorStatusUIStore.setCachedFileData.mockClear();
 });
 
 describe('useDatabaseDemoData', () => {

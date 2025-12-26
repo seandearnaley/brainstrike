@@ -90,7 +90,7 @@ describe('TransformersBackend queue integration', () => {
     resetEmbeddingQueueFactory();
   });
 
-  it('falls back to local pipeline when the queue rejects requests', async () => {
+  it('surfaces queue failures without falling back to local pipeline', async () => {
     vi.stubGlobal('window', {});
     vi.stubGlobal('navigator', { gpu: {} });
     vi.stubGlobal('Worker', class {});
@@ -98,10 +98,6 @@ describe('TransformersBackend queue integration', () => {
     const { queue, add } = createQueueStub();
     add.mockResolvedValueOnce(createQueueResult('warmup', [0.1, 0.2]));
     add.mockRejectedValueOnce(new Error('queue offline'));
-
-    pipelineMock.mockResolvedValue(async (_text: string) => ({
-      data: Float32Array.from([0.3, 0.7]),
-    }));
 
     const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
       await import('../transformers-backend');
@@ -115,13 +111,11 @@ describe('TransformersBackend queue integration', () => {
       quantized: false,
     });
 
-    const result = await backend.generateEmbedding('fallback-text', 'bge-m3');
-
-    expect(result.embedding).toHaveLength(2);
-    expect(result.embedding[0]).toBeCloseTo(0.3, 5);
-    expect(result.embedding[1]).toBeCloseTo(0.7, 5);
+    await expect(backend.generateEmbedding('queue-text', 'bge-m3')).rejects.toThrow(
+      'queue offline'
+    );
     expect(add).toHaveBeenCalledTimes(2);
-    expect(pipelineMock).toHaveBeenCalledTimes(1);
+    expect(pipelineMock).not.toHaveBeenCalled();
 
     await backend.dispose();
     resetEmbeddingQueueFactory();
@@ -130,10 +124,10 @@ describe('TransformersBackend queue integration', () => {
   it('reports device availability across environments', async () => {
     const { TransformersBackend } = await import('../transformers-backend');
 
-    expect(TransformersBackend.isDeviceAvailable('cpu')).toBe(true);
+    expect(TransformersBackend.isDeviceAvailable('cpu')).toBe(false);
     expect(TransformersBackend.isDeviceAvailable('wasm')).toBe(false);
     expect(TransformersBackend.isDeviceAvailable('webgpu')).toBe(false);
-    expect(TransformersBackend.getBestDevice()).toBe('cpu');
+    expect(() => TransformersBackend.getBestDevice()).toThrow();
 
     vi.stubGlobal('window', {});
     expect(TransformersBackend.isDeviceAvailable('wasm')).toBe(true);
@@ -180,81 +174,80 @@ describe('TransformersBackend queue integration', () => {
     resetEmbeddingQueueFactory();
   });
 
-  it('disposes the local pipeline when dispose is invoked', async () => {
-    const disposeSpy = vi.fn(async () => {});
-    const extractor = Object.assign(
-      async () => ({
-        data: Float32Array.from([0.2, 0.8]),
-      }),
-      {
-        dispose: disposeSpy,
-      }
-    );
-    pipelineMock.mockResolvedValue(extractor);
+  it('disposes without touching the local pipeline when using the queue', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('Worker', class {});
 
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { queue, add } = createQueueStub();
+    add.mockResolvedValueOnce(createQueueResult('warmup', [0.2, 0.8]));
+
+    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
+      await import('../transformers-backend');
+
+    registerEmbeddingQueueFactory(() => queue);
 
     const backend = new TransformersBackend();
     await backend.initialize({
       modelId: 'bge-m3',
-      device: 'cpu',
+      device: 'wasm',
       quantized: false,
     });
 
     await backend.dispose();
-    expect(disposeSpy).toHaveBeenCalledTimes(1);
+    expect(add).toHaveBeenCalledTimes(1);
+    expect(pipelineMock).not.toHaveBeenCalled();
+    resetEmbeddingQueueFactory();
   });
 
-  it('falls back to cpu when pipeline creation fails on initialization', async () => {
-    vi.stubGlobal('navigator', { gpu: {} });
-    pipelineMock.mockRejectedValueOnce(new Error('creation failed'));
-    const fallbackExtractor = vi.fn(async () => ({
-      data: Float32Array.from([0.1, 0.2]),
-    }));
-    pipelineMock.mockResolvedValueOnce(fallbackExtractor);
+  it('throws when queue creation fails on initialization', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('Worker', class {});
 
-    const { TransformersBackend } = await import('../transformers-backend');
+    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
+      await import('../transformers-backend');
+
+    registerEmbeddingQueueFactory(() => {
+      throw new Error('creation failed');
+    });
+
+    const backend = new TransformersBackend();
+    await expect(
+      backend.initialize({
+        modelId: 'bge-m3',
+        device: 'wasm',
+        quantized: false,
+      })
+    ).rejects.toThrow('creation failed');
+
+    expect(pipelineMock).not.toHaveBeenCalled();
+    resetEmbeddingQueueFactory();
+  });
+
+  it('surfaces inference failures without rebuilding', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('Worker', class {});
+
+    const { queue, add } = createQueueStub();
+    add.mockResolvedValueOnce(createQueueResult('warmup', [0.1, 0.2]));
+    add.mockRejectedValueOnce(new Error('runtime explode'));
+
+    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
+      await import('../transformers-backend');
+
+    registerEmbeddingQueueFactory(() => queue);
+
     const backend = new TransformersBackend();
     await backend.initialize({
       modelId: 'bge-m3',
-      device: 'webgpu',
+      device: 'wasm',
       quantized: false,
     });
 
-    expect(pipelineMock).toHaveBeenCalledTimes(2);
-    const firstCall = pipelineMock.mock.calls[0]?.[2] as { device?: string } | undefined;
-    const secondCall = pipelineMock.mock.calls[1]?.[2] as { device?: string } | undefined;
-    expect(firstCall?.device).toBe('webgpu');
-    expect(secondCall?.device).toBe('cpu');
-    expect(backend.getSelectedDevice()).toBe('cpu');
-  });
-
-  it('rebuilds the pipeline after inference failure', async () => {
-    vi.stubGlobal('navigator', { gpu: {} });
-    const failingExtractor = vi.fn(async () => {
-      throw new Error('runtime explode');
-    });
-    const fallbackExtractor = vi.fn(async () => ({
-      data: Float32Array.from([0.4, 0.6]),
-    }));
-    pipelineMock.mockResolvedValueOnce(failingExtractor);
-    pipelineMock.mockResolvedValueOnce(fallbackExtractor);
-
-    const { TransformersBackend } = await import('../transformers-backend');
-    const backend = new TransformersBackend();
-    await backend.initialize({
-      modelId: 'bge-m3',
-      device: 'webgpu',
-      quantized: false,
-    });
-
-    const result = await backend.generateEmbedding('hello world', 'bge-m3');
-    expect(result.embedding).toHaveLength(2);
-    expect(result.embedding[0]).toBeCloseTo(0.4, 5);
-    expect(result.embedding[1]).toBeCloseTo(0.6, 5);
-    expect(pipelineMock).toHaveBeenCalledTimes(2);
-    expect(failingExtractor).toHaveBeenCalledTimes(1);
-    expect(fallbackExtractor).toHaveBeenCalledTimes(1);
-    expect(backend.getSelectedDevice()).toBe('cpu');
+    await expect(backend.generateEmbedding('hello world', 'bge-m3')).rejects.toThrow(
+      'runtime explode'
+    );
+    expect(add).toHaveBeenCalledTimes(2);
+    expect(pipelineMock).not.toHaveBeenCalled();
+    resetEmbeddingQueueFactory();
   });
 });

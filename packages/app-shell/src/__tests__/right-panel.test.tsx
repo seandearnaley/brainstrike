@@ -93,13 +93,14 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   }),
 }));
 
-// Mock the heavy database chunk to avoid loading real vector dashboards in tests
-vi.mock('../database-tab-chunk', () => ({
+// Mock the lazy-loaded tabs to avoid loading real dashboards in tests
+// Note: We mock the wrapper components (vectors-tab, database-tab) not the chunk files,
+// since right-panel.tsx imports from the wrappers which use React.lazy internally.
+vi.mock('../database-tab', () => ({
   DatabaseTab: () => <div data-testid="mock-database-panel">Database mock</div>,
 }));
 
-// Mock the vectors tab chunk to avoid loading real vector dashboards in tests
-vi.mock('../vectors-tab-chunk', () => ({
+vi.mock('../vectors-tab', () => ({
   VectorsTab: () => <div data-testid="mock-vectors-panel">Vectors mock</div>,
 }));
 

@@ -261,7 +261,8 @@ function cloneValues(values: ArrayLike<number>): Float32Array {
 }
 
 function logCompletion(task: TaskPayload, startedAt: number, queue: PQueue): void {
-  logger.info('Browser fallback embedding complete', {
+  // Use debug level for per-task completion to reduce log noise during bulk operations
+  logger.debug('Browser fallback embedding complete', {
     taskId: task.id,
     model: task.model,
     elapsedMs: calculateElapsed(startedAt),
