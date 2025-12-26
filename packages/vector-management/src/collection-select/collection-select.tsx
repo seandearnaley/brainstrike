@@ -56,15 +56,15 @@ export type CollectionWithDocCount = {
  */
 const COLLECTIONS_QUERY = `
     WITH file_counts AS (
-      SELECT embedding_set_id, COUNT(*)::int AS "fileCount"
+      SELECT embedding_set_id, COUNT(*)::int AS file_count
         FROM file_records
        GROUP BY embedding_set_id
     ),
     chunk_counts AS (
       SELECT
         embedding_set_id,
-        COUNT(*)::int AS "chunkCount",
-        COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS "embeddingCount"
+        COUNT(*)::int AS chunk_count,
+        COUNT(*) FILTER (WHERE embedding IS NOT NULL)::int AS embedding_count
       FROM file_chunks
       GROUP BY embedding_set_id
     )
@@ -79,9 +79,9 @@ const COLLECTIONS_QUERY = `
       s.description,
       s.tags,
       s.category,
-      COALESCE(f."fileCount", 0) AS "fileCount",
-      COALESCE(c."chunkCount", 0) AS "chunkCount",
-      COALESCE(c."embeddingCount", 0) AS "embeddingCount"
+      COALESCE(f.file_count, 0) AS "fileCount",
+      COALESCE(c.chunk_count, 0) AS "chunkCount",
+      COALESCE(c.embedding_count, 0) AS "embeddingCount"
     FROM embedding_sets s
     LEFT JOIN file_counts f ON f.embedding_set_id = s.id
     LEFT JOIN chunk_counts c ON c.embedding_set_id = s.id
@@ -240,11 +240,21 @@ function normalizeCollectionRows(rows: CollectionRow[]): CollectionWithDocCount[
 export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null | undefined) {
   const isImporting = useVectorStatusUIStore((s) => s.isImporting);
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
+  const schemaVerified = useVectorStatusUIStore((s) => s.schemaVerified);
+  // Use Zustand store for caching - persists across component unmounts during bulk operations
+  const cachedCollections = useVectorStatusUIStore((s) => s.cachedCollections);
+  const setCachedCollections = useVectorStatusUIStore((s) => s.setCachedCollections);
+  // Pause live queries during import/embedding to avoid perf degradation from frequent updates
+  // But we'll still do an initial fetch via fallback when schema is ready
   const liveQueryEnabled = Boolean(db) && !isImporting && !isEmbeddingActive;
-  const [cachedCollections, setCachedCollections] = useState<CollectionWithDocCount[]>([]);
-  const [cachedLoaded, setCachedLoaded] = useState(false);
-  const [cachedLoading, setCachedLoading] = useState(false);
-  const [cachedError, setCachedError] = useState<Error | null>(null);
+  // Track loading state locally (doesn't need to persist across unmounts)
+  const [fallbackLoading, setFallbackLoading] = useState(false);
+  const [fallbackError, setFallbackError] = useState<Error | null>(null);
+  // Track if we've done a one-time fetch when live queries are disabled
+  const fallbackFetchedRef = useRef(false);
+  // Track previous schema state to reset fallback when schema becomes ready
+  const prevSchemaVerifiedRef = useRef(false);
+
   const {
     rows: rawCollections,
     loading,
@@ -259,55 +269,69 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     [rawCollections]
   );
 
+  // Sync live query results to the Zustand store cache when available
   useEffect(() => {
     if (!liveQueryEnabled || loading) {
       return;
     }
-    setCachedCollections(collections);
-    setCachedError(null);
-    setCachedLoaded(true);
-  }, [collections, liveQueryEnabled, loading]);
+    // Only update cache if we have real data (not just an empty array from initial state)
+    if (collections.length > 0 || cachedCollections.length > 0) {
+      setCachedCollections(collections);
+    }
+  }, [cachedCollections.length, collections, liveQueryEnabled, loading, setCachedCollections]);
 
+  // Reset fallback fetch flag when schema becomes verified (transitions from false to true)
+  // This ensures we retry the fetch after migrations complete
+  // biome-ignore lint/plugin: This tracks ref state transitions, not event handling
   useEffect(() => {
-    setCachedCollections([]);
-    setCachedError(null);
-    setCachedLoaded(false);
-  }, [db]);
+    if (schemaVerified && !prevSchemaVerifiedRef.current) {
+      // Schema just became verified - allow a new fetch attempt
+      fallbackFetchedRef.current = false;
+    }
+    prevSchemaVerifiedRef.current = schemaVerified;
+  }, [schemaVerified]);
 
+  // One-time fallback fetch when live queries are disabled but cache is empty
+  // IMPORTANT: Wait for schemaVerified to ensure tables exist before querying
   useEffect(() => {
     const canQuery = Boolean(db && typeof (db as { query?: unknown }).query === 'function');
-    const shouldFetch = !liveQueryEnabled && canQuery && !cachedLoaded && !cachedLoading;
+    const cacheIsEmpty = cachedCollections.length === 0;
+    const shouldFetch =
+      !liveQueryEnabled &&
+      schemaVerified && // CRITICAL: Wait for schema to be ready
+      canQuery &&
+      cacheIsEmpty &&
+      !fallbackLoading &&
+      !fallbackFetchedRef.current;
     if (!shouldFetch) {
       return;
     }
 
     let cancelled = false;
-    const updateIfActive = (update: () => void) => {
-      if (!cancelled) {
-        update();
-      }
-    };
+    fallbackFetchedRef.current = true;
+    setFallbackLoading(true);
 
-    updateIfActive(() => setCachedLoading(true));
-
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Error handling and cleanup logic adds necessary complexity
     const fetchOnce = async () => {
       try {
         const result = await (
           db as { query: (query: string) => Promise<{ rows: CollectionRow[] }> }
         ).query(COLLECTIONS_QUERY);
-        updateIfActive(() => {
+        if (!cancelled) {
           setCachedCollections(normalizeCollectionRows(result.rows));
-          setCachedError(null);
-          setCachedLoaded(true);
-        });
+          setFallbackError(null);
+        }
       } catch (err) {
-        const normalized = err instanceof Error ? err : new Error(String(err));
-        updateIfActive(() => {
-          setCachedError(normalized);
-          setCachedLoaded(true);
-        });
+        if (!cancelled) {
+          const normalized = err instanceof Error ? err : new Error(String(err));
+          setFallbackError(normalized);
+          // Reset fallback flag on error so we can retry when conditions change
+          fallbackFetchedRef.current = false;
+        }
       } finally {
-        updateIfActive(() => setCachedLoading(false));
+        if (!cancelled) {
+          setFallbackLoading(false);
+        }
       }
     };
 
@@ -316,12 +340,25 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     return () => {
       cancelled = true;
     };
-  }, [cachedLoaded, cachedLoading, db, liveQueryEnabled]);
+  }, [
+    cachedCollections.length,
+    db,
+    fallbackLoading,
+    liveQueryEnabled,
+    schemaVerified,
+    setCachedCollections,
+  ]);
 
+  // Reset fallback fetch flag when db changes
+  useEffect(() => {
+    fallbackFetchedRef.current = false;
+  }, [db]);
+
+  // Return live data when enabled, otherwise return cached data from Zustand store
   return {
     collections: liveQueryEnabled ? collections : cachedCollections,
-    loading: liveQueryEnabled ? loading : cachedLoading,
-    error: liveQueryEnabled ? error : cachedError,
+    loading: liveQueryEnabled ? loading : fallbackLoading,
+    error: liveQueryEnabled ? error : fallbackError,
   };
 }
 
@@ -389,7 +426,6 @@ export function CollectionSelect({
     () => collections.find((c) => c.id === selectedId) ?? null,
     [collections, selectedId]
   );
-
   const hasCollections = collections.length > 0;
   // When external collections are provided, don't check db for loading state
   const isLoading = loading || (shouldFetchInternally && !db);

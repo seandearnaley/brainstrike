@@ -49,10 +49,51 @@ const mockStoreState = {
   isEmbeddingActive: false,
   isEmbeddingQueueActive: false,
   isJobQueueActive: false,
+  cachedCollections: [] as Array<{
+    id: string;
+    modelKey: string;
+    modelId: string;
+    dimensions: number;
+    distance: 'cosine' | 'l2' | 'ip';
+    createdAt: string;
+    name: string | null;
+    description: string | null;
+    tags: string | null;
+    category: string | null;
+    fileCount: number;
+    chunkCount: number;
+    embeddingCount: number;
+  }>,
+  cachedFileData: null as null | {
+    collectionId: string;
+    records: Array<{
+      id: string;
+      name: string;
+      path: string;
+      size: number;
+      createdAt: string;
+      updatedAt: string;
+      tokenCount: number | undefined;
+      chunksCount: number | undefined;
+      embeddingSetId: string | undefined;
+    }>;
+    chunks: Array<{
+      id: string;
+      fileRecordId: string;
+      chunkIndex: number;
+      tokenCount: number;
+      chunkType: 'text' | 'sentence' | 'recursive' | 'code';
+      embeddingSetId: string | undefined;
+    }>;
+  },
+  schemaVerified: false,
   setActiveEmbeddingSetId: vi.fn(),
   setIsImporting: vi.fn(),
   setIsEmbeddingQueueActive: vi.fn(),
   setIsJobQueueActive: vi.fn(),
+  setCachedCollections: vi.fn(),
+  setCachedFileData: vi.fn(),
+  setSchemaVerified: vi.fn(),
 };
 
 vi.mock('@brainstrike/preferences', () => ({

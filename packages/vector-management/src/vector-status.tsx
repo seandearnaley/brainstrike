@@ -16,6 +16,10 @@ import {
   CardHeader,
   CardTitle,
   Label,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
@@ -229,7 +233,7 @@ function BackfillButton({
     : descriptiveLabel;
   const resolvedTitle = title ?? descriptiveLabel;
 
-  return (
+  const button = (
     <Button
       aria-label={ariaLabel}
       className="h-6 w-full px-1.5 text-[10px]"
@@ -249,6 +253,21 @@ function BackfillButton({
           ? `Backfill ${labelPreview}`
           : 'Backfill'}
     </Button>
+  );
+
+  if (!isDisabled) {
+    return button;
+  }
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex w-full">{button}</span>
+        </TooltipTrigger>
+        <TooltipContent>{resolvedTitle}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 

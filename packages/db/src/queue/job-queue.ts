@@ -293,7 +293,8 @@ export class JobQueue {
       return null;
     }
     const job = fromRow(res.rows[0]);
-    logger.info('Job completed', { jobId: job.id, queue: job.queue, jobType: job.jobType });
+    // Use debug level for per-job completion to reduce log noise during bulk operations
+    logger.debug('Job completed', { jobId: job.id, queue: job.queue, jobType: job.jobType });
     const elapsedMs = computeElapsedMs(job.runAt, updatedAt);
     emitQueueTelemetry({
       timestamp: Date.now(),

@@ -428,7 +428,8 @@ describe('createPQueueAdapter', () => {
 
     await adapter.add(task);
 
-    expect(mockLogger.info).toHaveBeenCalledWith(
+    // Per-task completion logs are at debug level to reduce noise during bulk operations
+    expect(mockLogger.debug).toHaveBeenCalledWith(
       'Browser fallback embedding complete',
       expect.objectContaining({
         taskId: 'task-log',

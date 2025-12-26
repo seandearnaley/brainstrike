@@ -179,7 +179,8 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       ...(statsMetadata !== undefined ? { metadata: statsMetadata } : {}),
     };
     emitQueueTelemetry(telemetry);
-    logger.info('Workerpool embedding task complete', {
+    // Use debug level for per-task completion to reduce log noise during bulk operations
+    logger.debug('Workerpool embedding task complete', {
       taskId: task.id,
       elapsedMs: calculateElapsed(startedAt),
       activeBeforeRelease: activeTasks,

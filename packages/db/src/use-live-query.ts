@@ -248,7 +248,8 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     let subscription: LiveSubscription<T> | null = null;
 
     if (!enabled) {
-      setRows([]);
+      // Keep existing rows cached when disabled - don't clear to avoid UI flicker
+      // Only stop the subscription and mark as not loading
       setError(null);
       setLoading(false);
       refreshRef.current = noopAsync;
