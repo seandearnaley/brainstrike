@@ -467,7 +467,14 @@ async function splitCodeByFunctions(
       errorRecovery: true,
       allowReturnOutsideFunction: true,
     }) as unknown as AstNode;
-  } catch {
+  } catch (err) {
+    // Log at debug level to help diagnose why code isn't being chunked at function boundaries
+    // biome-ignore lint/suspicious/noConsole: debug logging for AST parsing failures
+    console.debug('[portable-chunking] AST parsing failed for function-level splitting', {
+      language,
+      contentLength: content.length,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 
@@ -552,19 +559,28 @@ function splitByBlankLines(text: string): string[] {
 
 type MarkdownBlock = { text: string; meta: { isFence?: boolean; heading?: string } };
 
+/** Regex to match code fence opening/closing (backticks or tildes, optionally indented) */
+const CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
+
 function captureFence(
   lines: (string | undefined)[],
   start: number
 ): { consumed: number; block?: { text: string; meta: { isFence: true } } } {
   const line = lines[start] ?? '';
-  if (!/^```/.test(line)) {
+  const openMatch = CODE_FENCE_PATTERN.exec(line);
+  if (!openMatch) {
     return { consumed: start };
   }
+  // Track the fence character and minimum length for closing
+  const fenceChar = openMatch[1]?.[0] ?? '`';
+  const fenceLen = openMatch[1]?.length ?? 3;
+  const closingPattern = new RegExp(`^\\s*${fenceChar}{${fenceLen},}\\s*$`);
+
   const buf: string[] = [line];
   let i = start + 1;
   while (i < lines.length) {
     const cur = lines[i] ?? '';
-    if (cur.startsWith('```')) {
+    if (closingPattern.test(cur)) {
       break;
     }
     buf.push(cur);

@@ -33,8 +33,8 @@ import type {
 /** Number of files between yields during batch processing */
 const BATCH_YIELD_INTERVAL = 5;
 
-/** Delay in ms when yielding during batch processing (0 = microtask) */
-const YIELD_DELAY_MS = 0;
+/** Delay in ms when yielding during batch processing (1ms gives event loop breathing room for GC) */
+const YIELD_DELAY_MS = 1;
 
 /** Timeout in ms for processing a single file */
 const FILE_PROCESSING_TIMEOUT_MS = 60_000;
