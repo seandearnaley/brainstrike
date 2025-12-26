@@ -38,6 +38,25 @@ vi.mock('../../create-embedding-queue', () => ({
   createBrowserEmbeddingQueue: vi.fn(() => queueStub),
 }));
 
+// Mock the file-import package to prevent worker initialization during tests
+vi.mock('@brainstrike/file-import', () => ({
+  ChunkingWorkerProvider: ({ children }: { children: React.ReactNode }) => children,
+  useChunkingWorkerContext: vi.fn(() => ({
+    port: null,
+    isReady: false,
+    isProcessing: false,
+    error: null,
+    reinitialize: vi.fn(),
+  })),
+  useChunkingWorker: vi.fn(() => ({
+    port: null,
+    isReady: false,
+    isProcessing: false,
+    error: null,
+    reinitialize: vi.fn(),
+  })),
+}));
+
 // Mock the file-explorer-hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: vi.fn(() => ({

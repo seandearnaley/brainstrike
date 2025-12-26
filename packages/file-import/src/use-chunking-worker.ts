@@ -47,12 +47,17 @@ async function initializeSingleton(): Promise<void> {
 
   // Prevent concurrent initialization with a synchronous flag check
   if (singletonInitializing) {
-    // Wait for the promise to be set by the in-progress initialization
-    return new Promise<void>((resolve) => {
+    // Wait for the promise to be set by the in-progress initialization (with timeout)
+    return new Promise<void>((resolve, reject) => {
+      const startTime = Date.now();
+      const maxWaitMs = 5000; // 5 second timeout
       const checkInterval = setInterval(() => {
         if (singletonInitPromise) {
           clearInterval(checkInterval);
           resolve(singletonInitPromise);
+        } else if (Date.now() - startTime > maxWaitMs) {
+          clearInterval(checkInterval);
+          reject(new Error('Timed out waiting for singleton initialization'));
         }
       }, 10);
     });
