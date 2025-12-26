@@ -673,7 +673,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             backfillProgress={queueState.backfillProgress}
             coverage={queueState.coverage}
             hasDb={hasDb}
-            onBackfill={queueState.backfillActiveSet}
+            onBackfill={invokeBackfill}
             queueCounts={queueState.queueCounts}
           />
           <QueueControls
