@@ -502,9 +502,23 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   }, [coverageRepository, db]);
 
   const backfillRef = useRef<() => Promise<void>>(async () => {});
+  const validateApiKeyRef = useRef<() => Promise<{ valid: boolean; message?: string }>>(
+    async () => ({ valid: true })
+  );
+
   const invokeBackfill = useCallback(async () => {
+    // Validate API key availability before backfilling
+    const validation = await validateApiKeyRef.current();
+    if (!validation.valid) {
+      toast({
+        title: 'API Key Required',
+        description: validation.message ?? 'Please configure your API key before embedding.',
+        variant: 'destructive',
+      });
+      return;
+    }
     await backfillRef.current();
-  }, []);
+  }, [toast]);
 
   const workerControls = useEmbeddingWorkerControls({
     db,
@@ -524,6 +538,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
   });
 
   backfillRef.current = queueState.backfillActiveSet;
+  validateApiKeyRef.current = queueState.validateApiKey;
 
   const throughputTrend = useMemo(
     () => queueState.telemetryTrend.map((point) => point.throughput),
