@@ -113,12 +113,8 @@ async function initializeSingleton(): Promise<void> {
   return singletonInitPromise;
 }
 
-// Start initialization immediately when module loads
-initializeSingleton().catch((err) => {
-  logger.error('Singleton initialization promise rejected', {
-    error: err instanceof Error ? err.message : String(err),
-  });
-});
+// Note: Initialization is lazy - happens when hook is first called
+// This allows tests to mock the module before initialization occurs
 
 // ============================================================================
 // React Hook - Just returns singleton state
@@ -145,6 +141,13 @@ export function useChunkingWorker(): UseChunkingWorkerResult {
   // NOTE: No logging here - this runs on every render and would spam logs
 
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Lazy initialization - only happens when hook is first called (not at module load)
+  // This allows tests to mock the module before initialization
+  if (!singletonInitPromise) {
+    void initializeSingleton();
+  }
+
   const subscribe = useCallback((listener: () => void) => {
     singletonListeners.add(listener);
     return () => {
