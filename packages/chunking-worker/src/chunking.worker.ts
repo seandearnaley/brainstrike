@@ -18,12 +18,94 @@ import { chunkContent, type PortableChunkingResult } from './portable-chunking';
 import type {
   ChunkBatchRequest,
   ChunkError,
+  ChunkingRequestOptions,
   ChunkProgress,
   ChunkRequest,
   ChunkResult,
   WorkerLog,
   WorkerRequest,
 } from './shared';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** Number of files between yields during batch processing */
+const BATCH_YIELD_INTERVAL = 5;
+
+/** Delay in ms when yielding during batch processing (0 = microtask) */
+const YIELD_DELAY_MS = 0;
+
+/** Timeout in ms for processing a single file */
+const FILE_PROCESSING_TIMEOUT_MS = 60_000;
+
+// ============================================================================
+// Type Guards for Input Validation
+// ============================================================================
+
+/**
+ * Validate that options object has the required structure for chunking.
+ */
+function isChunkingRequestOptions(value: unknown): value is ChunkingRequestOptions {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  const strategy = obj['strategy'];
+  // strategy is required
+  return strategy === 'sentence' || strategy === 'token' || strategy === 'recursive';
+}
+
+/**
+ * Validate incoming chunk request structure before processing.
+ * Prevents crashes from malformed or corrupted messages.
+ */
+function isChunkRequest(value: unknown): value is ChunkRequest {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const msg = value as Record<string, unknown>;
+  return (
+    msg['type'] === 'chunk' &&
+    typeof msg['id'] === 'string' &&
+    typeof msg['fileRecordId'] === 'string' &&
+    typeof msg['content'] === 'string' &&
+    typeof msg['fileName'] === 'string' &&
+    typeof msg['filePath'] === 'string' &&
+    isChunkingRequestOptions(msg['options'])
+  );
+}
+
+/**
+ * Validate incoming batch request structure.
+ */
+function isChunkBatchRequest(value: unknown): value is ChunkBatchRequest {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const msg = value as Record<string, unknown>;
+  if (msg['type'] !== 'chunk-batch' || !Array.isArray(msg['requests'])) {
+    return false;
+  }
+  // Validate each request in the batch (except 'type' field which isn't required)
+  for (const req of msg['requests']) {
+    if (typeof req !== 'object' || req === null) {
+      return false;
+    }
+    const r = req as Record<string, unknown>;
+    if (
+      typeof r['id'] !== 'string' ||
+      typeof r['fileRecordId'] !== 'string' ||
+      typeof r['content'] !== 'string' ||
+      typeof r['fileName'] !== 'string' ||
+      typeof r['filePath'] !== 'string' ||
+      !isChunkingRequestOptions(r['options'])
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -71,8 +153,14 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
 
 log('info', 'worker script evaluated');
 
-// Global error handlers
-self.addEventListener('error', (event) => {
+// ============================================================================
+// Global Error Handlers (with cleanup support)
+// ============================================================================
+
+/**
+ * Handle global error events in the worker.
+ */
+function handleGlobalError(event: ErrorEvent): void {
   const payload = {
     type: event.type,
     message: event.message,
@@ -88,9 +176,12 @@ self.addEventListener('error', (event) => {
     fileRecordId: '__init__',
     error: `global error: ${payload.message ?? 'unknown'}`,
   } satisfies ChunkError);
-});
+}
 
-self.addEventListener('unhandledrejection', (event) => {
+/**
+ * Handle unhandled promise rejections in the worker.
+ */
+function handleUnhandledRejection(event: PromiseRejectionEvent): void {
   const formatted = formatError(event.reason);
   log('error', 'unhandledrejection', { reason: formatted });
   self.postMessage({
@@ -99,18 +190,80 @@ self.addEventListener('unhandledrejection', (event) => {
     fileRecordId: '__init__',
     error: `unhandledrejection: ${formatted.message}`,
   } satisfies ChunkError);
-});
+}
+
+// Register global error handlers
+self.addEventListener('error', handleGlobalError);
+self.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+/**
+ * Clean up global error handlers (defensive cleanup for edge cases).
+ * Called when worker receives a 'cleanup' message.
+ */
+function cleanupGlobalHandlers(): void {
+  self.removeEventListener('error', handleGlobalError);
+  self.removeEventListener('unhandledrejection', handleUnhandledRejection);
+  log('info', 'Global error handlers cleaned up');
+}
+
+/**
+ * Create a promise that rejects after a timeout.
+ */
+function createTimeout(ms: number, context: string): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(`Processing timeout after ${ms}ms: ${context}`));
+    }, ms);
+  });
+}
+
+/**
+ * Process a single file with timeout protection.
+ */
+async function processFileWithTimeout(
+  request: Omit<ChunkRequest, 'type'>,
+  timeoutMs: number = FILE_PROCESSING_TIMEOUT_MS
+): Promise<ChunkResult | ChunkError> {
+  const context = `${request.fileName} (${request.id})`;
+  try {
+    return await Promise.race([processFile(request), createTimeout(timeoutMs, context)]);
+  } catch (error) {
+    const formatted = formatError(error);
+    log('error', 'processFile timeout or race error', {
+      ...formatted,
+      id: request.id,
+      fileRecordId: request.fileRecordId,
+      fileName: request.fileName,
+      phase: 'timeout',
+    });
+    const errorResult: ChunkError = {
+      type: 'error',
+      id: request.id,
+      fileRecordId: request.fileRecordId,
+      error: formatted.message,
+    };
+    if (formatted.stack !== undefined) {
+      errorResult.stack = formatted.stack;
+    }
+    return errorResult;
+  }
+}
 
 /**
  * Process a single file: chunk content
  */
 async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkResult | ChunkError> {
+  const contentLength = request.content?.length ?? 0;
+  const strategy = request.options?.strategy ?? 'unknown';
+
   try {
     log('debug', 'processFile start', {
       id: request.id,
       fileRecordId: request.fileRecordId,
       fileName: request.fileName,
-      contentLength: request.content?.length ?? 0,
+      contentLength,
+      strategy,
+      phase: 'start',
     });
 
     const result: PortableChunkingResult = await chunkContent(request.content, {
@@ -126,6 +279,7 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
       totalTokens: result.totalTokens,
       strategyUsed: result.strategyUsed,
       skipped: result.skipped,
+      phase: 'complete',
     });
 
     // Report progress for this file
@@ -157,6 +311,9 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
       id: request.id,
       fileRecordId: request.fileRecordId,
       fileName: request.fileName,
+      contentLength,
+      strategy,
+      phase: 'error',
     });
     const errorResult: ChunkError = {
       type: 'error',
@@ -173,7 +330,7 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
 }
 
 /**
- * Process a batch of files with progress reporting
+ * Process a batch of files with progress reporting and timeout protection.
  */
 async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<void> {
   if (requests.length === 0) {
@@ -192,7 +349,8 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
       fileName: request.fileName,
     });
 
-    const result = await processFile(request);
+    // Use timeout-protected processing
+    const result = await processFileWithTimeout(request);
     self.postMessage(result);
 
     log('debug', 'processBatch item posted', {
@@ -212,35 +370,55 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
       totalFiles: total,
     } satisfies ChunkProgress);
 
-    // Yield to prevent blocking (every 5 files)
-    if (i % 5 === 0 && i > 0) {
-      await new Promise((resolve) => setTimeout(resolve, 0));
+    // Yield to prevent blocking (every BATCH_YIELD_INTERVAL files)
+    if (i % BATCH_YIELD_INTERVAL === 0 && i > 0) {
+      await new Promise((resolve) => setTimeout(resolve, YIELD_DELAY_MS));
     }
   }
 
   log('info', 'processBatch complete', { total });
 }
 
-// Handle incoming messages
+// Handle incoming messages with input validation
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const message = event.data;
+  const messageType = (message as { type?: unknown } | null)?.type;
 
   try {
-    log('info', 'onmessage received', { type: (message as { type?: unknown }).type });
+    log('info', 'onmessage received', { type: messageType });
 
-    if (message.type === 'chunk') {
-      const result = await processFile(message);
+    // Handle cleanup message (defensive cleanup for edge cases)
+    if (messageType === 'cleanup') {
+      cleanupGlobalHandlers();
+      self.postMessage({ type: 'cleanup-done' });
+      return;
+    }
+
+    // Validate message structure before processing
+    if (isChunkRequest(message)) {
+      const result = await processFileWithTimeout(message);
       self.postMessage(result);
-    } else if (message.type === 'chunk-batch') {
-      await processBatch((message as ChunkBatchRequest).requests);
+    } else if (isChunkBatchRequest(message)) {
+      await processBatch(message.requests);
     } else {
-      log('warn', 'Unknown message type', { type: (message as { type?: unknown }).type });
+      // Invalid or unknown message - log and reject
+      log('warn', 'Invalid or unknown message structure', {
+        type: messageType,
+        hasRequests: Array.isArray((message as { requests?: unknown })?.requests),
+      });
+      self.postMessage({
+        type: 'error',
+        id: '__init__',
+        fileRecordId: '__init__',
+        error: `Invalid message structure: type=${String(messageType)}`,
+      } satisfies ChunkError);
     }
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'onmessage handler failed', {
-      type: (message as { type?: unknown }).type,
+      type: messageType,
       error: formatted,
+      phase: 'message-handler',
     });
     self.postMessage({
       type: 'error',

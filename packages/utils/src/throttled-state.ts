@@ -21,6 +21,21 @@ export type ThrottledSetState<T> = {
   cancel: () => void;
   /** Get current pending value (if any) */
   getPending: () => T | undefined;
+  /** Get diagnostic info about timer state (for testing/debugging) */
+  getDiagnostics: () => ThrottledStateDiagnostics;
+};
+
+/**
+ * Diagnostic information about the throttled state.
+ * Useful for testing and debugging timer cleanup.
+ */
+export type ThrottledStateDiagnostics = {
+  /** Whether there is a pending value waiting to be flushed */
+  hasPending: boolean;
+  /** Whether a timer is currently scheduled */
+  hasScheduledTimer: boolean;
+  /** Timestamp of last emit (0 if never emitted) */
+  lastEmitTime: number;
 };
 
 export type ThrottleOptions = {
@@ -112,7 +127,13 @@ export function createThrottledSetState<T>(
 
   const getPending = (): T | undefined => (hasPending ? pendingValue : undefined);
 
-  return { update, flush, cancel, getPending };
+  const getDiagnostics = (): ThrottledStateDiagnostics => ({
+    hasPending,
+    hasScheduledTimer: timeoutId !== null,
+    lastEmitTime,
+  });
+
+  return { update, flush, cancel, getPending, getDiagnostics };
 }
 
 /**
@@ -142,6 +163,7 @@ export function createThrottledStateRef<T>(
     flush: throttled.flush,
     cancel: throttled.cancel,
     getPending: throttled.getPending,
+    getDiagnostics: throttled.getDiagnostics,
     cleanup: (): void => {
       throttled.flush(); // Emit final value
       throttled.cancel();

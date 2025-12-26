@@ -186,17 +186,118 @@ export class LogBuffer {
       }
     }
 
-    // For objects, try to stringify and check size
+    // For objects, use streaming size check with early exit
+    // This avoids double serialization for objects that fit
     try {
-      const json = JSON.stringify(arg);
-      if (json.length > this.maxArgSize) {
-        // Too large - return a summary instead
+      const result = this.cloneWithSizeCheck(arg, this.maxArgSize);
+      if (result.oversized) {
         return this.summarizeArg(arg);
       }
-      return JSON.parse(json);
+      return result.value;
     } catch {
       return String(arg);
     }
+  }
+
+  /**
+   * Clone an object while tracking size, with early exit if size limit exceeded.
+   * Returns the cloned value and whether it was oversized.
+   */
+  private cloneWithSizeCheck(
+    arg: unknown,
+    maxSize: number
+  ): { value: unknown; oversized: boolean } {
+    const ctx = { currentSize: 0, maxSize };
+    const clonedValue = this.cloneValue(arg, ctx);
+    return { value: clonedValue, oversized: ctx.currentSize > maxSize };
+  }
+
+  /**
+   * Recursively clone a value while tracking size.
+   */
+  private cloneValue(value: unknown, ctx: { currentSize: number; maxSize: number }): unknown {
+    if (ctx.currentSize > ctx.maxSize) {
+      return; // Early exit - we're already oversized
+    }
+
+    if (value === null || value === undefined) {
+      ctx.currentSize += 4;
+      return value;
+    }
+
+    const primitiveResult = this.clonePrimitive(value, ctx);
+    if (primitiveResult !== undefined) {
+      return primitiveResult.value;
+    }
+
+    if (Array.isArray(value)) {
+      return this.cloneArray(value, ctx);
+    }
+
+    if (typeof value === 'object') {
+      return this.cloneObject(value as Record<string, unknown>, ctx);
+    }
+
+    return String(value);
+  }
+
+  /**
+   * Handle primitive types (string, number, boolean).
+   * Returns undefined if value is not a primitive.
+   */
+  private clonePrimitive(
+    value: unknown,
+    ctx: { currentSize: number; maxSize: number }
+  ): { value: unknown } | undefined {
+    if (typeof value === 'string') {
+      ctx.currentSize += value.length + 2;
+      return { value };
+    }
+    if (typeof value === 'number') {
+      ctx.currentSize += String(value).length;
+      return { value };
+    }
+    if (typeof value === 'boolean') {
+      ctx.currentSize += value ? 4 : 5;
+      return { value };
+    }
+    return;
+  }
+
+  /**
+   * Clone an array while tracking size.
+   */
+  private cloneArray(arr: unknown[], ctx: { currentSize: number; maxSize: number }): unknown[] {
+    ctx.currentSize += 2; // brackets
+    const clonedArray: unknown[] = [];
+    for (const item of arr) {
+      if (ctx.currentSize > ctx.maxSize) {
+        return clonedArray;
+      }
+      clonedArray.push(this.cloneValue(item, ctx));
+      ctx.currentSize += 1; // comma
+    }
+    return clonedArray;
+  }
+
+  /**
+   * Clone an object while tracking size.
+   */
+  private cloneObject(
+    obj: Record<string, unknown>,
+    ctx: { currentSize: number; maxSize: number }
+  ): Record<string, unknown> {
+    ctx.currentSize += 2; // braces
+    const clonedObj: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(obj)) {
+      if (ctx.currentSize > ctx.maxSize) {
+        return clonedObj;
+      }
+      ctx.currentSize += key.length + 3; // key + quotes + colon
+      clonedObj[key] = this.cloneValue(val, ctx);
+      ctx.currentSize += 1; // comma
+    }
+    return clonedObj;
   }
 
   clear(): void {

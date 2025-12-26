@@ -11,7 +11,7 @@ export default defineConfig({
   target: 'es2020',
   platform: 'browser', // Force browser-compatible output (no require())
   // Bundle heavy dependencies into the worker to avoid ESM resolution issues
-  noExternal: ['@babel/parser', '@langchain/textsplitters', 'tiktoken', 'xxhash-wasm'],
+  noExternal: ['@babel/parser', '@langchain/textsplitters', 'tiktoken'],
   loader: {
     '.wasm': 'file',
   },

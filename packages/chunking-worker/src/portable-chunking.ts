@@ -367,6 +367,10 @@ function iterateAstChildren(node: AstNode): AstNode[] {
   return children;
 }
 
+/**
+ * Collect top-level function ranges from the AST.
+ * Uses mutating push/pop pattern for ancestors to avoid creating intermediate arrays.
+ */
 function collectTopLevelFunctionRanges(
   node: AstNode | null,
   ancestors: AstNode[],
@@ -387,10 +391,12 @@ function collectTopLevelFunctionRanges(
     ranges.push({ start: Number(node.start), end: Number(node.end) });
   }
 
-  const nextAncestors = [...ancestors, node];
+  // Use push/pop pattern instead of creating new arrays on every call
+  ancestors.push(node);
   for (const child of iterateAstChildren(node)) {
-    collectTopLevelFunctionRanges(child, nextAncestors, ranges);
+    collectTopLevelFunctionRanges(child, ancestors, ranges);
   }
+  ancestors.pop();
 }
 
 function getCodeSeparators(custom?: string[]) {
@@ -785,9 +791,20 @@ export async function chunkContent(
   }
 
   // Process groups into portable chunks
-  const chunks: PortableChunk[] = [];
-  let totalTokens = 0;
-  let seq = 0;
+  // PERF: Collect all pieces first, then batch hash generation
+  type PendingChunk = {
+    content: string;
+    tokenCount: number;
+    chunkType: ChunkType;
+  };
+  const pendingChunks: PendingChunk[] = [];
+
+  // PERF: Reuse splitter instance for all oversized chunks
+  const reSplitChunker = new RecursiveCharacterTextSplitter({
+    chunkSize: Math.floor(Math.min(effectiveMaxTokens, maxSafeTokens) * charsPerToken),
+    chunkOverlap: Math.min(overlapChars, Math.floor(maxChars / 10)),
+    separators: ['\n\n', '\n', '. ', ' ', ''],
+  });
 
   for (const g of groups) {
     for (const txt of g.pieces) {
@@ -798,13 +815,8 @@ export async function chunkContent(
 
       const tokenCount = useTokenTrueSizing ? await countTokensAccurate(c) : estimateTokenCount(c);
 
-      // Handle oversized chunks
+      // Handle oversized chunks - reuse splitter, use estimates for sub-chunks
       if (tokenCount > maxSafeTokens) {
-        const reSplitChunker = new RecursiveCharacterTextSplitter({
-          chunkSize: Math.floor(Math.min(effectiveMaxTokens, maxSafeTokens) * charsPerToken),
-          chunkOverlap: Math.min(overlapChars, Math.floor(maxChars / 10)),
-          separators: ['\n\n', '\n', '. ', ' ', ''],
-        });
         const subPieces = await reSplitChunker.splitText(c);
 
         for (const subTxt of subPieces) {
@@ -812,36 +824,48 @@ export async function chunkContent(
           if (!subC) {
             continue;
           }
-          const subTokenCount = useTokenTrueSizing
-            ? await countTokensAccurate(subC)
-            : estimateTokenCount(subC);
-          const subContentHash = await generateContentHash(subC);
-
-          chunks.push({
-            chunkIndex: seq,
+          // PERF: Use estimates for re-split chunks (accurate counting already done on parent)
+          const subTokenCount = estimateTokenCount(subC);
+          pendingChunks.push({
             content: subC,
-            contentHash: subContentHash,
             tokenCount: subTokenCount,
             chunkType: 'text',
-            chunkSize: effectiveMaxTokens,
           });
-          totalTokens += subTokenCount;
-          seq++;
         }
         continue;
       }
 
-      const contentHash = await generateContentHash(c);
-      chunks.push({
-        chunkIndex: seq,
+      pendingChunks.push({
         content: c,
-        contentHash,
         tokenCount,
         chunkType: g.type,
+      });
+    }
+  }
+
+  // PERF: Batch hash generation with Promise.all
+  const HashBatchSize = 50;
+  const chunks: PortableChunk[] = [];
+  let totalTokens = 0;
+
+  for (let i = 0; i < pendingChunks.length; i += HashBatchSize) {
+    const batch = pendingChunks.slice(i, i + HashBatchSize);
+    const hashes = await Promise.all(batch.map((p) => generateContentHash(p.content)));
+
+    for (let j = 0; j < batch.length; j++) {
+      const pending = batch[j];
+      if (!pending) {
+        continue;
+      }
+      chunks.push({
+        chunkIndex: i + j,
+        content: pending.content,
+        contentHash: hashes[j] ?? '',
+        tokenCount: pending.tokenCount,
+        chunkType: pending.chunkType,
         chunkSize: effectiveMaxTokens,
       });
-      totalTokens += tokenCount;
-      seq++;
+      totalTokens += pending.tokenCount;
     }
   }
 

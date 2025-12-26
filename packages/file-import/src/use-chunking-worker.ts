@@ -27,6 +27,8 @@ let singletonPort: ChunkingWorkerPort | null = null;
 let singletonReady = false;
 let singletonError: Error | null = null;
 let singletonInitPromise: Promise<void> | null = null;
+/** Flag to prevent concurrent initialization attempts */
+let singletonInitializing = false;
 const singletonListeners: Set<() => void> = new Set();
 let singletonVersion = 0;
 
@@ -38,9 +40,26 @@ function notifyListeners() {
 }
 
 async function initializeSingleton(): Promise<void> {
+  // If already initialized or initialization is in progress, return existing promise
   if (singletonInitPromise) {
     return singletonInitPromise;
   }
+
+  // Prevent concurrent initialization with a synchronous flag check
+  if (singletonInitializing) {
+    // Wait for the promise to be set by the in-progress initialization
+    return new Promise<void>((resolve) => {
+      const checkInterval = setInterval(() => {
+        if (singletonInitPromise) {
+          clearInterval(checkInterval);
+          resolve(singletonInitPromise);
+        }
+      }, 10);
+    });
+  }
+
+  // Mark as initializing synchronously before async operations
+  singletonInitializing = true;
 
   singletonInitPromise = (async () => {
     try {
@@ -164,6 +183,7 @@ export function useChunkingWorker(): UseChunkingWorkerResult {
     singletonReady = false;
     singletonError = null;
     singletonInitPromise = null;
+    singletonInitializing = false; // Reset initialization flag
     void initializeSingleton();
   }, []);
 
