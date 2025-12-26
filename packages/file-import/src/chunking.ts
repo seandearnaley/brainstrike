@@ -181,20 +181,32 @@ async function handleChunkInsertion(
   }
 }
 
+/**
+ * Type guard to check if repository supports transactional insert.
+ * Used to safely detect if insertManyWithTx is available.
+ */
+type RepoWithTransactionalInsert = {
+  insertManyWithTx: (t: IDatabase, chunks: FileChunk[]) => Promise<FileChunk[]>;
+};
+
+function hasTransactionalInsert(repo: unknown): repo is RepoWithTransactionalInsert {
+  return Boolean(
+    repo &&
+      typeof repo === 'object' &&
+      'insertManyWithTx' in repo &&
+      typeof (repo as Record<string, unknown>)['insertManyWithTx'] === 'function'
+  );
+}
+
 async function insertChunksWithTransaction(
   tx: IDatabase,
   chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
   chunks: FileChunk[]
 ): Promise<void> {
-  const repoAny = chunkRepository as unknown as {
-    insertManyWithTx?: (t: IDatabase, chunks: FileChunk[]) => Promise<FileChunk[]>;
-    insertMany: (chunks: FileChunk[]) => Promise<FileChunk[]>;
-  };
-
-  if (typeof repoAny.insertManyWithTx === 'function') {
-    await repoAny.insertManyWithTx(tx, chunks);
+  if (hasTransactionalInsert(chunkRepository)) {
+    await chunkRepository.insertManyWithTx(tx, chunks);
   } else {
-    await repoAny.insertMany(chunks);
+    await chunkRepository.insertMany(chunks);
   }
 }
 

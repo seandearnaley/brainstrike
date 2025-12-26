@@ -27,8 +27,6 @@ let singletonPort: ChunkingWorkerPort | null = null;
 let singletonReady = false;
 let singletonError: Error | null = null;
 let singletonInitPromise: Promise<void> | null = null;
-/** Flag to prevent concurrent initialization attempts */
-let singletonInitializing = false;
 const singletonListeners: Set<() => void> = new Set();
 let singletonVersion = 0;
 
@@ -45,27 +43,8 @@ async function initializeSingleton(): Promise<void> {
     return singletonInitPromise;
   }
 
-  // Prevent concurrent initialization with a synchronous flag check
-  if (singletonInitializing) {
-    // Wait for the promise to be set by the in-progress initialization (with timeout)
-    return new Promise<void>((resolve, reject) => {
-      const startTime = Date.now();
-      const maxWaitMs = 5000; // 5 second timeout
-      const checkInterval = setInterval(() => {
-        if (singletonInitPromise) {
-          clearInterval(checkInterval);
-          resolve(singletonInitPromise);
-        } else if (Date.now() - startTime > maxWaitMs) {
-          clearInterval(checkInterval);
-          reject(new Error('Timed out waiting for singleton initialization'));
-        }
-      }, 10);
-    });
-  }
-
-  // Mark as initializing synchronously before async operations
-  singletonInitializing = true;
-
+  // CRITICAL: Create and store the promise synchronously to prevent race conditions.
+  // Any concurrent calls will see this promise and return it immediately.
   singletonInitPromise = (async () => {
     try {
       const workerUrl = await resolveChunkingWorkerUrl();
@@ -188,7 +167,6 @@ export function useChunkingWorker(): UseChunkingWorkerResult {
     singletonReady = false;
     singletonError = null;
     singletonInitPromise = null;
-    singletonInitializing = false; // Reset initialization flag
     void initializeSingleton();
   }, []);
 

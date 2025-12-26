@@ -39,6 +39,12 @@ const YIELD_DELAY_MS = 1;
 /** Timeout in ms for processing a single file */
 const FILE_PROCESSING_TIMEOUT_MS = 60_000;
 
+/**
+ * Maximum content size in bytes (100MB).
+ * Protects against OOM from oversized files or corrupted data.
+ */
+const MAX_CONTENT_SIZE = 100_000_000;
+
 // ============================================================================
 // Type Guards for Input Validation
 // ============================================================================
@@ -74,6 +80,17 @@ function isChunkRequest(value: unknown): value is ChunkRequest {
     typeof msg['filePath'] === 'string' &&
     isChunkingRequestOptions(msg['options'])
   );
+}
+
+/**
+ * Validate content size to prevent OOM from oversized files.
+ * Returns an error message if content exceeds the limit, null otherwise.
+ */
+function validateContentSize(content: string, fileRecordId: string): string | null {
+  if (content.length > MAX_CONTENT_SIZE) {
+    return `Content exceeds maximum size (${content.length} bytes > ${MAX_CONTENT_SIZE} bytes) for file ${fileRecordId}`;
+  }
+  return null;
 }
 
 /**
@@ -396,10 +413,47 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 
     // Validate message structure before processing
     if (isChunkRequest(message)) {
+      // Validate content size to prevent OOM
+      const sizeError = validateContentSize(message.content, message.fileRecordId);
+      if (sizeError) {
+        log('warn', 'Content size validation failed', {
+          fileRecordId: message.fileRecordId,
+          contentLength: message.content.length,
+          maxSize: MAX_CONTENT_SIZE,
+        });
+        self.postMessage({
+          type: 'error',
+          id: message.id,
+          fileRecordId: message.fileRecordId,
+          error: sizeError,
+        } satisfies ChunkError);
+        return;
+      }
       const result = await processFileWithTimeout(message);
       self.postMessage(result);
     } else if (isChunkBatchRequest(message)) {
-      await processBatch(message.requests);
+      // Validate content sizes in batch - skip oversized files with error
+      for (const request of message.requests) {
+        const sizeError = validateContentSize(request.content, request.fileRecordId);
+        if (sizeError) {
+          log('warn', 'Content size validation failed in batch', {
+            fileRecordId: request.fileRecordId,
+            contentLength: request.content.length,
+            maxSize: MAX_CONTENT_SIZE,
+          });
+          self.postMessage({
+            type: 'error',
+            id: request.id,
+            fileRecordId: request.fileRecordId,
+            error: sizeError,
+          } satisfies ChunkError);
+        }
+      }
+      // Filter out oversized files from batch
+      const validRequests = message.requests.filter((r) => r.content.length <= MAX_CONTENT_SIZE);
+      if (validRequests.length > 0) {
+        await processBatch(validRequests);
+      }
     } else {
       // Invalid or unknown message - log and reject
       log('warn', 'Invalid or unknown message structure', {
