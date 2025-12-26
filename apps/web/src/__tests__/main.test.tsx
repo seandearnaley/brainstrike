@@ -26,6 +26,18 @@ vi.mock('@brainstrike/storage', () => ({
   createStorageAdapter: () => ({}),
 }));
 
+// Mock file-import to prevent worker initialization during tests
+vi.mock('@brainstrike/file-import', () => ({
+  ChunkingWorkerProvider: ({ children }: { children: React.ReactNode }) => children,
+  useChunkingWorkerContext: vi.fn(() => ({
+    port: null,
+    isReady: false,
+    isProcessing: false,
+    error: null,
+    reinitialize: vi.fn(),
+  })),
+}));
+
 vi.mock('../app/root-layout-content', () => ({
   __esModule: true,
   default: () => <div data-testid="root-layout">Root Layout</div>,
