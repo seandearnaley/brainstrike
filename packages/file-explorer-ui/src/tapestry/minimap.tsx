@@ -151,7 +151,7 @@ const RangeItem = memo(
             <button
               aria-label={range.isActive ? 'Deactivate range' : 'Activate range'}
               className={cn(
-                '-top-1.5 -right-1.5 no-depress absolute z-40 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-all',
+                'no-depress absolute -top-1.5 -right-1.5 z-40 flex h-4 w-4 cursor-pointer items-center justify-center rounded-full border shadow-xs transition-all',
                 range.isActive ? 'scale-100 bg-background' : 'scale-90 bg-muted hover:scale-110'
               )}
               onMouseDown={(e) => {
@@ -173,7 +173,7 @@ const RangeItem = memo(
             {/* Index Badge */}
             {range.isActive && (
               <div
-                className="-top-2 pointer-events-none absolute right-4 z-40 select-none rounded border border-border bg-background px-1 font-mono text-[9px] shadow-xs"
+                className="pointer-events-none absolute -top-2 right-4 z-40 select-none rounded border border-border bg-background px-1 font-mono text-[9px] shadow-xs"
                 style={{ color: range.color, borderColor: range.color }}
               >
                 #{globalIndex}
@@ -183,7 +183,7 @@ const RangeItem = memo(
             {/* Resize Handles */}
             <button
               aria-label="Resize range top"
-              className="-top-1 no-depress absolute right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
+              className="no-depress absolute -top-1 right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
               onMouseDown={(e) => {
                 e.stopPropagation();
                 handleStart('RESIZING_TOP', range.id, e.clientY, range);
@@ -193,7 +193,7 @@ const RangeItem = memo(
 
             <button
               aria-label="Resize range bottom"
-              className="-bottom-1 no-depress absolute right-4 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
+              className="no-depress absolute right-4 -bottom-1 left-0 z-40 h-3 cursor-ns-resize bg-transparent transition-colors hover:bg-white/10"
               onMouseDown={(e) => {
                 e.stopPropagation();
                 handleStart('RESIZING_BOTTOM', range.id, e.clientY, range);

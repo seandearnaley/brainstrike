@@ -23,7 +23,7 @@ export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
         {value && (
           <Button
             aria-label="clear"
-            className="-translate-y-1/2 absolute top-1/2 right-2 h-6 w-6 hover:bg-transparent"
+            className="absolute top-1/2 right-2 h-6 w-6 -translate-y-1/2 hover:bg-transparent"
             onClick={onClear}
             size="icon"
             variant="ghost"
