@@ -132,7 +132,7 @@ function calculateHorizontalSizes(
   const defaultLeftSize = config.safeLeftSize ?? 25;
   const defaultRightSize = config.safeRightSize ?? 20;
 
-  // Both panels visible - expect 3 sizes [left, middle, right]
+  // Both panels visible - expect 3 sizes [explorer, middle, tools]
   if (hasLeft && hasRight && newSizes.length === 3) {
     return [
       getSizeWithFallback(newSizes, 0, defaultLeftSize),
@@ -140,12 +140,12 @@ function calculateHorizontalSizes(
     ];
   }
 
-  // Only explorer panel visible - expect 2 sizes [left, middle]
+  // Only explorer panel visible - expect 2 sizes [explorer, middle]
   if (hasLeft && newSizes.length === 2) {
     return [getSizeWithFallback(newSizes, 0, defaultLeftSize), defaultRightSize];
   }
 
-  // Only tools panel visible - expect 2 sizes [middle, right]
+  // Only tools panel visible - expect 2 sizes [middle, tools]
   if (hasRight && newSizes.length === 2) {
     return [defaultLeftSize, getSizeWithFallback(newSizes, 1, defaultRightSize)];
   }

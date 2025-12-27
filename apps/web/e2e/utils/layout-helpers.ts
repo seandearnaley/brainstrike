@@ -226,10 +226,10 @@ export async function resizePanel(
 }
 
 /**
- * Get the first (left panel) resize handle
+ * Get the first (explorer panel) resize handle
  */
 export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']> {
-  // The left panel's resize handle is the first one in the horizontal group
+  // The explorer panel's resize handle is the first one in the horizontal group
   return page
     .locator('[data-panel-group-direction="horizontal"] [data-panel-resize-handle-id]')
     .first();
@@ -308,7 +308,7 @@ export async function setupComplexLayout(page: Page): Promise<{
 }> {
   const elements = getPanelElements(page);
 
-  // Hide left panel
+  // Hide explorer panel
   await togglePanelVisibility(elements.hideExplorerButton, elements.leftPanel, false);
 
   // Show console
@@ -564,7 +564,7 @@ export async function testLayoutPersistenceAcrossNavigation(
   // Setup layout state
   await setupCallback();
 
-  // Check if left panel is hidden and temporarily show it for navigation
+  // Check if explorer panel is hidden and temporarily show it for navigation
   const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
   const wasHidden = !(await leftPanel.isVisible());
 
