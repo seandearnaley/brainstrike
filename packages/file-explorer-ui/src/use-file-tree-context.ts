@@ -3,6 +3,8 @@
  *
  * This hook provides file tree functionality using only the context-based store,
  * avoiding dependencies on the file-explorer-hooks package that uses the old global store.
+ *
+ * Includes IndexedDB caching for improved startup performance on subsequent loads.
  */
 
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
@@ -106,6 +108,59 @@ const isCancellationError = (error: unknown): boolean => {
  * Safely converts any error to an Error instance
  */
 const ensureError = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
+
+/**
+ * Result of attempting to load from cache
+ */
+type CacheLoadResult = { success: true; nodes: IFileNode[] } | { success: false };
+
+/**
+ * Attempts to load tree from IndexedDB cache.
+ * Returns cached nodes on hit, or signals to continue with normal loading.
+ */
+async function tryLoadFromCache(cacheKey: string): Promise<CacheLoadResult> {
+  try {
+    const { getCachedTree } = await import('./cache/tree-cache');
+    const cacheResult = await getCachedTree(cacheKey);
+
+    if (cacheResult.hit) {
+      return { success: true, nodes: cacheResult.nodes };
+    }
+  } catch {
+    // Cache access failed, proceed with normal loading
+  }
+  return { success: false };
+}
+
+/**
+ * Attempts to save tree to IndexedDB cache (fire-and-forget).
+ */
+function saveToCache(cacheKey: string, tree: IFileNode[]): void {
+  import('./cache/tree-cache')
+    .then(({ setCachedTree }) => setCachedTree(cacheKey, tree))
+    .catch(() => {
+      // Ignore cache write failures
+    });
+}
+
+/**
+ * Handles errors during tree loading.
+ * Returns true if the error was a cancellation (should clear tree without error state).
+ */
+function handleLoadError(
+  err: unknown,
+  setError: (error: Error | null) => void,
+  setFileTree: (tree: IFileNode[]) => void
+): void {
+  const error = ensureError(err);
+
+  if (isCancellationError(error)) {
+    setFileTree([]); // Clear the tree on cancellation
+  } else {
+    setError(error);
+    setFileTree([]);
+  }
+}
 
 export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): CancellableFileTreeHook {
   const { fileSystemAdapter } = useAdapters();
@@ -247,65 +302,80 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     [fileSystemAdapter, sortFileNodes]
   );
 
-  const loadTree = useCallback(async () => {
-    if (!rootDirectoryHandle) {
-      setFileTree([]);
-      return;
-    }
-    if (!fileSystemAdapter) {
-      setError(new Error('File system adapter is not available'));
-      setFileTree([]);
-      return;
-    }
-
-    // Create new AbortController for this operation
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-
-    setIsLoading(true);
-    setIsCancelling(false);
-    setError(null);
-
-    try {
-      const tree = await readFullTree(
-        rootDirectoryHandle,
-        rootDirectoryHandle,
-        '',
-        true,
-        abortController.signal
-      );
-
-      // Only update state if not cancelled
-      if (!abortController.signal.aborted) {
-        setFileTree(tree);
-        // Final progress commit - set to 100% when complete
-        setLoadingProgress({
-          loaded: progressRef.current.loaded,
-          total: progressRef.current.loaded, // Use loaded as total for accurate 100%
-          currentPath: progressRef.current.currentPath,
-          phase: progressRef.current.phase,
-          percentage: 100,
-        });
-      }
-    } catch (err) {
-      const error = ensureError(err);
-
-      // Handle cancellation differently from other errors
-      if (isCancellationError(error)) {
-        setFileTree([]); // Clear the tree on cancellation
-      } else {
-        setError(error);
+  const loadTree = useCallback(
+    async (skipCache = false) => {
+      if (!rootDirectoryHandle) {
         setFileTree([]);
+        return;
       }
-    } finally {
-      setIsLoading(false);
+      if (!fileSystemAdapter) {
+        setError(new Error('File system adapter is not available'));
+        setFileTree([]);
+        return;
+      }
+
+      // Set loading state immediately to avoid race conditions in tests
+      // where waitFor(isLoading === false) could pass before loading starts
+      setIsLoading(true);
       setIsCancelling(false);
-      abortControllerRef.current = null;
-    }
-  }, [rootDirectoryHandle, readFullTree, fileSystemAdapter]);
+      setError(null);
+
+      const cacheKey = rootDirectoryHandle.name;
+
+      // Try to load from cache first (unless explicitly skipping)
+      if (!skipCache) {
+        const cacheResult = await tryLoadFromCache(cacheKey);
+        if (cacheResult.success) {
+          setFileTree(cacheResult.nodes);
+          // Set loaded/total to 1/1 to avoid NaN in percentage calculations
+          setLoadingProgress({ loaded: 1, total: 1, phase: 'loading', percentage: 100 });
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // Create new AbortController for this operation
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
+      try {
+        const tree = await readFullTree(
+          rootDirectoryHandle,
+          rootDirectoryHandle,
+          '',
+          true,
+          abortController.signal
+        );
+
+        // Only update state if not cancelled
+        if (!abortController.signal.aborted) {
+          setFileTree(tree);
+          // Final progress commit - set to 100% when complete
+          setLoadingProgress({
+            loaded: progressRef.current.loaded,
+            total: progressRef.current.loaded, // Use loaded as total for accurate 100%
+            currentPath: progressRef.current.currentPath,
+            phase: progressRef.current.phase,
+            percentage: 100,
+          });
+
+          // Cache the tree for future loads
+          saveToCache(cacheKey, tree);
+        }
+      } catch (err) {
+        handleLoadError(err, setError, setFileTree);
+      } finally {
+        setIsLoading(false);
+        setIsCancelling(false);
+        abortControllerRef.current = null;
+      }
+    },
+    [rootDirectoryHandle, readFullTree, fileSystemAdapter]
+  );
 
   const refreshTree = useCallback(async () => {
-    await loadTree();
+    // Skip cache on manual refresh to ensure fresh data
+    await loadTree(true);
   }, [loadTree]);
 
   useEffect(() => {

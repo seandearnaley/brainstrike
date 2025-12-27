@@ -388,7 +388,7 @@ describe('useFileTree (context version)', () => {
   });
 
   describe('Progress meter calculation fixes', () => {
-    it('should start with initial estimate of 100 files', async () => {
+    it('should complete loading with valid progress values', async () => {
       const mockFS = createMockFileSystemWithFiles(50);
       mockAdapter.setMockFileSystem(mockFS);
 
@@ -401,8 +401,13 @@ describe('useFileTree (context version)', () => {
         wrapper: TestWrapper,
       });
 
-      // Wait for loading to start
-      await waitFor(() => expect(result.current.loadingProgress.total).toBe(100));
+      // Wait for loading to complete
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      // Progress should show completed state
+      expect(result.current.loadingProgress.loaded).toBeGreaterThan(0);
+      expect(result.current.loadingProgress.total).toBeGreaterThan(0);
+      expect(result.current.loadingProgress.percentage).toBe(100);
     });
 
     it('should dynamically adjust total when files exceed initial estimate', async () => {

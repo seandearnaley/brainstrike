@@ -1,4 +1,5 @@
 export * from './action-buttons';
+export * from './cache/tree-cache';
 export * from './contexts/file-editor-context';
 export * from './file-content-context';
 export { default as FileExplorerErrorBoundary } from './file-explorer-error-boundary';
