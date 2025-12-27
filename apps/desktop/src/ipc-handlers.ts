@@ -4,7 +4,7 @@ import type {
   ElectronFileSystemAdapter,
   FileHandle,
 } from '@brainstrike/file-system';
-import { getTestDirectoryStructure } from '@brainstrike/file-system';
+import { getTestDirectoryStructure, resolveValidatedPath } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
@@ -18,6 +18,7 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 
 // Storage keys for persistent data
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
+const MOCK_PATH_PREFIX = '/mock/' as const;
 
 /**
  * Register all IPC handlers used by the desktop application.
@@ -226,38 +227,21 @@ export function registerIpcHandlers(
   });
   ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
     // Check for mock paths in test mode
-    if (p.startsWith('/mock/')) {
+    if (p.startsWith(MOCK_PATH_PREFIX)) {
       return true;
     }
 
     // Basic path validation - prevent obvious security issues
-    try {
-      // Reject null bytes and other control characters that could be used maliciously
-      if (p.includes('\0') || p.includes('\x00')) {
-        return false;
-      }
-
-      // Reject paths with excessive traversal attempts (likely malicious)
-      const traversalCount = (p.match(/\.\./g) || []).length;
-      if (traversalCount > 10) {
-        return false;
-      }
-
-      // Additional security checks for sensitive system directories on Unix systems
-      const resolvedPath = path.resolve(p);
-      if (process.platform !== 'win32') {
-        // Only block these on Unix-like systems, and only if they're actual system directories
-        const sensitiveDirectories = ['/etc/', '/usr/bin/', '/usr/sbin/', '/sbin/', '/boot/'];
-        if (sensitiveDirectories.some((dir) => resolvedPath.startsWith(dir))) {
-          return false;
-        }
-      }
-    } catch (error) {
-      logger.debug('Invalid path provided during exists check', { error, path: p });
+    const resolved = await resolveValidatedPath({ requestedPath: p });
+    if (!resolved.ok) {
+      logger.debug('Invalid path provided during exists check', {
+        error: resolved.error,
+        path: p,
+      });
       return false;
     }
 
-    return fileSystem.exists(p);
+    return fileSystem.exists(resolved.path);
   });
 
   // Auto-restore last folder functionality for desktop

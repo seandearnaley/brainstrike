@@ -8,6 +8,8 @@ export * from './dev-fixture-adapter.js';
 export * from './dev-fixture-types.js';
 export * from './errors.js';
 export * from './factory.js';
+// Node-only path helpers (avoid importing in renderer processes).
+export * from './path-validation.js';
 // Testing utilities
 export * from './testing/mock-data.js';
 export * from './types.js';
