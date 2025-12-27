@@ -46,7 +46,7 @@ test.describe('Panel State Preservation', () => {
     await expect(page.getByText('No directory selected')).toBeVisible();
 
     // Verify left panel is initially visible
-    const leftPanel = page.locator('[data-panel-id="left-panel"]');
+    const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
     await expect(leftPanel).toBeVisible();
 
     // Select a root directory
@@ -85,7 +85,7 @@ test.describe('Panel State Preservation', () => {
     await expect(elements.consolePanel.getByText('test.ts content')).toBeVisible();
 
     // Hide the left panel
-    const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await expect(hideExplorerButton).toBeVisible();
     await hideExplorerButton.click();
 
@@ -93,7 +93,7 @@ test.describe('Panel State Preservation', () => {
     await expect(leftPanel).not.toBeVisible();
 
     // Verify show button appears
-    const showExplorerShim = page.locator('button[aria-label="Show explorer"]');
+    const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
     await expect(showExplorerShim).toBeVisible();
 
     // Show the panel again
@@ -161,9 +161,9 @@ test.describe('Panel State Preservation', () => {
     await testFileButton.click();
 
     // Get references to the toggle buttons
-    const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
-    const showExplorerShim = page.locator('button[aria-label="Show explorer"]');
-    const leftPanel = page.locator('[data-panel-id="left-panel"]');
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
+    const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
+    const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
 
     // Perform multiple hide/show cycles
     for (let i = 0; i < 3; i++) {

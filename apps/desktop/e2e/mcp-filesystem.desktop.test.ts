@@ -9,9 +9,9 @@ test.describe('Assistant chat (desktop)', () => {
   });
 
   test('assistant chat renders messages', async ({ window }) => {
-    const rightPanel = window.locator('[data-panel-id="right-panel"]');
+    const rightPanel = window.locator('[data-panel-id="tools-panel"]');
     if (!(await rightPanel.isVisible())) {
-      await window.getByRole('button', { name: 'Show right panel' }).click();
+      await window.getByRole('button', { name: 'Show tools panel' }).click();
       await expect(rightPanel).toBeVisible();
     }
 

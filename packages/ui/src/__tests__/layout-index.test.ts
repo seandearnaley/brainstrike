@@ -6,12 +6,12 @@ describe('layout module exports', () => {
     expect(layoutModule.IdeLayout).toBeDefined();
   });
 
-  it('exports LeftPanel', () => {
-    expect(layoutModule.LeftPanel).toBeDefined();
+  it('exports ExplorerPanel', () => {
+    expect(layoutModule.ExplorerPanel).toBeDefined();
   });
 
-  it('exports RightPanel', () => {
-    expect(layoutModule.RightPanel).toBeDefined();
+  it('exports ToolsPanel', () => {
+    expect(layoutModule.ToolsPanel).toBeDefined();
   });
 
   it('exports ConsolePanel', () => {

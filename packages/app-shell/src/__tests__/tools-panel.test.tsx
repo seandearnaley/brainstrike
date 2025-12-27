@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { RightPanel } from '../right-panel';
+import { ToolsPanel } from '../tools-panel';
 
 const originalFetch = global.fetch;
 const mockFetch = vi.fn();
@@ -95,7 +95,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 
 // Mock the lazy-loaded tabs to avoid loading real dashboards in tests
 // Note: We mock the wrapper components (vectors-tab, database-tab) not the chunk files,
-// since right-panel.tsx imports from the wrappers which use React.lazy internally.
+// since tools-panel.tsx imports from the wrappers which use React.lazy internally.
 vi.mock('../database-tab', () => ({
   DatabaseTab: () => <div data-testid="mock-database-panel">Database mock</div>,
 }));
@@ -104,9 +104,9 @@ vi.mock('../vectors-tab', () => ({
   VectorsTab: () => <div data-testid="mock-vectors-panel">Vectors mock</div>,
 }));
 
-describe('RightPanel', () => {
+describe('ToolsPanel', () => {
   test('renders with all tabs', async () => {
-    render(<RightPanel />);
+    render(<ToolsPanel />);
 
     // Check that all tab triggers are present
     expect(screen.getByRole('tab', { name: /assistant/i })).toBeInTheDocument();
@@ -119,7 +119,7 @@ describe('RightPanel', () => {
   });
 
   test('shows assistant tab content by default', async () => {
-    render(<RightPanel />);
+    render(<ToolsPanel />);
 
     // Assistant tab should be active by default - wait for async updates
     const assistantCard = await screen.findByTestId('assistant-chat-card');
@@ -129,7 +129,7 @@ describe('RightPanel', () => {
 
   test('allows switching between tabs', async () => {
     const user = userEvent.setup();
-    render(<RightPanel />);
+    render(<ToolsPanel />);
 
     await screen.findByTestId('assistant-chat-card');
 
@@ -161,7 +161,7 @@ describe('RightPanel', () => {
   }, 30_000);
 
   test('has proper tab structure with icons', async () => {
-    render(<RightPanel />);
+    render(<ToolsPanel />);
 
     // Wait for async state updates
     await screen.findByTestId('assistant-chat-card');
@@ -182,7 +182,7 @@ describe('RightPanel', () => {
 
   test('maintains content state when switching tabs', async () => {
     const user = userEvent.setup();
-    render(<RightPanel />);
+    render(<ToolsPanel />);
 
     await screen.findByTestId('assistant-chat-card');
 

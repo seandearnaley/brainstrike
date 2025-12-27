@@ -3,7 +3,7 @@ import type React from 'react';
 import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { Button } from '../button';
 
-type LeftPanelProps = {
+type ExplorerPanelProps = {
   panelRef: React.RefObject<ImperativePanelHandle | null>;
   content: React.ReactNode;
   hideButtonRef: React.RefObject<HTMLButtonElement | null>;
@@ -13,7 +13,7 @@ type LeftPanelProps = {
   onExpand: (size?: number) => void;
 };
 
-export function LeftPanel({
+export function ExplorerPanel({
   panelRef,
   content,
   hideButtonRef,
@@ -21,16 +21,16 @@ export function LeftPanel({
   defaultSize,
   onCollapse,
   onExpand,
-}: LeftPanelProps) {
+}: ExplorerPanelProps) {
   return (
     <>
       <Panel
         className="bg-background"
         collapsedSize={0}
         collapsible
-        data-panel-id="left-panel"
+        data-panel-id="explorer-panel"
         defaultSize={defaultSize}
-        id="left-panel"
+        id="explorer-panel"
         maxSize={50}
         minSize={15}
         onCollapse={onCollapse}
@@ -45,9 +45,9 @@ export function LeftPanel({
               <span className="font-medium text-sm">Explorer</span>
             </div>
             <Button
-              aria-label="Hide explorer"
+              aria-label="Hide explorer panel"
               className="h-6 w-6"
-              data-testid="hide-left-panel"
+              data-testid="hide-explorer-panel"
               onClick={onHide}
               ref={hideButtonRef}
               size="icon"

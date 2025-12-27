@@ -5,9 +5,9 @@ import { mockFileSystemOperations } from './utils/electron-helpers';
 
 test.describe('File System Integration', () => {
   async function ensureLeftPanelVisible(window: Page): Promise<void> {
-    const leftPanel = window.locator('[data-panel-id="left-panel"]');
+    const leftPanel = window.locator('[data-panel-id="explorer-panel"]');
     const showLeftPanelButton = window
-      .getByTestId('show-left-panel')
+      .getByTestId('show-explorer-panel')
       .or(window.getByRole('button', { name: /show explorer/i }));
 
     if (

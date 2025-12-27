@@ -6,10 +6,10 @@ test.describe('Assistant panel (desktop)', () => {
     await setupAssistantMock(window, { variant: 'simple' });
   });
 
-  test('send message and see streamed response in right panel', async ({ window }) => {
-    const rightPanel = window.locator('[data-panel-id="right-panel"]');
+  test('send message and see streamed response in tools panel', async ({ window }) => {
+    const rightPanel = window.locator('[data-panel-id="tools-panel"]');
     if (!(await rightPanel.isVisible())) {
-      await window.getByRole('button', { name: 'Show right panel' }).click();
+      await window.getByRole('button', { name: 'Show tools panel' }).click();
       await expect(rightPanel).toBeVisible();
     }
 

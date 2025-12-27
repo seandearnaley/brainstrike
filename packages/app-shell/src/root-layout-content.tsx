@@ -4,8 +4,8 @@ import { cn, IdeLayout, PanelLayoutProvider } from '@brainstrike/ui';
 import { type ReactElement, type ReactNode, useCallback, useMemo } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
-import { RightPanel } from './right-panel';
 import { usePanelLayoutStore } from './stores/panel-layout-store';
+import { ToolsPanel } from './tools-panel';
 import type { NavigationItem } from './types';
 
 export type RootLayoutContentProps = {
@@ -29,8 +29,8 @@ export type RootLayoutContentProps = {
    * - Web: apps/web/src/create-embedding-queue.ts
    *
    * The queue is passed down from here to:
-   * - RightPanel → VectorsTab → VectorStatusWithDialog
-   * - RightPanel → DatabaseTab → DatabaseDemoPanel (import operations)
+   * - ToolsPanel → VectorsTab → VectorStatusWithDialog
+   * - ToolsPanel → DatabaseTab → DatabaseDemoPanel (import operations)
    * to ensure all embedding operations use the same queue instance.
    *
    * DO NOT make this prop optional or remove it! It's critical for:
@@ -67,12 +67,12 @@ export function RootLayoutContent({
     [setState]
   );
 
-  // CRITICAL: Pass embeddingQueue to RightPanel
+  // CRITICAL: Pass embeddingQueue to ToolsPanel
   // The queue flows:
-  // - RootLayoutContent → RightPanel → VectorsTab → VectorStatusWithDialog
-  // - RootLayoutContent → RightPanel → DatabaseTab → DatabaseDemoPanel (import operations)
+  // - RootLayoutContent → ToolsPanel → VectorsTab → VectorStatusWithDialog
+  // - RootLayoutContent → ToolsPanel → DatabaseTab → DatabaseDemoPanel (import operations)
   const rightPanelContent = useMemo(
-    () => <RightPanel embeddingQueue={embeddingQueue ?? null} />,
+    () => <ToolsPanel embeddingQueue={embeddingQueue ?? null} />,
     [embeddingQueue]
   );
 

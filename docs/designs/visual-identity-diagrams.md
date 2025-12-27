@@ -264,8 +264,8 @@ flowchart TB
 
   subgraph Layout["Layout Components"]
     IdeLayout["IdeLayout"]
-    LeftPanel["LeftPanel"]
-    RightPanel["RightPanel"]
+    ExplorerPanel["ExplorerPanel"]
+    ToolsPanel["ToolsPanel"]
     ConsolePanel["ConsolePanel"]
   end
 
@@ -279,9 +279,9 @@ flowchart TB
   Tabs --> ConsolePanel
 
   SyncStatus --> IdeLayout
-  PanelHeader --> LeftPanel
-  PanelHeader --> RightPanel
-  FileItem --> LeftPanel
+  PanelHeader --> ExplorerPanel
+  PanelHeader --> ToolsPanel
+  FileItem --> ExplorerPanel
   Toolbar --> IdeLayout
 ```
 

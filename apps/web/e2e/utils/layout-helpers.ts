@@ -46,26 +46,26 @@ export type PanelElements = {
 export function getPanelElements(page: Page): PanelElements {
   return {
     // Main panels
-    leftPanel: page.locator('[data-panel-id="left-panel"]'),
-    rightPanel: page.locator('[data-panel-id="right-panel"]'),
+    leftPanel: page.locator('[data-panel-id="explorer-panel"]'),
+    rightPanel: page.locator('[data-panel-id="tools-panel"]'),
     consolePanel: page.locator('[data-panel-id="console-panel"]'),
     mainContentPanel: page.locator('[data-panel-id="main-content-panel"]'),
     middlePanel: page.locator('[data-panel-id="middle-panel"]'),
 
     // Hide buttons (when panels are open)
-    hideExplorerButton: page.locator('[data-testid="hide-left-panel"]'),
-    hideRightPanelButton: page.locator('[data-testid="hide-right-panel"]'),
+    hideExplorerButton: page.locator('[data-testid="hide-explorer-panel"]'),
+    hideRightPanelButton: page.locator('[data-testid="hide-tools-panel"]'),
     hideConsoleButton: page.locator('[data-testid="hide-console-panel"]'),
 
     // Show shims (when panels are closed)
-    showExplorerShim: page.locator('[data-testid="show-left-panel"]'),
-    showRightPanelShim: page.locator('[data-testid="show-right-panel"]'),
+    showExplorerShim: page.locator('[data-testid="show-explorer-panel"]'),
+    showRightPanelShim: page.locator('[data-testid="show-tools-panel"]'),
     showConsoleShim: page.locator('[data-testid="show-console-panel"]'),
   };
 }
 
 /**
- * Ensure the right panel is visible, clicking the show control only when needed.
+ * Ensure the tools panel is visible, clicking the show control only when needed.
  */
 export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promise<void> {
   const elements = getPanelElements(page);
@@ -80,21 +80,21 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
     await showShim.first().click();
   } else {
     const showButton = page
-      .locator('button[aria-label="Show right panel"]')
-      .or(page.getByRole('button', { name: 'Show right panel' }));
+      .locator('button[aria-label="Show tools panel"]')
+      .or(page.getByRole('button', { name: 'Show tools panel' }));
 
     if ((await showButton.count()) > 0) {
       await showButton.first().click();
     } else {
       console.warn(
-        '⚠️ Unable to find "Show right panel" control; assuming panel is already visible.'
+        '⚠️ Unable to find "Show tools panel" control; assuming panel is already visible.'
       );
       return;
     }
   }
 
   await elements.rightPanel.waitFor({ state: 'visible', timeout }).catch(() => {
-    console.warn('⚠️ Right panel did not become visible after requesting to show it.');
+    console.warn('⚠️ Tools panel did not become visible after requesting to show it.');
   });
 }
 
@@ -226,10 +226,10 @@ export async function resizePanel(
 }
 
 /**
- * Get the first (left panel) resize handle
+ * Get the first (explorer panel) resize handle
  */
 export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']> {
-  // The left panel's resize handle is the first one in the horizontal group
+  // The explorer panel's resize handle is the first one in the horizontal group
   return page
     .locator('[data-panel-group-direction="horizontal"] [data-panel-resize-handle-id]')
     .first();
@@ -308,7 +308,7 @@ export async function setupComplexLayout(page: Page): Promise<{
 }> {
   const elements = getPanelElements(page);
 
-  // Hide left panel
+  // Hide explorer panel
   await togglePanelVisibility(elements.hideExplorerButton, elements.leftPanel, false);
 
   // Show console
@@ -359,7 +359,7 @@ export async function verifyComplexLayout(
     await expect(elements.consolePanel).not.toBeVisible();
   }
 
-  // Right panel visibility logic
+  // Tools panel visibility logic
   if (expectedState.rightPanelHidden === false) {
     // Explicitly set to be visible
     await expect(elements.rightPanel).toBeVisible();
@@ -412,7 +412,7 @@ export async function testPanelSizeConstraints(
   let currentWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
   if (currentWidth === 0) {
     // Panel is collapsed, need to expand it first
-    const showButton = page.locator('button[aria-label="Show explorer"]');
+    const showButton = page.locator('button[aria-label="Show explorer panel"]');
     if (await showButton.isVisible()) {
       await showButton.click();
       await expect(panel).toBeVisible();
@@ -445,7 +445,7 @@ export async function testPanelSizeConstraints(
   let postResizeWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
   if (postResizeWidth === 0) {
     // Panel collapsed due to resize, expand it again
-    const showButton = page.locator('button[aria-label="Show explorer"]');
+    const showButton = page.locator('button[aria-label="Show explorer panel"]');
     if (await showButton.isVisible()) {
       await showButton.click();
       await expect(panel).toBeVisible();
@@ -519,7 +519,7 @@ export async function verifyDefaultLayout(page: Page, expectedState: DefaultLayo
     await expect(elements.leftPanel).toBeVisible();
   }
 
-  // Right panel should be hidden by default
+  // Tools panel should be hidden by default
   if (expectedState.rightPanelHidden === false) {
     // Explicitly set to be visible
     await expect(elements.rightPanel).toBeVisible();
@@ -564,13 +564,13 @@ export async function testLayoutPersistenceAcrossNavigation(
   // Setup layout state
   await setupCallback();
 
-  // Check if left panel is hidden and temporarily show it for navigation
-  const leftPanel = page.locator('[data-panel-id="left-panel"]');
+  // Check if explorer panel is hidden and temporarily show it for navigation
+  const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
   const wasHidden = !(await leftPanel.isVisible());
 
   if (wasHidden) {
     // Temporarily show the panel to avoid UI overlap with floating button
-    const showExplorerButton = page.locator('button[aria-label="Show explorer"]');
+    const showExplorerButton = page.locator('button[aria-label="Show explorer panel"]');
     await showExplorerButton.click();
     await expect(leftPanel).toBeVisible();
   }
@@ -585,7 +585,7 @@ export async function testLayoutPersistenceAcrossNavigation(
 
   // Restore original state if panel was hidden
   if (wasHidden) {
-    const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await hideExplorerButton.click();
     await expect(leftPanel).not.toBeVisible();
   }
