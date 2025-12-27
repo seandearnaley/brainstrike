@@ -19,11 +19,9 @@ export async function resolvePathWithinRoot(
     fallbackPath: '.',
   });
   if (!result.ok) {
-    const errorResult: ResolvedPathResult = { ok: false, error: result.error.message };
-    return errorResult;
+    return { ok: false, error: result.error.message };
   }
-  const successResult: ResolvedPathResult = { ok: true, path: result.path };
-  return successResult;
+  return { ok: true, path: result.path };
 }
 
 export function resolveBaseDirFromArgs(args?: string[]): string | null {

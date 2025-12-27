@@ -40,6 +40,33 @@ describe('resolveValidatedPath', () => {
     }
   });
 
+  it('uses the fallback when the requested path is empty', async () => {
+    const result = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: '',
+      fallbackPath: 'fallback-folder',
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      const rootReal = await fsPromises.realpath(tempDir);
+      expect(result.path).toBe(path.join(rootReal, 'fallback-folder'));
+    }
+  });
+
+  it('rejects when requested and fallback are blank', async () => {
+    const result = await resolveValidatedPath({
+      rootDir: tempDir,
+      requestedPath: '   ',
+      fallbackPath: ' ',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe('invalid-input');
+    }
+  });
+
   it('rejects excessive traversal', async () => {
     const traversal = '../'.repeat(DEFAULT_TRAVERSAL_LIMIT + 1);
     const result = await resolveValidatedPath({

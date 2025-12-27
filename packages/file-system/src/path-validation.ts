@@ -40,12 +40,11 @@ export type PathValidationOptions = {
 
 export function expandHome(p: string): string {
   if (p.startsWith('~/')) {
-    return path.join(
-      (process.env['HOME'] as string | undefined) ||
-        (process.env['USERPROFILE'] as string | undefined) ||
-        '',
-      p.slice(2)
-    );
+    const home = process.env['HOME'] ?? process.env['USERPROFILE'];
+    if (!home) {
+      return p;
+    }
+    return path.join(home, p.slice(2));
   }
   return p;
 }

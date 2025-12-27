@@ -18,6 +18,7 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 
 // Storage keys for persistent data
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
+const MOCK_PATH_PREFIX = '/mock/' as const;
 
 /**
  * Register all IPC handlers used by the desktop application.
@@ -226,7 +227,7 @@ export function registerIpcHandlers(
   });
   ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
     // Check for mock paths in test mode
-    if (p.startsWith('/mock/')) {
+    if (p.startsWith(MOCK_PATH_PREFIX)) {
       return true;
     }
 
