@@ -61,8 +61,12 @@ function createDeferred<T>(): {
 function defaultSortFileNodes(nodes: IFileNode[]): IFileNode[] {
   return [...nodes].sort((a, b) => {
     if (a.type !== b.type) {
-      if (a.type === 'directory') return -1;
-      if (b.type === 'directory') return 1;
+      if (a.type === 'directory') {
+        return -1;
+      }
+      if (b.type === 'directory') {
+        return 1;
+      }
     }
     return a.name.localeCompare(b.name, undefined, {
       numeric: true,
@@ -177,75 +181,93 @@ export async function walkDirectoryParallel(
   }
 
   /**
+   * Check if an error is an abort error
+   */
+  function isAbortError(error: unknown): boolean {
+    return error instanceof DOMException && error.name === 'AbortError';
+  }
+
+  /**
+   * Handle errors from directory reading, re-throwing for root or abort errors
+   */
+  function handleDirectoryError(error: unknown, depth: number): void {
+    if (isAbortError(error)) {
+      throw error;
+    }
+    // For root directory (depth 0), propagate the error
+    if (depth === 0) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error(String(error));
+    }
+    // Silently skip unreadable subdirectories
+  }
+
+  /**
+   * Process a single entry (file or directory) and add to results
+   */
+  function processEntry(
+    entry: IFileNode,
+    relativePath: string,
+    handle: DirectoryHandle,
+    depth: number,
+    processedNodes: IFileNode[]
+  ): void {
+    if (entry.type === 'file') {
+      processedNodes.push(processFileEntry(entry, relativePath, handle));
+      return;
+    }
+    if (entry.type === 'directory') {
+      const dirNode = processDirectoryEntry(entry, relativePath, handle);
+      processedNodes.push(dirNode);
+      workQueue.push({
+        handle: buildChildHandle(entry, dirNode.path, handle),
+        parentPath: relativePath,
+        parentNode: dirNode,
+        depth: depth + 1,
+      });
+    }
+  }
+
+  /**
+   * Attach sorted nodes to parent or root
+   */
+  function attachNodes(processedNodes: IFileNode[], parentNode: IFileNode | null): void {
+    const sortedNodes = sortFileNodes(processedNodes);
+    if (parentNode === null) {
+      rootNodes.push(...sortedNodes);
+    } else {
+      parentNode.children = sortedNodes;
+    }
+  }
+
+  /**
    * Process a single work item (directory)
    */
   async function processWorkItem(item: WorkItem): Promise<void> {
     checkAbort();
-
     const { handle, parentPath, parentNode, depth } = item;
 
     try {
       const entries = await fileSystemAdapter.readDirectory(handle);
-
       checkAbort();
 
       const processedNodes: IFileNode[] = [];
 
       for (const entry of entries) {
         checkAbort();
-
         const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
-
         if (fileFilter.shouldIgnorePath(relativePath)) {
           continue;
         }
-
         onProgress?.(relativePath);
-
-        if (entry.type === 'file') {
-          const fileNode = processFileEntry(entry, relativePath, handle);
-          processedNodes.push(fileNode);
-        } else if (entry.type === 'directory') {
-          const dirNode = processDirectoryEntry(entry, relativePath, handle);
-          processedNodes.push(dirNode);
-
-          // Queue child directory for parallel processing
-          const childHandle = buildChildHandle(entry, dirNode.path, handle);
-          workQueue.push({
-            handle: childHandle,
-            parentPath: relativePath,
-            parentNode: dirNode,
-            depth: depth + 1,
-          });
-        }
+        processEntry(entry, relativePath, handle, depth, processedNodes);
       }
 
-      // Sort and attach nodes to parent
-      const sortedNodes = sortFileNodes(processedNodes);
-
-      if (parentNode === null) {
-        // Root level nodes
-        rootNodes.push(...sortedNodes);
-      } else {
-        // Child nodes - attach to parent's children array
-        parentNode.children = sortedNodes;
-      }
+      attachNodes(processedNodes, parentNode);
     } catch (error) {
-      // Always re-throw abort errors
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        throw error;
-      }
-
-      // For root directory (depth 0), propagate the error
-      // For subdirectories, silently skip (permission errors, etc.)
-      if (depth === 0) {
-        // Convert non-Error exceptions to proper Error objects
-        if (error instanceof Error) {
-          throw error;
-        }
-        throw new Error(String(error));
-      }
-      // Silently skip unreadable subdirectories
+      handleDirectoryError(error, depth);
     }
   }
 
@@ -257,7 +279,9 @@ export async function walkDirectoryParallel(
       checkAbort();
 
       const item = workQueue.shift();
-      if (!item) break;
+      if (!item) {
+        break;
+      }
 
       await processWorkItem(item);
     }
