@@ -45,7 +45,7 @@ graph TD
 
 Core providers create app-wide context. Panels then consume them, and local **Zustand** stores manage focused state per area.
 
-- **Routing & Layout**: [`packages/ui/src/router-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/router-provider.tsx), [`packages/ui/src/providers/panel-layout-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/providers/panel-layout-provider.tsx), [`packages/ui/src/layout/ide-layout.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/layout/ide-layout.tsx), [`packages/ui/src/layout/right-panel.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/layout/right-panel.tsx)
+- **Routing & Layout**: [`packages/ui/src/router-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/router-provider.tsx), [`packages/ui/src/providers/panel-layout-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/providers/panel-layout-provider.tsx), [`packages/ui/src/layout/ide-layout.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/layout/ide-layout.tsx), [`packages/ui/src/layout/tools-panel.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/layout/tools-panel.tsx)
 - **Theme**: [`packages/ui/src/theme-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/theme-provider.tsx)
 - **DB access**: [`packages/db/src/db-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/db/src/db-provider.tsx)
 - **Vectors & embeddings**: [`packages/vector-management/src/embedding-queue-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/vector-management/src/embedding-queue-provider.tsx), [`packages/embedding-worker/src/embedding.worker.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/embedding-worker/src/embedding.worker.ts)
@@ -77,7 +77,7 @@ flowchart TD
   end
 
   subgraph Panels["Panels / Major UI"]
-    RP["Right Panel: Assistant / Tools"]
+    RP["Tools Panel: Assistant / Tools"]
     DBX["DB Explorer"]
     FX["File Explorer & Tabbed Editor"]
     ST["Settings"]
@@ -154,7 +154,7 @@ sequenceDiagram
 ## How the Pieces Fit Together
 
 - **Entrypoints** mount a **provider stack** (Theme → Router → Layout → DB → Vectors → FS).  
-- The **shared shell** (`packages/app-shell`) composes the overall **IDE-like layout** (file tree, middle editor tabs, right panel for assistant/tools) using layout providers from `packages/ui`.  
+- The **shared shell** (`packages/app-shell`) composes the overall **IDE-like layout** (file tree, middle editor tabs, tools panel for assistant/tools) using layout providers from `packages/ui`.  
 - Each major surface owns a small **Zustand store** to keep its state local and testable (e.g., right-panel tabs, DB panel filters, search UI, file explorer selection).  
 - Expensive work (embeddings) runs off-thread in a **Worker**, coordinated by `embedding-queue-provider`, with results persisted via **DBProvider** and visualized in **db-explorer**.  
 - The **Assistant UI** consumes context (search results, selections) and talks to the **agent provider-factory** to execute LLM-backed actions/tools.
@@ -163,7 +163,7 @@ sequenceDiagram
 
 ## Extension Hotspots (practical pointers)
 
-- **Add a new right-panel tool**: start near [`packages/app-shell/src/right-panel-store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/app-shell/src/stores/right-panel-store.ts) and the right-panel layout in [`packages/ui/src/layout/right-panel.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/layout/right-panel.tsx). Wire UI in `app-shell`, keep logic in its own small Zustand slice.  
+- **Add a new tools-panel tool**: start near [`packages/app-shell/src/right-panel-store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/app-shell/src/stores/right-panel-store.ts) and the tools-panel layout in [`packages/ui/src/layout/tools-panel.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/layout/tools-panel.tsx). Wire UI in `app-shell`, keep logic in its own small Zustand slice.  
 - **New file format support**: add adapter hooks in [`file-explorer-hooks/adapters-context.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/file-explorer-hooks/src/adapters-context.tsx) and chunking/preview in `file-explorer-ui`.  
 - **Custom search mode**: extend `db-explorer` components and, if needed, the **DB schema** behind [`packages/db/src/db-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/db/src/db-provider.tsx).  
 - **Assistant action**: add a tool UI under `packages/ui/src/assistant-ui-panel` and logic via the **agent provider-factory**.
@@ -189,7 +189,7 @@ graph LR
     UIrouter["router-provider.tsx"]
     UItheme["theme-provider.tsx"]
     UIlayout["ide-layout.tsx"]
-    UIright["right-panel.tsx"]
+    UIright["tools-panel.tsx"]
     UIassist["assistant-ui-panel"]
   end
 

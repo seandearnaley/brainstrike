@@ -119,14 +119,14 @@ test.describe('Application Layout', () => {
     test('should maintain panel structure integrity', async ({ page }) => {
       const elements = getPanelElements(page);
       await elements.showConsoleShim.click();
-      await elements.showRightPanelShim.click(); // Show right panel first since it's hidden by default
+      await elements.showRightPanelShim.click(); // Show tools panel first since it's hidden by default
       await elements.hideRightPanelButton.click(); // Now we can hide it
       await elements.showRightPanelShim.click(); // And show it again
 
       // Verify all main layout containers exist
-      await expect(page.locator('[data-panel-id="left-panel"]')).toBeAttached();
+      await expect(page.locator('[data-panel-id="explorer-panel"]')).toBeAttached();
       await expect(page.locator('[data-panel-id="middle-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="right-panel"]')).toBeAttached();
+      await expect(page.locator('[data-panel-id="tools-panel"]')).toBeAttached();
       await expect(page.locator('[data-panel-id="main-content-panel"]')).toBeAttached();
       await expect(page.locator('[data-panel-id="console-panel"]')).toBeAttached();
 

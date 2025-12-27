@@ -129,16 +129,16 @@ test.describe('Navigation Panel State Preservation', () => {
     const fileTreeScrollTop = await fileTree.evaluate((el) => el.scrollTop);
 
     // Step 6: Hide the navigation panel
-    const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await expect(hideExplorerButton).toBeVisible();
     await hideExplorerButton.click();
 
     // Verify panel is hidden
-    const leftPanel = page.locator('[data-panel-id="left-panel"]');
+    const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
     await expect(leftPanel).not.toBeVisible();
 
     // Verify show button appears
-    const showExplorerShim = page.locator('button[aria-label="Show explorer"]');
+    const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
     await expect(showExplorerShim).toBeVisible();
 
     // Wait a moment to ensure any potential unmounting/remounting issues would occur
@@ -252,14 +252,14 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(buttonCheckbox).toBeChecked();
 
     // Hide the panel
-    const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await hideExplorerButton.click();
 
-    const leftPanel = page.locator('[data-panel-id="left-panel"]');
+    const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
     await expect(leftPanel).not.toBeVisible();
 
     // Show the panel again
-    const showExplorerShim = page.locator('button[aria-label="Show explorer"]');
+    const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
     await showExplorerShim.click();
     await expect(leftPanel).toBeVisible();
 
@@ -313,9 +313,9 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(page.getByText('2/10')).toBeVisible();
 
     // Get panel and button references
-    const leftPanel = page.locator('[data-panel-id="left-panel"]');
-    const hideButton = page.locator('button[aria-label="Hide explorer"]');
-    const showButton = page.locator('button[aria-label="Show explorer"]');
+    const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
+    const hideButton = page.locator('button[aria-label="Hide explorer panel"]');
+    const showButton = page.locator('button[aria-label="Show explorer panel"]');
 
     // Perform rapid toggles
     for (let i = 0; i < 5; i++) {

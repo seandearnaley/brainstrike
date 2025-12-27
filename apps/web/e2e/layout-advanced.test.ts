@@ -289,12 +289,15 @@ test.describe('Advanced IDE Layout', () => {
       const elements = getPanelElements(page);
 
       // Verify initial ARIA labels
-      await expect(elements.hideExplorerButton).toHaveAttribute('aria-label', 'Hide explorer');
+      await expect(elements.hideExplorerButton).toHaveAttribute(
+        'aria-label',
+        'Hide explorer panel'
+      );
       await expect(elements.showConsoleShim).toHaveAttribute('aria-label', 'Show File Editor');
 
       // Change states and verify ARIA updates
       await elements.hideExplorerButton.click();
-      await expect(elements.showExplorerShim).toHaveAttribute('aria-label', 'Show explorer');
+      await expect(elements.showExplorerShim).toHaveAttribute('aria-label', 'Show explorer panel');
     });
   });
 

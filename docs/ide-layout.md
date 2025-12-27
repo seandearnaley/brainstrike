@@ -93,6 +93,6 @@ You can also drive the layout in a controlled way by passing `controlledState` a
 ## Testing Notes
 
 - Panel controls include `data-testid` attributes for reliable selection in tests:
-  - Show buttons: `show-left-panel`, `show-right-panel`, `show-console-panel`
-  - Hide buttons: `hide-left-panel`, `hide-right-panel`, `hide-console-panel`
+  - Show buttons: `show-explorer-panel`, `show-tools-panel`, `show-console-panel`
+  - Hide buttons: `hide-explorer-panel`, `hide-tools-panel`, `hide-console-panel`
 - Focus after show/hide uses `requestAnimationFrame` sequencing for deterministic behavior in unit/E2E tests.

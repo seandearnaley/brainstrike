@@ -195,10 +195,10 @@ describe('IdeLayout', () => {
   it('renders toggle buttons and calls toggle handlers', () => {
     renderDefaultLayout();
 
-    fireEvent.click(screen.getByTestId('show-left-panel'));
+    fireEvent.click(screen.getByTestId('show-explorer-panel'));
     expect(mockState.saveLayout).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByTestId('show-right-panel'));
+    fireEvent.click(screen.getByTestId('show-tools-panel'));
     expect(mockState.saveLayout).toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('show-console-panel'));
@@ -273,12 +273,12 @@ describe('IdeLayout', () => {
     );
   });
 
-  it('expands left panel when showLeftPanel becomes true', () => {
+  it('expands explorer panel when showLeftPanel becomes true', () => {
     vi.useFakeTimers();
     Object.assign(mockState, { showLeftPanel: true });
     const { unmount } = renderDefaultLayout();
 
-    const handle = panelHandles['left-panel'];
+    const handle = panelHandles['explorer-panel'];
     if (handle) {
       handle.isCollapsed.mockReturnValue(true);
     }
@@ -379,7 +379,7 @@ describe('IdeLayout', () => {
     expect(screen.getByText('File Editor')).toBeInTheDocument();
   });
 
-  it('focuses hide-left button after showing left panel (rAF sequencing)', () => {
+  it('focuses hide-explorer button after showing left panel (rAF sequencing)', () => {
     // Prepare requestAnimationFrame mock that queues callbacks
     const rafQueue: FrameRequestCallback[] = [];
     const rafSpy = vi
@@ -406,7 +406,7 @@ describe('IdeLayout', () => {
     });
 
     // Click show-left; this schedules two rAF callbacks for focusing the hide button
-    fireEvent.click(screen.getByTestId('show-left-panel'));
+    fireEvent.click(screen.getByTestId('show-explorer-panel'));
 
     // Execute the queued rAF callbacks to simulate the next frames
     while (rafQueue.length > 0) {
@@ -416,7 +416,7 @@ describe('IdeLayout', () => {
       }
     }
 
-    const hideBtn = screen.getByTestId('hide-left-panel');
+    const hideBtn = screen.getByTestId('hide-explorer-panel');
     expect(hideBtn).toBeInTheDocument();
     expect(document.activeElement).toBe(hideBtn);
 
@@ -430,7 +430,7 @@ describe('IdeLayout', () => {
     renderDefaultLayout();
 
     // Initially, persistence should be deferred
-    panelHandles['left-panel']?.collapse();
+    panelHandles['explorer-panel']?.collapse();
     expect(mockState.saveLayout).not.toHaveBeenCalled();
 
     // After panel initialization delay (16ms), persistence should be enabled
@@ -438,7 +438,7 @@ describe('IdeLayout', () => {
       vi.advanceTimersByTime(16);
     });
 
-    panelHandles['left-panel']?.collapse();
+    panelHandles['explorer-panel']?.collapse();
     expect(mockState.saveLayout).toHaveBeenCalled();
 
     vi.useRealTimers();
@@ -464,7 +464,7 @@ describe('IdeLayout', () => {
     });
 
     // Click show-left; onBeforeShow should call saveLayout with default left size (25)
-    fireEvent.click(screen.getByTestId('show-left-panel'));
+    fireEvent.click(screen.getByTestId('show-explorer-panel'));
     expect(mockState.saveLayout).toHaveBeenCalledWith([25, 50, 50]);
   });
 });
