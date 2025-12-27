@@ -24,7 +24,8 @@
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
-    "test": "NODE_OPTIONS='--max-old-space-size=8192' vitest run",
+    "test": "NODE_OPTIONS='--max-old-space-size=8192' vitest run --project unit",
+    "test:browser": "vitest run --project browser",
     "test:watch": "NODE_OPTIONS='--max-old-space-size=8192' vitest",
     "test:coverage": "pnpm -w test:coverage"
   },
@@ -56,7 +57,9 @@
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.7",
     "@vitejs/plugin-react": "^5.0.4",
+    "@vitest/browser-playwright": "^4.0.14",
     "jsdom": "^27.2.0",
-    "lucide-react": "^0.555.0"
+    "lucide-react": "^0.555.0",
+    "playwright": "^1.57.0"
   }
 }
