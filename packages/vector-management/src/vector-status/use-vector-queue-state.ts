@@ -27,6 +27,11 @@ export type TelemetryTrendPoint = {
   readonly errorCount: number;
 };
 
+/**
+ * Result of API key validation before backfill
+ */
+export type ApiKeyValidationResult = { valid: true } | { valid: false; message: string };
+
 export type UseVectorQueueStateResult = {
   coverage: { total: number; withSet: number };
   queueCounts: QueueCounts;
@@ -37,6 +42,11 @@ export type UseVectorQueueStateResult = {
   backfilling: boolean;
   backfillProgress: BackfillProgress;
   telemetryTrend: readonly TelemetryTrendPoint[];
+  /**
+   * Validates that the API key is available for the active embedding set's model.
+   * Call this before backfillActiveSet to show a helpful error if the API key is missing.
+   */
+  validateApiKey: () => Promise<ApiKeyValidationResult>;
   backfillActiveSet: () => Promise<void>;
   retryFailed: (limit?: number) => Promise<void>;
   clearQueue: () => Promise<void>;
@@ -327,6 +337,13 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     }
   }, [service, activeEmbeddingSetId]);
 
+  const validateApiKey = useCallback(async (): Promise<ApiKeyValidationResult> => {
+    if (!(service && activeEmbeddingSetId)) {
+      return { valid: true }; // Let other validation handle missing service/set
+    }
+    return service.validateApiKeyForSet(activeEmbeddingSetId);
+  }, [service, activeEmbeddingSetId]);
+
   // Note: Auto-backfill effect was removed - backfill must be triggered manually
   // via the Backfill button in Vector Status. This gives users explicit control
   // over when embedding jobs are enqueued. The shouldAutoBackfill parameter is
@@ -379,6 +396,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       backfilling,
       backfillProgress,
       telemetryTrend,
+      validateApiKey,
       backfillActiveSet,
       retryFailed,
       clearQueue,
@@ -394,6 +412,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       backfilling,
       backfillProgress,
       telemetryTrend,
+      validateApiKey,
       backfillActiveSet,
       retryFailed,
       clearQueue,

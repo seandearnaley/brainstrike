@@ -88,6 +88,7 @@ vi.mock('@brainstrike/db', async () => {
 function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQueueService {
   return {
     backfill: vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 })),
+    validateApiKeyForSet: vi.fn(async () => ({ valid: true as const })),
     retryFailed: vi.fn(),
     clearQueue: vi.fn(),
     wipeQueue: vi.fn(),
