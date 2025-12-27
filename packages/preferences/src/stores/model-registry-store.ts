@@ -115,7 +115,7 @@ async function checkDownloadedModels(
     return currentDownloadedModels;
   }
 
-  const newDownloadedModels = { ...currentDownloadedModels };
+  const newDownloadedModels: Record<string, boolean> = {};
 
   for (const model of models) {
     if (model.providerId === 'transformers' || model.providerId === 'local') {

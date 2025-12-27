@@ -115,42 +115,28 @@ const makeProps = () => {
   } as const;
 };
 
-function findCard(title: string): HTMLElement {
-  let el: HTMLElement | null = screen.getByText(title);
-  while (el && !(el.className?.includes('justify-between') && el.className?.includes('p-3'))) {
-    el = el.parentElement as HTMLElement | null;
-  }
-  if (!el) {
-    throw new Error(`Card for "${title}" not found`);
-  }
-  return el;
-}
-
 describe('ModelList', () => {
-  it('filters by search and type and shows empty state', async () => {
+  it('filters by search, switches tabs, and shows empty state', async () => {
     const { onToggleSpy, onDownloadSpy, ...props } = makeProps();
     render(<ModelList {...props} />);
 
-    // Initial groups render
-    expect(screen.getByText('Local')).toBeTruthy();
-    expect(screen.getByText('Transformers')).toBeTruthy();
     expect(screen.getByText('OpenAI')).toBeTruthy();
     expect(screen.getByText('Unknown Provider')).toBeTruthy();
 
-    const searchInput = screen.getByPlaceholderText('Search models...');
+    const searchInput = screen.getByPlaceholderText('Search models, providers, or tags');
     await userEvent.clear(searchInput);
     await userEvent.type(searchInput, 'gpt');
 
     expect(screen.getByText('GPT Chat')).toBeTruthy();
     expect(screen.queryByText('Local Ready')).toBeNull();
 
-    // Switch to embedding filter -> no chat models should remain
-    await userEvent.click(screen.getByRole('button', { name: 'Embedding' }));
-    expect(screen.getByText('No models found matching your filters.')).toBeTruthy();
+    // Switch to embeddings tab -> no matches for GPT
+    await userEvent.click(screen.getByRole('tab', { name: 'Embeddings' }));
+    expect(screen.getByText('No models match this search yet.')).toBeTruthy();
 
-    // Switch to chat filter -> chat model returns
-    await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
-    expect(screen.getByText('GPT Chat')).toBeTruthy();
+    await userEvent.clear(searchInput);
+    expect(screen.getByText('Local Ready')).toBeTruthy();
+    expect(screen.getByText('HF Stream Model')).toBeTruthy();
 
     // Ensure callback spies unused in this flow
     expect(onToggleSpy).not.toHaveBeenCalled();
@@ -161,31 +147,36 @@ describe('ModelList', () => {
     const { onToggleSpy, onDownloadSpy, ...props } = makeProps();
     render(<ModelList {...props} />);
 
-    // Download in-progress path
-    expect(screen.getByText('25%')).toBeTruthy();
+    await userEvent.click(screen.getByRole('tab', { name: 'Embeddings' }));
+
+    const downloadingRow = screen.getByTestId('model-row-local-downloading');
+    expect(within(downloadingRow).getByText('25% downloaded')).toBeTruthy();
 
     // Downloaded badge with cache path
-    const hfCard = findCard('HF Stream Model');
-    expect(within(hfCard).getByText('Downloaded')).toBeTruthy();
-    expect(within(hfCard).getByText('/models/transformers-stream')).toBeTruthy();
+    const hfRow = screen.getByTestId('model-row-transformers-stream');
+    expect(within(hfRow).getByText('Downloaded')).toBeTruthy();
+    expect(within(hfRow).getByText('/models/transformers-stream')).toBeTruthy();
 
     // Download button path for a local model not yet downloaded
-    const readyCard = findCard('Local Ready');
-    const downloadBtn = within(readyCard).getByRole('button');
+    const readyRow = screen.getByTestId('model-row-local-ready');
+    const downloadBtn = within(readyRow).getByRole('button', { name: 'Download' });
     await userEvent.click(downloadBtn);
     expect(onDownloadSpy).toHaveBeenCalledWith('local-ready');
 
     // Hosted provider should not render download controls
-    const gptCard = findCard('GPT Chat');
-    expect(within(gptCard).queryByRole('button')).toBeNull();
+    await userEvent.click(screen.getByRole('tab', { name: 'Chat' }));
+    const gptRow = screen.getByTestId('model-row-gpt-3.5');
+    expect(within(gptRow).queryByRole('button', { name: 'Download' })).toBeNull();
 
     // Toggle chat model on (was false)
-    const gptSwitch = within(gptCard).getByRole('switch');
+    const gptSwitch = within(gptRow).getByRole('switch');
     await userEvent.click(gptSwitch);
     expect(onToggleSpy).toHaveBeenCalledWith('gpt-3.5', true);
 
     // Toggle enabled model off
-    const readySwitch = within(readyCard).getByRole('switch');
+    await userEvent.click(screen.getByRole('tab', { name: 'Embeddings' }));
+    const readyRowAfter = screen.getByTestId('model-row-local-ready');
+    const readySwitch = within(readyRowAfter).getByRole('switch');
     await userEvent.click(readySwitch);
     expect(onToggleSpy).toHaveBeenCalledWith('local-ready', false);
   });
