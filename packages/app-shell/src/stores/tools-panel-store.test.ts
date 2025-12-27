@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const LEGACY_STORE_NAME = 'right-panel.v1' as const;
 const STORE_NAME = 'tools-panel.v1' as const;
@@ -12,6 +12,11 @@ describe('tools-panel-store migration', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.resetModules();
+    vi.unmock('@brainstrike/utils');
+  });
+
+  afterEach(() => {
+    vi.unmock('@brainstrike/utils');
   });
 
   it('migrates legacy storage to the new key when missing', async () => {
@@ -56,5 +61,27 @@ describe('tools-panel-store migration', () => {
 
     expect(useToolsPanelStore.getState().activeTab).toBe('assistant');
     expect(localStorage.getItem(LEGACY_STORE_NAME)).toBeNull();
+  });
+
+  it('swallows storage adapter errors during migration', async () => {
+    let shouldThrow = true;
+
+    vi.doMock('@brainstrike/utils', () => ({
+      createSafeStorageAdapter: () => ({
+        getItem: (_key: string) => {
+          if (shouldThrow) {
+            shouldThrow = false;
+            throw new Error('storage failure');
+          }
+          return null;
+        },
+        setItem: (_key: string, _value: string) => {},
+        removeItem: (_key: string) => {},
+      }),
+    }));
+
+    const { useToolsPanelStore } = await import('./tools-panel-store');
+
+    expect(useToolsPanelStore.getState().activeTab).toBe('assistant');
   });
 });
