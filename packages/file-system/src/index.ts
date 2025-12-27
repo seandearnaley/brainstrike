@@ -4,6 +4,8 @@ export type { IFileNode } from '@brainstrike/types';
 export * from './adapters/electron-adapter.js';
 export * from './adapters/mock-file-system-adapter.js';
 export * from './adapters/web-adapter.js';
+// Configuration for file size limits
+export * from './config.js';
 export * from './dev-fixture-adapter.js';
 export * from './dev-fixture-types.js';
 export * from './errors.js';
