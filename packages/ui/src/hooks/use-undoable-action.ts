@@ -45,13 +45,18 @@ export function useUndoableAction<T, S = unknown>() {
         title: options.actionName,
         description: React.createElement(
           'div',
-          { className: 'flex items-center justify-between' },
-          React.createElement('span', null, options.itemDescription),
+          { className: 'flex items-center justify-between gap-2' },
+          React.createElement(
+            'span',
+            { className: 'min-w-0 flex-1 truncate', title: options.itemDescription },
+            options.itemDescription
+          ),
           React.createElement(
             Button,
             {
               variant: 'outline',
               size: 'sm',
+              className: 'flex-shrink-0',
               onClick: () => {
                 options.onUndo(item, snapshot);
                 clearUndoTimeout(key);
