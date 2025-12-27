@@ -219,14 +219,17 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   }
 
   async readFile(_handle: FileHandle): Promise<string> {
+    // Import config dynamically to avoid circular dependencies
+    const { formatFileSize, getFileSizeConfig } = await import('../config.js');
+    const { maxFileSize } = getFileSizeConfig();
+
     try {
       // Check file size before reading
       const stats = await fsPromises.stat(_handle.path);
-      const maxSize = 1024 * 1024; // 1MB limit
 
-      if (stats.size > maxSize) {
+      if (stats.size > maxFileSize) {
         throw new AccessError(
-          `File too large: ${Math.round(stats.size / 1024 / 1024)}MB (max: ${Math.round(maxSize / 1024 / 1024)}MB)`,
+          `File too large: ${formatFileSize(stats.size)} (max: ${formatFileSize(maxFileSize)})`,
           _handle.path,
           'read'
         );

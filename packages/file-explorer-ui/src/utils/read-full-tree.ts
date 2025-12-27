@@ -1,87 +1,79 @@
+/**
+ * Read Full Tree Utility
+ *
+ * Provides directory tree reading with parallel traversal support.
+ * Uses a work queue to process multiple directories concurrently,
+ * significantly improving performance for large directory trees.
+ */
+
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
-import { fileFilter } from '@brainstrike/utils';
-import { processDirectoryEntry, type ReadTreeFn, type SortFn } from './process-directory-entry';
-import { processFileEntry } from './process-file-entry';
+import { type ParallelWalkerOptions, walkDirectoryParallel } from './parallel-directory-walker';
 
+export type ReadFullTreeOptions = {
+  /** Maximum number of concurrent directory reads (default: 10) */
+  concurrency?: number | undefined;
+  /** AbortSignal for cancellation support */
+  abortSignal?: AbortSignal | undefined;
+  /** Callback for progress updates */
+  updateProgress?: ((path?: string) => void) | undefined;
+  /** Custom sort function for nodes */
+  sortFileNodes?: ((nodes: IFileNode[]) => IFileNode[]) | undefined;
+};
+
+/**
+ * Reads a directory tree with parallel traversal.
+ *
+ * This function replaces the previous sequential depth-first traversal
+ * with a parallel implementation that reads multiple directories concurrently.
+ *
+ * @param fileSystemAdapter - The file system adapter to use
+ * @param directoryHandle - The directory to start reading from
+ * @param rootHandle - The root directory handle (for building relative paths)
+ * @param parentPath - The parent path (for building relative paths)
+ * @param _isRoot - Whether this is the root call (unused in parallel mode)
+ * @param abortSignal - Optional abort signal for cancellation
+ * @param updateProgress - Optional callback for progress updates
+ * @param sortFileNodes - Optional custom sort function
+ * @returns Promise resolving to the file tree
+ */
 export async function readFullTree(
   fileSystemAdapter: FileSystemAdapter,
   directoryHandle: DirectoryHandle,
-  rootHandle: DirectoryHandle,
-  parentPath = '',
+  _rootHandle: DirectoryHandle,
+  _parentPath = '',
   _isRoot = true,
   abortSignal?: AbortSignal,
   updateProgress?: (path?: string) => void,
-  sortFileNodes: SortFn = (nodes) => nodes
+  sortFileNodes: (nodes: IFileNode[]) => IFileNode[] = (nodes) => nodes
 ): Promise<IFileNode[]> {
-  const rootFolderId = rootHandle.name;
+  const options: ParallelWalkerOptions = {
+    concurrency: 10, // Default concurrency
+    abortSignal,
+    onProgress: updateProgress,
+    sortFileNodes,
+  };
 
-  const boundRead: ReadTreeFn = (dirHandle, root, parent, rootFlag, signal) =>
-    readFullTree(
-      fileSystemAdapter,
-      dirHandle,
-      root,
-      parent,
-      rootFlag,
-      signal,
-      updateProgress,
-      sortFileNodes
-    );
+  return walkDirectoryParallel(fileSystemAdapter, directoryHandle, options);
+}
 
-  function checkAbortSignal(): void {
-    if (abortSignal?.aborted) {
-      throw new DOMException('Operation was cancelled', 'AbortError');
-    }
-  }
+/**
+ * Reads a directory tree with configurable options.
+ *
+ * This is the recommended API for new code, providing explicit
+ * configuration of parallel traversal options.
+ */
+export async function readFullTreeWithOptions(
+  fileSystemAdapter: FileSystemAdapter,
+  rootHandle: DirectoryHandle,
+  options: ReadFullTreeOptions = {}
+): Promise<IFileNode[]> {
+  const { concurrency, abortSignal, updateProgress, sortFileNodes } = options;
 
-  function buildRelativePath(parent: string, entryName: string): string {
-    return parent ? `${parent}/${entryName}` : entryName;
-  }
-
-  async function* processEntry(
-    entry: IFileNode,
-    relativePath: string,
-    dir: DirectoryHandle
-  ): AsyncGenerator<IFileNode> {
-    checkAbortSignal();
-    updateProgress?.(relativePath);
-
-    if (entry.type === 'file') {
-      yield processFileEntry(entry, relativePath, dir, rootFolderId);
-    } else if (entry.type === 'directory') {
-      const dirNode = await processDirectoryEntry(
-        entry,
-        relativePath,
-        dir,
-        rootHandle,
-        rootFolderId,
-        boundRead,
-        sortFileNodes,
-        abortSignal
-      );
-      yield dirNode;
-    }
-  }
-
-  async function* walk(dir: DirectoryHandle, parent: string): AsyncGenerator<IFileNode> {
-    checkAbortSignal();
-    const entries = await fileSystemAdapter.readDirectory(dir);
-
-    for (const entry of entries) {
-      const relativePath = buildRelativePath(parent, entry.name);
-
-      if (fileFilter.shouldIgnorePath(relativePath)) {
-        continue;
-      }
-
-      yield* processEntry(entry, relativePath, dir);
-    }
-  }
-
-  const nodes: IFileNode[] = [];
-  for await (const node of walk(directoryHandle, parentPath)) {
-    nodes.push(node);
-  }
-
-  return sortFileNodes(nodes);
+  return walkDirectoryParallel(fileSystemAdapter, rootHandle, {
+    concurrency,
+    abortSignal,
+    onProgress: updateProgress,
+    sortFileNodes,
+  });
 }

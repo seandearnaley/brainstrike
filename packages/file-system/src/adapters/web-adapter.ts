@@ -142,6 +142,10 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
   }
 
   async readFile(handle: FileHandle): Promise<string> {
+    // Import config dynamically to avoid circular dependencies
+    const { formatFileSize, getFileSizeConfig } = await import('../config.js');
+    const { maxFileSize } = getFileSizeConfig();
+
     const fileHandle = handle._internal;
     if (!isFileSystemFileHandle(fileHandle)) {
       throw new AccessError('Invalid file handle', handle.path, 'read');
@@ -149,11 +153,9 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     const file = await fileHandle.getFile();
 
     // Check file size before reading
-    const maxSize = 1024 * 1024; // 1MB limit
-
-    if (file.size > maxSize) {
+    if (file.size > maxFileSize) {
       throw new AccessError(
-        `File too large: ${Math.round(file.size / 1024 / 1024)}MB (max: ${Math.round(maxSize / 1024 / 1024)}MB)`,
+        `File too large: ${formatFileSize(file.size)} (max: ${formatFileSize(maxFileSize)})`,
         handle.path,
         'read'
       );
