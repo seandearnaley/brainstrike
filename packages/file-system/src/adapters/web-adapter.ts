@@ -143,7 +143,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
 
   async readFile(handle: FileHandle): Promise<string> {
     // Import config dynamically to avoid circular dependencies
-    const { formatFileSize, getFileSizeConfig } = await import('../config');
+    const { formatFileSize, getFileSizeConfig } = await import('../config.js');
     const { maxFileSize } = getFileSizeConfig();
 
     const fileHandle = handle._internal;

@@ -220,7 +220,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
 
   async readFile(_handle: FileHandle): Promise<string> {
     // Import config dynamically to avoid circular dependencies
-    const { formatFileSize, getFileSizeConfig } = await import('../config');
+    const { formatFileSize, getFileSizeConfig } = await import('../config.js');
     const { maxFileSize } = getFileSizeConfig();
 
     try {
