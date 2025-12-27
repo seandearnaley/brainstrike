@@ -13,7 +13,6 @@ import type { IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { readFullTree as readFullTreeUtil } from './utils/read-full-tree';
-import { rehydrateHandles } from './utils/rehydrate-handles';
 
 const logger = createLogger('useFileTree');
 
@@ -330,28 +329,13 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
       if (!skipCache) {
         const cacheResult = await tryLoadFromCache(cacheKey);
         if (cacheResult.success) {
-          // Display cached tree immediately for fast UI
+          // Display cached tree immediately for instant UI
+          // Handles are not cached (not serializable to IndexedDB)
+          // They will be acquired lazily when files are opened
           setFileTree(cacheResult.nodes);
-          setLoadingProgress({ loaded: 1, total: 2, phase: 'loading', percentage: 50 });
-
-          // Rehydrate handles in background so file operations work
-          // Cached trees have handles stripped (they're not serializable)
-          try {
-            logger.debug(`Rehydrating handles for cached tree: ${cacheKey}`);
-            const rehydratedTree = await rehydrateHandles(
-              fileSystemAdapter,
-              rootDirectoryHandle,
-              cacheResult.nodes
-            );
-            setFileTree(rehydratedTree);
-            logger.debug(`Handles rehydrated for: ${cacheKey}`);
-          } catch (rehydrationError) {
-            // If rehydration fails, log but don't error - tree is still usable for display
-            logger.warn('Handle rehydration failed, tree display-only:', rehydrationError);
-          }
-
-          setLoadingProgress({ loaded: 2, total: 2, phase: 'loading', percentage: 100 });
+          setLoadingProgress({ loaded: 1, total: 1, phase: 'loading', percentage: 100 });
           setIsLoading(false);
+          logger.debug(`Loaded tree from cache: ${cacheKey} (handles will be acquired on-demand)`);
           return;
         }
       }

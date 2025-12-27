@@ -28,7 +28,12 @@ function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): File
   };
 }
 
-// File node validation helper
+// File node basic validation (checks structure, not handle)
+function isFileNodeStructureValid(fileNode: IFileNode | null, folderId: string): boolean {
+  return !!(fileNode && fileNode.type === 'file' && fileNode.rootFolderId === folderId);
+}
+
+// File node full validation (includes handle check)
 function isFileNodeValid(fileNode: IFileNode | null, folderId: string): boolean {
   return !!(
     fileNode &&
@@ -36,6 +41,11 @@ function isFileNodeValid(fileNode: IFileNode | null, folderId: string): boolean 
     fileNode.handle &&
     fileNode.rootFolderId === folderId
   );
+}
+
+// Check if file node needs lazy handle acquisition (from cached tree)
+function needsHandleAcquisition(fileNode: IFileNode | null, folderId: string): boolean {
+  return isFileNodeStructureValid(fileNode, folderId) && !fileNode?.handle;
 }
 
 // Loading state management helpers
@@ -116,6 +126,12 @@ async function prepareFileReadRequest(
   if (!isFileNodeValid(fileNode, folderId)) {
     if (fileNode && fileNode.rootFolderId !== folderId) {
       const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
+      setFileContent(compositeKey, error);
+    } else if (needsHandleAcquisition(fileNode, folderId)) {
+      // File exists in cached tree but handle is missing (not serializable to IndexedDB)
+      // User needs to refresh the tree to acquire fresh handles
+      const error =
+        'File handle unavailable (cached tree). Please refresh the file tree to load content.';
       setFileContent(compositeKey, error);
     }
     return null;
