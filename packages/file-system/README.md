@@ -140,6 +140,30 @@ interface IFileNode {
 }
 ```
 
+## Path validation (Node-only)
+
+For Electron main process and other Node.js consumers, the package exposes a shared path
+validation helper that normalizes requested paths, enforces root boundaries, and applies
+security guards (null bytes, traversal caps, sensitive Unix directories).
+
+```typescript
+import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
+
+const result = await resolveValidatedPath({
+  rootDir: '/Users/alice/projects',
+  requestedPath: '../notes.md',
+});
+
+if (!result.ok) {
+  throw new Error(result.error.message);
+}
+
+console.log('Resolved path:', result.path);
+```
+
+Note: This helper imports Node.js `fs` and `path` modules, so it should not be used in
+browser or renderer processes. Use it from Electron main process or other Node contexts.
+
 ## Adapters
 
 ### Web Adapter

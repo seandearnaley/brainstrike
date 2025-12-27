@@ -1,5 +1,6 @@
 import fsPromises from 'node:fs/promises';
 import { AccessError, PermissionError } from './errors';
+import { resolveValidatedPath } from './path-validation';
 import type { DirectoryHandle, DirectoryReadOptions } from './types';
 
 /**
@@ -66,10 +67,21 @@ export async function validateDirectoryPath(
   asserter?: (...args: unknown[]) => unknown
 ): Promise<void> {
   const assertFn = (asserter ?? validateDirectoryPath) as (...args: unknown[]) => unknown;
+  const resolved = await resolveValidatedPath({
+    requestedPath: path,
+  });
+  if (!resolved.ok) {
+    throw new AccessError(
+      `Invalid directory path: ${resolved.error.message}`,
+      path,
+      'access',
+      assertFn
+    );
+  }
   try {
-    const stats = await fsPromises.stat(path);
+    const stats = await fsPromises.stat(resolved.path);
     if (!stats.isDirectory()) {
-      throw new AccessError('Selected path is not a directory', path, 'access', assertFn);
+      throw new AccessError('Selected path is not a directory', resolved.path, 'access', assertFn);
     }
   } catch (error) {
     if (error instanceof AccessError) {
@@ -77,7 +89,7 @@ export async function validateDirectoryPath(
     }
     throw new PermissionError(
       `Cannot access selected directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      path,
+      resolved.path,
       assertFn
     );
   }
