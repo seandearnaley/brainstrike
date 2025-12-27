@@ -1,6 +1,6 @@
 import { FileExplorerStrings } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useReportManager } from '../use-report-manager';
 
 // Mock file-saver
@@ -10,7 +10,9 @@ vi.mock('file-saver', () => ({
 
 describe('useReportManager', () => {
   // Mock dependencies
-  const mockRootDirectoryHandle = {} as FileSystemDirectoryHandle;
+  const mockRootDirectoryHandle = {
+    name: 'Sample Project',
+  } as FileSystemDirectoryHandle;
   const mockGenerateReportWithContent = vi.fn();
   const mockShowToast = vi.fn();
   const mockToast = vi.fn();
@@ -40,6 +42,10 @@ describe('useReportManager', () => {
       },
       writable: true,
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('should handle report generation success', async () => {
@@ -155,6 +161,9 @@ describe('useReportManager', () => {
   it('should handle download report', async () => {
     const { saveAs } = await import('file-saver');
 
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-06-08T18:03:18.000Z'));
+
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
@@ -194,7 +203,7 @@ describe('useReportManager', () => {
 
     // Check the filename argument
     const filenameArgument = firstCallArgs?.[1];
-    expect(filenameArgument).toBe(FileExplorerStrings.fileNames.report);
+    expect(filenameArgument).toBe('report-Sample-Project-2025-06-08_18-03-18Z.txt');
     // Should show a success toast
     expect(mockShowToast).toHaveBeenCalledWith({
       title: FileExplorerStrings.success.title,
