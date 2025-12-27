@@ -27,7 +27,7 @@ test.describe('Advanced IDE Layout', () => {
   });
 
   test.describe('Panel Resize Functionality', () => {
-    test('should resize left panel and maintain proportions', async ({ page }) => {
+    test('should resize explorer panel and maintain proportions', async ({ page }) => {
       const elements = getPanelElements(page);
       const resizeHandle = getLeftPanelResizeHandle(page);
 
@@ -113,7 +113,7 @@ test.describe('Advanced IDE Layout', () => {
       await testLayoutPersistenceAcrossNavigation(
         page,
         async () => {
-          // Setup: Hide left panel and show console
+          // Setup: Hide explorer panel and show console
           const elements = getPanelElements(page);
           await elements.hideExplorerButton.click();
           await elements.showConsoleShim.click();
@@ -289,12 +289,15 @@ test.describe('Advanced IDE Layout', () => {
       const elements = getPanelElements(page);
 
       // Verify initial ARIA labels
-      await expect(elements.hideExplorerButton).toHaveAttribute('aria-label', 'Hide explorer');
+      await expect(elements.hideExplorerButton).toHaveAttribute(
+        'aria-label',
+        'Hide explorer panel'
+      );
       await expect(elements.showConsoleShim).toHaveAttribute('aria-label', 'Show File Editor');
 
       // Change states and verify ARIA updates
       await elements.hideExplorerButton.click();
-      await expect(elements.showExplorerShim).toHaveAttribute('aria-label', 'Show explorer');
+      await expect(elements.showExplorerShim).toHaveAttribute('aria-label', 'Show explorer panel');
     });
   });
 

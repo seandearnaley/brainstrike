@@ -1,5 +1,12 @@
 // Export types and interfaces
 
+// Export API key validation utilities
+export {
+  type ApiKeyValidationResult,
+  checkApiKeyAvailability,
+  getApiKeyConfigInstructions,
+  requiresApiKey,
+} from './api-key-validation';
 // Export service implementation
 export { SimpleEmbeddingService } from './bge-m3-service';
 export {

@@ -244,7 +244,7 @@ export function SettingsPageContent({
           <div className="relative mt-6">
             <Search
               aria-hidden="true"
-              className="-translate-y-1/2 absolute top-1/2 left-3 h-4 w-4 text-muted-foreground"
+              className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground"
             />
             <Input
               aria-label="Search settings"

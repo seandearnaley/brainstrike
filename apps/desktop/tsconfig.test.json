@@ -1,7 +1,18 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["node", "electron", "vite/client", "vitest/globals", "@testing-library/jest-dom"]
+    "types": [
+      "node",
+      "electron",
+      "vite/client",
+      "vitest/globals",
+      "@testing-library/jest-dom"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/__tests__/**/*"]
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/__tests__/**/*"
+  ]
 }

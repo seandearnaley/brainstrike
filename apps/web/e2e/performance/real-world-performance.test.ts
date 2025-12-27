@@ -171,7 +171,7 @@ test.describe('Real-World Performance Validation', () => {
       let warmTargets = warmFileTreeScope.locator('button, [role="button"], input');
       if ((await warmTargets.count()) === 0) {
         warmTargets = warmMainScope.locator(
-          'button:not([data-testid="show-console-panel"]):not([data-testid="show-right-panel"]):not([data-testid="show-left-panel"]), [role="button"], input'
+          'button:not([data-testid="show-console-panel"]):not([data-testid="show-tools-panel"]):not([data-testid="show-explorer-panel"]), [role="button"], input'
         );
       }
       const warmCount = Math.min(2, await warmTargets.count());
@@ -217,7 +217,7 @@ test.describe('Real-World Performance Validation', () => {
     // Fallback: still within main content, but avoid panel toggles that mount heavy UIs
     if ((await interactionElements.count()) === 0) {
       interactionElements = mainContentScope.locator(
-        'button:not([data-testid="show-console-panel"]):not([data-testid="show-right-panel"]):not([data-testid="show-left-panel"]), [role="button"], input'
+        'button:not([data-testid="show-console-panel"]):not([data-testid="show-tools-panel"]):not([data-testid="show-explorer-panel"]), [role="button"], input'
       );
     }
 

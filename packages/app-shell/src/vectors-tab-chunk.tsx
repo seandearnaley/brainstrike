@@ -13,7 +13,7 @@ type VectorsTabProps = {
    * Flow path:
    * 1. App creates queue: createElectronEmbeddingQueue() or createBrowserEmbeddingQueue()
    * 2. Passed to RootLayoutContent as embeddingQueue prop
-   * 3. RootLayoutContent -> RightPanel -> VectorsTab (HERE)
+   * 3. RootLayoutContent -> ToolsPanel -> VectorsTab (HERE)
    * 4. VectorsTab -> VectorStatusWithDialog
    *
    * MUST be passed through to child components! If not passed:

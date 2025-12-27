@@ -4,15 +4,15 @@
 
 ## What this package is
 
-A reusable **React 19** application shell and IDE chrome for Brainstrike apps. It provides the outer layout, navigation, right-hand panels (Assistant, Embeddings, Vectors, Database), CSV export utilities, and light state slices (Zustand). It intentionally keeps business logic thin and delegates to sibling packages (`@brainstrike/ui`, `@brainstrike/db`, `@brainstrike/embeddings`, `@brainstrike/file-explorer-*`, etc.).
+A reusable **React 19** application shell and IDE chrome for Brainstrike apps. It provides the outer layout, navigation, tools panel (Assistant, Embeddings, Vectors, Database), CSV export utilities, and light state slices (Zustand). It intentionally keeps business logic thin and delegates to sibling packages (`@brainstrike/ui`, `@brainstrike/db`, `@brainstrike/embeddings`, `@brainstrike/file-explorer-*`, etc.).
 
 ### Key exports (from `src/`)
 
 * **Layout:** `AppLayout`, `createAppConfig`, `RootLayoutContent`, `PageWrapper`, `navigationItems`
-* **Right panel:** `RightPanel` (tabs: Assistant / Embeddings / Vectors / Database)
+* **Tools panel:** `ToolsPanel` (tabs: Assistant / Embeddings / Vectors / Database)
 * **Database utilities:** `DatabaseDemoPanel`, `VectorStatusWithDb`, `QueueHud`
 * **CSV:** `generateCSV`, `createCSVBlob`, `generateCSVFilename`, and richer exporters for files/chunks/embeddings
-* **Stores (Zustand):** `panel-layout-store`, `right-panel-store`, `search-panel-store`, `db-panel-store`, `import-settings-store`, `vector-*` stores
+* **Stores (Zustand):** `panel-layout-store`, `tools-panel-store`, `search-panel-store`, `db-panel-store`, `import-settings-store`, `vector-*` stores
 * **Types:** `AppShellConfig`, `NavigationItem`, etc.
 
 ## Commands (run from repo root unless noted)
@@ -124,11 +124,11 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 7. **Tests:** Use Vitest + RTL. Mock heavy modules (`@brainstrike/db`, `@brainstrike/embeddings`, Electron bridges) like existing tests do. Prefer role/text/`data-testid` queries. ([Next.js][12])
 8. **Build discipline:** Keep `tsconfig` references accurate; use `tsc -b` for libraries. This allows Turborepo to cache and parallelize correctly. ([Turborepo][1])
 
-## Right panel contracts (for host apps & tools)
+## Tools panel contracts (for host apps & tools)
 
 * **Assistant:** calls `GET {assistantBase}/assistant/status -> {enabled:boolean,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing.
 * **Embeddings panel:** uses `SimpleEmbeddingService` (browser-local). It’s demo-scale by design; for production retrieval, lean on pgvector+queue path exposed in the DB views.
-* **Vectors tab:** hosts `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `RightPanel` into this tab.
+* **Vectors tab:** hosts `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `ToolsPanel` into this tab.
 * **Search panel (optional):** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.
 * **DB tab:** lazy-loaded chunk that initializes PGlite when the tab is accessed.
 
@@ -140,7 +140,7 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 
 * **Defer heavy components:** Keep `DatabaseTab`, `VectorsTab`, and `AssistantUiPanel` behind `lazy()` and flags. Don’t “accidentally” import them in top-level modules.
 * **WebGPU first, WASM second:** for local models, choose WebGPU when available; fall back gracefully. Avoid device thrashing—reinitialize models only every N chunks (user-tunable). ([ONNX Runtime][7])
-* **App-Shell first paint:** Keep the shell static CSS and icons small; don’t let the right panel pull big deps until opened. (This echoes modern App-Shell guidance.) ([Medium][13])
+* **App-Shell first paint:** Keep the shell static CSS and icons small; don’t let the tools panel pull big deps until opened. (This echoes modern App-Shell guidance.) ([Medium][13])
 * **Zustand selectors:** Always destructure selectors outside render loops; prefer tuple selectors to minimize render churn. (Matches official persistence guidance.) ([Zustand Documentation][6])
 
 ## Security & privacy checklist
@@ -178,7 +178,7 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 ## Testing guidance (what “good” looks like)
 
 * Use Vitest + RTL. Keep tests deterministic with **explicit mocks** for DB, embeddings, and bridges (see existing suites).
-* Simulate tab switching and persisting state across toggles (see `right-panel` tests).
+* Simulate tab switching and persisting state across toggles (see `tools-panel` tests).
 * Unit test helper functions (e.g., queue events, transactions) without the full DB by stubbing `query/transaction`.
 
 > Community patterns: the 2025 default across React apps is Vitest + RTL + Playwright for E2E. Keep our unit tests fast and isolated; E2E runs live in app packages. ([Medium][14])

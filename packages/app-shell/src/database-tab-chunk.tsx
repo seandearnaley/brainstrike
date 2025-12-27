@@ -13,7 +13,7 @@ type DatabaseTabProps = {
    * Flow path:
    * 1. App creates queue: createElectronEmbeddingQueue() or createBrowserEmbeddingQueue()
    * 2. Passed to RootLayoutContent as embeddingQueue prop
-   * 3. RootLayoutContent → RightPanel → DatabaseTab (HERE)
+   * 3. RootLayoutContent → ToolsPanel → DatabaseTab (HERE)
    * 4. DatabaseTab → DatabaseDemoPanel
    *
    * MUST be passed through to child components! If not passed:

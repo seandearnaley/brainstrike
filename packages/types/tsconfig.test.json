@@ -1,10 +1,20 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["vitest/globals", "node"],
+    "types": [
+      "vitest/globals",
+      "node"
+    ],
     "skipLibCheck": true,
-    "rootDir": ".."
+    "rootDir": "..",
+    "strictNullChecks": true
   },
-  "include": ["src/**/*", "**/*.test.*"],
-  "exclude": ["dist", "node_modules"]
+  "include": [
+    "src/**/*",
+    "**/*.test.*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules"
+  ]
 }

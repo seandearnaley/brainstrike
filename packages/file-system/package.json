@@ -11,6 +11,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./path-validation": {
+      "types": "./dist/path-validation.d.ts",
+      "import": "./dist/path-validation.js",
+      "require": "./dist/path-validation.cjs"
     }
   },
   "scripts": {

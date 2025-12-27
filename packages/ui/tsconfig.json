@@ -7,12 +7,19 @@
     "rootDir": "src",
     "outDir": "dist",
     "declarationDir": "dist",
-    "types": ["node"],
+    "types": [
+      "node"
+    ],
     "paths": {
-      "@brainstrike/storage": ["../storage/src"]
-    }
+      "@brainstrike/storage": [
+        "../storage/src"
+      ]
+    },
+    "strictNullChecks": true
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/*"
+  ],
   "exclude": [
     "dist",
     "node_modules",
@@ -21,9 +28,14 @@
     "src/**/__tests__/**"
   ],
   "references": [
-    // {"path": "../../packages/config"},
-    { "path": "../../packages/types" },
-    { "path": "../storage" },
-    { "path": "../utils" }
+    {
+      "path": "../../packages/types"
+    },
+    {
+      "path": "../storage"
+    },
+    {
+      "path": "../utils"
+    }
   ]
 }

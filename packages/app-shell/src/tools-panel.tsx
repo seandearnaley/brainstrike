@@ -6,17 +6,17 @@ import { AssistantTab } from './assistant-tab';
 import { DatabaseTab } from './database-tab';
 import { EmbeddingsTab } from './embeddings-tab';
 import {
-  type RightPanelTab,
-  rightPanelSelectors,
-  useRightPanelStore,
-} from './stores/right-panel-store';
+  type ToolsPanelTab,
+  toolsPanelSelectors,
+  useToolsPanelStore,
+} from './stores/tools-panel-store';
 import { VectorsTab } from './vectors-tab';
 
-type RightPanelProps = {
+type ToolsPanelProps = {
   /**
    * CRITICAL: The app-specific embedding queue from RootLayoutContent.
    *
-   * This queue flows through: RootLayoutContent → RightPanel (HERE) → VectorsTab → VectorStatusWithDialog
+   * This queue flows through: RootLayoutContent → ToolsPanel (HERE) → VectorsTab → VectorStatusWithDialog
    *
    * MUST be passed through to VectorsTab and DatabaseTab! Without it, embedding
    * management and import operations will fail.
@@ -25,20 +25,20 @@ type RightPanelProps = {
 };
 
 /**
- * Right panel containing Assistant, Embeddings, Vectors, and Database tabs.
+ * Tools panel containing Assistant, Embeddings, Vectors, and Database tabs.
  *
  * IMPORTANT: The embeddingQueue prop must be forwarded to VectorsTab to ensure
  * the manage embedding sets button and embedding operations work correctly.
  */
-export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactElement {
-  const activeTab = useRightPanelStore(rightPanelSelectors.activeTab);
-  const setActiveTab = useRightPanelStore((state) => state.setActiveTab);
+export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactElement {
+  const activeTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
+  const setActiveTab = useToolsPanelStore((state) => state.setActiveTab);
 
   return (
     <div className="flex h-full flex-col">
       <Tabs
         className="flex min-h-0 flex-1 flex-col"
-        onValueChange={(value) => setActiveTab((value as RightPanelTab) ?? 'assistant')}
+        onValueChange={(value) => setActiveTab((value as ToolsPanelTab) ?? 'assistant')}
         value={activeTab}
       >
         <TabsList className="flex h-9 w-full justify-start rounded-none border-b bg-transparent p-0">

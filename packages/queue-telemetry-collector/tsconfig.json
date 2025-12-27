@@ -9,12 +9,25 @@
     "emitDeclarationOnly": true,
     "outDir": "./dist",
     "rootDir": "src",
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["dist", "node_modules", "test"],
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "test"
+  ],
   "references": [
-    { "path": "../queue" },
-    { "path": "../utils" }
+    {
+      "path": "../queue"
+    },
+    {
+      "path": "../utils"
+    }
   ]
 }

@@ -29,6 +29,46 @@ type UseReportManagerProps<A = unknown> = {
   }) => { dismiss?: () => void };
 };
 
+const DEFAULT_REPORT_FILENAME = FileExplorerStrings.fileNames.report;
+
+const getReportFilenameParts = (filename: string): { base: string; extension: string } => {
+  const lastDotIndex = filename.lastIndexOf('.');
+  if (lastDotIndex <= 0 || lastDotIndex === filename.length - 1) {
+    return { base: filename, extension: 'txt' };
+  }
+  return {
+    base: filename.slice(0, lastDotIndex),
+    extension: filename.slice(lastDotIndex + 1),
+  };
+};
+
+const sanitizeFilenameSegment = (value: string): string =>
+  value
+    .trim()
+    .replace(/[<>:"/\\|?*]/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[-.]+|[-.]+$/g, '');
+
+const formatReportTimestamp = (date: Date): string =>
+  date
+    .toISOString()
+    .replace(/\.\d{3}Z$/, 'Z')
+    .replace('T', '_')
+    .replace(/:/g, '-');
+
+const buildReportFilename = (
+  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null
+): string => {
+  const { base, extension } = getReportFilenameParts(DEFAULT_REPORT_FILENAME);
+  const rootName = rootDirectoryHandle?.name
+    ? sanitizeFilenameSegment(rootDirectoryHandle.name)
+    : '';
+  const prefix = rootName ? `${base}-${rootName}` : base;
+  const timestamp = formatReportTimestamp(new Date());
+  return `${prefix}-${timestamp}.${extension}`;
+};
+
 export const useReportManager = <A = unknown>({
   rootDirectoryHandle,
   generateReportWithContent,
@@ -73,7 +113,7 @@ export const useReportManager = <A = unknown>({
       if (report) {
         saveAs(
           new Blob([report], { type: 'text/plain;charset=utf-8' }),
-          FileExplorerStrings.fileNames.report
+          buildReportFilename(rootDirectoryHandle)
         );
         showToast({
           title: FileExplorerStrings.success.title,
@@ -84,7 +124,7 @@ export const useReportManager = <A = unknown>({
       reportToast?.dismiss?.();
       throw error;
     }
-  }, [handleGenerateReport, showToast, toast]);
+  }, [handleGenerateReport, rootDirectoryHandle, showToast, toast]);
 
   const handleCopyReport = useCallback(async () => {
     let reportToast: ReturnType<typeof toast> | undefined;

@@ -29,7 +29,7 @@ export function PromptCard({
   onCopy,
 }: PromptCardProps) {
   return (
-    <Card className="group hover:-translate-y-1 relative overflow-hidden border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5">
+    <Card className="group relative overflow-hidden border-border/50 bg-card/50 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5">
       <div
         className="absolute top-0 left-0 h-full w-1 transition-colors duration-300"
         style={{ backgroundColor: category?.color || 'transparent' }}

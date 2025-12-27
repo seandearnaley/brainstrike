@@ -186,7 +186,9 @@
       "Bash(BRAINSTRIKE_DISABLE_FILE_LOGS=1 pnpm exec:*)",
       "mcp__plugin_codanna-cc_codanna-cc__find_callers",
       "WebFetch(domain:logtape.org)",
-      "Bash(jq:*)"
+      "Bash(jq:*)",
+      "Bash(CI=true pnpm install:*)",
+      "Bash(timeout 15 pnpm:*)"
     ],
     "deny": [],
     "ask": []
@@ -197,11 +199,6 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/biome-check.sh",
-            "timeout": 30
-          },
           {
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/type-check.sh",

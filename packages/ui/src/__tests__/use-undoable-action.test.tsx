@@ -300,4 +300,48 @@ describe('useUndoableAction', () => {
 
     expect(mockDismiss).toHaveBeenCalled();
   });
+
+  it('applies truncation classes to description for long paths', () => {
+    const { result } = renderHook(() => useUndoableAction<{ id: string }>());
+    const longPath = '/Users/username/very/long/path/to/some/deeply/nested/file.ts';
+
+    act(() => {
+      result.current.performUndoableAction(
+        'test-key',
+        { id: '123' },
+        {
+          actionName: 'File removed',
+          itemDescription: `Removed "${longPath}" from selection`,
+          onUndo: vi.fn(),
+        }
+      );
+    });
+
+    // Get the description prop from the toast call
+    const toastCall = mockToast.mock.calls[0]?.[0];
+    expect(toastCall).toBeDefined();
+    expect(toastCall.description).toBeDefined();
+
+    // The description should be a React element with the proper structure
+    const descriptionElement = toastCall.description;
+    expect(descriptionElement.type).toBe('div');
+    expect(descriptionElement.props.className).toContain('flex');
+    expect(descriptionElement.props.className).toContain('items-center');
+    expect(descriptionElement.props.className).toContain('justify-between');
+    expect(descriptionElement.props.className).toContain('gap-2');
+
+    // Check the span element has truncation classes
+    const spanElement = descriptionElement.props.children[0];
+    expect(spanElement.type).toBe('span');
+    expect(spanElement.props.className).toContain('min-w-0');
+    expect(spanElement.props.className).toContain('flex-1');
+    expect(spanElement.props.className).toContain('truncate');
+
+    // Check the span has a title attribute for tooltip on hover
+    expect(spanElement.props.title).toBe(`Removed "${longPath}" from selection`);
+
+    // Check the button has flex-shrink-0 to prevent shrinking
+    const buttonElement = descriptionElement.props.children[1];
+    expect(buttonElement.props.className).toContain('flex-shrink-0');
+  });
 });

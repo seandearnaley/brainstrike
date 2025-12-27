@@ -9,9 +9,22 @@
     "outDir": "./dist",
     "rootDir": "src",
     "declarationMap": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "**/*.test.ts"],
-  "references": [{ "path": "../types" }]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../types"
+    }
+  ]
 }

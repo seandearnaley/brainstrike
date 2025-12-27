@@ -13,7 +13,7 @@
 
 ### Key Features
 
-- 🎨 **IDE-style Layout** - Flexible panel system with resizable sidebar and right panels
+- 🎨 **IDE-style Layout** - Flexible panel system with resizable sidebar and tools panel
 - 🗄️ **Vector Database Integration** - Built-in UI for managing embeddings and vector search
 - 📁 **File Management** - Advanced file explorer with import/export capabilities
 - 🎯 **Theme Support** - Full light/dark mode with system preference detection

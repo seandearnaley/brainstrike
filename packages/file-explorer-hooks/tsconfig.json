@@ -8,18 +8,44 @@
     "outDir": "./dist",
     "rootDir": "src",
     "declarationMap": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.test.tsx"],
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts",
+    "**/*.test.tsx"
+  ],
   "references": [
-    { "path": "../file-explorer" },
-    { "path": "../file-system" },
-    { "path": "../hooks" },
-    { "path": "../platform-utils" },
-    { "path": "../types" },
-    { "path": "../ui" },
-    { "path": "../utils" },
-    { "path": "../workers" }
+    {
+      "path": "../file-explorer"
+    },
+    {
+      "path": "../file-system"
+    },
+    {
+      "path": "../hooks"
+    },
+    {
+      "path": "../platform-utils"
+    },
+    {
+      "path": "../types"
+    },
+    {
+      "path": "../ui"
+    },
+    {
+      "path": "../utils"
+    },
+    {
+      "path": "../workers"
+    }
   ]
 }

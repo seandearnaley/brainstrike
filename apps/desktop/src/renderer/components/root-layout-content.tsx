@@ -31,8 +31,8 @@ function TokenCacheWrapper({ children }: { children: ReactNode }) {
  * 1. embeddingQueue is imported from create-embedding-queue.ts (createElectronEmbeddingQueue)
  * 2. Passed to SharedRootLayoutContent as embeddingQueue prop
  * 3. Flows through:
- *    - RootLayoutContent → RightPanel → VectorsTab → VectorStatusWithDialog
- *    - RootLayoutContent → RightPanel → DatabaseTab → DatabaseDemoPanel (import operations)
+ *    - RootLayoutContent → ToolsPanel → VectorsTab → VectorStatusWithDialog
+ *    - RootLayoutContent → ToolsPanel → DatabaseTab → DatabaseDemoPanel (import operations)
  * 4. VectorStatusWithDialog uses it for embedding set management and operations
  *
  * DO NOT remove the embeddingQueue prop! It's the single source of truth for all

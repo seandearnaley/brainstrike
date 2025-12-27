@@ -10,8 +10,8 @@ import { usePanelToggle } from '../hooks/use-panel-toggle';
 import { cn } from '../lib/utils';
 import { usePanelLayout } from '../providers/panel-layout-provider';
 import { ConsolePanel } from './console-panel';
-import { LeftPanel } from './left-panel';
-import { RightPanel } from './right-panel';
+import { ExplorerPanel } from './explorer-panel';
+import { ToolsPanel } from './tools-panel';
 
 const logger = createLogger('IdeLayout');
 
@@ -132,7 +132,7 @@ function calculateHorizontalSizes(
   const defaultLeftSize = config.safeLeftSize ?? 25;
   const defaultRightSize = config.safeRightSize ?? 20;
 
-  // Both panels visible - expect 3 sizes [left, middle, right]
+  // Both panels visible - expect 3 sizes [explorer, middle, tools]
   if (hasLeft && hasRight && newSizes.length === 3) {
     return [
       getSizeWithFallback(newSizes, 0, defaultLeftSize),
@@ -140,12 +140,12 @@ function calculateHorizontalSizes(
     ];
   }
 
-  // Only left panel visible - expect 2 sizes [left, middle]
+  // Only explorer panel visible - expect 2 sizes [explorer, middle]
   if (hasLeft && newSizes.length === 2) {
     return [getSizeWithFallback(newSizes, 0, defaultLeftSize), defaultRightSize];
   }
 
-  // Only right panel visible - expect 2 sizes [middle, right]
+  // Only tools panel visible - expect 2 sizes [middle, tools]
   if (hasRight && newSizes.length === 2) {
     return [defaultLeftSize, getSizeWithFallback(newSizes, 1, defaultRightSize)];
   }
@@ -461,7 +461,7 @@ export const IdeLayout = React.memo(function IdeLayout({
 
   // Add refs for focus management
   const hideExplorerButtonRef = useRef<HTMLButtonElement>(null);
-  const hideRightPanelButtonRef = useRef<HTMLButtonElement>(null);
+  const hideToolsPanelButtonRef = useRef<HTMLButtonElement>(null);
   const hideConsoleButtonRef = useRef<HTMLButtonElement>(null);
 
   const {
@@ -499,11 +499,11 @@ export const IdeLayout = React.memo(function IdeLayout({
     }
   );
 
-  const { show: handleShowRightPanel, hide: handleHideRightPanel } = usePanelToggle(
+  const { show: handleShowToolsPanel, hide: handleHideToolsPanel } = usePanelToggle(
     rightPanelRef,
     toggleRightPanel,
     {
-      focusRef: hideRightPanelButtonRef,
+      focusRef: hideToolsPanelButtonRef,
       liftInitGate: () => {
         isInitialRenderRef.current = false;
       },
@@ -575,9 +575,9 @@ export const IdeLayout = React.memo(function IdeLayout({
           {!showLeftPanel && leftPanelContent && (
             <div className="flex items-center justify-center border-border border-r bg-muted/30 p-2">
               <Button
-                aria-label="Show explorer"
+                aria-label="Show explorer panel"
                 className="h-6 w-6"
-                data-testid="show-left-panel"
+                data-testid="show-explorer-panel"
                 onClick={handleShowLeftPanel}
                 size="icon"
                 variant="ghost"
@@ -587,7 +587,7 @@ export const IdeLayout = React.memo(function IdeLayout({
             </div>
           )}
           {showLeftPanel && leftPanelContent && (
-            <LeftPanel
+            <ExplorerPanel
               content={leftPanelContent}
               defaultSize={safeLeftSize}
               hideButtonRef={hideExplorerButtonRef}
@@ -640,10 +640,10 @@ export const IdeLayout = React.memo(function IdeLayout({
           {!showRightPanel && rightPanelContent && (
             <div className="flex items-center justify-center border-border border-l bg-muted/30 p-2">
               <Button
-                aria-label="Show right panel"
+                aria-label="Show tools panel"
                 className="h-6 w-6"
-                data-testid="show-right-panel"
-                onClick={handleShowRightPanel}
+                data-testid="show-tools-panel"
+                onClick={handleShowToolsPanel}
                 size="icon"
                 variant="ghost"
               >
@@ -652,11 +652,11 @@ export const IdeLayout = React.memo(function IdeLayout({
             </div>
           )}
           {showRightPanel && rightPanelContent && (
-            <RightPanel
+            <ToolsPanel
               content={rightPanelContent}
               defaultSize={safeRightSize}
-              hideButtonRef={hideRightPanelButtonRef}
-              onHide={handleHideRightPanel}
+              hideButtonRef={hideToolsPanelButtonRef}
+              onHide={handleHideToolsPanel}
               panelRef={rightPanelRef}
               {...rightPanelHandlers}
             />

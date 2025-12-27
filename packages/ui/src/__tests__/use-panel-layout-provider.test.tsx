@@ -29,11 +29,11 @@ describe('PanelLayoutProvider integration', () => {
     render(<LayoutHarness />);
 
     // Left panel visible by default; hide it via button
-    const hideLeft = screen.getByTestId('hide-left-panel');
+    const hideLeft = screen.getByTestId('hide-explorer-panel');
     fireEvent.click(hideLeft);
 
     // Show-left shim should be visible after hiding
-    expect(screen.getByTestId('show-left-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('show-explorer-panel')).toBeInTheDocument();
 
     // Show console via shim
     const showConsole = screen.getByTestId('show-console-panel');

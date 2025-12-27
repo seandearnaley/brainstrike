@@ -1,5 +1,9 @@
 import type { FileChunkRepository, JobQueue } from '@brainstrike/db';
-import { canonicalizeProviderModelKey, formatProviderModelKey } from '@brainstrike/embeddings';
+import {
+  canonicalizeProviderModelKey,
+  checkApiKeyAvailability,
+  formatProviderModelKey,
+} from '@brainstrike/embeddings';
 import { createLogger } from '@brainstrike/utils';
 
 /**
@@ -102,8 +106,18 @@ export async function withTransaction(
   }
 }
 
+/**
+ * Result of API key validation for an embedding set
+ */
+export type ApiKeyValidation = { valid: true } | { valid: false; message: string };
+
 export type VectorQueueService = {
   refresh(activeSetId: string | null): Promise<VectorQueueSnapshot>;
+  /**
+   * Validates that the API key is available for the embedding set's model.
+   * Call this before backfill to prevent enqueueing jobs that will fail.
+   */
+  validateApiKeyForSet(embeddingSetId: string): Promise<ApiKeyValidation>;
   backfill(activeSetId: string, onProgress: BackfillProgressHandler): Promise<QueueCounts>;
   retryFailed(limit: number): Promise<void>;
   clearQueue(states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>): Promise<void>;
@@ -187,6 +201,20 @@ export function createVectorQueueService(
         lastError,
         latency,
       };
+    },
+
+    async validateApiKeyForSet(embeddingSetId): Promise<ApiKeyValidation> {
+      try {
+        const setMetadata = await resolveEmbeddingSetJobMetadata(db, embeddingSetId);
+        const validation = await checkApiKeyAvailability(setMetadata.modelKey);
+        if (validation.available) {
+          return { valid: true };
+        }
+        return { valid: false, message: validation.message };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to validate API key';
+        return { valid: false, message };
+      }
     },
 
     async backfill(activeSetId, onProgress) {

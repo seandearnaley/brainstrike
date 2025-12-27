@@ -15,8 +15,18 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
-    "types": ["node", "@playwright/test"]
+    "types": [
+      "node",
+      "@playwright/test"
+    ],
+    "strictNullChecks": true
   },
-  "include": ["e2e/**/*", "playwright.config.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "e2e/**/*",
+    "playwright.config.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

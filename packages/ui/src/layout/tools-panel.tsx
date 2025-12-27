@@ -3,7 +3,7 @@ import type React from 'react';
 import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { Button } from '../button';
 
-type RightPanelProps = {
+type ToolsPanelProps = {
   panelRef: React.RefObject<ImperativePanelHandle | null>;
   content: React.ReactNode;
   hideButtonRef: React.RefObject<HTMLButtonElement | null>;
@@ -13,7 +13,7 @@ type RightPanelProps = {
   onExpand: (size?: number) => void;
 };
 
-export function RightPanel({
+export function ToolsPanel({
   panelRef,
   content,
   hideButtonRef,
@@ -21,7 +21,7 @@ export function RightPanel({
   defaultSize,
   onCollapse,
   onExpand,
-}: RightPanelProps) {
+}: ToolsPanelProps) {
   return (
     <>
       <PanelResizeHandle className="w-1 bg-border transition-colors hover:bg-border/80" />
@@ -29,9 +29,9 @@ export function RightPanel({
         className="bg-background"
         collapsedSize={0}
         collapsible
-        data-panel-id="right-panel"
+        data-panel-id="tools-panel"
         defaultSize={defaultSize}
-        id="right-panel"
+        id="tools-panel"
         maxSize={60}
         minSize={15}
         onCollapse={onCollapse}
@@ -43,12 +43,12 @@ export function RightPanel({
           <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
             <div className="flex items-center gap-2">
               <PanelRight className="h-4 w-4" />
-              <span className="font-medium text-sm">Panel</span>
+              <span className="font-medium text-sm">Tools</span>
             </div>
             <Button
-              aria-label="Hide right panel"
+              aria-label="Hide tools panel"
               className="h-6 w-6"
-              data-testid="hide-right-panel"
+              data-testid="hide-tools-panel"
               onClick={onHide}
               ref={hideButtonRef}
               size="icon"

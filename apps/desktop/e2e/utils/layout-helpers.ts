@@ -21,14 +21,14 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
       .waitFor({ state: 'attached', timeout: 10_000 })
       .catch(() => {});
 
-    // First, check if the right panel is already visible
-    const rightPanel = activePage.locator('[data-panel-id="right-panel"]');
+    // First, check if the tools panel is already visible
+    const rightPanel = activePage.locator('[data-panel-id="tools-panel"]');
     const showRightPanelButton = activePage
-      .locator('[data-testid="show-right-panel"]')
-      .or(activePage.locator('button[aria-label="Show right panel"]'));
+      .locator('[data-testid="show-tools-panel"]')
+      .or(activePage.locator('button[aria-label="Show tools panel"]'));
     const hideRightPanelButton = activePage
-      .locator('[data-testid="hide-right-panel"]')
-      .or(activePage.locator('button[aria-label="Hide right panel"]'));
+      .locator('[data-testid="hide-tools-panel"]')
+      .or(activePage.locator('button[aria-label="Hide tools panel"]'));
     let rightPanelVisible = await rightPanel.isVisible().catch(() => false);
 
     // If we cannot determine visibility yet, fall back to checking the hide button
@@ -37,16 +37,16 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
     }
 
     if (!rightPanelVisible) {
-      console.log('👉 Showing right panel...');
+      console.log('👉 Showing tools panel...');
       if ((await showRightPanelButton.count()) > 0) {
         await showRightPanelButton.first().click();
         await rightPanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
-          console.warn('⚠️ Right panel did not become visible after clicking show button.');
+          console.warn('⚠️ Tools panel did not become visible after clicking show button.');
         });
       } else {
-        console.warn('⚠️ Show right panel button not found; waiting for panel to appear.');
+        console.warn('⚠️ Show tools panel button not found; waiting for panel to appear.');
         await rightPanel.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
-          console.warn('⚠️ Right panel still not visible after waiting.');
+          console.warn('⚠️ Tools panel still not visible after waiting.');
         });
       }
     }
@@ -56,7 +56,7 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
       await activePage.waitForTimeout(500);
     }
 
-    // Now navigate to the database tab within the right panel
+    // Now navigate to the database tab within the tools panel
     console.log('🗂️ Clicking database tab...');
     const tabScope = rightPanel.locator('[role="tablist"]').first();
     const databaseTab = tabScope

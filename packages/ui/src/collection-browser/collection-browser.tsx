@@ -789,7 +789,7 @@ export function CollectionBrowser({
 
       {/* Bulk Action Bar - floating at the bottom when items are selected */}
       {multiSelectEnabled && showBulkActionBar && multiSelectedIds.size > 0 && (
-        <div className="-translate-x-1/2 absolute bottom-4 left-1/2 z-20">
+        <div className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
           <BulkActionBar
             actions={bulkActions}
             nodeTypes={nodeTypeMap}

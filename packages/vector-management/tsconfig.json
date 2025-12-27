@@ -7,10 +7,15 @@
     "rootDir": "src",
     "outDir": "dist",
     "declarationDir": "dist",
-    "types": ["node"],
-    "jsx": "react-jsx"
+    "types": [
+      "node"
+    ],
+    "jsx": "react-jsx",
+    "strictNullChecks": true
   },
-  "include": ["src/**/*"],
+  "include": [
+    "src/**/*"
+  ],
   "exclude": [
     "dist",
     "node_modules",
@@ -19,10 +24,20 @@
     "src/**/__tests__/**"
   ],
   "references": [
-    { "path": "../db" },
-    { "path": "../embeddings" },
-    { "path": "../preferences" },
-    { "path": "../ui" },
-    { "path": "../utils" }
+    {
+      "path": "../db"
+    },
+    {
+      "path": "../embeddings"
+    },
+    {
+      "path": "../preferences"
+    },
+    {
+      "path": "../ui"
+    },
+    {
+      "path": "../utils"
+    }
   ]
 }

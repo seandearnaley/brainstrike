@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
-test.describe('Right Panel - Persistence', () => {
+test.describe('Tools Panel - Persistence', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await waitForAppLoad(page);

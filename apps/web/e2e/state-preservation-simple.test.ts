@@ -36,15 +36,15 @@ test.describe('Simple State Preservation Test', () => {
     await expect(fileTree.getByText('test.ts')).toBeVisible();
 
     // Hide the left panel
-    const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer panel"]');
     await hideExplorerButton.click();
 
     // Verify panel is hidden
-    const leftPanel = page.locator('[data-panel-id="left-panel"]');
+    const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
     await expect(leftPanel).not.toBeVisible();
 
     // Show the panel again
-    const showExplorerShim = page.locator('button[aria-label="Show explorer"]');
+    const showExplorerShim = page.locator('button[aria-label="Show explorer panel"]');
     await showExplorerShim.click();
 
     // Verify panel is visible again

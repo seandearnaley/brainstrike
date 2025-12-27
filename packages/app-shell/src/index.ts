@@ -11,7 +11,7 @@ export * from './assistant-ui-panel-wrapper';
 export * from './connected-prompt-manager';
 export * from './navigation';
 export * from './page-wrapper';
-export * from './right-panel';
 export * from './root-layout-content';
 export * from './status-items';
+export * from './tools-panel';
 export * from './types';
