@@ -12,7 +12,6 @@ test.describe('Tools Panel - Navigation Persistence', () => {
     // Clear relevant tools-panel stores to avoid leakage across tests
     await page.evaluate(() => {
       localStorage.removeItem('tools-panel.v1');
-      localStorage.removeItem('right-panel.v1');
       localStorage.removeItem('search-panel.v1');
       localStorage.removeItem('db-panel.v1');
       localStorage.removeItem('panel-layout-store.v1');
