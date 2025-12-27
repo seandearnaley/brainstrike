@@ -11,7 +11,7 @@ pre-commit:
         - "*.jsonc"
         - "*.css"
       stage_fixed: true
-  parallel: false
+  parallel: true
   commands:
     type-check:
       # Only check packages with staged TypeScript files (canonical pattern)

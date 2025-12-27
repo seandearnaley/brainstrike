@@ -188,7 +188,9 @@
       "WebFetch(domain:logtape.org)",
       "Bash(jq:*)",
       "Bash(CI=true pnpm install:*)",
-      "Bash(timeout 15 pnpm:*)"
+      "Bash(timeout 15 pnpm:*)",
+      "mcp__atlassian__getAccessibleAtlassianResources",
+      "Bash(gh pr diff:*)"
     ],
     "deny": [],
     "ask": []
