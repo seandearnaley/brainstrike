@@ -256,7 +256,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     // Navigate back to main page
     await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
 
-    // Open right panel (assistant panel)
+    // Open tools panel (assistant panel)
     await ensureRightPanelVisible(page);
     await page.waitForTimeout(200);
 

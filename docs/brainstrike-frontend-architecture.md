@@ -27,7 +27,7 @@ graph TD
     H["settings-page-content.tsx"]
     I["search-tab.tsx"]
     J["database-tab-chunk.tsx"]
-    K["stores: db-panel, right-panel, search-panel"]
+    K["stores: db-panel, tools-panel, search-panel"]
   end
 
   C --> F
@@ -51,7 +51,7 @@ Core providers create app-wide context. Panels then consume them, and local **Zu
 - **Vectors & embeddings**: [`packages/vector-management/src/embedding-queue-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/vector-management/src/embedding-queue-provider.tsx), [`packages/embedding-worker/src/embedding.worker.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/embedding-worker/src/embedding.worker.ts)
 - **File system adapters**: [`packages/file-explorer-hooks/src/adapters-context.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/file-explorer-hooks/src/adapters-context.tsx)
 - **File explorer**: [`packages/file-explorer-ui/src/file-explorer-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/file-explorer-ui/src/file-explorer-provider.tsx), [`packages/file-explorer/src/store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/file-explorer/src/store.ts) (Zustand)
-- **App shell stores (Zustand)**: [`packages/app-shell/src/stores/db-panel-store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/app-shell/src/stores/db-panel-store.ts), [`packages/app-shell/src/stores/right-panel-store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/app-shell/src/stores/right-panel-store.ts), [`packages/app-shell/src/stores/search-panel-store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/app-shell/src/stores/search-panel-store.ts)
+- **App shell stores (Zustand)**: [`packages/app-shell/src/stores/db-panel-store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/app-shell/src/stores/db-panel-store.ts), [`packages/app-shell/src/stores/tools-panel-store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/app-shell/src/stores/tools-panel-store.ts), [`packages/app-shell/src/stores/search-panel-store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/app-shell/src/stores/search-panel-store.ts)
 
 ```mermaid
 flowchart TD
@@ -70,7 +70,7 @@ flowchart TD
   end
 
   subgraph PanelStores["Panel Stores - Zustand"]
-    RS["RightPanelStore"]
+    RS["ToolsPanelStore"]
     DS["DbPanelStore"]
     SS["SearchPanelStore"]
     FES["FileExplorer Store"]
@@ -155,7 +155,7 @@ sequenceDiagram
 
 - **Entrypoints** mount a **provider stack** (Theme → Router → Layout → DB → Vectors → FS).  
 - The **shared shell** (`packages/app-shell`) composes the overall **IDE-like layout** (file tree, middle editor tabs, tools panel for assistant/tools) using layout providers from `packages/ui`.  
-- Each major surface owns a small **Zustand store** to keep its state local and testable (e.g., right-panel tabs, DB panel filters, search UI, file explorer selection).  
+- Each major surface owns a small **Zustand store** to keep its state local and testable (e.g., tools-panel tabs, DB panel filters, search UI, file explorer selection).  
 - Expensive work (embeddings) runs off-thread in a **Worker**, coordinated by `embedding-queue-provider`, with results persisted via **DBProvider** and visualized in **db-explorer**.  
 - The **Assistant UI** consumes context (search results, selections) and talks to the **agent provider-factory** to execute LLM-backed actions/tools.
 
@@ -163,7 +163,7 @@ sequenceDiagram
 
 ## Extension Hotspots (practical pointers)
 
-- **Add a new tools-panel tool**: start near [`packages/app-shell/src/right-panel-store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/app-shell/src/stores/right-panel-store.ts) and the tools-panel layout in [`packages/ui/src/layout/tools-panel.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/layout/tools-panel.tsx). Wire UI in `app-shell`, keep logic in its own small Zustand slice.  
+- **Add a new tools-panel tool**: start near [`packages/app-shell/src/stores/tools-panel-store.ts`](https://github.com/seandearnaley/brainstrike/blob/main/packages/app-shell/src/stores/tools-panel-store.ts) and the tools-panel layout in [`packages/ui/src/layout/tools-panel.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/ui/src/layout/tools-panel.tsx). Wire UI in `app-shell`, keep logic in its own small Zustand slice.  
 - **New file format support**: add adapter hooks in [`file-explorer-hooks/adapters-context.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/file-explorer-hooks/src/adapters-context.tsx) and chunking/preview in `file-explorer-ui`.  
 - **Custom search mode**: extend `db-explorer` components and, if needed, the **DB schema** behind [`packages/db/src/db-provider.tsx`](https://github.com/seandearnaley/brainstrike/blob/main/packages/db/src/db-provider.tsx).  
 - **Assistant action**: add a tool UI under `packages/ui/src/assistant-ui-panel` and logic via the **agent provider-factory**.

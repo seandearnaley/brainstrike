@@ -9,6 +9,7 @@ export async function resetAppState(page: Page): Promise<void> {
     localStorage.removeItem('fileExplorerSettings');
     localStorage.removeItem('file-explorer-storage-v4');
     localStorage.removeItem('previewPanelPreferences.v1');
+    localStorage.removeItem('tools-panel.v1');
     localStorage.removeItem('right-panel.v1');
   });
 }

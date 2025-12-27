@@ -106,7 +106,7 @@ test.describe('IDE Layout Persistence', () => {
       await ensureRightPanelVisible(page);
 
       if ((await hideRightPanelButton.count()) === 0) {
-        // No right-panel content available; skip further assertions.
+        // No tools panel content available; skip further assertions.
         return;
       }
 

@@ -3,7 +3,7 @@
 This folder contains lightweight Zustand slices used by the app shell. Slices are persisted with storage adapters that work in browser and tests.
 
 - `panel-layout-store.ts`: Canonical IDE layout state (sizes, visibility, activeTab). Used as the controlled source for `PanelLayoutProvider`.
-- `right-panel-store.ts`: Right panel active tab.
+- `tools-panel-store.ts`: Tools panel active tab.
 - `search-panel-store.ts`: Search tab filters (query/regex/case/whole-word/globs).
 - `db-panel-store.ts`: Database tab UI (active subtab, paging, sort, filter).
 - `import-settings-store.ts`: Database import settings (chunking + embeddings).
@@ -12,4 +12,3 @@ This folder contains lightweight Zustand slices used by the app shell. Slices ar
 Selectors: prefer tuple/primitives selectors exported by each store to reduce object churn and keep React Compiler friendly.
 
 Testing: most stores expose `__reset*ForTests()` to clear memory + storage to avoid cross-test pollution.
-
