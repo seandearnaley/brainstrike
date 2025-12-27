@@ -466,6 +466,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               loaded: 0,
               total: 0,
               phase: 'counting' as const,
+              percentage: 0,
             }
           }
         />

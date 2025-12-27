@@ -15,6 +15,8 @@ export type LoadingProgressState = {
   total: number;
   currentPath?: string;
   phase: 'counting' | 'loading';
+  /** Monotonically increasing percentage (0-100), never decreases */
+  percentage: number;
 };
 
 export interface LoadingOverlayProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -81,6 +83,11 @@ export const LoadingOverlay = ({
   const progressPercentage = useMemo(() => {
     if (progressState?.phase === 'counting') {
       return 0;
+    }
+
+    // Use the monotonically increasing percentage if available (never decreases)
+    if (progressState?.percentage !== undefined) {
+      return progressState.percentage;
     }
 
     if (progressState) {

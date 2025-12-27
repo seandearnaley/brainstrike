@@ -25,7 +25,7 @@ const getBaseMessage = (isInitialLoad?: boolean, progressState?: LoadingProgress
   }
 
   if (progressState.phase === 'counting') {
-    return 'Scanning directory structure...';
+    return 'Scanning folders...';
   }
 
   return getProgressMessage(progressState);
@@ -35,14 +35,15 @@ const getBaseMessage = (isInitialLoad?: boolean, progressState?: LoadingProgress
  * Get progress message with percentage and optional path
  */
 const getProgressMessage = (progressState: LoadingProgressState): string => {
-  const { loaded, total, currentPath } = progressState;
+  const { loaded, total, currentPath, percentage } = progressState;
 
   if (total === 0) {
     return 'Preparing...';
   }
 
-  const percent = Math.round((loaded / total) * 100);
-  const baseMsg = `Processing files (${loaded}/${total} - ${percent}%)`;
+  // Use the monotonically increasing percentage (never goes backwards)
+  const displayPercent = percentage ?? Math.round((loaded / total) * 100);
+  const baseMsg = `Processing files (${loaded}/${total} - ${displayPercent}%)`;
 
   if (currentPath) {
     const displayPath = formatDisplayPath(currentPath);

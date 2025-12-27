@@ -51,6 +51,7 @@ describe('LoadingOverlay', () => {
           loaded: 50,
           total: 100,
           phase: 'loading',
+          percentage: 50,
         }}
       />
     );
@@ -65,10 +66,11 @@ describe('LoadingOverlay', () => {
           loaded: 0,
           total: 0,
           phase: 'counting',
+          percentage: 0,
         }}
       />
     );
-    expect(screen.getByText('Scanning directory structure...')).toBeInTheDocument();
+    expect(screen.getByText('Scanning folders...')).toBeInTheDocument();
   });
 
   it('should render progress bar with correct percentage', () => {
@@ -301,6 +303,7 @@ describe('LoadingOverlay', () => {
               total: 10,
               phase: 'loading',
               currentPath: 'singlefile',
+              percentage: 20,
             }}
           />
         );
@@ -318,6 +321,7 @@ describe('LoadingOverlay', () => {
               total: 10,
               phase: 'loading',
               currentPath: '', // No path
+              percentage: 20,
             }}
           />
         );
@@ -335,6 +339,7 @@ describe('LoadingOverlay', () => {
               loaded: 0,
               total: 0,
               phase: 'loading',
+              percentage: 0,
             }}
           />
         );
@@ -349,11 +354,12 @@ describe('LoadingOverlay', () => {
               loaded: 0,
               total: 0,
               phase: 'counting',
+              percentage: 0,
             }}
           />
         );
-        // "Scanning directory structure..."
-        expect(screen.getByText('Scanning directory structure...')).toBeInTheDocument();
+        // "Scanning folders..."
+        expect(screen.getByText('Scanning folders...')).toBeInTheDocument();
         // The description says "This may take a moment for large directories"
         expect(
           screen.getByText('This may take a moment for large directories')
@@ -371,6 +377,7 @@ describe('LoadingOverlay', () => {
             loaded: 150,
             total: 100, // This should not happen with the new logic, but testing edge case
             phase: 'loading',
+            percentage: 150,
           }}
         />
       );
@@ -386,6 +393,7 @@ describe('LoadingOverlay', () => {
             loaded: 3168,
             total: 5000,
             phase: 'loading',
+            percentage: 63,
           }}
         />
       );
@@ -401,6 +409,7 @@ describe('LoadingOverlay', () => {
             loaded: 5,
             total: 0,
             phase: 'loading',
+            percentage: 0,
           }}
         />
       );
@@ -416,6 +425,7 @@ describe('LoadingOverlay', () => {
             loaded: 99,
             total: 100,
             phase: 'loading',
+            percentage: 99,
           }}
         />
       );
@@ -431,6 +441,7 @@ describe('LoadingOverlay', () => {
             loaded: 1000,
             total: 1000,
             phase: 'loading',
+            percentage: 100,
           }}
         />
       );
@@ -449,6 +460,7 @@ describe('LoadingOverlay', () => {
             total: 10,
             phase: 'loading',
             currentPath: 'foo/bar/baz/qux',
+            percentage: 20,
           }}
         />
       );
@@ -467,6 +479,7 @@ describe('LoadingOverlay', () => {
             total: 10,
             phase: 'loading',
             currentPath: 'bar/baz',
+            percentage: 20,
           }}
         />
       );
@@ -486,6 +499,7 @@ describe('LoadingOverlay', () => {
             loaded: 10,
             total: 100,
             phase: 'counting',
+            percentage: 0,
           }}
         />
       );
@@ -501,6 +515,7 @@ describe('LoadingOverlay', () => {
             loaded: 75,
             total: 300,
             phase: 'loading',
+            percentage: 25,
           }}
         />
       );
@@ -522,6 +537,7 @@ describe('LoadingOverlay', () => {
             loaded: 50,
             total: 0,
             phase: 'loading',
+            percentage: 0,
           }}
         />
       );
