@@ -25,6 +25,7 @@ export type FileTapestry = {
   totalLines: number;
   structure: LineData[]; // Visual representation only
   content: string[]; // Actual text content for preview
+  contentStatus: 'ready' | 'loading' | 'idle';
   selections: TapestryRange[];
 };
 

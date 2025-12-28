@@ -30,6 +30,7 @@ const createFile = (): FileTapestry => {
       isEmpty: false,
     })),
     content: Array.from({ length: 10 }, (_, index) => `line-${index}`),
+    contentStatus: 'ready',
     selections: [range],
   };
 };

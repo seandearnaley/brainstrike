@@ -27,6 +27,7 @@ type MinimapProps = {
   getGlobalIndex: (rangeId: string) => number;
   isSelected: boolean;
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
+  onRequestFileContent?: (compositeKey: string) => void;
 };
 
 const RangeItem = memo(
@@ -40,6 +41,7 @@ const RangeItem = memo(
     onMoveRange,
     hoveredRangeId,
     setHoveredRangeId,
+    onPreviewHover,
   }: {
     range: TapestryRange;
     file: FileTapestry;
@@ -60,11 +62,26 @@ const RangeItem = memo(
     ) => void;
     hoveredRangeId: string | null;
     setHoveredRangeId: (id: string | null) => void;
+    onPreviewHover?: () => void;
   }) => {
     const top = range.startLine * scale;
     const height = (range.endLine - range.startLine) * scale;
     const globalIndex = getGlobalIndex(range.id);
     const isHovered = hoveredRangeId === range.id;
+    const maxPreviewLines = 8;
+    const isFullFileRange = range.startLine === 0 && range.endLine >= file.totalLines;
+    const contentLength = file.content.length;
+    const clampedStart = Math.min(range.startLine, Math.max(contentLength - 1, 0));
+    const previewStartLine = isFullFileRange ? 0 : clampedStart;
+    const previewEndLine = Math.min(
+      previewStartLine + maxPreviewLines,
+      isFullFileRange ? contentLength : Math.min(range.endLine, contentLength)
+    );
+    const previewLines = file.content.slice(previewStartLine, previewEndLine);
+    const remainingLines = Math.max(
+      0,
+      Math.max(range.endLine - range.startLine, 0) - previewLines.length
+    );
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
       const rangeHeight = range.endLine - range.startLine;
@@ -133,7 +150,10 @@ const RangeItem = memo(
                 handleStart('MOVING', range.id, e.clientY, range);
               }
             }}
-            onMouseEnter={() => setHoveredRangeId(range.id)}
+            onMouseEnter={() => {
+              setHoveredRangeId(range.id);
+              onPreviewHover?.();
+            }}
             onMouseLeave={() => setHoveredRangeId(null)}
             role="slider"
             style={{
@@ -241,19 +261,17 @@ const RangeItem = memo(
             style={{ minHeight: '100px' }}
           >
             <div className="whitespace-pre font-medium font-mono text-[10px] text-foreground leading-relaxed">
-              {file.content
-                .slice(range.startLine, Math.min(range.startLine + 8, range.endLine))
-                .map((line, i) => (
-                  <div className="flex gap-3" key={`${range.id}-line-${i}`}>
-                    <span className="w-6 select-none text-right text-muted-foreground/50 opacity-50">
-                      {range.startLine + i}
-                    </span>
-                    <span className="opacity-90">{line || ' '}</span>
-                  </div>
-                ))}
-              {range.endLine - range.startLine > 8 && (
+              {previewLines.map((line, i) => (
+                <div className="flex gap-3" key={`${range.id}-line-${i}`}>
+                  <span className="w-6 select-none text-right text-muted-foreground/50 opacity-50">
+                    {previewStartLine + i}
+                  </span>
+                  <span className="opacity-90">{line || ' '}</span>
+                </div>
+              ))}
+              {remainingLines > 0 && (
                 <div className="mt-2 pl-9 text-muted-foreground italic">
-                  ... {range.endLine - range.startLine - 8} more lines
+                  ... {remainingLines} more lines
                 </div>
               )}
             </div>
@@ -277,6 +295,7 @@ export const Minimap = memo(
     getGlobalIndex,
     isSelected,
     onToggleSelection,
+    onRequestFileContent,
   }: MinimapProps) => {
     const containerRef = useRef<HTMLButtonElement>(null);
     const [hoveredRangeId, setHoveredRangeId] = useState<string | null>(null);
@@ -284,6 +303,12 @@ export const Minimap = memo(
     const minHeight = Math.max(80, scale * 12);
     const totalHeight = Math.max(file.totalLines * scale, minHeight);
     const lineThickness = Math.max(1, scale * 0.6);
+
+    const handlePreviewHover = () => {
+      if (file.contentStatus === 'idle') {
+        onRequestFileContent?.(file.compositeKey);
+      }
+    };
 
     const handleMouseDown = (e: React.MouseEvent) => {
       e.stopPropagation();
@@ -346,11 +371,11 @@ export const Minimap = memo(
             <div className="min-w-0 flex-1">
               <span className="block truncate font-bold text-foreground">{file.name}</span>
             </div>
-            <span className="text-[10px] opacity-50">{file.totalLines}L</span>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2 text-[10px]">
             <span className="min-w-0 truncate opacity-60">{file.rootFolderId}</span>
             <div className="flex flex-shrink-0 items-center gap-2">
+              <span className="font-mono text-[10px] opacity-70">{file.totalLines}L</span>
               <Badge className="px-1.5 text-[9px]" variant="secondary">
                 {file.type}
               </Badge>
@@ -416,6 +441,7 @@ export const Minimap = memo(
               handleStart={handleStart}
               hoveredRangeId={hoveredRangeId}
               key={range.id}
+              onPreviewHover={handlePreviewHover}
               {...(onMoveRange ? { onMoveRange } : {})}
               onToggleRange={onToggleRange}
               range={range}

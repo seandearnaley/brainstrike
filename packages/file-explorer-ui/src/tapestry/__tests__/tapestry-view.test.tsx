@@ -33,6 +33,7 @@ const buildFile = (index: number): FileTapestry => {
       isEmpty: j === 50,
     })),
     content: Array.from({ length: totalLines }).map((_, j) => `line ${j}`),
+    contentStatus: 'ready',
     selections: [range],
   };
 };

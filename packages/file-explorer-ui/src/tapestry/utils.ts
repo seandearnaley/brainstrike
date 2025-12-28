@@ -169,6 +169,7 @@ export const generateMockFiles = (count: number): FileTapestry[] => {
       totalLines,
       structure,
       content: generateContent(totalLines, structure),
+      contentStatus: 'ready',
       selections: [initialSelection],
     };
   });

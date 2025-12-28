@@ -142,6 +142,7 @@ type PreviewPanelProps = {
   onTokenBudgetChange?: (budget: number) => void;
   folderSummaryThreshold?: number;
   onFolderSummaryThresholdChange?: (threshold: number) => void;
+  onRequestFileContent?: (compositeKey: string) => void;
 };
 
 // Column configuration
@@ -960,6 +961,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     onTokenBudgetChange,
     folderSummaryThreshold,
     onFolderSummaryThresholdChange,
+    onRequestFileContent,
   } = props;
 
   // Local selection state for preview panel - separate from file tree selections
@@ -1679,6 +1681,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               totalLinesSelected={totalLinesSelected}
               ungroupedFiles={tapestryUngroupedFiles}
               visibleFilesOnPage={visibleFilesOnPage}
+              {...(onRequestFileContent ? { onRequestFileContent } : {})}
             />
           </FileExplorerErrorBoundary>
         </TabsContent>

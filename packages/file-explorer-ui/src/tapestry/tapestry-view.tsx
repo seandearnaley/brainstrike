@@ -147,6 +147,7 @@ type TapestryViewProps = {
   isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
   previewSelections: Set<string>;
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
+  onRequestFileContent?: (compositeKey: string) => void;
   visibleFilesOnPage: TableRowData[];
   onSelectAllOnPage: (items: TableRowData[]) => void;
   onDeselectAll: () => void;
@@ -386,6 +387,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   isGroupPartiallySelected,
   previewSelections,
   onToggleSelection,
+  onRequestFileContent,
   visibleFilesOnPage,
   onSelectAllOnPage,
   onDeselectAll,
@@ -568,6 +570,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                     onToggleRange={handleToggleRange}
                     onToggleSelection={onToggleSelection}
                     scale={scale}
+                    {...(onRequestFileContent ? { onRequestFileContent } : {})}
                     smartStart={startDrag}
                   />
                 ))}
@@ -605,6 +608,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                           onToggleRange={handleToggleRange}
                           onToggleSelection={onToggleSelection}
                           scale={scale}
+                          {...(onRequestFileContent ? { onRequestFileContent } : {})}
                           smartStart={startDrag}
                         />
                       ))}
