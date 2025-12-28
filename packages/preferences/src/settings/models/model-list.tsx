@@ -105,7 +105,7 @@ function formatDimension(dimension?: number): string | null {
 }
 
 function resolveSizeLabel(parameters: DbModel['parameters']): string | null {
-  if (!parameters || typeof parameters !== 'object') {
+  if (!parameters) {
     return null;
   }
   const sizeValue = (parameters as Record<string, unknown>)['size'];

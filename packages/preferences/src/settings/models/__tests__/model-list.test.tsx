@@ -77,6 +77,19 @@ const baseModels: DbModel[] = [
     sortOrder: 3,
   },
   {
+    id: 'text-embed',
+    providerId: 'openai',
+    name: 'OpenAI Embed',
+    description: 'Remote embedding model',
+    tagline: null,
+    bestFor: null,
+    icon: null,
+    isEnabled: false,
+    capabilities: { type: 'embedding', streaming: false },
+    parameters: null,
+    sortOrder: 3,
+  },
+  {
     id: 'mystery-model',
     providerId: 'missing-provider',
     name: 'Mystery Model',
@@ -139,6 +152,33 @@ describe('ModelList', () => {
     expect(screen.getByText('HF Stream Model')).toBeTruthy();
 
     // Ensure callback spies unused in this flow
+    expect(onToggleSpy).not.toHaveBeenCalled();
+    expect(onDownloadSpy).not.toHaveBeenCalled();
+  });
+
+  it('toggles local and remote filters', async () => {
+    const { onToggleSpy, onDownloadSpy, ...props } = makeProps();
+    render(<ModelList {...props} />);
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Embeddings' }));
+
+    const remoteButton = screen.getByRole('button', { name: /Remote/i });
+    const localButton = screen.getByRole('button', { name: /Local/i });
+
+    expect(screen.getByTestId('model-row-text-embed')).toBeTruthy();
+    expect(screen.getByTestId('model-row-local-ready')).toBeTruthy();
+
+    await userEvent.click(remoteButton);
+    expect(screen.queryByTestId('model-row-text-embed')).toBeNull();
+    expect(screen.getByTestId('model-row-local-ready')).toBeTruthy();
+
+    await userEvent.click(localButton);
+    expect(screen.getByText('Enable Local or Remote to view models.')).toBeTruthy();
+
+    await userEvent.click(remoteButton);
+    expect(screen.getByTestId('model-row-text-embed')).toBeTruthy();
+    expect(screen.queryByTestId('model-row-local-ready')).toBeNull();
+
     expect(onToggleSpy).not.toHaveBeenCalled();
     expect(onDownloadSpy).not.toHaveBeenCalled();
   });

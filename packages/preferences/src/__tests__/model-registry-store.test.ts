@@ -235,6 +235,90 @@ describe('model-registry-store', () => {
       expect(useModelRegistryStore.getState().isLoading).toBe(false);
       expect(useModelRegistryStore.getState().error).toBe('Database connection failed');
     });
+
+    it('keeps downloaded models when cache directory is unavailable', async () => {
+      useModelRegistryStore.setState({
+        downloadedModels: { 'local-model': true },
+      });
+
+      const mockProviderRows = [
+        { id: 'local', name: 'Local', icon: null, is_enabled: true, sort_order: 0 },
+      ];
+      const mockModelRows = [
+        {
+          id: 'local-model',
+          provider_id: 'local',
+          name: 'Local Model',
+          description: 'Local model',
+          tagline: null,
+          best_for: null,
+          icon: null,
+          is_enabled: true,
+          capabilities: JSON.stringify({ type: 'embedding' }),
+          parameters: null,
+          sort_order: 0,
+        },
+      ];
+
+      const mockDb = {
+        query: vi
+          .fn()
+          .mockResolvedValueOnce({ rows: mockProviderRows })
+          .mockResolvedValueOnce({ rows: mockModelRows }),
+      };
+
+      await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
+
+      expect(useModelRegistryStore.getState().downloadedModels['local-model']).toBe(true);
+    });
+
+    it('preserves downloaded state when filesystem checks fail', async () => {
+      const originalElectronAPI = (window as unknown as { electronAPI?: unknown }).electronAPI;
+      try {
+        (window as unknown as { electronAPI?: unknown }).electronAPI = {
+          fileSystem: {
+            exists: vi.fn().mockRejectedValue(new Error('fs unavailable')),
+          },
+        };
+
+        useModelRegistryStore.setState({
+          modelCacheDir: '/cache',
+          downloadedModels: { 'local-model': true },
+        });
+
+        const mockProviderRows = [
+          { id: 'local', name: 'Local', icon: null, is_enabled: true, sort_order: 0 },
+        ];
+        const mockModelRows = [
+          {
+            id: 'local-model',
+            provider_id: 'local',
+            name: 'Local Model',
+            description: 'Local model',
+            tagline: null,
+            best_for: null,
+            icon: null,
+            is_enabled: true,
+            capabilities: JSON.stringify({ type: 'embedding' }),
+            parameters: null,
+            sort_order: 0,
+          },
+        ];
+
+        const mockDb = {
+          query: vi
+            .fn()
+            .mockResolvedValueOnce({ rows: mockProviderRows })
+            .mockResolvedValueOnce({ rows: mockModelRows }),
+        };
+
+        await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
+
+        expect(useModelRegistryStore.getState().downloadedModels['local-model']).toBe(true);
+      } finally {
+        (window as unknown as { electronAPI?: unknown }).electronAPI = originalElectronAPI;
+      }
+    });
   });
 
   describe('toggleModel', () => {
