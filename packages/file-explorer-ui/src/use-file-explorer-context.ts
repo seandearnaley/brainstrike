@@ -2,16 +2,20 @@
  * File Explorer Hook (Context-aware)
  *
  * This hook provides file explorer functionality using the context-based store.
+ * Uses lazy loading for instant initial display and on-demand directory loading.
+ *
+ * IMPORTANT: When used within a FileTreeProvider, all components share the same
+ * tree state. This ensures that when expand-all completes, all consumers see the
+ * updated tree for file content loading.
  */
-// HMR probe: safe no-op comment to trigger a hot update
 
-import { useFileExplorer as useCoreFileExplorer } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { useCallback, useMemo } from 'react';
 
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useOptionalFileTreeContext } from './file-tree-provider';
 import { useFileSystem } from './use-file-system-context';
 import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
 import { useSharedFileContentLoading } from './use-shared-file-content-loading';
@@ -47,6 +51,22 @@ type UseFileExplorerReturn = {
   /** Whether the operation is currently being cancelled */
   isCancelling: boolean;
   clearRootDirectory: () => void;
+  /** Set of paths currently loading their children (lazy loading) */
+  loadingPaths: Set<string>;
+  /** Load children of a directory on expand (lazy loading) */
+  loadChildren: (path: string) => Promise<void>;
+  /** Refresh a specific directory */
+  refreshDirectory: (path: string) => Promise<void>;
+  /** Progressively expand all directories (loads everything) */
+  expandAllProgressively: (
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+  ) => Promise<void>;
+  /** Cancel expand-all operation */
+  cancelExpandAll: () => void;
+  /** Whether expand-all is in progress */
+  isExpandingAll: boolean;
+  /** Progress of expand-all operation */
+  expandAllProgress: { loaded: number; total: number } | null;
 };
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -66,9 +86,6 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const setUseRegex = store(selectSetUseRegex);
   const storeClearFileContents = store(selectClearFileContents);
 
-  // Call the core hook
-  const coreExplorer = useCoreFileExplorer();
-
   const {
     rootDirectoryHandle,
     selectRootDirectory,
@@ -76,6 +93,16 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     clearRootDirectory,
   } = useFileSystem();
 
+  // Try to get shared tree state from FileTreeProvider context.
+  // This ensures all components using useFileExplorer share the same tree
+  // after expand-all completes - fixing the "file not found" bug.
+  const sharedTreeContext = useOptionalFileTreeContext();
+
+  // Always call useFileTree to maintain hook order (rules of hooks).
+  // When sharedTreeContext is available, we use its values instead.
+  const localTreeState = useFileTree(rootDirectoryHandle);
+
+  // Use shared context if available, otherwise use local tree state
   const {
     fileTree,
     isLoading: isTreeLoading,
@@ -85,7 +112,14 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancellable,
     cancelOperation,
     isCancelling,
-  } = useFileTree(rootDirectoryHandle);
+    loadingPaths,
+    loadChildren,
+    refreshDirectory,
+    expandAllProgressively,
+    cancelExpandAll,
+    isExpandingAll,
+    expandAllProgress,
+  } = sharedTreeContext ?? localTreeState;
 
   // storeClearFileContents is selected above to keep hook count constant
 
@@ -150,8 +184,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     [applyFiltersUtil, fileTree, setFilters, setUseRegex]
   );
 
-  // Construct the return object, carefully combining local state/logic with coreExplorer where needed.
-  // This needs to satisfy UseFileExplorerReturn type.
+  // Derive error from tree, content, and filter errors
   const deriveDisplayError = (): Error | null => {
     if (treeError) {
       return treeError;
@@ -159,48 +192,43 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     if (contentError) {
       return contentError;
     }
-    // If localFilterError is present, it's a string message from useFileFilters
     if (localFilterError) {
       return new Error(localFilterError);
-    }
-    // coreExplorer.error could be an Error, string, or null
-    if (coreExplorer.error) {
-      // Check if it's an Error instance
-      const error = coreExplorer.error as unknown;
-      if (error instanceof Error) {
-        return error; // It's an Error object
-      }
-      // If it's not an Error object, and it's truthy, it must be a string from coreExplorer.filterError
-      return new Error(String(coreExplorer.error));
     }
     return null;
   };
   const displayError = deriveDisplayError();
 
-  const approximatedIsInitialLoad = !coreExplorer.rootDirectoryHandle && coreExplorer.isLoading;
+  // Initial load is when we have a root but tree is still loading
+  const isInitialLoad = !rootDirectoryHandle && isTreeLoading;
 
   return {
     fileTree: filteredTree,
     handleRootDirectorySelect,
-    isLoading: isTreeLoading || coreExplorer.isLoading,
+    isLoading: isTreeLoading,
     error: displayError,
     fileContents,
     loadingFiles: contentLoadingFiles,
     applyFileFilters: wrappedApplyFileFilters,
-    filterError:
-      localFilterError ||
-      (typeof coreExplorer.filterError === 'string' ? coreExplorer.filterError : null),
+    filterError: localFilterError,
     rootDirectoryHandle,
     isFileSystemAccessSupported,
     loadFileContent,
     loadMultipleFileContents: handleFileContentLoading,
     refreshFileExplorer,
-    isInitialLoad: approximatedIsInitialLoad,
+    isInitialLoad,
     clearFileContents: storeClearFileContents,
     loadingProgress,
     cancellable,
     cancelOperation,
     isCancelling,
     clearRootDirectory,
+    loadingPaths,
+    loadChildren,
+    refreshDirectory,
+    expandAllProgressively,
+    cancelExpandAll,
+    isExpandingAll,
+    expandAllProgress,
   };
 }
