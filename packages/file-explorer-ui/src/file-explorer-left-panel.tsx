@@ -33,15 +33,21 @@ const ActionButtons = lazy(() =>
 );
 
 // Quick filter helpers (factored to keep component complexity low)
-function createSearchableText(node: IFileNode): string {
-  return `${node.name.toLowerCase()} ${node.path.toLowerCase()}`;
-}
 
-function shouldInclude(text: string, includes: string[], excludes: string[]): boolean {
-  if (excludes.some((e) => text.includes(e))) {
+/**
+ * Check if a node should be included based on filter patterns.
+ * IMPORTANT: Both include and exclude patterns match ONLY against the filename
+ * to avoid false positives from path components (e.g., "test" matching
+ * "test-project/" in the path when only files named "test" should match).
+ */
+function shouldIncludeNode(node: IFileNode, includes: string[], excludes: string[]): boolean {
+  const nameText = node.name.toLowerCase();
+  // Excludes only match filename to avoid false positives from path
+  if (excludes.some((e) => nameText.includes(e))) {
     return false;
   }
-  return includes.length === 0 || includes.some((i) => text.includes(i));
+  // Includes also only match filename for consistent behavior
+  return includes.length === 0 || includes.some((i) => nameText.includes(i));
 }
 
 function filterNodeByPatterns(
@@ -49,7 +55,6 @@ function filterNodeByPatterns(
   includes: string[],
   excludes: string[]
 ): IFileNode | null {
-  const text = createSearchableText(node);
   if (node.type === 'directory') {
     const children = node.children ?? [];
     const filteredChildren = children
@@ -58,12 +63,12 @@ function filterNodeByPatterns(
     if (filteredChildren.length > 0) {
       return { ...node, children: filteredChildren };
     }
-    if (shouldInclude(text, includes, excludes)) {
+    if (shouldIncludeNode(node, includes, excludes)) {
       return { ...node, children: [] };
     }
     return null;
   }
-  return shouldInclude(text, includes, excludes) ? node : null;
+  return shouldIncludeNode(node, includes, excludes) ? node : null;
 }
 
 function filterTreeByPatterns(
