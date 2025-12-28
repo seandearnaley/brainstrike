@@ -8,9 +8,19 @@ type LogRowProps = {
   row: Row<LogRecordRow>;
   virtualRow: VirtualItem;
   measureRow: (node: HTMLTableRowElement | null) => void;
+  wrapLines: boolean;
 };
 
-export const LogRow = memo(function LogRow({ row, virtualRow, measureRow }: LogRowProps) {
+export const LogRow = memo(function LogRow({
+  row,
+  virtualRow,
+  measureRow,
+  wrapLines,
+}: LogRowProps) {
+  const cellClassName = wrapLines
+    ? 'px-3 py-2 align-top min-w-0 break-words whitespace-normal overflow-hidden first:pl-4 last:pr-4'
+    : 'px-3 py-2 align-top min-w-0 truncate whitespace-nowrap overflow-hidden first:pl-4 last:pr-4';
+
   return (
     <TableRow
       className="group align-top transition-colors duration-200 hover:bg-muted/40"
@@ -19,7 +29,7 @@ export const LogRow = memo(function LogRow({ row, virtualRow, measureRow }: LogR
       style={{ height: `${virtualRow.size}px` }}
     >
       {row.getVisibleCells().map((cell) => (
-        <TableCell className="px-3 py-2 align-top first:pl-4 last:pr-4" key={cell.id}>
+        <TableCell className={cellClassName} key={cell.id}>
           {flexRender(cell.column.columnDef.cell, cell.getContext())}
         </TableCell>
       ))}

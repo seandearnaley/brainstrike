@@ -126,4 +126,23 @@ describe('LogViewer', () => {
     // However, interacting with Radix Select in JSDOM can be tricky without setup.
     // Let's skip complex interaction tests for now and focus on rendering.
   });
+
+  it('shows pagination when logs exceed the page size', async () => {
+    const logs = Array.from({ length: 60 }, (_, index) =>
+      createMockLogRecord({
+        message: `Log ${index + 1}`,
+        timestamp: index + 1,
+      })
+    );
+    const logSource = {
+      getInitialRecords: async () => logs,
+      subscribe: () => () => {},
+    };
+
+    render(<LogViewer logSource={logSource} toast={mockToast} />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Page 2 of 2/i)).toBeInTheDocument();
+    });
+  });
 });
