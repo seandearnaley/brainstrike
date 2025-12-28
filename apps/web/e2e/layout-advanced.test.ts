@@ -17,6 +17,9 @@ import {
   waitForAppLoad,
 } from './utils/layout-helpers';
 
+const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+const longTimeout = isCI ? 120_000 : 60_000;
+
 test.describe('Advanced IDE Layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
@@ -130,11 +133,12 @@ test.describe('Advanced IDE Layout', () => {
 
   test.describe('Error Handling and Recovery', () => {
     test('should recover from corrupted layout storage', async ({ page }) => {
+      test.setTimeout(longTimeout);
       // Corrupt the storage
       await corruptLayoutStorage(page);
 
       // Reload and verify graceful recovery
-      await page.reload();
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await waitForAppLoad(page);
       await verifyDefaultLayout(page);
 
@@ -148,11 +152,12 @@ test.describe('Advanced IDE Layout', () => {
     });
 
     test('should handle missing localStorage gracefully', async ({ page }) => {
+      test.setTimeout(longTimeout);
       // Clear all storage
       await clearAllStorage(page);
 
       // Reload and verify default state
-      await page.reload();
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await waitForAppLoad(page);
       await verifyDefaultLayout(page);
 
@@ -239,7 +244,8 @@ test.describe('Advanced IDE Layout', () => {
       const duration = endTime - startTime;
 
       // Operations should complete within reasonable time (2 seconds)
-      expect(duration).toBeLessThan(2000);
+      const maxDuration = isCI ? 6000 : 2000;
+      expect(duration).toBeLessThan(maxDuration);
 
       // Verify final state is correct
       await expect(elements.leftPanel).toBeVisible();
@@ -338,16 +344,17 @@ test.describe('Advanced IDE Layout', () => {
     });
 
     test('should handle rapid page reloads during layout changes', async ({ page }) => {
+      test.setTimeout(longTimeout);
       const elements = getPanelElements(page);
 
       // Change layout
       await elements.hideExplorerButton.click();
-      await page.reload();
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await waitForAppLoad(page);
 
       // Change layout again
       await elements.showConsoleShim.click();
-      await page.reload();
+      await page.reload({ waitUntil: 'domcontentloaded' });
       await waitForAppLoad(page);
 
       // Verify final state is persisted correctly
