@@ -37,71 +37,6 @@ function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
   return sortTreeNodes(nodes);
 }
 
-/**
- * Count total nodes in a tree (used for logging).
- */
-function countNodes(nodes: { children?: unknown[] }[]): number {
-  let count = 0;
-  for (const node of nodes) {
-    count += 1;
-    if (node.children) {
-      count += countNodes(node.children as { children?: unknown[] }[]);
-    }
-  }
-  return count;
-}
-
-/**
- * Count files without handles (used for logging rehydration issues).
- */
-function countFilesWithoutHandles(nodes: IFileNode[]): number {
-  let count = 0;
-  for (const node of nodes) {
-    if (node.type === 'file' && !node.handle) {
-      count += 1;
-    }
-    if (node.children) {
-      count += countFilesWithoutHandles(node.children);
-    }
-  }
-  return count;
-}
-
-/**
- * Log and check for files without handles after tree rehydration.
- */
-function logRehydrationResult(
-  operation: string,
-  handleMapSize: number,
-  workerTreeNodes: number,
-  rehydratedNodes: number,
-  rehydratedTree: IFileNode[]
-): void {
-  logger.info(`${operation} complete`, { handleMapSize, workerTreeNodes });
-  logger.info(`${operation} rehydrated`, { rehydratedNodes });
-
-  const filesWithoutHandles = countFilesWithoutHandles(rehydratedTree);
-  if (filesWithoutHandles > 0) {
-    logger.warn(`${operation} files missing handles`, { filesWithoutHandles });
-  }
-}
-
-/**
- * Remove a path from the loading paths set.
- */
-function removeFromLoadingPaths(paths: Set<string>, path: string): Set<string> {
-  const newPaths = new Set(paths);
-  newPaths.delete(path);
-  return newPaths;
-}
-
-/**
- * Get error message from an unknown error.
- */
-function getErrorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
 export type LazyFileTreeState = {
   fileTree: IFileNode[];
   isInitialLoading: boolean;
@@ -321,11 +256,15 @@ export function useLazyFileTree(
         portRef.current.updateTree(path, workerChildren);
       }
 
-      setState((s) => ({
-        ...s,
-        fileTree: updateNodeChildren(s.fileTree, path, children, 'loaded'),
-        loadingPaths: removeFromLoadingPaths(s.loadingPaths, path),
-      }));
+      setState((s) => {
+        const newLoadingPaths = new Set(s.loadingPaths);
+        newLoadingPaths.delete(path);
+        return {
+          ...s,
+          fileTree: updateNodeChildren(s.fileTree, path, children, 'loaded'),
+          loadingPaths: newLoadingPaths,
+        };
+      });
     },
     [handleMapRef, portRef]
   );
@@ -334,11 +273,15 @@ export function useLazyFileTree(
    * Handle directory load error.
    */
   const handleLoadError = useCallback((path: string, errorMsg: string) => {
-    setState((s) => ({
-      ...s,
-      fileTree: setNodeLoadState(s.fileTree, path, 'error', errorMsg),
-      loadingPaths: removeFromLoadingPaths(s.loadingPaths, path),
-    }));
+    setState((s) => {
+      const newLoadingPaths = new Set(s.loadingPaths);
+      newLoadingPaths.delete(path);
+      return {
+        ...s,
+        fileTree: setNodeLoadState(s.fileTree, path, 'error', errorMsg),
+        loadingPaths: newLoadingPaths,
+      };
+    });
   }, []);
 
   /**
@@ -375,7 +318,8 @@ export function useLazyFileTree(
         }
       } catch (err) {
         if (!isAbortError(err)) {
-          handleLoadError(path, getErrorMessage(err));
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          handleLoadError(path, errorMsg);
         }
       } finally {
         removeChildController(path);
@@ -492,13 +436,9 @@ export function useLazyFileTree(
 
         // Rehydrate final tree with handles
         const rehydratedTree = rehydrateTree(result.tree, handleMapRef.current);
-        logRehydrationResult(
-          'loadSpecificPaths',
-          handleMapRef.current.size,
-          countNodes(result.tree),
-          countNodes(rehydratedTree),
-          rehydratedTree
-        );
+        logger.info('loadSpecificPaths complete', {
+          handleMapSize: handleMapRef.current.size,
+        });
 
         // Update state with loaded tree
         setState((s) => ({
