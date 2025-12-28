@@ -109,7 +109,7 @@ async function getFileNodeWithRetry(
       treeNodeCount,
       fileTreeLength: fileTree.length,
       foundNode: !!fileNode,
-      hasHandle: fileNode?.handle != null,
+      hasHandle: fileNode?.handle !== undefined && fileNode?.handle !== null,
     });
     await new Promise((resolve) => setTimeout(resolve, 100));
     fileNode = refreshFileNodeCacheEntry(nodeCacheRef.current, fileTree, folderId, path);

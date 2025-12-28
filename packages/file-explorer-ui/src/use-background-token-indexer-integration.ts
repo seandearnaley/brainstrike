@@ -193,7 +193,7 @@ export function useBackgroundTokenIndexerIntegration({
   const fileHandleMapRef = useRef<Map<string, HandleInfo>>(new Map());
   const previousRootIdsRef = useRef<string>('');
   const rebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // biome-ignore lint/plugin: side-effectful map construction on tree change is intentional
+  // Side-effectful map construction on tree change is intentional
   useEffect(() => {
     // Cancel any pending rebuild
     if (rebuildTimeoutRef.current) {

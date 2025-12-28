@@ -335,6 +335,7 @@ export function useLazyFileTree(
   /**
    * Initialize worker and set up handlers
    */
+  // biome-ignore lint/plugin: Worker setup requires side effects - not derived state
   useEffect(() => {
     // Create worker
     const worker = new Worker(resolveFileTreeWorkerUrl(), { type: 'module' });
@@ -782,6 +783,7 @@ export function useLazyFileTree(
   );
 
   // Auto-load root when handle changes
+  // biome-ignore lint/plugin: Root loading triggered by handle change - intentional side effect
   useEffect(() => {
     if (rootDirectoryHandle) {
       // Skip if expand-all is in progress - loadRoot would wipe handle map

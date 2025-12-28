@@ -108,18 +108,23 @@ export async function loadRootDirectory(
   const lazyNodes: IFileNode[] = children
     .filter((child) => !fileFilter.shouldIgnorePath(child.name))
     .map((child) => {
-      const node: IFileNode = {
+      // For directories: omit children to ensure lazy loading triggers
+      // (adapters may set children: [], which we need to remove)
+      if (child.type === 'directory') {
+        const { children: _children, ...rest } = child;
+        return {
+          ...rest,
+          depth: 0,
+          rootFolderId: rootHandle.name,
+          loadState: 'unloaded' as const,
+        };
+      }
+      // Files: just add depth and rootFolderId
+      return {
         ...child,
         depth: 0,
         rootFolderId: rootHandle.name,
       };
-      // Mark directories as unloaded (children will be loaded on expand)
-      // Remove children to ensure lazy loading triggers (adapters may set children: [])
-      if (child.type === 'directory') {
-        node.loadState = 'unloaded';
-        delete node.children;
-      }
-      return node;
     });
 
   return sortFileNodes(lazyNodes);
@@ -172,18 +177,23 @@ export async function loadDirectoryChildren(
       return !fileFilter.shouldIgnorePath(relativePath);
     })
     .map((child) => {
-      const node: IFileNode = {
+      // For directories: omit children to ensure lazy loading triggers
+      // (adapters may set children: [], which we need to remove)
+      if (child.type === 'directory') {
+        const { children: _children, ...rest } = child;
+        return {
+          ...rest,
+          depth: parentNode.depth + 1,
+          rootFolderId: parentNode.rootFolderId,
+          loadState: 'unloaded' as const,
+        };
+      }
+      // Files: just add depth and rootFolderId
+      return {
         ...child,
         depth: parentNode.depth + 1,
         rootFolderId: parentNode.rootFolderId,
       };
-      // Mark directories as unloaded (children will be loaded on expand)
-      // Remove children to ensure lazy loading triggers (adapters may set children: [])
-      if (child.type === 'directory') {
-        node.loadState = 'unloaded';
-        delete node.children;
-      }
-      return node;
     });
 
   return sortFileNodes(lazyNodes);
@@ -210,14 +220,13 @@ export function updateNodeChildren(
   return tree.map((node): IFileNode => {
     // Found the target node
     if (node.path === targetPath) {
-      const updatedNode: IFileNode = {
-        ...node,
+      // Destructure to omit loadError when successfully loaded
+      const { loadError: _loadError, ...rest } = node;
+      return {
+        ...rest,
         children,
         loadState,
       };
-      // Remove loadError when successfully loaded
-      delete updatedNode.loadError;
-      return updatedNode;
     }
 
     // Check if target is a descendant of this node
@@ -253,16 +262,17 @@ export function setNodeLoadState(
   return tree.map((node): IFileNode => {
     // Found the target node
     if (node.path === targetPath) {
-      const updatedNode: IFileNode = {
-        ...node,
+      // Destructure to omit loadError, then conditionally add it back
+      const { loadError: _loadError, ...rest } = node;
+      const updated: IFileNode = {
+        ...rest,
         loadState,
       };
+      // Only include loadError if error is defined
       if (error !== undefined) {
-        updatedNode.loadError = error;
-      } else {
-        delete updatedNode.loadError;
+        updated.loadError = error;
       }
-      return updatedNode;
+      return updated;
     }
 
     // Check if target is a descendant of this node
