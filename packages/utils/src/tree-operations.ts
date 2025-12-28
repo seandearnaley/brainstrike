@@ -9,22 +9,22 @@
  */
 
 /**
- * Minimal interface for tree nodes that these operations can work with.
- * Both IFileNode and WorkerFileNode satisfy this interface.
+ * Load state for directories
  */
-export interface TreeNode {
+export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
+
+/**
+ * Minimal type for tree nodes that these operations can work with.
+ * Both IFileNode and WorkerFileNode satisfy this type.
+ */
+export type TreeNode = {
   path: string;
   name: string;
   type: 'file' | 'directory' | 'loadMore';
   children?: TreeNode[];
-  loadState?: 'unloaded' | 'loading' | 'loaded' | 'error';
+  loadState?: DirectoryLoadState;
   loadError?: string;
-}
-
-/**
- * Load state for directories
- */
-export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
+};
 
 /**
  * Sort nodes: directories first, then alphabetically by name.

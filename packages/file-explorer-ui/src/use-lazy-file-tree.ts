@@ -285,6 +285,35 @@ export function useLazyFileTree(
   }, []);
 
   /**
+   * Perform the actual directory loading operation.
+   * Extracted to reduce cognitive complexity of loadChildren.
+   */
+  const performDirectoryLoad = useCallback(
+    async (
+      path: string,
+      node: IFileNode,
+      abortController: AbortController,
+      adapter: NonNullable<typeof fileSystemAdapter>
+    ): Promise<void> => {
+      try {
+        const children = await loadDirectoryChildren(adapter, node, {
+          abortSignal: abortController.signal,
+          sortFileNodes,
+        });
+        if (!abortController.signal.aborted) {
+          handleLoadSuccess(path, children);
+        }
+      } catch (err) {
+        if (!isAbortError(err)) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          handleLoadError(path, errorMsg);
+        }
+      }
+    },
+    [handleLoadSuccess, handleLoadError]
+  );
+
+  /**
    * Load children of a specific directory
    */
   const loadChildren = useCallback(
@@ -309,29 +338,12 @@ export function useLazyFileTree(
       }));
 
       try {
-        const children = await loadDirectoryChildren(fileSystemAdapter, node, {
-          abortSignal: abortController.signal,
-          sortFileNodes,
-        });
-        if (!abortController.signal.aborted) {
-          handleLoadSuccess(path, children);
-        }
-      } catch (err) {
-        if (!isAbortError(err)) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          handleLoadError(path, errorMsg);
-        }
+        await performDirectoryLoad(path, node, abortController, fileSystemAdapter);
       } finally {
         removeChildController(path);
       }
     },
-    [
-      fileSystemAdapter,
-      createAbortController,
-      handleLoadSuccess,
-      handleLoadError,
-      removeChildController,
-    ]
+    [fileSystemAdapter, createAbortController, performDirectoryLoad, removeChildController]
   );
 
   /**
