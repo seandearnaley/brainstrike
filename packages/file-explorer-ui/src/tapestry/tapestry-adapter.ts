@@ -3,12 +3,29 @@ import { splitFilePath } from '../utils/path-display';
 import type { FileTapestry, LineData } from './types';
 import { buildStructureFromContent, splitContentLines } from './utils';
 
-const LOADING_PLACEHOLDER = 'Loading file preview…';
-const EMPTY_PLACEHOLDER = 'Preview not available';
+const LOADING_PLACEHOLDER = 'Loading preview...';
+const ESTIMATED_PLACEHOLDER = 'Estimated preview';
 const AVERAGE_BYTES_PER_LINE = 80;
 const AVERAGE_TOKENS_PER_LINE = 12;
 const MIN_ESTIMATED_LINES = 12;
 const MAX_ESTIMATED_LINES = 1200;
+const PREVIEW_SNIPPETS = [
+  'export function handler() {',
+  'const result = buildResult();',
+  'if (!result) return;',
+  'return result;',
+  '}',
+  'type Params = {',
+  '  id: string;',
+  '};',
+  'interface Config {',
+  '  enabled: boolean;',
+  '}',
+  'const options = {',
+  '  retries: 3,',
+  '};',
+  '// ...',
+];
 
 export type TapestryFileBase = Omit<FileTapestry, 'selections'>;
 
@@ -36,6 +53,25 @@ const buildEstimatedStructure = (lines: number, seedKey: string): LineData[] => 
   });
 };
 
+const buildEstimatedContent = (
+  structure: LineData[],
+  seedKey: string,
+  header: string
+): string[] => {
+  const seed = hashSeed(seedKey);
+  return structure.map((line, index) => {
+    if (index === 0) {
+      return `// ${header}`;
+    }
+    if (line.isEmpty) {
+      return '';
+    }
+    const indent = '  '.repeat(line.indent);
+    const snippet = PREVIEW_SNIPPETS[(seed + index) % PREVIEW_SNIPPETS.length] as string;
+    return `${indent}${snippet}`;
+  });
+};
+
 const estimateLineCount = (size?: number, tokens?: number): number | undefined => {
   if (typeof tokens === 'number' && tokens > 0) {
     return clampEstimatedLines(tokens / AVERAGE_TOKENS_PER_LINE);
@@ -52,16 +88,21 @@ export function buildTapestryFileBase(args: {
   isLoading: boolean;
 }): TapestryFileBase {
   const { item, content, isLoading } = args;
-  const fallbackContent = isLoading ? LOADING_PLACEHOLDER : EMPTY_PLACEHOLDER;
   const hasContent = Boolean(content && content.length > 0);
-  const resolvedContent = hasContent ? (content ?? fallbackContent) : fallbackContent;
-  const contentLines = splitContentLines(resolvedContent);
+  const contentLines = hasContent ? splitContentLines(content ?? '') : [];
   const estimatedLines = hasContent
     ? contentLines.length
-    : (estimateLineCount(item.size, item.tokens) ?? contentLines.length);
+    : (estimateLineCount(item.size, item.tokens) ?? 0);
+  const normalizedEstimatedLines = hasContent
+    ? contentLines.length
+    : Math.max(MIN_ESTIMATED_LINES, estimatedLines);
   const structure = hasContent
     ? buildStructureFromContent(contentLines)
-    : buildEstimatedStructure(estimatedLines, item.compositeKey);
+    : buildEstimatedStructure(normalizedEstimatedLines, item.compositeKey);
+  const previewHeader = isLoading ? LOADING_PLACEHOLDER : ESTIMATED_PLACEHOLDER;
+  const resolvedContentLines = hasContent
+    ? contentLines
+    : buildEstimatedContent(structure, item.compositeKey, previewHeader);
   const { fileName } = splitFilePath(item.path);
 
   return {
@@ -74,8 +115,8 @@ export function buildTapestryFileBase(args: {
     type: item.type,
     ...(item.size !== undefined ? { size: item.size } : {}),
     ...(item.tokens !== undefined ? { tokens: item.tokens } : {}),
-    totalLines: estimatedLines,
+    totalLines: normalizedEstimatedLines,
     structure,
-    content: contentLines,
+    content: resolvedContentLines,
   };
 }

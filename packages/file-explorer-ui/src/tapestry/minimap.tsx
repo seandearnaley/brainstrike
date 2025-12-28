@@ -328,8 +328,8 @@ export const Minimap = memo(
           isAnyHovered ? 'relative z-40' : 'relative z-0'
         )}
       >
-        <div className="flex select-none items-center justify-between gap-2 px-2 text-muted-foreground text-xs">
-          <div className="flex min-w-0 items-center gap-2 truncate" title={file.path}>
+        <div className="flex select-none flex-col gap-1 px-2 text-muted-foreground text-xs">
+          <div className="flex min-w-0 items-center gap-2" title={file.path}>
             <Checkbox
               aria-label={`Select ${file.path}`}
               checked={isSelected}
@@ -343,25 +343,24 @@ export const Minimap = memo(
                 file.selections.some((s) => s.isActive) ? 'bg-indigo-500' : 'bg-muted-foreground/30'
               )}
             />
-            <div className="min-w-0">
-              <span className="block max-w-[140px] truncate font-bold text-foreground">
-                {file.name}
-              </span>
-              <span className="block truncate text-[10px] opacity-60">{file.rootFolderId}</span>
+            <div className="min-w-0 flex-1">
+              <span className="block truncate font-bold text-foreground">{file.name}</span>
             </div>
             <span className="text-[10px] opacity-50">{file.totalLines}L</span>
           </div>
-
-          <div className="flex flex-shrink-0 items-center gap-2">
-            <Badge className="px-1.5 text-[9px]" variant="secondary">
-              {file.type}
-            </Badge>
-            <span className="font-mono text-[10px] opacity-70">
-              {formatPreviewFileSize(file.size)}
-            </span>
-            <span className="font-mono text-[10px] opacity-70">
-              {file.tokens !== undefined ? formatTokenCount(file.tokens) : '—'}
-            </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px]">
+            <span className="min-w-0 truncate opacity-60">{file.rootFolderId}</span>
+            <div className="flex flex-shrink-0 items-center gap-2">
+              <Badge className="px-1.5 text-[9px]" variant="secondary">
+                {file.type}
+              </Badge>
+              <span className="font-mono text-[10px] opacity-70">
+                {formatPreviewFileSize(file.size)}
+              </span>
+              <span className="font-mono text-[10px] opacity-70">
+                {file.tokens !== undefined ? formatTokenCount(file.tokens) : '—'}
+              </span>
+            </div>
           </div>
         </div>
 
