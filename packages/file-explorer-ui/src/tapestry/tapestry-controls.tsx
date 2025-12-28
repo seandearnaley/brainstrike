@@ -81,7 +81,7 @@ export const TapestryControls = memo(
 
         <Button className="h-8 text-xs" onClick={onReset} size="sm" variant="secondary">
           <RotateCcw className="mr-2 size-3" />
-          Regenerate
+          Reset ranges
         </Button>
       </div>
     </div>

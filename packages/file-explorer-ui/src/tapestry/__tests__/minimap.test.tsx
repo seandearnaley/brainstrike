@@ -15,8 +15,14 @@ const createFile = (): FileTapestry => {
 
   return {
     id: 'file-1',
+    compositeKey: 'file-1',
+    rootFolderId: 'root',
+    path: '/src/App.tsx',
     name: 'App.tsx',
     language: 'tsx',
+    type: 'TSX',
+    size: 1024,
+    tokens: 1200,
     totalLines: 10,
     structure: Array.from({ length: 10 }, () => ({
       indent: 0,
@@ -54,8 +60,10 @@ describe('Minimap', () => {
         <Minimap
           file={file}
           getGlobalIndex={() => 1}
+          isSelected={false}
           onInteractionStart={onInteractionStart}
           onToggleRange={onToggleRange}
+          onToggleSelection={vi.fn()}
           scale={2}
           smartStart={smartStart}
         />
@@ -82,8 +90,10 @@ describe('Minimap', () => {
         <Minimap
           file={file}
           getGlobalIndex={() => 1}
+          isSelected={false}
           onInteractionStart={onInteractionStart}
           onToggleRange={vi.fn()}
+          onToggleSelection={vi.fn()}
           scale={2}
         />
       </TooltipProvider>
@@ -110,8 +120,10 @@ describe('Minimap', () => {
         <Minimap
           file={file}
           getGlobalIndex={() => 1}
+          isSelected={false}
           onInteractionStart={vi.fn()}
           onToggleRange={onToggleRange}
+          onToggleSelection={vi.fn()}
           scale={2}
         />
       </TooltipProvider>

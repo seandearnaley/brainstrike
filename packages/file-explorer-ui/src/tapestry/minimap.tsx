@@ -1,5 +1,7 @@
-import { cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
+import { Badge, Checkbox, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { memo, useRef, useState } from 'react';
+import { formatTokenCount } from '../use-preview-panel-state';
+import { formatPreviewFileSize } from '../utils/preview-formatters';
 import type { FileTapestry, InteractionMode, TapestryRange } from './types';
 
 type MinimapProps = {
@@ -23,6 +25,8 @@ type MinimapProps = {
   onToggleRange: (fileId: string, rangeId: string) => void;
   onMoveRange?: (fileId: string, rangeId: string, newStartLine: number, newEndLine: number) => void;
   getGlobalIndex: (rangeId: string) => number;
+  isSelected: boolean;
+  onToggleSelection: (compositeKey: string, checked: boolean) => void;
 };
 
 const RangeItem = memo(
@@ -271,6 +275,8 @@ export const Minimap = memo(
     onToggleRange,
     onMoveRange,
     getGlobalIndex,
+    isSelected,
+    onToggleSelection,
   }: MinimapProps) => {
     const containerRef = useRef<HTMLButtonElement>(null);
     const [hoveredRangeId, setHoveredRangeId] = useState<string | null>(null);
@@ -321,16 +327,40 @@ export const Minimap = memo(
           isAnyHovered ? 'relative z-40' : 'relative z-0'
         )}
       >
-        <div className="flex select-none items-center justify-between px-2 text-muted-foreground text-xs">
-          <div className="flex items-center gap-2 truncate" title={file.name}>
+        <div className="flex select-none items-center justify-between gap-2 px-2 text-muted-foreground text-xs">
+          <div className="flex min-w-0 items-center gap-2 truncate" title={file.path}>
+            <Checkbox
+              aria-label={`Select ${file.path}`}
+              checked={isSelected}
+              className="h-4 w-4"
+              onCheckedChange={(checked) => onToggleSelection(file.compositeKey, !!checked)}
+              onClick={(event) => event.stopPropagation()}
+            />
             <div
               className={cn(
                 'h-2 w-2 rounded-full',
                 file.selections.some((s) => s.isActive) ? 'bg-indigo-500' : 'bg-muted-foreground/30'
               )}
             />
-            <span className="max-w-[100px] truncate font-bold text-foreground">{file.name}</span>
+            <div className="min-w-0">
+              <span className="block max-w-[140px] truncate font-bold text-foreground">
+                {file.name}
+              </span>
+              <span className="block truncate text-[10px] opacity-60">{file.rootFolderId}</span>
+            </div>
             <span className="text-[10px] opacity-50">{file.totalLines}L</span>
+          </div>
+
+          <div className="flex flex-shrink-0 items-center gap-2">
+            <Badge className="px-1.5 text-[9px]" variant="secondary">
+              {file.type}
+            </Badge>
+            <span className="font-mono text-[10px] opacity-70">
+              {formatPreviewFileSize(file.size)}
+            </span>
+            <span className="font-mono text-[10px] opacity-70">
+              {file.tokens !== undefined ? formatTokenCount(file.tokens) : '—'}
+            </span>
           </div>
         </div>
 

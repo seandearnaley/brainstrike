@@ -14,8 +14,14 @@ export type TapestryRange = {
 
 export type FileTapestry = {
   id: string;
+  compositeKey: string;
+  rootFolderId: string;
+  path: string;
   name: string;
   language: string;
+  type: string;
+  size?: number;
+  tokens?: number;
   totalLines: number;
   structure: LineData[]; // Visual representation only
   content: string[]; // Actual text content for preview

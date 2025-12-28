@@ -106,6 +106,41 @@ const generateContent = (_lines: number, structure: LineData[]): string[] => {
   });
 };
 
+const INDENT_UNIT = 2;
+const MAX_INDENT = 6;
+const MIN_WIDTH = 10;
+
+export const buildStructureFromContent = (lines: string[]): LineData[] => {
+  const lineLengths = lines.map((line) => line.trimEnd().length);
+  const maxLength = Math.max(1, ...lineLengths);
+
+  return lines.map((line) => {
+    const trimmed = line.trimEnd();
+    if (trimmed.length === 0) {
+      return { indent: 0, width: 0, isEmpty: true };
+    }
+
+    const leadingWhitespace = line.match(/^\s*/u)?.[0] ?? '';
+    const indent = Math.min(
+      MAX_INDENT,
+      Math.floor(leadingWhitespace.replaceAll('\t', '  ').length / INDENT_UNIT)
+    );
+    const widthRatio = Math.min(1, trimmed.length / maxLength);
+    const width = Math.max(MIN_WIDTH, Math.round(widthRatio * 100));
+
+    return {
+      indent,
+      width,
+      isEmpty: false,
+    };
+  });
+};
+
+export const splitContentLines = (content: string): string[] => {
+  const lines = content.split(/\r?\n/u);
+  return lines.length > 0 ? lines : [''];
+};
+
 export const generateMockFiles = (count: number): FileTapestry[] => {
   return Array.from({ length: count }).map((_, i) => {
     const name =
@@ -125,8 +160,12 @@ export const generateMockFiles = (count: number): FileTapestry[] => {
 
     return {
       id: crypto.randomUUID(),
+      compositeKey: `mock::${name}-${i}`,
+      rootFolderId: 'mock',
+      path: name,
       name,
       language: ext,
+      type: ext.toUpperCase(),
       totalLines,
       structure,
       content: generateContent(totalLines, structure),
@@ -148,3 +187,18 @@ const COLORS = [
 
 // Note: COLORS is a non-empty constant array
 export const generateColor = (index: number) => COLORS[index % COLORS.length] as string;
+
+export const getStableColorForKey = (key: string): string => {
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  }
+  return generateColor(hash);
+};
+
+export const createRangeId = (): string => {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `range-${Math.random().toString(36).slice(2)}`;
+};
