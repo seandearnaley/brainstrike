@@ -4,6 +4,7 @@ import {
   isPermissionError,
   isUserCancelledError,
 } from '@brainstrike/file-system';
+import { isAbortError } from '@brainstrike/utils';
 
 /**
  * Determine if the given error indicates the user cancelled the action.
@@ -13,16 +14,15 @@ export function isUserCancellation(error: unknown): boolean {
     return true;
   }
 
-  if (error instanceof Error) {
-    if (error.name === 'AbortError') {
-      return true;
-    }
+  // Use shared abort error detection which handles DOMException,
+  // Error.name, and message patterns like 'abort', 'cancelled', 'canceled'
+  if (isAbortError(error)) {
+    return true;
+  }
 
-    return (
-      error.message.includes('AbortError') ||
-      error.message.includes('cancelled') ||
-      error.message.includes('User cancelled')
-    );
+  // Check for User cancelled message specifically
+  if (error instanceof Error && error.message.includes('User cancelled')) {
+    return true;
   }
 
   return false;

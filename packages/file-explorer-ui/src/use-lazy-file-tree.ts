@@ -20,7 +20,7 @@ import {
   resolveFileTreeWorkerUrl,
 } from '@brainstrike/file-tree-worker';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
-import { canLoadNode, createLogger, sortTreeNodes } from '@brainstrike/utils';
+import { canLoadNode, createLogger, isAbortError, sortTreeNodes } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const logger = createLogger('LazyFileTree');
@@ -86,19 +86,6 @@ function removeFromLoadingPaths(paths: Set<string>, path: string): Set<string> {
   const newPaths = new Set(paths);
   newPaths.delete(path);
   return newPaths;
-}
-
-/**
- * Check if an error is a cancellation/abort error.
- */
-function isOperationCancelled(err: unknown): boolean {
-  if (err instanceof DOMException && err.name === 'AbortError') {
-    return true;
-  }
-  if (err instanceof Error && err.message.includes('abort')) {
-    return true;
-  }
-  return false;
 }
 
 /**
@@ -203,7 +190,7 @@ async function loadSingleDirectoryForWorker(
 
     results.push({ path, children: toWorkerFileNodes(children) });
   } catch (err) {
-    if (!isOperationCancelled(err)) {
+    if (!isAbortError(err)) {
       results.push({ path, error: err instanceof Error ? err.message : String(err) });
     }
   }
@@ -480,7 +467,7 @@ export function useLazyFileTree(
         });
       }
     } catch (err) {
-      if (!isOperationCancelled(err)) {
+      if (!isAbortError(err)) {
         setState((s) => ({
           ...s,
           isInitialLoading: false,
@@ -565,7 +552,7 @@ export function useLazyFileTree(
         }
       } catch (err) {
         // Only report non-cancellation errors
-        if (!isOperationCancelled(err)) {
+        if (!isAbortError(err)) {
           handleLoadError(path, getErrorMessage(err));
         }
       } finally {
@@ -701,7 +688,7 @@ export function useLazyFileTree(
         // Set all expanded paths
         setExpandedPaths(() => new Set(result.expandedPaths));
       } catch (err) {
-        const isCancelled = isOperationCancelled(err);
+        const isCancelled = isAbortError(err);
         setState((s) => ({
           ...s,
           isExpandingAll: false,
@@ -773,7 +760,7 @@ export function useLazyFileTree(
           fileTree: rehydratedTree,
         }));
       } catch (err) {
-        if (!isOperationCancelled(err)) {
+        if (!isAbortError(err)) {
           logger.error('loadSpecificPaths failed', { error: String(err) });
         }
       } finally {

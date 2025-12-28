@@ -8,7 +8,7 @@
 
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { DepthProgress, IFileNode, StreamMeta } from '@brainstrike/types';
-import { fileFilter } from '@brainstrike/utils';
+import { fileFilter, isAbortError } from '@brainstrike/utils';
 import { getFinalPath } from './get-final-path';
 
 /** Default number of concurrent directory reads */
@@ -244,13 +244,6 @@ export async function walkDirectoryParallel(
       platform: parentHandle.platform,
       _internal: entry.handle,
     };
-  }
-
-  /**
-   * Check if an error is an abort error
-   */
-  function isAbortError(error: unknown): boolean {
-    return error instanceof DOMException && error.name === 'AbortError';
   }
 
   /**
