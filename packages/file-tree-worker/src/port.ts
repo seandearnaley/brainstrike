@@ -27,6 +27,7 @@ type LogHandler = (
 type PendingOperation = {
   resolve: (result: { tree: WorkerFileNode[]; expandedPaths: string[] }) => void;
   reject: (error: Error) => void;
+  operationId: number;
 };
 
 /**
@@ -156,6 +157,10 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   let errorHandler: ErrorHandler | null = null;
   let logHandler: LogHandler | null = null;
 
+  // Operation ID counter for thread-safe operation tracking
+  // Must be mutable to increment for each new operation
+  let operationIdCounter = 0;
+
   // Pending operation promise (used by expandAll and loadPaths)
   const pending: { operation: PendingOperation | null } = { operation: null };
 
@@ -180,7 +185,9 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   };
 
   const handleComplete = (payload: { tree: WorkerFileNode[]; expandedPaths: string[] }): void => {
-    if (pending.operation) {
+    // Only resolve if this completion matches the current operation
+    // Prevents stale completions from racing with new operations
+    if (pending.operation && pending.operation.operationId === operationIdCounter) {
       pending.operation.resolve({
         tree: payload.tree,
         expandedPaths: payload.expandedPaths,
@@ -191,7 +198,8 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
   const handleError = (payload: { message: string; path?: string }): void => {
     errorHandler?.(payload.message, payload.path);
-    if (pending.operation) {
+    // Only reject if this error matches the current operation
+    if (pending.operation && pending.operation.operationId === operationIdCounter) {
       pending.operation.reject(new Error(payload.message));
       pending.operation = null;
     }
@@ -205,8 +213,11 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     logHandler?.(level, message, data);
   };
 
-  // Main message dispatcher
-  const handleMessage = async (event: MessageEvent<WorkerToMainMessage>): Promise<void> => {
+  /**
+   * Async message handler implementation.
+   * Separated from the event listener to ensure proper listener removal.
+   */
+  const handleMessageAsync = async (event: MessageEvent<WorkerToMainMessage>): Promise<void> => {
     const msg = event.data;
 
     switch (msg.type) {
@@ -240,6 +251,15 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     }
   };
 
+  /**
+   * Synchronous wrapper for event listener.
+   * Using a sync wrapper ensures removeEventListener works correctly,
+   * since async arrow functions create new closure instances.
+   */
+  const handleMessage = (event: MessageEvent<WorkerToMainMessage>): void => {
+    void handleMessageAsync(event);
+  };
+
   worker.addEventListener('message', handleMessage);
 
   return {
@@ -252,12 +272,16 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
     expandAll(folderId) {
       return new Promise((resolve, reject) => {
+        // Increment operation ID to invalidate any stale responses
+        operationIdCounter++;
+        const thisOperationId = operationIdCounter;
+
         // Abort any existing operation
         if (pending.operation) {
           pending.operation.reject(new Error('Operation aborted by new request'));
         }
 
-        pending.operation = { resolve, reject };
+        pending.operation = { resolve, reject, operationId: thisOperationId };
 
         worker.postMessage({
           type: 'expandAll',
@@ -268,12 +292,16 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
     loadPaths(paths) {
       return new Promise((resolve, reject) => {
+        // Increment operation ID to invalidate any stale responses
+        operationIdCounter++;
+        const thisOperationId = operationIdCounter;
+
         // Abort any existing operation
         if (pending.operation) {
           pending.operation.reject(new Error('Operation aborted by new request'));
         }
 
-        pending.operation = { resolve, reject };
+        pending.operation = { resolve, reject, operationId: thisOperationId };
 
         worker.postMessage({
           type: 'loadPaths',

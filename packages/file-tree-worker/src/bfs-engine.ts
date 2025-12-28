@@ -299,6 +299,11 @@ export class BFSEngine {
       currentLoadedCount += results.filter((r) => r.children).length;
       this.sendProgress(currentLoadedCount, totalDiscovered, batch[0] ?? '');
 
+      // Check abort before expensive tree snapshot
+      if (this.aborted) {
+        break;
+      }
+
       // Send tree snapshot if interval has passed
       const now = Date.now();
       if (now - currentSnapshotTime >= SNAPSHOT_INTERVAL_MS) {
@@ -364,9 +369,61 @@ export class BFSEngine {
   }
 
   /**
+   * Get depth of a path (number of segments).
+   */
+  private getPathDepth(path: string): number {
+    return path.split('/').filter(Boolean).length;
+  }
+
+  /**
+   * Group paths by depth level.
+   */
+  private groupPathsByDepth(paths: string[]): Map<number, string[]> {
+    const groups = new Map<number, string[]>();
+    for (const path of paths) {
+      const depth = this.getPathDepth(path);
+      const group = groups.get(depth) ?? [];
+      group.push(path);
+      groups.set(depth, group);
+    }
+    return groups;
+  }
+
+  /**
+   * Process a batch of paths for loadPaths operation.
+   * Returns the count of loaded and skipped paths.
+   */
+  private async processLoadPathsBatch(
+    batch: string[],
+    counters: { loadedCount: number; skippedCount: number },
+    total: number
+  ): Promise<boolean> {
+    const { toLoad, skipped } = this.filterPathsForLoading(batch);
+    counters.skippedCount += skipped;
+
+    if (toLoad.length > 0) {
+      this.markBatchAsLoading(toLoad);
+      const results = await this.requestLoads(toLoad);
+
+      if (this.aborted) {
+        return false; // Signal abort
+      }
+
+      counters.loadedCount += results.filter((r) => r.children).length;
+    }
+
+    this.sendProgress(counters.loadedCount + counters.skippedCount, total, batch[0] ?? '');
+    await yieldControl();
+    return true; // Continue processing
+  }
+
+  /**
    * Load specific directory paths (for restoration).
    * Unlike expandAll, this doesn't do BFS discovery - it only loads the requested paths.
-   * Paths should be sorted by depth (shallowest first) to ensure parents load before children.
+   *
+   * IMPORTANT: Paths are processed by depth level to ensure parents load before children.
+   * This prevents "Handle not found" errors when a child path is in the same batch as its parent,
+   * since the parent's handles must be added to the map before the child can be loaded.
    */
   async loadPaths(paths: string[]): Promise<void> {
     this.resetAbort();
@@ -377,30 +434,31 @@ export class BFSEngine {
     }
 
     const total = paths.length;
-    let loadedCount = 0;
-    let skippedCount = 0;
+    const counters = { loadedCount: 0, skippedCount: 0 };
 
     this.logInfo(`[loadPaths] Starting restoration of ${total} directories`);
 
-    // Process paths in batches
-    for (let i = 0; i < paths.length && !this.aborted; i += BATCH_SIZE) {
-      const batch = paths.slice(i, i + BATCH_SIZE);
-      const { toLoad, skipped } = this.filterPathsForLoading(batch);
-      skippedCount += skipped;
+    // Group paths by depth and process each level sequentially
+    // This ensures parent directories load before their children
+    const depthGroups = this.groupPathsByDepth(paths);
+    const sortedDepths = [...depthGroups.keys()].sort((a, b) => a - b);
 
-      if (toLoad.length > 0) {
-        this.markBatchAsLoading(toLoad);
-        const results = await this.requestLoads(toLoad);
-
-        if (this.aborted) {
-          break;
-        }
-
-        loadedCount += results.filter((r) => r.children).length;
+    for (const depth of sortedDepths) {
+      if (this.aborted) {
+        break;
       }
 
-      this.sendProgress(loadedCount + skippedCount, total, batch[0] ?? '');
-      await yieldControl();
+      const pathsAtDepth = depthGroups.get(depth) ?? [];
+      this.logDebug(`[loadPaths] Processing depth ${depth} with ${pathsAtDepth.length} paths`);
+
+      // Process paths at this depth in batches
+      for (let i = 0; i < pathsAtDepth.length && !this.aborted; i += BATCH_SIZE) {
+        const batch = pathsAtDepth.slice(i, i + BATCH_SIZE);
+        const shouldContinue = await this.processLoadPathsBatch(batch, counters, total);
+        if (!shouldContinue) {
+          break;
+        }
+      }
     }
 
     if (this.aborted) {
@@ -408,7 +466,9 @@ export class BFSEngine {
       return;
     }
 
-    this.logInfo(`[loadPaths] Complete. Loaded ${loadedCount}, skipped ${skippedCount}`);
+    this.logInfo(
+      `[loadPaths] Complete. Loaded ${counters.loadedCount}, skipped ${counters.skippedCount}`
+    );
     this.sendComplete();
   }
 
