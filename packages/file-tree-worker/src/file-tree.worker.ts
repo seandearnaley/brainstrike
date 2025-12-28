@@ -127,6 +127,13 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
         break;
       }
 
+      case 'loadPaths': {
+        const { paths } = message.payload;
+        log('info', 'starting loadPaths', { pathCount: paths.length });
+        await engine.loadPaths(paths);
+        break;
+      }
+
       case 'collapseAll': {
         log('info', 'collapsing all');
         engine.collapseAll();

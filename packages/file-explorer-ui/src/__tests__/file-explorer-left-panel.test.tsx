@@ -198,6 +198,8 @@ describe('FileExplorerLeftPanel', () => {
       cancelExpandAll: vi.fn(),
       isExpandingAll: false,
       expandAllProgress: null,
+      isRestoringExpandedPaths: false,
+      restorationProgress: null,
     } as ReturnType<typeof useFileExplorer>;
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 

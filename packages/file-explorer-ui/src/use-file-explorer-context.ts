@@ -13,7 +13,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useOptionalFileTreeContext } from './file-tree-provider';
@@ -31,26 +31,17 @@ function getPathDepth(path: string): number {
   return path.split('/').filter(Boolean).length;
 }
 
-/**
- * Helper to find a node in the file tree by path.
- * Recursively searches through the tree to find a matching node.
- */
-function findNodeInTree(nodes: IFileNode[], path: string): IFileNode | null {
-  for (const node of nodes) {
-    if (node.path === path) {
-      return node;
-    }
-    if (node.children) {
-      const found = findNodeInTree(node.children, path);
-      if (found) {
-        return found;
-      }
-    }
-  }
-  return null;
-}
-
 type UseFileExplorerProps = Record<string, never>;
+
+/** Progress state for restoring expanded directories on app startup */
+export type RestorationProgress = {
+  /** Number of directories restored so far */
+  loaded: number;
+  /** Total number of directories to restore */
+  total: number;
+  /** Current directory path being restored */
+  currentPath: string | null;
+};
 
 type UseFileExplorerReturn = {
   fileTree: IFileNode[];
@@ -97,6 +88,10 @@ type UseFileExplorerReturn = {
   isExpandingAll: boolean;
   /** Progress of expand-all operation */
   expandAllProgress: { loaded: number; total: number } | null;
+  /** Whether expanded directories are being restored from persisted state */
+  isRestoringExpandedPaths: boolean;
+  /** Progress of expanded directory restoration */
+  restorationProgress: RestorationProgress | null;
 };
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -149,6 +144,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancelExpandAll,
     isExpandingAll,
     expandAllProgress,
+    loadSpecificPaths,
   } = sharedTreeContext ?? localTreeState;
 
   // storeClearFileContents is selected above to keep hook count constant
@@ -236,9 +232,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const restoredForFolderRef = useRef<string | null>(null);
   // Track if restoration is in progress to prevent duplicate runs
   const isRestoringRef = useRef(false);
-  // Keep a ref to the current file tree for use in async restoration
-  const fileTreeRef = useRef(fileTree);
-  fileTreeRef.current = fileTree;
+  // State for restoration progress - exposed to UI for feedback
+  const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
+  const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
 
   /**
    * Auto-restore expanded directories from persisted state.
@@ -285,6 +281,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     // Mark restoration as in progress
     isRestoringRef.current = true;
     restoredForFolderRef.current = currentFolderId;
+    setIsRestoringExpandedPaths(true);
 
     logger.info('Restoring expanded directories', {
       folderId: currentFolderId,
@@ -293,56 +290,33 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
     // Sort paths by depth (shallowest first so parents load before children)
     const sortedPaths = [...expandedPaths].sort((a, b) => getPathDepth(a) - getPathDepth(b));
+    const total = sortedPaths.length;
 
-    // Restore expanded directories asynchronously
+    // Initialize progress
+    setRestorationProgress({ loaded: 0, total, currentPath: null });
+
+    // Use worker-based loading for optimal performance
+    // The worker batches I/O and only updates React state once at completion
     const restoreExpansions = async () => {
-      let loadedCount = 0;
-      let skippedCount = 0;
+      try {
+        await loadSpecificPaths(sortedPaths, (loaded, progressTotal, currentPath) => {
+          setRestorationProgress({ loaded, total: progressTotal, currentPath });
+        });
 
-      for (const path of sortedPaths) {
-        // Find node in current tree (use ref to get latest tree state)
-        const currentTree = fileTreeRef.current;
-        const node = findNodeInTree(currentTree, path);
-
-        // Skip if node doesn't exist or isn't a directory
-        if (!node || node.type !== 'directory') {
-          skippedCount++;
-          continue;
-        }
-
-        // Skip if already loaded
-        if (node.loadState === 'loaded') {
-          continue;
-        }
-
-        // Skip if loading
-        if (node.loadState === 'loading') {
-          continue;
-        }
-
-        // Load children for this directory
-        try {
-          await loadChildren(path);
-          loadedCount++;
-
-          // Small yield to prevent blocking the main thread
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        } catch (error) {
-          logger.warn('Failed to restore expanded directory', { path, error });
-        }
+        logger.info('Restored expanded directories', {
+          totalPaths: total,
+        });
+      } catch (error) {
+        logger.warn('Failed to restore expanded directories', { error });
+      } finally {
+        isRestoringRef.current = false;
+        setIsRestoringExpandedPaths(false);
+        setRestorationProgress(null);
       }
-
-      logger.info('Restored expanded directories', {
-        loadedCount,
-        skippedCount,
-        totalPaths: sortedPaths.length,
-      });
-
-      isRestoringRef.current = false;
     };
 
     void restoreExpansions();
-  }, [rootDirectoryHandle, isTreeLoading, fileTree.length, store, loadChildren]);
+  }, [rootDirectoryHandle, isTreeLoading, fileTree.length, store, loadSpecificPaths]);
 
   return {
     fileTree: filteredTree,
@@ -372,5 +346,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancelExpandAll,
     isExpandingAll,
     expandAllProgress,
+    isRestoringExpandedPaths,
+    restorationProgress,
   };
 }

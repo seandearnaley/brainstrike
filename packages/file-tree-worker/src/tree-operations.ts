@@ -71,14 +71,13 @@ export function updateNodeChildren(
   return tree.map((node): WorkerFileNode => {
     // Found the target node
     if (node.path === targetPath) {
-      const updatedNode: WorkerFileNode = {
-        ...node,
+      // Destructure to omit loadError when successfully loaded
+      const { loadError: _loadError, ...rest } = node;
+      return {
+        ...rest,
         children,
         loadState,
       };
-      // Remove loadError when successfully loaded
-      delete updatedNode.loadError;
-      return updatedNode;
     }
 
     // Check if target is a descendant of this node
@@ -106,16 +105,17 @@ export function setNodeLoadState(
   return tree.map((node): WorkerFileNode => {
     // Found the target node
     if (node.path === targetPath) {
-      const updatedNode: WorkerFileNode = {
-        ...node,
+      // Destructure to omit loadError, then conditionally add it back
+      const { loadError: _loadError, ...rest } = node;
+      const updated: WorkerFileNode = {
+        ...rest,
         loadState,
       };
+      // Only include loadError if error is defined
       if (error !== undefined) {
-        updatedNode.loadError = error;
-      } else {
-        delete updatedNode.loadError;
+        updated.loadError = error;
       }
-      return updatedNode;
+      return updated;
     }
 
     // Check if target is a descendant of this node

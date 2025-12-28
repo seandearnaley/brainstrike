@@ -17,6 +17,7 @@ import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
+import { RestorationStatus } from './restoration-status';
 import { ScanningStatus } from './scanning-status';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
@@ -152,6 +153,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancelExpandAll,
     isExpandingAll,
     expandAllProgress,
+    isRestoringExpandedPaths,
+    restorationProgress,
   } = useFileExplorer();
 
   const {
@@ -514,6 +517,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               }
             />
           )}
+          {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
+          <RestorationStatus
+            isRestoring={isRestoringExpandedPaths}
+            progress={restorationProgress}
+          />
         </div>
 
         {/* Scrollable Middle Content */}

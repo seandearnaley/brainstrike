@@ -8,9 +8,80 @@
 import type {
   BatchLoadResult,
   MainToWorkerMessage,
+  RequestLoadMessage,
   WorkerFileNode,
   WorkerToMainMessage,
 } from './types';
+
+// Handler type aliases for cleaner code
+type RequestLoadHandler = (requestId: string, paths: string[]) => Promise<BatchLoadResult[]>;
+type ProgressHandler = (loaded: number, total: number, currentPath: string) => void;
+type TreeSnapshotHandler = (tree: WorkerFileNode[], expandedPaths: string[]) => void;
+type ErrorHandler = (message: string, path?: string) => void;
+type LogHandler = (
+  level: 'debug' | 'info' | 'warn' | 'error',
+  message: string,
+  data?: unknown
+) => void;
+
+type PendingOperation = {
+  resolve: (result: { tree: WorkerFileNode[]; expandedPaths: string[] }) => void;
+  reject: (error: Error) => void;
+};
+
+/**
+ * Handle requestLoad message - processes load requests from worker
+ */
+async function handleRequestLoadMessage(
+  msg: RequestLoadMessage,
+  worker: Worker,
+  requestLoadHandler: RequestLoadHandler | null
+): Promise<void> {
+  if (!requestLoadHandler) {
+    return;
+  }
+
+  try {
+    const results = await requestLoadHandler(msg.payload.requestId, msg.payload.paths);
+    sendLoadResults(worker, results);
+  } catch (err) {
+    sendLoadErrors(worker, msg.payload.paths, err);
+  }
+}
+
+/**
+ * Send load results back to worker
+ */
+function sendLoadResults(worker: Worker, results: BatchLoadResult[]): void {
+  for (const result of results) {
+    if (result.error) {
+      worker.postMessage({
+        type: 'loadError',
+        payload: { path: result.path, error: result.error },
+      } satisfies MainToWorkerMessage);
+    } else if (result.children) {
+      worker.postMessage({
+        type: 'loadResult',
+        payload: { path: result.path, children: result.children },
+      } satisfies MainToWorkerMessage);
+    }
+  }
+}
+
+/**
+ * Send load errors for all paths
+ */
+function sendLoadErrors(worker: Worker, paths: string[], err: unknown): void {
+  for (const path of paths) {
+    worker.postMessage({
+      type: 'loadError',
+      payload: {
+        path,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    } satisfies MainToWorkerMessage);
+  }
+}
 
 /**
  * Port abstraction for communicating with the file tree worker.
@@ -21,6 +92,12 @@ export type FileTreeWorkerPort = {
 
   /** Start expand-all operation */
   expandAll(folderId: string): Promise<{
+    tree: WorkerFileNode[];
+    expandedPaths: string[];
+  }>;
+
+  /** Load specific paths (for restoration) */
+  loadPaths(paths: string[]): Promise<{
     tree: WorkerFileNode[];
     expandedPaths: string[];
   }>;
@@ -72,99 +149,93 @@ export type FileTreeWorkerPort = {
 export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   let ready = false;
 
-  // Handler registrations
-  type RequestLoadHandler = (requestId: string, paths: string[]) => Promise<BatchLoadResult[]>;
-  type ProgressHandler = (loaded: number, total: number, currentPath: string) => void;
-  type TreeSnapshotHandler = (tree: WorkerFileNode[], expandedPaths: string[]) => void;
-  type ErrorHandler = (message: string, path?: string) => void;
-  type LogHandler = (
-    level: 'debug' | 'info' | 'warn' | 'error',
-    message: string,
-    data?: unknown
-  ) => void;
-
+  // Handler registrations (mutable state for callbacks)
   let requestLoadHandler: RequestLoadHandler | null = null;
   let progressHandler: ProgressHandler | null = null;
   let treeSnapshotHandler: TreeSnapshotHandler | null = null;
   let errorHandler: ErrorHandler | null = null;
   let logHandler: LogHandler | null = null;
 
-  // Pending expand-all promise
-  let pendingExpandAll: {
-    resolve: (result: { tree: WorkerFileNode[]; expandedPaths: string[] }) => void;
-    reject: (error: Error) => void;
-  } | null = null;
+  // Pending operation promise (used by expandAll and loadPaths)
+  const pending: { operation: PendingOperation | null } = { operation: null };
 
-  // Message handler
+  // Handler functions for each message type (extracted to reduce complexity)
+  const handleReady = (): void => {
+    ready = true;
+  };
+
+  const handleProgress = (payload: {
+    loaded: number;
+    total: number;
+    currentPath: string;
+  }): void => {
+    progressHandler?.(payload.loaded, payload.total, payload.currentPath);
+  };
+
+  const handleTreeSnapshot = (payload: {
+    tree: WorkerFileNode[];
+    expandedPaths: string[];
+  }): void => {
+    treeSnapshotHandler?.(payload.tree, payload.expandedPaths);
+  };
+
+  const handleComplete = (payload: { tree: WorkerFileNode[]; expandedPaths: string[] }): void => {
+    if (pending.operation) {
+      pending.operation.resolve({
+        tree: payload.tree,
+        expandedPaths: payload.expandedPaths,
+      });
+      pending.operation = null;
+    }
+  };
+
+  const handleError = (payload: { message: string; path?: string }): void => {
+    errorHandler?.(payload.message, payload.path);
+    if (pending.operation) {
+      pending.operation.reject(new Error(payload.message));
+      pending.operation = null;
+    }
+  };
+
+  const handleLog = (
+    level: 'debug' | 'info' | 'warn' | 'error',
+    message: string,
+    data?: unknown
+  ): void => {
+    logHandler?.(level, message, data);
+  };
+
+  // Main message dispatcher
   const handleMessage = async (event: MessageEvent<WorkerToMainMessage>): Promise<void> => {
     const msg = event.data;
 
     switch (msg.type) {
       case 'ready':
-        ready = true;
+        handleReady();
         break;
 
       case 'requestLoad':
-        if (requestLoadHandler) {
-          try {
-            const results = await requestLoadHandler(msg.payload.requestId, msg.payload.paths);
-            // Send results back to worker
-            for (const result of results) {
-              if (result.error) {
-                worker.postMessage({
-                  type: 'loadError',
-                  payload: { path: result.path, error: result.error },
-                } satisfies MainToWorkerMessage);
-              } else if (result.children) {
-                worker.postMessage({
-                  type: 'loadResult',
-                  payload: { path: result.path, children: result.children },
-                } satisfies MainToWorkerMessage);
-              }
-            }
-          } catch (err) {
-            // Send error for all requested paths
-            for (const path of msg.payload.paths) {
-              worker.postMessage({
-                type: 'loadError',
-                payload: {
-                  path,
-                  error: err instanceof Error ? err.message : String(err),
-                },
-              } satisfies MainToWorkerMessage);
-            }
-          }
-        }
+        await handleRequestLoadMessage(msg, worker, requestLoadHandler);
         break;
 
       case 'progress':
-        progressHandler?.(msg.payload.loaded, msg.payload.total, msg.payload.currentPath);
+        handleProgress(msg.payload);
         break;
 
       case 'treeSnapshot':
-        treeSnapshotHandler?.(msg.payload.tree, msg.payload.expandedPaths);
+        handleTreeSnapshot(msg.payload);
         break;
 
       case 'complete':
-        if (pendingExpandAll) {
-          pendingExpandAll.resolve({
-            tree: msg.payload.tree,
-            expandedPaths: msg.payload.expandedPaths,
-          });
-          pendingExpandAll = null;
-        }
+        handleComplete(msg.payload);
         break;
 
       case 'error':
-        errorHandler?.(msg.payload.message, msg.payload.path);
-        if (pendingExpandAll) {
-          pendingExpandAll.reject(new Error(msg.payload.message));
-          pendingExpandAll = null;
-        }
+        handleError(msg.payload);
         break;
 
       case 'log':
-        logHandler?.(msg.level, msg.message, msg.data);
+        handleLog(msg.level, msg.message, msg.data);
         break;
     }
   };
@@ -181,16 +252,32 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
     expandAll(folderId) {
       return new Promise((resolve, reject) => {
-        // Abort any existing expand-all
-        if (pendingExpandAll) {
-          pendingExpandAll.reject(new Error('Expand-all aborted by new request'));
+        // Abort any existing operation
+        if (pending.operation) {
+          pending.operation.reject(new Error('Operation aborted by new request'));
         }
 
-        pendingExpandAll = { resolve, reject };
+        pending.operation = { resolve, reject };
 
         worker.postMessage({
           type: 'expandAll',
           payload: { folderId },
+        } satisfies MainToWorkerMessage);
+      });
+    },
+
+    loadPaths(paths) {
+      return new Promise((resolve, reject) => {
+        // Abort any existing operation
+        if (pending.operation) {
+          pending.operation.reject(new Error('Operation aborted by new request'));
+        }
+
+        pending.operation = { resolve, reject };
+
+        worker.postMessage({
+          type: 'loadPaths',
+          payload: { paths },
         } satisfies MainToWorkerMessage);
       });
     },
@@ -202,9 +289,9 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     },
 
     abort() {
-      if (pendingExpandAll) {
-        pendingExpandAll.reject(new Error('Operation aborted'));
-        pendingExpandAll = null;
+      if (pending.operation) {
+        pending.operation.reject(new Error('Operation aborted'));
+        pending.operation = null;
       }
       worker.postMessage({
         type: 'abort',

@@ -43,12 +43,12 @@ function generateRequestId(): string {
 export class BFSEngine {
   private tree: WorkerFileNode[] = [];
   private aborted = false;
-  private pendingLoads = new Map<
+  private readonly pendingLoads = new Map<
     string,
     { paths: string[]; resolve: (results: BatchLoadResult[]) => void }
   >();
 
-  constructor(private postMessage: (msg: WorkerToMainMessage) => void) {}
+  constructor(private readonly postMessage: (msg: WorkerToMainMessage) => void) {}
 
   /**
    * Set the current tree state.
@@ -168,6 +168,59 @@ export class BFSEngine {
   }
 
   /**
+   * Log a debug message via the worker protocol.
+   */
+  private logDebug(message: string): void {
+    this.postMessage({ type: 'log', level: 'debug', message });
+  }
+
+  /**
+   * Log an info message via the worker protocol.
+   */
+  private logInfo(message: string): void {
+    this.postMessage({ type: 'log', level: 'info', message });
+  }
+
+  /**
+   * Mark directories as loading in tree.
+   */
+  private markBatchAsLoading(batch: string[]): void {
+    for (const path of batch) {
+      this.tree = setNodeLoadState(this.tree, path, 'loading');
+    }
+  }
+
+  /**
+   * Send progress update message.
+   */
+  private sendProgress(loaded: number, total: number, currentPath: string): void {
+    this.postMessage({
+      type: 'progress',
+      payload: { loaded, total, currentPath },
+    });
+  }
+
+  /**
+   * Send tree snapshot message.
+   */
+  private sendTreeSnapshot(): void {
+    this.postMessage({
+      type: 'treeSnapshot',
+      payload: { tree: this.tree, expandedPaths: collectExpandedPaths(this.tree) },
+    });
+  }
+
+  /**
+   * Send completion message.
+   */
+  private sendComplete(): void {
+    this.postMessage({
+      type: 'complete',
+      payload: { tree: this.tree, expandedPaths: collectExpandedPaths(this.tree) },
+    });
+  }
+
+  /**
    * Expand all directories using BFS traversal.
    */
   async expandAll(): Promise<void> {
@@ -182,111 +235,81 @@ export class BFSEngine {
     collectDirectoryPaths(this.tree, currentWave);
     totalDiscovered = currentWave.size;
 
-    this.postMessage({
-      type: 'log',
-      level: 'debug',
-      message: `[expand-all] Starting with ${currentWave.size} root directories`,
-    });
+    this.logDebug(`[expand-all] Starting with ${currentWave.size} root directories`);
 
     // Throttling for tree snapshots
     let lastSnapshotTime = Date.now();
 
-    while (currentWave.size > 0) {
+    while (currentWave.size > 0 && !this.aborted) {
+      const toLoad = getUnloadedDirectories(currentWave, processed, this.tree);
+      this.logDebug(`[expand-all] Wave has ${currentWave.size} dirs, toLoad: ${toLoad.length}`);
+
+      // Process batches
+      const batchResult = await this.processExpandBatches(
+        toLoad,
+        loadedCount,
+        totalDiscovered,
+        lastSnapshotTime
+      );
+
       if (this.aborted) {
-        this.postMessage({
-          type: 'log',
-          level: 'info',
-          message: '[expand-all] Aborted',
-        });
+        this.logInfo('[expand-all] Aborted');
         return;
       }
 
-      const toLoad = getUnloadedDirectories(currentWave, processed, this.tree);
-
-      this.postMessage({
-        type: 'log',
-        level: 'debug',
-        message: `[expand-all] Wave has ${currentWave.size} dirs, toLoad: ${toLoad.length}`,
-      });
-
-      // Load directories in batches
-      for (let i = 0; i < toLoad.length; i += BATCH_SIZE) {
-        if (this.aborted) {
-          return;
-        }
-
-        const batch = toLoad.slice(i, i + BATCH_SIZE);
-
-        // Mark directories as loading in tree
-        for (const path of batch) {
-          this.tree = setNodeLoadState(this.tree, path, 'loading');
-        }
-
-        // Request load from main thread and wait for results
-        const results = await this.requestLoads(batch);
-
-        if (this.aborted) {
-          return;
-        }
-
-        // Results are already applied by handleLoadResult
-        loadedCount += results.filter((r) => r.children).length;
-
-        // Send progress update
-        this.postMessage({
-          type: 'progress',
-          payload: {
-            loaded: loadedCount,
-            total: totalDiscovered,
-            currentPath: batch[0] ?? '',
-          },
-        });
-
-        // Send tree snapshot if interval has passed
-        const now = Date.now();
-        if (now - lastSnapshotTime >= SNAPSHOT_INTERVAL_MS) {
-          lastSnapshotTime = now;
-          this.postMessage({
-            type: 'treeSnapshot',
-            payload: {
-              tree: this.tree,
-              expandedPaths: collectExpandedPaths(this.tree),
-            },
-          });
-        }
-
-        await yieldControl();
-      }
+      loadedCount = batchResult.loadedCount;
+      lastSnapshotTime = batchResult.lastSnapshotTime;
 
       // Discover child directories from loaded nodes
       const { nextWave, newCount } = discoverChildDirectories(currentWave, processed, this.tree);
       totalDiscovered += newCount;
 
-      this.postMessage({
-        type: 'log',
-        level: 'debug',
-        message: `[expand-all] Discovered ${newCount} new dirs, nextWave: ${nextWave.size}`,
-      });
-
+      this.logDebug(`[expand-all] Discovered ${newCount} new dirs, nextWave: ${nextWave.size}`);
       currentWave = nextWave;
 
       await yieldControl();
     }
 
-    this.postMessage({
-      type: 'log',
-      level: 'info',
-      message: `[expand-all] Complete. Loaded ${loadedCount} directories`,
-    });
+    this.logInfo(`[expand-all] Complete. Loaded ${loadedCount} directories`);
+    this.sendComplete();
+  }
 
-    // Send final completion message
-    this.postMessage({
-      type: 'complete',
-      payload: {
-        tree: this.tree,
-        expandedPaths: collectExpandedPaths(this.tree),
-      },
-    });
+  /**
+   * Process directory batches for expand-all operation.
+   */
+  private async processExpandBatches(
+    toLoad: string[],
+    loadedCount: number,
+    totalDiscovered: number,
+    lastSnapshotTime: number
+  ): Promise<{ loadedCount: number; lastSnapshotTime: number }> {
+    let currentLoadedCount = loadedCount;
+    let currentSnapshotTime = lastSnapshotTime;
+
+    for (let i = 0; i < toLoad.length && !this.aborted; i += BATCH_SIZE) {
+      const batch = toLoad.slice(i, i + BATCH_SIZE);
+
+      this.markBatchAsLoading(batch);
+      const results = await this.requestLoads(batch);
+
+      if (this.aborted) {
+        break;
+      }
+
+      currentLoadedCount += results.filter((r) => r.children).length;
+      this.sendProgress(currentLoadedCount, totalDiscovered, batch[0] ?? '');
+
+      // Send tree snapshot if interval has passed
+      const now = Date.now();
+      if (now - currentSnapshotTime >= SNAPSHOT_INTERVAL_MS) {
+        currentSnapshotTime = now;
+        this.sendTreeSnapshot();
+      }
+
+      await yieldControl();
+    }
+
+    return { loadedCount: currentLoadedCount, lastSnapshotTime: currentSnapshotTime };
   }
 
   /**
@@ -314,5 +337,99 @@ export class BFSEngine {
         expandedPaths: [],
       },
     });
+  }
+
+  /**
+   * Filter paths that need loading (exist in tree and not already loaded/loading).
+   * Returns paths to load and count of skipped paths.
+   */
+  private filterPathsForLoading(batch: string[]): { toLoad: string[]; skipped: number } {
+    const toLoad: string[] = [];
+    let skipped = 0;
+
+    for (const path of batch) {
+      const node = this.findNode(path);
+      if (!node || node.type !== 'directory') {
+        skipped++;
+        continue;
+      }
+      if (node.loadState === 'loaded' || node.loadState === 'loading') {
+        skipped++;
+        continue;
+      }
+      toLoad.push(path);
+    }
+
+    return { toLoad, skipped };
+  }
+
+  /**
+   * Load specific directory paths (for restoration).
+   * Unlike expandAll, this doesn't do BFS discovery - it only loads the requested paths.
+   * Paths should be sorted by depth (shallowest first) to ensure parents load before children.
+   */
+  async loadPaths(paths: string[]): Promise<void> {
+    this.resetAbort();
+
+    if (paths.length === 0) {
+      this.sendComplete();
+      return;
+    }
+
+    const total = paths.length;
+    let loadedCount = 0;
+    let skippedCount = 0;
+
+    this.logInfo(`[loadPaths] Starting restoration of ${total} directories`);
+
+    // Process paths in batches
+    for (let i = 0; i < paths.length && !this.aborted; i += BATCH_SIZE) {
+      const batch = paths.slice(i, i + BATCH_SIZE);
+      const { toLoad, skipped } = this.filterPathsForLoading(batch);
+      skippedCount += skipped;
+
+      if (toLoad.length > 0) {
+        this.markBatchAsLoading(toLoad);
+        const results = await this.requestLoads(toLoad);
+
+        if (this.aborted) {
+          break;
+        }
+
+        loadedCount += results.filter((r) => r.children).length;
+      }
+
+      this.sendProgress(loadedCount + skippedCount, total, batch[0] ?? '');
+      await yieldControl();
+    }
+
+    if (this.aborted) {
+      this.logInfo('[loadPaths] Aborted');
+      return;
+    }
+
+    this.logInfo(`[loadPaths] Complete. Loaded ${loadedCount}, skipped ${skippedCount}`);
+    this.sendComplete();
+  }
+
+  /**
+   * Find a node by path in the tree.
+   */
+  private findNode(targetPath: string): WorkerFileNode | null {
+    function search(nodes: WorkerFileNode[]): WorkerFileNode | null {
+      for (const node of nodes) {
+        if (node.path === targetPath) {
+          return node;
+        }
+        if (targetPath.startsWith(`${node.path}/`) && node.children) {
+          const found = search(node.children);
+          if (found) {
+            return found;
+          }
+        }
+      }
+      return null;
+    }
+    return search(this.tree);
   }
 }

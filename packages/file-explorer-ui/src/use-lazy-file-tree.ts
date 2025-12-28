@@ -85,6 +85,127 @@ function removeFromLoadingPaths(paths: Set<string>, path: string): Set<string> {
   return newPaths;
 }
 
+/**
+ * Check if an error is a cancellation/abort error.
+ */
+function isOperationCancelled(err: unknown): boolean {
+  if (err instanceof DOMException && err.name === 'AbortError') {
+    return true;
+  }
+  if (err instanceof Error && err.message.includes('abort')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Get error message from an unknown error.
+ */
+function getErrorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Build minimal node info from a path and root info.
+ */
+function buildNodeFromPath(
+  path: string,
+  rootPath: string,
+  rootName: string,
+  handle: FileSystemHandle
+): IFileNode {
+  const pathSegments = path.replace(rootPath, '').split('/').filter(Boolean);
+  const name = pathSegments.at(-1) ?? '';
+  const depth = pathSegments.length - 1;
+
+  return {
+    name,
+    path,
+    type: 'directory',
+    depth,
+    rootFolderId: rootName,
+    handle: handle as FileSystemDirectoryHandle,
+    selectionState: 'unchecked',
+  };
+}
+
+/**
+ * Log directory load result for debugging.
+ */
+function logDirectoryLoad(
+  path: string,
+  children: IFileNode[],
+  mapSizeBefore: number,
+  mapSizeAfter: number
+): void {
+  const childrenWithHandles = children.filter((c) => c.handle).length;
+  logger.info('expand-all loaded directory', {
+    path,
+    childrenCount: children.length,
+    childrenWithHandles,
+    mapSizeBefore,
+    mapSizeAfter,
+  });
+}
+
+/**
+ * Log and check for files without handles after tree rehydration.
+ */
+function logRehydrationResult(
+  operation: string,
+  handleMapSize: number,
+  workerTreeNodes: number,
+  rehydratedNodes: number,
+  rehydratedTree: IFileNode[]
+): void {
+  logger.info(`${operation} complete`, { handleMapSize, workerTreeNodes });
+  logger.info(`${operation} rehydrated`, { rehydratedNodes });
+
+  const filesWithoutHandles = countFilesWithoutHandles(rehydratedTree);
+  if (filesWithoutHandles > 0) {
+    logger.warn(`${operation} files missing handles`, { filesWithoutHandles });
+  }
+}
+
+/**
+ * Load a single directory for worker request and append result.
+ * Extracted to reduce complexity of the main request handler.
+ */
+async function loadSingleDirectoryForWorker(
+  path: string,
+  rootPath: string,
+  rootName: string,
+  handleMap: Map<string, FileSystemHandle>,
+  fileSystemAdapter: ReturnType<typeof useAdapters>['fileSystemAdapter'],
+  abortSignal: AbortSignal,
+  results: BatchLoadResult[]
+): Promise<void> {
+  const handle = handleMap.get(path);
+  if (!handle) {
+    results.push({ path, error: 'Handle not found' });
+    return;
+  }
+
+  const node = buildNodeFromPath(path, rootPath, rootName, handle);
+
+  try {
+    const children = await loadDirectoryChildren(fileSystemAdapter, node, {
+      abortSignal,
+      sortFileNodes,
+    });
+
+    const mapSizeBefore = handleMap.size;
+    addHandlesToMap(children, handleMap);
+    logDirectoryLoad(path, children, mapSizeBefore, handleMap.size);
+
+    results.push({ path, children: toWorkerFileNodes(children) });
+  } catch (err) {
+    if (!isCancellationError(err)) {
+      results.push({ path, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+}
+
 export type LazyFileTreeState = {
   fileTree: IFileNode[];
   isInitialLoading: boolean;
@@ -127,6 +248,11 @@ export type UseLazyFileTreeReturn = {
   isExpandingAll: boolean;
   /** Progress of expand-all operation */
   expandAllProgress: { loaded: number; total: number } | null;
+  /** Load specific paths using worker (for restoration) */
+  loadSpecificPaths: (
+    paths: string[],
+    onProgress?: (loaded: number, total: number, currentPath: string) => void
+  ) => Promise<void>;
 };
 
 /**
@@ -228,61 +354,19 @@ export function useLazyFileTree(
       const rootPath = rootHandleRef.current?.path ?? '';
       const rootName = rootHandleRef.current?.name ?? '';
 
+      // Load each directory in parallel
       await Promise.all(
-        paths.map(async (path) => {
-          // Look up handle from the handle map (NOT the stale React tree)
-          const handle = handleMapRef.current.get(path);
-          if (!handle) {
-            results.push({ path, error: 'Handle not found' });
-            return;
-          }
-
-          // Build minimal node info from what we have
-          const pathSegments = path.replace(rootPath, '').split('/').filter(Boolean);
-          const name = pathSegments[pathSegments.length - 1] ?? '';
-          const depth = pathSegments.length - 1;
-
-          const node: IFileNode = {
-            name,
+        paths.map((path) =>
+          loadSingleDirectoryForWorker(
             path,
-            type: 'directory',
-            depth,
-            rootFolderId: rootName,
-            handle: handle as FileSystemDirectoryHandle,
-            selectionState: 'unchecked',
-          };
-
-          try {
-            const children = await loadDirectoryChildren(fileSystemAdapter, node, {
-              abortSignal: abortController.signal,
-              sortFileNodes,
-            });
-
-            // Add new handles to the map
-            const mapSizeBefore = handleMapRef.current.size;
-            addHandlesToMap(children, handleMapRef.current);
-            const mapSizeAfter = handleMapRef.current.size;
-            const childrenWithHandles = children.filter((c) => c.handle).length;
-            logger.info('expand-all loaded directory', {
-              path,
-              childrenCount: children.length,
-              childrenWithHandles,
-              mapSizeBefore,
-              mapSizeAfter,
-            });
-
-            // Convert children to worker nodes (filters out loadMore nodes)
-            const workerChildren = toWorkerFileNodes(children);
-            results.push({ path, children: workerChildren });
-          } catch (err) {
-            if (!isCancellationError(err)) {
-              results.push({
-                path,
-                error: err instanceof Error ? err.message : String(err),
-              });
-            }
-          }
-        })
+            rootPath,
+            rootName,
+            handleMapRef.current,
+            fileSystemAdapter,
+            abortController.signal,
+            results
+          )
+        )
       );
 
       return results;
@@ -311,18 +395,24 @@ export function useLazyFileTree(
 
     // Handle errors from worker
     port.onError((message, _path) => {
-      console.error('[FileTreeWorker]', message);
+      logger.error('Worker error', { message });
       setState((s) => ({
         ...s,
         error: new Error(message),
       }));
     });
 
-    // Debug logging
+    // Debug logging from worker
     port.onLog((level, message, data) => {
-      const logFn =
-        level === 'error' ? console.error : level === 'warn' ? console.warn : console.debug;
-      logFn('[FileTreeWorker]', message, data ?? '');
+      if (level === 'error') {
+        logger.error(message, data ?? undefined);
+      } else if (level === 'warn') {
+        logger.warn(message, data ?? undefined);
+      } else if (level === 'info') {
+        logger.info(message, data ?? undefined);
+      } else {
+        logger.debug(message, data ?? undefined);
+      }
     });
 
     return () => {
@@ -467,13 +557,14 @@ export function useLazyFileTree(
           abortSignal: abortController.signal,
           sortFileNodes,
         });
-
+        // Only update if not aborted
         if (!abortController.signal.aborted) {
           handleLoadSuccess(path, children);
         }
       } catch (err) {
+        // Only report non-cancellation errors
         if (!isCancellationError(err)) {
-          handleLoadError(path, err instanceof Error ? err.message : String(err));
+          handleLoadError(path, getErrorMessage(err));
         }
       } finally {
         childAbortControllersRef.current.delete(path);
@@ -588,20 +679,14 @@ export function useLazyFileTree(
         const result = await workerPortRef.current.expandAll(folderId);
 
         // Rehydrate final tree with handles
-        logger.info('expand-all complete', {
-          handleMapSize: handleMapRef.current.size,
-          workerTreeNodes: countNodes(result.tree),
-        });
         const rehydratedTree = rehydrateTree(result.tree, handleMapRef.current);
-        logger.info('expand-all rehydrated', {
-          rehydratedNodes: countNodes(rehydratedTree),
-        });
-
-        // Debug: check for files without handles
-        const filesWithoutHandles = countFilesWithoutHandles(rehydratedTree);
-        if (filesWithoutHandles > 0) {
-          logger.warn('expand-all files missing handles', { filesWithoutHandles });
-        }
+        logRehydrationResult(
+          'expand-all',
+          handleMapRef.current.size,
+          countNodes(result.tree),
+          countNodes(rehydratedTree),
+          rehydratedTree
+        );
 
         // Final update
         setState((s) => ({
@@ -614,13 +699,12 @@ export function useLazyFileTree(
         // Set all expanded paths
         setExpandedPaths(() => new Set(result.expandedPaths));
       } catch (err) {
-        const isCancel =
-          isCancellationError(err) || (err instanceof Error && err.message.includes('abort'));
+        const isCancelled = isOperationCancelled(err);
         setState((s) => ({
           ...s,
           isExpandingAll: false,
           expandAllProgress: null,
-          error: isCancel ? s.error : err instanceof Error ? err : new Error(String(err)),
+          error: isCancelled ? s.error : err instanceof Error ? err : new Error(String(err)),
         }));
       } finally {
         isExpandAllStartingRef.current = false;
@@ -629,6 +713,72 @@ export function useLazyFileTree(
       }
     },
     [fileSystemAdapter, rootDirectoryHandle]
+  );
+
+  /**
+   * Load specific paths using the Web Worker (for restoration).
+   * Uses the same optimized approach as expandAll but only loads the requested paths.
+   *
+   * @param paths - Directory paths to load (should be sorted by depth, shallowest first)
+   * @param onProgress - Optional progress callback
+   */
+  const loadSpecificPaths = useCallback(
+    async (
+      paths: string[],
+      onProgress?: (loaded: number, total: number, currentPath: string) => void
+    ): Promise<void> => {
+      if (!(fileSystemAdapter && workerPortRef.current)) {
+        return;
+      }
+
+      // Skip if expand-all is in progress
+      if (isExpandingAllRef.current) {
+        logger.info('loadSpecificPaths skipped - expand-all in progress');
+        return;
+      }
+
+      // Skip if no paths to load
+      if (paths.length === 0) {
+        return;
+      }
+
+      logger.info('loadSpecificPaths starting', { pathCount: paths.length });
+
+      // Set up progress handler if provided
+      const unsubProgress = onProgress
+        ? workerPortRef.current.onProgress((loaded, total, currentPath) => {
+            onProgress(loaded, total, currentPath);
+          })
+        : undefined;
+
+      try {
+        // Delegate to worker - it will request loads as needed
+        const result = await workerPortRef.current.loadPaths(paths);
+
+        // Rehydrate final tree with handles
+        const rehydratedTree = rehydrateTree(result.tree, handleMapRef.current);
+        logRehydrationResult(
+          'loadSpecificPaths',
+          handleMapRef.current.size,
+          countNodes(result.tree),
+          countNodes(rehydratedTree),
+          rehydratedTree
+        );
+
+        // Update state with loaded tree
+        setState((s) => ({
+          ...s,
+          fileTree: rehydratedTree,
+        }));
+      } catch (err) {
+        if (!isOperationCancelled(err)) {
+          logger.error('loadSpecificPaths failed', { error: String(err) });
+        }
+      } finally {
+        unsubProgress?.();
+      }
+    },
+    [fileSystemAdapter]
   );
 
   // Auto-load root when handle changes
@@ -680,5 +830,6 @@ export function useLazyFileTree(
     cancelExpandAll,
     isExpandingAll: state.isExpandingAll,
     expandAllProgress: state.expandAllProgress,
+    loadSpecificPaths,
   };
 }

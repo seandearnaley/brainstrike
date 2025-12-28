@@ -55,6 +55,11 @@ export type CancellableFileTreeHook = {
   isExpandingAll: boolean;
   /** Progress of expand-all operation */
   expandAllProgress: { loaded: number; total: number } | null;
+  /** Load specific paths using worker (for restoration) */
+  loadSpecificPaths: (
+    paths: string[],
+    onProgress?: (loaded: number, total: number, currentPath: string) => void
+  ) => Promise<void>;
 };
 
 /**
@@ -78,6 +83,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     cancelExpandAll,
     isExpandingAll,
     expandAllProgress,
+    loadSpecificPaths,
   } = useLazyFileTree(rootDirectoryHandle);
 
   return {
@@ -99,5 +105,6 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     cancelExpandAll,
     isExpandingAll,
     expandAllProgress,
+    loadSpecificPaths,
   };
 }

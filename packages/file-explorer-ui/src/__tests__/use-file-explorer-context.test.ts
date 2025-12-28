@@ -175,6 +175,7 @@ describe('useFileExplorer (context)', () => {
       cancelExpandAll: vi.fn(),
       isExpandingAll: false,
       expandAllProgress: null,
+      loadSpecificPaths: vi.fn(),
     });
 
     vi.mocked(useFileContentLoading).mockReturnValue({

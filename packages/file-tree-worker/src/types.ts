@@ -111,6 +111,18 @@ export type AbortMessage = {
 };
 
 /**
+ * Load specific paths (for restoring expanded directories).
+ * Unlike expandAll which does BFS discovery, this loads only the requested paths.
+ */
+export type LoadPathsMessage = {
+  type: 'loadPaths';
+  payload: {
+    /** Directory paths to load (should be sorted by depth, shallowest first) */
+    paths: string[];
+  };
+};
+
+/**
  * Update the tree with new nodes (e.g., after single directory load).
  */
 export type UpdateTreeMessage = {
@@ -133,6 +145,7 @@ export type MainToWorkerMessage =
   | CollapseAllMessage
   | ToggleExpandMessage
   | AbortMessage
+  | LoadPathsMessage
   | UpdateTreeMessage;
 
 // ============================================================================
