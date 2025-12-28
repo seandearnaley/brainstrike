@@ -342,36 +342,41 @@ export function useLazyFileTree(
     const port = createFileTreeWorkerPort(worker);
     workerPortRef.current = port;
 
+    // Collect unsubscribe functions for cleanup
+    const unsubscribes: (() => void)[] = [];
+
     // Handle load requests from worker - perform I/O with FileSystemHandles
-    port.onRequestLoad(async (_requestId, paths) => {
-      if (!fileSystemAdapter) {
-        return paths.map((path) => ({ path, error: 'No file system adapter' }));
-      }
+    unsubscribes.push(
+      port.onRequestLoad(async (_requestId, paths) => {
+        if (!fileSystemAdapter) {
+          return paths.map((path) => ({ path, error: 'No file system adapter' }));
+        }
 
-      const results: BatchLoadResult[] = [];
-      const abortController = new AbortController();
+        const results: BatchLoadResult[] = [];
+        const abortController = new AbortController();
 
-      // Get root info for building nodes (use ref to get current value)
-      const rootPath = rootHandleRef.current?.path ?? '';
-      const rootName = rootHandleRef.current?.name ?? '';
+        // Get root info for building nodes (use ref to get current value)
+        const rootPath = rootHandleRef.current?.path ?? '';
+        const rootName = rootHandleRef.current?.name ?? '';
 
-      // Load each directory in parallel
-      await Promise.all(
-        paths.map((path) =>
-          loadSingleDirectoryForWorker(
-            path,
-            rootPath,
-            rootName,
-            handleMapRef.current,
-            fileSystemAdapter,
-            abortController.signal,
-            results
+        // Load each directory in parallel
+        await Promise.all(
+          paths.map((path) =>
+            loadSingleDirectoryForWorker(
+              path,
+              rootPath,
+              rootName,
+              handleMapRef.current,
+              fileSystemAdapter,
+              abortController.signal,
+              results
+            )
           )
-        )
-      );
+        );
 
-      return results;
-    });
+        return results;
+      })
+    );
 
     // Handle tree snapshots from worker
     // PERFORMANCE: We intentionally DO NOT update the React tree during expand-all.
@@ -382,41 +387,53 @@ export function useLazyFileTree(
     // For a tree with 10,000+ nodes, this blocks the main thread.
     // Instead, we only update the tree at COMPLETION (in expandAllProgressively).
     // Progress is shown via expandAllProgress state (updated by onProgress handler).
-    port.onTreeSnapshot((_workerTree, _expandedPaths) => {
-      // Intentionally do nothing - tree and expanded paths are set at completion only
-    });
+    unsubscribes.push(
+      port.onTreeSnapshot((_workerTree, _expandedPaths) => {
+        // Intentionally do nothing - tree and expanded paths are set at completion only
+      })
+    );
 
     // Handle progress updates
-    port.onProgress((loaded, total, _currentPath) => {
-      setState((s) => ({
-        ...s,
-        expandAllProgress: { loaded, total },
-      }));
-    });
+    unsubscribes.push(
+      port.onProgress((loaded, total, _currentPath) => {
+        setState((s) => ({
+          ...s,
+          expandAllProgress: { loaded, total },
+        }));
+      })
+    );
 
     // Handle errors from worker
-    port.onError((message, _path) => {
-      logger.error('Worker error', { message });
-      setState((s) => ({
-        ...s,
-        error: new Error(message),
-      }));
-    });
+    unsubscribes.push(
+      port.onError((message, _path) => {
+        logger.error('Worker error', { message });
+        setState((s) => ({
+          ...s,
+          error: new Error(message),
+        }));
+      })
+    );
 
     // Debug logging from worker
-    port.onLog((level, message, data) => {
-      if (level === 'error') {
-        logger.error(message, data ?? undefined);
-      } else if (level === 'warn') {
-        logger.warn(message, data ?? undefined);
-      } else if (level === 'info') {
-        logger.info(message, data ?? undefined);
-      } else {
-        logger.debug(message, data ?? undefined);
-      }
-    });
+    unsubscribes.push(
+      port.onLog((level, message, data) => {
+        if (level === 'error') {
+          logger.error(message, data ?? undefined);
+        } else if (level === 'warn') {
+          logger.warn(message, data ?? undefined);
+        } else if (level === 'info') {
+          logger.info(message, data ?? undefined);
+        } else {
+          logger.debug(message, data ?? undefined);
+        }
+      })
+    );
 
     return () => {
+      // Clean up all handlers before terminating worker
+      for (const unsubscribe of unsubscribes) {
+        unsubscribe();
+      }
       port.terminate();
       workerPortRef.current = null;
     };
@@ -433,6 +450,14 @@ export function useLazyFileTree(
         isInitialLoading: false,
         error: null,
       }));
+      return;
+    }
+
+    // Defensive check: skip if expand-all is in progress
+    // This prevents a race condition where rootDirectoryHandle changes during expand-all
+    // and the effect check passes between expand-all completion and loadRoot execution
+    if (isExpandingAllRef.current) {
+      logger.info('loadRoot blocked - expand-all in progress');
       return;
     }
 
