@@ -20,7 +20,7 @@ import {
   resolveFileTreeWorkerUrl,
 } from '@brainstrike/file-tree-worker';
 import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { canLoadNode, createLogger, sortTreeNodes } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const logger = createLogger('LazyFileTree');
@@ -41,7 +41,17 @@ import {
   toWorkerFileNodes,
 } from './utils/worker-node-conversion';
 
-// Debug helpers
+/**
+ * Sort nodes: directories first, then alphabetically.
+ * Wraps the generic sortTreeNodes for IFileNode type.
+ */
+function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
+  return sortTreeNodes(nodes);
+}
+
+/**
+ * Count total nodes in a tree (used for logging).
+ */
 function countNodes(nodes: WorkerFileNode[] | IFileNode[]): number {
   let count = 0;
   for (const node of nodes) {
@@ -53,6 +63,9 @@ function countNodes(nodes: WorkerFileNode[] | IFileNode[]): number {
   return count;
 }
 
+/**
+ * Count files without handles (used for logging rehydration issues).
+ */
 function countFilesWithoutHandles(nodes: IFileNode[]): number {
   let count = 0;
   for (const node of nodes) {
@@ -64,16 +77,6 @@ function countFilesWithoutHandles(nodes: IFileNode[]): number {
     }
   }
   return count;
-}
-
-/**
- * Check if a node can be loaded (exists, is a directory, and needs loading).
- */
-function canLoadNode(node: IFileNode | null | undefined): node is IFileNode {
-  if (!node || node.type !== 'directory') {
-    return false;
-  }
-  return node.loadState !== 'loaded' && node.loadState !== 'loading';
 }
 
 /**
@@ -200,7 +203,7 @@ async function loadSingleDirectoryForWorker(
 
     results.push({ path, children: toWorkerFileNodes(children) });
   } catch (err) {
-    if (!isCancellationError(err)) {
+    if (!isOperationCancelled(err)) {
       results.push({ path, error: err instanceof Error ? err.message : String(err) });
     }
   }
@@ -254,33 +257,6 @@ export type UseLazyFileTreeReturn = {
     onProgress?: (loaded: number, total: number, currentPath: string) => void
   ) => Promise<void>;
 };
-
-/**
- * Custom sort function: directories first, then alphabetically
- */
-function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
-  return [...nodes].sort((a, b) => {
-    if (a.type !== b.type) {
-      if (a.type === 'directory') {
-        return -1;
-      }
-      if (b.type === 'directory') {
-        return 1;
-      }
-    }
-    return a.name.localeCompare(b.name, undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    });
-  });
-}
-
-/**
- * Check if an error is a cancellation error
- */
-function isCancellationError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError';
-}
 
 /**
  * Hook for managing lazily-loaded file tree state.
@@ -504,7 +480,7 @@ export function useLazyFileTree(
         });
       }
     } catch (err) {
-      if (!isCancellationError(err)) {
+      if (!isOperationCancelled(err)) {
         setState((s) => ({
           ...s,
           isInitialLoading: false,
@@ -589,7 +565,7 @@ export function useLazyFileTree(
         }
       } catch (err) {
         // Only report non-cancellation errors
-        if (!isCancellationError(err)) {
+        if (!isOperationCancelled(err)) {
           handleLoadError(path, getErrorMessage(err));
         }
       } finally {

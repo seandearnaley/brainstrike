@@ -1,152 +1,68 @@
 /**
  * Tree Operations
  *
- * Pure functions for tree manipulation that run in the worker.
- * These are CPU-bound operations moved off the main thread.
+ * Worker-specific tree operations that extend the shared utilities.
+ * Generic operations are imported from @brainstrike/utils.
  */
 
+import {
+  canLoadNode as canLoadNodeGeneric,
+  collectDirectoryPaths as collectDirectoryPathsGeneric,
+  collectExpandedPaths as collectExpandedPathsGeneric,
+  findNodeByPath as findNodeByPathGeneric,
+  needsLoading as needsLoadingGeneric,
+  setNodeLoadState as setNodeLoadStateGeneric,
+  sortTreeNodes,
+  updateNodeChildren as updateNodeChildrenGeneric,
+} from '@brainstrike/utils';
 import type { BatchLoadResult, DirectoryLoadState, WorkerFileNode } from './types';
 
-/**
- * Sort nodes: directories first, then alphabetically.
- */
+// Re-export generic functions typed for WorkerFileNode
 export function sortFileNodes(nodes: WorkerFileNode[]): WorkerFileNode[] {
-  return [...nodes].sort((a, b) => {
-    if (a.type !== b.type) {
-      if (a.type === 'directory') {
-        return -1;
-      }
-      if (b.type === 'directory') {
-        return 1;
-      }
-    }
-    return a.name.localeCompare(b.name, undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    });
-  });
+  return sortTreeNodes(nodes);
 }
 
-/**
- * Find a node by path in the tree.
- * O(n) where n is total nodes in tree.
- */
 export function findNodeByPath(tree: WorkerFileNode[], targetPath: string): WorkerFileNode | null {
-  for (const node of tree) {
-    if (node.path === targetPath) {
-      return node;
-    }
-
-    // Check descendants if this could be an ancestor
-    if (targetPath.startsWith(`${node.path}/`) && node.children) {
-      const found = findNodeByPath(node.children, targetPath);
-      if (found) {
-        return found;
-      }
-    }
-  }
-
-  return null;
+  return findNodeByPathGeneric(tree, targetPath);
 }
 
-/**
- * Check if a directory needs to be loaded.
- */
 export function needsLoading(node: WorkerFileNode): boolean {
-  return (
-    node.type === 'directory' && (node.loadState === 'unloaded' || node.loadState === undefined)
-  );
+  return needsLoadingGeneric(node);
 }
 
-/**
- * Immutably update a node's children in the tree.
- * Returns a new tree with the update applied.
- */
 export function updateNodeChildren(
   tree: WorkerFileNode[],
   targetPath: string,
   children: WorkerFileNode[],
   loadState: DirectoryLoadState = 'loaded'
 ): WorkerFileNode[] {
-  return tree.map((node): WorkerFileNode => {
-    // Found the target node
-    if (node.path === targetPath) {
-      // Destructure to omit loadError when successfully loaded
-      const { loadError: _loadError, ...rest } = node;
-      return {
-        ...rest,
-        children,
-        loadState,
-      };
-    }
-
-    // Check if target is a descendant of this node
-    if (targetPath.startsWith(`${node.path}/`) && node.children) {
-      return {
-        ...node,
-        children: updateNodeChildren(node.children, targetPath, children, loadState),
-      };
-    }
-
-    // No change needed for this branch
-    return node;
-  });
+  return updateNodeChildrenGeneric(tree, targetPath, children, loadState);
 }
 
-/**
- * Set loading state for a directory without changing its children.
- */
 export function setNodeLoadState(
   tree: WorkerFileNode[],
   targetPath: string,
   loadState: DirectoryLoadState,
   error?: string
 ): WorkerFileNode[] {
-  return tree.map((node): WorkerFileNode => {
-    // Found the target node
-    if (node.path === targetPath) {
-      // Destructure to omit loadError, then conditionally add it back
-      const { loadError: _loadError, ...rest } = node;
-      const updated: WorkerFileNode = {
-        ...rest,
-        loadState,
-      };
-      // Only include loadError if error is defined
-      if (error !== undefined) {
-        updated.loadError = error;
-      }
-      return updated;
-    }
-
-    // Check if target is a descendant of this node
-    if (targetPath.startsWith(`${node.path}/`) && node.children) {
-      return {
-        ...node,
-        children: setNodeLoadState(node.children, targetPath, loadState, error),
-      };
-    }
-
-    // No change needed for this branch
-    return node;
-  });
+  return setNodeLoadStateGeneric(tree, targetPath, loadState, error);
 }
 
-/**
- * Collect all directory paths from a tree recursively.
- */
 export function collectDirectoryPaths(nodes: WorkerFileNode[], paths: Set<string>): void {
-  for (const node of nodes) {
-    if (node.type === 'directory') {
-      paths.add(node.path);
-      if (node.children) {
-        collectDirectoryPaths(node.children, paths);
-      }
-    }
-  }
+  collectDirectoryPathsGeneric(nodes, paths);
+}
+
+export function canLoadNode(node: WorkerFileNode | null | undefined): node is WorkerFileNode {
+  return canLoadNodeGeneric(node);
+}
+
+export function collectExpandedPaths(tree: WorkerFileNode[]): string[] {
+  return collectExpandedPathsGeneric(tree);
 }
 
 /**
  * Get directories that need loading from a wave of paths.
+ * Worker-specific: orchestrates BFS expansion.
  */
 export function getUnloadedDirectories(
   currentWave: Set<string>,
@@ -169,6 +85,7 @@ export function getUnloadedDirectories(
 
 /**
  * Discover child directories from loaded nodes.
+ * Worker-specific: orchestrates BFS expansion.
  */
 export function discoverChildDirectories(
   currentWave: Set<string>,
@@ -193,6 +110,7 @@ export function discoverChildDirectories(
 
 /**
  * Apply batch results to the tree.
+ * Worker-specific: handles BatchLoadResult format.
  */
 export function applyBatchResultsToTree(
   tree: WorkerFileNode[],
@@ -207,33 +125,4 @@ export function applyBatchResultsToTree(
     }
   }
   return newTree;
-}
-
-/**
- * Check if a node can be loaded (exists, is a directory, and needs loading).
- */
-export function canLoadNode(node: WorkerFileNode | null | undefined): node is WorkerFileNode {
-  if (!node || node.type !== 'directory') {
-    return false;
-  }
-  return node.loadState !== 'loaded' && node.loadState !== 'loading';
-}
-
-/**
- * Collect all expanded paths from the tree.
- */
-export function collectExpandedPaths(tree: WorkerFileNode[]): string[] {
-  const paths: string[] = [];
-
-  function traverse(nodes: WorkerFileNode[]): void {
-    for (const node of nodes) {
-      if (node.type === 'directory' && node.loadState === 'loaded' && node.children) {
-        paths.push(node.path);
-        traverse(node.children);
-      }
-    }
-  }
-
-  traverse(tree);
-  return paths;
 }

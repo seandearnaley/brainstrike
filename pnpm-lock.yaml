@@ -1150,6 +1150,10 @@ importers:
         version: 5.0.0
 
   packages/file-tree-worker:
+    dependencies:
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       '@types/node':
         specifier: ^24.10.1

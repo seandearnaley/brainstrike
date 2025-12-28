@@ -16,12 +16,16 @@ import {
   updateNodeChildren,
 } from '../lazy-tree-loader';
 
-// Mock file filter
-vi.mock('@brainstrike/utils', () => ({
-  fileFilter: {
-    shouldIgnorePath: (path: string) => path.startsWith('.') || path === 'node_modules',
-  },
-}));
+// Mock file filter while preserving real tree operations
+vi.mock('@brainstrike/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+  return {
+    ...actual,
+    fileFilter: {
+      shouldIgnorePath: (path: string) => path.startsWith('.') || path === 'node_modules',
+    },
+  };
+});
 
 describe('lazy-tree-loader', () => {
   // Mock handle for test nodes

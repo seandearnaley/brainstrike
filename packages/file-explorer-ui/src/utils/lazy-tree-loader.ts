@@ -3,6 +3,8 @@
  *
  * Provides functions for on-demand directory loading. Instead of loading
  * the entire file tree upfront, directories are loaded when expanded.
+ *
+ * Generic tree operations are imported from @brainstrike/utils.
  */
 
 import type {
@@ -11,7 +13,15 @@ import type {
   FileSystemAdapter,
   IFileNode,
 } from '@brainstrike/types';
-import { fileFilter } from '@brainstrike/utils';
+import {
+  fileFilter,
+  findNodeByPath as findNodeByPathGeneric,
+  isLoading as isLoadingGeneric,
+  needsLoading as needsLoadingGeneric,
+  setNodeLoadState as setNodeLoadStateGeneric,
+  sortTreeNodes,
+  updateNodeChildren as updateNodeChildrenGeneric,
+} from '@brainstrike/utils';
 
 export type LazyLoadOptions = {
   /** AbortSignal for cancellation support */
@@ -26,20 +36,7 @@ export type LazyLoadOptions = {
  * Default sort function: directories first, then alphabetically
  */
 function defaultSortFileNodes(nodes: IFileNode[]): IFileNode[] {
-  return [...nodes].sort((a, b) => {
-    if (a.type !== b.type) {
-      if (a.type === 'directory') {
-        return -1;
-      }
-      if (b.type === 'directory') {
-        return 1;
-      }
-    }
-    return a.name.localeCompare(b.name, undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    });
-  });
+  return sortTreeNodes(nodes);
 }
 
 /**
@@ -199,138 +196,33 @@ export async function loadDirectoryChildren(
   return sortFileNodes(lazyNodes);
 }
 
-/**
- * Immutably update a node's children in the tree.
- *
- * Traverses the tree to find the target path and updates its children.
- * Returns a new tree with the update applied immutably.
- *
- * @param tree - Current tree
- * @param targetPath - Path of the node to update
- * @param children - New children array
- * @param loadState - New load state (defaults to 'loaded')
- * @returns Updated tree (new references for modified branches)
- */
+// Re-export generic functions typed for IFileNode for backward compatibility
 export function updateNodeChildren(
   tree: IFileNode[],
   targetPath: string,
   children: IFileNode[],
   loadState: DirectoryLoadState = 'loaded'
 ): IFileNode[] {
-  return tree.map((node): IFileNode => {
-    // Found the target node
-    if (node.path === targetPath) {
-      // Destructure to omit loadError when successfully loaded
-      const { loadError: _loadError, ...rest } = node;
-      return {
-        ...rest,
-        children,
-        loadState,
-      };
-    }
-
-    // Check if target is a descendant of this node
-    if (targetPath.startsWith(`${node.path}/`) && node.children) {
-      return {
-        ...node,
-        children: updateNodeChildren(node.children, targetPath, children, loadState),
-      };
-    }
-
-    // No change needed for this branch
-    return node;
-  });
+  return updateNodeChildrenGeneric(tree, targetPath, children, loadState);
 }
 
-/**
- * Set loading state for a directory without changing its children.
- *
- * Used to show loading spinners or error states.
- *
- * @param tree - Current tree
- * @param targetPath - Path of the node to update
- * @param loadState - New load state
- * @param error - Optional error message (for 'error' state)
- * @returns Updated tree
- */
 export function setNodeLoadState(
   tree: IFileNode[],
   targetPath: string,
   loadState: DirectoryLoadState,
   error?: string
 ): IFileNode[] {
-  return tree.map((node): IFileNode => {
-    // Found the target node
-    if (node.path === targetPath) {
-      // Destructure to omit loadError, then conditionally add it back
-      const { loadError: _loadError, ...rest } = node;
-      const updated: IFileNode = {
-        ...rest,
-        loadState,
-      };
-      // Only include loadError if error is defined
-      if (error !== undefined) {
-        updated.loadError = error;
-      }
-      return updated;
-    }
-
-    // Check if target is a descendant of this node
-    if (targetPath.startsWith(`${node.path}/`) && node.children) {
-      return {
-        ...node,
-        children: setNodeLoadState(node.children, targetPath, loadState, error),
-      };
-    }
-
-    // No change needed for this branch
-    return node;
-  });
+  return setNodeLoadStateGeneric(tree, targetPath, loadState, error);
 }
 
-/**
- * Find a node by path in the tree.
- *
- * @param tree - Tree to search
- * @param targetPath - Path to find
- * @returns Found node or null
- */
 export function findNodeByPath(tree: IFileNode[], targetPath: string): IFileNode | null {
-  for (const node of tree) {
-    if (node.path === targetPath) {
-      return node;
-    }
-
-    // Check descendants if this could be an ancestor
-    if (targetPath.startsWith(`${node.path}/`) && node.children) {
-      const found = findNodeByPath(node.children, targetPath);
-      if (found) {
-        return found;
-      }
-    }
-  }
-
-  return null;
+  return findNodeByPathGeneric(tree, targetPath);
 }
 
-/**
- * Check if a directory needs to be loaded.
- *
- * @param node - Node to check
- * @returns true if the node is a directory that hasn't been loaded
- */
 export function needsLoading(node: IFileNode): boolean {
-  return (
-    node.type === 'directory' && (node.loadState === 'unloaded' || node.loadState === undefined)
-  );
+  return needsLoadingGeneric(node);
 }
 
-/**
- * Check if a directory is currently loading.
- *
- * @param node - Node to check
- * @returns true if the node is loading
- */
 export function isLoading(node: IFileNode): boolean {
-  return node.type === 'directory' && node.loadState === 'loading';
+  return isLoadingGeneric(node);
 }
