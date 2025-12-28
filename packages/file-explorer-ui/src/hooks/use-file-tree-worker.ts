@@ -28,6 +28,30 @@ import {
 
 const logger = createLogger('FileTreeWorker');
 
+/** Maximum concurrent directory loads to prevent overwhelming the browser */
+const MAX_CONCURRENT_LOADS = 5;
+
+/**
+ * Simple concurrency limiter using chunked Promise.all.
+ * Processes items in chunks with limited concurrency.
+ */
+async function runWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+
+  // Process items in chunks of concurrency size
+  for (let i = 0; i < items.length; i += concurrency) {
+    const chunk = items.slice(i, i + concurrency);
+    const chunkResults = await Promise.all(chunk.map(fn));
+    results.push(...chunkResults);
+  }
+
+  return results;
+}
+
 /**
  * Sort nodes: directories first, then alphabetically.
  */
@@ -192,18 +216,19 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
           return paths.map((path) => ({ path, error: 'No file system adapter' }));
         }
 
-        const results: BatchLoadResult[] = [];
         const abortController = new AbortController();
 
         // Get root info for building nodes
         const rootPath = rootHandleRef.current?.path ?? '';
         const rootName = rootHandleRef.current?.name ?? '';
 
-        // Load each directory in parallel
-        await Promise.all(
-          paths.map(async (path) => {
+        // Load directories with concurrency limit to prevent overwhelming the browser
+        const results = await runWithConcurrency(
+          paths,
+          MAX_CONCURRENT_LOADS,
+          async (path): Promise<BatchLoadResult> => {
             try {
-              const result = await loadSingleDirectory(
+              return await loadSingleDirectory(
                 path,
                 rootPath,
                 rootName,
@@ -211,17 +236,17 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
                 fileSystemAdapter,
                 abortController.signal
               );
-              results.push(result);
             } catch (err) {
               // Ignore abort errors (operation was cancelled)
-              if (!isAbortError(err)) {
-                results.push({
-                  path,
-                  error: err instanceof Error ? err.message : String(err),
-                });
+              if (isAbortError(err)) {
+                return { path, error: 'Operation aborted' };
               }
+              return {
+                path,
+                error: err instanceof Error ? err.message : String(err),
+              };
             }
-          })
+          }
         );
 
         return results;

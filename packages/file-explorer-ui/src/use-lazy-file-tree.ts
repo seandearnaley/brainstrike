@@ -222,6 +222,9 @@ export function useLazyFileTree(
       }
     } catch (err) {
       if (!isAbortError(err)) {
+        // Clear stale handles from previous root to prevent incorrect lookups
+        handleMapRef.current.clear();
+
         setState((s) => ({
           ...s,
           isInitialLoading: false,

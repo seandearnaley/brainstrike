@@ -157,6 +157,9 @@ export function updateNodeChildren<T extends TreeNode>(
     if (node.path === targetPath) {
       // Destructure to omit loadError when successfully loaded
       const { loadError: _loadError, ...rest } = node;
+      // SAFETY: TypeScript can't prove spread creates valid T due to generic constraints.
+      // We know it does since we're reconstructing a valid node with required properties.
+      // This is a known limitation of TS generics with spread operators.
       return {
         ...rest,
         children,
@@ -208,6 +211,7 @@ export function setNodeLoadState<T extends TreeNode>(
     if (node.path === targetPath) {
       // Destructure to omit loadError, then conditionally add it back
       const { loadError: _loadError, ...rest } = node;
+      // SAFETY: See comment in updateNodeChildren - TS generic spread limitation
       const updated = {
         ...rest,
         loadState,
@@ -298,6 +302,7 @@ export function collectExpandedPaths<T extends TreeNode>(tree: T[]): string[] {
 export function resetDirectoryNode<T extends TreeNode>(node: T): T {
   if (node.type === 'directory') {
     const { children: _children, loadError: _loadError, ...rest } = node;
+    // SAFETY: See comment in updateNodeChildren - TS generic spread limitation
     return { ...rest, loadState: 'unloaded' } as unknown as T;
   }
   return node;

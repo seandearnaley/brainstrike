@@ -6,6 +6,8 @@
  * processes results, and manages tree state.
  */
 
+import { getPathDepth } from '@brainstrike/utils';
+
 import {
   applyBatchResultsToTree,
   collectDirectoryPaths,
@@ -43,9 +45,14 @@ function generateRequestId(): string {
 export class BFSEngine {
   private tree: WorkerFileNode[] = [];
   private aborted = false;
+  // Track results per path to avoid race condition with mutated paths array
   private readonly pendingLoads = new Map<
     string,
-    { paths: string[]; resolve: (results: BatchLoadResult[]) => void }
+    {
+      paths: Set<string>; // Original paths (immutable)
+      results: Map<string, BatchLoadResult>; // Collected results
+      resolve: (results: BatchLoadResult[]) => void;
+    }
   >();
 
   constructor(private readonly postMessage: (msg: WorkerToMainMessage) => void) {}
@@ -74,25 +81,21 @@ export class BFSEngine {
 
     // Check all pending loads to see if any batch is complete
     for (const [requestId, pending] of this.pendingLoads) {
-      const remainingPaths = pending.paths.filter((p) => {
-        // Path is done if we got results for it or it had an error
-        return p !== path;
-      });
+      if (!pending.paths.has(path)) {
+        continue;
+      }
 
-      if (remainingPaths.length === 0) {
-        // All paths in this batch are loaded, resolve the promise
-        const results: BatchLoadResult[] = pending.paths.map((p) => {
-          if (p === path) {
-            return { path: p, children };
-          }
-          // Other paths in the batch - they should already be in tree
-          return { path: p, children: [] };
-        });
+      // Store the actual result for this path
+      pending.results.set(path, { path, children });
+
+      // Check if all paths in this batch have results
+      if (pending.results.size === pending.paths.size) {
+        // Collect results in order, using actual stored results
+        const results = Array.from(pending.paths).map(
+          (p) => pending.results.get(p) ?? { path: p, children: [] }
+        );
         pending.resolve(results);
         this.pendingLoads.delete(requestId);
-      } else {
-        // Update remaining paths
-        pending.paths = remainingPaths;
       }
     }
   }
@@ -106,19 +109,21 @@ export class BFSEngine {
 
     // Check all pending loads
     for (const [requestId, pending] of this.pendingLoads) {
-      const remainingPaths = pending.paths.filter((p) => p !== path);
+      if (!pending.paths.has(path)) {
+        continue;
+      }
 
-      if (remainingPaths.length === 0) {
-        const results: BatchLoadResult[] = pending.paths.map((p) => {
-          if (p === path) {
-            return { path: p, error };
-          }
-          return { path: p, children: [] };
-        });
+      // Store the error result for this path
+      pending.results.set(path, { path, error });
+
+      // Check if all paths in this batch have results
+      if (pending.results.size === pending.paths.size) {
+        // Collect results in order, using actual stored results
+        const results = Array.from(pending.paths).map(
+          (p) => pending.results.get(p) ?? { path: p, children: [] }
+        );
         pending.resolve(results);
         this.pendingLoads.delete(requestId);
-      } else {
-        pending.paths = remainingPaths;
       }
     }
   }
@@ -128,13 +133,30 @@ export class BFSEngine {
    * Returns a promise that resolves when all paths are loaded.
    */
   private requestLoads(paths: string[]): Promise<BatchLoadResult[]> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      // Check abort before starting
+      if (this.aborted) {
+        reject(new Error('Operation aborted'));
+        return;
+      }
+
       const requestId = generateRequestId();
 
-      // Store pending request
+      // Timeout to prevent hanging forever if main thread doesn't respond
+      const LoadTimeoutMs = 30_000;
+      const timeoutId = setTimeout(() => {
+        this.pendingLoads.delete(requestId);
+        reject(new Error(`Load timeout for: ${paths.join(', ')}`));
+      }, LoadTimeoutMs);
+
+      // Store pending request with Set for paths and Map for results
       this.pendingLoads.set(requestId, {
-        paths: [...paths],
-        resolve,
+        paths: new Set(paths),
+        results: new Map(),
+        resolve: (results) => {
+          clearTimeout(timeoutId);
+          resolve(results);
+        },
       });
 
       // Request load from main thread
@@ -369,19 +391,13 @@ export class BFSEngine {
   }
 
   /**
-   * Get depth of a path (number of segments).
-   */
-  private getPathDepth(path: string): number {
-    return path.split('/').filter(Boolean).length;
-  }
-
-  /**
    * Group paths by depth level.
+   * Uses getPathDepth from @brainstrike/utils to avoid duplication.
    */
   private groupPathsByDepth(paths: string[]): Map<number, string[]> {
     const groups = new Map<number, string[]>();
     for (const path of paths) {
-      const depth = this.getPathDepth(path);
+      const depth = getPathDepth(path);
       const group = groups.get(depth) ?? [];
       group.push(path);
       groups.set(depth, group);
