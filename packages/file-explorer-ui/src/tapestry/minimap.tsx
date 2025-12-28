@@ -78,10 +78,9 @@ const RangeItem = memo(
       isFullFileRange ? contentLength : Math.min(range.endLine, contentLength)
     );
     const previewLines = file.content.slice(previewStartLine, previewEndLine);
-    const remainingLines = Math.max(
-      0,
-      Math.max(range.endLine - range.startLine, 0) - previewLines.length
-    );
+    const selectionLength = Math.max(0, range.endLine - range.startLine);
+    const totalLines = Math.max(file.totalLines, file.content.length);
+    const remainingLines = Math.max(0, totalLines - selectionLength);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
       const rangeHeight = range.endLine - range.startLine;
