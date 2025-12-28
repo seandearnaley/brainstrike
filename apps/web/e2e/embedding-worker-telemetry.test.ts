@@ -18,12 +18,15 @@ test.describe('Embedding Worker Telemetry', () => {
     const vectorsPanel = page.getByRole('tabpanel', { name: /vectors/i });
     await expect(vectorsPanel).toBeVisible({ timeout: panelTimeout });
 
+    const vectorStatusHeading = vectorsPanel.getByRole('heading', { name: 'Vector Status' });
     const loadingVectors = vectorsPanel.getByText(/loading vectors/i);
     if ((await loadingVectors.count()) > 0) {
-      await expect(loadingVectors).toBeHidden({ timeout: panelTimeout });
+      await Promise.race([
+        loadingVectors.first().waitFor({ state: 'hidden', timeout: panelTimeout }),
+        vectorStatusHeading.waitFor({ state: 'visible', timeout: panelTimeout }),
+      ]);
     }
 
-    const vectorStatusHeading = vectorsPanel.getByRole('heading', { name: 'Vector Status' });
     await expect(vectorStatusHeading).toBeVisible({ timeout: panelTimeout });
     await expect(vectorsPanel.getByText(/Jobs\/min/i)).toBeVisible();
     await expect(vectorsPanel.getByRole('img', { name: 'Queue throughput trend' })).toBeVisible();

@@ -30,6 +30,73 @@ type MinimapProps = {
   onRequestFileContent?: (compositeKey: string) => void;
 };
 
+type RangeKeyAction = { type: 'noop' } | { type: 'toggle' } | { type: 'move'; startLine: number };
+
+type PreviewState = {
+  previewStartLine: number;
+  previewLines: string[];
+  remainingLines: number;
+  hasPreviewLines: boolean;
+  showLoadingState: boolean;
+};
+
+const MAX_PREVIEW_LINES = 8;
+
+const resolveRangeKeyAction = (args: {
+  key: string;
+  range: TapestryRange;
+  totalLines: number;
+}): RangeKeyAction => {
+  const { key, range, totalLines } = args;
+  const rangeHeight = range.endLine - range.startLine;
+
+  switch (key) {
+    case 'ArrowUp':
+      return { type: 'move', startLine: Math.max(0, range.startLine - 1) };
+    case 'ArrowDown':
+      return { type: 'move', startLine: Math.min(totalLines - rangeHeight, range.startLine + 1) };
+    case 'PageUp':
+      return { type: 'move', startLine: Math.max(0, range.startLine - 10) };
+    case 'PageDown':
+      return {
+        type: 'move',
+        startLine: Math.min(totalLines - rangeHeight, range.startLine + 10),
+      };
+    case 'Home':
+      return { type: 'move', startLine: 0 };
+    case 'End':
+      return { type: 'move', startLine: Math.max(0, totalLines - rangeHeight) };
+    case 'Enter':
+    case ' ':
+      return { type: 'toggle' };
+    default:
+      return { type: 'noop' };
+  }
+};
+
+const buildRangePreview = (range: TapestryRange, file: FileTapestry): PreviewState => {
+  const contentLength = file.content.length;
+  const isFullFileRange = range.startLine === 0 && range.endLine >= file.totalLines;
+  const previewLimit = isFullFileRange ? contentLength : Math.min(range.endLine, contentLength);
+  const safeLimit = Math.max(previewLimit - 1, 0);
+  const previewStartLine = isFullFileRange ? 0 : Math.min(range.startLine, safeLimit);
+  const previewEndLine = Math.min(previewStartLine + MAX_PREVIEW_LINES, previewLimit);
+  const previewLines = file.content.slice(previewStartLine, previewEndLine);
+  const remainingBase =
+    file.contentStatus === 'ready' && contentLength > 0 ? contentLength : file.totalLines;
+  const remainingLines = Math.max(0, remainingBase - range.endLine);
+  const hasPreviewLines = previewLines.length > 0;
+  const showLoadingState = !hasPreviewLines && file.contentStatus !== 'ready';
+
+  return {
+    previewStartLine,
+    previewLines,
+    remainingLines,
+    hasPreviewLines,
+    showLoadingState,
+  };
+};
+
 const RangeItem = memo(
   ({
     range,
@@ -68,61 +135,30 @@ const RangeItem = memo(
     const height = (range.endLine - range.startLine) * scale;
     const globalIndex = getGlobalIndex(range.id);
     const isHovered = hoveredRangeId === range.id;
-    const maxPreviewLines = 8;
-    const isFullFileRange = range.startLine === 0 && range.endLine >= file.totalLines;
-    const contentLength = file.content.length;
-    const clampedStart = Math.min(range.startLine, Math.max(contentLength - 1, 0));
-    const previewStartLine = isFullFileRange ? 0 : clampedStart;
-    const previewEndLine = Math.min(
-      previewStartLine + maxPreviewLines,
-      isFullFileRange ? contentLength : Math.min(range.endLine, contentLength)
-    );
-    const previewLines = file.content.slice(previewStartLine, previewEndLine);
-    const remainingLines = Math.max(0, file.totalLines - range.endLine);
+    const { previewStartLine, previewLines, remainingLines, hasPreviewLines, showLoadingState } =
+      buildRangePreview(range, file);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-      const rangeHeight = range.endLine - range.startLine;
-      let newStartLine = range.startLine;
-      let handled = false;
+      const action = resolveRangeKeyAction({
+        key: e.key,
+        range,
+        totalLines: file.totalLines,
+      });
 
-      switch (e.key) {
-        case 'ArrowUp':
-          newStartLine = Math.max(0, range.startLine - 1);
-          handled = true;
-          break;
-        case 'ArrowDown':
-          newStartLine = Math.min(file.totalLines - rangeHeight, range.startLine + 1);
-          handled = true;
-          break;
-        case 'PageUp':
-          newStartLine = Math.max(0, range.startLine - 10);
-          handled = true;
-          break;
-        case 'PageDown':
-          newStartLine = Math.min(file.totalLines - rangeHeight, range.startLine + 10);
-          handled = true;
-          break;
-        case 'Home':
-          newStartLine = 0;
-          handled = true;
-          break;
-        case 'End':
-          newStartLine = Math.max(0, file.totalLines - rangeHeight);
-          handled = true;
-          break;
-        case 'Enter':
-        case ' ':
-          onToggleRange(file.id, range.id);
-          handled = true;
-          break;
+      if (action.type === 'toggle') {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggleRange(file.id, range.id);
+        return;
       }
 
-      if (handled) {
+      if (action.type === 'move') {
         e.preventDefault();
         e.stopPropagation();
 
-        if (newStartLine !== range.startLine && onMoveRange) {
-          onMoveRange(file.id, range.id, newStartLine, newStartLine + rangeHeight);
+        if (action.startLine !== range.startLine && onMoveRange) {
+          const rangeHeight = range.endLine - range.startLine;
+          onMoveRange(file.id, range.id, action.startLine, action.startLine + rangeHeight);
         }
       }
     };
@@ -257,21 +293,27 @@ const RangeItem = memo(
             className="relative overflow-hidden bg-background p-3"
             style={{ minHeight: '100px' }}
           >
-            <div className="whitespace-pre font-medium font-mono text-[10px] text-foreground leading-relaxed">
-              {previewLines.map((line, i) => (
-                <div className="flex gap-3" key={`${range.id}-line-${i}`}>
-                  <span className="w-6 select-none text-right text-muted-foreground/50 opacity-50">
-                    {previewStartLine + i}
-                  </span>
-                  <span className="opacity-90">{line || ' '}</span>
-                </div>
-              ))}
-              {remainingLines > 0 && (
-                <div className="mt-2 pl-9 text-muted-foreground italic">
-                  ... {remainingLines} more lines
-                </div>
-              )}
-            </div>
+            {hasPreviewLines ? (
+              <div className="whitespace-pre font-medium font-mono text-[10px] text-foreground leading-relaxed">
+                {previewLines.map((line, i) => (
+                  <div className="flex gap-3" key={`${range.id}-line-${i}`}>
+                    <span className="w-6 select-none text-right text-muted-foreground/50 opacity-50">
+                      {previewStartLine + i}
+                    </span>
+                    <span className="opacity-90">{line || ' '}</span>
+                  </div>
+                ))}
+                {remainingLines > 0 && (
+                  <div className="mt-2 pl-9 text-muted-foreground italic">
+                    ... {remainingLines} more lines
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex min-h-[88px] items-center justify-center text-muted-foreground text-xs">
+                {showLoadingState ? 'Loading preview...' : 'Empty file'}
+              </div>
+            )}
           </div>
         </TooltipContent>
       </Tooltip>
@@ -297,7 +339,7 @@ export const Minimap = memo(
     const containerRef = useRef<HTMLButtonElement>(null);
     const [hoveredRangeId, setHoveredRangeId] = useState<string | null>(null);
 
-    const minHeight = Math.max(80, scale * 12);
+    const minHeight = Math.max(120, scale * 16);
     const totalHeight = Math.max(file.totalLines * scale, minHeight);
     const lineThickness = Math.max(1, scale * 0.6);
 
@@ -351,38 +393,38 @@ export const Minimap = memo(
         )}
       >
         <div className="flex select-none flex-col gap-1 px-2 text-muted-foreground text-xs">
-          <div className="flex min-w-0 items-center gap-2" title={file.path}>
+          <div className="flex min-w-0 items-start gap-2" title={file.path}>
             <Checkbox
               aria-label={`Select ${file.path}`}
               checked={isSelected}
-              className="h-4 w-4"
+              className="mt-0.5 h-4 w-4"
               onCheckedChange={(checked) => onToggleSelection(file.compositeKey, !!checked)}
               onClick={(event) => event.stopPropagation()}
             />
             <div
               className={cn(
-                'h-2 w-2 rounded-full',
+                'mt-1 h-2 w-2 rounded-full',
                 file.selections.some((s) => s.isActive) ? 'bg-indigo-500' : 'bg-muted-foreground/30'
               )}
             />
             <div className="min-w-0 flex-1">
-              <span className="block truncate font-bold text-foreground">{file.name}</span>
+              <span className="line-clamp-2 block font-bold text-foreground leading-tight">
+                {file.name}
+              </span>
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[10px]">
-            <span className="min-w-0 truncate opacity-60">{file.rootFolderId}</span>
-            <div className="flex flex-shrink-0 items-center gap-2">
-              <span className="font-mono text-[10px] opacity-70">{file.totalLines}L</span>
-              <Badge className="px-1.5 text-[9px]" variant="secondary">
-                {file.type}
-              </Badge>
-              <span className="font-mono text-[10px] opacity-70">
-                {formatPreviewFileSize(file.size)}
-              </span>
-              <span className="font-mono text-[10px] opacity-70">
-                {file.tokens !== undefined ? formatTokenCount(file.tokens) : '—'}
-              </span>
-            </div>
+          <span className="min-w-0 truncate text-[10px] opacity-60">{file.rootFolderId}</span>
+          <div className="flex flex-wrap items-center gap-2 text-[10px]">
+            <span className="font-mono text-[10px] opacity-70">{file.totalLines}L</span>
+            <Badge className="px-1.5 text-[9px]" variant="secondary">
+              {file.type}
+            </Badge>
+            <span className="font-mono text-[10px] opacity-70">
+              {formatPreviewFileSize(file.size)}
+            </span>
+            <span className="font-mono text-[10px] opacity-70">
+              {file.tokens !== undefined ? formatTokenCount(file.tokens) : '—'}
+            </span>
           </div>
         </div>
 

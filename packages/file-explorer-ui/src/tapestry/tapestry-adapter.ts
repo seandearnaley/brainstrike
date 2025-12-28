@@ -3,7 +3,6 @@ import { splitFilePath } from '../utils/path-display';
 import type { FileTapestry, LineData } from './types';
 import { buildStructureFromContent, splitContentLines } from './utils';
 
-const LOADING_PLACEHOLDER = 'Loading preview...';
 const AVERAGE_BYTES_PER_LINE = 80;
 const AVERAGE_TOKENS_PER_LINE = 12;
 const MIN_ESTIMATED_LINES = 12;
@@ -50,13 +49,11 @@ export function buildTapestryFileBase(args: {
   isLoading: boolean;
 }): TapestryFileBase {
   const { item, content, isLoading } = args;
-  const hasContent = Boolean(content && content.length > 0);
-  const contentLines = hasContent
-    ? splitContentLines(content ?? '')
-    : splitContentLines(LOADING_PLACEHOLDER);
+  const hasContent = typeof content === 'string';
+  const contentLines = hasContent ? splitContentLines(content ?? '') : [];
   const estimatedLines = hasContent
     ? contentLines.length
-    : (estimateLineCount(item.size, item.tokens) ?? 0);
+    : (estimateLineCount(item.size, item.tokens) ?? MIN_ESTIMATED_LINES);
   const normalizedEstimatedLines = hasContent
     ? contentLines.length
     : Math.max(MIN_ESTIMATED_LINES, estimatedLines);

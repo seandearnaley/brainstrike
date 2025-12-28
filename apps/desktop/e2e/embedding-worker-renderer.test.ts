@@ -1,10 +1,7 @@
 import type { ConsoleMessage, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import {
-  clearDatabaseRecords,
-  showDatabaseDemoPanel,
-  waitForDatabaseReady,
-} from './utils/layout-helpers';
+import { waitForAppReady } from './utils/electron-helpers';
+import { showDatabaseDemoPanel } from './utils/layout-helpers';
 
 /**
  * E2E tests for embedding worker running in renderer process (PR #413 architecture).
@@ -15,16 +12,33 @@ test.describe('Embedding Worker in Renderer', () => {
   test.describe.configure({ mode: 'serial' });
 
   const ERROR_LOCATOR = '[data-testid="db-init-error"]';
+  let hasDatabaseError = false;
 
   /**
    * Check if database is in error state (e.g., pgvector missing)
    */
   async function isDatabaseError(page: Page): Promise<boolean> {
+    if (hasDatabaseError) {
+      return true;
+    }
     try {
       return await page.locator(ERROR_LOCATOR).isVisible({ timeout: 200 });
     } catch {
       return false;
     }
+  }
+
+  async function assertToolsPanelResponsive(page: Page): Promise<void> {
+    const embeddingsTab = page.getByRole('tab', { name: /embeddings/i });
+    const databaseTab = page.getByRole('tab', { name: /database/i });
+
+    await expect(embeddingsTab).toBeVisible({ timeout: 10_000 });
+    await embeddingsTab.click({ timeout: 5000 });
+    await expect(embeddingsTab).toHaveAttribute('data-state', 'active');
+
+    await expect(databaseTab).toBeVisible({ timeout: 10_000 });
+    await databaseTab.click({ timeout: 5000 });
+    await expect(databaseTab).toHaveAttribute('data-state', 'active');
   }
 
   /**
@@ -148,11 +162,41 @@ test.describe('Embedding Worker in Renderer', () => {
   test.beforeAll(async ({ electron }) => {
     test.setTimeout(150_000);
     const { window } = await electron.ensureContext();
-    const activeWindow = await showDatabaseDemoPanel(window);
-    await waitForDatabaseReady(activeWindow);
+    await waitForAppReady(window);
 
-    if (!(await isDatabaseError(activeWindow))) {
-      await clearDatabaseRecords(activeWindow);
+    const dbStatus = await window.evaluate(async () => {
+      const api = (
+        window as unknown as {
+          electronAPI?: {
+            db?: {
+              test?: () => Promise<unknown>;
+              clearAll?: (token?: string) => Promise<{ success: boolean; message?: string }>;
+            };
+          };
+        }
+      ).electronAPI;
+
+      if (!api?.db?.test) {
+        return { ok: false, message: 'Database API not available' };
+      }
+
+      try {
+        await api.db.test();
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) };
+      }
+
+      if (!api.db.clearAll) {
+        return { ok: true };
+      }
+
+      const result = await api.db.clearAll('CONFIRM_CLEAR_DATABASE');
+      return { ok: result.success, message: result.message ?? null };
+    });
+
+    if (!dbStatus.ok) {
+      hasDatabaseError = true;
+      console.warn('⚠️ Database unavailable in test setup:', dbStatus.message);
     }
   });
 
@@ -275,36 +319,25 @@ test.describe('Embedding Worker in Renderer', () => {
   });
 
   test('should handle app responsiveness during embedding operations', async ({ window }) => {
-    await showDatabaseDemoPanel(window);
+    const activeWindow = await showDatabaseDemoPanel(window);
 
-    if (await isDatabaseError(window)) {
+    if (await isDatabaseError(activeWindow)) {
       console.log('⚠️ Database error – skipping responsiveness test');
-      await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
 
     // Create multiple test jobs
     const jobs = await Promise.all([
-      createTestBackfillJob(window),
-      createTestBackfillJob(window),
-      createTestBackfillJob(window),
+      createTestBackfillJob(activeWindow),
+      createTestBackfillJob(activeWindow),
+      createTestBackfillJob(activeWindow),
     ]);
 
     console.log(`✅ Created ${jobs.length} test jobs`);
 
     // Verify UI remains responsive while jobs are queued
-    const activeWindow = await showDatabaseDemoPanel(window);
-
-    // Try to interact with UI elements - should not freeze
-    const refreshButton = activeWindow.locator('button:has-text("Refresh")');
-    await expect(refreshButton).toBeVisible({ timeout: 5000 });
-    await expect(refreshButton).toBeEnabled({ timeout: 5000 });
-
-    // Click the button to verify interaction
-    await refreshButton.click({ timeout: 5000 });
-
-    // Verify the click was processed
-    await activeWindow.waitForTimeout(1000);
+    await assertToolsPanelResponsive(activeWindow);
 
     console.log('✅ UI remains responsive during embedding operations');
   });
@@ -324,11 +357,11 @@ test.describe('Embedding Worker in Renderer', () => {
       await window.waitForTimeout(5000);
 
       // Navigate to database panel
-      await showDatabaseDemoPanel(window);
+      const activeWindow = await showDatabaseDemoPanel(window);
 
-      if (await isDatabaseError(window)) {
+      if (await isDatabaseError(activeWindow)) {
         console.log('⚠️ Database error – skipping env variable test');
-        await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
+        await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
         return;
       }
 
@@ -341,8 +374,7 @@ test.describe('Embedding Worker in Renderer', () => {
       expect(workerLogs.length).toBeGreaterThan(0);
 
       // Verify the app is operational (worker initialized correctly)
-      const refreshButton = window.locator('button:has-text("Refresh")');
-      await expect(refreshButton).toBeVisible({ timeout: 5000 });
+      await assertToolsPanelResponsive(activeWindow);
 
       console.log('✅ Worker initialized with environment variables');
     } finally {
@@ -397,9 +429,7 @@ test.describe('Embedding Worker in Renderer', () => {
     expect(['queued', 'running']).toContain(status);
 
     // Verify the app remains responsive (worker doesn't crash from invalid payload)
-    const refreshButton = activeWindow.locator('button:has-text("Refresh")');
-    await expect(refreshButton).toBeVisible({ timeout: 5000 });
-    await expect(refreshButton).toBeEnabled({ timeout: 5000 });
+    await assertToolsPanelResponsive(activeWindow);
 
     console.log('✅ App remains responsive with invalid job in queue');
   });
@@ -440,11 +470,11 @@ test.describe('Embedding Worker in Renderer', () => {
 
   test('should persist worker across navigation', async ({ window }) => {
     // Navigate to database panel
-    const activeWindow = await showDatabaseDemoPanel(window);
+    let activeWindow = await showDatabaseDemoPanel(window);
 
-    if (await isDatabaseError(window)) {
+    if (await isDatabaseError(activeWindow)) {
       console.log('⚠️ Database error – skipping navigation test');
-      await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
+      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
 
@@ -468,7 +498,7 @@ test.describe('Embedding Worker in Renderer', () => {
     }
 
     // Navigate back to database
-    await showDatabaseDemoPanel(activeWindow);
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
     await activeWindow.waitForTimeout(1000);
 
     // Create another job after navigation
@@ -480,9 +510,7 @@ test.describe('Embedding Worker in Renderer', () => {
     expect(['queued', 'running']).toContain(afterStatus);
 
     // Verify the app is still responsive
-    const refreshButton = activeWindow.locator('button:has-text("Refresh")');
-    await expect(refreshButton).toBeVisible({ timeout: 5000 });
-    await expect(refreshButton).toBeEnabled({ timeout: 5000 });
+    await assertToolsPanelResponsive(activeWindow);
 
     console.log('✅ Worker persists and accepts jobs after navigation');
   });

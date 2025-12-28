@@ -557,7 +557,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
             {groupingConfig === 'none' ? (
               <div
                 className="grid items-start gap-6"
-                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}
+                style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
               >
                 {ungroupedFiles.map((file) => (
                   <Minimap
@@ -595,7 +595,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
                   {!section.isCollapsed && section.items.length > 0 && (
                     <div
                       className="grid items-start gap-6"
-                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}
+                      style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}
                     >
                       {section.items.map((file) => (
                         <Minimap
