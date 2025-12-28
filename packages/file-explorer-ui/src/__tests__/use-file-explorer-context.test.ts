@@ -144,6 +144,8 @@ describe('useFileExplorer (context)', () => {
       }
       return storeState;
     }) as unknown as ReturnType<typeof useFileExplorerStoreContext>;
+    // Add getState method for Zustand store compatibility
+    (mockStore as unknown as { getState: () => FileExplorerState }).getState = () => storeState;
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(mockStore);
 
     vi.mocked(useFileSystem).mockReturnValue({
