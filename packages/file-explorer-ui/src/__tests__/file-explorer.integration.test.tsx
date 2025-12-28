@@ -1,11 +1,50 @@
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTree from '../file-tree';
 import { PreviewPanel } from '../preview-panel';
 import { FileExplorerTestWrapper } from './test-helpers';
+
+type PreviewPanelMocksModule = typeof import('./__mocks__/preview-panel-mocks');
+
+const previewPanelMocksPromise = vi.hoisted(
+  async () => (await import('./__mocks__/preview-panel-mocks')) as PreviewPanelMocksModule
+);
+
+vi.mock('@brainstrike/ui', async () => {
+  const { createUiModuleMock } = await previewPanelMocksPromise;
+  return createUiModuleMock();
+});
+
+vi.mock('@brainstrike/hooks', async () => {
+  const { createHooksModuleMock } = await previewPanelMocksPromise;
+  return createHooksModuleMock();
+});
+
+vi.mock('../use-preview-panel-state', () => ({
+  formatTokenCount: (tokens: number) => tokens.toString(),
+  usePreviewPanelState: () => ({
+    totalStats: { totalFiles: 1, totalTokens: 0 },
+    flatListItems: [],
+  }),
+}));
+
+vi.mock('lucide-react', async () => {
+  const { createLucideModuleMock } = await previewPanelMocksPromise;
+  return {
+    ...createLucideModuleMock(),
+    ChevronDown: () => <div data-testid="chevron-down" />,
+    ChevronRight: () => <div data-testid="chevron-right" />,
+    File: () => <div data-testid="file-icon" />,
+    Folder: () => <div data-testid="folder-icon" />,
+    FolderOpen: () => <div data-testid="folder-open-icon" />,
+    Link2: () => <div data-testid="link-icon" />,
+    Loader2: () => <div data-testid="loader-icon" />,
+    MoreHorizontal: () => <div data-testid="more-icon" />,
+  };
+});
 
 describe('File Explorer Integration Tests', () => {
   const mockFiles: IFileNode[] = [
@@ -102,7 +141,8 @@ describe('File Explorer Integration Tests', () => {
     await user.click(packageFile);
   });
 
-  it('should integrate with preview panel for selected files', async () => {
+  it('should integrate with preview panel for selected files', () => {
+    const selectedFiles = new Set(['test-folder:/package.json']);
     const { container } = render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
         <div className="flex">
@@ -116,7 +156,7 @@ describe('File Explorer Integration Tests', () => {
             loadingFiles={new Set()}
             onSelectionChange={() => {}}
             performUndoableAction={() => {}}
-            selectedFiles={new Set(['test-folder:/package.json'])}
+            selectedFiles={selectedFiles}
             tokenCounting={{
               mode: 'accurate',
               reason: null,
@@ -130,9 +170,7 @@ describe('File Explorer Integration Tests', () => {
 
     // Check that both components render
     expect(screen.getByRole('tree')).toBeInTheDocument();
-    await waitFor(() => {
-      expect(container.querySelector('.flex')).toBeInTheDocument();
-    });
+    expect(container.querySelector('.flex')).toBeInTheDocument();
   });
 
   it('should handle drag and drop operations', async () => {

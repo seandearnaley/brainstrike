@@ -1303,6 +1303,15 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [collapsedGroups, groupedData, groupingConfig, pagination.endIndex, pagination.startIndex]
   );
 
+  const pageInfo = useMemo(() => {
+    if (groupingConfig === 'none' || groupedData.length <= 1) {
+      return;
+    }
+    return `(${flattenedData.length} total files, ${groupedData.length} groups)`;
+  }, [flattenedData.length, groupedData.length, groupingConfig]);
+
+  const paginationInfo = useMemo(() => (pageInfo ? { pageInfo } : {}), [pageInfo]);
+
   const buildTapestryFile = useCallback(
     (item: TableRowData) => {
       const base = tapestryFileBaseByKey.get(item.compositeKey);
@@ -1602,9 +1611,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             onPageChange={goToPage}
             totalItems={flattenedData.length}
             totalPages={pagination.totalPages}
-            {...(groupingConfig !== 'none' && groupedData.length > 1
-              ? { pageInfo: `(${flattenedData.length} total files, ${groupedData.length} groups)` }
-              : {})}
+            {...paginationInfo}
           />
 
           {/* Fixed bottom action bar */}
@@ -1660,6 +1667,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               onSelectAllOnPage={selectAllOnPage}
               onToggleGroupCollapse={toggleGroupCollapse}
               onToggleSelection={toggleItemSelection}
+              pagination={{
+                currentPage,
+                onPageChange: goToPage,
+                totalItems: flattenedData.length,
+                totalPages: pagination.totalPages,
+                ...paginationInfo,
+              }}
               previewSelections={previewSelections}
               totalFiles={flattenedData.length}
               totalLinesSelected={totalLinesSelected}

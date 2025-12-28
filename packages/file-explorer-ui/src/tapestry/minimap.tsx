@@ -281,7 +281,8 @@ export const Minimap = memo(
     const containerRef = useRef<HTMLButtonElement>(null);
     const [hoveredRangeId, setHoveredRangeId] = useState<string | null>(null);
 
-    const totalHeight = file.totalLines * scale;
+    const minHeight = Math.max(80, scale * 12);
+    const totalHeight = Math.max(file.totalLines * scale, minHeight);
     const lineThickness = Math.max(1, scale * 0.6);
 
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -365,7 +366,7 @@ export const Minimap = memo(
         </div>
 
         <div
-          className="group relative w-full overflow-visible rounded-md border border-border bg-muted/30 shadow-xs transition-colors hover:border-accent"
+          className="group relative w-full overflow-visible rounded-md border border-border bg-linear-to-b from-background to-muted/20 shadow-xs transition-colors hover:border-accent"
           style={{ height: totalHeight }}
         >
           {/* Background button for range creation */}

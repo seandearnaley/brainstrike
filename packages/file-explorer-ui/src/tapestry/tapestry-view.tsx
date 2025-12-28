@@ -1,4 +1,4 @@
-import { Button, Checkbox, EmptyState, TooltipProvider } from '@brainstrike/ui';
+import { Button, Checkbox, EmptyState, TablePagination, TooltipProvider } from '@brainstrike/ui';
 import { CheckSquare, ChevronDown, ChevronRight, FileX2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PreviewGroupingControls } from '../preview-grouping-controls';
@@ -159,6 +159,13 @@ type TapestryViewProps = {
   onResetRanges: (fileIds: string[]) => void;
   activeRangesCount: number;
   totalLinesSelected: number;
+  pagination: {
+    currentPage: number;
+    totalPages: number;
+    totalItems: number;
+    onPageChange: (page: number) => void;
+    pageInfo?: string;
+  };
 };
 
 const TapestryGroupHeader = memo<{
@@ -391,6 +398,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   onResetRanges,
   activeRangesCount,
   totalLinesSelected,
+  pagination,
 }) {
   const [scale, setScale] = useState(4);
   const [allowOverlap, setAllowOverlap] = useState(false);
@@ -477,6 +485,8 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
   const handleResetRanges = useCallback(() => {
     onResetRanges(files.map((file) => file.id));
   }, [files, onResetRanges]);
+
+  const paginationInfo = pagination.pageInfo ? { pageInfo: pagination.pageInfo } : {};
 
   if (isEmpty) {
     return (
@@ -605,6 +615,14 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
             )}
           </div>
         </div>
+
+        <TablePagination
+          currentPage={pagination.currentPage}
+          onPageChange={pagination.onPageChange}
+          totalItems={pagination.totalItems}
+          totalPages={pagination.totalPages}
+          {...paginationInfo}
+        />
 
         <div className="flex justify-end gap-4 border-border border-t bg-muted/20 p-2 text-[10px] text-muted-foreground">
           <span>Hold drag to resize</span>

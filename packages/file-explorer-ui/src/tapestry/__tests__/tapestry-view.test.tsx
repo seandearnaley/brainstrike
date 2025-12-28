@@ -109,6 +109,16 @@ const TapestryHarness = memo(({ count = 12 }: { count?: number }) => {
     0
   );
 
+  const pagination = useMemo(
+    () => ({
+      currentPage: 0,
+      totalPages: 1,
+      totalItems: files.length,
+      onPageChange: vi.fn(),
+    }),
+    [files.length]
+  );
+
   return (
     <TapestryView
       activeRangesCount={activeRangesCount}
@@ -132,6 +142,7 @@ const TapestryHarness = memo(({ count = 12 }: { count?: number }) => {
       onSelectAllOnPage={vi.fn()}
       onToggleGroupCollapse={vi.fn()}
       onToggleSelection={vi.fn()}
+      pagination={pagination}
       previewSelections={previewSelections}
       totalFiles={files.length}
       totalLinesSelected={totalLinesSelected}
