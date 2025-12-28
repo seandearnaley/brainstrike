@@ -2,7 +2,10 @@ import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileHandle } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { decodeFileSelection } from '@brainstrike/utils';
+import { createLogger, decodeFileSelection } from '@brainstrike/utils';
+
+const logger = createLogger('SharedFileContentLoading');
+
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
@@ -36,6 +39,18 @@ function isFileNodeValid(fileNode: IFileNode | null, folderId: string): boolean 
     fileNode.handle &&
     fileNode.rootFolderId === folderId
   );
+}
+
+// Count total nodes in tree for debugging
+function countTreeNodes(nodes: IFileNode[]): number {
+  let count = 0;
+  for (const node of nodes) {
+    count += 1;
+    if (node.children) {
+      count += countTreeNodes(node.children);
+    }
+  }
+  return count;
 }
 
 // Loading state management helpers
@@ -83,10 +98,19 @@ async function getFileNodeWithRetry(
   folderId: string,
   path: string
 ): Promise<IFileNode | null> {
+  const treeNodeCount = countTreeNodes(fileTree);
   let fileNode = getFileNodeFromCache(nodeCacheRef.current, fileTree, folderId, path);
 
   // If we can't find the node initially, wait and retry once
   if (!isFileNodeValid(fileNode, folderId)) {
+    logger.debug('Initial lookup failed, retrying', {
+      path,
+      folderId,
+      treeNodeCount,
+      fileTreeLength: fileTree.length,
+      foundNode: !!fileNode,
+      hasHandle: fileNode?.handle != null,
+    });
     await new Promise((resolve) => setTimeout(resolve, 100));
     fileNode = refreshFileNodeCacheEntry(nodeCacheRef.current, fileTree, folderId, path);
   }
@@ -113,15 +137,37 @@ async function prepareFileReadRequest(
 
   const fileNode = await getFileNodeWithRetry(nodeCacheRef, fileTree, folderId, path);
 
-  if (!isFileNodeValid(fileNode, folderId)) {
-    if (fileNode && fileNode.rootFolderId !== folderId) {
-      const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
-      setFileContent(compositeKey, error);
-    }
+  if (!fileNode) {
+    // Get cache stats for debugging
+    const folderCache = nodeCacheRef.current.get(folderId);
+    const cacheSize = folderCache?.size ?? 0;
+    const totalCacheFolders = nodeCacheRef.current.size;
+    const treeNodeCount = countTreeNodes(fileTree);
+
+    logger.warn('File not found in tree', {
+      path,
+      folderId,
+      cacheSize,
+      totalCacheFolders,
+      treeNodeCount,
+      fileTreeLength: fileTree.length,
+    });
+    setFileContent(compositeKey, `File not found: ${path}`);
     return null;
   }
 
-  if (!fileNode) {
+  if (!isFileNodeValid(fileNode, folderId)) {
+    if (fileNode.rootFolderId !== folderId) {
+      const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
+      logger.warn('Folder mismatch', { path, expected: folderId, found: fileNode.rootFolderId });
+      setFileContent(compositeKey, error);
+    } else if (!fileNode.handle) {
+      logger.warn('File has no handle', { path, folderId, nodeType: fileNode.type });
+      setFileContent(compositeKey, `File handle not available: ${path}`);
+    } else if (fileNode.type !== 'file') {
+      logger.warn('Node is not a file', { path, type: fileNode.type });
+      setFileContent(compositeKey, `Not a file: ${path}`);
+    }
     return null;
   }
 
@@ -140,8 +186,52 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const nodeCacheRef = useRef<Map<string, Map<string, IFileNode>>>(new Map());
   const workerRef = useRef<FileContentWorker | null>(null);
 
+  // Use ref to access current tree without closure stale state issues.
+  const fileTreeRef = useRef(fileTree);
+  fileTreeRef.current = fileTree;
+
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
+
+  // Debounce timeout ref for cache rebuild
+  const cacheRebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Build cache in effect (async) - not during render to avoid blocking
+  // Debounced to prevent rebuilding during rapid tree updates (expand-all)
+  useEffect(() => {
+    // Cancel any pending rebuild
+    if (cacheRebuildTimeoutRef.current) {
+      clearTimeout(cacheRebuildTimeoutRef.current);
+    }
+
+    const treeNodeCount = countTreeNodes(fileTree);
+    logger.debug('Cache rebuild scheduled', {
+      fileTreeLength: fileTree.length,
+      treeNodeCount,
+    });
+
+    // Debounce the expensive rebuild - wait for tree to stabilize
+    cacheRebuildTimeoutRef.current = setTimeout(() => {
+      nodeCacheRef.current = buildFileNodeCache(fileTree);
+
+      // Log cache stats after rebuild
+      let totalCached = 0;
+      for (const folderMap of nodeCacheRef.current.values()) {
+        totalCached += folderMap.size;
+      }
+      logger.info('Cache rebuilt', {
+        folders: nodeCacheRef.current.size,
+        totalCached,
+        treeNodeCount,
+      });
+    }, 500);
+
+    return () => {
+      if (cacheRebuildTimeoutRef.current) {
+        clearTimeout(cacheRebuildTimeoutRef.current);
+      }
+    };
+  }, [fileTree]);
 
   useEffect(() => {
     workerRef.current = initFileContentWorker(fileSystemAdapter);
@@ -150,30 +240,36 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     };
   }, [fileSystemAdapter]);
 
-  // Build a cache of path -> node keyed by folder ID whenever the file tree changes
-  useEffect(() => {
-    nodeCacheRef.current = buildFileNodeCache(fileTree);
-  }, [fileTree]);
-
+  // Prepare a single file for reading - uses ref to get current tree
   const prepareFileRead = useCallback(
     async (compositeKey: string): Promise<FileReadRequest | null> =>
       prepareFileReadRequest(
         compositeKey,
-        fileTree,
+        fileTreeRef.current, // Use ref instead of closure to get current tree
         fileSystemAdapter,
         store,
         nodeCacheRef,
         loadingPathsRef,
         setLoadingFiles
       ),
-    [fileTree, fileSystemAdapter, store]
+    [fileSystemAdapter, store] // fileTree removed - using ref instead
   );
 
   const handleFileContentLoading = useCallback(
     async (compositeKeys: string[]) => {
       if (!workerRef.current) {
+        logger.warn('Worker not initialized, skipping file content loading');
         return;
       }
+
+      const treeNodeCount = countTreeNodes(fileTreeRef.current);
+      logger.info('handleFileContentLoading called', {
+        requestedFiles: compositeKeys.length,
+        treeNodeCount,
+        fileTreeLength: fileTreeRef.current.length,
+        cacheSize: nodeCacheRef.current.size,
+      });
+
       setIsLoading(true);
       setError(null);
 
@@ -185,6 +281,12 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
             requests.push(req);
           }
         }
+
+        logger.info('Prepared file read requests', {
+          requestedFiles: compositeKeys.length,
+          successfulRequests: requests.length,
+          failedRequests: compositeKeys.length - requests.length,
+        });
 
         await workerRef
           .current(requests, ({ key }) => {

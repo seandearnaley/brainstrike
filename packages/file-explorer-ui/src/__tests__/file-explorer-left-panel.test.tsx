@@ -13,7 +13,7 @@ var FileExplorerSidebarMock: ReturnType<typeof vi.fn> | undefined;
 // biome-ignore lint/suspicious/noVar: var required for vi.mock hoisting - let creates temporal dead zone
 var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
 // biome-ignore lint/suspicious/noVar: var required for vi.mock hoisting - let creates temporal dead zone
-var LoadingOverlayMock: ReturnType<typeof vi.fn> | undefined;
+var ScanningStatusMock: ReturnType<typeof vi.fn> | undefined;
 
 // Mock UI components that are imported relatively within the panel
 vi.mock('../file-explorer-toolbar', () => ({
@@ -64,19 +64,28 @@ vi.mock('../action-buttons', () => {
   return { ActionButtons: ActionButtonsMock };
 });
 
-vi.mock('../loading-overlay', () => {
-  LoadingOverlayMock = vi.fn(
-    ({ cancellable, onCancel }: { cancellable?: boolean; onCancel?: () => void }) => (
-      <div data-testid="loading-overlay">
-        {cancellable && (
-          <button onClick={onCancel} type="button">
-            Cancel
-          </button>
-        )}
-      </div>
-    )
+vi.mock('../scanning-status', () => {
+  ScanningStatusMock = vi.fn(
+    ({
+      cancellable,
+      onCancel,
+      isScanning,
+    }: {
+      cancellable?: boolean;
+      onCancel?: () => void;
+      isScanning?: boolean;
+    }) =>
+      isScanning ? (
+        <div data-testid="scanning-status">
+          {cancellable && (
+            <button onClick={onCancel} type="button">
+              Cancel
+            </button>
+          )}
+        </div>
+      ) : null
   );
-  return { LoadingOverlay: LoadingOverlayMock };
+  return { ScanningStatus: ScanningStatusMock };
 });
 
 // Mock hooks used by the component
@@ -182,6 +191,13 @@ describe('FileExplorerLeftPanel', () => {
       loadFileContent: vi.fn(),
       loadMultipleFileContents: vi.fn(),
       clearFileContents: vi.fn(),
+      loadingPaths: new Set<string>(),
+      loadChildren: vi.fn(),
+      refreshDirectory: vi.fn(),
+      expandAllProgressively: vi.fn(),
+      cancelExpandAll: vi.fn(),
+      isExpandingAll: false,
+      expandAllProgress: null,
     } as ReturnType<typeof useFileExplorer>;
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 
@@ -259,6 +275,7 @@ describe('FileExplorerLeftPanel', () => {
       isLoading: true,
       cancellable: true,
       cancelOperation: cancelOperationMock,
+      loadingProgress: { loadingCount: 1, isInitialLoading: true },
     });
 
     const user = userEvent.setup();
@@ -291,11 +308,12 @@ describe('FileExplorerLeftPanel', () => {
       ...fileExplorerReturnValue,
       isLoading: true,
       cancellable: false,
+      loadingProgress: { loadingCount: 1, isInitialLoading: true },
     });
 
     renderWithProviders(<FileExplorerLeftPanel />);
 
-    expect(await screen.findByTestId('loading-overlay')).toBeInTheDocument();
+    expect(await screen.findByTestId('scanning-status')).toBeInTheDocument();
   });
 
   it('shows error when browser is not compatible', async () => {
@@ -368,13 +386,14 @@ describe('FileExplorerLeftPanel', () => {
       ...fileExplorerReturnValue,
       rootDirectoryHandle: null,
       isLoading: true, // This will show the loading overlay which blocks the refresh button
+      loadingProgress: { loadingCount: 1, isInitialLoading: true },
     });
 
     renderWithProviders(<FileExplorerLeftPanel />);
 
     // When there's no root directory, the refresh button shouldn't be rendered or accessible
     // The component shows a loading overlay instead
-    expect(await screen.findByTestId('loading-overlay')).toBeInTheDocument();
+    expect(await screen.findByTestId('scanning-status')).toBeInTheDocument();
     expect(screen.queryByTestId('refresh-button-small')).not.toBeInTheDocument();
   });
 
@@ -413,11 +432,12 @@ describe('FileExplorerLeftPanel', () => {
       ...fileExplorerReturnValue,
       isLoading: true,
       isInitialLoad: true,
+      loadingProgress: { loadingCount: 1, isInitialLoading: true },
     });
 
     renderWithProviders(<FileExplorerLeftPanel />);
 
-    expect(await screen.findByTestId('loading-overlay')).toBeInTheDocument();
+    expect(await screen.findByTestId('scanning-status')).toBeInTheDocument();
   });
 
   it('shows cancelling state when operation is being cancelled', async () => {
@@ -426,11 +446,12 @@ describe('FileExplorerLeftPanel', () => {
       isLoading: true,
       isCancelling: true,
       cancellable: true,
+      loadingProgress: { loadingCount: 1, isInitialLoading: true },
     });
 
     renderWithProviders(<FileExplorerLeftPanel />);
 
-    expect(await screen.findByTestId('loading-overlay')).toBeInTheDocument();
+    expect(await screen.findByTestId('scanning-status')).toBeInTheDocument();
   });
 
   it('displays filter error when present', async () => {
@@ -451,7 +472,8 @@ describe('FileExplorerLeftPanel', () => {
 
   it('handles expand all and collapse all', async () => {
     const user = userEvent.setup();
-    const expandAllDirectories = vi.fn();
+    const expandAllProgressivelyMock = vi.fn();
+    const cancelExpandAllMock = vi.fn();
     const collapseAllDirectories = vi.fn();
 
     const storeState = {
@@ -465,8 +487,10 @@ describe('FileExplorerLeftPanel', () => {
       includeProjectTree: true,
       setIncludeProjectTree: vi.fn(),
       folderSummaryThreshold: 5,
-      expandAllDirectories,
+      expandAllDirectories: vi.fn(),
       collapseAllDirectories,
+      expandedDirectoryPaths: new Set<string>(),
+      setExpandedPaths: vi.fn(),
       quickFilter: '',
       setQuickFilter: vi.fn(),
       clearQuickFilter: vi.fn(),
@@ -482,6 +506,8 @@ describe('FileExplorerLeftPanel', () => {
 
     vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
+      expandAllProgressively: expandAllProgressivelyMock,
+      cancelExpandAll: cancelExpandAllMock,
       fileTree: [
         {
           path: '/dir',
@@ -498,9 +524,10 @@ describe('FileExplorerLeftPanel', () => {
     renderWithProviders(<FileExplorerLeftPanel />);
 
     await user.click(screen.getByTestId('expand-all-button-small'));
-    expect(expandAllDirectories).toHaveBeenCalled();
+    expect(expandAllProgressivelyMock).toHaveBeenCalled();
 
     await user.click(screen.getByTestId('collapse-all-button-small'));
+    expect(cancelExpandAllMock).toHaveBeenCalled(); // Cancel any in-progress expand-all
     expect(collapseAllDirectories).toHaveBeenCalled();
   });
 

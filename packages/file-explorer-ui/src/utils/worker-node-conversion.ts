@@ -1,0 +1,191 @@
+/**
+ * Worker Node Conversion Utilities
+ *
+ * Helpers for converting between IFileNode (with FileSystemHandle)
+ * and WorkerFileNode (transferable to worker, no handle).
+ */
+
+import type { WorkerFileNode } from '@brainstrike/file-tree-worker';
+import type { IFileNode } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils';
+
+const logger = createLogger('WorkerNodeConversion');
+
+/**
+ * Convert an IFileNode to a WorkerFileNode by stripping the handle.
+ * The path serves as the handleKey for looking up handles on the main thread.
+ *
+ * NOTE: 'loadMore' nodes are UI-only placeholders and are filtered out.
+ */
+export function toWorkerFileNode(node: IFileNode): WorkerFileNode | null {
+  // Skip 'loadMore' nodes - they're UI-only placeholders
+  if (node.type === 'loadMore') {
+    return null;
+  }
+
+  const workerNode: WorkerFileNode = {
+    name: node.name,
+    path: node.path,
+    type: node.type, // Now guaranteed to be 'file' | 'directory'
+    depth: node.depth,
+    rootFolderId: node.rootFolderId,
+  };
+
+  // Copy optional properties if present
+  if (node.loadState !== undefined) {
+    workerNode.loadState = node.loadState;
+  }
+  if (node.loadError !== undefined) {
+    workerNode.loadError = node.loadError;
+  }
+  if (node.size !== undefined) {
+    workerNode.size = node.size;
+  }
+  if (node.lastModified !== undefined) {
+    workerNode.lastModified = node.lastModified;
+  }
+
+  // Recursively convert children, filtering out nulls (loadMore nodes)
+  if (node.children) {
+    workerNode.children = node.children
+      .map(toWorkerFileNode)
+      .filter((child): child is WorkerFileNode => child !== null);
+  }
+
+  return workerNode;
+}
+
+/**
+ * Convert an array of IFileNodes to WorkerFileNodes.
+ * Filters out 'loadMore' UI placeholder nodes.
+ */
+export function toWorkerFileNodes(nodes: IFileNode[]): WorkerFileNode[] {
+  return nodes.map(toWorkerFileNode).filter((node): node is WorkerFileNode => node !== null);
+}
+
+/** Type for the handle stored in the handle map */
+type FileSystemHandle = FileSystemFileHandle | FileSystemDirectoryHandle;
+
+/**
+ * Convert a WorkerFileNode back to an IFileNode by rehydrating handles from the map.
+ * Returns null if the handle is not found (should not happen in normal operation).
+ */
+export function rehydrateFileNode(
+  workerNode: WorkerFileNode,
+  handleMap: Map<string, FileSystemHandle>
+): IFileNode | null {
+  const handle = handleMap.get(workerNode.path);
+
+  // Handle must exist for a valid IFileNode
+  if (!handle) {
+    logger.warn('rehydrateFileNode: No handle found', {
+      path: workerNode.path,
+      type: workerNode.type,
+      handleMapSize: handleMap.size,
+    });
+    return null;
+  }
+
+  const fileNode: IFileNode = {
+    name: workerNode.name,
+    path: workerNode.path,
+    type: workerNode.type,
+    depth: workerNode.depth,
+    rootFolderId: workerNode.rootFolderId,
+    handle,
+    selectionState: 'unchecked', // Default selection state for rehydrated nodes
+  };
+
+  // Copy optional properties if present
+  if (workerNode.loadState !== undefined) {
+    fileNode.loadState = workerNode.loadState;
+  }
+  if (workerNode.loadError !== undefined) {
+    fileNode.loadError = workerNode.loadError;
+  }
+  if (workerNode.size !== undefined) {
+    fileNode.size = workerNode.size;
+  }
+  if (workerNode.lastModified !== undefined) {
+    fileNode.lastModified = workerNode.lastModified;
+  }
+
+  // Recursively rehydrate children, filtering out any that couldn't be rehydrated
+  if (workerNode.children) {
+    fileNode.children = workerNode.children
+      .map((child) => rehydrateFileNode(child, handleMap))
+      .filter((child): child is IFileNode => child !== null);
+  }
+
+  return fileNode;
+}
+
+/**
+ * Rehydrate an entire tree of WorkerFileNodes to IFileNodes.
+ * Filters out nodes that don't have handles in the map.
+ */
+export function rehydrateTree(
+  workerNodes: WorkerFileNode[],
+  handleMap: Map<string, FileSystemHandle>
+): IFileNode[] {
+  const results = workerNodes.map((node) => rehydrateFileNode(node, handleMap));
+  const validNodes = results.filter((node): node is IFileNode => node !== null);
+  const filteredCount = results.length - validNodes.length;
+
+  if (filteredCount > 0) {
+    logger.warn('rehydrateTree: Some root nodes filtered out', {
+      totalWorkerNodes: workerNodes.length,
+      validNodes: validNodes.length,
+      filteredOut: filteredCount,
+      handleMapSize: handleMap.size,
+    });
+  }
+
+  return validNodes;
+}
+
+/**
+ * Build a handle map from an IFileNode tree.
+ * This extracts all handles for lookup during worker communication.
+ */
+export function buildHandleMap(
+  nodes: IFileNode[],
+  map: Map<string, FileSystemHandle> = new Map(),
+  isTopLevel = true
+): Map<string, FileSystemHandle> {
+  for (const node of nodes) {
+    if (node.handle) {
+      map.set(node.path, node.handle);
+    }
+    if (node.children) {
+      buildHandleMap(node.children, map, false);
+    }
+  }
+
+  // Only log at top level to avoid spam
+  if (isTopLevel) {
+    logger.info('buildHandleMap complete', {
+      inputNodes: nodes.length,
+      handleMapSize: map.size,
+    });
+  }
+
+  return map;
+}
+
+/**
+ * Add handles from newly loaded children to the handle map.
+ */
+export function addHandlesToMap(nodes: IFileNode[], map: Map<string, FileSystemHandle>): void {
+  for (const node of nodes) {
+    if (node.handle) {
+      map.set(node.path, node.handle);
+    }
+    if (node.children) {
+      addHandlesToMap(node.children, map);
+    }
+  }
+}
+
+/** Re-export the FileSystemHandle type for consumers */
+export type { FileSystemHandle };

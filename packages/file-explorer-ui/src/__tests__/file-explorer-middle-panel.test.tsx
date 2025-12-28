@@ -153,6 +153,13 @@ describe('FileExplorerMiddlePanel', () => {
       cancelOperation: vi.fn(),
       isCancelling: false,
       clearRootDirectory: vi.fn(),
+      loadingPaths: new Set<string>(),
+      loadChildren: vi.fn(),
+      refreshDirectory: vi.fn(),
+      expandAllProgressively: vi.fn(),
+      cancelExpandAll: vi.fn(),
+      isExpandingAll: false,
+      expandAllProgress: null,
     });
 
     handleSelectionChangeMock = vi.fn();
@@ -288,6 +295,13 @@ describe('FileExplorerMiddlePanel', () => {
       cancelOperation: vi.fn(),
       isCancelling: false,
       clearRootDirectory: vi.fn(),
+      loadingPaths: new Set<string>(),
+      loadChildren: vi.fn(),
+      refreshDirectory: vi.fn(),
+      expandAllProgressively: vi.fn(),
+      cancelExpandAll: vi.fn(),
+      isExpandingAll: false,
+      expandAllProgress: null,
     });
 
     vi.mocked(useSelectionManager).mockReturnValue({

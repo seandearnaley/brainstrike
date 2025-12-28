@@ -2,7 +2,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { EmptyState } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
-import type * as React from 'react';
+import { useDeferredValue } from 'react';
 import OptimizedFileTree from './optimized-file-tree';
 
 const NoFilesSelected = () => (
@@ -23,6 +23,10 @@ type FileExplorerSidebarProps = {
   isInitialLoad: boolean;
   currentFolderId: string | null;
   onTreeRender?: () => void;
+  /** Set of paths currently loading their children (lazy loading) */
+  loadingPaths?: Set<string>;
+  /** Callback to load children of a directory on expand (lazy loading) */
+  onLoadChildren?: (path: string) => Promise<void>;
 };
 
 const ErrorDisplay = ({
@@ -64,9 +68,15 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   isInitialLoad,
   currentFolderId,
   onTreeRender,
+  loadingPaths,
+  onLoadChildren,
 }) => {
+  // React 19: useDeferredValue keeps showing the old tree while new one renders
+  // This prevents "flash" during rapid tree updates (like expand-all)
+  const deferredTree = useDeferredValue(quickFilteredTree);
+
   const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
-  const hasContent = quickFilteredTree && quickFilteredTree.length > 0;
+  const hasContent = deferredTree && deferredTree.length > 0;
 
   return (
     <div className="flex h-full w-full flex-col bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
@@ -75,15 +85,17 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
         <div className="flex min-h-0 flex-1 flex-col px-3 pt-4">
           {hasContent ? (
             <OptimizedFileTree
-              fileTree={quickFilteredTree}
+              fileTree={deferredTree}
               folderId={(rootDirectoryHandle?.name ?? currentFolderId ?? '') as string}
               loadingFiles={loadingFiles}
+              loadingPaths={loadingPaths}
+              onLoadChildren={onLoadChildren}
               onRender={onTreeRender || undefined}
             />
           ) : (
             <EmptyStateComponent
               isLoading={isLoading}
-              quickFilteredTree={quickFilteredTree}
+              quickFilteredTree={deferredTree}
               rootDirectoryHandle={rootDirectoryHandle}
             />
           )}

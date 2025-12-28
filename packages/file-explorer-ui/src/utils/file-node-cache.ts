@@ -1,5 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
-import { fileExplorer } from '@brainstrike/utils';
+import { createLogger, fileExplorer } from '@brainstrike/utils';
+
+const logger = createLogger('FileNodeCache');
 
 export type FileNodeCache = Map<string, Map<string, IFileNode>>;
 
@@ -33,7 +35,10 @@ export function getFileNodeFromCache(
     return cached;
   }
 
+  // Cache miss - try fallback search
+  const folderCacheSize = cache.get(folderId)?.size ?? 0;
   const node = fileExplorer.findNodeByPath(tree, path, folderId);
+
   if (node) {
     let folderMap = cache.get(folderId);
     if (!folderMap) {
@@ -41,7 +46,18 @@ export function getFileNodeFromCache(
       cache.set(folderId, folderMap);
     }
     folderMap.set(path, node);
+    logger.debug('Cache miss, found via fallback', { path, folderId, folderCacheSize });
+  } else {
+    // Both cache and fallback failed
+    logger.warn('Node not found in cache or tree', {
+      path,
+      folderId,
+      folderCacheSize,
+      totalCacheFolders: cache.size,
+      treeRootCount: tree.length,
+    });
   }
+
   return node ?? null;
 }
 

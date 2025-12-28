@@ -10,6 +10,10 @@ type IOptimizedFileTreeProps = {
   loadingFiles: Set<string>;
   onRender?: (() => void) | undefined;
   folderId: string;
+  /** Set of directory paths currently loading their children (lazy loading) */
+  loadingPaths?: Set<string> | undefined;
+  /** Callback to load children of a directory on expand (lazy loading) */
+  onLoadChildren?: ((path: string) => Promise<void>) | undefined;
 };
 
 /**
@@ -29,7 +33,7 @@ type IOptimizedFileTreeProps = {
  * @param {string} folderId - The identifier for the current folder context, used for selection and expansion state.
  */
 const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
-  ({ fileTree, loadingFiles, onRender, folderId }) => {
+  ({ fileTree, loadingFiles, onRender, folderId, loadingPaths, onLoadChildren }) => {
     const store = useFileExplorerStoreContext();
     const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
     const toggleDirectoryExpansion = store((s) => s.toggleDirectoryExpansion);
@@ -92,12 +96,14 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           <OptimizedFileTreeRow
             depth={depth}
             folderId={folderId}
+            isChildrenLoading={loadingPaths?.has(node.path) ?? false}
             isExpanded={expandedDirectoryPaths.has(node.path)}
             isLoading={
               folderId ? loadingFiles.has(encodeFileSelection(folderId, node.path)) : false
             }
             key={node.path}
             node={node}
+            onLoadChildren={onLoadChildren}
             onToggleDirectoryExpansion={toggleDirectoryExpansion}
             onToggleFileSelection={handleToggleFileSelection}
             style={{
@@ -120,6 +126,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       handleToggleFileSelection,
       loadingFiles,
       folderId,
+      loadingPaths,
+      onLoadChildren,
     ]);
 
     // This effect will run if the onRender callback itself changes.
@@ -163,6 +171,13 @@ const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps)
     return false;
   }
   if (prevProps.loadingFiles !== nextProps.loadingFiles) {
+    return false;
+  }
+  // Include lazy loading props in comparison
+  if (prevProps.loadingPaths !== nextProps.loadingPaths) {
+    return false;
+  }
+  if (prevProps.onLoadChildren !== nextProps.onLoadChildren) {
     return false;
   }
   return true;

@@ -10,14 +10,14 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
-import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
+import { ChevronsDown, ChevronsUp, Loader2, RefreshCw } from 'lucide-react';
 import * as React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
-import { LoadingOverlay } from './loading-overlay';
+import { ScanningStatus } from './scanning-status';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
@@ -146,6 +146,12 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancelOperation,
     isCancelling,
     clearRootDirectory,
+    loadingPaths,
+    loadChildren,
+    expandAllProgressively,
+    cancelExpandAll,
+    isExpandingAll,
+    expandAllProgress,
   } = useFileExplorer();
 
   const {
@@ -433,14 +439,26 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   }, [rootDirectoryHandle, setCurrentFolderId, store]);
 
   const expandAll = useCallback(() => {
-    if (fileTree && fileTree.length > 0) {
-      store.getState().expandAllDirectories(fileTree);
+    // Prevent clicks while expand-all is already running
+    if (isExpandingAll) {
+      return;
     }
-  }, [fileTree, store]);
+    if (fileTree && fileTree.length > 0) {
+      // Use progressive expand-all that loads directories on demand
+      const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
+        const currentPaths = store.getState().expandedDirectoryPaths;
+        const newPaths = updater(currentPaths);
+        store.getState().setExpandedPaths(newPaths);
+      };
+      void expandAllProgressively(setExpandedPaths);
+    }
+  }, [fileTree, store, expandAllProgressively, isExpandingAll]);
 
   const collapseAll = useCallback(() => {
+    // Cancel any in-progress expand-all first
+    cancelExpandAll();
     store.getState().collapseAllDirectories();
-  }, [store]);
+  }, [store, cancelExpandAll]);
 
   const handleCancelOperation = useCallback(() => {
     cancelOperation();
@@ -454,22 +472,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   return (
     <FileExplorerErrorBoundary>
       <div className="grid h-full grid-rows-[auto_1fr_auto]">
-        <LoadingOverlay
-          cancellable={cancellable}
-          className="z-50"
-          isCancelling={isCancelling}
-          isInitialLoad={isInitialLoad}
-          isLoading={isLoading}
-          onCancel={handleCancelOperation}
-          progressState={
-            loadingProgress ?? {
-              loaded: 0,
-              total: 0,
-              phase: 'counting' as const,
-            }
-          }
-        />
-
         {/* Fixed Header */}
         <div className="shrink-0">
           <FileExplorerToolbar
@@ -493,6 +495,25 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             quickFilter={quickFilter}
             useRegex={useRegex}
           />
+          {/* Loading indicator - shown during initial root load or expand-all */}
+          {(loadingProgress?.isInitialLoading || isExpandingAll) && (
+            <ScanningStatus
+              cancellable={cancellable || isExpandingAll}
+              currentPath={
+                isExpandingAll && expandAllProgress
+                  ? `Loading ${expandAllProgress.loaded}/${expandAllProgress.total} directories`
+                  : undefined
+              }
+              isCancelling={isCancelling}
+              isScanning={true}
+              onCancel={isExpandingAll ? cancelExpandAll : handleCancelOperation}
+              percentage={
+                expandAllProgress && expandAllProgress.total > 0
+                  ? Math.round((expandAllProgress.loaded / expandAllProgress.total) * 100)
+                  : undefined
+              }
+            />
+          )}
         </div>
 
         {/* Scrollable Middle Content */}
@@ -521,19 +542,23 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    aria-label="Expand All"
+                    aria-label={isExpandingAll ? 'Expanding...' : 'Expand All'}
                     className="h-7 w-7 bg-background/80 shadow-sm backdrop-blur-sm"
                     data-testid="expand-all-button-small"
-                    disabled={isLoading || isRefreshing}
+                    disabled={isLoading || isRefreshing || isExpandingAll}
                     onClick={expandAll}
                     size="icon"
                     variant="ghost"
                   >
-                    <ChevronsDown className="h-3.5 w-3.5" />
+                    {isExpandingAll ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <ChevronsDown className="h-3.5 w-3.5" />
+                    )}
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  <p>Expand all directories</p>
+                  <p>{isExpandingAll ? 'Expanding directories...' : 'Expand all directories'}</p>
                 </TooltipContent>
               </Tooltip>
               <Tooltip>
@@ -566,6 +591,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
                 isInitialLoad={isInitialLoad}
                 isLoading={isLoading}
                 loadingFiles={loadingFiles}
+                loadingPaths={loadingPaths}
+                onLoadChildren={loadChildren}
                 onTreeRender={handleTreeRender}
                 quickFilteredTree={quickFilteredTree}
                 rootDirectoryHandle={rootDirectoryHandle}

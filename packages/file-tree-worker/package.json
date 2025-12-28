@@ -1,0 +1,45 @@
+{
+  "name": "@brainstrike/file-tree-worker",
+  "version": "0.1.0",
+  "description": "Web Worker for off-main-thread file tree operations with BFS expand-all.",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/file-tree.worker.d.ts",
+      "import": "./dist/file-tree.worker.js"
+    }
+  },
+  "files": [
+    "dist/**"
+  ],
+  "scripts": {
+    "build": "tsup --config ./tsup.config.ts",
+    "clean": "rimraf dist",
+    "dev": "tsup --config ./tsup.config.ts --watch",
+    "lint": "pnpm -w lint --filter @brainstrike/file-tree-worker",
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "type-check": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "rimraf": "^6.1.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.14"
+  },
+  "turbo": {
+    "outputs": [
+      "dist/**"
+    ]
+  }
+}
