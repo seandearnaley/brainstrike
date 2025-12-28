@@ -493,7 +493,13 @@ export function useLazyFileTree(
     // Cleanup on unmount or handle change
     return () => {
       cancelAllLoading();
-      portRef.current?.abort();
+      // IMPORTANT: Don't abort worker if expand-all is in progress.
+      // When effect dependencies change (but component isn't unmounting),
+      // aborting would cancel the expand-all operation mid-flight.
+      // The expand-all operation manages its own lifecycle via useExpandAll.
+      if (!isExpandingAllRef.current) {
+        portRef.current?.abort();
+      }
     };
   }, [rootDirectoryHandle, loadRoot, handleMapRef, cancelAllLoading, portRef, isExpandingAllRef]);
 
