@@ -11,12 +11,40 @@ export type DirectoryExpansionActions = {
   collapseAllDirectories: () => void;
 };
 
+/**
+ * Helper to update both global and per-folder expanded paths.
+ * This ensures persistence works correctly - folder state is saved with the expanded paths.
+ */
+function updateExpandedPaths(
+  state: FileExplorerState,
+  newExpandedPaths: Set<string>
+): Partial<FileExplorerState> {
+  const updates: Partial<FileExplorerState> = {
+    expandedDirectoryPaths: newExpandedPaths,
+  };
+
+  // Also update the current folder's state for persistence
+  const folderId = state.currentFolderId;
+  if (folderId && state.folderStates[folderId]) {
+    updates.folderStates = {
+      ...state.folderStates,
+      [folderId]: {
+        ...state.folderStates[folderId],
+        expandedDirectoryPaths: newExpandedPaths,
+        lastAccessed: Date.now(),
+      },
+    };
+  }
+
+  return updates;
+}
+
 export const createDirectoryExpansionActions = (
   set: SetState<FileExplorerState>,
   _get: GetState<FileExplorerState> // Marked as unused
 ): DirectoryExpansionActions => ({
   setExpandedPaths: (paths: ReadonlySet<string>) => {
-    set({ expandedDirectoryPaths: new Set(paths) });
+    set((state) => updateExpandedPaths(state, new Set(paths)));
   },
 
   toggleDirectoryExpansion: (path: string) => {
@@ -33,7 +61,7 @@ export const createDirectoryExpansionActions = (
       } else {
         newExpandedPaths.add(path);
       }
-      return { expandedDirectoryPaths: newExpandedPaths };
+      return updateExpandedPaths(state, newExpandedPaths);
     });
   },
 
@@ -51,11 +79,11 @@ export const createDirectoryExpansionActions = (
         }
       };
       addDirectoryPaths(fileTree);
-      return { expandedDirectoryPaths: newExpandedPaths };
+      return updateExpandedPaths(state, newExpandedPaths);
     });
   },
 
   collapseAllDirectories: () => {
-    set({ expandedDirectoryPaths: new Set() });
+    set((state) => updateExpandedPaths(state, new Set()));
   },
 });

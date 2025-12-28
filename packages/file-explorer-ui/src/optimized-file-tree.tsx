@@ -55,7 +55,12 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       (nodes: IFileNode[], depth = 0, acc: { node: IFileNode; depth: number }[] = []) => {
         for (const n of nodes) {
           acc.push({ node: n, depth });
-          if (n.type === 'directory' && expandedDirectoryPaths.has(n.path) && n.children) {
+          if (
+            n.type === 'directory' &&
+            expandedDirectoryPaths.has(n.path) &&
+            n.loadState === 'loaded' &&
+            n.children
+          ) {
             flattenTree(
               n.children.filter((c) => c.isVisible !== false),
               depth + 1,
@@ -97,7 +102,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             depth={depth}
             folderId={folderId}
             isChildrenLoading={loadingPaths?.has(node.path) ?? false}
-            isExpanded={expandedDirectoryPaths.has(node.path)}
+            isExpanded={expandedDirectoryPaths.has(node.path) && node.loadState === 'loaded'}
             isLoading={
               folderId ? loadingFiles.has(encodeFileSelection(folderId, node.path)) : false
             }
