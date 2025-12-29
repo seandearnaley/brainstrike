@@ -50,6 +50,37 @@ describe('getVisibleFilesOnPage', () => {
 
     expect(result.map((item) => item.id)).toEqual(['b1']);
   });
+
+  it('returns empty when the page only includes a group header', () => {
+    const groupA = createGroup('A', [createRow('a1', 'a1.ts')]);
+
+    const result = getVisibleFilesOnPage({
+      collapsedGroups: new Set(),
+      currentPageData: [],
+      endIndex: 1,
+      groupedData: [groupA],
+      groupingConfig: 'rootFolder',
+      startIndex: 0,
+    });
+
+    expect(result).toEqual([]);
+  });
+
+  it('respects pagination offsets across group headers', () => {
+    const groupA = createGroup('A', [createRow('a1', 'a1.ts'), createRow('a2', 'a2.ts')]);
+    const groupB = createGroup('B', [createRow('b1', 'b1.ts'), createRow('b2', 'b2.ts')]);
+
+    const result = getVisibleFilesOnPage({
+      collapsedGroups: new Set(),
+      currentPageData: [],
+      endIndex: 4,
+      groupedData: [groupA, groupB],
+      groupingConfig: 'rootFolder',
+      startIndex: 2,
+    });
+
+    expect(result.map((item) => item.id)).toEqual(['a2']);
+  });
 });
 
 describe('buildGroupedPageSections', () => {
