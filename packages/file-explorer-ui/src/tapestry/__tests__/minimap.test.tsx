@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Minimap } from '../minimap';
 import type { FileTapestry, TapestryRange } from '../types';
+import { getTapestryRenderMetrics } from '../utils';
 
 const createFile = (): FileTapestry => {
   const range: TapestryRange = {
@@ -15,8 +16,14 @@ const createFile = (): FileTapestry => {
 
   return {
     id: 'file-1',
+    compositeKey: 'file-1',
+    rootFolderId: 'root',
+    path: '/src/App.tsx',
     name: 'App.tsx',
     language: 'tsx',
+    type: 'TSX',
+    size: 1024,
+    tokens: 1200,
     totalLines: 10,
     structure: Array.from({ length: 10 }, () => ({
       indent: 0,
@@ -24,6 +31,7 @@ const createFile = (): FileTapestry => {
       isEmpty: false,
     })),
     content: Array.from({ length: 10 }, (_, index) => `line-${index}`),
+    contentStatus: 'ready',
     selections: [range],
   };
 };
@@ -54,8 +62,10 @@ describe('Minimap', () => {
         <Minimap
           file={file}
           getGlobalIndex={() => 1}
+          isSelected={false}
           onInteractionStart={onInteractionStart}
           onToggleRange={onToggleRange}
+          onToggleSelection={vi.fn()}
           scale={2}
           smartStart={smartStart}
         />
@@ -67,9 +77,21 @@ describe('Minimap', () => {
       value: () => createRect(),
     });
 
-    fireEvent.mouseDown(container, { clientY: 110 });
+    const clientY = 110;
+    fireEvent.mouseDown(container, { clientY });
 
-    expect(smartStart).toHaveBeenCalledWith('CREATING', file.id, null, 110, undefined, 5);
+    const { lineScale } = getTapestryRenderMetrics(file.totalLines, 2);
+    const rawLine = Math.floor((clientY - 100) / lineScale);
+    const expectedLine = Math.min(Math.max(rawLine, 0), file.totalLines - 1);
+
+    expect(smartStart).toHaveBeenCalledWith(
+      'CREATING',
+      file.id,
+      null,
+      clientY,
+      undefined,
+      expectedLine
+    );
     expect(onInteractionStart).not.toHaveBeenCalled();
   });
 
@@ -82,8 +104,10 @@ describe('Minimap', () => {
         <Minimap
           file={file}
           getGlobalIndex={() => 1}
+          isSelected={false}
           onInteractionStart={onInteractionStart}
           onToggleRange={vi.fn()}
+          onToggleSelection={vi.fn()}
           scale={2}
         />
       </TooltipProvider>
@@ -110,8 +134,10 @@ describe('Minimap', () => {
         <Minimap
           file={file}
           getGlobalIndex={() => 1}
+          isSelected={false}
           onInteractionStart={vi.fn()}
           onToggleRange={onToggleRange}
+          onToggleSelection={vi.fn()}
           scale={2}
         />
       </TooltipProvider>

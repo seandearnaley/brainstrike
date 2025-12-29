@@ -6,50 +6,83 @@ import { waitForAppReady } from './electron-helpers';
  * Adapted from web E2E helpers for Electron-specific needs
  */
 
+async function ensureExplorerVisible(page: Page): Promise<void> {
+  const explorerSection = page.locator('[data-testid="explorer-section"]');
+  const isExplorerVisible = await explorerSection.isVisible().catch(() => false);
+  if (isExplorerVisible) {
+    return;
+  }
+
+  const explorerButton = page
+    .getByRole('button', { name: /context explorer/i })
+    .or(page.getByRole('link', { name: /context explorer/i }))
+    .or(page.getByRole('button', { name: /explorer/i }))
+    .or(page.getByRole('link', { name: /explorer/i }));
+
+  if ((await explorerButton.count()) > 0) {
+    await explorerButton.first().click();
+    await explorerSection.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
+      console.warn('⚠️ Explorer section did not become visible after navigation click.');
+    });
+  }
+}
+
+export async function ensureToolsPanelVisible(page: Page): Promise<Locator> {
+  await ensureExplorerVisible(page);
+  const rightPanel = page.locator('[data-panel-id="tools-panel"]');
+  const showRightPanelButton = page
+    .locator('[data-testid="show-tools-panel"]')
+    .or(page.getByRole('button', { name: 'Show tools panel' }))
+    .or(page.locator('button[aria-label="Show tools panel"]'));
+  const hideRightPanelButton = page
+    .locator('[data-testid="hide-tools-panel"]')
+    .or(page.getByRole('button', { name: 'Hide tools panel' }))
+    .or(page.locator('button[aria-label="Hide tools panel"]'));
+
+  const panelBox = await rightPanel.boundingBox().catch(() => null);
+  const rightPanelVisible = Boolean(panelBox && panelBox.width > 5 && panelBox.height > 5);
+
+  if (!rightPanelVisible) {
+    if ((await showRightPanelButton.count()) > 0) {
+      console.log('👉 Showing tools panel...');
+      await showRightPanelButton.first().click();
+    } else if ((await hideRightPanelButton.count()) > 0) {
+      console.log('👉 Re-toggling tools panel to expand...');
+      await hideRightPanelButton.first().click();
+      await showRightPanelButton.first().click();
+    } else {
+      console.warn('⚠️ Tools panel controls not found; waiting for panel to appear.');
+    }
+  }
+
+  await rightPanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
+    console.warn('⚠️ Tools panel did not become visible after request.');
+  });
+
+  return rightPanel;
+}
+
 /**
  * Navigate to and show the database demo panel in the right panel
  */
-export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
+export async function showDatabaseDemoPanel(
+  page: Page,
+  options?: { tabTimeoutMs?: number; panelTimeoutMs?: number }
+): Promise<Page> {
   let activePage = await resolveActivePage(page);
   console.log('🗄️ Navigating to database demo panel...');
+  const tabTimeoutMs = options?.tabTimeoutMs ?? 10_000;
+  const panelTimeoutMs = options?.panelTimeoutMs ?? 45_000;
 
   for (let attempt = 0; attempt < 2; attempt++) {
     activePage = await resolveActivePage(activePage);
     await waitForAppReady(activePage);
     await activePage
       .locator('[data-panel-id="middle-panel"]')
-      .waitFor({ state: 'attached', timeout: 10_000 })
+      .waitFor({ state: 'attached', timeout: tabTimeoutMs })
       .catch(() => {});
 
-    // First, check if the tools panel is already visible
-    const rightPanel = activePage.locator('[data-panel-id="tools-panel"]');
-    const showRightPanelButton = activePage
-      .locator('[data-testid="show-tools-panel"]')
-      .or(activePage.locator('button[aria-label="Show tools panel"]'));
-    const hideRightPanelButton = activePage
-      .locator('[data-testid="hide-tools-panel"]')
-      .or(activePage.locator('button[aria-label="Hide tools panel"]'));
-    let rightPanelVisible = await rightPanel.isVisible().catch(() => false);
-
-    // If we cannot determine visibility yet, fall back to checking the hide button
-    if (!rightPanelVisible) {
-      rightPanelVisible = (await hideRightPanelButton.count()) > 0;
-    }
-
-    if (!rightPanelVisible) {
-      console.log('👉 Showing tools panel...');
-      if ((await showRightPanelButton.count()) > 0) {
-        await showRightPanelButton.first().click();
-        await rightPanel.waitFor({ state: 'visible', timeout: 12_000 }).catch(() => {
-          console.warn('⚠️ Tools panel did not become visible after clicking show button.');
-        });
-      } else {
-        console.warn('⚠️ Show tools panel button not found; waiting for panel to appear.');
-        await rightPanel.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
-          console.warn('⚠️ Tools panel still not visible after waiting.');
-        });
-      }
-    }
+    const rightPanel = await ensureToolsPanelVisible(activePage);
 
     if (!activePage.isClosed()) {
       // Wait a moment for panel to stabilize
@@ -67,7 +100,7 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
 
     await databaseTab
       .first()
-      .waitFor({ state: 'visible', timeout: 10_000 })
+      .waitFor({ state: 'visible', timeout: tabTimeoutMs })
       .catch(() => {
         console.warn('⚠️ Database tab not visible yet; proceeding with click attempt.');
       });
@@ -84,13 +117,15 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
       .or(rightPanel.locator('[data-value="database"][data-state="active"]'));
     await activeDatabaseTab
       .first()
-      .waitFor({ state: 'visible', timeout: 10_000 })
+      .waitFor({ state: 'visible', timeout: tabTimeoutMs })
       .catch(() => {
         console.warn('⚠️ Database tab did not become active after click.');
       });
 
     // Wait for either the database demo panel OR the database error to be visible
     console.log('⏳ Waiting for database panel or error to be visible...');
+    const loadingDatabaseCard = activePage.getByText(/Loading PGlite database/i);
+    const loadingTabFallback = activePage.getByText(/Loading DB UI/i);
 
     // Wait for either the success state or error state
     // Increased timeout for fresh Electron restarts where database may take longer to initialize
@@ -98,11 +133,19 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
       await Promise.race([
         activePage.locator('[data-testid="database-demo-panel"]').waitFor({
           state: 'visible',
-          timeout: 45_000,
+          timeout: panelTimeoutMs,
         }),
         activePage.locator('[data-testid="db-init-error"]').waitFor({
           state: 'visible',
-          timeout: 45_000,
+          timeout: panelTimeoutMs,
+        }),
+        loadingDatabaseCard.waitFor({
+          state: 'visible',
+          timeout: panelTimeoutMs,
+        }),
+        loadingTabFallback.waitFor({
+          state: 'visible',
+          timeout: panelTimeoutMs,
         }),
       ]);
 
@@ -111,6 +154,8 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
         .locator('[data-testid="database-demo-panel"]')
         .isVisible();
       const hasErrorPanel = await activePage.locator('[data-testid="db-init-error"]').isVisible();
+      const hasLoadingCard = await loadingDatabaseCard.isVisible().catch(() => false);
+      const hasLoadingFallback = await loadingTabFallback.isVisible().catch(() => false);
 
       if (hasSuccessPanel) {
         console.log('✅ Database demo panel is visible and ready');
@@ -118,6 +163,10 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
         const errorText = await activePage.locator('[data-testid="db-init-error"]').textContent();
         console.log('⚠️ Database initialization failed:', errorText);
         console.log('✅ Database error panel is visible (this is expected in E2E environment)');
+      } else if (hasLoadingCard) {
+        console.log('⏳ Database still initializing (loading card visible)');
+      } else if (hasLoadingFallback) {
+        console.log('⏳ Database tab chunk still loading (fallback visible)');
       }
 
       return activePage;
@@ -154,6 +203,7 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   await waitForAppReady(activePage);
   const errorPanel = activePage.locator('[data-testid="db-init-error"]');
   const successPanel = activePage.locator('[data-testid="database-demo-panel"]');
+  const loadingTabFallback = activePage.getByText(/Loading DB UI/i);
   // Check if we're in error state or success state
   const hasErrorPanel = await errorPanel.isVisible().catch(() => false);
   const hasSuccessPanel = await successPanel.isVisible().catch(() => false);
@@ -172,6 +222,10 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
         timeout: 15_000,
       }),
       errorPanel.waitFor({
+        state: 'visible',
+        timeout: 15_000,
+      }),
+      loadingTabFallback.waitFor({
         state: 'visible',
         timeout: 15_000,
       }),
@@ -196,6 +250,19 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   } catch (_error) {
     // Loading indicator might not appear if database loads quickly
     console.log('⚡ Database loaded quickly or loading indicator not found');
+  }
+
+  try {
+    if (await loadingTabFallback.isVisible({ timeout: 1000 })) {
+      console.log('⏳ Waiting for database tab chunk to finish loading...');
+      await Promise.race([
+        successPanel.waitFor({ state: 'visible', timeout: 20_000 }),
+        errorPanel.waitFor({ state: 'visible', timeout: 20_000 }),
+        loadingTabFallback.waitFor({ state: 'hidden', timeout: 20_000 }),
+      ]);
+    }
+  } catch (_error) {
+    console.log('⚡ Database tab chunk loaded quickly or fallback not found');
   }
 
   const statusConnected = activePage.locator('[data-testid="status-bar-db-connected"]');
@@ -267,6 +334,60 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
   return activePage;
 }
 
+export async function resolveRefreshButton(
+  page: Page,
+  options?: { timeoutMs?: number }
+): Promise<{ page: Page; button: Locator }> {
+  const timeoutMs = options?.timeoutMs ?? 20_000;
+  let activePage = await resolveActivePage(page);
+
+  const resolveButton = () => activePage.locator('button:has-text("Refresh")').first();
+  const errorPanel = activePage.locator('[data-testid="db-init-error"]');
+  const loadingIndicator = activePage.getByText(/Loading PGlite database/i);
+  const loadingTabFallback = activePage.getByText(/Loading DB UI/i);
+
+  const waitForButton = async (): Promise<Locator> => {
+    const refreshButton = resolveButton();
+    await refreshButton.waitFor({ state: 'visible', timeout: timeoutMs });
+    return refreshButton;
+  };
+
+  try {
+    return { page: activePage, button: await waitForButton() };
+  } catch (_error) {
+    if (await errorPanel.isVisible().catch(() => false)) {
+      return { page: activePage, button: resolveButton() };
+    }
+
+    try {
+      if (await loadingTabFallback.isVisible({ timeout: 1000 })) {
+        await loadingTabFallback.waitFor({ state: 'hidden', timeout: timeoutMs });
+      }
+    } catch (_fallbackError) {
+      // ignore and proceed to the loading indicator
+    }
+
+    try {
+      if (await loadingIndicator.isVisible({ timeout: 1000 })) {
+        await loadingIndicator.waitFor({ state: 'hidden', timeout: timeoutMs });
+      }
+    } catch (_loadingError) {
+      // ignore and proceed
+    }
+
+    try {
+      return { page: activePage, button: await waitForButton() };
+    } catch (_retryError) {
+      console.warn('⚠️ Refresh button not visible, reopening database panel...');
+      const reopened = await showDatabaseDemoPanel(activePage);
+      activePage = await waitForDatabaseReady(reopened);
+      const refreshButton = activePage.locator('button:has-text("Refresh")').first();
+      await refreshButton.waitFor({ state: 'visible', timeout: timeoutMs });
+      return { page: activePage, button: refreshButton };
+    }
+  }
+}
+
 /**
  * Clear all records from the database for testing using bulk delete
  */
@@ -293,21 +414,32 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
 
       if (result.success) {
         console.log(`✅ Bulk delete successful: ${result.message}`);
+        const remainingCount = await activePage.evaluate(async () => {
+          const api = (
+            window as unknown as {
+              electronAPI?: {
+                db?: { query?: (sql: string) => Promise<{ rows: { count: number }[] }> };
+              };
+            }
+          ).electronAPI;
+          if (!api?.db?.query) {
+            return null;
+          }
+          const result = await api.db.query('SELECT COUNT(*)::int AS count FROM file_records');
+          return result.rows[0]?.count ?? null;
+        });
 
-        // Refresh the UI to reflect the changes
-        await activePage.click('button:has-text("Refresh")');
-        if (!activePage.isClosed()) {
-          await activePage.waitForTimeout(1000); // Give time for UI to update
+        if (typeof remainingCount === 'number') {
+          console.log(`📊 Records remaining after bulk delete (API): ${remainingCount}`);
+          if (remainingCount === 0) {
+            console.log('✅ Database cleanup completed successfully');
+            return activePage;
+          }
+        } else {
+          console.warn('⚠️ Could not verify record count via API after bulk delete');
         }
 
-        const remainingCount = await activePage.locator('tbody tr').count();
-        console.log(`📊 Records remaining after bulk delete: ${remainingCount}`);
-
-        if (remainingCount === 0) {
-          console.log('✅ Database cleanup completed successfully');
-          return activePage;
-        }
-        console.log(`⚠️ ${remainingCount} records still remain, continuing with UI cleanup...`);
+        console.log('⚠️ Records still remain, continuing with UI cleanup...');
       } else {
         console.warn(`⚠️ Bulk delete failed: ${result.message}, falling back to UI deletion`);
       }
@@ -339,22 +471,7 @@ async function clearDatabaseRecordsViaUI(page: Page): Promise<Page> {
     return activePage;
   }
 
-  const resolveRefreshButton = async (pageRef: Page): Promise<{ page: Page; button: Locator }> => {
-    const button = pageRef.locator('button:has-text("Refresh")').first();
-    try {
-      await button.waitFor({ state: 'visible', timeout: 5000 });
-      return { page: pageRef, button };
-    } catch (_error) {
-      console.warn('⚠️ Refresh button not visible, reopening database panel...');
-      const reopened = await showDatabaseDemoPanel(pageRef);
-      const ready = await waitForDatabaseReady(reopened);
-      const refreshed = ready.locator('button:has-text("Refresh")').first();
-      await refreshed.waitFor({ state: 'visible', timeout: 5000 });
-      return { page: ready, button: refreshed };
-    }
-  };
-
-  let refresh = await resolveRefreshButton(activePage);
+  let refresh = await resolveRefreshButton(activePage, { timeoutMs: 20_000 });
   activePage = refresh.page;
   let refreshButton = refresh.button;
 

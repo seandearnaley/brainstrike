@@ -1,20 +1,15 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { isFixtureCapableAdapter } from '@brainstrike/file-system';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
-import {
-  Button,
-  cn,
-  LoadingFallback,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@brainstrike/ui';
+import { Button, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
 import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import * as React from 'react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import ActionButtons from './action-buttons-array-facade';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import FileExplorerSidebar from './file-explorer-sidebar';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { LoadingOverlay } from './loading-overlay';
@@ -22,21 +17,7 @@ import { useBackgroundTokenIndexerIntegration } from './use-background-token-ind
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
-// Lazy load the sidebar component (relative import to avoid duplicate module graphs/context)
 const logger = createLogger('FileExplorerLeftPanel');
-
-const FileExplorerSidebar = lazy(() =>
-  import('./file-explorer-sidebar').then((m) => ({
-    default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
-  }))
-);
-
-// Lazy load array facade for action buttons
-const ActionButtons = lazy(() =>
-  import('./action-buttons-array-facade').then((m) => ({
-    default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
-  }))
-);
 
 // Quick filter helpers (factored to keep component complexity low)
 function createSearchableText(node: IFileNode): string {
@@ -559,35 +540,31 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
           {/* Scrollable content */}
           <div className="h-full overflow-y-auto">
-            <Suspense fallback={<LoadingFallback />}>
-              <FileExplorerSidebar
-                currentFolderId={currentFolderId}
-                filterError={filterErrorAsError}
-                isInitialLoad={isInitialLoad}
-                isLoading={isLoading}
-                loadingFiles={loadingFiles}
-                onTreeRender={handleTreeRender}
-                quickFilteredTree={quickFilteredTree}
-                rootDirectoryHandle={rootDirectoryHandle}
-                treeError={error}
-              />
-            </Suspense>
+            <FileExplorerSidebar
+              currentFolderId={currentFolderId}
+              filterError={filterErrorAsError}
+              isInitialLoad={isInitialLoad}
+              isLoading={isLoading}
+              loadingFiles={loadingFiles}
+              onTreeRender={handleTreeRender}
+              quickFilteredTree={quickFilteredTree}
+              rootDirectoryHandle={rootDirectoryHandle}
+              treeError={error}
+            />
           </div>
         </div>
 
         {/* Fixed Footer */}
         <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent px-4 py-3">
-          <Suspense fallback={<LoadingFallback />}>
-            <ActionButtons
-              currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
-              displayedFiles={displayedFileList}
-              encodeFileSelection={encodeFileSelection}
-              maxSelectionCount={maxSelectionCount}
-              onSelectionLimitExceeded={() => {}}
-              selectedFiles={safeSelectedFilesList}
-              setSelectedFiles={safeSetSelectedFilesFromList}
-            />
-          </Suspense>
+          <ActionButtons
+            currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
+            displayedFiles={displayedFileList}
+            encodeFileSelection={encodeFileSelection}
+            maxSelectionCount={maxSelectionCount}
+            onSelectionLimitExceeded={() => {}}
+            selectedFiles={safeSelectedFilesList}
+            setSelectedFiles={safeSetSelectedFilesFromList}
+          />
         </div>
       </div>
     </FileExplorerErrorBoundary>

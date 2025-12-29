@@ -170,9 +170,7 @@ export function usePreviewPanelState({
 
   if (prevSelectedFilesRef.current !== selectedFiles) {
     prevSelectedFilesRef.current = selectedFiles;
-    if (prevSelectedFilesRef.current !== null) {
-      setBatchSelectedFiles(new Set());
-    }
+    setBatchSelectedFiles(new Set());
   }
 
   // Build file items using the persistent cache
