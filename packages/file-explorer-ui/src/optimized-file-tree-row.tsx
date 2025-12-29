@@ -26,6 +26,10 @@ type OptimizedFileTreeRowProps = {
   folderId: string;
   style?: CSSProperties;
   children?: React.ReactNode;
+  /** Whether directory children are currently being loaded (lazy loading) */
+  isChildrenLoading?: boolean | undefined;
+  /** Callback to load children of a directory on expand (lazy loading) */
+  onLoadChildren?: ((path: string) => Promise<void>) | undefined;
 };
 
 const ROW_HEIGHT = 32;
@@ -62,8 +66,14 @@ const areOptimizedFileTreeRowPropsEqual = (
   // Compare callback props (reference equality)
   if (
     prevProps.onToggleDirectoryExpansion !== nextProps.onToggleDirectoryExpansion ||
-    prevProps.onToggleFileSelection !== nextProps.onToggleFileSelection
+    prevProps.onToggleFileSelection !== nextProps.onToggleFileSelection ||
+    prevProps.onLoadChildren !== nextProps.onLoadChildren
   ) {
+    return false;
+  }
+
+  // Compare lazy loading state
+  if (prevProps.isChildrenLoading !== nextProps.isChildrenLoading) {
     return false;
   }
 
@@ -81,6 +91,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     folderId,
     style,
     children,
+    isChildrenLoading,
+    onLoadChildren,
   }) => {
     const store = useFileExplorerStoreContext();
     const selectedFilePaths = store((s) => s.selectedFilePaths);
@@ -188,11 +200,23 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     ]);
 
     const handleExpansionClick = useCallback(
-      (e: React.MouseEvent<HTMLButtonElement>) => {
+      async (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
+
+        // For lazy loading: if directory children haven't been loaded yet, load them first
+        // Check loadState rather than children because adapters may set children: [] initially
+        const needsLoad =
+          node.type === 'directory' &&
+          (node.loadState === 'unloaded' || node.loadState === undefined) &&
+          onLoadChildren;
+
+        if (needsLoad) {
+          await onLoadChildren(node.path);
+        }
+
         onToggleDirectoryExpansion(node.path);
       },
-      [node.path, onToggleDirectoryExpansion]
+      [node.path, node.type, node.loadState, onToggleDirectoryExpansion, onLoadChildren]
     );
 
     const handleCheckboxChange = useCallback(() => {
@@ -241,13 +265,20 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           <div className="mr-2 flex w-4 justify-center">
             {node.type === 'directory' && (
               <button
-                aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
+                aria-label={
+                  isChildrenLoading
+                    ? `Loading ${node.name} directory`
+                    : `${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`
+                }
                 className="flex cursor-pointer items-center justify-center rounded p-0.5 transition-all duration-150 hover:bg-accent"
                 data-testid={EXPAND_COLLAPSE_TEST_ID}
+                disabled={isChildrenLoading}
                 onClick={handleExpansionClick}
                 type="button"
               >
-                {isExpanded ? (
+                {isChildrenLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin text-blue-500" />
+                ) : isExpanded ? (
                   <ChevronDown className="h-3 w-3" />
                 ) : (
                   <ChevronRight className="h-3 w-3" />

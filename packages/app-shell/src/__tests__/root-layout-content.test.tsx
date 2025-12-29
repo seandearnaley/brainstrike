@@ -24,6 +24,15 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="file-explorer-provider">{children}</div>
   ),
+  FileTreeProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="file-tree-provider">{children}</div>
+  ),
+  useFileSystem: () => ({
+    rootDirectoryHandle: null,
+    selectRootDirectory: vi.fn(),
+    isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
+    clearRootDirectory: vi.fn(),
+  }),
 }));
 
 // Create a stable object to hold the mock function.

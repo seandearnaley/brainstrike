@@ -1,0 +1,228 @@
+/**
+ * Lazy Tree Loader Utilities
+ *
+ * Provides functions for on-demand directory loading. Instead of loading
+ * the entire file tree upfront, directories are loaded when expanded.
+ *
+ * Generic tree operations are imported from @brainstrike/utils.
+ */
+
+import type {
+  DirectoryHandle,
+  DirectoryLoadState,
+  FileSystemAdapter,
+  IFileNode,
+} from '@brainstrike/types';
+import {
+  fileFilter,
+  findNodeByPath as findNodeByPathGeneric,
+  isLoading as isLoadingGeneric,
+  needsLoading as needsLoadingGeneric,
+  setNodeLoadState as setNodeLoadStateGeneric,
+  sortTreeNodes,
+  updateNodeChildren as updateNodeChildrenGeneric,
+} from '@brainstrike/utils';
+
+export type LazyLoadOptions = {
+  /** AbortSignal for cancellation support */
+  abortSignal?: AbortSignal;
+  /** Whether to include file metadata (size, lastModified) */
+  includeMetadata?: boolean;
+  /** Custom sort function for nodes */
+  sortFileNodes?: (nodes: IFileNode[]) => IFileNode[];
+};
+
+/**
+ * Default sort function: directories first, then alphabetically
+ */
+function defaultSortFileNodes(nodes: IFileNode[]): IFileNode[] {
+  return sortTreeNodes(nodes);
+}
+
+/**
+ * Detect platform from a native handle
+ */
+function detectPlatform(handle: unknown): 'web' | 'electron' {
+  // Check if it's already a DirectoryHandle with platform info
+  if (handle && typeof handle === 'object' && 'platform' in handle) {
+    return (handle as { platform: string }).platform === 'electron' ? 'electron' : 'web';
+  }
+  // Check for web FileSystemDirectoryHandle (has entries() method)
+  if (handle && typeof handle === 'object' && 'entries' in handle) {
+    return 'web';
+  }
+  // Assume electron otherwise
+  return 'electron';
+}
+
+/**
+ * Build a DirectoryHandle from an IFileNode
+ */
+function buildDirectoryHandle(node: IFileNode): DirectoryHandle {
+  return {
+    path: node.path,
+    name: node.name,
+    kind: 'directory',
+    platform: detectPlatform(node.handle),
+    _internal: node.handle,
+  };
+}
+
+/**
+ * Load root directory contents (initial load).
+ *
+ * Only loads immediate children. Subdirectories are marked as 'unloaded'
+ * with children: undefined, ready for lazy expansion.
+ *
+ * @param adapter - File system adapter
+ * @param rootHandle - Root directory handle
+ * @param options - Load options
+ * @returns Array of child nodes with directories marked as unloaded
+ */
+export async function loadRootDirectory(
+  adapter: FileSystemAdapter,
+  rootHandle: DirectoryHandle,
+  options: LazyLoadOptions = {}
+): Promise<IFileNode[]> {
+  const { abortSignal, includeMetadata = false, sortFileNodes = defaultSortFileNodes } = options;
+
+  // Check for cancellation
+  if (abortSignal?.aborted) {
+    throw new DOMException('Operation was cancelled', 'AbortError');
+  }
+
+  // Read immediate children only
+  const children = await adapter.readDirectory(rootHandle, {
+    includeMetadata,
+  });
+
+  // Check for cancellation after async operation
+  if (abortSignal?.aborted) {
+    throw new DOMException('Operation was cancelled', 'AbortError');
+  }
+
+  // Filter ignored paths and transform nodes for lazy loading
+  const lazyNodes: IFileNode[] = children
+    .filter((child) => !fileFilter.shouldIgnorePath(child.name))
+    .map((child) => {
+      // For directories: omit children to ensure lazy loading triggers
+      // (adapters may set children: [], which we need to remove)
+      if (child.type === 'directory') {
+        const { children: _children, ...rest } = child;
+        return {
+          ...rest,
+          depth: 0,
+          rootFolderId: rootHandle.name,
+          loadState: 'unloaded' as const,
+        };
+      }
+      // Files: just add depth and rootFolderId
+      return {
+        ...child,
+        depth: 0,
+        rootFolderId: rootHandle.name,
+      };
+    });
+
+  return sortFileNodes(lazyNodes);
+}
+
+/**
+ * Load children of a specific directory on-demand.
+ *
+ * Called when user expands a directory. Returns children with
+ * subdirectories marked as 'unloaded' for further lazy expansion.
+ *
+ * @param adapter - File system adapter
+ * @param parentNode - The directory node to load children for
+ * @param options - Load options
+ * @returns Array of child nodes
+ */
+export async function loadDirectoryChildren(
+  adapter: FileSystemAdapter,
+  parentNode: IFileNode,
+  options: LazyLoadOptions = {}
+): Promise<IFileNode[]> {
+  if (parentNode.type !== 'directory') {
+    throw new Error('Cannot load children of non-directory node');
+  }
+
+  const { abortSignal, includeMetadata = false, sortFileNodes = defaultSortFileNodes } = options;
+
+  // Check for cancellation
+  if (abortSignal?.aborted) {
+    throw new DOMException('Operation was cancelled', 'AbortError');
+  }
+
+  // Build DirectoryHandle from the node
+  const handle = buildDirectoryHandle(parentNode);
+
+  // Read immediate children only
+  const children = await adapter.readDirectory(handle, {
+    includeMetadata,
+  });
+
+  // Check for cancellation after async operation
+  if (abortSignal?.aborted) {
+    throw new DOMException('Operation was cancelled', 'AbortError');
+  }
+
+  // Filter ignored paths and transform nodes for lazy loading
+  const lazyNodes: IFileNode[] = children
+    .filter((child) => {
+      const relativePath = `${parentNode.path}/${child.name}`;
+      return !fileFilter.shouldIgnorePath(relativePath);
+    })
+    .map((child) => {
+      // For directories: omit children to ensure lazy loading triggers
+      // (adapters may set children: [], which we need to remove)
+      if (child.type === 'directory') {
+        const { children: _children, ...rest } = child;
+        return {
+          ...rest,
+          depth: parentNode.depth + 1,
+          rootFolderId: parentNode.rootFolderId,
+          loadState: 'unloaded' as const,
+        };
+      }
+      // Files: just add depth and rootFolderId
+      return {
+        ...child,
+        depth: parentNode.depth + 1,
+        rootFolderId: parentNode.rootFolderId,
+      };
+    });
+
+  return sortFileNodes(lazyNodes);
+}
+
+// Re-export generic functions typed for IFileNode for backward compatibility
+export function updateNodeChildren(
+  tree: IFileNode[],
+  targetPath: string,
+  children: IFileNode[],
+  loadState: DirectoryLoadState = 'loaded'
+): IFileNode[] {
+  return updateNodeChildrenGeneric(tree, targetPath, children, loadState);
+}
+
+export function setNodeLoadState(
+  tree: IFileNode[],
+  targetPath: string,
+  loadState: DirectoryLoadState,
+  error?: string
+): IFileNode[] {
+  return setNodeLoadStateGeneric(tree, targetPath, loadState, error);
+}
+
+export function findNodeByPath(tree: IFileNode[], targetPath: string): IFileNode | null {
+  return findNodeByPathGeneric(tree, targetPath);
+}
+
+export function needsLoading(node: IFileNode): boolean {
+  return needsLoadingGeneric(node);
+}
+
+export function isLoading(node: IFileNode): boolean {
+  return isLoadingGeneric(node);
+}

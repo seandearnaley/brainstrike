@@ -1,3 +1,6 @@
+// Re-export isAbortError from shared utils for backwards compatibility
+export { isAbortError } from '@brainstrike/utils';
+
 export type Listener<TEvent> = (event: TEvent) => void;
 
 export class ProgressEmitter<TEvent> {
@@ -27,16 +30,6 @@ export function estimateHardwareConcurrency(): number {
     }
   }
   return 2;
-}
-
-export function isAbortError(error: unknown): boolean {
-  if (error instanceof DOMException) {
-    return error.name === 'AbortError';
-  }
-  if (error instanceof Error) {
-    return error.name === 'AbortError';
-  }
-  return false;
 }
 
 export function supportsWorkers(): boolean {

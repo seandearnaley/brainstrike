@@ -1,23 +1,30 @@
 /**
- * File Tree Hook (Context-aware)
+ * File Tree Hook (Context-aware) with Lazy Loading
  *
- * This hook provides file tree functionality using only the context-based store,
- * avoiding dependencies on the file-explorer-hooks package that uses the old global store.
+ * This hook provides file tree functionality using lazy loading - directories
+ * load their children on-demand when expanded, providing instant initial load
+ * regardless of tree size.
+ *
+ * Features:
+ * - Instant initial load (only root-level contents)
+ * - On-demand directory loading on expand
+ * - Per-directory loading spinners
+ * - Full cancellation support
  */
 
-import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { readFullTree as readFullTreeUtil } from './utils/read-full-tree';
+import { useLazyFileTree } from './use-lazy-file-tree';
 
+/**
+ * Simplified loading progress state for lazy loading.
+ * Since we no longer do full tree scans, progress is much simpler.
+ */
 export type LoadingProgressState = {
-  loaded: number;
-  total: number;
-  currentPath?: string;
-  phase: 'counting' | 'loading';
-  /** Monotonically increasing percentage (0-100), never decreases */
-  percentage: number;
+  /** Number of directories currently loading */
+  loadingCount: number;
+  /** Whether initial root load is in progress */
+  isInitialLoading: boolean;
 };
 
 export type CancellableFileTreeHook = {
@@ -32,294 +39,72 @@ export type CancellableFileTreeHook = {
   cancelOperation: () => void;
   /** Whether the operation is currently being cancelled */
   isCancelling: boolean;
+  /** Set of paths currently loading their children (for UI feedback) */
+  loadingPaths: Set<string>;
+  /** Load children of a directory on expand */
+  loadChildren: (path: string) => Promise<void>;
+  /** Refresh a specific directory */
+  refreshDirectory: (path: string) => Promise<void>;
+  /** Progressively expand all directories (loads everything) */
+  expandAllProgressively: (
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+  ) => Promise<void>;
+  /** Cancel expand-all operation */
+  cancelExpandAll: () => void;
+  /** Whether expand-all is in progress */
+  isExpandingAll: boolean;
+  /** Progress of expand-all operation */
+  expandAllProgress: { loaded: number; total: number } | null;
+  /** Load specific paths using worker (for restoration) */
+  loadSpecificPaths: (
+    paths: string[],
+    onProgress?: (loaded: number, total: number, currentPath: string) => void
+  ) => Promise<void>;
 };
 
 /**
- * Calculates the new total estimate when the current loaded count exceeds the estimate.
- * Ensures the total is always at least the loaded count, with a conservative buffer.
- * Uses a smaller buffer (10%) for more accurate progress display.
+ * File tree hook with lazy loading.
+ *
+ * Only loads root-level contents on mount. Subdirectories load their children
+ * on-demand when expanded, providing instant initial display regardless of
+ * tree size.
  */
-export function calculateDynamicTotal(currentTotal: number, loaded: number): number {
-  if (loaded <= currentTotal) {
-    return currentTotal;
-  }
-
-  // Use a smaller buffer (10%) for more accurate progress estimates
-  // This prevents the progress from jumping backwards too much
-  const bufferPercentage = 0.1; // 10% buffer (down from 25%)
-  const minBuffer = 50; // Reduced minimum buffer
-
-  const buffer = Math.max(Math.ceil(loaded * bufferPercentage), minBuffer);
-
-  return loaded + buffer;
-}
-
-/**
- * Maximum percentage to show during loading.
- * We cap at 95% to avoid the "long tail" problem where progress sits at 99% for extended periods.
- * Only the final completion state sets 100%.
- */
-const MAX_IN_PROGRESS_PERCENTAGE = 95;
-
-/**
- * Safely calculates percentage avoiding division by zero.
- * Clamps result between 0 and MAX_IN_PROGRESS_PERCENTAGE during loading.
- * The final 100% is only set explicitly when loading completes.
- */
-export function calculateProgressPercentage(loaded: number, total: number): number {
-  if (total === 0) {
-    return 0;
-  }
-  const rawPercentage = Math.round((loaded / total) * 100);
-  // Cap at MAX_IN_PROGRESS_PERCENTAGE during loading - final 100% is set explicitly on completion
-  return Math.min(MAX_IN_PROGRESS_PERCENTAGE, Math.max(0, rawPercentage));
-}
-
-/**
- * Calculates a monotonically increasing progress percentage.
- * Ensures the percentage never decreases, providing a smooth user experience.
- * Capped at MAX_IN_PROGRESS_PERCENTAGE until explicitly completed.
- */
-export function calculateMonotonicProgress(
-  loaded: number,
-  total: number,
-  previousPercentage: number
-): number {
-  const currentPercentage = calculateProgressPercentage(loaded, total);
-  // Never go backwards - always return the higher value, but cap at MAX_IN_PROGRESS_PERCENTAGE
-  return Math.min(MAX_IN_PROGRESS_PERCENTAGE, Math.max(currentPercentage, previousPercentage));
-}
-
-/**
- * Checks if an error is a cancellation error
- */
-const isCancellationError = (error: unknown): boolean => {
-  // DOMException with name 'AbortError' is the canonical cancel signal
-  if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
-    return error.name === 'AbortError';
-  }
-  // Some environments surface AbortError as a regular Error
-  return error instanceof Error && error.name === 'AbortError';
-};
-
-/**
- * Safely converts any error to an Error instance
- */
-const ensureError = (err: unknown): Error => (err instanceof Error ? err : new Error(String(err)));
-
 export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): CancellableFileTreeHook {
-  const { fileSystemAdapter } = useAdapters();
-  const [fileTree, setFileTree] = useState<IFileNode[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
-  const [loadingProgress, setLoadingProgress] = useState<LoadingProgressState>({
-    loaded: 0,
-    total: 0,
-    phase: 'counting',
-    percentage: 0,
-  });
-
-  const progressRef = useRef<{
-    loaded: number;
-    total: number;
-    currentPath: string;
-    phase: LoadingProgressState['phase'];
-    estimatedTotal: number;
-    maxPercentage: number;
-  }>({
-    loaded: 0,
-    total: 0,
-    currentPath: '',
-    phase: 'counting',
-    estimatedTotal: 100,
-    maxPercentage: 0,
-  });
-
-  // AbortController for cancelling operations
-  const abortControllerRef = useRef<AbortController | null>(null);
-
-  const cancelOperation = useCallback(() => {
-    if (abortControllerRef.current && isLoading && !isCancelling) {
-      setIsCancelling(true);
-      abortControllerRef.current.abort();
-    }
-  }, [isLoading, isCancelling]);
-
-  const sortFileNodes = useCallback(
-    (nodes: IFileNode[]): IFileNode[] =>
-      [...nodes].sort((a, b) => {
-        if (a.type !== b.type) {
-          if (a.type === 'directory') {
-            return -1;
-          }
-          if (b.type === 'directory') {
-            return 1;
-          }
-        }
-        return a.name.localeCompare(b.name, undefined, {
-          numeric: true,
-          sensitivity: 'base',
-        });
-      }),
-    []
-  );
-
-  // Use ref to avoid recreating the callback on every render
-  const updateProgressRef = useRef(
-    (() => {
-      // throttle progress updates to reduce re-renders
-      const batchSize = 25;
-      let sinceLastCommit = 0;
-      return (path?: string) => {
-        progressRef.current.loaded += 1;
-        sinceLastCommit += 1;
-        if (path) {
-          progressRef.current.currentPath = path;
-        }
-
-        // Dynamically adjust total if we exceed the current estimate
-        progressRef.current.total = calculateDynamicTotal(
-          progressRef.current.total,
-          progressRef.current.loaded
-        );
-
-        // Calculate monotonically increasing percentage
-        const currentPercentage = calculateProgressPercentage(
-          progressRef.current.loaded,
-          progressRef.current.total
-        );
-        progressRef.current.maxPercentage = Math.max(
-          progressRef.current.maxPercentage,
-          currentPercentage
-        );
-
-        if (sinceLastCommit >= batchSize) {
-          sinceLastCommit = 0;
-          setLoadingProgress({
-            loaded: progressRef.current.loaded,
-            total: progressRef.current.total,
-            currentPath: progressRef.current.currentPath,
-            phase: progressRef.current.phase,
-            percentage: progressRef.current.maxPercentage,
-          });
-        }
-      };
-    })()
-  );
-
-  const readFullTree = useCallback(
-    (
-      directoryHandle: DirectoryHandle,
-      rootHandle: DirectoryHandle,
-      parentPath = '',
-      isRoot = true,
-      abortSignal?: AbortSignal
-    ): Promise<IFileNode[]> => {
-      if (!fileSystemAdapter) {
-        setError(new Error('File system adapter is not available'));
-        return Promise.resolve([]);
-      }
-      if (isRoot) {
-        progressRef.current.phase = 'loading';
-        progressRef.current.loaded = 0;
-        progressRef.current.total = progressRef.current.estimatedTotal;
-        progressRef.current.maxPercentage = 0;
-        setLoadingProgress({
-          loaded: 0,
-          total: progressRef.current.estimatedTotal,
-          phase: 'loading',
-          percentage: 0,
-        });
-      }
-
-      return readFullTreeUtil(
-        fileSystemAdapter,
-        directoryHandle,
-        rootHandle,
-        parentPath,
-        isRoot,
-        abortSignal,
-        updateProgressRef.current,
-        sortFileNodes
-      );
-    },
-    [fileSystemAdapter, sortFileNodes]
-  );
-
-  const loadTree = useCallback(async () => {
-    if (!rootDirectoryHandle) {
-      setFileTree([]);
-      return;
-    }
-    if (!fileSystemAdapter) {
-      setError(new Error('File system adapter is not available'));
-      setFileTree([]);
-      return;
-    }
-
-    // Create new AbortController for this operation
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-
-    setIsLoading(true);
-    setIsCancelling(false);
-    setError(null);
-
-    try {
-      const tree = await readFullTree(
-        rootDirectoryHandle,
-        rootDirectoryHandle,
-        '',
-        true,
-        abortController.signal
-      );
-
-      // Only update state if not cancelled
-      if (!abortController.signal.aborted) {
-        setFileTree(tree);
-        // Final progress commit - set to 100% when complete
-        setLoadingProgress({
-          loaded: progressRef.current.loaded,
-          total: progressRef.current.loaded, // Use loaded as total for accurate 100%
-          currentPath: progressRef.current.currentPath,
-          phase: progressRef.current.phase,
-          percentage: 100,
-        });
-      }
-    } catch (err) {
-      const error = ensureError(err);
-
-      // Handle cancellation differently from other errors
-      if (isCancellationError(error)) {
-        setFileTree([]); // Clear the tree on cancellation
-      } else {
-        setError(error);
-        setFileTree([]);
-      }
-    } finally {
-      setIsLoading(false);
-      setIsCancelling(false);
-      abortControllerRef.current = null;
-    }
-  }, [rootDirectoryHandle, readFullTree, fileSystemAdapter]);
-
-  const refreshTree = useCallback(async () => {
-    await loadTree();
-  }, [loadTree]);
-
-  useEffect(() => {
-    void loadTree();
-  }, [loadTree]);
+  const {
+    fileTree,
+    isLoading,
+    error,
+    loadingPaths,
+    loadChildren,
+    cancelLoading,
+    refreshDirectory,
+    refreshTree,
+    expandAllProgressively,
+    cancelExpandAll,
+    isExpandingAll,
+    expandAllProgress,
+    loadSpecificPaths,
+  } = useLazyFileTree(rootDirectoryHandle);
 
   return {
     fileTree,
     isLoading,
     error,
     refreshTree,
-    loadingProgress,
-    cancellable: isLoading && !isCancelling,
-    cancelOperation,
-    isCancelling,
+    loadingProgress: {
+      loadingCount: loadingPaths.size,
+      isInitialLoading: isLoading && loadingPaths.size === 0,
+    },
+    cancellable: isLoading || isExpandingAll,
+    cancelOperation: cancelLoading,
+    isCancelling: false, // Lazy loading doesn't have a separate cancelling state
+    loadingPaths,
+    loadChildren,
+    refreshDirectory,
+    expandAllProgressively,
+    cancelExpandAll,
+    isExpandingAll,
+    expandAllProgress,
+    loadSpecificPaths,
   };
 }

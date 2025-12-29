@@ -1,4 +1,5 @@
 import { calculateProgressPercentage } from '@brainstrike/file-explorer-hooks';
+import type { DepthProgress } from '@brainstrike/types';
 import { Button, cn, Progress } from '@brainstrike/ui';
 import { Loader2, RefreshCw, X } from 'lucide-react';
 import type React from 'react';
@@ -15,6 +16,10 @@ export type LoadingProgressState = {
   total: number;
   currentPath?: string;
   phase: 'counting' | 'loading';
+  /** Monotonically increasing percentage (0-100), never decreases */
+  percentage?: number;
+  /** Depth-based progress for streaming updates */
+  depthProgress?: DepthProgress;
 };
 
 export interface LoadingOverlayProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -81,6 +86,11 @@ export const LoadingOverlay = ({
   const progressPercentage = useMemo(() => {
     if (progressState?.phase === 'counting') {
       return 0;
+    }
+
+    // Use pre-calculated percentage if available (from streaming progress)
+    if (progressState?.percentage !== undefined) {
+      return progressState.percentage;
     }
 
     if (progressState) {
@@ -156,19 +166,28 @@ export const LoadingOverlay = ({
         </div>
         <div className="w-[min(92vw,24rem)] max-w-prose">
           {(() => {
-            const [line1, line2] = String(progressMessage).split('\n');
+            const lines = String(progressMessage).split('\n');
+            const [depthLine, statsLine, pathLine] = lines;
             return (
               <>
+                {/* Primary: Depth scanning status */}
                 <p aria-live="polite" className="font-medium leading-relaxed">
-                  {line1}
+                  {depthLine}
                 </p>
-                {line2 && (
+                {/* Secondary: Stats (files/directories count) */}
+                {statsLine && (
+                  <p aria-live="polite" className="mt-0.5 text-muted-foreground text-sm">
+                    {statsLine}
+                  </p>
+                )}
+                {/* Tertiary: Current path being processed */}
+                {pathLine && (
                   <p
                     aria-live="polite"
-                    className="mt-0.5 truncate text-muted-foreground/90 text-xs"
-                    title={line2}
+                    className="mt-0.5 truncate text-muted-foreground/70 text-xs"
+                    title={pathLine}
                   >
-                    {line2}
+                    {pathLine}
                   </p>
                 )}
               </>

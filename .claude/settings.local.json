@@ -190,7 +190,18 @@
       "Bash(CI=true pnpm install:*)",
       "Bash(timeout 15 pnpm:*)",
       "mcp__atlassian__getAccessibleAtlassianResources",
-      "Bash(gh pr diff:*)"
+      "Bash(gh pr diff:*)",
+      "Bash(packages/file-tree-worker/src/types.ts )",
+      "Bash(packages/file-tree-worker/src/bfs-engine.ts )",
+      "Bash(packages/file-tree-worker/src/port.ts )",
+      "Bash(packages/file-tree-worker/src/bfs-engine.test.ts )",
+      "Bash(packages/file-explorer-ui/src/hooks/use-expand-all.ts )",
+      "Bash(packages/file-explorer-ui/src/use-lazy-file-tree.ts )",
+      "Bash(packages/file-explorer-ui/src/components/tree-action-buttons.tsx )",
+      "Bash(packages/file-explorer-ui/src/file-explorer-left-panel.tsx )",
+      "Bash(packages/file-explorer-ui/src/__tests__/file-explorer-left-panel.test.tsx )",
+      "Bash(packages/file-explorer-ui/src/__tests__/hooks/use-expand-all.test.ts )",
+      "Bash(packages/file-explorer-ui/src/hooks/use-file-tree-worker.ts)"
     ],
     "deny": [],
     "ask": []

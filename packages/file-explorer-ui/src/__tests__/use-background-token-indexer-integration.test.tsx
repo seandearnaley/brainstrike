@@ -115,6 +115,12 @@ const fileTreeRootB: IFileNode[] = [
 ];
 
 const flushTimers = (): void => {
+  // Run multiple cycles to ensure:
+  // 1. First cycle: debounced effects (500ms timeout for handle map build)
+  // 2. Second cycle: effects triggered by state updates from first cycle
+  act(() => {
+    vi.runAllTimers();
+  });
   act(() => {
     vi.runAllTimers();
   });

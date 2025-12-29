@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { useLayoutEffect } from 'react';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVirtualList } from '../use-virtual-list';
 
 type TestComponentProps = {
@@ -34,6 +34,18 @@ function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestCompone
 }
 
 describe('useVirtualList', () => {
+  // Mock RAF to run synchronously for predictable test behavior
+  beforeEach(() => {
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      cb(performance.now());
+      return 0;
+    });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
   it('applies overscan above and below the visible range', () => {
     const updates: { start: number; end: number }[] = [];
     render(

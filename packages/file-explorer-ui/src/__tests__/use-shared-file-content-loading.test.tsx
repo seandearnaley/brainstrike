@@ -33,6 +33,14 @@ function createWrapper(adapter: MockFileSystemAdapter) {
 }
 
 describe('useSharedFileContentLoading - caching', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('reuses cached nodes on subsequent loads', async () => {
     const adapter = new MockFileSystemAdapter();
     const readSpy = vi.spyOn(adapter, 'readFile').mockResolvedValue('content');
@@ -69,6 +77,11 @@ describe('useSharedFileContentLoading - caching', () => {
 
     const wrapper = createWrapper(adapter);
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
+
+    // Allow debounced cache rebuild to complete
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
 
     await act(async () => {
       await result.current.handleFileContentLoading([compositeKey]);
@@ -137,6 +150,11 @@ describe('useSharedFileContentLoading - caching', () => {
       { wrapper, initialProps: { tree: [fileNode1] } }
     );
 
+    // Allow debounced cache rebuild to complete
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
+
     await act(async () => {
       await result.current.handleFileContentLoading([compositeKey]);
     });
@@ -146,6 +164,11 @@ describe('useSharedFileContentLoading - caching', () => {
     });
 
     rerender({ tree: [fileNode2] });
+
+    // Allow debounced cache rebuild to complete after tree change
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+    });
 
     await act(async () => {
       await result.current.handleFileContentLoading([compositeKey]);

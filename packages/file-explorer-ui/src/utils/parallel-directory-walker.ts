@@ -7,8 +7,8 @@
  */
 
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import type { IFileNode } from '@brainstrike/types';
-import { fileFilter } from '@brainstrike/utils';
+import type { DepthProgress, IFileNode, StreamMeta } from '@brainstrike/types';
+import { fileFilter, isAbortError } from '@brainstrike/utils';
 import { getFinalPath } from './get-final-path';
 
 /** Default number of concurrent directory reads */
@@ -20,15 +20,25 @@ const MIN_CONCURRENCY = 1;
 /** Maximum concurrency limit */
 const MAX_CONCURRENCY = 50;
 
+/** Default snapshot interval for streaming updates (ms) */
+const DEFAULT_SNAPSHOT_INTERVAL_MS = 100;
+
+/** Initial estimated max depth for progress display */
+const INITIAL_ESTIMATED_MAX_DEPTH = 5;
+
 export type ParallelWalkerOptions = {
   /** Maximum number of concurrent directory reads (default: 10) */
   concurrency?: number | undefined;
   /** AbortSignal for cancellation support */
   abortSignal?: AbortSignal | undefined;
-  /** Callback for progress updates */
-  onProgress?: ((path: string) => void) | undefined;
+  /** Callback for progress updates (path and depth) */
+  onProgress?: ((path: string, depth: number) => void) | undefined;
   /** Custom sort function for nodes */
   sortFileNodes?: ((nodes: IFileNode[]) => IFileNode[]) | undefined;
+  /** Callback for streaming tree snapshots */
+  onTreeSnapshot?: ((tree: IFileNode[], meta: StreamMeta) => void) | undefined;
+  /** Snapshot interval in ms (default: 100) */
+  snapshotIntervalMs?: number | undefined;
 };
 
 type WorkItem = {
@@ -92,6 +102,8 @@ export async function walkDirectoryParallel(
     abortSignal,
     onProgress,
     sortFileNodes = defaultSortFileNodes,
+    onTreeSnapshot,
+    snapshotIntervalMs = DEFAULT_SNAPSHOT_INTERVAL_MS,
   } = options;
 
   // Clamp concurrency to valid range
@@ -105,6 +117,60 @@ export async function walkDirectoryParallel(
 
   // Track active workers
   let activeWorkers = 0;
+
+  // Streaming: depth statistics tracking
+  const depthStats = {
+    maxDepthSeen: 0,
+    currentDepth: 0,
+    directoriesCompleted: 0,
+    filesFound: 0,
+  };
+
+  // Streaming: snapshot timing
+  const startTime = performance.now();
+  let lastSnapshotTime = startTime;
+
+  /**
+   * Build current depth progress for streaming metadata
+   */
+  function buildDepthProgress(): DepthProgress {
+    return {
+      currentDepth: depthStats.currentDepth,
+      maxDepthSeen: depthStats.maxDepthSeen,
+      estimatedMaxDepth: Math.max(depthStats.maxDepthSeen + 2, INITIAL_ESTIMATED_MAX_DEPTH),
+      directoriesCompleted: depthStats.directoriesCompleted,
+      directoriesRemaining: workQueue.length,
+      filesFound: depthStats.filesFound,
+    };
+  }
+
+  /**
+   * Emit a tree snapshot if streaming is enabled and interval has passed
+   */
+  function maybeEmitSnapshot(forceEmit = false): void {
+    if (!onTreeSnapshot) {
+      return;
+    }
+
+    const now = performance.now();
+    const timeSinceLastSnapshot = now - lastSnapshotTime;
+
+    if (!forceEmit && timeSinceLastSnapshot < snapshotIntervalMs) {
+      return;
+    }
+
+    lastSnapshotTime = now;
+
+    const meta: StreamMeta = {
+      isComplete: false,
+      depthProgress: buildDepthProgress(),
+      totalNodesDiscovered: depthStats.filesFound + depthStats.directoriesCompleted,
+      elapsedMs: now - startTime,
+    };
+
+    // Clone the root nodes array (shallow) for the snapshot
+    onTreeSnapshot([...rootNodes], meta);
+  }
 
   // Completion tracking
   const {
@@ -181,13 +247,6 @@ export async function walkDirectoryParallel(
   }
 
   /**
-   * Check if an error is an abort error
-   */
-  function isAbortError(error: unknown): boolean {
-    return error instanceof DOMException && error.name === 'AbortError';
-  }
-
-  /**
    * Handle errors from directory reading, re-throwing for root or abort errors
    */
   function handleDirectoryError(error: unknown, depth: number): void {
@@ -216,6 +275,7 @@ export async function walkDirectoryParallel(
   ): void {
     if (entry.type === 'file') {
       processedNodes.push(processFileEntry(entry, relativePath, handle));
+      depthStats.filesFound++;
       return;
     }
     if (entry.type === 'directory') {
@@ -249,6 +309,12 @@ export async function walkDirectoryParallel(
     checkAbort();
     const { handle, parentPath, parentNode, depth } = item;
 
+    // Update depth tracking
+    depthStats.currentDepth = depth;
+    if (depth > depthStats.maxDepthSeen) {
+      depthStats.maxDepthSeen = depth;
+    }
+
     try {
       const entries = await fileSystemAdapter.readDirectory(handle);
       checkAbort();
@@ -261,11 +327,15 @@ export async function walkDirectoryParallel(
         if (fileFilter.shouldIgnorePath(relativePath)) {
           continue;
         }
-        onProgress?.(relativePath);
+        onProgress?.(relativePath, depth);
         processEntry(entry, relativePath, handle, depth, processedNodes);
       }
 
       attachNodes(processedNodes, parentNode);
+
+      // Track directory completion and maybe emit snapshot
+      depthStats.directoriesCompleted++;
+      maybeEmitSnapshot();
     } catch (error) {
       handleDirectoryError(error, depth);
     }
@@ -337,5 +407,18 @@ export async function walkDirectoryParallel(
   await runWorkers();
 
   // Final sort of root nodes
-  return sortFileNodes(rootNodes);
+  const finalTree = sortFileNodes(rootNodes);
+
+  // Emit final snapshot with isComplete: true
+  if (onTreeSnapshot) {
+    const finalMeta: StreamMeta = {
+      isComplete: true,
+      depthProgress: buildDepthProgress(),
+      totalNodesDiscovered: depthStats.filesFound + depthStats.directoriesCompleted,
+      elapsedMs: performance.now() - startTime,
+    };
+    onTreeSnapshot(finalTree, finalMeta);
+  }
+
+  return finalTree;
 }

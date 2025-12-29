@@ -1,3 +1,4 @@
+import { isAbortError } from '@brainstrike/utils';
 import { useEffect, useState } from 'react';
 
 export type AssistantAvailabilityStatus =
@@ -45,7 +46,7 @@ export function useAssistantAvailability(
         if (cancelled) {
           return;
         }
-        if ((error as { name?: string } | undefined)?.name === 'AbortError') {
+        if (isAbortError(error)) {
           return;
         }
         setStatus({

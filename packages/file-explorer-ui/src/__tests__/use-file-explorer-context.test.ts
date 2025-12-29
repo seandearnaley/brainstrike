@@ -144,6 +144,8 @@ describe('useFileExplorer (context)', () => {
       }
       return storeState;
     }) as unknown as ReturnType<typeof useFileExplorerStoreContext>;
+    // Add getState method for Zustand store compatibility
+    (mockStore as unknown as { getState: () => FileExplorerState }).getState = () => storeState;
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(mockStore);
 
     vi.mocked(useFileSystem).mockReturnValue({
@@ -159,10 +161,21 @@ describe('useFileExplorer (context)', () => {
       isLoading: false,
       error: null,
       refreshTree: mockRefreshTree,
-      loadingProgress: { loaded: 0, total: 0, phase: 'loading', percentage: 0 },
+      loadingProgress: {
+        loadingCount: 0,
+        isInitialLoading: false,
+      },
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
+      loadingPaths: new Set<string>(),
+      loadChildren: vi.fn(),
+      refreshDirectory: vi.fn(),
+      expandAllProgressively: vi.fn(),
+      cancelExpandAll: vi.fn(),
+      isExpandingAll: false,
+      expandAllProgress: null,
+      loadSpecificPaths: vi.fn(),
     });
 
     vi.mocked(useFileContentLoading).mockReturnValue({
