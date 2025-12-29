@@ -63,6 +63,13 @@ function migrateGroupingConfig(value: string): string {
   return value;
 }
 
+function isQuotaExceeded(error: unknown): boolean {
+  if (!(error instanceof DOMException)) {
+    return false;
+  }
+  return error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED';
+}
+
 type PreviewPanelPreferencesSetters = {
   setColumnVisibility: Dispatch<SetStateAction<ColumnVisibility>>;
   setSortField: Dispatch<SetStateAction<keyof TableRowData>>;
@@ -117,6 +124,12 @@ export function usePreviewPanelPreferences(
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       } catch (error) {
+        if (isQuotaExceeded(error)) {
+          logger.warn('LocalStorage quota exceeded while saving preferences', {
+            storageKey: STORAGE_KEY,
+          });
+          return;
+        }
         logger.warn('Failed to save preferences to localStorage', {
           storageKey: STORAGE_KEY,
           error,

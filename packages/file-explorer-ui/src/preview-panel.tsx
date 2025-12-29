@@ -45,6 +45,7 @@ import {
 } from './utils/grouping-configs';
 
 const logger = createLogger('PreviewPanel');
+const TAPESTRY_MAX_PAGE_SIZE = 24;
 
 function getTokenUsageMetrics(args: {
   budget: number;
@@ -255,7 +256,14 @@ function shouldStretchDefaultRange(
   ranges: TapestryRange[],
   previousTotal: number
 ): ranges is [TapestryRange] {
-  return ranges.length === 1 && ranges[0]?.startLine === 0 && ranges[0]?.endLine === previousTotal;
+  if (ranges.length !== 1) {
+    return false;
+  }
+  const firstRange = ranges[0];
+  if (!firstRange) {
+    return false;
+  }
+  return firstRange.startLine === 0 && firstRange.endLine === previousTotal;
 }
 
 function stretchDefaultRange(range: TapestryRange, totalLines: number): TapestryRange[] {
@@ -291,13 +299,14 @@ function syncTapestryRanges(args: {
   prev: TapestryRangeMap;
   bases: Map<string, ReturnType<typeof buildTapestryFileBase>>;
   totals: Map<string, number>;
-}): { next: TapestryRangeMap; changed: boolean } {
+}): { next: TapestryRangeMap; changed: boolean; totals: Map<string, number> } {
   const next: TapestryRangeMap = { ...args.prev };
   let changed = false;
+  const nextTotals = new Map(args.totals);
 
   for (const [compositeKey, base] of args.bases) {
-    const previousTotal = args.totals.get(compositeKey);
-    args.totals.set(compositeKey, base.totalLines);
+    const previousTotal = nextTotals.get(compositeKey);
+    nextTotals.set(compositeKey, base.totalLines);
 
     if (!next[compositeKey]) {
       next[compositeKey] = createDefaultTapestryRanges(compositeKey, base.totalLines);
@@ -305,13 +314,17 @@ function syncTapestryRanges(args: {
       continue;
     }
 
+    const ranges = next[compositeKey];
     if (
       previousTotal !== undefined &&
       previousTotal !== base.totalLines &&
-      shouldStretchDefaultRange(next[compositeKey], previousTotal)
+      shouldStretchDefaultRange(ranges, previousTotal)
     ) {
-      next[compositeKey] = stretchDefaultRange(next[compositeKey][0], base.totalLines);
-      changed = true;
+      const [firstRange] = ranges;
+      if (firstRange) {
+        next[compositeKey] = stretchDefaultRange(firstRange, base.totalLines);
+        changed = true;
+      }
     }
 
     const clamped = clampRangesToTotal(next[compositeKey], base.totalLines);
@@ -324,12 +337,12 @@ function syncTapestryRanges(args: {
   for (const key of Object.keys(next)) {
     if (!args.bases.has(key)) {
       delete next[key];
-      args.totals.delete(key);
+      nextTotals.delete(key);
       changed = true;
     }
   }
 
-  return { next, changed };
+  return { next, changed, totals: nextTotals };
 }
 
 export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelComponent(props) {
@@ -497,11 +510,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   useEffect(() => {
     setTapestryRangesByKey((prev) => {
-      const { next, changed } = syncTapestryRanges({
+      const { next, changed, totals } = syncTapestryRanges({
         bases: tapestryFileBaseByKey,
         prev,
         totals: tapestryTotalsRef.current,
       });
+      tapestryTotalsRef.current = totals;
       return changed ? next : prev;
     });
   }, [tapestryFileBaseByKey]);
@@ -598,13 +612,31 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     return flattened;
   }, [groupedData, groupingConfig, sortedData]);
 
-  // Use pagination hook
-  const pagination = usePagination({
+  // Use pagination hooks (table + tapestry)
+  const tablePagination = usePagination({
     totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
     pageSize,
   });
+  const tapestryPageSize = Math.min(pageSize, TAPESTRY_MAX_PAGE_SIZE);
+  const tapestryPagination = usePagination({
+    totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
+    pageSize: tapestryPageSize,
+  });
 
-  const { currentPage, goToPage, resetToFirstPage } = pagination;
+  const {
+    currentPage: tableCurrentPage,
+    goToPage: goToTablePage,
+    resetToFirstPage: resetTableToFirstPage,
+  } = tablePagination;
+  const {
+    currentPage: tapestryCurrentPage,
+    goToPage: goToTapestryPage,
+    resetToFirstPage: resetTapestryToFirstPage,
+  } = tapestryPagination;
+  const resetAllPages = useCallback(() => {
+    resetTableToFirstPage();
+    resetTapestryToFirstPage();
+  }, [resetTableToFirstPage, resetTapestryToFirstPage]);
 
   // Use group selection hook
   const groupSelection = useGroupSelection({
@@ -631,42 +663,72 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   );
 
   // Current page data
-  const currentPageData =
+  const tablePageData =
     groupingConfig === 'none'
-      ? flattenedData.slice(pagination.startIndex, pagination.endIndex)
+      ? flattenedData.slice(tablePagination.startIndex, tablePagination.endIndex)
+      : [];
+  const tapestryPageData =
+    groupingConfig === 'none'
+      ? flattenedData.slice(tapestryPagination.startIndex, tapestryPagination.endIndex)
       : [];
 
-  const visibleFilesOnPage = useMemo(
+  const tableVisibleFilesOnPage = useMemo(
     () =>
       getVisibleFilesOnPage({
         collapsedGroups,
-        currentPageData,
-        endIndex: pagination.endIndex,
+        currentPageData: tablePageData,
+        endIndex: tablePagination.endIndex,
         groupedData,
         groupingConfig,
-        startIndex: pagination.startIndex,
+        startIndex: tablePagination.startIndex,
       }),
     [
       collapsedGroups,
-      currentPageData,
       groupedData,
       groupingConfig,
-      pagination.endIndex,
-      pagination.startIndex,
+      tablePageData,
+      tablePagination.endIndex,
+      tablePagination.startIndex,
     ]
   );
 
-  const groupedPageSections = useMemo(
+  const tapestryVisibleFilesOnPage = useMemo(
+    () =>
+      getVisibleFilesOnPage({
+        collapsedGroups,
+        currentPageData: tapestryPageData,
+        endIndex: tapestryPagination.endIndex,
+        groupedData,
+        groupingConfig,
+        startIndex: tapestryPagination.startIndex,
+      }),
+    [
+      collapsedGroups,
+      groupedData,
+      groupingConfig,
+      tapestryPageData,
+      tapestryPagination.endIndex,
+      tapestryPagination.startIndex,
+    ]
+  );
+
+  const tapestryGroupedPageSections = useMemo(
     () =>
       groupingConfig === 'none'
         ? []
         : buildGroupedPageSections({
             collapsedGroups,
-            endIndex: pagination.endIndex,
+            endIndex: tapestryPagination.endIndex,
             groupedData,
-            startIndex: pagination.startIndex,
+            startIndex: tapestryPagination.startIndex,
           }),
-    [collapsedGroups, groupedData, groupingConfig, pagination.endIndex, pagination.startIndex]
+    [
+      collapsedGroups,
+      groupedData,
+      groupingConfig,
+      tapestryPagination.endIndex,
+      tapestryPagination.startIndex,
+    ]
   );
 
   const pageInfo = useMemo(() => {
@@ -695,24 +757,24 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const tapestryUngroupedFiles = useMemo(
     () =>
       groupingConfig === 'none'
-        ? currentPageData
+        ? tapestryPageData
             .map((item) => buildTapestryFile(item))
             .filter((item): item is NonNullable<typeof item> => item !== null)
         : [],
-    [buildTapestryFile, currentPageData, groupingConfig]
+    [buildTapestryFile, groupingConfig, tapestryPageData]
   );
 
   const tapestryGroupedSections = useMemo(
     () =>
       groupingConfig === 'none'
         ? []
-        : groupedPageSections.map((section) => ({
+        : tapestryGroupedPageSections.map((section) => ({
             ...section,
             items: section.items
               .map((item) => buildTapestryFile(item))
               .filter((item): item is NonNullable<typeof item> => item !== null),
           })),
-    [buildTapestryFile, groupedPageSections, groupingConfig]
+    [buildTapestryFile, groupingConfig, tapestryGroupedPageSections]
   );
 
   const activeRangesCount = useMemo(
@@ -799,16 +861,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         setSortField(field);
         setSortDirection('asc');
       }
-      resetToFirstPage();
+      resetAllPages();
     },
-    [sortField, resetToFirstPage]
+    [sortField, resetAllPages]
   );
 
   const resetSort = useCallback(() => {
     setSortField('rootFolderId');
     setSortDirection('asc');
-    resetToFirstPage();
-  }, [resetToFirstPage]);
+    resetAllPages();
+  }, [resetAllPages]);
 
   // Reset to first page when grouping changes
   const prevGroupingConfigRef = useRef(groupingConfig);
@@ -816,9 +878,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   useEffect(() => {
     if (prevGroupingConfigRef.current !== groupingConfig) {
       prevGroupingConfigRef.current = groupingConfig;
-      resetToFirstPage();
+      resetAllPages();
     }
-  }, [groupingConfig, resetToFirstPage]);
+  }, [groupingConfig, resetAllPages]);
 
   if (selectedFiles.size === 0) {
     return (
@@ -938,29 +1000,31 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           </TooltipProvider>
 
           {/* Table */}
-          <PreviewTable
-            collapsedGroups={collapsedGroups}
-            columnVisibility={effectiveColumnVisibility}
-            currentPageData={currentPageData}
-            groupedData={groupedData}
-            groupingConfig={groupingConfig}
-            handleGroupDeselectAll={handleGroupDeselectAll}
-            handleGroupSelectAll={handleGroupSelectAll}
-            isAllSelected={isAllSelected}
-            isGroupFullySelected={isGroupFullySelected}
-            isGroupPartiallySelected={isGroupPartiallySelected}
-            onDeselectAll={deselectAll}
-            onFileClick={onFileClick}
-            onSelectAllOnPage={selectAllOnPage}
-            onSort={handleSort}
-            onToggleSelection={toggleItemSelection}
-            pagination={pagination}
-            previewSelections={previewSelections}
-            sortDirection={sortDirection}
-            sortField={sortField}
-            toggleGroupCollapse={toggleGroupCollapse}
-            visibleFilesOnPage={visibleFilesOnPage}
-          />
+          <FileExplorerErrorBoundary>
+            <PreviewTable
+              collapsedGroups={collapsedGroups}
+              columnVisibility={effectiveColumnVisibility}
+              currentPageData={tablePageData}
+              groupedData={groupedData}
+              groupingConfig={groupingConfig}
+              handleGroupDeselectAll={handleGroupDeselectAll}
+              handleGroupSelectAll={handleGroupSelectAll}
+              isAllSelected={isAllSelected}
+              isGroupFullySelected={isGroupFullySelected}
+              isGroupPartiallySelected={isGroupPartiallySelected}
+              onDeselectAll={deselectAll}
+              onFileClick={onFileClick}
+              onSelectAllOnPage={selectAllOnPage}
+              onSort={handleSort}
+              onToggleSelection={toggleItemSelection}
+              pagination={tablePagination}
+              previewSelections={previewSelections}
+              sortDirection={sortDirection}
+              sortField={sortField}
+              toggleGroupCollapse={toggleGroupCollapse}
+              visibleFilesOnPage={tableVisibleFilesOnPage}
+            />
+          </FileExplorerErrorBoundary>
 
           {flattenedData.length === 0 && (
             <div className="flex-1">
@@ -974,16 +1038,20 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
           {/* Pagination */}
           <TablePagination
-            currentPage={currentPage}
-            onPageChange={goToPage}
+            currentPage={tableCurrentPage}
+            onPageChange={goToTablePage}
             totalItems={flattenedData.length}
-            totalPages={pagination.totalPages}
+            totalPages={tablePagination.totalPages}
             {...paginationInfo}
           />
 
           {/* Fixed bottom action bar */}
           {previewSelections.size > 0 && (
-            <div className="flex flex-shrink-0 items-center justify-between border-t bg-yellow-50 p-3 dark:bg-yellow-900/20">
+            <output
+              aria-atomic="true"
+              aria-live="polite"
+              className="flex flex-shrink-0 items-center justify-between border-t bg-yellow-50 p-3 dark:bg-yellow-900/20"
+            >
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm">
                   {previewSelections.size} files selected in preview
@@ -998,7 +1066,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                   Remove Selected from Project
                 </Button>
               </div>
-            </div>
+            </output>
           )}
         </TabsContent>
 
@@ -1035,17 +1103,17 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               onToggleGroupCollapse={toggleGroupCollapse}
               onToggleSelection={toggleItemSelection}
               pagination={{
-                currentPage,
-                onPageChange: goToPage,
+                currentPage: tapestryCurrentPage,
+                onPageChange: goToTapestryPage,
                 totalItems: flattenedData.length,
-                totalPages: pagination.totalPages,
+                totalPages: tapestryPagination.totalPages,
                 ...paginationInfo,
               }}
               previewSelections={previewSelections}
               totalFiles={flattenedData.length}
               totalLinesSelected={totalLinesSelected}
               ungroupedFiles={tapestryUngroupedFiles}
-              visibleFilesOnPage={visibleFilesOnPage}
+              visibleFilesOnPage={tapestryVisibleFilesOnPage}
               {...(onRequestFileContent ? { onRequestFileContent } : {})}
             />
           </FileExplorerErrorBoundary>

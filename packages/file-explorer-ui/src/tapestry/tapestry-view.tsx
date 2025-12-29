@@ -8,7 +8,7 @@ import { formatPreviewFileSize } from '../utils/preview-formatters';
 import { Minimap } from './minimap';
 import { TapestryControls } from './tapestry-controls';
 import type { DragState, FileTapestry, InteractionMode, TapestryRange } from './types';
-import { createRangeId, generateColor } from './utils';
+import { createRangeId, generateColor, getTapestryRenderMetrics } from './utils';
 
 /**
  * Applies basic movement and resize deltas to range boundaries.
@@ -267,7 +267,8 @@ function useTapestryDrag(
       }
 
       const { fileId, rangeId, startY, initialRange, mode } = dragState;
-      const deltaLines = Math.round((e.clientY - startY) / scale);
+      const { lineScale } = getTapestryRenderMetrics(file.totalLines, scale);
+      const deltaLines = Math.round((e.clientY - startY) / lineScale);
 
       updateRanges(fileId, (ranges) => {
         const currentRange = ranges.find((range) => range.id === rangeId) ?? initialRange;

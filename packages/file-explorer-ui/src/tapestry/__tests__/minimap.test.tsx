@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { Minimap } from '../minimap';
 import type { FileTapestry, TapestryRange } from '../types';
+import { getTapestryRenderMetrics } from '../utils';
 
 const createFile = (): FileTapestry => {
   const range: TapestryRange = {
@@ -76,9 +77,21 @@ describe('Minimap', () => {
       value: () => createRect(),
     });
 
-    fireEvent.mouseDown(container, { clientY: 110 });
+    const clientY = 110;
+    fireEvent.mouseDown(container, { clientY });
 
-    expect(smartStart).toHaveBeenCalledWith('CREATING', file.id, null, 110, undefined, 5);
+    const { lineScale } = getTapestryRenderMetrics(file.totalLines, 2);
+    const rawLine = Math.floor((clientY - 100) / lineScale);
+    const expectedLine = Math.min(Math.max(rawLine, 0), file.totalLines - 1);
+
+    expect(smartStart).toHaveBeenCalledWith(
+      'CREATING',
+      file.id,
+      null,
+      clientY,
+      undefined,
+      expectedLine
+    );
     expect(onInteractionStart).not.toHaveBeenCalled();
   });
 

@@ -3,6 +3,7 @@ import { memo, useRef, useState } from 'react';
 import { formatTokenCount } from '../use-preview-panel-state';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
 import type { FileTapestry, InteractionMode, TapestryRange } from './types';
+import { getTapestryRenderMetrics } from './utils';
 
 type MinimapProps = {
   file: FileTapestry;
@@ -38,6 +39,7 @@ type PreviewState = {
   remainingLines: number;
   hasPreviewLines: boolean;
   showLoadingState: boolean;
+  showRemainingLines: boolean;
 };
 
 const MAX_PREVIEW_LINES = 8;
@@ -76,17 +78,25 @@ const resolveRangeKeyAction = (args: {
 
 const buildRangePreview = (range: TapestryRange, file: FileTapestry): PreviewState => {
   const contentLength = file.content.length;
-  const isFullFileRange = range.startLine === 0 && range.endLine >= file.totalLines;
-  const previewLimit = isFullFileRange ? contentLength : Math.min(range.endLine, contentLength);
+  const hasContent = file.contentStatus === 'ready' && contentLength > 0;
+  const totalLines = hasContent ? contentLength : file.totalLines;
+  const clampedEndLine = Math.min(range.endLine, totalLines);
+  const isFullFileRange = range.startLine <= 0 && clampedEndLine >= Math.max(totalLines - 1, 0);
+  const previewLimit = hasContent
+    ? isFullFileRange
+      ? contentLength
+      : Math.min(range.endLine, contentLength)
+    : 0;
   const safeLimit = Math.max(previewLimit - 1, 0);
   const previewStartLine = isFullFileRange ? 0 : Math.min(range.startLine, safeLimit);
   const previewEndLine = Math.min(previewStartLine + MAX_PREVIEW_LINES, previewLimit);
-  const previewLines = file.content.slice(previewStartLine, previewEndLine);
-  const remainingBase =
-    file.contentStatus === 'ready' && contentLength > 0 ? contentLength : file.totalLines;
-  const remainingLines = Math.max(0, remainingBase - range.endLine);
+  const previewLines = hasContent ? file.content.slice(previewStartLine, previewEndLine) : [];
+  const remainingLines = hasContent
+    ? Math.max(0, contentLength - Math.min(range.endLine, contentLength))
+    : 0;
   const hasPreviewLines = previewLines.length > 0;
   const showLoadingState = !hasPreviewLines && file.contentStatus !== 'ready';
+  const showRemainingLines = hasContent && remainingLines > 0;
 
   return {
     previewStartLine,
@@ -94,6 +104,7 @@ const buildRangePreview = (range: TapestryRange, file: FileTapestry): PreviewSta
     remainingLines,
     hasPreviewLines,
     showLoadingState,
+    showRemainingLines,
   };
 };
 
@@ -101,7 +112,7 @@ const RangeItem = memo(
   ({
     range,
     file,
-    scale,
+    lineScale,
     handleStart,
     getGlobalIndex,
     onToggleRange,
@@ -112,7 +123,7 @@ const RangeItem = memo(
   }: {
     range: TapestryRange;
     file: FileTapestry;
-    scale: number;
+    lineScale: number;
     handleStart: (
       mode: InteractionMode,
       rangeId: string | null,
@@ -131,12 +142,18 @@ const RangeItem = memo(
     setHoveredRangeId: (id: string | null) => void;
     onPreviewHover?: () => void;
   }) => {
-    const top = range.startLine * scale;
-    const height = (range.endLine - range.startLine) * scale;
+    const top = range.startLine * lineScale;
+    const height = (range.endLine - range.startLine) * lineScale;
     const globalIndex = getGlobalIndex(range.id);
     const isHovered = hoveredRangeId === range.id;
-    const { previewStartLine, previewLines, remainingLines, hasPreviewLines, showLoadingState } =
-      buildRangePreview(range, file);
+    const {
+      previewStartLine,
+      previewLines,
+      remainingLines,
+      hasPreviewLines,
+      showLoadingState,
+      showRemainingLines,
+    } = buildRangePreview(range, file);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
       const action = resolveRangeKeyAction({
@@ -191,7 +208,7 @@ const RangeItem = memo(
             role="slider"
             style={{
               top,
-              height: Math.max(scale, height),
+              height: Math.max(lineScale, height),
               backgroundColor: `${range.color}20`,
               borderLeft: `3px solid ${range.color}`,
               boxShadow: range.isActive ? `inset 0 0 20px -10px ${range.color}` : 'none',
@@ -303,7 +320,7 @@ const RangeItem = memo(
                     <span className="opacity-90">{line || ' '}</span>
                   </div>
                 ))}
-                {remainingLines > 0 && (
+                {showRemainingLines && (
                   <div className="mt-2 pl-9 text-muted-foreground italic">
                     ... {remainingLines} more lines
                   </div>
@@ -339,9 +356,10 @@ export const Minimap = memo(
     const containerRef = useRef<HTMLButtonElement>(null);
     const [hoveredRangeId, setHoveredRangeId] = useState<string | null>(null);
 
-    const minHeight = Math.max(120, scale * 16);
-    const totalHeight = Math.max(file.totalLines * scale, minHeight);
-    const lineThickness = Math.max(1, scale * 0.6);
+    const { totalHeight, lineScale, lineThickness } = getTapestryRenderMetrics(
+      file.totalLines,
+      scale
+    );
 
     const handlePreviewHover = () => {
       if (file.contentStatus === 'idle') {
@@ -360,10 +378,12 @@ export const Minimap = memo(
         // Calculate line number
         const rect = containerRef.current.getBoundingClientRect();
         const relativeY = e.clientY - rect.top;
-        const clickedLine = Math.floor(relativeY / scale);
+        const clickedLine = Math.floor(relativeY / lineScale);
+        const maxLine = Math.max(file.totalLines - 1, 0);
+        const clampedLine = Math.min(Math.max(clickedLine, 0), maxLine);
 
         if (smartStart) {
-          smartStart('CREATING', file.id, null, e.clientY, undefined, clickedLine);
+          smartStart('CREATING', file.id, null, e.clientY, undefined, clampedLine);
         } else {
           onInteractionStart('CREATING', file.id, null, e.clientY);
         }
@@ -401,30 +421,34 @@ export const Minimap = memo(
               onCheckedChange={(checked) => onToggleSelection(file.compositeKey, !!checked)}
               onClick={(event) => event.stopPropagation()}
             />
-            <div
-              className={cn(
-                'mt-1 h-2 w-2 rounded-full',
-                file.selections.some((s) => s.isActive) ? 'bg-indigo-500' : 'bg-muted-foreground/30'
-              )}
-            />
             <div className="min-w-0 flex-1">
               <span className="line-clamp-2 block font-bold text-foreground leading-tight">
                 {file.name}
               </span>
+              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-[10px]">
+                <div className="flex min-w-0 items-center gap-1 text-muted-foreground/70">
+                  <span
+                    className={cn(
+                      'h-2 w-2 rounded-full',
+                      file.selections.some((s) => s.isActive)
+                        ? 'bg-indigo-500'
+                        : 'bg-muted-foreground/30'
+                    )}
+                  />
+                  <span className="truncate">{file.rootFolderId}</span>
+                </div>
+                <span className="font-mono text-[10px] opacity-70">{file.totalLines}L</span>
+                <Badge className="px-1.5 text-[9px]" variant="secondary">
+                  {file.type}
+                </Badge>
+                <span className="font-mono text-[10px] opacity-70">
+                  {formatPreviewFileSize(file.size)}
+                </span>
+                <span className="font-mono text-[10px] opacity-70">
+                  {file.tokens !== undefined ? formatTokenCount(file.tokens) : '—'}
+                </span>
+              </div>
             </div>
-          </div>
-          <span className="min-w-0 truncate text-[10px] opacity-60">{file.rootFolderId}</span>
-          <div className="flex flex-wrap items-center gap-2 text-[10px]">
-            <span className="font-mono text-[10px] opacity-70">{file.totalLines}L</span>
-            <Badge className="px-1.5 text-[9px]" variant="secondary">
-              {file.type}
-            </Badge>
-            <span className="font-mono text-[10px] opacity-70">
-              {formatPreviewFileSize(file.size)}
-            </span>
-            <span className="font-mono text-[10px] opacity-70">
-              {file.tokens !== undefined ? formatTokenCount(file.tokens) : '—'}
-            </span>
           </div>
         </div>
 
@@ -464,7 +488,7 @@ export const Minimap = memo(
                       key={`${file.id}-struct-${i}`}
                       width={`${line.width}%`}
                       x={`${line.indent * 5}%`}
-                      y={i * scale}
+                      y={i * lineScale}
                     />
                   );
                 })}
@@ -480,11 +504,11 @@ export const Minimap = memo(
               handleStart={handleStart}
               hoveredRangeId={hoveredRangeId}
               key={range.id}
+              lineScale={lineScale}
               onPreviewHover={handlePreviewHover}
               {...(onMoveRange ? { onMoveRange } : {})}
               onToggleRange={onToggleRange}
               range={range}
-              scale={scale}
               setHoveredRangeId={setHoveredRangeId}
             />
           ))}
