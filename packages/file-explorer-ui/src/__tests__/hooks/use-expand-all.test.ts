@@ -1,7 +1,7 @@
 /**
  * Tests for useExpandAll hook
  *
- * Covers the expand-all functionality and rehydration optimization.
+ * Covers the expand-all functionality, rehydration optimization, and error handling.
  */
 
 import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
