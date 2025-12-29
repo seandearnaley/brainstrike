@@ -3,6 +3,7 @@
  *
  * Manages expand-all operation state and orchestration.
  * Works with the file tree worker to progressively expand all directories.
+ * Includes error handling and abort support.
  *
  * @module use-expand-all
  */
