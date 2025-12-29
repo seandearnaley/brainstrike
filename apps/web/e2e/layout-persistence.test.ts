@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { ensureRightPanelVisible, waitForAppLoad } from './utils/layout-helpers';
+import { ensureRightPanelVisible, getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('IDE Layout Persistence', () => {
   test.beforeEach(async ({ page }) => {
@@ -99,39 +99,36 @@ test.describe('IDE Layout Persistence', () => {
     });
 
     test('should persist right panel toggle state across page reloads', async ({ page }) => {
-      const rightPanel = page.locator('[id="tools-panel"]');
-      const hideRightPanelButton = page.locator('button[aria-label="Hide tools panel"]');
-      const showRightPanelButton = page.locator('button[aria-label="Show tools panel"]');
+      const elements = getPanelElements(page);
 
       await ensureRightPanelVisible(page);
 
-      if ((await hideRightPanelButton.count()) === 0) {
-        // No tools panel content available; skip further assertions.
-        return;
+      const hasToolsPanel =
+        (await elements.hideRightPanelButton.count()) > 0 ||
+        (await elements.showRightPanelShim.count()) > 0 ||
+        (await elements.rightPanel.count()) > 0;
+      if (!hasToolsPanel) {
+        test.skip(true, 'Tools panel not available in this environment');
       }
 
-      await expect(rightPanel).toBeVisible();
+      await expect(elements.hideRightPanelButton).toBeVisible();
 
       // Reload and verify persistence
       await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
-      await expect(rightPanel).toBeVisible();
+      await waitForAppLoad(page);
+      await expect(elements.hideRightPanelButton).toBeVisible();
 
       // Hide and verify persistence
-      await hideRightPanelButton.click();
-      await expect(rightPanel).not.toBeVisible();
+      await elements.hideRightPanelButton.click();
+      await expect(elements.showRightPanelShim).toBeVisible();
 
       await page.reload();
-      await expect(
-        page.getByRole('heading', { name: 'Context Explorer', exact: true })
-      ).toBeVisible();
-      await expect(rightPanel).not.toBeVisible();
+      await waitForAppLoad(page);
+      await expect(elements.showRightPanelShim).toBeVisible();
 
-      if ((await showRightPanelButton.count()) > 0) {
-        await showRightPanelButton.first().click();
-        await expect(rightPanel).toBeVisible();
+      if ((await elements.showRightPanelShim.count()) > 0) {
+        await elements.showRightPanelShim.click();
+        await expect(elements.hideRightPanelButton).toBeVisible();
       }
     });
   });
