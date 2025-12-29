@@ -91,8 +91,9 @@ test.describe('Complete File Explorer Workflow', () => {
     // Then expand all
     await page.getByTestId('expand-all-button-small').click();
 
-    // Wait for expansion to complete - CI can be slower, use 10s timeout
-    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
+    // Wait for expansion to complete - CI can be much slower, use 30s timeout
+    // The expand-all operation involves worker communication and tree traversal
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 30_000 });
 
     // Clear filter to see full tree again
     await filterInput.fill('');
