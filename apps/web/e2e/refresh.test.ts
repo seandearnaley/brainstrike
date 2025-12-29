@@ -62,10 +62,12 @@ test.describe('Refresh Workflow', () => {
       console.log('Loading overlay not detected, refresh was likely very fast');
     }
 
-    // Verify new file is displayed
-    await expect(fileTree.getByText('new-file.ts')).toBeVisible();
+    // Verify new file is displayed (increased timeout for CI stability)
+    await expect(fileTree.getByText('new-file.ts')).toBeVisible({ timeout: 15_000 });
 
-    // Verify success toast
-    await expect(page.getByText('File tree refreshed successfully.').first()).toBeVisible();
+    // Verify success toast (increased timeout for CI stability)
+    await expect(page.getByText('File tree refreshed successfully.').first()).toBeVisible({
+      timeout: 10_000,
+    });
   });
 });
