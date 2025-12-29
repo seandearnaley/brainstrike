@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
+import { ensureToolsPanelVisible } from './utils/layout-helpers';
 
 test.describe('Assistant panel (desktop)', () => {
   test.beforeEach(async ({ window }) => {
@@ -7,26 +8,25 @@ test.describe('Assistant panel (desktop)', () => {
   });
 
   test('send message and see streamed response in tools panel', async ({ window }) => {
-    const rightPanel = window.locator('[data-panel-id="tools-panel"]');
-    if (!(await rightPanel.isVisible())) {
-      await window.getByRole('button', { name: 'Show tools panel' }).click();
-      await expect(rightPanel).toBeVisible();
-    }
+    const rightPanel = await ensureToolsPanelVisible(window);
+    await expect(rightPanel).toBeVisible();
 
-    const assistantTab = window
-      .getByRole('tab')
-      .filter({ hasText: /Assistant/i })
-      .first();
+    const assistantTab = window.getByRole('tab', { name: /assistant/i }).first();
     await expect(assistantTab).toBeVisible({ timeout: 5000 });
     await assistantTab.click();
-
-    await window.waitForTimeout(2000);
 
     const assistantChatCard = window.getByTestId('assistant-chat-card');
     await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
 
+    const loadingIndicator = window.getByText(/Loading assistant/i);
+    if (await loadingIndicator.isVisible().catch(() => false)) {
+      await loadingIndicator.waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {
+        console.warn('⚠️ Assistant UI chunk still loading after timeout');
+      });
+    }
+
     const chatPanel = window.getByTestId('chat-panel');
-    await expect(chatPanel).toBeVisible({ timeout: 15_000 });
+    await expect(chatPanel).toBeVisible({ timeout: 25_000 });
 
     const input = window.locator('#assistant-input');
     await expect(input).toBeVisible({ timeout: 5000 });

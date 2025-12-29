@@ -5,6 +5,7 @@ import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { formatTokenCount } from './use-preview-panel-state';
 import type { TableRowData } from './utils/grouping-configs';
 import { formatDirPathForDisplay, splitFilePath } from './utils/path-display';
+import { formatPreviewFileSize } from './utils/preview-formatters';
 
 type PreviewTableRowProps = {
   item: TableRowData;
@@ -89,13 +90,15 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
       )}
       {columnVisibility.size && (
         <td className="w-24 whitespace-nowrap px-4 py-2 text-right tabular-nums">
-          {item.size ? (
-            <span className="whitespace-nowrap font-mono text-sm tabular-nums">
-              {(item.size / 1024).toFixed(1)} KB
-            </span>
-          ) : (
-            <span className="text-muted-foreground text-sm">—</span>
-          )}
+          <span
+            className={
+              item.size === undefined
+                ? 'text-muted-foreground text-sm'
+                : 'whitespace-nowrap font-mono text-sm tabular-nums'
+            }
+          >
+            {formatPreviewFileSize(item.size)}
+          </span>
         </td>
       )}
     </tr>
