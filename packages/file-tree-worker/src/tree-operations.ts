@@ -14,7 +14,7 @@ import {
   setNodeLoadState as setNodeLoadStateGeneric,
   sortTreeNodes,
   updateNodeChildren as updateNodeChildrenGeneric,
-} from '@brainstrike/utils';
+} from '@brainstrike/utils/tree-operations';
 import type { BatchLoadResult, DirectoryLoadState, WorkerFileNode } from './types';
 
 // Re-export generic functions typed for WorkerFileNode

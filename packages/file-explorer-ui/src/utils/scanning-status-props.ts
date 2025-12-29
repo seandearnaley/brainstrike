@@ -64,12 +64,13 @@ export function computeScanningStatusProps(input: ScanningStatusPropsInput): Sca
   };
 
   // Add optional props only when defined (exactOptionalPropertyTypes compliance)
-  if (isExpandingAll && expandAllProgress) {
-    const currentPath = `Loading ${expandAllProgress.loaded}/${expandAllProgress.total} directories`;
-    const percentage =
-      expandAllProgress.total > 0
-        ? Math.round((expandAllProgress.loaded / expandAllProgress.total) * 100)
-        : undefined;
+  if (isExpandingAll) {
+    // Show progress text even before first progress update to avoid visual gap
+    const loaded = expandAllProgress?.loaded ?? 0;
+    const total = expandAllProgress?.total ?? 0;
+    const currentPath =
+      total > 0 ? `Loading ${loaded}/${total} directories` : 'Preparing to expand directories...';
+    const percentage = total > 0 ? Math.round((loaded / total) * 100) : undefined;
 
     // Only include percentage if defined
     if (percentage !== undefined) {
