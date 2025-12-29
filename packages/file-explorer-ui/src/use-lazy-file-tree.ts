@@ -37,6 +37,57 @@ function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
   return sortTreeNodes(nodes);
 }
 
+/**
+ * Check if loadRoot should skip execution.
+ * Extracted to reduce cognitive complexity.
+ */
+function shouldSkipLoadRoot(
+  rootPath: string,
+  isExpandingAll: boolean,
+  initializedRoot: string | null,
+  fileTreeLength: number
+): { skip: boolean; reason?: string } {
+  // Skip if expand-all is in progress for THIS root
+  if (isExpandingAll && initializedRoot === rootPath) {
+    return { skip: true, reason: 'expand-all in progress for same root' };
+  }
+
+  // Skip if already initialized for this root
+  if (initializedRoot === rootPath && fileTreeLength > 0) {
+    return { skip: true, reason: 'already initialized for this root' };
+  }
+
+  return { skip: false };
+}
+
+/**
+ * Process load paths result with optional rehydration.
+ * Extracted to reduce cognitive complexity.
+ *
+ * @param result - The result from worker.loadPaths()
+ * @param handleMap - Map of path to FileSystemHandle (type comes from rehydrateTree signature)
+ * @param setState - State setter for updating file tree
+ */
+function processLoadPathsResult(
+  result: { tree: unknown[]; expandedPaths: string[]; loadedCount: number },
+  handleMap: Parameters<typeof rehydrateTree>[1],
+  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>
+): void {
+  // Skip rehydration when all directories were already cached
+  if (result.loadedCount > 0) {
+    // Cast tree to expected type - rehydrateTree handles the conversion
+    const rehydratedTree = rehydrateTree(
+      result.tree as Parameters<typeof rehydrateTree>[0],
+      handleMap
+    );
+    setState((s) => ({
+      ...s,
+      fileTree: rehydratedTree,
+    }));
+  }
+  // When loadedCount === 0, tree is already correct - no state update needed
+}
+
 export type LazyFileTreeState = {
   fileTree: IFileNode[];
   isInitialLoading: boolean;
@@ -178,18 +229,18 @@ export function useLazyFileTree(
       return;
     }
 
-    // Defensive check: skip if expand-all is in progress for THIS root
-    // (But allow if the root has changed - we need to load the new root)
     const rootPath = rootDirectoryHandle.path;
-    if (isExpandingAllRef.current && initializedRootRef.current === rootPath) {
-      logger.info('loadRoot blocked - expand-all in progress for same root');
-      return;
-    }
 
-    // Skip if we've already initialized for this root
-    // This prevents redundant reinits that would destroy expand-all progress
-    if (initializedRootRef.current === rootPath && fileTreeRef.current.length > 0) {
-      logger.info('loadRoot skipped - already initialized for this root', { rootPath });
+    // Check if we should skip loading (expand-all in progress or already initialized)
+    const skipCheck = shouldSkipLoadRoot(
+      rootPath,
+      isExpandingAllRef.current,
+      initializedRootRef.current,
+      fileTreeRef.current.length
+    );
+
+    if (skipCheck.skip) {
+      logger.info(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
       return;
     }
 
@@ -509,19 +560,8 @@ export function useLazyFileTree(
           loadedCount: result.loadedCount,
         });
 
-        // OPTIMIZATION: Skip rehydration when all directories were already cached
-        // When loadedCount === 0, the React tree already has correct handles
-        if (result.loadedCount > 0) {
-          // Rehydrate final tree with handles
-          const rehydratedTree = rehydrateTree(result.tree, handleMapRef.current);
-
-          // Update state with loaded tree
-          setState((s) => ({
-            ...s,
-            fileTree: rehydratedTree,
-          }));
-        }
-        // When loadedCount === 0, tree is already correct - no state update needed
+        // Process result with optional rehydration (skipped when all cached)
+        processLoadPathsResult(result, handleMapRef.current, setState);
       } catch (err) {
         if (!isAbortError(err)) {
           logger.error('loadSpecificPaths failed', { error: String(err) });
