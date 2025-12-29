@@ -86,14 +86,17 @@ test.describe('Complete File Explorer Workflow', () => {
 
     // Apply filter first (this is the key!)
     await filterInput.fill('Button');
-    await page.waitForTimeout(500); // Allow more time for filter
+    await expect(filterInput).toHaveValue('Button');
 
     // Then expand all
     await page.getByTestId('expand-all-button-small').click();
-    await page.waitForTimeout(500); // Allow time for expansion
 
-    // Verify nested file is now visible
-    await expect(fileTree.getByText('Button.tsx')).toBeVisible();
+    // Wait for expansion to complete - use polling pattern from quick-filter.test.ts
+    // This is more robust as it waits for the element to exist before checking visibility
+    await expect
+      .poll(async () => fileTree.getByText('Button.tsx').count(), { timeout: 30_000 })
+      .toBeGreaterThan(0);
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
 
     // Clear filter to see full tree again
     await filterInput.fill('');

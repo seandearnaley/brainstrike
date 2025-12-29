@@ -7,6 +7,7 @@ export * from './crypto-utils';
 export * from './dev/hmr-utils';
 export * from './dev/is-compiler-hotspot';
 export * from './env-utils';
+export * from './error-utils';
 export * from './file-content';
 export * from './file-explorer-utils';
 export * from './file-system';
@@ -29,6 +30,7 @@ export * from './selection-utils';
 export * from './throttled-state';
 export * from './token-utils';
 export * from './tree-generator';
+export * from './tree-operations';
 export * from './url-utils';
 
 export type { ColorScheme, FolderColors };

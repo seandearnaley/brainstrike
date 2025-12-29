@@ -37,7 +37,7 @@ const getNavItemStyles = (isActive: boolean): string =>
     isActive && [
       'bg-accent text-accent-foreground',
       // Left border indicator for vertical tab effect
-      'before:absolute before:top-1/2 before:left-0 before:-translate-y-1/2',
+      'before:-translate-y-1/2 before:absolute before:top-1/2 before:left-0',
       'before:h-6 before:w-1 before:rounded-r-full before:bg-sidebar-primary',
       'shadow-md',
     ]

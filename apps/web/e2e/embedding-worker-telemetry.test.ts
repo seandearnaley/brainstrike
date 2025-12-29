@@ -4,20 +4,30 @@ import { ensureRightPanelVisible } from './utils/layout-helpers';
 
 test.describe('Embedding Worker Telemetry', () => {
   test('surfaces queue metrics and vector trends in the vectors tab', async ({ page }) => {
+    const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
+    const panelTimeout = isCI ? 20_000 : 8000;
     const home = new HomePage(page);
 
     await home.goto();
     await ensureRightPanelVisible(page);
 
     const vectorsTab = page.getByRole('tab', { name: /vectors/i });
-    await expect(vectorsTab).toBeVisible();
+    await expect(vectorsTab).toBeVisible({ timeout: panelTimeout });
     await vectorsTab.click();
 
     const vectorsPanel = page.getByRole('tabpanel', { name: /vectors/i });
-    await expect(vectorsPanel).toBeVisible();
+    await expect(vectorsPanel).toBeVisible({ timeout: panelTimeout });
 
     const vectorStatusHeading = vectorsPanel.getByRole('heading', { name: 'Vector Status' });
-    await expect(vectorStatusHeading).toBeVisible();
+    const loadingVectors = vectorsPanel.getByText(/loading vectors/i);
+    if ((await loadingVectors.count()) > 0) {
+      await Promise.race([
+        loadingVectors.first().waitFor({ state: 'hidden', timeout: panelTimeout }),
+        vectorStatusHeading.waitFor({ state: 'visible', timeout: panelTimeout }),
+      ]);
+    }
+
+    await expect(vectorStatusHeading).toBeVisible({ timeout: panelTimeout });
     await expect(vectorsPanel.getByText(/Jobs\/min/i)).toBeVisible();
     await expect(vectorsPanel.getByRole('img', { name: 'Queue throughput trend' })).toBeVisible();
     await expect(vectorsPanel.getByRole('img', { name: 'Queue error trend' })).toBeVisible();

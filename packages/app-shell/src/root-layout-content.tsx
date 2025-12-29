@@ -1,4 +1,9 @@
-import { FileExplorerLeftPanel, TabbedFileEditorPanel } from '@brainstrike/file-explorer-ui';
+import {
+  FileExplorerLeftPanel,
+  FileTreeProvider,
+  TabbedFileEditorPanel,
+  useFileSystem,
+} from '@brainstrike/file-explorer-ui';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cn, IdeLayout, PanelLayoutProvider } from '@brainstrike/ui';
 import { type ReactElement, type ReactNode, useCallback, useMemo } from 'react';
@@ -7,6 +12,17 @@ import { AppLayout } from './app-layout';
 import { usePanelLayoutStore } from './stores/panel-layout-store';
 import { ToolsPanel } from './tools-panel';
 import type { NavigationItem } from './types';
+
+/**
+ * Wrapper that provides shared file tree state to all explorer panels.
+ * This ensures that when expand-all completes in the left panel,
+ * the middle panel and tabbed editor panel see the same updated tree
+ * for file content loading.
+ */
+function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
+  const { rootDirectoryHandle } = useFileSystem();
+  return <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>{children}</FileTreeProvider>;
+}
 
 export type RootLayoutContentProps = {
   readonly homePageContent: ReactNode;
@@ -96,29 +112,33 @@ export function RootLayoutContent({
         className={cn('h-full', activeTab !== 'explorer' && 'hidden')}
         data-testid="explorer-section"
       >
-        <PanelLayoutProvider
-          controlledState={panelState}
-          onChange={(state) => {
-            setState({
-              sizes: [
-                (state.sizes?.[0] as number | undefined) ?? panelState.sizes[0],
-                (state.sizes?.[1] as number | undefined) ?? panelState.sizes[1],
-                (state.sizes?.[2] as number | undefined) ?? panelState.sizes[2],
-              ] as [number, number, number],
-              showConsole: state.showConsole,
-              showLeftPanel: state.showLeftPanel,
-              showRightPanel: state.showRightPanel,
-            });
-          }}
-        >
-          <IdeLayout
-            consoleContent={<TabbedFileEditorPanel className="h-full" />}
-            leftPanelContent={leftPanelContent ?? <FileExplorerLeftPanel />}
-            rightPanelContent={rightPanelContent}
+        {/* FileTreeWrapper provides shared file tree state to all explorer panels.
+            This ensures expand-all updates are seen by all panels for file content loading. */}
+        <FileTreeWrapper>
+          <PanelLayoutProvider
+            controlledState={panelState}
+            onChange={(state) => {
+              setState({
+                sizes: [
+                  (state.sizes?.[0] as number | undefined) ?? panelState.sizes[0],
+                  (state.sizes?.[1] as number | undefined) ?? panelState.sizes[1],
+                  (state.sizes?.[2] as number | undefined) ?? panelState.sizes[2],
+                ] as [number, number, number],
+                showConsole: state.showConsole,
+                showLeftPanel: state.showLeftPanel,
+                showRightPanel: state.showRightPanel,
+              });
+            }}
           >
-            {homePageContent}
-          </IdeLayout>
-        </PanelLayoutProvider>
+            <IdeLayout
+              consoleContent={<TabbedFileEditorPanel className="h-full" />}
+              leftPanelContent={leftPanelContent ?? <FileExplorerLeftPanel />}
+              rightPanelContent={rightPanelContent}
+            >
+              {homePageContent}
+            </IdeLayout>
+          </PanelLayoutProvider>
+        </FileTreeWrapper>
       </div>
       <div
         aria-hidden={activeTab !== 'prompts'}

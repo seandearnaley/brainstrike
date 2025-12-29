@@ -1,10 +1,7 @@
-import React, { lazy, type ReactElement } from 'react';
+import type { ReactElement } from 'react';
+import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
 import { useAssistantAvailability } from './hooks/use-assistant-availability';
 import { McpBanner } from './mcp-banner';
-
-const AssistantUiPanelLazy = lazy(async () => ({
-  default: (await import('./assistant-ui-panel-wrapper')).AssistantUiPanelWrapper,
-}));
 
 export function AssistantTab(): ReactElement {
   const status = useAssistantAvailability();
@@ -46,11 +43,7 @@ export function AssistantTab(): ReactElement {
             <div className="px-4 pb-2">
               <McpBanner />
             </div>
-            <React.Suspense
-              fallback={<div className="p-4 text-xs opacity-70">Loading assistant…</div>}
-            >
-              <AssistantUiPanelLazy />
-            </React.Suspense>
+            <AssistantUiPanelWrapper />
           </>
         )}
       </div>

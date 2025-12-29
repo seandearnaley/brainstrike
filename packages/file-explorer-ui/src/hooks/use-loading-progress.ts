@@ -11,30 +11,43 @@ const formatDisplayPath = (currentPath: string): string => {
 };
 
 /**
- * Get the base message without cancelling or custom message
+ * Get depth-based progress message when depthProgress is available
  */
-const getBaseMessage = (isInitialLoad?: boolean, progressState?: LoadingProgressState): string => {
-  if (isInitialLoad) {
-    return FileExplorerStrings.loading.rootDirectory;
+const getDepthProgressMessage = (progressState: LoadingProgressState): string => {
+  const { depthProgress, currentPath } = progressState;
+
+  if (!depthProgress) {
+    return getPercentageProgressMessage(progressState);
   }
 
-  if (!progressState) {
-    return isInitialLoad
-      ? FileExplorerStrings.loading.rootDirectory
-      : FileExplorerStrings.loading.refreshing;
+  const { currentDepth, maxDepthSeen, estimatedMaxDepth, filesFound, directoriesCompleted } =
+    depthProgress;
+
+  // Primary line: depth scanning status
+  let depthLabel: string;
+  if (maxDepthSeen >= 2) {
+    // Only show estimate after seeing depth 2+
+    depthLabel = `Scanning depth ${currentDepth} of ~${estimatedMaxDepth}`;
+  } else {
+    depthLabel = `Scanning depth ${currentDepth}...`;
   }
 
-  if (progressState.phase === 'counting') {
-    return 'Scanning directory structure...';
+  // Secondary line: stats
+  const statsLine = `Found ${filesFound.toLocaleString()} files in ${directoriesCompleted} directories`;
+
+  // Third line: current path (if available)
+  if (currentPath) {
+    const displayPath = formatDisplayPath(currentPath);
+    return `${depthLabel}\n${statsLine}\n${displayPath}`;
   }
 
-  return getProgressMessage(progressState);
+  return `${depthLabel}\n${statsLine}`;
 };
 
 /**
- * Get progress message with percentage and optional path
+ * Get progress message with percentage (fallback when depthProgress not available)
  */
-const getProgressMessage = (progressState: LoadingProgressState): string => {
+const getPercentageProgressMessage = (progressState: LoadingProgressState): string => {
   const { loaded, total, currentPath } = progressState;
 
   if (total === 0) {
@@ -50,6 +63,28 @@ const getProgressMessage = (progressState: LoadingProgressState): string => {
   }
 
   return baseMsg;
+};
+
+/**
+ * Get the base message without cancelling or custom message
+ */
+const getBaseMessage = (isInitialLoad?: boolean, progressState?: LoadingProgressState): string => {
+  if (isInitialLoad && !progressState) {
+    return FileExplorerStrings.loading.rootDirectory;
+  }
+
+  if (!progressState) {
+    return isInitialLoad
+      ? FileExplorerStrings.loading.rootDirectory
+      : FileExplorerStrings.loading.refreshing;
+  }
+
+  if (progressState.phase === 'counting') {
+    return 'Scanning directory structure...';
+  }
+
+  // Use depth-based progress message when available
+  return getDepthProgressMessage(progressState);
 };
 
 export const useProgressMessage = (
@@ -89,5 +124,12 @@ export const useProgressDescription = (
     if (progressState.phase === 'counting') {
       return 'This may take a moment for large directories';
     }
+
+    // When we have depth progress, the description can be simpler
+    // since stats are shown in the main message
+    if (progressState.depthProgress) {
+      return 'Files appear as they are discovered';
+    }
+
     return FileExplorerStrings.prompts.waitForLoading;
   }, [isCancelling, description, progressState]);

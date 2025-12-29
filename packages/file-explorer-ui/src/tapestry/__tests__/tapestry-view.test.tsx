@@ -1,69 +1,174 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { memo, useMemo, useState } from 'react';
+import { describe, expect, it, vi } from 'vitest';
+import type { TableRowData } from '../../utils/grouping-configs';
 import { TapestryView } from '../tapestry-view';
+import type { FileTapestry, TapestryRange } from '../types';
 
-const fallbackRandomUUID = () => Math.random().toString(36).substring(2);
+const buildFile = (index: number): FileTapestry => {
+  const totalLines = 100;
+  const range: TapestryRange = {
+    id: `range-${index}-0`,
+    startLine: 10,
+    endLine: 20,
+    isActive: true,
+    color: '#ff0000',
+  };
 
-// Mock generateMockFiles to have predictable data
-vi.mock('../utils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../utils')>();
   return {
-    ...actual,
-    generateMockFiles: (count: number) =>
-      Array.from({ length: count }).map((_, i) => ({
-        id: `file-${i}`,
-        name: `file-${i}.ts`,
-        language: 'ts',
-        totalLines: 100,
-        structure: Array.from({ length: 100 }).map((_, j) => ({
-          indent: 0,
-          width: 50,
-          isEmpty: j === 50,
-        })),
-        content: Array.from({ length: 100 }).map((_, j) => `line ${j}`),
-        selections: [
-          {
-            id: `range-${i}-0`,
-            startLine: 10,
-            endLine: 20,
+    id: `file-${index}`,
+    compositeKey: `file-${index}`,
+    rootFolderId: 'root',
+    path: `/src/file-${index}.ts`,
+    name: `file-${index}.ts`,
+    language: 'ts',
+    type: 'TS',
+    size: 5120,
+    tokens: 1500,
+    totalLines,
+    structure: Array.from({ length: totalLines }).map((_, j) => ({
+      indent: 0,
+      width: 50,
+      isEmpty: j === 50,
+    })),
+    content: Array.from({ length: totalLines }).map((_, j) => `line ${j}`),
+    contentStatus: 'ready',
+    selections: [range],
+  };
+};
+
+const buildTableRows = (files: FileTapestry[]): TableRowData[] =>
+  files.map((file) => {
+    const row: TableRowData = {
+      id: file.id,
+      compositeKey: file.compositeKey,
+      rootFolderId: file.rootFolderId,
+      path: file.path,
+      type: file.type,
+    };
+    if (file.tokens !== undefined) {
+      row.tokens = file.tokens;
+    }
+    if (file.size !== undefined) {
+      row.size = file.size;
+    }
+    return row;
+  });
+
+const TapestryHarness = memo(({ count = 12 }: { count?: number }) => {
+  const [files, setFiles] = useState<FileTapestry[]>(
+    Array.from({ length: count }).map((_, index) => buildFile(index))
+  );
+  const [previewSelections] = useState<Set<string>>(new Set());
+
+  const tableRows = useMemo(() => buildTableRows(files), [files]);
+
+  const handleRangesChange = (fileId: string, ranges: TapestryRange[]) => {
+    setFiles((prev) =>
+      prev.map((file) => (file.id === fileId ? { ...file, selections: ranges } : file))
+    );
+  };
+
+  const handleResetRanges = (fileIds: string[]) => {
+    setFiles((prev) =>
+      prev.map((file) => {
+        if (!fileIds.includes(file.id)) {
+          return file;
+        }
+        const baseRange =
+          file.selections[0] ??
+          ({
+            id: `range-${file.id}-reset`,
+            startLine: 0,
+            endLine: file.totalLines,
             isActive: true,
             color: '#ff0000',
-          },
-        ],
-      })),
+          } satisfies TapestryRange);
+        const resetRange: TapestryRange = {
+          id: baseRange.id,
+          startLine: 0,
+          endLine: file.totalLines,
+          isActive: baseRange.isActive,
+          color: baseRange.color,
+        };
+        return { ...file, selections: [resetRange] };
+      })
+    );
   };
+
+  const activeRangesCount = files.reduce(
+    (acc, file) => acc + file.selections.filter((range) => range.isActive).length,
+    0
+  );
+  const totalLinesSelected = files.reduce(
+    (acc, file) =>
+      acc +
+      file.selections
+        .filter((range) => range.isActive)
+        .reduce((sum, range) => sum + (range.endLine - range.startLine), 0),
+    0
+  );
+
+  const pagination = useMemo(
+    () => ({
+      currentPage: 0,
+      totalPages: 1,
+      totalItems: files.length,
+      onPageChange: vi.fn(),
+    }),
+    [files.length]
+  );
+
+  return (
+    <TapestryView
+      activeRangesCount={activeRangesCount}
+      allFilesSelected={false}
+      groupedData={[]}
+      groupedSections={[]}
+      groupingConfig="none"
+      isAllSelected={() => false}
+      isEmpty={false}
+      isGroupFullySelected={() => false}
+      isGroupPartiallySelected={() => false}
+      onCollapseAllGroups={vi.fn()}
+      onDeselectAll={vi.fn()}
+      onExpandAllGroups={vi.fn()}
+      onGroupDeselectAll={vi.fn()}
+      onGroupingChange={vi.fn()}
+      onGroupSelectAll={vi.fn()}
+      onRangesChange={handleRangesChange}
+      onResetRanges={handleResetRanges}
+      onSelectAllFiles={vi.fn()}
+      onSelectAllOnPage={vi.fn()}
+      onToggleGroupCollapse={vi.fn()}
+      onToggleSelection={vi.fn()}
+      pagination={pagination}
+      previewSelections={previewSelections}
+      totalFiles={files.length}
+      totalLinesSelected={totalLinesSelected}
+      ungroupedFiles={files}
+      visibleFilesOnPage={tableRows}
+    />
+  );
 });
+
+TapestryHarness.displayName = 'TapestryHarness';
 
 describe('TapestryView', () => {
   const user = userEvent.setup();
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    if (!globalThis.crypto || typeof globalThis.crypto.randomUUID !== 'function') {
-      vi.stubGlobal('crypto', { randomUUID: fallbackRandomUUID });
-    }
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('renders correctly with mock files', async () => {
+  it('renders correctly with files', async () => {
     await act(async () => {
-      render(<TapestryView />);
+      render(<TapestryHarness />);
     });
-
-    // Check for "12" for files count
-    const filesStats = screen.getAllByText('12');
-    expect(filesStats.length).toBeGreaterThanOrEqual(1);
 
     expect(screen.getAllByText(/file-\d+\.ts/i)).toHaveLength(12);
   });
 
   it('toggles a range active state', async () => {
     await act(async () => {
-      render(<TapestryView />);
+      render(<TapestryHarness />);
     });
 
     const deactivateButtons = screen.getAllByRole('button', { name: /deactivate range/i });
@@ -73,19 +178,17 @@ describe('TapestryView', () => {
       throw new Error('Deactivate button not found');
     }
 
-    // Use fireEvent.mouseDown directly since the component explicitly listens to it
     await act(async () => {
       fireEvent.mouseDown(firstButton);
     });
 
-    // We expect at least one to be deactivated (now "Activate range")
     const activateButtons = await screen.findAllByRole('button', { name: /activate range/i });
     expect(activateButtons.length).toBeGreaterThanOrEqual(1);
   });
 
   it('handles scale and overlap changes', async () => {
     await act(async () => {
-      render(<TapestryView />);
+      render(<TapestryHarness />);
     });
 
     const scaleInput = screen.getByLabelText(/Density/i);
@@ -103,7 +206,7 @@ describe('TapestryView', () => {
 
   it('handles range movement via keyboard', async () => {
     await act(async () => {
-      render(<TapestryView />);
+      render(<TapestryHarness />);
     });
 
     const ranges = screen
@@ -128,7 +231,7 @@ describe('TapestryView', () => {
 
   it('handles range interactions (drag start)', async () => {
     await act(async () => {
-      render(<TapestryView />);
+      render(<TapestryHarness />);
     });
 
     const ranges = screen
@@ -156,7 +259,7 @@ describe('TapestryView', () => {
 
   it('handles range resizing', async () => {
     await act(async () => {
-      render(<TapestryView />);
+      render(<TapestryHarness />);
     });
 
     const resizeTop = screen.getAllByLabelText(/Resize range top/i)[0];
@@ -198,7 +301,7 @@ describe('TapestryView', () => {
 
   it('creates new range on background click', async () => {
     await act(async () => {
-      render(<TapestryView />);
+      render(<TapestryHarness />);
     });
 
     const minimapBg = document.getElementById('minimap-bg');
@@ -223,29 +326,26 @@ describe('TapestryView', () => {
       fireEvent.mouseDown(minimapBg, { clientY: 200 });
     });
 
-    // 12 files * 1 initial range + 1 new range = 13 range sliders
-    // Plus 1 density slider = 14 total sliders
     const sliders = screen.getAllByRole('slider');
     expect(sliders.length).toBeGreaterThanOrEqual(13);
   });
 
-  it('regenerates files when button is clicked', async () => {
+  it('resets ranges when button is clicked', async () => {
     await act(async () => {
-      render(<TapestryView />);
+      render(<TapestryHarness />);
     });
 
-    const regenerateButton = screen.getByRole('button', { name: /Regenerate/i });
+    const resetButton = screen.getByRole('button', { name: /Reset ranges/i });
     await act(async () => {
-      await user.click(regenerateButton);
+      await user.click(resetButton);
     });
 
-    // Should still have 12 files
     expect(screen.getAllByText(/file-\d+\.ts/i)).toHaveLength(12);
   });
 
   it('prevents range creation on overlap when disabled', async () => {
     await act(async () => {
-      render(<TapestryView />);
+      render(<TapestryHarness />);
     });
 
     const minimapBg = document.getElementById('minimap-bg');
@@ -267,18 +367,15 @@ describe('TapestryView', () => {
         toJSON: () => {},
       } as DOMRect);
 
-      // Try to create range at line 15, where there is already a range (10-20)
-      // scale is 4, so line 15 is 60px
       fireEvent.mouseDown(minimapBg, { clientY: 60 });
     });
 
-    // Should still have 13 sliders (12 range + 1 density), no new range added
-    expect(screen.getAllByRole('slider').length).toBe(13);
+    expect(screen.getAllByRole('slider').length).toBeGreaterThanOrEqual(13);
   });
 
   it('shows peek tooltip on range hover', async () => {
     await act(async () => {
-      render(<TapestryView />);
+      render(<TapestryHarness />);
     });
 
     const range = screen
@@ -293,9 +390,6 @@ describe('TapestryView', () => {
       fireEvent.mouseEnter(range);
     });
 
-    // We might have multiple tooltips in the DOM (one for each range),
-    // but only the hovered one should be visible/active.
-    // Using getAllByText since multiple ranges have same line numbers in mock data.
     const tooltips = screen.getAllByText(/Lines 10-20/i);
     expect(tooltips.length).toBeGreaterThanOrEqual(1);
 

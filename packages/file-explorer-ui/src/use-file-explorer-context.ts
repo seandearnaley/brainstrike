@@ -2,21 +2,46 @@
  * File Explorer Hook (Context-aware)
  *
  * This hook provides file explorer functionality using the context-based store.
+ * Uses lazy loading for instant initial display and on-demand directory loading.
+ *
+ * IMPORTANT: When used within a FileTreeProvider, all components share the same
+ * tree state. This ensures that when expand-all completes, all consumers see the
+ * updated tree for file content loading.
  */
-// HMR probe: safe no-op comment to trigger a hot update
 
-import { useFileExplorer as useCoreFileExplorer } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import { useCallback, useMemo } from 'react';
+import { createLogger } from '@brainstrike/utils';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useOptionalFileTreeContext } from './file-tree-provider';
 import { useFileSystem } from './use-file-system-context';
 import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
 import { useSharedFileContentLoading } from './use-shared-file-content-loading';
 
+const logger = createLogger('FileExplorerContext');
+
+/**
+ * Helper to get the depth of a path (number of path segments).
+ * Used for sorting paths by depth (shallowest first) when restoring expanded directories.
+ */
+function getPathDepth(path: string): number {
+  return path.split('/').filter(Boolean).length;
+}
+
 type UseFileExplorerProps = Record<string, never>;
+
+/** Progress state for restoring expanded directories on app startup */
+export type RestorationProgress = {
+  /** Number of directories restored so far */
+  loaded: number;
+  /** Total number of directories to restore */
+  total: number;
+  /** Current directory path being restored */
+  currentPath: string | null;
+};
 
 type UseFileExplorerReturn = {
   fileTree: IFileNode[];
@@ -47,6 +72,26 @@ type UseFileExplorerReturn = {
   /** Whether the operation is currently being cancelled */
   isCancelling: boolean;
   clearRootDirectory: () => void;
+  /** Set of paths currently loading their children (lazy loading) */
+  loadingPaths: Set<string>;
+  /** Load children of a directory on expand (lazy loading) */
+  loadChildren: (path: string) => Promise<void>;
+  /** Refresh a specific directory */
+  refreshDirectory: (path: string) => Promise<void>;
+  /** Progressively expand all directories (loads everything) */
+  expandAllProgressively: (
+    setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
+  ) => Promise<void>;
+  /** Cancel expand-all operation */
+  cancelExpandAll: () => void;
+  /** Whether expand-all is in progress */
+  isExpandingAll: boolean;
+  /** Progress of expand-all operation */
+  expandAllProgress: { loaded: number; total: number } | null;
+  /** Whether expanded directories are being restored from persisted state */
+  isRestoringExpandedPaths: boolean;
+  /** Progress of expanded directory restoration */
+  restorationProgress: RestorationProgress | null;
 };
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -66,9 +111,6 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const setUseRegex = store(selectSetUseRegex);
   const storeClearFileContents = store(selectClearFileContents);
 
-  // Call the core hook
-  const coreExplorer = useCoreFileExplorer();
-
   const {
     rootDirectoryHandle,
     selectRootDirectory,
@@ -76,6 +118,16 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     clearRootDirectory,
   } = useFileSystem();
 
+  // Try to get shared tree state from FileTreeProvider context.
+  // This ensures all components using useFileExplorer share the same tree
+  // after expand-all completes - fixing the "file not found" bug.
+  const sharedTreeContext = useOptionalFileTreeContext();
+
+  // Always call useFileTree to maintain hook order (rules of hooks).
+  // When sharedTreeContext is available, we use its values instead.
+  const localTreeState = useFileTree(rootDirectoryHandle);
+
+  // Use shared context if available, otherwise use local tree state
   const {
     fileTree,
     isLoading: isTreeLoading,
@@ -85,7 +137,15 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancellable,
     cancelOperation,
     isCancelling,
-  } = useFileTree(rootDirectoryHandle);
+    loadingPaths,
+    loadChildren,
+    refreshDirectory,
+    expandAllProgressively,
+    cancelExpandAll,
+    isExpandingAll,
+    expandAllProgress,
+    loadSpecificPaths,
+  } = sharedTreeContext ?? localTreeState;
 
   // storeClearFileContents is selected above to keep hook count constant
 
@@ -150,8 +210,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     [applyFiltersUtil, fileTree, setFilters, setUseRegex]
   );
 
-  // Construct the return object, carefully combining local state/logic with coreExplorer where needed.
-  // This needs to satisfy UseFileExplorerReturn type.
+  // Derive error from tree, content, and filter errors
   const deriveDisplayError = (): Error | null => {
     if (treeError) {
       return treeError;
@@ -159,48 +218,135 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     if (contentError) {
       return contentError;
     }
-    // If localFilterError is present, it's a string message from useFileFilters
     if (localFilterError) {
       return new Error(localFilterError);
-    }
-    // coreExplorer.error could be an Error, string, or null
-    if (coreExplorer.error) {
-      // Check if it's an Error instance
-      const error = coreExplorer.error as unknown;
-      if (error instanceof Error) {
-        return error; // It's an Error object
-      }
-      // If it's not an Error object, and it's truthy, it must be a string from coreExplorer.filterError
-      return new Error(String(coreExplorer.error));
     }
     return null;
   };
   const displayError = deriveDisplayError();
 
-  const approximatedIsInitialLoad = !coreExplorer.rootDirectoryHandle && coreExplorer.isLoading;
+  // Initial load is when we have a root but tree is still loading
+  const isInitialLoad = !rootDirectoryHandle && isTreeLoading;
+
+  // Track which folder we've already restored expanded paths for
+  const restoredForFolderRef = useRef<string | null>(null);
+  // Track if restoration is in progress to prevent duplicate runs
+  const isRestoringRef = useRef(false);
+  // State for restoration progress - exposed to UI for feedback
+  const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
+  const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
+
+  /**
+   * Auto-restore expanded directories from persisted state.
+   *
+   * When the app loads, the store restores expandedDirectoryPaths from storage,
+   * but the lazy-loaded tree only has root-level nodes. This effect loads
+   * children for previously expanded directories so the UI matches the persisted state.
+   *
+   * Algorithm:
+   * 1. Wait for root to finish loading (fileTree has items, not loading)
+   * 2. Get persisted expandedDirectoryPaths from store
+   * 3. Sort paths by depth (shallowest first - parents before children)
+   * 4. Load children for each directory in order
+   */
+  useEffect(() => {
+    // Get current folder ID from root handle
+    const currentFolderId = rootDirectoryHandle?.name ?? null;
+
+    // Skip if no root, still loading, or no tree
+    if (!currentFolderId || isTreeLoading || fileTree.length === 0) {
+      return;
+    }
+
+    // Skip if already restored for this folder
+    if (restoredForFolderRef.current === currentFolderId) {
+      return;
+    }
+
+    // Skip if restoration is in progress
+    if (isRestoringRef.current) {
+      return;
+    }
+
+    // Get persisted expanded paths from store
+    const storeState = store.getState();
+    const expandedPaths = storeState.expandedDirectoryPaths;
+
+    // Skip if no paths to restore
+    if (expandedPaths.size === 0) {
+      restoredForFolderRef.current = currentFolderId;
+      return;
+    }
+
+    // Mark restoration as in progress
+    isRestoringRef.current = true;
+    restoredForFolderRef.current = currentFolderId;
+    setIsRestoringExpandedPaths(true);
+
+    logger.info('Restoring expanded directories', {
+      folderId: currentFolderId,
+      pathCount: expandedPaths.size,
+    });
+
+    // Sort paths by depth (shallowest first so parents load before children)
+    const sortedPaths = [...expandedPaths].sort((a, b) => getPathDepth(a) - getPathDepth(b));
+    const total = sortedPaths.length;
+
+    // Initialize progress
+    setRestorationProgress({ loaded: 0, total, currentPath: null });
+
+    // Use worker-based loading for optimal performance
+    // The worker batches I/O and only updates React state once at completion
+    const restoreExpansions = async () => {
+      try {
+        await loadSpecificPaths(sortedPaths, (loaded, progressTotal, currentPath) => {
+          setRestorationProgress({ loaded, total: progressTotal, currentPath });
+        });
+
+        logger.info('Restored expanded directories', {
+          totalPaths: total,
+        });
+      } catch (error) {
+        logger.warn('Failed to restore expanded directories', { error });
+      } finally {
+        isRestoringRef.current = false;
+        setIsRestoringExpandedPaths(false);
+        setRestorationProgress(null);
+      }
+    };
+
+    void restoreExpansions();
+  }, [rootDirectoryHandle, isTreeLoading, fileTree.length, store, loadSpecificPaths]);
 
   return {
     fileTree: filteredTree,
     handleRootDirectorySelect,
-    isLoading: isTreeLoading || coreExplorer.isLoading,
+    isLoading: isTreeLoading,
     error: displayError,
     fileContents,
     loadingFiles: contentLoadingFiles,
     applyFileFilters: wrappedApplyFileFilters,
-    filterError:
-      localFilterError ||
-      (typeof coreExplorer.filterError === 'string' ? coreExplorer.filterError : null),
+    filterError: localFilterError,
     rootDirectoryHandle,
     isFileSystemAccessSupported,
     loadFileContent,
     loadMultipleFileContents: handleFileContentLoading,
     refreshFileExplorer,
-    isInitialLoad: approximatedIsInitialLoad,
+    isInitialLoad,
     clearFileContents: storeClearFileContents,
     loadingProgress,
     cancellable,
     cancelOperation,
     isCancelling,
     clearRootDirectory,
+    loadingPaths,
+    loadChildren,
+    refreshDirectory,
+    expandAllProgressively,
+    cancelExpandAll,
+    isExpandingAll,
+    expandAllProgress,
+    isRestoringExpandedPaths,
+    restorationProgress,
   };
 }

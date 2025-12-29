@@ -124,6 +124,25 @@ describe('useFileExplorerToasts', () => {
         expect(result.current.isRefreshing).toBe(false);
       });
     });
+
+    it('should call handleRefreshError when refresh fails', async () => {
+      const refreshError = new Error('Refresh failed');
+      const refreshFileExplorer = vi.fn().mockRejectedValue(refreshError);
+      const mockHandle = { name: 'test-folder' };
+      const params = createMockParams({
+        rootDirectoryHandle: mockHandle,
+        refreshFileExplorer,
+      });
+
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      await result.current.handleRefresh();
+
+      expect(result.current.handleRefreshError).toHaveBeenCalledWith(refreshError);
+      expect(result.current.isRefreshing).toBe(false);
+    });
   });
 
   describe('handleDirectorySelect', () => {
@@ -173,6 +192,23 @@ describe('useFileExplorerToasts', () => {
 
       // Should not throw
       await expect(result.current.handleDirectorySelect()).resolves.toBeUndefined();
+    });
+
+    it('should call handleDirectorySelectError when directory select fails', async () => {
+      const selectError = new Error('Directory select failed');
+      const handleRootDirectorySelect = vi.fn().mockRejectedValue(selectError);
+      const params = createMockParams({
+        handleRootDirectorySelect,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+      });
+
+      const { result } = renderHook(() => useFileExplorerToasts(params), {
+        wrapper: createWrapper(),
+      });
+
+      await result.current.handleDirectorySelect();
+
+      expect(result.current.handleDirectorySelectError).toHaveBeenCalledWith(selectError);
     });
   });
 

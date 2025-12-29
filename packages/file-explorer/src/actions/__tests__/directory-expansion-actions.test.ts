@@ -139,9 +139,124 @@ describe('directory-expansion-actions', () => {
   });
 
   it('collapseAllDirectories should clear expanded paths', () => {
+    const state = createMockState({ expandedDirectoryPaths: new Set(['some/path']) });
+    mockGet.mockReturnValue(state);
     const actions = createDirectoryExpansionActions(mockSet, mockGet);
+
     actions.collapseAllDirectories();
 
-    expect(mockSet).toHaveBeenCalledWith({ expandedDirectoryPaths: new Set() });
+    expect(mockSet).toHaveBeenCalledTimes(1);
+    const updateFn = mockSet.mock.calls[0]?.[0] as (
+      s: FileExplorerState
+    ) => Partial<FileExplorerState>;
+    const updated = updateFn(state);
+    expect(updated.expandedDirectoryPaths?.size).toBe(0);
+  });
+
+  it('setExpandedPaths should update both global and folder state when folder exists', () => {
+    const state = createMockState({
+      currentFolderId: 'myFolder',
+      folderStates: {
+        myFolder: {
+          selectedFilePaths: new Set(),
+          expandedDirectoryPaths: new Set(),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          tokenBudget: 100,
+          folderSummaryThreshold: 100,
+          maxSelectionCount: 100,
+          lastActiveTab: 'files',
+          lastAccessed: Date.now(),
+        },
+      },
+    });
+    mockGet.mockReturnValue(state);
+    const actions = createDirectoryExpansionActions(mockSet, mockGet);
+
+    actions.setExpandedPaths(new Set(['a', 'b']));
+
+    expect(mockSet).toHaveBeenCalledTimes(1);
+    const updateFn = mockSet.mock.calls[0]?.[0] as (
+      s: FileExplorerState
+    ) => Partial<FileExplorerState>;
+    const updated = updateFn(state);
+
+    // Global paths should be updated
+    expect(updated.expandedDirectoryPaths?.has('a')).toBe(true);
+    expect(updated.expandedDirectoryPaths?.has('b')).toBe(true);
+
+    // Folder state should also be updated for persistence
+    expect(updated.folderStates?.myFolder?.expandedDirectoryPaths?.has('a')).toBe(true);
+    expect(updated.folderStates?.myFolder?.expandedDirectoryPaths?.has('b')).toBe(true);
+  });
+
+  it('toggleDirectoryExpansion should update both global and folder state when folder exists', () => {
+    const state = createMockState({
+      currentFolderId: 'myFolder',
+      expandedDirectoryPaths: new Set(['existing']),
+      folderStates: {
+        myFolder: {
+          selectedFilePaths: new Set(),
+          expandedDirectoryPaths: new Set(['existing']),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          tokenBudget: 100,
+          folderSummaryThreshold: 100,
+          maxSelectionCount: 100,
+          lastActiveTab: 'files',
+          lastAccessed: Date.now(),
+        },
+      },
+    });
+    mockGet.mockReturnValue(state);
+    const actions = createDirectoryExpansionActions(mockSet, mockGet);
+
+    // Expand a new directory
+    actions.toggleDirectoryExpansion('newPath');
+
+    expect(mockSet).toHaveBeenCalledTimes(1);
+    const updateFn = mockSet.mock.calls[0]?.[0] as (
+      s: FileExplorerState
+    ) => Partial<FileExplorerState>;
+    const updated = updateFn(state);
+
+    // Global paths should be updated
+    expect(updated.expandedDirectoryPaths?.has('existing')).toBe(true);
+    expect(updated.expandedDirectoryPaths?.has('newPath')).toBe(true);
+    expect(updated.expandedDirectoryPaths?.size).toBe(2);
+
+    // Folder state should also be updated for persistence
+    expect(updated.folderStates?.myFolder?.expandedDirectoryPaths?.has('existing')).toBe(true);
+    expect(updated.folderStates?.myFolder?.expandedDirectoryPaths?.has('newPath')).toBe(true);
+    expect(updated.folderStates?.myFolder?.expandedDirectoryPaths?.size).toBe(2);
+  });
+
+  it('toggleDirectoryExpansion should NOT update folder state when folder does not exist', () => {
+    const state = createMockState({
+      currentFolderId: 'myFolder',
+      expandedDirectoryPaths: new Set(['existing']),
+      folderStates: {}, // Empty - no folder state exists
+    });
+    mockGet.mockReturnValue(state);
+    const actions = createDirectoryExpansionActions(mockSet, mockGet);
+
+    actions.toggleDirectoryExpansion('newPath');
+
+    expect(mockSet).toHaveBeenCalledTimes(1);
+    const updateFn = mockSet.mock.calls[0]?.[0] as (
+      s: FileExplorerState
+    ) => Partial<FileExplorerState>;
+    const updated = updateFn(state);
+
+    // Global paths should be updated
+    expect(updated.expandedDirectoryPaths?.has('existing')).toBe(true);
+    expect(updated.expandedDirectoryPaths?.has('newPath')).toBe(true);
+
+    // Folder state should NOT be in the update (nothing to update)
+    expect(updated.folderStates).toBeUndefined();
   });
 });

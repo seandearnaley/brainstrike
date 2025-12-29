@@ -7,7 +7,7 @@
  */
 
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import type { IFileNode } from '@brainstrike/types';
+import type { IFileNode, StreamMeta } from '@brainstrike/types';
 import { type ParallelWalkerOptions, walkDirectoryParallel } from './parallel-directory-walker';
 
 export type ReadFullTreeOptions = {
@@ -15,10 +15,14 @@ export type ReadFullTreeOptions = {
   concurrency?: number | undefined;
   /** AbortSignal for cancellation support */
   abortSignal?: AbortSignal | undefined;
-  /** Callback for progress updates */
-  updateProgress?: ((path?: string) => void) | undefined;
+  /** Callback for progress updates (receives path and depth) */
+  updateProgress?: ((path?: string, depth?: number) => void) | undefined;
   /** Custom sort function for nodes */
   sortFileNodes?: ((nodes: IFileNode[]) => IFileNode[]) | undefined;
+  /** Callback for streaming tree snapshots */
+  onTreeSnapshot?: ((tree: IFileNode[], meta: StreamMeta) => void) | undefined;
+  /** Snapshot interval in ms (default: 100) */
+  snapshotIntervalMs?: number | undefined;
 };
 
 /**
@@ -61,19 +65,29 @@ export async function readFullTree(
  * Reads a directory tree with configurable options.
  *
  * This is the recommended API for new code, providing explicit
- * configuration of parallel traversal options.
+ * configuration of parallel traversal options including streaming
+ * tree snapshots for progressive UI updates.
  */
 export async function readFullTreeWithOptions(
   fileSystemAdapter: FileSystemAdapter,
   rootHandle: DirectoryHandle,
   options: ReadFullTreeOptions = {}
 ): Promise<IFileNode[]> {
-  const { concurrency, abortSignal, updateProgress, sortFileNodes } = options;
+  const {
+    concurrency,
+    abortSignal,
+    updateProgress,
+    sortFileNodes,
+    onTreeSnapshot,
+    snapshotIntervalMs,
+  } = options;
 
   return walkDirectoryParallel(fileSystemAdapter, rootHandle, {
     concurrency,
     abortSignal,
     onProgress: updateProgress,
     sortFileNodes,
+    onTreeSnapshot,
+    snapshotIntervalMs,
   });
 }

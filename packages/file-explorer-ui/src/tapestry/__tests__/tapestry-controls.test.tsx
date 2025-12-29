@@ -29,7 +29,7 @@ describe('TapestryControls', () => {
     fireEvent.click(overlapToggle);
     expect(setAllowOverlap).toHaveBeenCalledWith(true);
 
-    const resetButton = screen.getByRole('button', { name: /regenerate/i });
+    const resetButton = screen.getByRole('button', { name: /reset ranges/i });
     fireEvent.click(resetButton);
     expect(onReset).toHaveBeenCalled();
   });

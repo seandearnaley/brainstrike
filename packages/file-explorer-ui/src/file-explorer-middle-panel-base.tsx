@@ -151,6 +151,13 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     [openFileInTab]
   );
 
+  const handlePreviewContentRequest = useCallback(
+    (compositeKey: string) => {
+      void loadMultipleFileContents([compositeKey]);
+    },
+    [loadMultipleFileContents]
+  );
+
   return (
     <FileExplorerErrorBoundary>
       <div className="flex h-full flex-col overflow-hidden">
@@ -170,6 +177,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
               onFileClick={handleFileClick}
               onFolderSummaryThresholdChange={setFolderSummaryThreshold}
               onIncludeProjectTreeChange={setIncludeProjectTree}
+              onRequestFileContent={handlePreviewContentRequest}
               onSelectionChange={handleSelectionChange}
               onTokenBudgetChange={setTokenBudget}
               performUndoableAction={performUndoableActionForPanel}

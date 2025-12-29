@@ -121,7 +121,9 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
               .map((childNode: IFileNode) => (
                 <FileTreeNode
                   folderId={folderId}
-                  isExpanded={expandedDirectoryPaths.has(childNode.path)}
+                  isExpanded={
+                    expandedDirectoryPaths.has(childNode.path) && childNode.loadState === 'loaded'
+                  }
                   isLoading={isLoading}
                   key={childNode.path}
                   node={childNode}

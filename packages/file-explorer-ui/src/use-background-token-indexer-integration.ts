@@ -189,41 +189,56 @@ export function useBackgroundTokenIndexerIntegration({
   const tokenCacheRef = useRef(tokenCache);
   tokenCacheRef.current = tokenCache;
 
-  // Build file handle map whenever tree changes
+  // Build file handle map whenever tree changes (debounced to avoid rebuilding during expand-all)
   const fileHandleMapRef = useRef<Map<string, HandleInfo>>(new Map());
   const previousRootIdsRef = useRef<string>('');
-  // biome-ignore lint/plugin: side-effectful map construction on tree change is intentional
+  const rebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Side-effectful map construction on tree change is intentional
   useEffect(() => {
-    const map = new Map<string, HandleInfo>();
-    const rootIds = new Set<string>();
-    buildFileHandleMap(fileTree, map);
-    for (const key of map.keys()) {
-      const folderId = key.split('|@|', 1)[0];
-      if (folderId) {
-        rootIds.add(folderId);
+    // Cancel any pending rebuild
+    if (rebuildTimeoutRef.current) {
+      clearTimeout(rebuildTimeoutRef.current);
+    }
+
+    // Debounce the expensive rebuild - wait for tree to stabilize
+    rebuildTimeoutRef.current = setTimeout(() => {
+      const map = new Map<string, HandleInfo>();
+      const rootIds = new Set<string>();
+      buildFileHandleMap(fileTree, map);
+      for (const key of map.keys()) {
+        const folderId = key.split('|@|', 1)[0];
+        if (folderId) {
+          rootIds.add(folderId);
+        }
       }
-    }
-    fileHandleMapRef.current = map;
-    // Update state to trigger selection effect re-run when map is populated
-    setFileHandleMapSize(map.size);
+      fileHandleMapRef.current = map;
+      // Update state to trigger selection effect re-run when map is populated
+      setFileHandleMapSize(map.size);
 
-    const rootFingerprint = Array.from(rootIds).sort().join('|');
-    if (previousRootIdsRef.current && previousRootIdsRef.current !== rootFingerprint) {
-      indexedFilesRef.current.clear();
-      inFlightRef.current.clear();
-      bumpInFlightPulse((value) => value + 1);
-      logger.info('Cleared indexedFiles cache due to root folder change', {
-        previousRootIds: previousRootIdsRef.current,
-        nextRootIds: rootFingerprint,
+      const rootFingerprint = Array.from(rootIds).sort().join('|');
+      if (previousRootIdsRef.current && previousRootIdsRef.current !== rootFingerprint) {
+        indexedFilesRef.current.clear();
+        inFlightRef.current.clear();
+        bumpInFlightPulse((value) => value + 1);
+        logger.info('Cleared indexedFiles cache due to root folder change', {
+          previousRootIds: previousRootIdsRef.current,
+          nextRootIds: rootFingerprint,
+        });
+      }
+      previousRootIdsRef.current = rootFingerprint;
+
+      logger.info('File handle map built', {
+        size: map.size,
+        hasElectron: [...map.values()].some((h) => h.electronHandle),
+        hasWeb: [...map.values()].some((h) => h.webHandle),
       });
-    }
-    previousRootIdsRef.current = rootFingerprint;
+    }, 500); // Wait 500ms for tree to stabilize before rebuilding
 
-    logger.info('File handle map built', {
-      size: map.size,
-      hasElectron: [...map.values()].some((h) => h.electronHandle),
-      hasWeb: [...map.values()].some((h) => h.webHandle),
-    });
+    return () => {
+      if (rebuildTimeoutRef.current) {
+        clearTimeout(rebuildTimeoutRef.current);
+      }
+    };
   }, [fileTree]);
 
   // Stable ref for onTokenResolved to avoid callback instability

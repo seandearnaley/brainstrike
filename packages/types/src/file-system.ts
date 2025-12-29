@@ -9,6 +9,16 @@ export type FileNodeType = 'file' | 'directory' | 'loadMore';
 export type SelectionState = 'checked' | 'unchecked' | 'indeterminate';
 
 /**
+ * Loading state for lazy-loaded directories
+ *
+ * - 'unloaded': Directory children have not been loaded yet (show expand arrow)
+ * - 'loading': Directory children are currently being loaded (show spinner)
+ * - 'loaded': Directory children have been loaded (children array is populated)
+ * - 'error': Failed to load directory children
+ */
+export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
+
+/**
  * Represents a file or directory in the file system
  */
 export type IFileNode = {
@@ -25,6 +35,17 @@ export type IFileNode = {
   lastModified?: number;
   isSymbolicLink?: boolean;
   isDepthTruncated?: boolean;
+  /**
+   * Loading state for directories (lazy loading).
+   * - undefined: Not applicable (files) or legacy nodes
+   * - 'unloaded': Children not yet loaded
+   * - 'loading': Currently loading children
+   * - 'loaded': Children have been loaded
+   * - 'error': Failed to load children
+   */
+  loadState?: DirectoryLoadState;
+  /** Error message when loadState is 'error' */
+  loadError?: string;
 };
 
 /**
@@ -43,6 +64,38 @@ export type FileTreeResult = {
   nodes: IFileNode[];
   isComplete: boolean;
   error?: Error;
+};
+
+/**
+ * Depth-based progress tracking for tree loading
+ */
+export type DepthProgress = {
+  /** Deepest depth currently being processed */
+  currentDepth: number;
+  /** Maximum depth encountered so far */
+  maxDepthSeen: number;
+  /** Estimated total depth (starts at 5, adjusts dynamically) */
+  estimatedMaxDepth: number;
+  /** Number of directories fully processed */
+  directoriesCompleted: number;
+  /** Number of directories still in queue */
+  directoriesRemaining: number;
+  /** Total files discovered so far */
+  filesFound: number;
+};
+
+/**
+ * Metadata emitted with each streaming tree snapshot
+ */
+export type StreamMeta = {
+  /** Whether this is the final snapshot (tree complete) */
+  isComplete: boolean;
+  /** Current depth-based progress */
+  depthProgress: DepthProgress;
+  /** Total nodes (files + directories) discovered */
+  totalNodesDiscovered: number;
+  /** Milliseconds elapsed since loading started */
+  elapsedMs: number;
 };
 
 /**

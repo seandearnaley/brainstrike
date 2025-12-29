@@ -1,53 +1,42 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
-import { isFixtureCapableAdapter } from '@brainstrike/file-system';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
-import {
-  Button,
-  cn,
-  LoadingFallback,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@brainstrike/ui';
+import { LoadingFallback } from '@brainstrike/ui';
 import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
-import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
+
+const logger = createLogger('FileExplorerLeftPanel');
+
 import * as React from 'react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import ActionButtons from './action-buttons-array-facade';
+import { TreeActionButtons } from './components/tree-action-buttons';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import FileExplorerSidebar from './file-explorer-sidebar';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
-import { LoadingOverlay } from './loading-overlay';
+import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
+import { RestorationStatus } from './restoration-status';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
-
-// Lazy load the sidebar component (relative import to avoid duplicate module graphs/context)
-const logger = createLogger('FileExplorerLeftPanel');
-
-const FileExplorerSidebar = lazy(() =>
-  import('./file-explorer-sidebar').then((m) => ({
-    default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
-  }))
-);
-
-// Lazy load array facade for action buttons
-const ActionButtons = lazy(() =>
-  import('./action-buttons-array-facade').then((m) => ({
-    default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
-  }))
-);
+import { computeScanningStatusProps } from './utils/scanning-status-props';
 
 // Quick filter helpers (factored to keep component complexity low)
-function createSearchableText(node: IFileNode): string {
-  return `${node.name.toLowerCase()} ${node.path.toLowerCase()}`;
-}
 
-function shouldInclude(text: string, includes: string[], excludes: string[]): boolean {
-  if (excludes.some((e) => text.includes(e))) {
+/**
+ * Check if a node should be included based on filter patterns.
+ * IMPORTANT: Both include and exclude patterns match ONLY against the filename
+ * to avoid false positives from path components (e.g., "test" matching
+ * "test-project/" in the path when only files named "test" should match).
+ */
+function shouldIncludeNode(node: IFileNode, includes: string[], excludes: string[]): boolean {
+  const nameText = node.name.toLowerCase();
+  // Excludes only match filename to avoid false positives from path
+  if (excludes.some((e) => nameText.includes(e))) {
     return false;
   }
-  return includes.length === 0 || includes.some((i) => text.includes(i));
+  // Includes also only match filename for consistent behavior
+  return includes.length === 0 || includes.some((i) => nameText.includes(i));
 }
 
 function filterNodeByPatterns(
@@ -55,7 +44,6 @@ function filterNodeByPatterns(
   includes: string[],
   excludes: string[]
 ): IFileNode | null {
-  const text = createSearchableText(node);
   if (node.type === 'directory') {
     const children = node.children ?? [];
     const filteredChildren = children
@@ -64,12 +52,12 @@ function filterNodeByPatterns(
     if (filteredChildren.length > 0) {
       return { ...node, children: filteredChildren };
     }
-    if (shouldInclude(text, includes, excludes)) {
+    if (shouldIncludeNode(node, includes, excludes)) {
       return { ...node, children: [] };
     }
     return null;
   }
-  return shouldInclude(text, includes, excludes) ? node : null;
+  return shouldIncludeNode(node, includes, excludes) ? node : null;
 }
 
 function filterTreeByPatterns(
@@ -146,6 +134,14 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancelOperation,
     isCancelling,
     clearRootDirectory,
+    loadingPaths,
+    loadChildren,
+    expandAllProgressively,
+    cancelExpandAll,
+    isExpandingAll,
+    expandAllProgress,
+    isRestoringExpandedPaths,
+    restorationProgress,
   } = useFileExplorer();
 
   const {
@@ -164,10 +160,24 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const safeSetSelectedFilesFromList =
     (setSelectedFilesFromList as undefined | ((l: readonly string[]) => void)) ?? (() => {});
 
-  const fixtureAdapter = isFixtureCapableAdapter(fileSystemAdapter) ? fileSystemAdapter : null;
-  const inlineFixtureAvailable = Boolean(fixtureAdapter?.canLoadInlineFixture);
-  const [isInlineFixtureLoading, setIsInlineFixtureLoading] = useState(false);
-  const hasAppliedInitialFixtureRef = useRef(false);
+  // Inline fixture state management - extracted to reduce component complexity
+  const { isLoading: isInlineFixtureLoading, isAvailable: inlineFixtureAvailable } =
+    useInlineFixtureEffect({
+      fileSystemAdapter,
+      devInlineFixtureEnabled,
+      setDevInlineFixtureEnabled,
+      setRootDirectoryHandle,
+      clearRootDirectory,
+      showToast,
+      strings: {
+        successTitle: FileExplorerStrings.success.title,
+        errorTitle: FileExplorerStrings.error.title,
+        enableSuccess: FileExplorerStrings.inlineFixture.enableSuccess,
+        disableSuccess: FileExplorerStrings.inlineFixture.disableSuccess,
+        enableError: FileExplorerStrings.inlineFixture.enableError,
+        disableError: FileExplorerStrings.inlineFixture.disableError,
+      },
+    });
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {
@@ -278,133 +288,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     isFileSystemAccessSupported,
   ]);
 
-  const clearRootDirectoryRef = useRef(clearRootDirectory);
-  const showToastRef = useRef(showToast);
-
-  useEffect(() => {
-    clearRootDirectoryRef.current = clearRootDirectory;
-  }, [clearRootDirectory]);
-
-  useEffect(() => {
-    showToastRef.current = showToast;
-  }, [showToast]);
-
-  const enableInlineFixture = useCallback(async () => {
-    if (!fixtureAdapter) {
-      return;
-    }
-    const handle = await fixtureAdapter.loadInlineFixture();
-    if (handle && setRootDirectoryHandle) {
-      // Setting the root directory handle will automatically trigger the file tree to load
-      setRootDirectoryHandle(handle);
-    }
-  }, [fixtureAdapter, setRootDirectoryHandle]);
-
-  const disableInlineFixture = useCallback(async () => {
-    if (!fixtureAdapter) {
-      return;
-    }
-    await fixtureAdapter.clearInlineFixture();
-    clearRootDirectoryRef.current?.();
-  }, [fixtureAdapter]);
-
-  const notifySuccess = useCallback((enabled: boolean) => {
-    if (!hasAppliedInitialFixtureRef.current) {
-      return;
-    }
-    const description = enabled
-      ? FileExplorerStrings.inlineFixture.enableSuccess
-      : FileExplorerStrings.inlineFixture.disableSuccess;
-    showToastRef.current?.({
-      title: FileExplorerStrings.success.title,
-      description,
-    });
-  }, []);
-
-  const notifyError = useCallback((enabled: boolean) => {
-    const description = enabled
-      ? FileExplorerStrings.inlineFixture.enableError
-      : FileExplorerStrings.inlineFixture.disableError;
-    showToastRef.current?.({
-      title: FileExplorerStrings.error.title,
-      description,
-      variant: 'destructive',
-    });
-  }, []);
-
-  const prevTargetStateRef = useRef<boolean | null>(null);
-
-  useEffect(() => {
-    if (!(fixtureAdapter && inlineFixtureAvailable)) {
-      if (devInlineFixtureEnabled) {
-        setDevInlineFixtureEnabled(false);
-      }
-      return;
-    }
-
-    if (!(hasAppliedInitialFixtureRef.current || devInlineFixtureEnabled)) {
-      return;
-    }
-
-    if (
-      prevTargetStateRef.current === devInlineFixtureEnabled &&
-      hasAppliedInitialFixtureRef.current
-    ) {
-      return;
-    }
-    prevTargetStateRef.current = devInlineFixtureEnabled;
-
-    let isCancelled = false;
-    const targetState = devInlineFixtureEnabled;
-    // Avoid re-applying the same state if the fixture is already in the desired state.
-    // This prevents the effect from running when unrelated dependencies (like the adapter)
-    // change after the initial application.
-    const currentActive = fixtureAdapter?.isInlineFixtureActive?.() ?? false;
-    if (currentActive === targetState) {
-      // Mark that we've applied the initial fixture so future toggles work correctly,
-      // but skip the async work since nothing needs to change.
-      hasAppliedInitialFixtureRef.current = true;
-      return;
-    }
-
-    const applySetting = async () => {
-      setIsInlineFixtureLoading(true);
-      try {
-        if (targetState) {
-          await enableInlineFixture();
-        } else {
-          await disableInlineFixture();
-        }
-        notifySuccess(targetState);
-        hasAppliedInitialFixtureRef.current = true;
-      } catch (error) {
-        logger.warn('Failed to toggle inline fixture', { error, targetState });
-        notifyError(targetState);
-        setDevInlineFixtureEnabled(!targetState);
-      } finally {
-        if (!isCancelled) {
-          setIsInlineFixtureLoading(false);
-        }
-        hasAppliedInitialFixtureRef.current = true;
-      }
-    };
-
-    void applySetting();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [
-    devInlineFixtureEnabled,
-    disableInlineFixture,
-    enableInlineFixture,
-    inlineFixtureAvailable,
-    notifyError,
-    notifySuccess,
-    setDevInlineFixtureEnabled,
-    fixtureAdapter,
-  ]);
-
   const handleFilterChange = useCallback(
     (newIncludeFilters: string[], newExcludeFilters: string[], newUseRegex: boolean) => {
       // applyFileFilters internally calls setFilters and setUseRegex, so no need to call setFilters separately
@@ -412,11 +295,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     },
     [applyFileFilters]
   );
-
-  const handleTreeRender = useCallback(() => {
-    // This callback is called when the tree is rendered
-    // You can use this to trigger any necessary updates
-  }, []);
 
   // biome-ignore lint/plugin: Sync folder ID with root directory handle - controlled state update
   useEffect(() => {
@@ -433,14 +311,36 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   }, [rootDirectoryHandle, setCurrentFolderId, store]);
 
   const expandAll = useCallback(() => {
-    if (fileTree && fileTree.length > 0) {
-      store.getState().expandAllDirectories(fileTree);
+    logger.info('expandAll clicked', {
+      isExpandingAll,
+      hasFileTree: !!fileTree,
+      fileTreeLength: fileTree?.length ?? 0,
+    });
+
+    // Prevent clicks while expand-all is already running
+    if (isExpandingAll) {
+      logger.info('expandAll: blocked - already expanding');
+      return;
     }
-  }, [fileTree, store]);
+    if (fileTree && fileTree.length > 0) {
+      logger.info('expandAll: calling expandAllProgressively');
+      // Use progressive expand-all that loads directories on demand
+      const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
+        const currentPaths = store.getState().expandedDirectoryPaths;
+        const newPaths = updater(currentPaths);
+        store.getState().setExpandedPaths(newPaths);
+      };
+      void expandAllProgressively(setExpandedPaths);
+    } else {
+      logger.warn('expandAll: no file tree or empty tree');
+    }
+  }, [fileTree, store, expandAllProgressively, isExpandingAll]);
 
   const collapseAll = useCallback(() => {
+    // Cancel any in-progress expand-all first
+    cancelExpandAll();
     store.getState().collapseAllDirectories();
-  }, [store]);
+  }, [store, cancelExpandAll]);
 
   const handleCancelOperation = useCallback(() => {
     cancelOperation();
@@ -451,25 +351,32 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     });
   }, [cancelOperation, showToast]);
 
+  // Compute scanning status props - extracted to reduce complexity
+  const scanningStatusProps = useMemo(
+    () =>
+      computeScanningStatusProps({
+        loadingProgress,
+        isExpandingAll,
+        expandAllProgress,
+        cancellable,
+        isCancelling,
+        cancelExpandAll,
+        handleCancelOperation,
+      }),
+    [
+      loadingProgress,
+      isExpandingAll,
+      expandAllProgress,
+      cancellable,
+      isCancelling,
+      cancelExpandAll,
+      handleCancelOperation,
+    ]
+  );
+
   return (
     <FileExplorerErrorBoundary>
       <div className="grid h-full grid-rows-[auto_1fr_auto]">
-        <LoadingOverlay
-          cancellable={cancellable}
-          className="z-50"
-          isCancelling={isCancelling}
-          isInitialLoad={isInitialLoad}
-          isLoading={isLoading}
-          onCancel={handleCancelOperation}
-          progressState={
-            loadingProgress ?? {
-              loaded: 0,
-              total: 0,
-              phase: 'counting' as const,
-            }
-          }
-        />
-
         {/* Fixed Header */}
         <div className="shrink-0">
           <FileExplorerToolbar
@@ -493,68 +400,26 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             quickFilter={quickFilter}
             useRegex={useRegex}
           />
+          {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
+          <RestorationStatus
+            isRestoring={isRestoringExpandedPaths}
+            progress={restorationProgress}
+          />
         </div>
 
         {/* Scrollable Middle Content */}
         <div className="relative min-h-0 flex-1">
           {/* Fixed buttons overlay - outside scrollable area */}
           {rootDirectoryHandle && (
-            <div className="absolute top-2 right-6 z-20 flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    aria-label="Refresh"
-                    className="h-7 w-7 bg-background/80 shadow-sm backdrop-blur-sm"
-                    data-testid="refresh-button-small"
-                    disabled={isLoading || isRefreshing}
-                    onClick={handleRefresh}
-                    size="icon"
-                    variant="ghost"
-                  >
-                    <RefreshCw className={cn('h-3.5 w-3.5', { 'animate-spin': isRefreshing })} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Refresh file tree</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    aria-label="Expand All"
-                    className="h-7 w-7 bg-background/80 shadow-sm backdrop-blur-sm"
-                    data-testid="expand-all-button-small"
-                    disabled={isLoading || isRefreshing}
-                    onClick={expandAll}
-                    size="icon"
-                    variant="ghost"
-                  >
-                    <ChevronsDown className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Expand all directories</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    aria-label="Collapse All"
-                    className="h-7 w-7 bg-background/80 shadow-sm backdrop-blur-sm"
-                    data-testid="collapse-all-button-small"
-                    disabled={isLoading || isRefreshing}
-                    onClick={collapseAll}
-                    size="icon"
-                    variant="ghost"
-                  >
-                    <ChevronsUp className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Collapse all directories</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
+            <TreeActionButtons
+              isExpandingAll={isExpandingAll}
+              isLoading={isLoading}
+              isRefreshing={isRefreshing}
+              onCollapseAll={collapseAll}
+              onExpandAll={expandAll}
+              onRefresh={handleRefresh}
+              scanningStatus={scanningStatusProps}
+            />
           )}
 
           {/* Scrollable content */}
@@ -566,7 +431,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
                 isInitialLoad={isInitialLoad}
                 isLoading={isLoading}
                 loadingFiles={loadingFiles}
-                onTreeRender={handleTreeRender}
+                loadingPaths={loadingPaths}
+                onLoadChildren={loadChildren}
                 quickFilteredTree={quickFilteredTree}
                 rootDirectoryHandle={rootDirectoryHandle}
                 treeError={error}
@@ -577,17 +443,15 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
         {/* Fixed Footer */}
         <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent px-4 py-3">
-          <Suspense fallback={<LoadingFallback />}>
-            <ActionButtons
-              currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
-              displayedFiles={displayedFileList}
-              encodeFileSelection={encodeFileSelection}
-              maxSelectionCount={maxSelectionCount}
-              onSelectionLimitExceeded={() => {}}
-              selectedFiles={safeSelectedFilesList}
-              setSelectedFiles={safeSetSelectedFilesFromList}
-            />
-          </Suspense>
+          <ActionButtons
+            currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
+            displayedFiles={displayedFileList}
+            encodeFileSelection={encodeFileSelection}
+            maxSelectionCount={maxSelectionCount}
+            onSelectionLimitExceeded={() => {}}
+            selectedFiles={safeSelectedFilesList}
+            setSelectedFiles={safeSetSelectedFilesFromList}
+          />
         </div>
       </div>
     </FileExplorerErrorBoundary>
