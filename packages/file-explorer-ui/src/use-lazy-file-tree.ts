@@ -39,7 +39,23 @@ function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
 
 /**
  * Check if loadRoot should skip execution.
- * Extracted to reduce cognitive complexity.
+ *
+ * This function is extracted to reduce cognitive complexity and centralize
+ * the skip-logic decision. It returns a result object with skip flag and
+ * optional reason for debugging.
+ *
+ * Skip conditions:
+ * 1. expand-all in progress for same root - prevents duplicate loading
+ * 2. already initialized for this root with files - prevents unnecessary reloads
+ *
+ * IMPORTANT: refreshTree must reset initializedRoot to null before calling
+ * loadRoot to bypass the "already initialized" check and force a reload.
+ *
+ * @param rootPath - The path of the root to load
+ * @param isExpandingAll - Whether expand-all operation is in progress
+ * @param initializedRoot - The currently initialized root path (or null)
+ * @param fileTreeLength - Number of items in the current file tree
+ * @returns Object with skip flag and optional reason string
  */
 function shouldSkipLoadRoot(
   rootPath: string,
@@ -464,7 +480,17 @@ export function useLazyFileTree(
 
   /**
    * Refresh the entire tree from root.
+   *
    * Resets initializedRootRef to force loadRoot to reload the tree.
+   * Without this reset, shouldSkipLoadRoot would return skip=true for
+   * "already initialized" roots, preventing the tree from actually refreshing.
+   *
+   * @example
+   * ```tsx
+   * const { refreshTree } = useLazyFileTree({ rootFolderId: 'my-root' });
+   * // After file system changes, call refreshTree to reload from disk
+   * await refreshTree();
+   * ```
    */
   const refreshTree = useCallback(async () => {
     // Reset initialized ref to force loadRoot to reload the tree
