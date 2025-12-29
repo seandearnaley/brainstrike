@@ -11,12 +11,28 @@ export type AssistantStatusFetcher = (signal: AbortSignal) => Promise<AssistantA
 
 const defaultFetcher: AssistantStatusFetcher = (signal) => fetchAssistantStatusState({ signal });
 
+declare global {
+  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
+  interface Window {
+    __assistantAvailabilityOverride?: AssistantAvailabilityStatus;
+  }
+}
+
 export function useAssistantAvailability(
   fetcher: AssistantStatusFetcher = defaultFetcher
 ): AssistantAvailabilityStatus {
-  const [status, setStatus] = useState<AssistantAvailabilityStatus>({ state: 'loading' });
+  const override =
+    typeof window === 'undefined' ? undefined : window.__assistantAvailabilityOverride;
+  const [status, setStatus] = useState<AssistantAvailabilityStatus>(
+    override ?? { state: 'loading' }
+  );
 
   useEffect(() => {
+    if (override) {
+      setStatus(override);
+      return;
+    }
+
     let cancelled = false;
     const controller = new AbortController();
 
@@ -43,7 +59,7 @@ export function useAssistantAvailability(
       cancelled = true;
       controller.abort();
     };
-  }, [fetcher]);
+  }, [fetcher, override]);
 
   return status;
 }

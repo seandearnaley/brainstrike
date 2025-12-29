@@ -492,6 +492,7 @@ export const createUiModuleMock = () => ({
       </div>
     );
   },
+  useToast: () => ({ toast: () => {} }),
 });
 
 export const createHooksModuleMock = () => {

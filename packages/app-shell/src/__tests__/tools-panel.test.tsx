@@ -112,7 +112,7 @@ describe('ToolsPanel', () => {
     expect(screen.getByRole('tab', { name: /assistant/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /embed/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /vectors/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /db/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /database/i })).toBeInTheDocument();
 
     // Wait for async state updates to complete
     await screen.findByTestId('assistant-chat-card');
@@ -148,8 +148,8 @@ describe('ToolsPanel', () => {
     expect(await within(vectorsPanel).findByTestId('mock-vectors-panel')).toBeInTheDocument();
 
     // Click on the database tab
-    await user.click(screen.getByRole('tab', { name: /db/i }));
-    const dbPanel = await screen.findByRole('tabpanel', { name: /db/i });
+    await user.click(screen.getByRole('tab', { name: /database/i }));
+    const dbPanel = await screen.findByRole('tabpanel', { name: /database/i });
     expect(dbPanel).toBeInTheDocument();
     expect(await within(dbPanel).findByTestId('mock-database-panel')).toBeInTheDocument();
 
@@ -199,8 +199,8 @@ describe('ToolsPanel', () => {
     const vectorsPanel = await screen.findByRole('tabpanel', { name: /vectors/i });
     expect(await within(vectorsPanel).findByTestId('mock-vectors-panel')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('tab', { name: /db/i }));
-    const dbPanel = await screen.findByRole('tabpanel', { name: /db/i });
+    await user.click(screen.getByRole('tab', { name: /database/i }));
+    const dbPanel = await screen.findByRole('tabpanel', { name: /database/i });
     expect(await within(dbPanel).findByTestId('mock-database-panel')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /assistant/i }));

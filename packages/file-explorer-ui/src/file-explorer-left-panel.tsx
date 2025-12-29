@@ -6,10 +6,12 @@ import { createLogger, encodeFileSelection, parseFilterString } from '@brainstri
 const logger = createLogger('FileExplorerLeftPanel');
 
 import * as React from 'react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import ActionButtons from './action-buttons-array-facade';
 import { TreeActionButtons } from './components/tree-action-buttons';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import FileExplorerSidebar from './file-explorer-sidebar';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
@@ -18,21 +20,6 @@ import { useBackgroundTokenIndexerIntegration } from './use-background-token-ind
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 import { computeScanningStatusProps } from './utils/scanning-status-props';
-
-// Lazy load the sidebar component (relative import to avoid duplicate module graphs/context)
-
-const FileExplorerSidebar = lazy(() =>
-  import('./file-explorer-sidebar').then((m) => ({
-    default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
-  }))
-);
-
-// Lazy load array facade for action buttons
-const ActionButtons = lazy(() =>
-  import('./action-buttons-array-facade').then((m) => ({
-    default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
-  }))
-);
 
 // Quick filter helpers (factored to keep component complexity low)
 
@@ -456,17 +443,15 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
         {/* Fixed Footer */}
         <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent px-4 py-3">
-          <Suspense fallback={<LoadingFallback />}>
-            <ActionButtons
-              currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
-              displayedFiles={displayedFileList}
-              encodeFileSelection={encodeFileSelection}
-              maxSelectionCount={maxSelectionCount}
-              onSelectionLimitExceeded={() => {}}
-              selectedFiles={safeSelectedFilesList}
-              setSelectedFiles={safeSetSelectedFilesFromList}
-            />
-          </Suspense>
+          <ActionButtons
+            currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
+            displayedFiles={displayedFileList}
+            encodeFileSelection={encodeFileSelection}
+            maxSelectionCount={maxSelectionCount}
+            onSelectionLimitExceeded={() => {}}
+            selectedFiles={safeSelectedFilesList}
+            setSelectedFiles={safeSetSelectedFilesFromList}
+          />
         </div>
       </div>
     </FileExplorerErrorBoundary>

@@ -13,14 +13,14 @@ export function ThemeToggle() {
       <TooltipTrigger asChild>
         <Button
           aria-label={tooltipLabel}
-          className="kinetic-depress h-12 w-12 rounded-lg transition-all duration-200 ease-out hover:-translate-y-0.5 hover:shadow-sm active:translate-y-0"
+          className="kinetic-depress hover:-translate-y-0.5 h-12 w-12 rounded-lg transition-all duration-200 ease-out hover:shadow-sm active:translate-y-0"
           onClick={() => setTheme(nextTheme)}
           size="icon"
           variant="ghost"
         >
           <Sun
             aria-hidden="true"
-            className="h-5 w-5 rotate-0 scale-100 transition-all duration-300 dark:-rotate-90 dark:scale-0"
+            className="dark:-rotate-90 h-5 w-5 rotate-0 scale-100 transition-all duration-300 dark:scale-0"
             data-testid="theme-sun-icon"
           />
           <Moon

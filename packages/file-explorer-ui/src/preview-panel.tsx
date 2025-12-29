@@ -2,13 +2,7 @@ import { usePagination } from '@brainstrike/hooks';
 import { DEFAULT_TOKEN_BUDGET } from '@brainstrike/types';
 import {
   Button,
-  Checkbox,
   EmptyState,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  SortableTableHeader,
-  TableGroupHeader,
   TablePagination,
   Tabs,
   TabsContent,
@@ -22,51 +16,38 @@ import {
 import { createLogger } from '@brainstrike/utils';
 import {
   CheckSquare,
-  Columns3,
-  Download,
   FileText,
   FileX2,
-  FolderOpen,
   LayoutGrid,
-  Maximize2,
-  Minimize2,
   RotateCcw,
   Table as TableIcon,
 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useGroupSelection } from './hooks/use-group-selection';
-import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
-import IncludeProjectTreeSetting from './include-project-tree-setting';
-import { PreviewTableRow } from './preview-table-row';
+import { usePreviewPanelPreferences } from './hooks/use-preview-panel-preferences';
+import { ColumnVisibilityControls } from './preview-column-visibility-controls';
+import { PreviewGroupingControls } from './preview-grouping-controls';
+import { PreviewPanelFooter, type TokenUsageMetrics } from './preview-panel-footer';
+import { PreviewTable } from './preview-table';
+import { buildTapestryFileBase } from './tapestry/tapestry-adapter';
 import { TapestryView } from './tapestry/tapestry-view';
-import { TokenBudgetControl } from './token-budget-control';
-import { TokenMeter } from './token-meter';
-import { TokenSummaryBar } from './token-summary-bar';
-import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
+import type { TapestryRange } from './tapestry/types';
+import { createRangeId, getStableColorForKey } from './tapestry/utils';
+import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 import type { TokenCountingState } from './use-token-counting';
 import {
   GROUPING_CONFIGS,
-  type GroupedData,
   type GroupKey,
   groupData,
   type TableRowData,
 } from './utils/grouping-configs';
+import { buildGroupedPageSections, getVisibleFilesOnPage } from './utils/preview-pagination';
 
 const logger = createLogger('PreviewPanel');
-
-type TokenUsageMetrics = {
-  budget: number;
-  selectedTokens: number;
-  includedTreeTokens: number;
-  usedTokens: number;
-  treePercent: number;
-  selectedPercent: number;
-  usedPercent: number;
-  treeLabel: string;
-  remainingLabel: string;
-  isOverBudget: boolean;
-};
+// Cap tapestry items per page so previews keep a readable "page" density.
+const TAPESTRY_MAX_PAGE_SIZE = 24;
+const DECODED_SELECTION_CACHE_LIMIT = 2000;
 
 function getTokenUsageMetrics(args: {
   budget: number;
@@ -140,663 +121,115 @@ type PreviewPanelProps = {
   onTokenBudgetChange?: (budget: number) => void;
   folderSummaryThreshold?: number;
   onFolderSummaryThresholdChange?: (threshold: number) => void;
+  onRequestFileContent?: (compositeKey: string) => void;
 };
 
-// Column configuration
-type ColumnConfig = {
-  id: string;
-  label: string;
-  accessor: keyof TableRowData | 'checkbox';
-  canHide: boolean;
-  defaultVisible: boolean;
-};
+type TapestryRangeMap = Record<string, TapestryRange[]>;
 
-const COLUMN_CONFIGS: ColumnConfig[] = [
-  {
-    id: 'checkbox',
-    label: 'Selection',
-    accessor: 'checkbox',
-    canHide: false,
-    defaultVisible: true,
-  },
-  {
-    id: 'rootFolderId',
-    label: 'Folder',
-    accessor: 'rootFolderId',
-    canHide: true,
-    defaultVisible: true,
-  },
-  { id: 'path', label: 'File Path', accessor: 'path', canHide: false, defaultVisible: true },
-  { id: 'type', label: 'Type', accessor: 'type', canHide: true, defaultVisible: true },
-  { id: 'tokens', label: 'Tokens', accessor: 'tokens', canHide: true, defaultVisible: true },
-  { id: 'size', label: 'Size', accessor: 'size', canHide: true, defaultVisible: true },
-];
-
-// Utility functions to reduce complexity
-function loadStoredPreferences(storageKey: string) {
-  try {
-    const stored = localStorage.getItem(storageKey);
-    return stored ? JSON.parse(stored) : null;
-  } catch (error) {
-    logger.warn('Failed to parse stored preferences', { storageKey, error });
-    return null;
-  }
+function createDefaultTapestryRanges(compositeKey: string, totalLines: number): TapestryRange[] {
+  return [
+    {
+      id: createRangeId(),
+      startLine: 0,
+      endLine: totalLines,
+      isActive: true,
+      color: getStableColorForKey(compositeKey),
+    },
+  ];
 }
 
-function createDefaultColumnVisibility(): ColumnVisibility {
-  return {
-    checkbox: true,
-    rootFolderId: true,
-    path: true,
-    type: true,
-    tokens: true,
-    size: true,
-  };
+function shouldStretchDefaultRange(
+  ranges: TapestryRange[],
+  previousTotal: number
+): ranges is [TapestryRange] {
+  if (ranges.length !== 1) {
+    return false;
+  }
+  const firstRange = ranges[0];
+  if (!firstRange) {
+    return false;
+  }
+  return firstRange.startLine === 0 && firstRange.endLine === previousTotal;
 }
 
-function getStoredColumnVisibility(storageKey: string): ColumnVisibility {
-  const stored = loadStoredPreferences(storageKey);
-  if (stored?.columnVisibility) {
-    return {
-      checkbox: true,
-      rootFolderId: stored.columnVisibility.rootFolderId ?? true,
-      path: true, // Always keep path visible
-      type: stored.columnVisibility.type ?? true,
-      tokens: stored.columnVisibility.tokens ?? true,
-      size: stored.columnVisibility.size ?? true,
-    };
-  }
-  return createDefaultColumnVisibility();
+function stretchDefaultRange(range: TapestryRange, totalLines: number): TapestryRange[] {
+  return [{ ...range, endLine: totalLines }];
 }
 
-function getStoredValue<T>(storageKey: string, key: string, defaultValue: T): T {
-  const stored = loadStoredPreferences(storageKey);
-  return stored?.[key] ?? defaultValue;
+function clampRangeToTotal(range: TapestryRange, totalLines: number): TapestryRange {
+  const maxStart = Math.max(totalLines - 1, 0);
+  const startLine = Math.min(Math.max(range.startLine, 0), maxStart);
+  const endLine = Math.min(Math.max(range.endLine, startLine + 1), totalLines);
+  if (startLine === range.startLine && endLine === range.endLine) {
+    return range;
+  }
+  return { ...range, startLine, endLine };
 }
 
-/**
- * Migrate legacy grouping config values to current option names.
- * The 'folder' option was renamed to 'rootFolder' in favor of new 'directory' grouping.
- */
-function migrateGroupingConfig(value: string): string {
-  if (value === 'folder') {
-    return 'rootFolder';
-  }
-  return value;
+function clampRangesToTotal(
+  ranges: TapestryRange[],
+  totalLines: number
+): { ranges: TapestryRange[]; changed: boolean } {
+  let changed = false;
+  const nextRanges = ranges.map((range) => {
+    const nextRange = clampRangeToTotal(range, totalLines);
+    if (nextRange !== range) {
+      changed = true;
+    }
+    return nextRange;
+  });
+  return { ranges: nextRanges, changed };
 }
 
-// Column visibility controls component
-type ColumnVisibilityControlsProps = {
-  columnVisibility: ColumnVisibility;
-  onColumnVisibilityChange: (visibility: ColumnVisibility) => void;
-};
+function syncTapestryRanges(args: {
+  prev: TapestryRangeMap;
+  bases: Map<string, ReturnType<typeof buildTapestryFileBase>>;
+  totals: Map<string, number>;
+}): { next: TapestryRangeMap; changed: boolean; totals: Map<string, number> } {
+  const next: TapestryRangeMap = { ...args.prev };
+  let changed = false;
+  const nextTotals = new Map(args.totals);
 
-const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
-  function ColumnVisibilityControlsComponent({ columnVisibility, onColumnVisibilityChange }) {
-    return (
-      <Popover>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <PopoverTrigger asChild>
-              <Button className="@[600px]:h-9 h-8 @[600px]:px-3 px-2" size="sm" variant="outline">
-                <Columns3 className="@[600px]:mr-2 size-3.5" />
-                <span className="@[600px]:inline hidden">Columns</span>
-              </Button>
-            </PopoverTrigger>
-          </TooltipTrigger>
-          <TooltipContent>Select visible columns</TooltipContent>
-        </Tooltip>
-        <PopoverContent align="end" className="w-48 p-2">
-          <div className="space-y-1">
-            {COLUMN_CONFIGS.filter((col) => col.canHide).map((column) => (
-              <div
-                className="flex cursor-pointer items-center space-x-2 rounded px-2 py-1.5 hover:bg-accent"
-                key={column.id}
-              >
-                <Checkbox
-                  checked={columnVisibility[column.id as keyof ColumnVisibility] ?? false}
-                  disabled={column.id === 'checkbox' || column.id === 'path'}
-                  id={`column-${column.id}`} // Keep essential columns always visible
-                  onCheckedChange={(checked) => {
-                    onColumnVisibilityChange({
-                      ...columnVisibility,
-                      [column.id]: !!checked,
-                    });
-                  }}
-                />
-                <label
-                  className="cursor-pointer select-none text-sm"
-                  htmlFor={`column-${column.id}`}
-                >
-                  {column.label}
-                </label>
-              </div>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
-    );
-  }
-);
+  for (const [compositeKey, base] of args.bases) {
+    const previousTotal = nextTotals.get(compositeKey);
+    nextTotals.set(compositeKey, base.totalLines);
 
-/**
- * PreviewPanelFooter - Consolidated footer with token controls and report actions.
- *
- * Groups related functionality:
- * - Token meter and usage stats (how much context you're generating)
- * - Budget control (set your limit)
- * - Include project tree toggle (affects token count)
- * - Report actions (download/copy the context)
- */
-type PreviewPanelFooterProps = {
-  totalFiles: number;
-  tokenCounting: TokenCountingState;
-  tokenUsage: TokenUsageMetrics;
-  includeProjectTree: boolean;
-  treeLoading?: boolean;
-  onTokenBudgetChange?: ((budget: number) => void) | undefined;
-  selectedFilesCount: number;
-  onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
-  onDownloadReport?: (() => void) | undefined;
-  onCopyReport?: (() => void) | undefined;
-  folderSummaryThreshold?: number;
-  onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
-};
-
-const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
-  function PreviewPanelFooterComponent(props) {
-    const {
-      totalFiles,
-      tokenCounting,
-      tokenUsage,
-      includeProjectTree,
-      treeLoading = false,
-      onTokenBudgetChange,
-      selectedFilesCount,
-      onIncludeProjectTreeChange,
-      onDownloadReport,
-      onCopyReport,
-      folderSummaryThreshold = 5,
-      onFolderSummaryThresholdChange,
-    } = props;
-
-    return (
-      <div className="@container flex flex-shrink-0 flex-row gap-3 border-t bg-background p-3">
-        {/* Left column: Token Meter - visually spanning multiple rows */}
-        <div className="flex flex-shrink-0 items-center">
-          <TokenMeter
-            budget={tokenUsage.budget}
-            includeTree={includeProjectTree}
-            isOverBudget={tokenUsage.isOverBudget}
-            selectedTokens={tokenUsage.selectedTokens}
-            size="md"
-            treeTokens={tokenUsage.includedTreeTokens}
-            usedTokens={tokenUsage.usedTokens}
-          />
-        </div>
-
-        {/* Right column: Stats and controls in two rows */}
-        <div className="flex min-w-0 flex-1 flex-col justify-center gap-2.5">
-          {/* Top row: Token Summary Stats */}
-          <div className="flex min-w-0 items-center">
-            <TokenSummaryBar
-              budget={tokenUsage.budget}
-              includeTree={includeProjectTree}
-              isOverBudget={tokenUsage.isOverBudget}
-              selectedTokens={tokenUsage.selectedTokens}
-              tokenCounting={tokenCounting}
-              totalFiles={totalFiles}
-              treeLoading={treeLoading}
-              treeTokens={tokenUsage.includedTreeTokens}
-            />
-          </div>
-
-          {/* Bottom row: Controls and actions */}
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Budget Control - popover with presets */}
-            <TokenBudgetControl budget={tokenUsage.budget} onBudgetChange={onTokenBudgetChange} />
-
-            {/* Visual separator */}
-            {onIncludeProjectTreeChange && (
-              <div aria-hidden className="@[450px]:block hidden h-6 w-px bg-border" />
-            )}
-
-            {/* Include Project Tree toggle */}
-            {onIncludeProjectTreeChange && (
-              <div className="flex items-center gap-2">
-                <TooltipProvider delayDuration={400}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <div className="flex items-center gap-2">
-                        <IncludeProjectTreeSetting
-                          checked={includeProjectTree}
-                          onChange={onIncludeProjectTreeChange}
-                        />
-                      </div>
-                    </TooltipTrigger>
-                    <TooltipContent>Include project tree in the context</TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            )}
-
-            {/* Folder Summary Threshold - only show when tree is included and handler exists */}
-            {includeProjectTree && onFolderSummaryThresholdChange && (
-              <>
-                <div aria-hidden className="@[650px]:block hidden h-6 w-px bg-border" />
-                <div className="flex items-center gap-2">
-                  <label
-                    className="whitespace-nowrap text-muted-foreground text-xs"
-                    htmlFor="folder-summary-threshold-footer"
-                    title="Number of files shown per folder in the project tree before summarizing. Set to 0 to show all."
-                  >
-                    <span className="@[700px]:inline hidden">Tree detail:</span>
-                    <span className="@[500px]:inline @[700px]:hidden hidden">Detail:</span>
-                  </label>
-                  <input
-                    className="h-7 @[500px]:w-14 w-12 rounded-md border border-input bg-background px-1.5 text-center text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
-                    id="folder-summary-threshold-footer"
-                    min="0"
-                    onChange={(e) => {
-                      const value = Number.parseInt(e.target.value, 10);
-                      if (!Number.isNaN(value) && value >= 0) {
-                        onFolderSummaryThresholdChange(value);
-                      }
-                    }}
-                    title="Files per folder before summarizing (0 = show all)"
-                    type="number"
-                    value={folderSummaryThreshold}
-                  />
-                </div>
-              </>
-            )}
-
-            {/* Spacer to push report buttons to the right */}
-            <div className="@[850px]:block hidden flex-1" />
-
-            {/* Report action buttons */}
-            <div className="flex flex-wrap items-center gap-2">
-              <TooltipProvider delayDuration={400}>
-                {onDownloadReport && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        aria-label={
-                          selectedFilesCount === 0
-                            ? 'Download Report (no files selected)'
-                            : 'Download Report'
-                        }
-                        className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                        data-testid="download-report-button"
-                        disabled={selectedFilesCount === 0}
-                        onClick={onDownloadReport}
-                        size="sm"
-                        variant="outline"
-                      >
-                        <Download className="@[600px]:mr-2 size-3.5" />
-                        <span className="@[700px]:inline hidden">Download Report</span>
-                        <span className="@[500px]:inline @[700px]:hidden hidden">Download</span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Download report as file</TooltipContent>
-                  </Tooltip>
-                )}
-                {onCopyReport && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        aria-label={
-                          selectedFilesCount === 0
-                            ? 'Copy Report (no files selected)'
-                            : 'Copy Report'
-                        }
-                        className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                        data-testid="copy-report-button"
-                        disabled={selectedFilesCount === 0}
-                        onClick={onCopyReport}
-                        size="sm"
-                        variant="outline"
-                      >
-                        <FileText className="@[600px]:mr-2 size-3.5" />
-                        <span className="@[700px]:inline hidden">Copy Report</span>
-                        <span className="@[500px]:inline @[700px]:hidden hidden">Copy</span>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>Copy report to clipboard</TooltipContent>
-                  </Tooltip>
-                )}
-              </TooltipProvider>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-);
-
-// Preview Table component to reduce main component complexity
-type PreviewTableProps = {
-  columnVisibility: ColumnVisibility;
-  sortField: keyof TableRowData;
-  sortDirection: 'asc' | 'desc';
-  groupingConfig: string;
-  groupedData: GroupedData<TableRowData>[];
-  currentPageData: TableRowData[];
-  collapsedGroups: Set<string>;
-  previewSelections: Set<string>;
-  onSort: (field: keyof TableRowData) => void;
-  onToggleSelection: (compositeKey: string, checked: boolean) => void;
-  onSelectAllOnPage: (items: TableRowData[]) => void;
-  onDeselectAll: () => void;
-  isAllSelected: (items: TableRowData[]) => boolean;
-  onFileClick?: ((compositeKey: string) => void) | undefined;
-  toggleGroupCollapse: (groupKey: GroupKey) => void;
-  isGroupFullySelected: (group: GroupedData<TableRowData>) => boolean;
-  isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
-  handleGroupSelectAll: (group: GroupedData<TableRowData>) => void;
-  handleGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
-  pagination: { startIndex: number; endIndex: number };
-};
-
-type VisibleFilesOnPageInput = {
-  groupingConfig: string;
-  currentPageData: TableRowData[];
-  groupedData: GroupedData<TableRowData>[];
-  collapsedGroups: Set<string>;
-  startIndex: number;
-  endIndex: number;
-};
-
-function getVisibleFilesOnPage(input: VisibleFilesOnPageInput): TableRowData[] {
-  if (input.groupingConfig === 'none') {
-    return input.currentPageData;
-  }
-
-  const visibleFiles: TableRowData[] = [];
-  let itemCount = 0;
-
-  for (const group of input.groupedData) {
-    itemCount += 1; // group header
-
-    if (input.collapsedGroups.has(String(group.groupKey))) {
+    if (!next[compositeKey]) {
+      next[compositeKey] = createDefaultTapestryRanges(compositeKey, base.totalLines);
+      changed = true;
       continue;
     }
 
-    for (const item of group.items) {
-      if (itemCount >= input.startIndex && itemCount < input.endIndex) {
-        visibleFiles.push(item);
-      }
-      itemCount += 1;
-      if (itemCount >= input.endIndex) {
-        break;
+    const ranges = next[compositeKey];
+    if (
+      previousTotal !== undefined &&
+      previousTotal !== base.totalLines &&
+      shouldStretchDefaultRange(ranges, previousTotal)
+    ) {
+      const [firstRange] = ranges;
+      if (firstRange) {
+        next[compositeKey] = stretchDefaultRange(firstRange, base.totalLines);
+        changed = true;
       }
     }
 
-    if (itemCount >= input.endIndex) {
-      break;
+    const clamped = clampRangesToTotal(next[compositeKey], base.totalLines);
+    if (clamped.changed) {
+      next[compositeKey] = clamped.ranges;
+      changed = true;
     }
   }
 
-  return visibleFiles;
-}
-
-type PushGroupItemsInput = {
-  group: GroupedData<TableRowData>;
-  itemCount: number;
-  columnVisibility: ColumnVisibility;
-  previewSelections: Set<string>;
-  onToggleSelection: (compositeKey: string, checked: boolean) => void;
-  onFileClick?: ((compositeKey: string) => void) | undefined;
-  startIndex: number;
-  endIndex: number;
-  elements: React.ReactNode[];
-};
-
-function pushGroupItemsForPage(input: PushGroupItemsInput): number {
-  let currentItemCount = input.itemCount;
-
-  for (const item of input.group.items) {
-    if (currentItemCount >= input.endIndex) {
-      break;
+  for (const key of Object.keys(next)) {
+    if (!args.bases.has(key)) {
+      delete next[key];
+      nextTotals.delete(key);
+      changed = true;
     }
-
-    if (currentItemCount >= input.startIndex) {
-      input.elements.push(
-        <PreviewTableRow
-          columnVisibility={input.columnVisibility}
-          isSelected={input.previewSelections.has(item.compositeKey)}
-          item={item}
-          key={`item-${item.compositeKey}`}
-          onFileClick={input.onFileClick}
-          onToggleSelection={input.onToggleSelection}
-        />
-      );
-    }
-
-    currentItemCount += 1;
   }
 
-  return currentItemCount;
+  return { next, changed, totals: nextTotals };
 }
-
-const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(props) {
-  const {
-    columnVisibility,
-    sortField,
-    sortDirection,
-    groupingConfig,
-    groupedData,
-    currentPageData,
-    onSort,
-    onSelectAllOnPage,
-    onDeselectAll,
-    isAllSelected,
-    onFileClick,
-    onToggleSelection,
-    previewSelections,
-    collapsedGroups,
-    toggleGroupCollapse,
-    isGroupFullySelected,
-    isGroupPartiallySelected,
-    handleGroupSelectAll,
-    handleGroupDeselectAll,
-    pagination,
-  } = props;
-
-  const totalVisibleColumns = useMemo(
-    () => Object.values(columnVisibility).filter(Boolean).length,
-    [columnVisibility]
-  );
-
-  const visibleFilesOnPage = useMemo(
-    () =>
-      getVisibleFilesOnPage({
-        collapsedGroups,
-        currentPageData,
-        endIndex: pagination.endIndex,
-        groupedData,
-        groupingConfig,
-        startIndex: pagination.startIndex,
-      }),
-    [
-      collapsedGroups,
-      currentPageData,
-      groupedData,
-      groupingConfig,
-      pagination.endIndex,
-      pagination.startIndex,
-    ]
-  );
-
-  const isAllCurrentPageSelected = useMemo(
-    () => isAllSelected(visibleFilesOnPage),
-    [isAllSelected, visibleFilesOnPage]
-  );
-
-  // Group header component wrapper
-  const GroupHeaderWrapper = memo(({ group }: { group: GroupedData<TableRowData> }) => {
-    const handleSelectionChange = (checked: boolean) => {
-      if (checked) {
-        handleGroupSelectAll(group);
-      } else {
-        handleGroupDeselectAll(group);
-      }
-    };
-
-    return (
-      <TableGroupHeader
-        colSpan={totalVisibleColumns - 1}
-        groupKey={group.groupKey}
-        groupLabel={group.groupLabel}
-        icon={<FolderOpen className="size-4 text-muted-foreground" />}
-        isCollapsed={collapsedGroups.has(String(group.groupKey))}
-        isFullySelected={isGroupFullySelected(group)}
-        isPartiallySelected={isGroupPartiallySelected(group)}
-        onSelectionChange={handleSelectionChange}
-        onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
-        stats={
-          <>
-            <span>{group.count} files</span>
-            <span className="whitespace-nowrap tabular-nums">
-              {formatTokenCount(group.totalTokens)}
-            </span>
-            <span className="whitespace-nowrap tabular-nums">
-              {(group.totalSize / 1024).toFixed(1)} KB
-            </span>
-          </>
-        }
-      />
-    );
-  });
-
-  // Grouped table body renderer
-  const GroupedTableBody = memo(() => {
-    const elements: React.ReactNode[] = [];
-    let itemCount = 0;
-
-    for (const group of groupedData) {
-      const isCollapsed = collapsedGroups.has(String(group.groupKey));
-
-      // Add group header if within page bounds
-      if (itemCount >= pagination.startIndex && itemCount < pagination.endIndex) {
-        elements.push(<GroupHeaderWrapper group={group} key={`group-${group.groupKey}`} />);
-      }
-      itemCount++;
-
-      // Add group items if not collapsed
-      if (!isCollapsed) {
-        itemCount = pushGroupItemsForPage({
-          columnVisibility,
-          elements,
-          endIndex: pagination.endIndex,
-          group,
-          itemCount,
-          onFileClick,
-          onToggleSelection,
-          previewSelections,
-          startIndex: pagination.startIndex,
-        });
-      }
-
-      // Stop if we've reached the end of the page
-      if (itemCount >= pagination.endIndex) {
-        break;
-      }
-    }
-
-    return <>{elements}</>;
-  });
-
-  return (
-    <div className="flex-1 overflow-auto">
-      <div className="min-w-full">
-        <table className="w-full min-w-full table-fixed border-collapse">
-          <thead className="sticky top-0 z-10 border-b bg-background">
-            <tr>
-              {columnVisibility.checkbox && (
-                <th className="w-12 bg-background px-4 py-2" scope="col">
-                  <Checkbox
-                    aria-label="Select all files on current page"
-                    checked={isAllCurrentPageSelected}
-                    onCheckedChange={(checked) =>
-                      checked ? onSelectAllOnPage(visibleFilesOnPage) : onDeselectAll()
-                    }
-                    title="Select all files on current page"
-                  />
-                </th>
-              )}
-              {columnVisibility.rootFolderId && (
-                <SortableTableHeader
-                  className="w-44"
-                  field="rootFolderId"
-                  onSort={onSort}
-                  sortDirection={sortDirection}
-                  sortField={sortField}
-                  title="Folder"
-                />
-              )}
-              {columnVisibility.path && (
-                <SortableTableHeader
-                  field="path"
-                  onSort={onSort}
-                  sortDirection={sortDirection}
-                  sortField={sortField}
-                  title="File Path"
-                />
-              )}
-              {columnVisibility.type && (
-                <SortableTableHeader
-                  className="w-20"
-                  field="type"
-                  onSort={onSort}
-                  sortDirection={sortDirection}
-                  sortField={sortField}
-                  title="Type"
-                />
-              )}
-              {columnVisibility.tokens && (
-                <SortableTableHeader
-                  className="w-24"
-                  field="tokens"
-                  onSort={onSort}
-                  sortDirection={sortDirection}
-                  sortField={sortField}
-                  title="Tokens"
-                />
-              )}
-              {columnVisibility.size && (
-                <SortableTableHeader
-                  className="w-24"
-                  field="size"
-                  onSort={onSort}
-                  sortDirection={sortDirection}
-                  sortField={sortField}
-                  title="Size"
-                />
-              )}
-            </tr>
-          </thead>
-          <tbody>
-            {groupingConfig === 'none' ? (
-              currentPageData.map((item) => (
-                <PreviewTableRow
-                  columnVisibility={columnVisibility}
-                  isSelected={previewSelections.has(item.compositeKey)}
-                  item={item}
-                  key={item.compositeKey}
-                  onFileClick={onFileClick}
-                  onToggleSelection={onToggleSelection}
-                />
-              ))
-            ) : (
-              <GroupedTableBody />
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-});
 
 export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelComponent(props) {
   const {
@@ -820,33 +253,36 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     onTokenBudgetChange,
     folderSummaryThreshold,
     onFolderSummaryThresholdChange,
+    onRequestFileContent,
   } = props;
 
   // Local selection state for preview panel - separate from file tree selections
   const [previewSelections, setPreviewSelections] = useState<Set<string>>(new Set());
 
-  // Safe localStorage persistence without the problematic hook
-  const storageKey = 'previewPanelPreferences.v1';
-
-  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>(() =>
-    getStoredColumnVisibility(storageKey)
+  const [tapestryRangesByKey, setTapestryRangesByKey] = useState<Record<string, TapestryRange[]>>(
+    {}
   );
+  const tapestryTotalsRef = useRef<Map<string, number>>(new Map());
 
-  const [sortField, setSortField] = useState<keyof TableRowData>(() =>
-    getStoredValue(storageKey, 'sortField', 'rootFolderId')
-  );
-
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() =>
-    getStoredValue(storageKey, 'sortDirection', 'asc')
-  );
-
-  const [groupingConfig, setGroupingConfig] = useState<string>(() =>
-    migrateGroupingConfig(getStoredValue(storageKey, 'groupingConfig', 'none'))
-  );
-
-  const [activeTab, setActiveTab] = useState<string>(() =>
-    getStoredValue(storageKey, 'activeTab', 'table')
-  );
+  const {
+    activeTab,
+    collapsedGroups,
+    columnVisibility,
+    groupingConfig,
+    setActiveTab,
+    setCollapsedGroups,
+    setColumnVisibility,
+    setGroupingConfig,
+    setSortDirection,
+    setSortField,
+    sortDirection,
+    sortField,
+  } = usePreviewPanelPreferences({
+    activeTab: 'table',
+    groupingConfig: 'none',
+    sortDirection: 'asc',
+    sortField: 'rootFolderId',
+  });
 
   const effectiveColumnVisibility = useMemo(() => {
     // Avoid redundant "Folder" column when grouping by directory or root folder (group headers already show it).
@@ -855,32 +291,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }
     return columnVisibility;
   }, [columnVisibility, groupingConfig]);
-
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
-    const storedGroups = getStoredValue(storageKey, 'collapsedGroups', []);
-    return new Set(storedGroups);
-  });
-
-  // Debounced save to localStorage
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      try {
-        const settings = {
-          columnVisibility,
-          sortField,
-          sortDirection,
-          groupingConfig,
-          activeTab,
-          collapsedGroups: Array.from(collapsedGroups),
-        };
-        localStorage.setItem(storageKey, JSON.stringify(settings));
-      } catch (error) {
-        logger.warn('Failed to save preferences to localStorage', { storageKey, error });
-      }
-    }, 250);
-
-    return () => clearTimeout(timeoutId);
-  }, [columnVisibility, sortField, sortDirection, groupingConfig, collapsedGroups, activeTab]);
 
   const state = usePreviewPanelState({
     selectedFiles,
@@ -917,12 +327,23 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     (compositeKey: string): { folderId: string; path: string } | null => {
       const cache = decodedSelectionCacheRef.current;
       if (cache.has(compositeKey)) {
-        return cache.get(compositeKey) ?? null;
+        const cached = cache.get(compositeKey) ?? null;
+        if (cached) {
+          cache.delete(compositeKey);
+          cache.set(compositeKey, cached);
+        }
+        return cached;
       }
 
       try {
         const decoded = decodeFileSelection(compositeKey);
         cache.set(compositeKey, decoded);
+        if (cache.size > DECODED_SELECTION_CACHE_LIMIT) {
+          const oldestKey = cache.keys().next().value;
+          if (oldestKey) {
+            cache.delete(oldestKey);
+          }
+        }
         return decoded;
       } catch (error) {
         logger.warn('Failed to decode composite key:', compositeKey, error);
@@ -966,6 +387,57 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       })
       .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, getDecodedSelection]);
+
+  useEffect(() => {
+    const cache = decodedSelectionCacheRef.current;
+    if (cache.size === 0) {
+      return;
+    }
+
+    const visibleKeys = new Set(tableData.map((item) => item.compositeKey));
+    for (const key of cache.keys()) {
+      if (!visibleKeys.has(key)) {
+        cache.delete(key);
+      }
+    }
+
+    while (cache.size > DECODED_SELECTION_CACHE_LIMIT) {
+      const oldestKey = cache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      cache.delete(oldestKey);
+    }
+  }, [tableData]);
+
+  const tapestryFileBaseByKey = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof buildTapestryFileBase>>();
+
+    for (const item of tableData) {
+      map.set(
+        item.compositeKey,
+        buildTapestryFileBase({
+          item,
+          content: fileContents[item.compositeKey],
+          isLoading: loadingFiles.has(item.compositeKey),
+        })
+      );
+    }
+
+    return map;
+  }, [tableData, fileContents, loadingFiles]);
+
+  useEffect(() => {
+    setTapestryRangesByKey((prev) => {
+      const { next, changed, totals } = syncTapestryRanges({
+        bases: tapestryFileBaseByKey,
+        prev,
+        totals: tapestryTotalsRef.current,
+      });
+      tapestryTotalsRef.current = totals;
+      return changed ? next : prev;
+    });
+  }, [tapestryFileBaseByKey]);
 
   // Toggle group collapse
   const toggleGroupCollapse = useCallback((groupKey: GroupKey) => {
@@ -1059,13 +531,31 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     return flattened;
   }, [groupedData, groupingConfig, sortedData]);
 
-  // Use pagination hook
-  const pagination = usePagination({
+  // Use pagination hooks (table + tapestry)
+  const tablePagination = usePagination({
     totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
     pageSize,
   });
+  const tapestryPageSize = Math.min(pageSize, TAPESTRY_MAX_PAGE_SIZE);
+  const tapestryPagination = usePagination({
+    totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
+    pageSize: tapestryPageSize,
+  });
 
-  const { currentPage, goToPage, resetToFirstPage } = pagination;
+  const {
+    currentPage: tableCurrentPage,
+    goToPage: goToTablePage,
+    resetToFirstPage: resetTableToFirstPage,
+  } = tablePagination;
+  const {
+    currentPage: tapestryCurrentPage,
+    goToPage: goToTapestryPage,
+    resetToFirstPage: resetTapestryToFirstPage,
+  } = tapestryPagination;
+  const resetAllPages = useCallback(() => {
+    resetTableToFirstPage();
+    resetTapestryToFirstPage();
+  }, [resetTableToFirstPage, resetTapestryToFirstPage]);
 
   // Use group selection hook
   const groupSelection = useGroupSelection({
@@ -1080,16 +570,182 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     isGroupFullySelected,
     isGroupPartiallySelected,
     toggleItemSelection,
+    selectAll,
     selectAllOnPage,
     deselectAll,
     isAllSelected,
   } = groupSelection;
 
+  const isAllFilesSelected = useMemo(
+    () => isAllSelected(flattenedData),
+    [flattenedData, isAllSelected]
+  );
+
   // Current page data
-  const currentPageData =
+  const tablePageData =
     groupingConfig === 'none'
-      ? flattenedData.slice(pagination.startIndex, pagination.endIndex)
+      ? flattenedData.slice(tablePagination.startIndex, tablePagination.endIndex)
       : [];
+  const tapestryPageData =
+    groupingConfig === 'none'
+      ? flattenedData.slice(tapestryPagination.startIndex, tapestryPagination.endIndex)
+      : [];
+
+  const tableVisibleFilesOnPage = useMemo(
+    () =>
+      getVisibleFilesOnPage({
+        collapsedGroups,
+        currentPageData: tablePageData,
+        endIndex: tablePagination.endIndex,
+        groupedData,
+        groupingConfig,
+        startIndex: tablePagination.startIndex,
+      }),
+    [
+      collapsedGroups,
+      groupedData,
+      groupingConfig,
+      tablePageData,
+      tablePagination.endIndex,
+      tablePagination.startIndex,
+    ]
+  );
+
+  const tapestryVisibleFilesOnPage = useMemo(
+    () =>
+      getVisibleFilesOnPage({
+        collapsedGroups,
+        currentPageData: tapestryPageData,
+        endIndex: tapestryPagination.endIndex,
+        groupedData,
+        groupingConfig,
+        startIndex: tapestryPagination.startIndex,
+      }),
+    [
+      collapsedGroups,
+      groupedData,
+      groupingConfig,
+      tapestryPageData,
+      tapestryPagination.endIndex,
+      tapestryPagination.startIndex,
+    ]
+  );
+
+  const tapestryGroupedPageSections = useMemo(
+    () =>
+      groupingConfig === 'none'
+        ? []
+        : buildGroupedPageSections({
+            collapsedGroups,
+            endIndex: tapestryPagination.endIndex,
+            groupedData,
+            startIndex: tapestryPagination.startIndex,
+          }),
+    [
+      collapsedGroups,
+      groupedData,
+      groupingConfig,
+      tapestryPagination.endIndex,
+      tapestryPagination.startIndex,
+    ]
+  );
+
+  const pageInfo = useMemo(() => {
+    if (groupingConfig === 'none' || groupedData.length <= 1) {
+      return;
+    }
+    return `(${flattenedData.length} total files, ${groupedData.length} groups)`;
+  }, [flattenedData.length, groupedData.length, groupingConfig]);
+
+  const paginationInfo = useMemo(() => (pageInfo ? { pageInfo } : {}), [pageInfo]);
+
+  const buildTapestryFile = useCallback(
+    (item: TableRowData) => {
+      const base = tapestryFileBaseByKey.get(item.compositeKey);
+      if (!base) {
+        return null;
+      }
+      return {
+        ...base,
+        selections: tapestryRangesByKey[item.compositeKey] ?? [],
+      };
+    },
+    [tapestryFileBaseByKey, tapestryRangesByKey]
+  );
+
+  const tapestryUngroupedFiles = useMemo(
+    () =>
+      groupingConfig === 'none'
+        ? tapestryPageData
+            .map((item) => buildTapestryFile(item))
+            .filter((item): item is NonNullable<typeof item> => item !== null)
+        : [],
+    [buildTapestryFile, groupingConfig, tapestryPageData]
+  );
+
+  const tapestryGroupedSections = useMemo(
+    () =>
+      groupingConfig === 'none'
+        ? []
+        : tapestryGroupedPageSections.map((section) => ({
+            ...section,
+            items: section.items
+              .map((item) => buildTapestryFile(item))
+              .filter((item): item is NonNullable<typeof item> => item !== null),
+          })),
+    [buildTapestryFile, groupingConfig, tapestryGroupedPageSections]
+  );
+
+  const activeRangesCount = useMemo(
+    () =>
+      Object.values(tapestryRangesByKey).reduce(
+        (acc, ranges) => acc + ranges.filter((range) => range.isActive).length,
+        0
+      ),
+    [tapestryRangesByKey]
+  );
+
+  const totalLinesSelected = useMemo(
+    () =>
+      Object.values(tapestryRangesByKey).reduce(
+        (acc, ranges) =>
+          acc +
+          ranges
+            .filter((range) => range.isActive)
+            .reduce((sum, range) => sum + (range.endLine - range.startLine), 0),
+        0
+      ),
+    [tapestryRangesByKey]
+  );
+
+  const handleTapestryRangesChange = useCallback((fileId: string, ranges: TapestryRange[]) => {
+    setTapestryRangesByKey((prev) => ({ ...prev, [fileId]: ranges }));
+  }, []);
+
+  const handleResetTapestryRanges = useCallback(
+    (fileIds: string[]) => {
+      setTapestryRangesByKey((prev) => {
+        const next = { ...prev };
+        for (const fileId of fileIds) {
+          const base = tapestryFileBaseByKey.get(fileId);
+          if (!base) {
+            continue;
+          }
+          next[fileId] = [
+            {
+              id: createRangeId(),
+              startLine: 0,
+              endLine: base.totalLines,
+              isActive: true,
+              color: getStableColorForKey(fileId),
+            },
+          ];
+        }
+        return next;
+      });
+    },
+    [tapestryFileBaseByKey]
+  );
 
   // Batch remove handler
   const handleBatchRemove = useCallback(() => {
@@ -1124,16 +780,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         setSortField(field);
         setSortDirection('asc');
       }
-      resetToFirstPage();
+      resetAllPages();
     },
-    [sortField, resetToFirstPage]
+    [sortField, resetAllPages]
   );
 
   const resetSort = useCallback(() => {
     setSortField('rootFolderId');
     setSortDirection('asc');
-    resetToFirstPage();
-  }, [resetToFirstPage]);
+    resetAllPages();
+  }, [resetAllPages]);
 
   // Reset to first page when grouping changes
   const prevGroupingConfigRef = useRef(groupingConfig);
@@ -1141,9 +797,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   useEffect(() => {
     if (prevGroupingConfigRef.current !== groupingConfig) {
       prevGroupingConfigRef.current = groupingConfig;
-      resetToFirstPage();
+      resetAllPages();
     }
-  }, [groupingConfig, resetToFirstPage]);
+  }, [groupingConfig, resetAllPages]);
 
   if (selectedFiles.size === 0) {
     return (
@@ -1202,68 +858,18 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           {/* Header with table controls only */}
           <TooltipProvider delayDuration={400}>
             <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-background p-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="@[550px]:inline hidden text-muted-foreground text-sm">
-                  Group by:
-                </span>
-                <select
-                  className="rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                  onChange={(e) => {
-                    setGroupingConfig(e.target.value);
-                    setCollapsedGroups(new Set());
-                  }}
-                  value={groupingConfig}
-                >
-                  {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
-                    <option key={key} value={key}>
-                      {config.label}
-                    </option>
-                  ))}
-                </select>
-                {groupingConfig !== 'none' && groupedData.length > 1 && (
-                  <div className="flex items-center gap-2">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          aria-label="Expand all groups"
-                          className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                          data-testid="expand-all-groups-button"
-                          onClick={() => setCollapsedGroups(new Set())}
-                          size="sm"
-                          variant="outline"
-                        >
-                          <Maximize2 className="@[600px]:mr-2 size-3.5" />
-                          <span className="@[800px]:inline hidden">Expand All Groups</span>
-                          <span className="@[600px]:inline @[800px]:hidden hidden">Expand All</span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Expand all groups</TooltipContent>
-                    </Tooltip>
-
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          aria-label="Collapse all groups"
-                          className="@[600px]:h-9 h-8 @[600px]:px-3 px-2"
-                          data-testid="collapse-all-groups-button"
-                          onClick={() =>
-                            setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
-                          }
-                          size="sm"
-                          variant="outline"
-                        >
-                          <Minimize2 className="@[600px]:mr-2 size-3.5" />
-                          <span className="@[800px]:inline hidden">Collapse All Groups</span>
-                          <span className="@[600px]:inline @[800px]:hidden hidden">
-                            Collapse All
-                          </span>
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>Collapse all groups</TooltipContent>
-                    </Tooltip>
-                  </div>
-                )}
-              </div>
+              <PreviewGroupingControls
+                groupedData={groupedData}
+                groupingConfig={groupingConfig}
+                onCollapseAllGroups={() =>
+                  setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
+                }
+                onExpandAllGroups={() => setCollapsedGroups(new Set())}
+                onGroupingChange={(value) => {
+                  setGroupingConfig(value);
+                  setCollapsedGroups(new Set());
+                }}
+              />
               <div className="flex flex-wrap items-center gap-2">
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -1313,28 +919,31 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           </TooltipProvider>
 
           {/* Table */}
-          <PreviewTable
-            collapsedGroups={collapsedGroups}
-            columnVisibility={effectiveColumnVisibility}
-            currentPageData={currentPageData}
-            groupedData={groupedData}
-            groupingConfig={groupingConfig}
-            handleGroupDeselectAll={handleGroupDeselectAll}
-            handleGroupSelectAll={handleGroupSelectAll}
-            isAllSelected={isAllSelected}
-            isGroupFullySelected={isGroupFullySelected}
-            isGroupPartiallySelected={isGroupPartiallySelected}
-            onDeselectAll={deselectAll}
-            onFileClick={onFileClick}
-            onSelectAllOnPage={selectAllOnPage}
-            onSort={handleSort}
-            onToggleSelection={toggleItemSelection}
-            pagination={pagination}
-            previewSelections={previewSelections}
-            sortDirection={sortDirection}
-            sortField={sortField}
-            toggleGroupCollapse={toggleGroupCollapse}
-          />
+          <FileExplorerErrorBoundary>
+            <PreviewTable
+              collapsedGroups={collapsedGroups}
+              columnVisibility={effectiveColumnVisibility}
+              currentPageData={tablePageData}
+              groupedData={groupedData}
+              groupingConfig={groupingConfig}
+              handleGroupDeselectAll={handleGroupDeselectAll}
+              handleGroupSelectAll={handleGroupSelectAll}
+              isAllSelected={isAllSelected}
+              isGroupFullySelected={isGroupFullySelected}
+              isGroupPartiallySelected={isGroupPartiallySelected}
+              onDeselectAll={deselectAll}
+              onFileClick={onFileClick}
+              onSelectAllOnPage={selectAllOnPage}
+              onSort={handleSort}
+              onToggleSelection={toggleItemSelection}
+              pagination={tablePagination}
+              previewSelections={previewSelections}
+              sortDirection={sortDirection}
+              sortField={sortField}
+              toggleGroupCollapse={toggleGroupCollapse}
+              visibleFilesOnPage={tableVisibleFilesOnPage}
+            />
+          </FileExplorerErrorBoundary>
 
           {flattenedData.length === 0 && (
             <div className="flex-1">
@@ -1348,18 +957,20 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
           {/* Pagination */}
           <TablePagination
-            currentPage={currentPage}
-            onPageChange={goToPage}
+            currentPage={tableCurrentPage}
+            onPageChange={goToTablePage}
             totalItems={flattenedData.length}
-            totalPages={pagination.totalPages}
-            {...(groupingConfig !== 'none' && groupedData.length > 1
-              ? { pageInfo: `(${flattenedData.length} total files, ${groupedData.length} groups)` }
-              : {})}
+            totalPages={tablePagination.totalPages}
+            {...paginationInfo}
           />
 
           {/* Fixed bottom action bar */}
           {previewSelections.size > 0 && (
-            <div className="flex flex-shrink-0 items-center justify-between border-t bg-yellow-50 p-3 dark:bg-yellow-900/20">
+            <output
+              aria-atomic="true"
+              aria-live="polite"
+              className="flex flex-shrink-0 items-center justify-between border-t bg-yellow-50 p-3 dark:bg-yellow-900/20"
+            >
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm">
                   {previewSelections.size} files selected in preview
@@ -1374,7 +985,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                   Remove Selected from Project
                 </Button>
               </div>
-            </div>
+            </output>
           )}
         </TabsContent>
 
@@ -1383,7 +994,47 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           value="tapestry"
         >
           <FileExplorerErrorBoundary>
-            <TapestryView />
+            <TapestryView
+              activeRangesCount={activeRangesCount}
+              allFilesSelected={isAllFilesSelected}
+              groupedData={groupedData}
+              groupedSections={tapestryGroupedSections}
+              groupingConfig={groupingConfig}
+              isAllSelected={isAllSelected}
+              isEmpty={flattenedData.length === 0}
+              isGroupFullySelected={isGroupFullySelected}
+              isGroupPartiallySelected={isGroupPartiallySelected}
+              onCollapseAllGroups={() =>
+                setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
+              }
+              onDeselectAll={deselectAll}
+              onExpandAllGroups={() => setCollapsedGroups(new Set())}
+              onGroupDeselectAll={handleGroupDeselectAll}
+              onGroupingChange={(value) => {
+                setGroupingConfig(value);
+                setCollapsedGroups(new Set());
+              }}
+              onGroupSelectAll={handleGroupSelectAll}
+              onRangesChange={handleTapestryRangesChange}
+              onResetRanges={handleResetTapestryRanges}
+              onSelectAllFiles={() => selectAll(flattenedData)}
+              onSelectAllOnPage={selectAllOnPage}
+              onToggleGroupCollapse={toggleGroupCollapse}
+              onToggleSelection={toggleItemSelection}
+              pagination={{
+                currentPage: tapestryCurrentPage,
+                onPageChange: goToTapestryPage,
+                totalItems: flattenedData.length,
+                totalPages: tapestryPagination.totalPages,
+                ...paginationInfo,
+              }}
+              previewSelections={previewSelections}
+              totalFiles={flattenedData.length}
+              totalLinesSelected={totalLinesSelected}
+              ungroupedFiles={tapestryUngroupedFiles}
+              visibleFilesOnPage={tapestryVisibleFilesOnPage}
+              {...(onRequestFileContent ? { onRequestFileContent } : {})}
+            />
           </FileExplorerErrorBoundary>
         </TabsContent>
       </Tabs>

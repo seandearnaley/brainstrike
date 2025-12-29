@@ -43,6 +43,7 @@ export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactEle
       >
         <TabsList className="flex h-9 w-full justify-start rounded-none border-b bg-transparent p-0">
           <TabsTrigger
+            aria-label="Assistant"
             className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
             value="assistant"
           >
@@ -50,6 +51,7 @@ export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactEle
             <span className="hidden sm:inline">Assistant</span>
           </TabsTrigger>
           <TabsTrigger
+            aria-label="Embeddings"
             className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
             value="embeddings"
           >
@@ -57,6 +59,7 @@ export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactEle
             <span className="hidden sm:inline">Embed</span>
           </TabsTrigger>
           <TabsTrigger
+            aria-label="Vectors"
             className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
             value="vectors"
           >
@@ -64,6 +67,7 @@ export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactEle
             <span className="hidden sm:inline">Vectors</span>
           </TabsTrigger>
           <TabsTrigger
+            aria-label="Database"
             className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
             value="database"
           >

@@ -45,6 +45,7 @@ export async function setupAssistantMock(
       const globals = globalThis as unknown as Window & {
         fetch: typeof fetch;
         localStorage?: Storage;
+        __assistantAvailabilityOverride?: { state: 'enabled' };
       };
 
       try {
@@ -64,6 +65,8 @@ export async function setupAssistantMock(
 
       const originalFetch: typeof globals.fetch = globals.fetch.bind(globals);
       const encoder = new TextEncoder();
+
+      globals.__assistantAvailabilityOverride = { state: 'enabled' };
 
       const resolveUrl = (input: RequestInfo | URL): string => {
         if (typeof input === 'string') {

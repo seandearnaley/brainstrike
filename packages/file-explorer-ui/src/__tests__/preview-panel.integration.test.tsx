@@ -87,6 +87,11 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </button>
   ),
+  ScrollArea: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
+    <div data-testid="scroll-area" {...props}>
+      {children}
+    </div>
+  ),
   Input: ({
     ref,
     ...props
@@ -175,6 +180,7 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </div>
   ),
+  useToast: () => ({ toast: () => {} }),
   SortableTableHeader: ({
     title,
     onSort,

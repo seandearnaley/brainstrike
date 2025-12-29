@@ -129,7 +129,7 @@ export async function resetLayoutState(page: Page): Promise<void> {
   // Wait for the page to finish navigating before continuing. Using
   // `networkidle` helps avoid flaky reload errors in CI where the
   // default navigation wait can resolve too early.
-  await page.reload({ waitUntil: 'load' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppLoad(page);
 }
 
@@ -276,7 +276,7 @@ export async function verifyPersistenceAfterReload(
   dimensions?: { width?: number; height?: number }
 ): Promise<void> {
   const expect = await getPlaywrightExpect();
-  await page.reload({ waitUntil: 'load' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await waitForAppLoad(page);
 
   if (shouldBeVisible) {
