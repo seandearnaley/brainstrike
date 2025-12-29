@@ -254,4 +254,124 @@ describe('useExpandAll', () => {
     // expandAll should only be called once
     expect(mockWorkerPort.expandAll).toHaveBeenCalledTimes(1);
   });
+
+  describe('error handling', () => {
+    it('should call onError callback when expandAll throws an error', async () => {
+      const workerPortRef = { current: mockWorkerPort };
+      const handleMapRef = { current: mockHandleMap };
+
+      const testError = new Error('Test expand-all error');
+      mockWorkerPort.expandAll = vi.fn().mockRejectedValue(testError);
+
+      const { result } = renderHook(() =>
+        useExpandAll({
+          workerPortRef,
+          handleMapRef,
+          rootFolderId: 'test-root',
+          onTreeUpdate: mockOnTreeUpdate,
+          onError: mockOnError,
+        })
+      );
+
+      const setExpandedPaths = vi.fn();
+
+      await act(async () => {
+        await result.current.expandAllProgressively(setExpandedPaths);
+      });
+
+      // onError should be called with the error
+      expect(mockOnError).toHaveBeenCalledWith(testError);
+      // isExpandingAll should be reset to false
+      expect(result.current.isExpandingAll).toBe(false);
+    });
+
+    it('should convert non-Error exceptions to Error objects', async () => {
+      const workerPortRef = { current: mockWorkerPort };
+      const handleMapRef = { current: mockHandleMap };
+
+      // Throw a string instead of an Error
+      mockWorkerPort.expandAll = vi.fn().mockRejectedValue('string error');
+
+      const { result } = renderHook(() =>
+        useExpandAll({
+          workerPortRef,
+          handleMapRef,
+          rootFolderId: 'test-root',
+          onTreeUpdate: mockOnTreeUpdate,
+          onError: mockOnError,
+        })
+      );
+
+      const setExpandedPaths = vi.fn();
+
+      await act(async () => {
+        await result.current.expandAllProgressively(setExpandedPaths);
+      });
+
+      // onError should be called with an Error object
+      expect(mockOnError).toHaveBeenCalledWith(expect.any(Error));
+      const errorArg = (mockOnError as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as
+        | Error
+        | undefined;
+      expect(errorArg?.message).toBe('string error');
+    });
+
+    it('should not call onError for AbortError (user cancellation)', async () => {
+      const workerPortRef = { current: mockWorkerPort };
+      const handleMapRef = { current: mockHandleMap };
+
+      // Create an AbortError
+      const abortError = new DOMException('Operation aborted', 'AbortError');
+      mockWorkerPort.expandAll = vi.fn().mockRejectedValue(abortError);
+
+      const { result } = renderHook(() =>
+        useExpandAll({
+          workerPortRef,
+          handleMapRef,
+          rootFolderId: 'test-root',
+          onTreeUpdate: mockOnTreeUpdate,
+          onError: mockOnError,
+        })
+      );
+
+      const setExpandedPaths = vi.fn();
+
+      await act(async () => {
+        await result.current.expandAllProgressively(setExpandedPaths);
+      });
+
+      // onError should NOT be called for abort errors
+      expect(mockOnError).not.toHaveBeenCalled();
+      // isExpandingAll should still be reset to false
+      expect(result.current.isExpandingAll).toBe(false);
+    });
+  });
+
+  describe('worker port null handling', () => {
+    it('should skip expand-all when worker port is null', async () => {
+      const workerPortRef = { current: null };
+      const handleMapRef = { current: mockHandleMap };
+
+      const { result } = renderHook(() =>
+        useExpandAll({
+          workerPortRef,
+          handleMapRef,
+          rootFolderId: 'test-root',
+          onTreeUpdate: mockOnTreeUpdate,
+          onError: mockOnError,
+        })
+      );
+
+      const setExpandedPaths = vi.fn();
+
+      await act(async () => {
+        await result.current.expandAllProgressively(setExpandedPaths);
+      });
+
+      // Nothing should happen when worker port is null
+      expect(setExpandedPaths).not.toHaveBeenCalled();
+      expect(mockOnTreeUpdate).not.toHaveBeenCalled();
+      expect(result.current.isExpandingAll).toBe(false);
+    });
+  });
 });
