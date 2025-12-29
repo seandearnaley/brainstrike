@@ -356,15 +356,18 @@ describe('QueueHud', () => {
 
     const status = await screen.findByRole('status', { name: /embedding queue/i });
     const summary = within(status);
-    expect(summary.getByText('Queue')).toBeInTheDocument();
-    expect(summary.getByText('Q')).toBeInTheDocument();
-    expect(summary.getByText('2')).toBeInTheDocument();
-    expect(summary.getByText('R')).toBeInTheDocument();
-    expect(summary.getByText('1')).toBeInTheDocument();
-    expect(summary.getByText('F')).toBeInTheDocument();
-    expect(summary.getByText('3')).toBeInTheDocument();
-    expect(summary.getByText('OK')).toBeInTheDocument();
-    expect(summary.getByText('4')).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(summary.getByText('Queue')).toBeInTheDocument();
+      expect(summary.getByText('Q')).toBeInTheDocument();
+      expect(summary.getByText('2')).toBeInTheDocument();
+      expect(summary.getByText('R')).toBeInTheDocument();
+      expect(summary.getByText('1')).toBeInTheDocument();
+      expect(summary.getByText('F')).toBeInTheDocument();
+      expect(summary.getByText('3')).toBeInTheDocument();
+      expect(summary.getByText('OK')).toBeInTheDocument();
+      expect(summary.getByText('4')).toBeInTheDocument();
+    });
   });
 
   it('shows tooltip details for status-bar variant', async () => {
@@ -386,15 +389,20 @@ describe('QueueHud', () => {
     renderStatusBar();
 
     const status = await screen.findByRole('status', { name: /embedding queue/i });
+    await waitFor(() => {
+      expect(within(status).getByText('2')).toBeInTheDocument();
+    });
     await user.hover(status);
 
     const headings = await screen.findAllByText('Embedding queue');
     expect(headings.length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Queued: 2').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Running: 1').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Failed: 0').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Success: 4').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Next:/).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getAllByText('Queued: 2').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Running: 1').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Failed: 0').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Success: 4').length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Next:/).length).toBeGreaterThan(0);
+    });
   });
 
   it('handles retry action in status-bar variant', async () => {
