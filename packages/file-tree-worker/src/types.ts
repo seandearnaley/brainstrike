@@ -203,6 +203,8 @@ export type CompleteMessage = {
   payload: {
     tree: WorkerFileNode[];
     expandedPaths: string[];
+    /** Number of directories actually loaded (0 means all were cached) */
+    loadedCount: number;
   };
 };
 

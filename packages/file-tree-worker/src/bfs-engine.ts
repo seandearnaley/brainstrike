@@ -6,7 +6,7 @@
  * processes results, and manages tree state.
  */
 
-import { getPathDepth } from '@brainstrike/utils';
+import { getPathDepth } from '@brainstrike/utils/tree-operations';
 
 import {
   applyBatchResultsToTree,
@@ -61,7 +61,14 @@ export class BFSEngine {
    * Set the current tree state.
    */
   setTree(nodes: WorkerFileNode[], _folderId: string): void {
+    const prevNodeCount = this.countTreeNodes(this.tree);
+    const prevLoadedDirs = this.countLoadedDirectories(this.tree);
     this.tree = nodes;
+    const newNodeCount = this.countTreeNodes(this.tree);
+    const newLoadedDirs = this.countLoadedDirectories(this.tree);
+    this.logInfo(
+      `[setTree] Tree replaced: ${prevNodeCount} nodes (${prevLoadedDirs} loaded) → ${newNodeCount} nodes (${newLoadedDirs} loaded)`
+    );
     // folderId is passed for future use (e.g., multi-root support)
   }
 
@@ -234,11 +241,12 @@ export class BFSEngine {
 
   /**
    * Send completion message.
+   * @param loadedCount - Number of directories actually loaded (0 means all were cached)
    */
-  private sendComplete(): void {
+  private sendComplete(loadedCount: number): void {
     this.postMessage({
       type: 'complete',
-      payload: { tree: this.tree, expandedPaths: collectExpandedPaths(this.tree) },
+      payload: { tree: this.tree, expandedPaths: collectExpandedPaths(this.tree), loadedCount },
     });
   }
 
@@ -252,12 +260,22 @@ export class BFSEngine {
     let totalDiscovered = 0;
     let loadedCount = 0;
 
+    // Log tree state for debugging
+    const treeNodeCount = this.countTreeNodes(this.tree);
+    const loadedDirs = this.countLoadedDirectories(this.tree);
+    this.logInfo(
+      `[expand-all] Tree state: ${treeNodeCount} nodes, ${loadedDirs} loaded directories`
+    );
+
     // Start with root-level directories
     let currentWave = new Set<string>();
     collectDirectoryPaths(this.tree, currentWave);
     totalDiscovered = currentWave.size;
 
     this.logDebug(`[expand-all] Starting with ${currentWave.size} root directories`);
+
+    // Send initial progress immediately so UI shows "0 of X" right away
+    this.sendProgress(0, totalDiscovered, '');
 
     // Throttling for tree snapshots
     let lastSnapshotTime = Date.now();
@@ -293,7 +311,7 @@ export class BFSEngine {
     }
 
     this.logInfo(`[expand-all] Complete. Loaded ${loadedCount} directories`);
-    this.sendComplete();
+    this.sendComplete(loadedCount);
   }
 
   /**
@@ -340,28 +358,20 @@ export class BFSEngine {
   }
 
   /**
-   * Collapse all directories (reset tree to only show roots).
+   * Collapse all directories (hide but keep data cached).
+   *
+   * Unlike the old implementation, this does NOT reset loadState or clear children.
+   * The tree data remains cached so re-expanding doesn't require re-fetching.
+   * Only the visual expansion state (expandedPaths) is cleared.
    */
   collapseAll(): void {
-    // Reset all directories to unloaded state, clear children
-    function resetNode(node: WorkerFileNode): WorkerFileNode {
-      if (node.type === 'directory') {
-        const { children: _children, loadError: _loadError, ...rest } = node;
-        return {
-          ...rest,
-          loadState: 'unloaded',
-        };
-      }
-      return node;
-    }
-
-    this.tree = this.tree.map(resetNode);
-
+    // Tree stays the same - we keep the loaded data cached
+    // Only the expandedPaths are cleared to collapse the UI
     this.postMessage({
       type: 'treeSnapshot',
       payload: {
         tree: this.tree,
-        expandedPaths: [],
+        expandedPaths: [], // Collapsed - no paths expanded
       },
     });
   }
@@ -445,7 +455,7 @@ export class BFSEngine {
     this.resetAbort();
 
     if (paths.length === 0) {
-      this.sendComplete();
+      this.sendComplete(0);
       return;
     }
 
@@ -485,7 +495,7 @@ export class BFSEngine {
     this.logInfo(
       `[loadPaths] Complete. Loaded ${counters.loadedCount}, skipped ${counters.skippedCount}`
     );
-    this.sendComplete();
+    this.sendComplete(counters.loadedCount);
   }
 
   /**
@@ -507,5 +517,35 @@ export class BFSEngine {
       return null;
     }
     return search(this.tree);
+  }
+
+  /**
+   * Count total nodes in the tree (for debugging).
+   */
+  private countTreeNodes(nodes: WorkerFileNode[]): number {
+    let count = 0;
+    for (const node of nodes) {
+      count += 1;
+      if (node.children) {
+        count += this.countTreeNodes(node.children);
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Count directories with loadState='loaded' (for debugging).
+   */
+  private countLoadedDirectories(nodes: WorkerFileNode[]): number {
+    let count = 0;
+    for (const node of nodes) {
+      if (node.type === 'directory' && node.loadState === 'loaded') {
+        count += 1;
+      }
+      if (node.children) {
+        count += this.countLoadedDirectories(node.children);
+      }
+    }
+    return count;
   }
 }

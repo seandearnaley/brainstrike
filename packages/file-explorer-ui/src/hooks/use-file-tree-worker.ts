@@ -174,6 +174,12 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
   // Root directory handle ref (used in worker handlers)
   const rootHandleRef = useRef<DirectoryHandle | null>(null);
 
+  // Store callbacks in refs so effect doesn't depend on them (avoids worker recreation)
+  const onProgressRef = useRef(onProgress);
+  const onErrorRef = useRef(onError);
+  onProgressRef.current = onProgress;
+  onErrorRef.current = onError;
+
   // Set root handle
   const setRootHandle = (handle: DirectoryHandle | null) => {
     rootHandleRef.current = handle;
@@ -181,10 +187,37 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
 
   // Initialize worker and set up handlers
   useEffect(() => {
+    logger.info('useFileTreeWorker effect running', {
+      hasAdapter: !!fileSystemAdapter,
+    });
+
     // Create worker
-    const worker = new Worker(resolveFileTreeWorkerUrl(), { type: 'module' });
-    const port = createFileTreeWorkerPort(worker);
-    portRef.current = port;
+    let worker: Worker;
+    let port: FileTreeWorkerPort;
+    try {
+      const workerUrl = resolveFileTreeWorkerUrl();
+      logger.info('Creating worker', { workerUrl: workerUrl.toString() });
+      worker = new Worker(workerUrl, { type: 'module' });
+
+      // Handle async worker errors (load failures, runtime errors)
+      worker.onerror = (event) => {
+        logger.error('Worker async error', {
+          message: event.message,
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+        });
+        onErrorRef.current?.(new Error(`Worker error: ${event.message}`));
+      };
+
+      port = createFileTreeWorkerPort(worker);
+      portRef.current = port;
+      logger.info('Worker created successfully');
+    } catch (err) {
+      logger.error('Failed to create worker', { error: String(err) });
+      onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
 
     // Collect unsubscribe functions for cleanup
     const unsubscribes: (() => void)[] = [];
@@ -192,7 +225,14 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
     // Handle load requests from worker - perform I/O with FileSystemHandles
     unsubscribes.push(
       port.onRequestLoad(async (_requestId, paths) => {
+        logger.info('onRequestLoad called', {
+          pathCount: paths.length,
+          hasAdapter: !!fileSystemAdapter,
+          firstPath: paths[0],
+        });
+
         if (!fileSystemAdapter) {
+          logger.warn('onRequestLoad: no file system adapter');
           return paths.map((path) => ({ path, error: 'No file system adapter' }));
         }
 
@@ -201,6 +241,11 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
         // Get root info for building nodes
         const rootPath = rootHandleRef.current?.path ?? '';
         const rootName = rootHandleRef.current?.name ?? '';
+        logger.info('onRequestLoad: loading directories', {
+          rootPath,
+          rootName,
+          pathCount: paths.length,
+        });
 
         // Load directories with concurrency limit to prevent overwhelming the browser
         const results = await runWithConcurrency(
@@ -229,6 +274,12 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
           }
         );
 
+        logger.info('onRequestLoad: completed', {
+          resultCount: results.length,
+          successCount: results.filter((r) => r.children).length,
+          errorCount: results.filter((r) => r.error).length,
+        });
+
         return results;
       })
     );
@@ -243,18 +294,18 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
       })
     );
 
-    // Handle progress updates
+    // Handle progress updates - use ref to get current callback
     unsubscribes.push(
       port.onProgress((loaded, total, _currentPath) => {
-        onProgress?.(loaded, total);
+        onProgressRef.current?.(loaded, total);
       })
     );
 
-    // Handle errors from worker
+    // Handle errors from worker - use ref to get current callback
     unsubscribes.push(
       port.onError((message, _path) => {
         logger.error('Worker error', { message });
-        onError?.(new Error(message));
+        onErrorRef.current?.(new Error(message));
       })
     );
 
@@ -281,7 +332,7 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
       port.terminate();
       portRef.current = null;
     };
-  }, [fileSystemAdapter, onProgress, onError]);
+  }, [fileSystemAdapter]); // Only recreate worker when adapter changes
 
   return {
     portRef,

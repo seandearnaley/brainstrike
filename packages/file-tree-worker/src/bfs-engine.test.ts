@@ -129,7 +129,7 @@ describe('BFSEngine', () => {
   });
 
   describe('collapseAll', () => {
-    it('should reset all directories to unloaded state', () => {
+    it('should keep tree data cached (not reset to unloaded)', () => {
       const tree = [
         createDirectoryNode({
           path: '/root/dir',
@@ -141,9 +141,10 @@ describe('BFSEngine', () => {
 
       engine.collapseAll();
 
+      // Tree data should remain cached - loadState stays 'loaded', children preserved
       const updatedTree = engine.getTree();
-      expect(updatedTree[0]?.loadState).toBe('unloaded');
-      expect(updatedTree[0]?.children).toBeUndefined();
+      expect(updatedTree[0]?.loadState).toBe('loaded');
+      expect(updatedTree[0]?.children).toHaveLength(1);
     });
 
     it('should send tree snapshot with empty expanded paths', () => {
@@ -328,6 +329,104 @@ describe('BFSEngine', () => {
       const logMessages = messages.filter((m) => m.type === 'log');
       const abortLog = logMessages.find((m) => m.type === 'log' && m.message.includes('Aborted'));
       expect(abortLog).toBeDefined();
+    });
+
+    it('should include loadedCount=0 in complete message when all directories are cached', async () => {
+      // Tree with all directories already loaded (no fetching needed)
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir1',
+          loadState: 'loaded',
+          children: [createFileNode({ path: '/root/dir1/file.txt' })],
+        }),
+        createDirectoryNode({
+          path: '/root/dir2',
+          loadState: 'loaded',
+          children: [],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      await engine.expandAll();
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(0);
+      }
+    });
+
+    it('should include loadedCount > 0 in complete message when directories need loading', async () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      const expandPromise = engine.expandAll();
+
+      // Wait for request to be sent
+      await vi.waitFor(() => {
+        const requestLoadMsg = messages.find((m) => m.type === 'requestLoad');
+        expect(requestLoadMsg).toBeDefined();
+      });
+
+      // Simulate load completion
+      engine.handleLoadResult('/root/dir', [createFileNode({ path: '/root/dir/file.txt' })]);
+
+      await expandPromise;
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(1);
+      }
+    });
+  });
+
+  describe('loadPaths loadedCount', () => {
+    it('should include loadedCount=0 in complete message for empty paths', async () => {
+      engine.setTree([], 'root');
+
+      await engine.loadPaths([]);
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(0);
+      }
+    });
+
+    it('should include loadedCount=0 when all paths are already loaded', async () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'loaded', children: [] })];
+      engine.setTree(tree, 'root');
+
+      await engine.loadPaths(['/root/dir']);
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(0);
+      }
+    });
+
+    it('should include loadedCount > 0 when paths need loading', async () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadPaths(['/root/dir']);
+
+      // Wait for request and simulate response
+      await vi.waitFor(() => {
+        const requestMsg = messages.find((m) => m.type === 'requestLoad');
+        expect(requestMsg).toBeDefined();
+      });
+
+      engine.handleLoadResult('/root/dir', [createFileNode({ path: '/root/dir/file.txt' })]);
+      await loadPromise;
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(1);
+      }
     });
   });
 });

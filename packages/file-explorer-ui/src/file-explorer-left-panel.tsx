@@ -1,7 +1,10 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import { LoadingFallback } from '@brainstrike/ui';
-import { encodeFileSelection, parseFilterString } from '@brainstrike/utils';
+import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
+
+const logger = createLogger('FileExplorerLeftPanel');
+
 import * as React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { TreeActionButtons } from './components/tree-action-buttons';
@@ -11,7 +14,6 @@ import { DirectoryStatus, FilterStatus } from './file-explorer-status-components
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
 import { RestorationStatus } from './restoration-status';
-import { ScanningStatus } from './scanning-status';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
@@ -322,11 +324,19 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   }, [rootDirectoryHandle, setCurrentFolderId, store]);
 
   const expandAll = useCallback(() => {
+    logger.info('expandAll clicked', {
+      isExpandingAll,
+      hasFileTree: !!fileTree,
+      fileTreeLength: fileTree?.length ?? 0,
+    });
+
     // Prevent clicks while expand-all is already running
     if (isExpandingAll) {
+      logger.info('expandAll: blocked - already expanding');
       return;
     }
     if (fileTree && fileTree.length > 0) {
+      logger.info('expandAll: calling expandAllProgressively');
       // Use progressive expand-all that loads directories on demand
       const setExpandedPaths = (updater: (prev: Set<string>) => Set<string>) => {
         const currentPaths = store.getState().expandedDirectoryPaths;
@@ -334,6 +344,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         store.getState().setExpandedPaths(newPaths);
       };
       void expandAllProgressively(setExpandedPaths);
+    } else {
+      logger.warn('expandAll: no file tree or empty tree');
     }
   }, [fileTree, store, expandAllProgressively, isExpandingAll]);
 
@@ -401,8 +413,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             quickFilter={quickFilter}
             useRegex={useRegex}
           />
-          {/* Loading indicator - shown during initial root load or expand-all */}
-          {scanningStatusProps && <ScanningStatus {...scanningStatusProps} />}
           {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
           <RestorationStatus
             isRestoring={isRestoringExpandedPaths}
@@ -421,6 +431,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               onCollapseAll={collapseAll}
               onExpandAll={expandAll}
               onRefresh={handleRefresh}
+              scanningStatus={scanningStatusProps}
             />
           )}
 

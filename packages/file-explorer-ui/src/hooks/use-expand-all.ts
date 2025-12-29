@@ -66,14 +66,8 @@ function logRehydrationResult(
   }
 }
 
-export type ExpandAllProgress = {
-  loaded: number;
-  total: number;
-};
-
 export type ExpandAllState = {
   isExpandingAll: boolean;
-  expandAllProgress: ExpandAllProgress | null;
 };
 
 export type UseExpandAllOptions = {
@@ -92,8 +86,6 @@ export type UseExpandAllOptions = {
 export type UseExpandAllReturn = {
   /** Whether expand-all is in progress */
   isExpandingAll: boolean;
-  /** Progress of expand-all operation */
-  expandAllProgress: ExpandAllProgress | null;
   /** Start expand-all operation */
   expandAllProgressively: (
     setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
@@ -102,8 +94,6 @@ export type UseExpandAllReturn = {
   cancelExpandAll: () => void;
   /** Ref to check if expand-all is active (for use in effects) */
   isExpandingAllRef: React.RefObject<boolean>;
-  /** Update progress (called by worker progress handler) */
-  updateProgress: (loaded: number, total: number) => void;
 };
 
 /**
@@ -124,7 +114,6 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
   // State
   const [state, setState] = useState<ExpandAllState>({
     isExpandingAll: false,
-    expandAllProgress: null,
   });
 
   // Guard against double-clicks
@@ -139,16 +128,6 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
   >(null);
 
   /**
-   * Update progress (called by worker progress handler).
-   */
-  const updateProgress = useCallback((loaded: number, total: number) => {
-    setState((s) => ({
-      ...s,
-      expandAllProgress: { loaded, total },
-    }));
-  }, []);
-
-  /**
    * Cancel expand-all operation.
    */
   const cancelExpandAll = useCallback(() => {
@@ -156,10 +135,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
     isExpandAllStartingRef.current = false;
     isExpandingAllRef.current = false;
     setExpandedPathsRef.current = null;
-    setState({
-      isExpandingAll: false,
-      expandAllProgress: null,
-    });
+    setState({ isExpandingAll: false });
   }, [workerPortRef]);
 
   /**
@@ -171,61 +147,87 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
     async (
       setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
     ): Promise<void> => {
+      logger.info('expandAllProgressively called', {
+        rootFolderId,
+        isAlreadyStarting: isExpandAllStartingRef.current,
+      });
+
       // Get current values from refs at call time (not at hook creation time)
       const workerPort = workerPortRef.current;
       const handleMap = handleMapRef.current;
 
+      logger.info('expandAllProgressively refs', {
+        hasWorkerPort: !!workerPort,
+        handleMapSize: handleMap.size,
+      });
+
       if (!workerPort) {
-        logger.warn('expandAllProgressively called but worker not ready');
+        logger.warn('expandAllProgressively: worker not ready');
         return;
       }
 
       // Synchronous guard against double-clicks
       if (isExpandAllStartingRef.current) {
+        logger.info('expandAllProgressively: blocked by double-click guard');
         return;
       }
       isExpandAllStartingRef.current = true;
       isExpandingAllRef.current = true;
+      logger.info('expandAllProgressively: starting expand-all');
 
       // Store setExpandedPaths for potential use in handlers
       setExpandedPathsRef.current = setExpandedPaths;
 
-      setState({
-        isExpandingAll: true,
-        expandAllProgress: { loaded: 0, total: 0 },
-      });
+      setState({ isExpandingAll: true });
+      logger.info('expandAllProgressively: state set to expanding, calling worker');
 
       try {
         // Delegate to worker - it will request loads as needed
+        logger.info('expandAllProgressively: calling workerPort.expandAll', { rootFolderId });
         const result = await workerPort.expandAll(rootFolderId);
+        logger.info('expandAllProgressively: worker returned', {
+          treeLength: result.tree.length,
+          expandedPathsCount: result.expandedPaths.length,
+          loadedCount: result.loadedCount,
+        });
 
-        // Rehydrate final tree with handles
-        const rehydratedTree = rehydrateTree(result.tree, handleMap);
-        logRehydrationResult(
-          'expand-all',
-          handleMap.size,
-          countNodes(result.tree),
-          countNodes(rehydratedTree),
-          rehydratedTree
-        );
+        // OPTIMIZATION: Skip rehydration when all directories were already cached
+        // Rehydration is O(n) for tree nodes and can take 10+ seconds for large trees (150k+ nodes)
+        // When loadedCount === 0, the React tree already has correct handles, so just update paths
+        if (result.loadedCount === 0) {
+          logger.info('expandAllProgressively: skipping rehydration (all cached)', {
+            expandedPathsCount: result.expandedPaths.length,
+          });
+          // Tree is already up-to-date with handles, just update expanded paths
+          setExpandedPaths(() => new Set(result.expandedPaths));
+        } else {
+          // Rehydrate final tree with handles
+          const rehydratedTree = rehydrateTree(result.tree, handleMap);
+          logRehydrationResult(
+            'expand-all',
+            handleMap.size,
+            countNodes(result.tree),
+            countNodes(rehydratedTree),
+            rehydratedTree
+          );
 
-        // Update tree
-        onTreeUpdate(rehydratedTree);
+          // Update tree
+          onTreeUpdate(rehydratedTree);
 
-        // Set all expanded paths
-        setExpandedPaths(() => new Set(result.expandedPaths));
+          // Set all expanded paths
+          setExpandedPaths(() => new Set(result.expandedPaths));
+        }
 
         // Clear state
-        setState({
-          isExpandingAll: false,
-          expandAllProgress: null,
-        });
+        setState({ isExpandingAll: false });
+        logger.info('expandAllProgressively: completed successfully');
       } catch (err) {
-        const isCancelled = isAbortError(err);
-        setState({
-          isExpandingAll: false,
-          expandAllProgress: null,
+        logger.error('expandAllProgressively: error', {
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
         });
+        const isCancelled = isAbortError(err);
+        setState({ isExpandingAll: false });
         if (!isCancelled && onError) {
           onError(err instanceof Error ? err : new Error(String(err)));
         }
@@ -233,6 +235,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
         isExpandAllStartingRef.current = false;
         isExpandingAllRef.current = false;
         setExpandedPathsRef.current = null;
+        logger.info('expandAllProgressively: cleanup complete');
       }
     },
     [workerPortRef, handleMapRef, rootFolderId, onTreeUpdate, onError]
@@ -240,10 +243,8 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
 
   return {
     isExpandingAll: state.isExpandingAll,
-    expandAllProgress: state.expandAllProgress,
     expandAllProgressively,
     cancelExpandAll,
     isExpandingAllRef,
-    updateProgress,
   };
 }

@@ -25,7 +25,11 @@ type LogHandler = (
 ) => void;
 
 type PendingOperation = {
-  resolve: (result: { tree: WorkerFileNode[]; expandedPaths: string[] }) => void;
+  resolve: (result: {
+    tree: WorkerFileNode[];
+    expandedPaths: string[];
+    loadedCount: number;
+  }) => void;
   reject: (error: Error) => void;
   operationId: number;
 };
@@ -95,12 +99,14 @@ export type FileTreeWorkerPort = {
   expandAll(folderId: string): Promise<{
     tree: WorkerFileNode[];
     expandedPaths: string[];
+    loadedCount: number;
   }>;
 
   /** Load specific paths (for restoration) */
   loadPaths(paths: string[]): Promise<{
     tree: WorkerFileNode[];
     expandedPaths: string[];
+    loadedCount: number;
   }>;
 
   /** Collapse all directories */
@@ -184,13 +190,18 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     treeSnapshotHandler?.(payload.tree, payload.expandedPaths);
   };
 
-  const handleComplete = (payload: { tree: WorkerFileNode[]; expandedPaths: string[] }): void => {
+  const handleComplete = (payload: {
+    tree: WorkerFileNode[];
+    expandedPaths: string[];
+    loadedCount: number;
+  }): void => {
     // Only resolve if this completion matches the current operation
     // Prevents stale completions from racing with new operations
     if (pending.operation && pending.operation.operationId === operationIdCounter) {
       pending.operation.resolve({
         tree: payload.tree,
         expandedPaths: payload.expandedPaths,
+        loadedCount: payload.loadedCount,
       });
       pending.operation = null;
     }

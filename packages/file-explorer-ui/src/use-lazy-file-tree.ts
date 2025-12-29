@@ -104,21 +104,38 @@ export function useLazyFileTree(
     loadingPaths: new Set(),
   });
 
+  // Expand-all progress state (kept here so we can pass handler to worker before useExpandAll)
+  const [expandAllProgress, setExpandAllProgress] = useState<{
+    loaded: number;
+    total: number;
+  } | null>(null);
+
   // Use ref to access current tree without adding it as a dependency
   const fileTreeRef = useRef(state.fileTree);
   fileTreeRef.current = state.fileTree;
+
+  // Track which root we've initialized for to prevent redundant reinits
+  // This is critical for expand-all: without it, any effect re-run would
+  // reinitialize the worker, losing all loaded directory state
+  const initializedRootRef = useRef<string | null>(null);
 
   // Error handler for worker
   const handleWorkerError = useCallback((error: Error) => {
     setState((s) => ({ ...s, error }));
   }, []);
 
+  // Progress handler - defined before useFileTreeWorker so we can pass it
+  const handleProgress = useCallback((loaded: number, total: number) => {
+    setExpandAllProgress({ loaded, total });
+  }, []);
+
   // Abort controller management
   const { createAbortController, cancelAllLoading, removeChildController } = useAbortControllers();
 
-  // Worker and handle map management
+  // Worker and handle map management - pass progress handler
   const { portRef, handleMapRef, setRootHandle } = useFileTreeWorker({
     fileSystemAdapter,
+    onProgress: handleProgress,
     onError: handleWorkerError,
   });
 
@@ -135,11 +152,9 @@ export function useLazyFileTree(
   // Expand-all management
   const {
     isExpandingAll,
-    expandAllProgress,
     expandAllProgressively: expandAllFromHook,
     cancelExpandAll,
     isExpandingAllRef,
-    updateProgress,
   } = useExpandAll({
     workerPortRef: portRef,
     handleMapRef,
@@ -147,20 +162,6 @@ export function useLazyFileTree(
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
   });
-
-  // Connect progress updates from worker to expand-all hook
-  useEffect(() => {
-    const port = portRef.current;
-    if (!port) {
-      return;
-    }
-
-    const unsubscribe = port.onProgress((loaded, total, _currentPath) => {
-      updateProgress(loaded, total);
-    });
-
-    return unsubscribe;
-  }, [updateProgress]);
 
   /**
    * Load root directory contents
@@ -173,14 +174,31 @@ export function useLazyFileTree(
         isInitialLoading: false,
         error: null,
       }));
+      initializedRootRef.current = null;
       return;
     }
 
-    // Defensive check: skip if expand-all is in progress
-    if (isExpandingAllRef.current) {
-      logger.info('loadRoot blocked - expand-all in progress');
+    // Defensive check: skip if expand-all is in progress for THIS root
+    // (But allow if the root has changed - we need to load the new root)
+    const rootPath = rootDirectoryHandle.path;
+    if (isExpandingAllRef.current && initializedRootRef.current === rootPath) {
+      logger.info('loadRoot blocked - expand-all in progress for same root');
       return;
     }
+
+    // Skip if we've already initialized for this root
+    // This prevents redundant reinits that would destroy expand-all progress
+    if (initializedRootRef.current === rootPath && fileTreeRef.current.length > 0) {
+      logger.info('loadRoot skipped - already initialized for this root', { rootPath });
+      return;
+    }
+
+    // Log when we're about to reinitialize (this would reset the worker tree!)
+    logger.info('loadRoot running - will reinitialize worker', {
+      rootPath,
+      initializedRoot: initializedRootRef.current,
+      fileTreeLength: fileTreeRef.current.length,
+    });
 
     // Create abort controller for root loading
     const abortController = createAbortController(null);
@@ -219,11 +237,15 @@ export function useLazyFileTree(
           error: null,
           loadingPaths: new Set(),
         });
+
+        // Mark this root as initialized to prevent redundant reinits
+        initializedRootRef.current = rootDirectoryHandle.path;
       }
     } catch (err) {
       if (!isAbortError(err)) {
         // Clear stale handles from previous root to prevent incorrect lookups
         handleMapRef.current.clear();
+        initializedRootRef.current = null;
 
         setState((s) => ({
           ...s,
@@ -403,12 +425,45 @@ export function useLazyFileTree(
     async (
       setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
     ): Promise<void> => {
-      if (!(fileSystemAdapter && portRef.current)) {
+      logger.info('expandAllProgressively wrapper called', {
+        hasAdapter: !!fileSystemAdapter,
+        hasPort: !!portRef.current,
+      });
+
+      if (!fileSystemAdapter) {
+        logger.warn('expandAllProgressively: no file system adapter');
         return;
       }
 
+      if (!portRef.current) {
+        logger.warn('expandAllProgressively: no worker port');
+        return;
+      }
+
+      // Verify expandAllFromHook exists
+      if (typeof expandAllFromHook !== 'function') {
+        logger.error('expandAllProgressively: expandAllFromHook is not a function', {
+          type: typeof expandAllFromHook,
+        });
+        return;
+      }
+
+      logger.info('expandAllProgressively: calling expandAllFromHook');
+
       // Use the expand-all hook's implementation
-      await expandAllFromHook(setExpandedPaths);
+      try {
+        await expandAllFromHook(setExpandedPaths);
+        logger.info('expandAllProgressively: expandAllFromHook completed');
+      } catch (err) {
+        logger.error('expandAllProgressively: expandAllFromHook threw', {
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        });
+        throw err;
+      } finally {
+        // Clear progress after operation completes (success or failure)
+        setExpandAllProgress(null);
+      }
     },
     [fileSystemAdapter, portRef, expandAllFromHook]
   );
@@ -449,17 +504,24 @@ export function useLazyFileTree(
         // Delegate to worker
         const result = await portRef.current.loadPaths(paths);
 
-        // Rehydrate final tree with handles
-        const rehydratedTree = rehydrateTree(result.tree, handleMapRef.current);
         logger.info('loadSpecificPaths complete', {
           handleMapSize: handleMapRef.current.size,
+          loadedCount: result.loadedCount,
         });
 
-        // Update state with loaded tree
-        setState((s) => ({
-          ...s,
-          fileTree: rehydratedTree,
-        }));
+        // OPTIMIZATION: Skip rehydration when all directories were already cached
+        // When loadedCount === 0, the React tree already has correct handles
+        if (result.loadedCount > 0) {
+          // Rehydrate final tree with handles
+          const rehydratedTree = rehydrateTree(result.tree, handleMapRef.current);
+
+          // Update state with loaded tree
+          setState((s) => ({
+            ...s,
+            fileTree: rehydratedTree,
+          }));
+        }
+        // When loadedCount === 0, tree is already correct - no state update needed
       } catch (err) {
         if (!isAbortError(err)) {
           logger.error('loadSpecificPaths failed', { error: String(err) });
@@ -475,16 +537,27 @@ export function useLazyFileTree(
   // biome-ignore lint/plugin: This is initialization logic, not derived state
   useEffect(() => {
     if (rootDirectoryHandle) {
-      // Skip if expand-all is in progress
-      if (isExpandingAllRef.current) {
-        logger.info('loadRoot skipped - expand-all in progress');
+      // If expand-all is in progress but root has CHANGED, cancel and proceed with new root
+      // This prevents race condition where switching folders leaves new folder empty
+      const rootPath = rootDirectoryHandle.path;
+      if (isExpandingAllRef.current && initializedRootRef.current !== rootPath) {
+        logger.info('loadRoot: cancelling expand-all for different root', {
+          oldRoot: initializedRootRef.current,
+          newRoot: rootPath,
+        });
+        cancelExpandAll();
+      }
+      // Skip if expand-all is in progress for THIS root (same folder)
+      if (isExpandingAllRef.current && initializedRootRef.current === rootPath) {
+        logger.info('loadRoot skipped - expand-all in progress for same root');
         return;
       }
-      logger.info('loadRoot triggered', { rootPath: rootDirectoryHandle.path });
+      logger.info('loadRoot triggered', { rootPath });
       void loadRoot();
     } else {
-      // Clear handle map when root changes
+      // Clear handle map and initialized ref when root changes
       handleMapRef.current.clear();
+      initializedRootRef.current = null;
       setState({
         fileTree: [],
         isInitialLoading: false,
@@ -504,7 +577,15 @@ export function useLazyFileTree(
         portRef.current?.abort();
       }
     };
-  }, [rootDirectoryHandle, loadRoot, handleMapRef, cancelAllLoading, portRef, isExpandingAllRef]);
+  }, [
+    rootDirectoryHandle,
+    loadRoot,
+    handleMapRef,
+    cancelAllLoading,
+    portRef,
+    isExpandingAllRef,
+    cancelExpandAll,
+  ]);
 
   return {
     fileTree: state.fileTree,
