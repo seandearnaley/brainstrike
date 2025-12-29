@@ -12,7 +12,8 @@
     "**/tsconfig*.json", // TypeScript configuration
     "turbo.jsonc", // Turborepo configuration
     "biome.json", // Formatting/linting configuration
-    ".nvmrc" // Node version specification
+    ".nvmrc", // Node version specification
+    "scripts/enforce-coverage.mjs" // Coverage thresholds (invalidates test cache when thresholds change)
   ],
 
   // Global environment variables that affect the cache hash for ALL tasks.
