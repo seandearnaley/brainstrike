@@ -80,6 +80,10 @@ type RawModel = {
   sort_order: number;
 };
 
+type FileSystemAccess = {
+  exists: (path: string) => Promise<boolean>;
+};
+
 function parseDbModel(row: RawModel): DbModel {
   return {
     id: row.id,
@@ -100,6 +104,25 @@ function parseDbModel(row: RawModel): DbModel {
   } as DbModel;
 }
 
+function isLocalModel(model: DbModel): boolean {
+  return model.providerId === 'transformers' || model.providerId === 'local';
+}
+
+async function resolveDownloadedFlag(
+  model: DbModel,
+  fileSystem: FileSystemAccess,
+  modelCacheDir: string,
+  currentDownloadedModels: Record<string, boolean>
+): Promise<boolean> {
+  try {
+    const modelPath = `${modelCacheDir}/${model.id}`;
+    return await fileSystem.exists(modelPath);
+  } catch (err) {
+    logger.warn(`Failed to check existence for model ${model.id}`, err);
+    return Boolean(currentDownloadedModels[model.id]);
+  }
+}
+
 async function checkDownloadedModels(
   models: DbModel[],
   modelCacheDir: string | null,
@@ -107,27 +130,32 @@ async function checkDownloadedModels(
 ): Promise<Record<string, boolean>> {
   const electronAPI = (
     window as unknown as {
-      electronAPI?: { fileSystem?: { exists: (path: string) => Promise<boolean> } };
+      electronAPI?: { fileSystem?: FileSystemAccess };
     }
   ).electronAPI;
 
-  if (!(electronAPI?.fileSystem?.exists && modelCacheDir)) {
+  const fileSystem = electronAPI?.fileSystem;
+
+  if (!(fileSystem && modelCacheDir)) {
     return currentDownloadedModels;
   }
 
-  const newDownloadedModels = { ...currentDownloadedModels };
+  const newDownloadedModels: Record<string, boolean> = {};
 
   for (const model of models) {
-    if (model.providerId === 'transformers' || model.providerId === 'local') {
-      try {
-        const modelPath = `${modelCacheDir}/${model.id}`;
-        const exists = await electronAPI.fileSystem.exists(modelPath);
-        if (exists) {
-          newDownloadedModels[model.id] = true;
-        }
-      } catch (err) {
-        logger.warn(`Failed to check existence for model ${model.id}`, err);
-      }
+    if (!isLocalModel(model)) {
+      continue;
+    }
+
+    const isDownloaded = await resolveDownloadedFlag(
+      model,
+      fileSystem,
+      modelCacheDir,
+      currentDownloadedModels
+    );
+
+    if (isDownloaded) {
+      newDownloadedModels[model.id] = true;
     }
   }
 

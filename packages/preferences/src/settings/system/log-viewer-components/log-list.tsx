@@ -11,9 +11,18 @@ type LogListProps = {
   rows: Row<LogRecordRow>[];
   logsLoading: boolean;
   autoScroll: boolean;
+  autoScrollAnchor: 'start' | 'end';
+  wrapLines: boolean;
 };
 
-export function LogList({ table, rows, logsLoading, autoScroll }: LogListProps) {
+export function LogList({
+  table,
+  rows,
+  logsLoading,
+  autoScroll,
+  autoScrollAnchor,
+  wrapLines,
+}: LogListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [, setParentHeight] = useState(0);
 
@@ -49,18 +58,21 @@ export function LogList({ table, rows, logsLoading, autoScroll }: LogListProps) 
       return;
     }
 
-    const lastIndex = rows.length - 1;
+    const targetIndex = autoScrollAnchor === 'start' ? 0 : rows.length - 1;
     // Use setTimeout to ensure render cycle is complete before scrolling
     const timeoutId = setTimeout(() => {
       try {
-        rowVirtualizer.scrollToIndex(lastIndex, { align: 'end', behavior: 'auto' });
+        rowVirtualizer.scrollToIndex(targetIndex, {
+          align: autoScrollAnchor,
+          behavior: 'auto',
+        });
       } catch {
         // Ignore scroll errors during rapid updates
       }
     }, 0);
 
     return () => clearTimeout(timeoutId);
-  }, [autoScroll, rows.length, rowVirtualizer]);
+  }, [autoScroll, autoScrollAnchor, rows.length, rowVirtualizer]);
 
   const measureRow = useCallback(
     (node: HTMLTableRowElement | null) => {
@@ -107,7 +119,10 @@ export function LogList({ table, rows, logsLoading, autoScroll }: LogListProps) 
                 key={headerGroup.id}
               >
                 {headerGroup.headers.map((header) => (
-                  <TableHead className="h-9 py-2 font-semibold text-foreground/80" key={header.id}>
+                  <TableHead
+                    className="h-9 truncate py-2 font-semibold text-foreground/80"
+                    key={header.id}
+                  >
                     {header.isPlaceholder ? null : header.column.getCanSort() ? (
                       <button
                         className="flex w-full items-center justify-between gap-2 text-left text-xs uppercase tracking-wider transition-colors hover:text-primary"
@@ -149,7 +164,13 @@ export function LogList({ table, rows, logsLoading, autoScroll }: LogListProps) 
                 return null;
               }
               return (
-                <LogRow key={row.id} measureRow={measureRow} row={row} virtualRow={virtualRow} />
+                <LogRow
+                  key={row.id}
+                  measureRow={measureRow}
+                  row={row}
+                  virtualRow={virtualRow}
+                  wrapLines={wrapLines}
+                />
               );
             })}
             {paddingBottom > 0 && (

@@ -3,7 +3,7 @@ import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { Folder, RefreshCw } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
 import { ModelList } from './model-list';
 
@@ -11,6 +11,7 @@ const logger = createLogger('ModelSelectionPage');
 
 export function ModelSelectionPage() {
   const db = usePGliteDatabase();
+  const [isSelectingCacheDir, setIsSelectingCacheDir] = useState<boolean>(false);
   const {
     providers,
     models,
@@ -96,6 +97,58 @@ export function ModelSelectionPage() {
     }
   };
 
+  const handleSelectCacheDir = async (): Promise<void> => {
+    const requestDirectoryAccess = (
+      window as unknown as {
+        electronAPI?: {
+          fileSystem?: { requestDirectoryAccess?: () => Promise<{ path?: string }> };
+        };
+      }
+    ).electronAPI?.fileSystem?.requestDirectoryAccess;
+
+    if (typeof requestDirectoryAccess !== 'function') {
+      toast({
+        title: 'Directory selection unavailable',
+        description: 'Choose a cache directory from the desktop app.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setIsSelectingCacheDir(true);
+      const handle = await requestDirectoryAccess();
+      const selectedPath = typeof handle?.path === 'string' ? handle.path : '';
+
+      if (!selectedPath) {
+        toast({
+          title: 'No directory selected',
+          description: 'Please choose a folder to store local model files.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setModelCacheDir(selectedPath);
+      toast({
+        title: 'Cache directory updated',
+        description: selectedPath,
+      });
+      if (db) {
+        void fetchRegistry(db);
+      }
+    } catch (err) {
+      logger.error('Failed to select cache directory', err);
+      toast({
+        title: 'Directory selection failed',
+        description: (err as Error).message,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSelectingCacheDir(false);
+    }
+  };
+
   if (error) {
     return (
       <div className="rounded-md bg-destructive/10 p-4 text-destructive">
@@ -113,16 +166,13 @@ export function ModelSelectionPage() {
     );
   }
 
-  // Filter models
-  // Filter models
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="space-y-1">
-          <h2 className="font-semibold text-lg">Model Selection</h2>
+          <h2 className="font-semibold text-lg">Models & Providers</h2>
           <p className="text-muted-foreground text-sm">
-            Enable or disable models to be used across the application.
+            Choose chat and embedding models, manage downloads, and fine-tune providers.
           </p>
         </div>
         <Button
@@ -137,21 +187,27 @@ export function ModelSelectionPage() {
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="model-cache-dir">Model Cache Directory</Label>
+        <Label htmlFor="model-cache-dir">Local Model Cache Directory</Label>
         <div className="flex gap-2">
           <Input
             className="font-mono text-xs"
             id="model-cache-dir"
             onChange={(e) => setModelCacheDir(e.target.value)}
-            placeholder="Default system cache directory"
+            placeholder="System default (Transformers.js cache)"
             value={modelCacheDir || ''}
           />
-          <Button size="icon" title="Select Directory" variant="outline">
+          <Button
+            disabled={isSelectingCacheDir}
+            onClick={handleSelectCacheDir}
+            size="icon"
+            title="Select Directory"
+            variant="outline"
+          >
             <Folder className="h-4 w-4" />
           </Button>
         </div>
         <p className="text-muted-foreground text-xs">
-          Directory where downloaded models are stored. Leave empty to use the system default.
+          Stored on disk for local models only. Leave blank to use the system cache directory.
         </p>
       </div>
 

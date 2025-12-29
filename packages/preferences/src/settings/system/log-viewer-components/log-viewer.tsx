@@ -6,6 +6,7 @@ import {
   CardHeader,
   CardTitle,
   SelectItem,
+  TablePagination,
   type useToast,
 } from '@brainstrike/ui';
 import { LogLevel, type LogRecord } from '@brainstrike/utils';
@@ -13,14 +14,14 @@ import {
   type CellContext,
   type ColumnDef,
   getCoreRowModel,
-  getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   type PaginationState,
+  type SortingState,
   useReactTable,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { LogList } from './log-list';
 import { LogToolbar } from './log-toolbar';
 import {
@@ -51,25 +52,82 @@ const LOG_LEVEL_OPTIONS: LogLevel[] = [
   LogLevel.SILENT,
 ];
 
+const RETENTION_OPTIONS = [200, 500, 1000, 2000, 5000] as const;
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
+const DEFAULT_RETENTION_LIMIT = 500;
+const DEFAULT_PAGE_SIZE = 50;
+const ALL_SCOPES_VALUE = '__all__';
+const NO_SCOPE_VALUE = '__none__';
+
+function matchesLogLevel(record: LogRecord, minimumLevelIndex: number): boolean {
+  const recordLevelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(record.level));
+  return recordLevelIndex >= minimumLevelIndex;
+}
+
+function matchesScopeSelection(record: LogRecord, scopeSelection: string): boolean {
+  if (!scopeSelection || scopeSelection === ALL_SCOPES_VALUE) {
+    return true;
+  }
+  if (scopeSelection === NO_SCOPE_VALUE) {
+    return !(record.scope && record.scope.length > 0);
+  }
+  return record.scope === scopeSelection;
+}
+
+function matchesSearchTerm(record: LogRecord, term: string): boolean {
+  if (!term) {
+    return true;
+  }
+  const haystack = [
+    record.message ?? '',
+    record.scope ?? '',
+    serializeArgs(record.args),
+    JSON.stringify(record.bindings ?? {}),
+  ]
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(term);
+}
+
+function shouldIncludeLogRecord(
+  record: LogRecord,
+  minimumLevelIndex: number,
+  term: string,
+  scopeSelection: string
+): boolean {
+  return (
+    matchesLogLevel(record, minimumLevelIndex) &&
+    matchesScopeSelection(record, scopeSelection) &&
+    matchesSearchTerm(record, term)
+  );
+}
+
 export function LogViewer({ logSource, toast }: LogViewerProps) {
   const [logRecords, setLogRecords] = useState<readonly LogRecord[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [retentionLimit, setRetentionLimit] = useState<number>(DEFAULT_RETENTION_LIMIT);
   const [logLevelFilter, setLogLevelFilter] = useState<LogLevel>(LogLevel.DEBUG);
+  const [scopeFilter, setScopeFilter] = useState<string>(ALL_SCOPES_VALUE);
   const [globalFilter, setGlobalFilter] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
+  const [wrapLines, setWrapLines] = useState(true);
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'timestamp', desc: false }]);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
-  // Pagination state is kept for API compatibility but we are using virtualization for the main view.
-  // However, if we want to support "export all" or similar, we might need it.
-  // For now, let's keep the table model simple and just show all rows via virtualization.
-  // We can set page size to a very large number or just not use pagination model for the view.
-  // But wait, the previous implementation used getPaginationRowModel.
-  // If we want to render *all* rows in a virtual list, we should probably NOT use pagination model for the view,
-  // OR set the page size to Infinity.
-  // Let's stick to showing everything in one long scrollable list as requested ("render a lot of rows").
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
-    pageSize: 10_000, // Large default for virtualization
+    pageSize: DEFAULT_PAGE_SIZE,
   });
+
+  const applyRetentionLimit = useCallback(
+    (records: readonly LogRecord[]): LogRecord[] => {
+      const sortedRecords = sortLogRecords(records);
+      if (retentionLimit <= 0 || sortedRecords.length <= retentionLimit) {
+        return sortedRecords;
+      }
+      return sortedRecords.slice(sortedRecords.length - retentionLimit);
+    },
+    [retentionLimit]
+  );
 
   useEffect(() => {
     if (!logSource) {
@@ -84,7 +142,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         .getInitialRecords()
         .then((initial) => {
           if (!cancelled && initial) {
-            setLogRecords(sortLogRecords(initial));
+            setLogRecords(applyRetentionLimit(initial));
           }
         })
         .catch((error) => {
@@ -103,37 +161,23 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     }
 
     const unsubscribe = logSource.subscribe?.((records) => {
-      setLogRecords(sortLogRecords(records));
+      setLogRecords(applyRetentionLimit(records));
     });
 
     return () => {
       cancelled = true;
       unsubscribe?.();
     };
-  }, [logSource, toast]);
+  }, [applyRetentionLimit, logSource, toast]);
 
   const filteredRecords = useMemo(() => {
     const levelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(logLevelFilter));
     const term = globalFilter.trim().toLowerCase();
-    return logRecords.filter((record) => {
-      const recordLevelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(record.level));
-      if (recordLevelIndex < levelIndex) {
-        return false;
-      }
-      if (!term) {
-        return true;
-      }
-      const haystack = [
-        record.message ?? '',
-        record.scope ?? '',
-        serializeArgs(record.args),
-        JSON.stringify(record.bindings ?? {}),
-      ]
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(term);
-    });
-  }, [globalFilter, logLevelFilter, logRecords]);
+    const scopeSelection = scopeFilter.trim();
+    return logRecords.filter((record) =>
+      shouldIncludeLogRecord(record, levelIndex, term, scopeSelection)
+    );
+  }, [globalFilter, logLevelFilter, logRecords, scopeFilter]);
 
   const tableData = useMemo<LogRecordRow[]>(
     () =>
@@ -145,8 +189,10 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     [filteredRecords]
   );
 
-  const columns = useMemo<ColumnDef<LogRecordRow>[]>(
-    () => [
+  const columns = useMemo<ColumnDef<LogRecordRow>[]>(() => {
+    const messageClassName = wrapLines ? 'line-clamp-2 break-words' : 'truncate';
+    const payloadClassName = wrapLines ? 'line-clamp-2 break-all' : 'truncate';
+    return [
       {
         accessorKey: 'timestamp',
         header: 'Time',
@@ -155,7 +201,8 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
             {formatLogTimestamp(getValue() as number)}
           </span>
         ),
-        size: 100,
+        enableSorting: true,
+        size: 110,
       },
       {
         accessorKey: 'level',
@@ -175,7 +222,8 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
             </Badge>
           );
         },
-        size: 80,
+        enableSorting: false,
+        size: 84,
       },
       {
         accessorKey: 'scope',
@@ -183,12 +231,13 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
           const scope = getValue() as string | undefined;
           return scope ? (
-            <span className="font-medium text-primary/80 text-xs">[{scope}]</span>
+            <span className="line-clamp-1 font-medium text-primary/80 text-xs">[{scope}]</span>
           ) : (
             <span className="text-muted-foreground/30 text-xs">—</span>
           );
         },
-        size: 140,
+        enableSorting: false,
+        size: 160,
       },
       {
         accessorKey: 'message',
@@ -196,12 +245,16 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
           const message = getValue() as string | undefined;
           return (
-            <div className="truncate font-medium text-foreground/90 text-xs" title={message ?? ''}>
+            <div
+              className={`${messageClassName} font-medium text-foreground/90 text-xs`}
+              title={message ?? ''}
+            >
               {message || <span className="text-muted-foreground/30">—</span>}
             </div>
           );
         },
-        size: 350,
+        enableSorting: false,
+        size: 360,
       },
       {
         accessorKey: 'serializedArgs',
@@ -210,7 +263,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
           const payload = getValue() as string;
           return payload ? (
             <code
-              className="block max-w-xs truncate rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+              className={`block rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ${payloadClassName}`}
               title={payload}
             >
               {payload}
@@ -219,7 +272,8 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
             <span className="text-muted-foreground/30 text-xs">—</span>
           );
         },
-        size: 250,
+        enableSorting: false,
+        size: 260,
       },
       {
         accessorKey: 'flattenedBindings',
@@ -229,7 +283,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
           const parsed = bindings && bindings !== '{}' ? bindings : null;
           return parsed ? (
             <code
-              className="block max-w-xs truncate rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+              className={`block rounded border border-border/20 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground ${payloadClassName}`}
               title={parsed}
             >
               {parsed}
@@ -238,31 +292,37 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
             <span className="text-muted-foreground/30 text-xs">—</span>
           );
         },
-        size: 200,
+        enableSorting: false,
+        size: 220,
       },
-    ],
-    []
-  );
+    ];
+  }, [wrapLines]);
+
+  const sortNewestFirst = sorting[0]?.desc ?? false;
+  const lastPageIndex = Math.max(0, Math.ceil(filteredRecords.length / pagination.pageSize) - 1);
+  const resolvedPageIndex = autoScroll
+    ? sortNewestFirst
+      ? 0
+      : lastPageIndex
+    : Math.min(pagination.pageIndex, lastPageIndex);
 
   const table = useReactTable({
     data: tableData,
     columns,
     state: {
-      globalFilter,
       columnVisibility,
-      pagination,
+      pagination: {
+        pageIndex: resolvedPageIndex,
+        pageSize: pagination.pageSize,
+      },
+      sorting,
     },
-    onGlobalFilterChange: setGlobalFilter,
     onColumnVisibilityChange: setColumnVisibility,
     onPaginationChange: setPagination,
+    onSortingChange: setSorting,
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
-    globalFilterFn: 'includesString',
-    initialState: {
-      sorting: [{ id: 'timestamp', desc: true }],
-    },
   });
 
   const rows = table.getRowModel().rows;
@@ -274,7 +334,7 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     setLogsLoading(true);
     try {
       const records = await logSource.getInitialRecords();
-      setLogRecords(sortLogRecords(records));
+      setLogRecords(applyRetentionLimit(records));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       toast({
@@ -307,6 +367,27 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
     URL.revokeObjectURL(url);
   };
 
+  const handleSortNewestFirstChange = useCallback((value: boolean) => {
+    setSorting([{ id: 'timestamp', desc: value }]);
+  }, []);
+
+  const handlePageSizeChange = useCallback((value: number) => {
+    setPagination((previous) => ({
+      ...previous,
+      pageSize: value,
+    }));
+  }, []);
+
+  const scopeOptions = useMemo(() => {
+    const scopes = new Set<string>();
+    for (const record of logRecords) {
+      if (record.scope) {
+        scopes.add(record.scope);
+      }
+    }
+    return Array.from(scopes).sort((a, b) => a.localeCompare(b));
+  }, [logRecords]);
+
   const logLevelItems = useMemo(
     () =>
       LOG_LEVEL_OPTIONS.map((level) => (
@@ -316,6 +397,49 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
       )),
     []
   );
+
+  const scopeItems = useMemo(
+    () => (
+      <>
+        <SelectItem value={ALL_SCOPES_VALUE}>All scopes</SelectItem>
+        <SelectItem value={NO_SCOPE_VALUE}>No scope</SelectItem>
+        {scopeOptions.map((scope) => (
+          <SelectItem key={scope} value={scope}>
+            {scope}
+          </SelectItem>
+        ))}
+      </>
+    ),
+    [scopeOptions]
+  );
+
+  const retentionItems = useMemo(
+    () =>
+      RETENTION_OPTIONS.map((limit) => (
+        <SelectItem key={limit} value={String(limit)}>
+          {limit.toLocaleString()} logs
+        </SelectItem>
+      )),
+    []
+  );
+
+  const pageSizeItems = useMemo(
+    () =>
+      PAGE_SIZE_OPTIONS.map((size) => (
+        <SelectItem key={size} value={String(size)}>
+          {size} rows
+        </SelectItem>
+      )),
+    []
+  );
+
+  const pageStart = filteredRecords.length === 0 ? 0 : resolvedPageIndex * pagination.pageSize + 1;
+  const pageEnd = Math.min(filteredRecords.length, (resolvedPageIndex + 1) * pagination.pageSize);
+  const summaryText =
+    filteredRecords.length === 0
+      ? 'No logs to display.'
+      : `Showing ${pageStart}-${pageEnd} of ${filteredRecords.length} logs (retention ${retentionLimit.toLocaleString()}).`;
+  const totalPages = Math.max(1, table.getPageCount());
 
   if (!logSource) {
     return null;
@@ -340,23 +464,52 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         onAutoScrollChange={setAutoScroll}
         onExport={handleExportLogs}
         onLevelChange={setLogLevelFilter}
+        onPageSizeChange={handlePageSizeChange}
         onRefresh={handleRefreshLogs}
+        onRetentionChange={setRetentionLimit}
+        onScopeChange={setScopeFilter}
         onSearchChange={setGlobalFilter}
+        onSortNewestFirstChange={handleSortNewestFirstChange}
+        onWrapLinesChange={setWrapLines}
+        pageSize={pagination.pageSize}
+        pageSizeItems={pageSizeItems}
+        retentionItems={retentionItems}
+        retentionLimit={retentionLimit}
         rowsCount={filteredRecords.length}
+        scopeFilter={scopeFilter}
+        scopeItems={scopeItems}
+        sortNewestFirst={sortNewestFirst}
         table={table}
+        wrapLines={wrapLines}
       />
 
       <CardContent className="relative flex flex-1 flex-col overflow-hidden p-0">
-        <LogList autoScroll={autoScroll} logsLoading={logsLoading} rows={rows} table={table} />
+        <LogList
+          autoScroll={autoScroll}
+          autoScrollAnchor={sortNewestFirst ? 'start' : 'end'}
+          logsLoading={logsLoading}
+          rows={rows}
+          table={table}
+          wrapLines={wrapLines}
+        />
         <div className="pointer-events-none absolute right-0 bottom-0 left-0 h-6 bg-gradient-to-t from-background to-transparent opacity-50" />
       </CardContent>
 
       <div className="flex items-center justify-between border-border/40 border-t bg-muted/20 px-4 py-2 text-[10px] text-muted-foreground">
-        <span>
-          Total: {logRecords.length} | Filtered: {filteredRecords.length}
-        </span>
-        <span>{autoScroll ? 'Auto-scroll active' : 'Scroll paused'}</span>
+        <span data-testid="log-viewer-summary">{summaryText}</span>
+        <span>{autoScroll ? 'Auto-scroll on' : 'Scroll paused'}</span>
       </div>
+      {totalPages > 1 ? (
+        <TablePagination
+          currentPage={resolvedPageIndex}
+          onPageChange={(page) => {
+            setAutoScroll(false);
+            setPagination((previous) => ({ ...previous, pageIndex: page }));
+          }}
+          totalItems={filteredRecords.length}
+          totalPages={totalPages}
+        />
+      ) : null}
     </Card>
   );
 }

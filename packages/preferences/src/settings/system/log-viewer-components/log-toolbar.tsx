@@ -22,10 +22,23 @@ type LogToolbarProps = {
   logLevelFilter: LogLevel;
   onLevelChange: (value: LogLevel) => void;
   logLevelItems: ReactNode;
+  scopeFilter: string;
+  onScopeChange: (value: string) => void;
+  scopeItems: ReactNode;
   globalFilter: string;
   onSearchChange: (value: string) => void;
   autoScroll: boolean;
   onAutoScrollChange: (value: boolean) => void;
+  wrapLines: boolean;
+  onWrapLinesChange: (value: boolean) => void;
+  sortNewestFirst: boolean;
+  onSortNewestFirstChange: (value: boolean) => void;
+  retentionLimit: number;
+  onRetentionChange: (value: number) => void;
+  retentionItems: ReactNode;
+  pageSize: number;
+  onPageSizeChange: (value: number) => void;
+  pageSizeItems: ReactNode;
   table: ReactTableInstance<LogRecordRow>;
   rowsCount: number;
   logsLoading: boolean;
@@ -38,10 +51,23 @@ export function LogToolbar({
   logLevelFilter,
   onLevelChange,
   logLevelItems,
+  scopeFilter,
+  onScopeChange,
+  scopeItems,
   globalFilter,
   onSearchChange,
   autoScroll,
   onAutoScrollChange,
+  wrapLines,
+  onWrapLinesChange,
+  sortNewestFirst,
+  onSortNewestFirstChange,
+  retentionLimit,
+  onRetentionChange,
+  retentionItems,
+  pageSize,
+  onPageSizeChange,
+  pageSizeItems,
   table,
   rowsCount,
   logsLoading,
@@ -51,9 +77,9 @@ export function LogToolbar({
 }: LogToolbarProps) {
   return (
     <div className="flex flex-col gap-4 border-border/40 border-b bg-background/95 p-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex flex-1 items-center gap-4">
-          <div className="relative max-w-md flex-1">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex flex-1 flex-wrap items-center gap-3">
+          <div className="relative min-w-[220px] flex-1">
             <Search className="absolute top-2.5 left-2.5 h-4 w-4 text-muted-foreground" />
             <Input
               className="border-border/50 bg-muted/50 pl-9 transition-colors focus:bg-background"
@@ -71,9 +97,15 @@ export function LogToolbar({
             </SelectTrigger>
             <SelectContent>{logLevelItems}</SelectContent>
           </Select>
+          <Select onValueChange={onScopeChange} value={scopeFilter}>
+            <SelectTrigger className="w-[170px] border-border/50 bg-muted/50">
+              <SelectValue placeholder="Scope" />
+            </SelectTrigger>
+            <SelectContent>{scopeItems}</SelectContent>
+          </Select>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-2 rounded-md border border-border/30 bg-muted/30 px-3 py-1.5">
             <Switch
               checked={autoScroll}
@@ -83,6 +115,30 @@ export function LogToolbar({
             />
             <Label className="cursor-pointer font-medium text-xs" htmlFor="log-viewer-autoscroll">
               Auto-scroll
+            </Label>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-md border border-border/30 bg-muted/30 px-3 py-1.5">
+            <Switch
+              checked={wrapLines}
+              className="scale-90"
+              id="log-viewer-wrap"
+              onCheckedChange={onWrapLinesChange}
+            />
+            <Label className="cursor-pointer font-medium text-xs" htmlFor="log-viewer-wrap">
+              Wrap lines
+            </Label>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-md border border-border/30 bg-muted/30 px-3 py-1.5">
+            <Switch
+              checked={sortNewestFirst}
+              className="scale-90"
+              id="log-viewer-sort"
+              onCheckedChange={onSortNewestFirstChange}
+            />
+            <Label className="cursor-pointer font-medium text-xs" htmlFor="log-viewer-sort">
+              Newest first
             </Label>
           </div>
 
@@ -109,7 +165,7 @@ export function LogToolbar({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <div className="mx-1 h-4 w-px bg-border/50" />
+          <div className="mx-1 hidden h-4 w-px bg-border/50 sm:block" />
 
           <Button
             className="h-9 w-9"
@@ -132,6 +188,46 @@ export function LogToolbar({
           >
             <Download className="h-4 w-4" />
           </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 text-muted-foreground text-xs">
+        <div className="flex items-center gap-2">
+          <Label className="text-xs" htmlFor="log-viewer-retention">
+            Retention
+          </Label>
+          <Select
+            onValueChange={(value) => onRetentionChange(Number(value))}
+            value={String(retentionLimit)}
+          >
+            <SelectTrigger
+              className="h-8 w-[140px] border-border/50 bg-muted/40"
+              id="log-viewer-retention"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>{retentionItems}</SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs" htmlFor="log-viewer-page-size">
+            Page size
+          </Label>
+          <Select
+            onValueChange={(value) => onPageSizeChange(Number(value))}
+            value={String(pageSize)}
+          >
+            <SelectTrigger
+              className="h-8 w-[120px] border-border/50 bg-muted/40"
+              id="log-viewer-page-size"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>{pageSizeItems}</SelectContent>
+          </Select>
+        </div>
+        <div className="text-muted-foreground text-xs">
+          {rowsCount === 0 ? 'No matching logs' : `${rowsCount} matching logs`}
         </div>
       </div>
     </div>
