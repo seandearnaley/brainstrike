@@ -463,9 +463,13 @@ export function useLazyFileTree(
   );
 
   /**
-   * Refresh the entire tree from root
+   * Refresh the entire tree from root.
+   * Resets initializedRootRef to force loadRoot to reload the tree.
    */
   const refreshTree = useCallback(async () => {
+    // Reset initialized ref to force loadRoot to reload the tree
+    // Without this, shouldSkipLoadRoot returns skip=true for "already initialized" roots
+    initializedRootRef.current = null;
     await loadRoot();
   }, [loadRoot]);
 
