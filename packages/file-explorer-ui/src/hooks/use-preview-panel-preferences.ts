@@ -1,13 +1,31 @@
 import { createLogger } from '@brainstrike/utils';
 import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useMemo, useState } from 'react';
-import { resolveColumnVisibility } from '../preview-column-visibility';
+import {
+  createDefaultColumnVisibility,
+  resolveColumnVisibility,
+} from '../preview-column-visibility';
 import type { TableRowData } from '../utils/grouping-configs';
+import { GROUPING_CONFIGS } from '../utils/grouping-configs';
 import type { ColumnVisibility } from './use-preview-panel-persistence';
 
 const STORAGE_KEY = 'previewPanelPreferences.v1';
 const SAVE_DEBOUNCE_MS = 250;
 const logger = createLogger('PreviewPanelPreferences');
+const VALID_SORT_FIELDS = new Set<keyof TableRowData>([
+  'id',
+  'rootFolderId',
+  'path',
+  'type',
+  'size',
+  'tokens',
+  'compositeKey',
+]);
+const VALID_TABS = new Set(['table', 'tapestry']);
+const VALID_GROUPING_CONFIGS = new Set(Object.keys(GROUPING_CONFIGS));
+const COLUMN_VISIBILITY_KEYS = Object.keys(
+  createDefaultColumnVisibility()
+) as (keyof ColumnVisibility)[];
 
 type StoredPreferences = {
   columnVisibility?: Partial<ColumnVisibility>;
@@ -37,7 +55,7 @@ type PreviewPanelPreferencesDefaults = {
 function loadStoredPreferences(): StoredPreferences | null {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? (JSON.parse(stored) as StoredPreferences) : null;
+    return stored ? sanitizeStoredPreferences(JSON.parse(stored) as StoredPreferences) : null;
   } catch (error) {
     logger.warn('Failed to parse stored preferences', { storageKey: STORAGE_KEY, error });
     return null;
@@ -61,6 +79,101 @@ function migrateGroupingConfig(value: string): string {
     return 'rootFolder';
   }
   return value;
+}
+
+function sanitizeColumnVisibility(
+  value: StoredPreferences['columnVisibility']
+): StoredPreferences['columnVisibility'] {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+  const next: Partial<ColumnVisibility> = {};
+  for (const key of COLUMN_VISIBILITY_KEYS) {
+    const entry = value[key];
+    if (typeof entry === 'boolean') {
+      next[key] = entry;
+    }
+  }
+  return next;
+}
+
+function sanitizeSortField(value: StoredPreferences['sortField']): StoredPreferences['sortField'] {
+  if (value && VALID_SORT_FIELDS.has(value)) {
+    return value;
+  }
+  return;
+}
+
+function sanitizeSortDirection(
+  value: StoredPreferences['sortDirection']
+): StoredPreferences['sortDirection'] {
+  if (value === 'asc' || value === 'desc') {
+    return value;
+  }
+  return;
+}
+
+function sanitizeGroupingConfig(
+  value: StoredPreferences['groupingConfig']
+): StoredPreferences['groupingConfig'] {
+  if (typeof value !== 'string') {
+    return;
+  }
+  const normalized = migrateGroupingConfig(value);
+  if (VALID_GROUPING_CONFIGS.has(normalized)) {
+    return normalized;
+  }
+  return;
+}
+
+function sanitizeActiveTab(value: StoredPreferences['activeTab']): StoredPreferences['activeTab'] {
+  if (typeof value === 'string' && VALID_TABS.has(value)) {
+    return value;
+  }
+  return;
+}
+
+function sanitizeCollapsedGroups(
+  value: StoredPreferences['collapsedGroups']
+): StoredPreferences['collapsedGroups'] {
+  if (!Array.isArray(value)) {
+    return;
+  }
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
+function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPreferences | null {
+  if (!stored || typeof stored !== 'object') {
+    return null;
+  }
+
+  const sanitized: StoredPreferences = {};
+  const columnVisibility = sanitizeColumnVisibility(stored.columnVisibility);
+  if (columnVisibility) {
+    sanitized.columnVisibility = columnVisibility;
+  }
+  const sortField = sanitizeSortField(stored.sortField);
+  if (sortField !== undefined) {
+    sanitized.sortField = sortField;
+  }
+  const sortDirection = sanitizeSortDirection(stored.sortDirection);
+  if (sortDirection !== undefined) {
+    sanitized.sortDirection = sortDirection;
+  }
+  const groupingConfig = sanitizeGroupingConfig(stored.groupingConfig);
+  if (groupingConfig !== undefined) {
+    sanitized.groupingConfig = groupingConfig;
+  }
+  const activeTab = sanitizeActiveTab(stored.activeTab);
+  if (activeTab !== undefined) {
+    sanitized.activeTab = activeTab;
+  }
+  const collapsedGroups = sanitizeCollapsedGroups(stored.collapsedGroups);
+  if (collapsedGroups) {
+    sanitized.collapsedGroups = collapsedGroups;
+  }
+
+  return sanitized;
 }
 
 function isQuotaExceeded(error: unknown): boolean {

@@ -38,14 +38,16 @@ import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 import type { TokenCountingState } from './use-token-counting';
 import {
   GROUPING_CONFIGS,
-  type GroupedData,
   type GroupKey,
   groupData,
   type TableRowData,
 } from './utils/grouping-configs';
+import { buildGroupedPageSections, getVisibleFilesOnPage } from './utils/preview-pagination';
 
 const logger = createLogger('PreviewPanel');
+// Cap tapestry items per page so previews keep a readable "page" density.
 const TAPESTRY_MAX_PAGE_SIZE = 24;
+const DECODED_SELECTION_CACHE_LIMIT = 2000;
 
 function getTokenUsageMetrics(args: {
   budget: number;
@@ -121,122 +123,6 @@ type PreviewPanelProps = {
   onFolderSummaryThresholdChange?: (threshold: number) => void;
   onRequestFileContent?: (compositeKey: string) => void;
 };
-
-type VisibleFilesOnPageInput = {
-  groupingConfig: string;
-  currentPageData: TableRowData[];
-  groupedData: GroupedData<TableRowData>[];
-  collapsedGroups: Set<string>;
-  startIndex: number;
-  endIndex: number;
-};
-
-function getVisibleFilesOnPage(input: VisibleFilesOnPageInput): TableRowData[] {
-  if (input.groupingConfig === 'none') {
-    return input.currentPageData;
-  }
-
-  const visibleFiles: TableRowData[] = [];
-  let itemCount = 0;
-
-  for (const group of input.groupedData) {
-    itemCount += 1; // group header
-
-    if (input.collapsedGroups.has(String(group.groupKey))) {
-      continue;
-    }
-
-    for (const item of group.items) {
-      if (itemCount >= input.startIndex && itemCount < input.endIndex) {
-        visibleFiles.push(item);
-      }
-      itemCount += 1;
-      if (itemCount >= input.endIndex) {
-        break;
-      }
-    }
-
-    if (itemCount >= input.endIndex) {
-      break;
-    }
-  }
-
-  return visibleFiles;
-}
-
-type GroupedPageSection = {
-  group: GroupedData<TableRowData>;
-  isCollapsed: boolean;
-  showHeader: boolean;
-  items: TableRowData[];
-};
-
-type GroupedPageSectionsInput = {
-  groupedData: GroupedData<TableRowData>[];
-  collapsedGroups: Set<string>;
-  startIndex: number;
-  endIndex: number;
-};
-
-function isIndexInPage(index: number, startIndex: number, endIndex: number): boolean {
-  return index >= startIndex && index < endIndex;
-}
-
-function collectItemsForGroup(args: {
-  group: GroupedData<TableRowData>;
-  isCollapsed: boolean;
-  startIndex: number;
-  endIndex: number;
-  itemCount: number;
-}): { items: TableRowData[]; nextIndex: number } {
-  if (args.isCollapsed) {
-    return { items: [], nextIndex: args.itemCount };
-  }
-
-  const items: TableRowData[] = [];
-  let currentIndex = args.itemCount;
-
-  for (const item of args.group.items) {
-    if (isIndexInPage(currentIndex, args.startIndex, args.endIndex)) {
-      items.push(item);
-    }
-    currentIndex += 1;
-    if (currentIndex >= args.endIndex) {
-      break;
-    }
-  }
-
-  return { items, nextIndex: currentIndex };
-}
-
-function buildGroupedPageSections(input: GroupedPageSectionsInput): GroupedPageSection[] {
-  const sections: GroupedPageSection[] = [];
-  let itemCount = 0;
-
-  for (const group of input.groupedData) {
-    const isCollapsed = input.collapsedGroups.has(String(group.groupKey));
-    const showHeader = isIndexInPage(itemCount, input.startIndex, input.endIndex);
-    itemCount += 1;
-    const { items, nextIndex } = collectItemsForGroup({
-      endIndex: input.endIndex,
-      group,
-      isCollapsed,
-      itemCount,
-      startIndex: input.startIndex,
-    });
-    itemCount = nextIndex;
-
-    if (showHeader || items.length > 0) {
-      sections.push({ group, isCollapsed, showHeader, items });
-    }
-
-    if (itemCount >= input.endIndex) {
-      break;
-    }
-  }
-
-  return sections;
-}
 
 type TapestryRangeMap = Record<string, TapestryRange[]>;
 
@@ -441,12 +327,23 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     (compositeKey: string): { folderId: string; path: string } | null => {
       const cache = decodedSelectionCacheRef.current;
       if (cache.has(compositeKey)) {
-        return cache.get(compositeKey) ?? null;
+        const cached = cache.get(compositeKey) ?? null;
+        if (cached) {
+          cache.delete(compositeKey);
+          cache.set(compositeKey, cached);
+        }
+        return cached;
       }
 
       try {
         const decoded = decodeFileSelection(compositeKey);
         cache.set(compositeKey, decoded);
+        if (cache.size > DECODED_SELECTION_CACHE_LIMIT) {
+          const oldestKey = cache.keys().next().value;
+          if (oldestKey) {
+            cache.delete(oldestKey);
+          }
+        }
         return decoded;
       } catch (error) {
         logger.warn('Failed to decode composite key:', compositeKey, error);
@@ -490,6 +387,28 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       })
       .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, getDecodedSelection]);
+
+  useEffect(() => {
+    const cache = decodedSelectionCacheRef.current;
+    if (cache.size === 0) {
+      return;
+    }
+
+    const visibleKeys = new Set(tableData.map((item) => item.compositeKey));
+    for (const key of cache.keys()) {
+      if (!visibleKeys.has(key)) {
+        cache.delete(key);
+      }
+    }
+
+    while (cache.size > DECODED_SELECTION_CACHE_LIMIT) {
+      const oldestKey = cache.keys().next().value;
+      if (!oldestKey) {
+        break;
+      }
+      cache.delete(oldestKey);
+    }
+  }, [tableData]);
 
   const tapestryFileBaseByKey = useMemo(() => {
     const map = new Map<string, ReturnType<typeof buildTapestryFileBase>>();

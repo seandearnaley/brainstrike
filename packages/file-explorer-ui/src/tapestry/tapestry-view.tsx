@@ -45,6 +45,65 @@ function applyDeltas(
 /**
  * Constrains range boundaries to prevent overlap with other ranges.
  */
+function findNeighborBounds(
+  initialRange: TapestryRange,
+  totalLines: number,
+  otherRanges: TapestryRange[]
+): { minLine: number; maxLine: number } {
+  let prevEnd = 0;
+  let nextStart = totalLines;
+
+  for (const range of otherRanges) {
+    if (range.endLine <= initialRange.startLine) {
+      prevEnd = Math.max(prevEnd, range.endLine);
+      continue;
+    }
+    if (range.startLine >= initialRange.endLine) {
+      nextStart = Math.min(nextStart, range.startLine);
+    }
+  }
+
+  return { minLine: prevEnd, maxLine: nextStart };
+}
+
+function clampMoveBounds(
+  bounds: { startLine: number; endLine: number },
+  minLine: number,
+  maxLine: number
+): { startLine: number; endLine: number } {
+  let { startLine, endLine } = bounds;
+  const height = endLine - startLine;
+
+  if (startLine < minLine) {
+    startLine = minLine;
+    endLine = startLine + height;
+  }
+  if (endLine > maxLine) {
+    endLine = maxLine;
+    startLine = endLine - height;
+  }
+
+  return { startLine, endLine };
+}
+
+function clampResizeBounds(
+  bounds: { startLine: number; endLine: number },
+  mode: InteractionMode,
+  minLine: number,
+  maxLine: number
+): { startLine: number; endLine: number } {
+  let { startLine, endLine } = bounds;
+
+  if (mode === 'RESIZING_TOP' && startLine < minLine) {
+    startLine = minLine;
+  }
+  if (mode === 'RESIZING_BOTTOM' && endLine > maxLine) {
+    endLine = maxLine;
+  }
+
+  return { startLine, endLine };
+}
+
 function applyOverlapConstraints(
   bounds: { startLine: number; endLine: number },
   initialRange: TapestryRange,
@@ -52,33 +111,13 @@ function applyOverlapConstraints(
   totalLines: number,
   otherRanges: TapestryRange[]
 ): { startLine: number; endLine: number } {
-  const sortedOthers = [...otherRanges].sort((a, b) => a.startLine - b.startLine);
-  const prevRange = sortedOthers.filter((r) => r.endLine <= initialRange.startLine).pop();
-  const nextRange = sortedOthers.filter((r) => r.startLine >= initialRange.endLine).shift();
-  const minLine = prevRange ? prevRange.endLine : 0;
-  const maxLine = nextRange ? nextRange.startLine : totalLines;
-
-  let { startLine, endLine } = bounds;
+  const { minLine, maxLine } = findNeighborBounds(initialRange, totalLines, otherRanges);
 
   if (mode === 'MOVING') {
-    const height = endLine - startLine;
-    if (startLine < minLine) {
-      startLine = minLine;
-      endLine = startLine + height;
-    }
-    if (endLine > maxLine) {
-      endLine = maxLine;
-      startLine = endLine - height;
-    }
-  } else if (mode === 'RESIZING_TOP') {
-    if (startLine < minLine) {
-      startLine = minLine;
-    }
-  } else if (mode === 'RESIZING_BOTTOM' && endLine > maxLine) {
-    endLine = maxLine;
+    return clampMoveBounds(bounds, minLine, maxLine);
   }
 
-  return { startLine, endLine };
+  return clampResizeBounds(bounds, mode, minLine, maxLine);
 }
 
 /**
