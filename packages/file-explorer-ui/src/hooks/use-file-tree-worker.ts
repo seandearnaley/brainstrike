@@ -19,6 +19,7 @@ import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { createLogger, isAbortError } from '@brainstrike/utils';
 import { useEffect, useRef } from 'react';
 
+import { runWithConcurrency } from '../utils/concurrency';
 import { loadDirectoryChildren } from '../utils/lazy-tree-loader';
 import {
   addHandlesToMap,
@@ -30,27 +31,6 @@ const logger = createLogger('FileTreeWorker');
 
 /** Maximum concurrent directory loads to prevent overwhelming the browser */
 const MAX_CONCURRENT_LOADS = 5;
-
-/**
- * Simple concurrency limiter using chunked Promise.all.
- * Processes items in chunks with limited concurrency.
- */
-async function runWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = [];
-
-  // Process items in chunks of concurrency size
-  for (let i = 0; i < items.length; i += concurrency) {
-    const chunk = items.slice(i, i + concurrency);
-    const chunkResults = await Promise.all(chunk.map(fn));
-    results.push(...chunkResults);
-  }
-
-  return results;
-}
 
 /**
  * Sort nodes: directories first, then alphabetically.
