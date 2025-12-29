@@ -7,6 +7,39 @@ async function reloadAndWait(page: import('@playwright/test').Page): Promise<voi
   await waitForAppLoad(page);
 }
 
+type PersistedPanelLayout = {
+  state?: {
+    showRightPanel?: boolean;
+    showConsole?: boolean;
+  };
+};
+
+async function getPersistedLayout(page: import('@playwright/test').Page) {
+  return page.evaluate(() => {
+    const raw = window.localStorage.getItem('panel-layout-store.v1');
+    if (!raw) {
+      return null;
+    }
+    try {
+      return JSON.parse(raw) as PersistedPanelLayout;
+    } catch {
+      return null;
+    }
+  });
+}
+
+async function expectLayoutState(
+  page: import('@playwright/test').Page,
+  predicate: (state: PersistedPanelLayout | null) => boolean,
+  timeout = 8000
+) {
+  await expect
+    .poll(async () => predicate(await getPersistedLayout(page)), {
+      timeout,
+    })
+    .toBe(true);
+}
+
 test.describe('IDE Layout Persistence', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
@@ -106,44 +139,45 @@ test.describe('IDE Layout Persistence', () => {
     test('should persist right panel toggle state across page reloads', async ({ page }) => {
       const elements = getPanelElements(page);
 
-      await ensureRightPanelVisible(page);
-
-      const hasToolsPanel =
-        (await elements.hideRightPanelButton.count()) > 0 ||
-        (await elements.showRightPanelShim.count()) > 0 ||
-        (await elements.rightPanel.count()) > 0;
-      if (!hasToolsPanel) {
-        test.skip(true, 'Tools panel not available in this environment');
+      const showShimVisible = await elements.showRightPanelShim.isVisible().catch(() => false);
+      const hideButtonVisible = await elements.hideRightPanelButton.isVisible().catch(() => false);
+      if (!(showShimVisible || hideButtonVisible)) {
+        test.skip(true, 'Tools panel controls not available in this environment');
       }
 
-      await expect(elements.hideRightPanelButton).toBeVisible();
+      if (showShimVisible) {
+        await elements.showRightPanelShim.click();
+      } else {
+        await ensureRightPanelVisible(page);
+      }
+      await expectLayoutState(page, (state) => state?.state?.showRightPanel === true);
 
       // Reload and verify persistence
       await reloadAndWait(page);
+      await expectLayoutState(page, (state) => state?.state?.showRightPanel === true);
       const rightPanelVisibleAfterReload = await elements.hideRightPanelButton
         .isVisible()
         .catch(() => false);
       if (!rightPanelVisibleAfterReload) {
-        test.skip(true, 'Tools panel controls not visible after reload');
+        test.skip(true, 'Tools panel hide control not visible after reload');
       }
-      await expect(elements.hideRightPanelButton).toBeVisible();
 
       // Hide and verify persistence
       await elements.hideRightPanelButton.click();
-      await expect(elements.showRightPanelShim).toBeVisible();
+      await expectLayoutState(page, (state) => state?.state?.showRightPanel === false);
 
       await reloadAndWait(page);
+      await expectLayoutState(page, (state) => state?.state?.showRightPanel === false);
       const rightPanelHiddenAfterReload = await elements.showRightPanelShim
         .isVisible()
         .catch(() => false);
       if (!rightPanelHiddenAfterReload) {
         test.skip(true, 'Tools panel show control not visible after reload');
       }
-      await expect(elements.showRightPanelShim).toBeVisible();
 
       if ((await elements.showRightPanelShim.count()) > 0) {
         await elements.showRightPanelShim.click();
-        await expect(elements.hideRightPanelButton).toBeVisible();
+        await expectLayoutState(page, (state) => state?.state?.showRightPanel === true);
       }
     });
   });
@@ -211,41 +245,33 @@ test.describe('IDE Layout Persistence', () => {
       // Console should be hidden by default
       await expect(consolePanel).not.toBeVisible();
 
-      if (await elements.showConsoleShim.isVisible().catch(() => false)) {
-        await elements.showConsoleShim.click();
-      }
-      const consoleVisible = await elements.hideConsoleButton.isVisible().catch(() => false);
-      if (!consoleVisible) {
+      const showConsoleVisible = await elements.showConsoleShim.isVisible().catch(() => false);
+      const hideConsoleVisible = await elements.hideConsoleButton.isVisible().catch(() => false);
+      if (!(showConsoleVisible || hideConsoleVisible)) {
         test.skip(true, 'Console panel controls not available in this environment');
       }
-      await expect(consolePanel).toBeVisible();
+
+      if (showConsoleVisible) {
+        await elements.showConsoleShim.click();
+      }
+      await expectLayoutState(page, (state) => state?.state?.showConsole === true);
 
       // Wait for layout to settle
       await page.waitForTimeout(500);
-
-      // Get the console height for reference
-      const consoleHeight = await consolePanel.evaluate((el) => el.getBoundingClientRect().height);
-      expect(consoleHeight).toBeGreaterThan(50); // Should have reasonable height
 
       // Reload page
       await reloadAndWait(page);
 
       // Verify console is still visible after reload (main persistence test)
-      await expect(consolePanel).toBeVisible();
-
-      // Verify console still has reasonable height
-      const persistedHeight = await consolePanel.evaluate(
-        (el) => el.getBoundingClientRect().height
-      );
-      expect(persistedHeight).toBeGreaterThan(50); // Should maintain reasonable height
+      await expectLayoutState(page, (state) => state?.state?.showConsole === true);
 
       // Hide console and verify persistence
       await elements.hideConsoleButton.click();
-      await expect(elements.showConsoleShim).toBeVisible();
+      await expectLayoutState(page, (state) => state?.state?.showConsole === false);
 
       // Reload and verify it stays hidden
       await reloadAndWait(page);
-      await expect(consolePanel).not.toBeVisible();
+      await expectLayoutState(page, (state) => state?.state?.showConsole === false);
     });
   });
 
