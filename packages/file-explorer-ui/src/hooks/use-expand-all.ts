@@ -77,10 +77,10 @@ export type ExpandAllState = {
 };
 
 export type UseExpandAllOptions = {
-  /** Worker port for expand-all commands */
-  workerPort: FileTreeWorkerPort | null;
-  /** Handle map for rehydrating worker tree */
-  handleMap: Map<string, FileSystemHandle>;
+  /** Ref to worker port for expand-all commands (use ref to get current value at call time) */
+  workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
+  /** Ref to handle map for rehydrating worker tree */
+  handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
   /** Root folder ID for expand-all scope */
   rootFolderId: string;
   /** Callback when tree is updated after expand-all */
@@ -119,7 +119,7 @@ export type UseExpandAllReturn = {
  * @returns Expand-all state and controls
  */
 export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
-  const { workerPort, handleMap, rootFolderId, onTreeUpdate, onError } = options;
+  const { workerPortRef, handleMapRef, rootFolderId, onTreeUpdate, onError } = options;
 
   // State
   const [state, setState] = useState<ExpandAllState>({
@@ -152,7 +152,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
    * Cancel expand-all operation.
    */
   const cancelExpandAll = useCallback(() => {
-    workerPort?.abort();
+    workerPortRef.current?.abort();
     isExpandAllStartingRef.current = false;
     isExpandingAllRef.current = false;
     setExpandedPathsRef.current = null;
@@ -160,7 +160,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       isExpandingAll: false,
       expandAllProgress: null,
     });
-  }, [workerPort]);
+  }, [workerPortRef]);
 
   /**
    * Progressively expand all directories using the Web Worker.
@@ -171,7 +171,12 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
     async (
       setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
     ): Promise<void> => {
+      // Get current values from refs at call time (not at hook creation time)
+      const workerPort = workerPortRef.current;
+      const handleMap = handleMapRef.current;
+
       if (!workerPort) {
+        logger.warn('expandAllProgressively called but worker not ready');
         return;
       }
 
@@ -230,7 +235,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
         setExpandedPathsRef.current = null;
       }
     },
-    [workerPort, rootFolderId, handleMap, onTreeUpdate, onError]
+    [workerPortRef, handleMapRef, rootFolderId, onTreeUpdate, onError]
   );
 
   return {

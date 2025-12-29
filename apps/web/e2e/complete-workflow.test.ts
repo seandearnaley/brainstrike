@@ -91,9 +91,12 @@ test.describe('Complete File Explorer Workflow', () => {
     // Then expand all
     await page.getByTestId('expand-all-button-small').click();
 
-    // Wait for expansion to complete - CI can be much slower, use 30s timeout
-    // The expand-all operation involves worker communication and tree traversal
-    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 30_000 });
+    // Wait for expansion to complete - use polling pattern from quick-filter.test.ts
+    // This is more robust as it waits for the element to exist before checking visibility
+    await expect
+      .poll(async () => fileTree.getByText('Button.tsx').count(), { timeout: 30_000 })
+      .toBeGreaterThan(0);
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
 
     // Clear filter to see full tree again
     await filterInput.fill('');

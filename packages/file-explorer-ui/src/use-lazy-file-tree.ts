@@ -141,8 +141,8 @@ export function useLazyFileTree(
     isExpandingAllRef,
     updateProgress,
   } = useExpandAll({
-    workerPort: portRef.current,
-    handleMap: handleMapRef.current,
+    workerPortRef: portRef,
+    handleMapRef,
     rootFolderId: rootDirectoryHandle?.name ?? '',
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
