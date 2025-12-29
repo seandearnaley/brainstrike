@@ -42,12 +42,11 @@ async function expectLayoutState(
 
 test.describe('IDE Layout Persistence', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
-    await waitForAppLoad(page);
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
 
     // Clear any existing layout state to start fresh
     await resetAppState(page);
-    await page.reload();
+    await page.reload({ waitUntil: 'domcontentloaded' });
     await waitForAppLoad(page);
   });
 
