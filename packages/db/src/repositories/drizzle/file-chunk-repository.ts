@@ -21,6 +21,37 @@ import { embeddingSets, fileChunks } from '../../schema/index.js';
 
 type DrizzleDb = PgliteDatabase;
 
+/**
+ * Validates that all elements in an embedding vector are finite numbers.
+ * This is a defense-in-depth measure to prevent malformed data from being
+ * interpolated into SQL queries.
+ *
+ * @throws Error if any element is not a finite number
+ */
+function validateEmbeddingVector(embedding: number[], context: string): void {
+  for (let i = 0; i < embedding.length; i++) {
+    const value = embedding[i];
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(`${context}: Invalid embedding value at index ${i}: ${value}`);
+    }
+  }
+}
+
+/**
+ * Validates that a dimension value is a safe positive integer.
+ * @throws Error if dimension is not a safe positive integer
+ */
+function validateDimension(dimension: number, context: string): void {
+  if (
+    typeof dimension !== 'number' ||
+    !Number.isInteger(dimension) ||
+    dimension <= 0 ||
+    dimension > 65_535 // Reasonable upper bound for embedding dimensions
+  ) {
+    throw new Error(`${context}: Invalid dimension value: ${dimension}`);
+  }
+}
+
 export class DrizzleFileChunkRepository {
   constructor(private readonly db: DrizzleDb) {}
 
@@ -218,6 +249,9 @@ export class DrizzleFileChunkRepository {
       );
     }
 
+    // Validate all embedding values are finite numbers (defense-in-depth)
+    validateEmbeddingVector(queryEmbedding, 'searchSimilar');
+
     const distance = setRow.distance || 'cosine';
     const { similarityExpr, orderExpr } = this.buildDistanceExpressions(
       distance as 'cosine' | 'l2' | 'ip',
@@ -353,6 +387,9 @@ export class DrizzleFileChunkRepository {
     distance: 'cosine' | 'l2' | 'ip',
     dimension: number
   ): { similarityExpr: string; orderExpr: string } {
+    // Validate dimension is a safe integer (defense-in-depth)
+    validateDimension(dimension, 'buildDistanceExpressions');
+
     const embeddingCast = `(embedding::vector(${dimension}))`;
     const paramCast = `$1::vector(${dimension})`;
 

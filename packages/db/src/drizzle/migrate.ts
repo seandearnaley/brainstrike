@@ -124,16 +124,30 @@ export async function runMigrations(
 
       onMigrationStart?.(migration.name);
 
-      // Split and execute each statement
-      const statements = splitStatements(migration.sql);
+      // Wrap each migration in a transaction for atomicity
+      // If any statement fails, the entire migration is rolled back
+      try {
+        await db.query('BEGIN');
 
-      for (const statement of statements) {
-        await db.query(statement);
+        // Split and execute each statement
+        const statements = splitStatements(migration.sql);
+
+        for (const statement of statements) {
+          await db.query(statement);
+        }
+
+        // Record as applied (within transaction)
+        await recordMigration(db, migration.hash);
+
+        await db.query('COMMIT');
+        appliedMigrations.push(migration.name);
+      } catch (migrationError) {
+        // Rollback on failure
+        await db.query('ROLLBACK');
+        throw new Error(
+          `Migration "${migration.name}" failed: ${migrationError instanceof Error ? migrationError.message : String(migrationError)}`
+        );
       }
-
-      // Record as applied
-      await recordMigration(db, migration.hash);
-      appliedMigrations.push(migration.name);
 
       onMigrationComplete?.(migration.name);
     }
