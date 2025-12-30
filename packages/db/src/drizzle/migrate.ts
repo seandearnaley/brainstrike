@@ -10,7 +10,8 @@
 import type { PGlite } from '@electric-sql/pglite';
 
 // Import the pre-compiled migrations manifest
-import migrationsManifest from './migrations.json';
+// Using import attribute for Node.js 22+ ESM compatibility
+import migrationsManifest from './migrations.json' with { type: 'json' };
 
 type Migration = {
   version: string;

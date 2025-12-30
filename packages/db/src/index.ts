@@ -4,6 +4,16 @@
 export { CHUNKING_CONFIG } from './config/chunking-config.js';
 export * from './db-provider.js';
 
+// Drizzle ORM utilities and database wrapper
+export {
+  type DrizzleDb,
+  drizzle,
+  drizzleFromHandle,
+  extractPGlite,
+  hasPGliteRaw,
+  runMigrations as runDrizzleMigrations,
+} from './drizzle/index.js';
+
 // Legacy migration export
 export * from './migrations/bootstrap.js';
 export type { Migration } from './migrations/index.js';
