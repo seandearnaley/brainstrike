@@ -1,7 +1,7 @@
 import type {
   ChunkingStrategy,
+  DrizzleFileChunkRepository,
   ElectronFileChunkRepository,
-  FileChunkRepository,
 } from '@brainstrike/db';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
 import type { QueueAdapter } from '@brainstrike/queue';
@@ -24,7 +24,7 @@ export type UseImportFlowOptions = {
   toast: ReturnType<typeof useToast>['toast'];
   onImportComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
   onChunkRepositoryChange?: (
-    repository: FileChunkRepository | ElectronFileChunkRepository | null
+    repository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null
   ) => void;
   embeddingQueue?: QueueAdapter | null;
   resolveActiveCollectionId?: () => string | null;
@@ -39,7 +39,7 @@ export type UseImportFlowResult = {
   showImportProgress: boolean;
   setShowImportProgress: (show: boolean) => void;
   selectedFileCount: number;
-  chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
+  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
 };
 
 export function useImportFlow({

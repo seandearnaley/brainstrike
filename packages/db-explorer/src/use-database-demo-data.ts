@@ -1,10 +1,10 @@
 import {
+  type DrizzleFileChunkRepository,
+  type DrizzleFileRecordRepository,
   type ElectronFileChunkRepository,
   type ElectronFileRecordRepository,
   type FileChunk,
-  type FileChunkRepository,
   type FileRecord,
-  type FileRecordRepository,
   MigrationRunner,
   migrations,
   type usePGliteDatabase,
@@ -24,7 +24,7 @@ const logger = createLogger('DatabaseDemoData');
  * - "PGlite WASM" → displays as "PGlite WASM" in status bar
  */
 function resolveStorageLocation(
-  repository: FileRecordRepository | ElectronFileRecordRepository | null
+  repository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null
 ): string {
   if (!repository) {
     return 'Unknown';
@@ -44,8 +44,8 @@ export type DatabaseInfo = {
 };
 
 export type UseDatabaseDemoDataOptions = {
-  repository: FileRecordRepository | ElectronFileRecordRepository | null;
-  chunkRepository?: FileChunkRepository | ElectronFileChunkRepository | null;
+  repository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
   toast: ReturnType<typeof useToast>['toast'];
   database?: ReturnType<typeof usePGliteDatabase>;
   activeCollectionId: string | null;

@@ -1,9 +1,9 @@
 import type {
   ChunkSearchResult,
+  DrizzleFileChunkRepository,
+  DrizzleFileRecordRepository,
   FileChunk,
-  FileChunkRepository,
   FileRecord,
-  FileRecordRepository,
 } from '@brainstrike/db';
 import type { SearchConfig } from '@brainstrike/ui';
 import { renderHook } from '@testing-library/react';
@@ -100,7 +100,7 @@ const createMockFileRecord = (id: string): FileRecord => ({
   embeddingSetId: 'set-1',
 });
 
-const createMockChunkRepository = (chunks: FileChunk[] = []): FileChunkRepository => {
+const createMockChunkRepository = (chunks: FileChunk[] = []): DrizzleFileChunkRepository => {
   const searchResults: ChunkSearchResult[] = chunks.map((chunk, index) => ({
     chunk,
     similarity: 0.9 - index * 0.1,
@@ -111,15 +111,15 @@ const createMockChunkRepository = (chunks: FileChunk[] = []): FileChunkRepositor
     searchSimilar: vi.fn().mockResolvedValue(searchResults),
     findAll: vi.fn().mockResolvedValue(chunks),
     findById: vi.fn((id: string) => Promise.resolve(chunks.find((c) => c.id === id) ?? null)),
-  } as unknown as FileChunkRepository;
+  } as unknown as DrizzleFileChunkRepository;
 };
 
-const createMockFileRepository = (files: FileRecord[] = []): FileRecordRepository =>
+const createMockFileRepository = (files: FileRecord[] = []): DrizzleFileRecordRepository =>
   ({
     findById: vi.fn((id: string) => Promise.resolve(files.find((f) => f.id === id) ?? null)),
     findAll: vi.fn().mockResolvedValue(files),
     count: vi.fn().mockResolvedValue(files.length),
-  }) as unknown as FileRecordRepository;
+  }) as unknown as DrizzleFileRecordRepository;
 
 const createSearchConfig = (overrides: Partial<SearchConfig> = {}): SearchConfig => ({
   resultLimit: 10,

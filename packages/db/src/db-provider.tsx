@@ -11,11 +11,12 @@ import {
   useRef,
   useState,
 } from 'react';
+import { type DrizzleDb, drizzle } from './drizzle/database.js';
 import { migrate } from './migrations/bootstrap.js';
+import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
+import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
 import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
-import { FileChunkRepository } from './repositories/file-chunk-repository.js';
-import { FileRecordRepository } from './repositories/file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
 import { wasmLoader } from './wasm-loader.js';
 
@@ -33,8 +34,9 @@ type QueryExecutor = {
 };
 
 type DbContextValue = {
-  fileRecordRepository: FileRecordRepository | ElectronFileRecordRepository | null;
-  chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
+  fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  drizzleDb: DrizzleDb | null; // Drizzle instance for direct access
   error: Error | null;
   ready: boolean;
   initializing: boolean; // Whether database initialization is in progress
@@ -121,11 +123,12 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
   const [fileRecordRepository, setFileRecordRepository] = useState<
-    FileRecordRepository | ElectronFileRecordRepository | null
+    DrizzleFileRecordRepository | ElectronFileRecordRepository | null
   >(null);
   const [chunkRepository, setChunkRepository] = useState<
-    FileChunkRepository | ElectronFileChunkRepository | null
+    DrizzleFileChunkRepository | ElectronFileChunkRepository | null
   >(null);
+  const [drizzleDb, setDrizzleDb] = useState<DrizzleDb | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [ready, setReady] = useState(false);
   const [lazyInitialized, setLazyInitialized] = useState(false);
@@ -235,10 +238,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         );
       }
 
-      const repository = new FileRecordRepository(db);
-      const chunkRepo = new FileChunkRepository(db);
+      // Create Drizzle instance and type-safe repositories
+      const drizzleInstance = drizzle(db);
+      const repository = new DrizzleFileRecordRepository(drizzleInstance);
+      const chunkRepo = new DrizzleFileChunkRepository(drizzleInstance);
 
       if (!cancelled.value) {
+        setDrizzleDb(drizzleInstance);
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
         setVectorEnabled(hasVector);
@@ -554,6 +560,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // Reset all state
     dbRef.current = null;
     setExposedDb(null);
+    setDrizzleDb(null);
     setFileRecordRepository(null);
     setChunkRepository(null);
     setVectorEnabled(false);
@@ -605,6 +612,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     () => ({
       fileRecordRepository,
       chunkRepository,
+      drizzleDb,
       error,
       ready,
       initializing,
@@ -653,6 +661,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     [
       fileRecordRepository,
       chunkRepository,
+      drizzleDb,
       error,
       ready,
       initializing,
@@ -692,7 +701,7 @@ export function useDbInitializing(): boolean {
 }
 
 export function useFileRecordRepository():
-  | FileRecordRepository
+  | DrizzleFileRecordRepository
   | ElectronFileRecordRepository
   | null {
   const ctx = useContext(DbContext);
@@ -756,7 +765,10 @@ export function useDbProviderError(): Error | null {
   return ctx.error;
 }
 
-export function useFileChunkRepository(): FileChunkRepository | ElectronFileChunkRepository | null {
+export function useFileChunkRepository():
+  | DrizzleFileChunkRepository
+  | ElectronFileChunkRepository
+  | null {
   const ctx = useContext(DbContext);
 
   // Destructure to get stable references for dependency array
@@ -860,4 +872,34 @@ export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
     return null;
   }
   return ctx.ready && !ctx.error ? ctx.clearQueuesAndEmbeddingSets : null;
+}
+
+/**
+ * Hook to access the Drizzle database instance directly.
+ * Use this for advanced queries or when you need the raw Drizzle instance.
+ */
+export function useDrizzleDb(): DrizzleDb | null {
+  const ctx = useContext(DbContext);
+
+  // Destructure to get stable references for dependency array
+  const drizzleDb = ctx?.drizzleDb;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
+  // Trigger lazy initialization when first accessed
+  useEffect(() => {
+    if (!(drizzleDb || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logger.error('Failed to lazy-initialize database:', err);
+      });
+    }
+  }, [drizzleDb, error, initializing, initializeDatabase]);
+
+  if (!ctx) {
+    logger.warn('useDrizzleDb must be used within a DbProvider');
+    return null;
+  }
+
+  return ctx.ready && !ctx.error ? ctx.drizzleDb : null;
 }

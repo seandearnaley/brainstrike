@@ -6,10 +6,10 @@
  */
 
 import type {
+  DrizzleFileChunkRepository,
+  DrizzleFileRecordRepository,
   ElectronFileChunkRepository,
   ElectronFileRecordRepository,
-  FileChunkRepository,
-  FileRecordRepository,
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db';
 import {
@@ -32,8 +32,8 @@ type SearchEmbedder = {
 };
 
 type UseSemanticSearchExecutorOptions = {
-  chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
-  fileRepository: FileRecordRepository | ElectronFileRecordRepository | null;
+  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
 };
 
 /**
