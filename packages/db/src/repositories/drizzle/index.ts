@@ -6,3 +6,4 @@
  */
 
 export { DrizzleEmbeddingSetsRepository } from './embedding-sets-repository.js';
+export { DrizzleFileRecordRepository } from './file-record-repository.js';
