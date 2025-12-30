@@ -1,4 +1,26 @@
+import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
 import type { FileImportRequest, FileImportResult, FileRecord } from '../models/file-record';
+
+/**
+ * Common interface for all embedding sets repositories
+ */
+export type IEmbeddingSetsRepository = {
+  getOrCreateSet(
+    modelKey: string,
+    modelId: string,
+    dimensions: number,
+    distance: EmbeddingDistance,
+    metadata?: { name?: string; description?: string; tags?: string; category?: string }
+  ): Promise<EmbeddingSet>;
+  getById(id: string): Promise<EmbeddingSet | null>;
+  getByModelKey(modelKey: string): Promise<EmbeddingSet[]>;
+  updateMetadata(
+    id: string,
+    metadata: { name?: string; description?: string; tags?: string; category?: string }
+  ): Promise<EmbeddingSet | null>;
+  findAll(): Promise<EmbeddingSet[]>;
+  delete(id: string): Promise<boolean>;
+};
 
 /**
  * Common interface for all file record repositories

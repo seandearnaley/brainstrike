@@ -34,8 +34,7 @@ type QueryExecutor = {
 };
 
 // Forward declare for type reference (imported below)
-type EmbeddingSetsRepo =
-  import('./repositories/drizzle/embedding-sets-repository.js').DrizzleEmbeddingSetsRepository;
+type EmbeddingSetsRepo = import('./repositories/interfaces.js').IEmbeddingSetsRepository;
 
 type DbContextValue = {
   fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
@@ -208,11 +207,21 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         exec,
       });
 
+      // Dynamic import to match pattern used in Direct PGlite path
+      const { ElectronEmbeddingSetsRepository } = await import(
+        './repositories/electron-embedding-sets-repository.js'
+      );
+      const embeddingSetsRepo = new ElectronEmbeddingSetsRepository({
+        query: electronDB.query,
+        exec,
+      });
+
       if (!cancelled.value) {
         dbRef.current = electronDB as unknown as PGlite;
         setExposedDb(createDbHandle(electronDB as unknown as QueryExecutor));
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
+        setEmbeddingSetsRepository(embeddingSetsRepo);
         setVectorEnabled(hasVector);
         setError(null);
         setReady(true);

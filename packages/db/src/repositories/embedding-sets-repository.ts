@@ -113,6 +113,18 @@ export class EmbeddingSetsRepository {
     return row ? this.fromRow(row as Record<string, unknown>) : null;
   }
 
+  async findAll(): Promise<EmbeddingSet[]> {
+    const result = await this.db.query('SELECT * FROM embedding_sets ORDER BY created_at DESC');
+    return result.rows.map((row) => this.fromRow(row as Record<string, unknown>));
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const result = await this.db.query('DELETE FROM embedding_sets WHERE id = $1 RETURNING id', [
+      id,
+    ]);
+    return result.rows.length > 0;
+  }
+
   private fromRow(row: Record<string, unknown>): EmbeddingSet {
     const base = {
       id: String(row['id']),

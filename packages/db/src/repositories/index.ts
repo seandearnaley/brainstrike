@@ -12,7 +12,7 @@ export {
   type TokenCacheStats,
   type TokenCountingMode,
 } from './drizzle/index.js';
-
+export { ElectronEmbeddingSetsRepository } from './electron-embedding-sets-repository.js';
 // Legacy raw SQL implementations
 export { ElectronFileChunkRepository } from './electron-file-chunk-repository.js';
 export {
@@ -22,7 +22,11 @@ export {
 export { EmbeddingSetsRepository } from './embedding-sets-repository.js';
 export { FileChunkRepository } from './file-chunk-repository.js';
 export { FileRecordRepository } from './file-record-repository.js';
-export type { IDatabase, IFileRecordRepository } from './interfaces.js';
+export type {
+  IDatabase,
+  IEmbeddingSetsRepository,
+  IFileRecordRepository,
+} from './interfaces.js';
 
 // Factory functions
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';
