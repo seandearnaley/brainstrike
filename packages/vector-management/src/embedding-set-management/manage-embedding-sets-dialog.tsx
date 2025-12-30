@@ -1,4 +1,4 @@
-import type { DrizzleEmbeddingSetsRepository, EmbeddingSet } from '@brainstrike/db';
+import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,
   ModelRegistryManager,
@@ -35,7 +35,7 @@ type ManageEmbeddingSetsDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   db: PGlite | null;
-  repository: DrizzleEmbeddingSetsRepository | null;
+  repository: IEmbeddingSetsRepository | null;
   onSetSelected?: (setId: string) => void;
 };
 
