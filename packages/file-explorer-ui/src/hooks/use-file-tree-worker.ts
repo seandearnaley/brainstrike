@@ -166,16 +166,11 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
 
   // Initialize worker and set up handlers
   useEffect(() => {
-    logger.info('useFileTreeWorker effect running', {
-      hasAdapter: !!fileSystemAdapter,
-    });
-
     // Create worker
     let worker: Worker;
     let port: FileTreeWorkerPort;
     try {
       const workerUrl = resolveFileTreeWorkerUrl();
-      logger.info('Creating worker', { workerUrl: workerUrl.toString() });
       worker = new Worker(workerUrl, { type: 'module' });
 
       // Handle async worker errors (load failures, runtime errors)
@@ -191,7 +186,6 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
 
       port = createFileTreeWorkerPort(worker);
       portRef.current = port;
-      logger.info('Worker created successfully');
     } catch (err) {
       logger.error('Failed to create worker', { error: String(err) });
       onErrorRef.current?.(err instanceof Error ? err : new Error(String(err)));

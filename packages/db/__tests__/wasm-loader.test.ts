@@ -50,15 +50,36 @@ describe('wasmLoader.ensureWasmLoaded', () => {
   });
 
   it('resets wasmLoadPromise to null after rejection', async () => {
-    const error = new Error('load fail');
-    PGliteMock.mockImplementation(function (this: Record<string, unknown>) {
-      this.query = vi.fn().mockRejectedValue(error);
-      this.close = vi.fn().mockResolvedValue(undefined);
-    });
+    // Reset modules to apply new mock
+    vi.resetModules();
 
-    const promise = wasmLoader.ensureWasmLoaded();
-    await expect(promise).rejects.toThrowError(error);
-    const internal = wasmLoader as unknown as { wasmLoadPromise: Promise<void> | null };
+    // Mock vector extension to reject
+    vi.doMock('@electric-sql/pglite/vector', () => ({
+      get vector() {
+        throw new Error('pgvector extension is required and failed to load: load fail');
+      },
+    }));
+
+    // Mock live extension (successful)
+    vi.doMock('@electric-sql/pglite/live', () => ({
+      live: {},
+    }));
+
+    // Re-import the module with the failing mock
+    const wasmLoaderModule = await import('../src/wasm-loader');
+    const loader = wasmLoaderModule.wasmLoader;
+
+    // Reset internal state
+    const internalLoader = loader as unknown as {
+      wasmLoadPromise: Promise<void> | null;
+      isLoaded: boolean;
+    };
+    internalLoader.wasmLoadPromise = null;
+    internalLoader.isLoaded = false;
+
+    const promise = loader.ensureWasmLoaded();
+    await expect(promise).rejects.toThrowError(/pgvector extension is required/);
+    const internal = loader as unknown as { wasmLoadPromise: Promise<void> | null };
     expect(internal.wasmLoadPromise).toBeNull();
   });
 });

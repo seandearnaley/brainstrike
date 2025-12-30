@@ -8,6 +8,7 @@
  * requiring file content to be loaded first.
  */
 
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { type FileToIndex, useBackgroundTokenIndexer } from '@brainstrike/token-cache';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
@@ -16,6 +17,14 @@ import { useOptionalTokenCacheContext } from './token-cache-context';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
 const INDEX_BATCH_SIZE = 200;
+
+/**
+ * Helper hook to check if file import is in progress.
+ * When true, background token indexing should be paused to avoid database contention.
+ */
+function useFileImportingState(): boolean {
+  return useVectorStatusUIStore((s) => s.isImporting);
+}
 
 /**
  * Function to read file content for Electron handles via IPC.
@@ -174,6 +183,10 @@ export function useBackgroundTokenIndexerIntegration({
   // Get the token cache context (may be null if not in provider)
   const tokenCache = useOptionalTokenCacheContext();
 
+  // Check if file import is in progress - skip background indexing to avoid database contention
+  // Import the store dynamically to get isImporting state
+  const isFileImporting = useFileImportingState();
+
   // Track which files we've already queued for indexing
   const indexedFilesRef = useRef<Set<string>>(new Set());
   // Track files currently in flight to avoid re-queuing while a batch is running
@@ -318,6 +331,16 @@ export function useBackgroundTokenIndexerIntegration({
       }> = [];
       let skippedNoHandle = 0;
 
+      // DEBUG: Log sample keys from map and selection to diagnose mismatch
+      const mapKeys = Array.from(fileHandleMapRef.current.keys()).slice(0, 3);
+      const selectionKeys = compositeKeys.slice(0, 3);
+      logger.info('triggerIndexing key comparison', {
+        mapKeysSample: mapKeys,
+        selectionKeysSample: selectionKeys,
+        mapSize: fileHandleMapRef.current.size,
+        selectionSize: compositeKeys.length,
+      });
+
       for (const compositeKey of compositeKeys) {
         // Skip if already indexed in this session
         if (indexedFilesRef.current.has(compositeKey)) {
@@ -446,7 +469,15 @@ export function useBackgroundTokenIndexerIntegration({
       tokenCacheReady: cache?.isReady ?? false,
       alreadyIndexed: indexedFilesRef.current.size,
       fileHandleMapSize: fileHandleMapRef.current.size,
+      isFileImporting,
     });
+
+    // Skip background indexing during file import to avoid database contention
+    // File import writes many records; concurrent token cache reads/writes cause PGlite serialization delays
+    if (isFileImporting) {
+      logger.info('Selection effect skipped - file import in progress');
+      return;
+    }
 
     const previousSize = previousSelectionSizeRef.current;
     previousSelectionSizeRef.current = selectedFiles.size;
@@ -499,6 +530,7 @@ export function useBackgroundTokenIndexerIntegration({
     backgroundIndexerIsReady,
     tokenCacheIsReady,
     fileHandleMapSize,
+    isFileImporting,
   ]);
 
   // Clear indexed files cache when file tree changes significantly
@@ -524,6 +556,12 @@ export function useBackgroundTokenIndexerIntegration({
         cacheReady: cache?.isReady ?? false,
         selectedCount: selectedFiles.size,
       });
+      return;
+    }
+
+    // Skip during file import to avoid database contention
+    if (isFileImporting) {
+      logger.debug('Warm cache effect skipped - file import in progress');
       return;
     }
     const folderIds = new Set<string>();
@@ -585,7 +623,7 @@ export function useBackgroundTokenIndexerIntegration({
           logger.warn('Failed to hydrate hot cache from store', { folderId, error });
         });
     }
-  }, [selectedFiles, tokenCacheIsReady]);
+  }, [selectedFiles, tokenCacheIsReady, isFileImporting]);
 
   // Diagnostic function to force re-indexing by clearing the tracked files
   const clearIndexedCache = useCallback(() => {

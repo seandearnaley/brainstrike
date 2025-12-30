@@ -135,7 +135,6 @@ function createRequestId(): string {
  */
 function createWorkerInstance(): Worker {
   const url = resolveBackgroundIndexerWorkerUrl();
-  logger.info('Creating worker from URL', { url: url.href });
   return new Worker(url, { type: 'module' });
 }
 
@@ -206,21 +205,8 @@ export function useBackgroundTokenIndexer({
     // Reset mounted flag on each mount (fixes React StrictMode double-mount issue)
     isMountedRef.current = true;
 
-    logger.info('Background token indexer init start', { hasStore: !!store, mode });
-    // biome-ignore lint/suspicious/noConsole: startup visibility
-    console.log('[BackgroundTokenIndexer] init start', { hasStore: !!store, mode });
-
     try {
       const worker = createWorkerInstance();
-      logger.info('Background token indexer worker created; awaiting ready signal', {
-        hasStore: !!store,
-        mode,
-      });
-      // biome-ignore lint/suspicious/noConsole: startup visibility
-      console.log('[BackgroundTokenIndexer] Worker created; waiting for ready', {
-        hasStore: !!store,
-        mode,
-      });
 
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Worker message handler requires multiple conditional branches for different message types
       worker.onmessage = (event: MessageEvent<WorkerResponse | { type: 'ready' }>) => {
@@ -236,7 +222,6 @@ export function useBackgroundTokenIndexer({
         }
 
         if (message.type === 'ready') {
-          logger.info('Background token indexer worker is ready');
           setIsReady(true);
           if (readinessTimerRef.current) {
             clearTimeout(readinessTimerRef.current);
@@ -320,7 +305,6 @@ export function useBackgroundTokenIndexer({
       };
 
       workerRef.current = worker;
-      logger.info('Background token indexer worker created successfully');
 
       // If the worker never posts "ready", emit a hard error for visibility.
       readinessTimerRef.current = setTimeout(() => {

@@ -128,12 +128,23 @@ export class MigrationRunner {
 
   /**
    * Run all pending migrations
+   * Optimized: batch-fetches applied versions upfront to avoid N individual queries
    */
   async up(migrations: Migration[]): Promise<void> {
     // Sort migrations by version
     const sortedMigrations = [...migrations].sort((a, b) => a.version - b.version);
 
+    // Batch-fetch all applied migrations upfront (single query instead of N queries)
+    const appliedVersions = new Set(await this.getAppliedMigrations());
+
     for (const migration of sortedMigrations) {
+      // Skip already-applied migrations without hitting the database
+      if (appliedVersions.has(migration.version)) {
+        this.logger.debug('Migration already applied, skipping (cached)', {
+          version: migration.version,
+        });
+        continue;
+      }
       await this.runMigration(migration);
     }
   }

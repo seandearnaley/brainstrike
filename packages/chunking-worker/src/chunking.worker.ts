@@ -168,8 +168,6 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
   postLog(level, message, data);
 }
 
-log('info', 'worker script evaluated');
-
 // ============================================================================
 // Global Error Handlers (with cleanup support)
 // ============================================================================
@@ -485,11 +483,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 
 // Bootstrap - signal ready
 const bootstrap = async (): Promise<void> => {
-  log('info', 'worker bootstrap start');
   try {
     // Pre-warm the chunking modules by doing a tiny chunk
     await chunkContent('// test', { strategy: 'sentence' });
-    log('info', 'worker bootstrap modules loaded');
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'worker bootstrap failed', formatted);
@@ -503,7 +499,6 @@ const bootstrap = async (): Promise<void> => {
   }
 
   self.postMessage({ type: 'ready' });
-  log('info', 'worker ready posted');
 };
 
 void bootstrap();

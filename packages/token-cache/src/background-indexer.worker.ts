@@ -67,8 +67,6 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
   postLog(level, message, data);
 }
 
-log('info', 'worker script evaluated');
-
 // Message types for worker communication
 export type IndexerRequest = {
   type: 'index';
@@ -173,15 +171,12 @@ function hashToHex(hash: bigint): string {
  */
 async function initHasher(): Promise<XXHashModule> {
   if (hasherInstance) {
-    log('debug', 'initHasher reuse existing instance');
     return hasherInstance;
   }
 
-  log('info', 'initHasher start (loading xxhash-wasm)');
   const xxhashModule = await import('xxhash-wasm');
   const xxhashFn = typeof xxhashModule.default === 'function' ? xxhashModule.default : xxhashModule;
   hasherInstance = (await (xxhashFn as () => Promise<XXHashModule>)()) as XXHashModule;
-  log('info', 'initHasher complete');
   return hasherInstance;
 }
 
@@ -193,16 +188,11 @@ async function getTokenUtils(): Promise<{
   countTokensHeuristic: (text: string) => number;
 }> {
   if (!tokenUtilsPromise) {
-    log('info', 'getTokenUtils start (import token-utils-lite)');
     tokenUtilsPromise = import('./token-utils-lite')
       .then((mod) => ({
         countTokensAccurate: mod.countTokensAccurate,
         countTokensHeuristic: mod.countTokensHeuristic,
       }))
-      .then((utils) => {
-        log('info', 'getTokenUtils resolved');
-        return utils;
-      })
       .catch((error) => {
         const formatted = formatError(error);
         log('error', 'getTokenUtils failed', formatted);
@@ -431,10 +421,8 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 };
 
 const bootstrap = async (): Promise<void> => {
-  log('info', 'worker bootstrap start');
   try {
     await Promise.all([initHasher(), getTokenUtils()]);
-    log('info', 'worker bootstrap modules loaded');
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'worker bootstrap failed', formatted);
@@ -448,7 +436,6 @@ const bootstrap = async (): Promise<void> => {
   }
 
   self.postMessage({ type: 'ready' });
-  log('info', 'worker ready posted');
 };
 
 void bootstrap();

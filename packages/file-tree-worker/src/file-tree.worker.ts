@@ -41,8 +41,6 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
   postLog(level, message, data);
 }
 
-log('info', 'worker script evaluated');
-
 // ============================================================================
 // Global Error Handlers
 // ============================================================================
@@ -195,5 +193,4 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
 // Bootstrap
 // ============================================================================
 
-log('info', 'worker ready');
 self.postMessage({ type: 'ready' } satisfies WorkerToMainMessage);

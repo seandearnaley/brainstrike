@@ -242,7 +242,6 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       const drizzleInstance = drizzle(db);
       const repository = new DrizzleFileRecordRepository(drizzleInstance);
       const chunkRepo = new DrizzleFileChunkRepository(drizzleInstance);
-
       if (!cancelled.value) {
         setDrizzleDb(drizzleInstance);
         setFileRecordRepository(repository);

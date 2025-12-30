@@ -74,20 +74,11 @@ class WasmLoader {
 
   private async loadWasm(): Promise<void> {
     try {
-      // Load vector extension asynchronously
-      const [vector, live] = await Promise.all([loadVectorExtension(), loadLiveExtension()]);
-
-      // Create a temporary PGlite instance to trigger WASM loading with pgvector
-      const tempDbPath = 'memory://';
-      const tempDb = new PGlite({ dataDir: tempDbPath, extensions: { vector, live } });
-
-      // Ensure the database is ready (this loads the WASM)
-      await tempDb.query('SELECT 1');
-
-      // Close the temporary database
-      await tempDb.close();
-
+      // Just preload extensions - actual WASM loading happens when creating the real DB
+      // This avoids creating a wasteful temporary database
+      await Promise.all([loadVectorExtension(), loadLiveExtension()]);
       this.isLoaded = true;
+      logger.debug('Extensions preloaded successfully');
     } catch (error) {
       this.wasmLoadPromise = null;
       throw error;
@@ -117,8 +108,19 @@ class WasmLoader {
       }
     }
 
+    // Enable relaxed durability for IndexedDB to dramatically improve write performance.
+    // Under relaxed durability mode, PGlite doesn't wait for IndexedDB flushes after each query.
+    // The flush is scheduled asynchronously after the query returns.
+    // This is suitable for most embedded use cases where occasional data loss on crash is acceptable.
+    // See: https://pglite.dev/docs/filesystems
+    const useRelaxedDurability = normalizedDataDir?.startsWith('idb://');
+
     const db = normalizedDataDir
-      ? new PGlite({ dataDir: normalizedDataDir, extensions: { vector, live } })
+      ? new PGlite({
+          dataDir: normalizedDataDir,
+          extensions: { vector, live },
+          ...(useRelaxedDurability ? { relaxedDurability: true } : {}),
+        })
       : new PGlite({ extensions: { vector, live } });
 
     // Cache persisted databases only (not memory://)
