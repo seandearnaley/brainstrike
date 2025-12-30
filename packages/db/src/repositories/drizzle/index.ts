@@ -8,3 +8,9 @@
 export { DrizzleEmbeddingSetsRepository } from './embedding-sets-repository.js';
 export { DrizzleFileChunkRepository } from './file-chunk-repository.js';
 export { DrizzleFileRecordRepository } from './file-record-repository.js';
+export type {
+  TokenCacheEntry,
+  TokenCacheStats,
+  TokenCountingMode,
+} from './token-cache-store.js';
+export { DrizzleTokenCacheStore } from './token-cache-store.js';

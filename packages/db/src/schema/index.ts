@@ -13,6 +13,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -154,7 +155,7 @@ export const jobQueue = pgTable(
 );
 
 // ============================================================================
-// TOKEN CACHE TABLE
+// TOKEN CACHE TABLE (simple cache)
 // ============================================================================
 
 export const tokenCache = pgTable(
@@ -170,6 +171,37 @@ export const tokenCache = pgTable(
     index('idx_token_cache_file_path').on(table.filePath),
     index('idx_token_cache_content_hash').on(table.contentHash),
   ]
+);
+
+// ============================================================================
+// FILE TOKEN CACHE TABLE (folder-based cache with counting modes)
+// ============================================================================
+
+export const fileTokenCache = pgTable(
+  'file_token_cache',
+  {
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    folderId: text('folder_id').notNull(),
+    filePath: text('file_path').notNull(),
+    contentHash: text('content_hash').notNull(),
+    fileSize: text('file_size').notNull(), // BIGINT comes as string
+    mtimeMs: text('mtime_ms'), // BIGINT comes as string
+    tokenCount: integer('token_count').notNull(),
+    countingMode: text('counting_mode').$type<'accurate' | 'heuristic'>().notNull(),
+    modelEncoding: text('model_encoding'),
+    createdAt: text('created_at').notNull().default('CURRENT_TIMESTAMP'),
+    updatedAt: text('updated_at').notNull().default('CURRENT_TIMESTAMP'),
+  },
+  (table) => ({
+    folderPathUnique: uniqueIndex('idx_file_token_cache_folder_path_unique').on(
+      table.folderId,
+      table.filePath
+    ),
+    lookupIdx: index('idx_file_token_cache_lookup').on(table.folderId, table.filePath),
+    hashIdx: index('idx_file_token_cache_hash').on(table.contentHash),
+    folderIdx: index('idx_file_token_cache_folder').on(table.folderId),
+    modeIdx: index('idx_file_token_cache_mode').on(table.folderId, table.countingMode),
+  })
 );
 
 // ============================================================================
@@ -211,6 +243,9 @@ export type NewJob = typeof jobQueue.$inferInsert;
 
 export type TokenCacheEntry = typeof tokenCache.$inferSelect;
 export type NewTokenCacheEntry = typeof tokenCache.$inferInsert;
+
+export type FileTokenCacheEntry = typeof fileTokenCache.$inferSelect;
+export type NewFileTokenCacheEntry = typeof fileTokenCache.$inferInsert;
 
 export type ModelRegistryEntry = typeof modelRegistry.$inferSelect;
 export type NewModelRegistryEntry = typeof modelRegistry.$inferInsert;
