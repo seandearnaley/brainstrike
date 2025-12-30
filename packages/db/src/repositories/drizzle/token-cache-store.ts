@@ -230,17 +230,19 @@ export class DrizzleTokenCacheStore {
    * Get cache statistics.
    */
   async getStats(folderId?: string): Promise<TokenCacheStats> {
-    const result = await this.db.execute(
-      sql.raw(`
-        SELECT
-          COUNT(*) as entry_count,
-          COALESCE(SUM(token_count), 0) as total_tokens,
-          COUNT(*) FILTER (WHERE counting_mode = 'accurate') as accurate_count,
-          COUNT(*) FILTER (WHERE counting_mode = 'heuristic') as heuristic_count
-        FROM file_token_cache
-        ${folderId ? `WHERE folder_id = '${folderId}'` : ''}
-      `)
-    );
+    // Use parameterized query to prevent SQL injection
+    const baseQuery = sql`
+      SELECT
+        COUNT(*) as entry_count,
+        COALESCE(SUM(token_count), 0) as total_tokens,
+        COUNT(*) FILTER (WHERE counting_mode = 'accurate') as accurate_count,
+        COUNT(*) FILTER (WHERE counting_mode = 'heuristic') as heuristic_count
+      FROM file_token_cache
+    `;
+
+    const result = folderId
+      ? await this.db.execute(sql`${baseQuery} WHERE folder_id = ${folderId}`)
+      : await this.db.execute(baseQuery);
 
     const row = (result.rows as Record<string, unknown>[])[0];
     return {

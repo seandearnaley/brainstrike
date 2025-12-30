@@ -226,33 +226,36 @@ export class DrizzleFileChunkRepository {
 
     const vectorParam = `[${queryEmbedding.join(',')}]`;
 
-    // Build WHERE clause
-    const whereParts = [
-      'embedding IS NOT NULL',
-      `vector_dims(embedding) = ${dimension}`,
-      `embedding_set_id = '${embeddingSetId}'`,
-    ];
-
-    if (fileRecordId) {
-      whereParts.push(`file_record_id = '${fileRecordId}'`);
-    }
-    if (chunkType) {
-      whereParts.push(`chunk_type = '${chunkType}'`);
-    }
-
+    // Build parameterized WHERE clause to prevent SQL injection
+    // Use Drizzle's sql template tag for safe parameter binding
     const overfetchLimit = Math.max(limit * 10, 100);
 
-    const result = await this.db.execute(
-      sql.raw(`
+    // Build dynamic query with proper parameterization
+    // Note: We use sql template tag for parameters, but still need raw for pgvector operators
+    // The embeddingSetId, fileRecordId, and chunkType are parameterized via sql template
+    let baseQuery = sql`
       SELECT *,
-        ${similarityExpr.replace(/\$1/g, `'${vectorParam}'`)} as similarity,
-        ROW_NUMBER() OVER (ORDER BY ${orderExpr.replace(/\$1/g, `'${vectorParam}'`)}) as rank
+        ${sql.raw(similarityExpr.replace(/\$1/g, `'${vectorParam}'`))} as similarity,
+        ROW_NUMBER() OVER (ORDER BY ${sql.raw(orderExpr.replace(/\$1/g, `'${vectorParam}'`))}) as rank
       FROM file_chunks
-      WHERE ${whereParts.join(' AND ')}
-      ORDER BY ${orderExpr.replace(/\$1/g, `'${vectorParam}'`)}
+      WHERE embedding IS NOT NULL
+        AND vector_dims(embedding) = ${dimension}
+        AND embedding_set_id = ${embeddingSetId}
+    `;
+
+    if (fileRecordId) {
+      baseQuery = sql`${baseQuery} AND file_record_id = ${fileRecordId}`;
+    }
+    if (chunkType) {
+      baseQuery = sql`${baseQuery} AND chunk_type = ${chunkType}`;
+    }
+
+    baseQuery = sql`${baseQuery}
+      ORDER BY ${sql.raw(orderExpr.replace(/\$1/g, `'${vectorParam}'`))}
       LIMIT ${overfetchLimit}
-    `)
-    );
+    `;
+
+    const result = await this.db.execute(baseQuery);
 
     const mapped = (result.rows as Record<string, unknown>[]).map((row) => ({
       chunk: this.fromRawRow(row),

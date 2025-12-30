@@ -330,8 +330,10 @@ export class DrizzleFileRecordRepository {
     }
 
     // Step 4: Batch insert all new records
+    // Use onConflictDoNothing to handle race conditions where another process
+    // may have inserted the same content hash between our check and insert
     if (recordsToInsert.length > 0) {
-      await this.db.insert(fileRecords).values(recordsToInsert);
+      await this.db.insert(fileRecords).values(recordsToInsert).onConflictDoNothing();
       logger.debug('Batch inserted records', { count: recordsToInsert.length });
     }
 

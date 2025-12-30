@@ -8,6 +8,7 @@
  * Usage: npx tsx scripts/export-migrations.ts
  */
 
+import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
@@ -24,15 +25,12 @@ type MigrationManifest = {
   migrations: Migration[];
 };
 
+/**
+ * Compute a cryptographic hash for migration content verification.
+ * Uses SHA-256 for collision resistance and integrity verification.
+ */
 function computeHash(content: string): string {
-  // Simple hash for migration content verification
-  let hash = 0;
-  for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash &= hash; // Convert to 32bit integer
-  }
-  return Math.abs(hash).toString(36);
+  return createHash('sha256').update(content, 'utf-8').digest('hex');
 }
 
 function extractMigrations(migrationsDir: string): Migration[] {
