@@ -363,16 +363,25 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
 }
 
 /**
- * Format collection label with name and file count
+ * Format collection label with name, file count, and embedding progress
  *
- * Shows: "Collection Name (N files)" where N is the number of imported files.
- * For chunk/embedding coverage, see Vector Status panel.
+ * Shows: "Collection Name (N files)" when no chunks exist
+ * Shows: "Collection Name (N files · 45/100 embedded)" when chunks exist
  */
 export function formatCollectionLabel(collection: CollectionWithDocCount): string {
   const name = collection.name || collection.modelId;
-  const count = collection.fileCount;
-  const filesLabel = count === 1 ? 'file' : 'files';
-  return `${name} (${count.toLocaleString()} ${filesLabel})`;
+  const fileCount = collection.fileCount;
+  const filesLabel = fileCount === 1 ? 'file' : 'files';
+  const filesPart = `${fileCount.toLocaleString()} ${filesLabel}`;
+
+  // Show embedding progress if there are chunks
+  if (collection.chunkCount > 0) {
+    const embedded = collection.embeddingCount;
+    const total = collection.chunkCount;
+    return `${name} (${filesPart} · ${embedded}/${total} embedded)`;
+  }
+
+  return `${name} (${filesPart})`;
 }
 
 /**

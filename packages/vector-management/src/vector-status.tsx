@@ -1,5 +1,4 @@
 import {
-  FileChunkRepository,
   JobQueue,
   useFileChunkRepository,
   usePGliteDatabase,
@@ -571,20 +570,18 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     } catch {}
   }, [verboseOrtLogs]);
 
+  // Use repository from DbProvider if it has getCoverageForSet (DrizzleFileChunkRepository)
+  // ElectronFileChunkRepository doesn't have this method - vector status is not supported in Electron IPC mode
   const coverageRepository = useMemo(() => {
     if (chunkRepository && 'getCoverageForSet' in chunkRepository) {
-      return chunkRepository;
-    }
-    const raw = db?.raw as { query?: unknown } | undefined;
-    if (raw && typeof (raw as { query?: unknown }).query === 'function' && vectorEnabled) {
-      try {
-        return new FileChunkRepository(raw as ConstructorParameters<typeof FileChunkRepository>[0]);
-      } catch {
-        return null;
-      }
+      return chunkRepository as {
+        getCoverageForSet: (
+          setId: string
+        ) => Promise<{ totalChunks: number; chunksWithEmbeddingsForSet: number }>;
+      };
     }
     return null;
-  }, [chunkRepository, db, vectorEnabled]);
+  }, [chunkRepository]);
 
   const service = useMemo(() => {
     if (!(db && coverageRepository)) {

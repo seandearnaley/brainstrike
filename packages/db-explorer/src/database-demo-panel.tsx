@@ -1,8 +1,8 @@
 import {
   type EmbeddingSet,
-  EmbeddingSetsRepository,
   useClearAllData,
   useDbProviderError,
+  useEmbeddingSetsRepository,
   useFileChunkRepository,
   useFileRecordRepository,
   usePGliteDatabase,
@@ -65,14 +65,6 @@ type DatabaseDemoPanelProps = {
 };
 
 const logger = createLogger('DatabaseDemoPanel');
-type DbContext = ReturnType<typeof usePGliteDatabase>;
-type DbWithExec = NonNullable<DbContext> & {
-  exec: (sql: string, params?: unknown) => Promise<unknown>;
-};
-
-function isDbWithExec(db: DbContext): db is DbWithExec {
-  return Boolean(db && typeof db.exec === 'function');
-}
 
 // Factory reset is now provided via the shared Preferences UI (FactoryResetPanel).
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Legacy component with complex UI state - refactor tracked separately
@@ -103,14 +95,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
   const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
 
-  // Create embedding sets repository
-  const embeddingSetsRepository = useMemo(() => {
-    if (!isDbWithExec(dbContext)) {
-      logger.warn('EmbeddingSetsRepository unavailable: db context missing exec');
-      return null;
-    }
-    return new EmbeddingSetsRepository(dbContext);
-  }, [dbContext]);
+  // Get embedding sets repository from DbProvider (Drizzle-based)
+  const embeddingSetsRepository = useEmbeddingSetsRepository();
 
   // Get enabled models from model registry
   const { models, providers, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();

@@ -33,9 +33,14 @@ type QueryExecutor = {
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
 };
 
+// Forward declare for type reference (imported below)
+type EmbeddingSetsRepo =
+  import('./repositories/drizzle/embedding-sets-repository.js').DrizzleEmbeddingSetsRepository;
+
 type DbContextValue = {
   fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  embeddingSetsRepository: EmbeddingSetsRepo | null;
   drizzleDb: DrizzleDb | null; // Drizzle instance for direct access
   error: Error | null;
   ready: boolean;
@@ -128,6 +133,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const [chunkRepository, setChunkRepository] = useState<
     DrizzleFileChunkRepository | ElectronFileChunkRepository | null
   >(null);
+  const [embeddingSetsRepository, setEmbeddingSetsRepository] = useState<EmbeddingSetsRepo | null>(
+    null
+  );
   const [drizzleDb, setDrizzleDb] = useState<DrizzleDb | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [ready, setReady] = useState(false);
@@ -239,13 +247,19 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
 
       // Create Drizzle instance and type-safe repositories
+      // Dynamic import to avoid linter removing unused static import
+      const { DrizzleEmbeddingSetsRepository } = await import(
+        './repositories/drizzle/embedding-sets-repository.js'
+      );
       const drizzleInstance = drizzle(db);
       const repository = new DrizzleFileRecordRepository(drizzleInstance);
       const chunkRepo = new DrizzleFileChunkRepository(drizzleInstance);
+      const embeddingSetsRepo = new DrizzleEmbeddingSetsRepository(drizzleInstance);
       if (!cancelled.value) {
         setDrizzleDb(drizzleInstance);
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
+        setEmbeddingSetsRepository(embeddingSetsRepo);
         setVectorEnabled(hasVector);
         setError(null);
         setReady(true);
@@ -282,6 +296,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         logger.error('Failed to initialize database:', err);
         setFileRecordRepository(null);
         setChunkRepository(null);
+        setEmbeddingSetsRepository(null);
         setError(err as Error);
         setReady(true);
         setLazyInitialized(false);
@@ -562,6 +577,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     setDrizzleDb(null);
     setFileRecordRepository(null);
     setChunkRepository(null);
+    setEmbeddingSetsRepository(null);
     setVectorEnabled(false);
     setReady(false);
     setLazyInitialized(false);
@@ -611,6 +627,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     () => ({
       fileRecordRepository,
       chunkRepository,
+      embeddingSetsRepository,
       drizzleDb,
       error,
       ready,
@@ -660,6 +677,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     [
       fileRecordRepository,
       chunkRepository,
+      embeddingSetsRepository,
       drizzleDb,
       error,
       ready,
@@ -901,4 +919,34 @@ export function useDrizzleDb(): DrizzleDb | null {
   }
 
   return ctx.ready && !ctx.error ? ctx.drizzleDb : null;
+}
+
+/**
+ * Hook to access the EmbeddingSets repository.
+ * Use this to manage embedding sets (collections) in the database.
+ */
+export function useEmbeddingSetsRepository(): EmbeddingSetsRepo | null {
+  const ctx = useContext(DbContext);
+
+  // Destructure to get stable references for dependency array
+  const embeddingSetsRepository = ctx?.embeddingSetsRepository;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
+  // Trigger lazy initialization when first accessed
+  useEffect(() => {
+    if (!(embeddingSetsRepository || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logger.error('Failed to lazy-initialize database:', err);
+      });
+    }
+  }, [embeddingSetsRepository, error, initializing, initializeDatabase]);
+
+  if (!ctx) {
+    logger.warn('useEmbeddingSetsRepository must be used within a DbProvider');
+    return null;
+  }
+
+  return ctx.ready && !ctx.error ? ctx.embeddingSetsRepository : null;
 }
