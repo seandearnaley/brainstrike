@@ -6,4 +6,5 @@
  */
 
 export { DrizzleEmbeddingSetsRepository } from './embedding-sets-repository.js';
+export { DrizzleFileChunkRepository } from './file-chunk-repository.js';
 export { DrizzleFileRecordRepository } from './file-record-repository.js';

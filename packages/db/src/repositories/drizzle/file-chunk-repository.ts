@@ -1,0 +1,436 @@
+/**
+ * Drizzle-based FileChunk Repository
+ *
+ * This is the Drizzle ORM version of the FileChunkRepository.
+ * Provides type-safe database operations for file chunks and embeddings.
+ *
+ * Note: Some advanced vector operations use raw SQL via Drizzle's execute()
+ * since pgvector operators aren't natively supported by the query builder.
+ */
+
+import { count, eq, sql } from 'drizzle-orm';
+import type { PgliteDatabase } from 'drizzle-orm/pglite';
+import type {
+  ChunkSearchOptions,
+  ChunkSearchResult,
+  FileChunk,
+  FileChunkInsert,
+  FileChunkUpdate,
+} from '../../models/file-chunk.js';
+import { embeddingSets, fileChunks } from '../../schema/index.js';
+
+type DrizzleDb = PgliteDatabase;
+
+export class DrizzleFileChunkRepository {
+  constructor(private readonly db: DrizzleDb) {}
+
+  async findById(id: string): Promise<FileChunk | null> {
+    const [row] = await this.db.select().from(fileChunks).where(eq(fileChunks.id, id));
+    return row ? this.fromRow(row) : null;
+  }
+
+  async findByFileRecordId(fileRecordId: string): Promise<FileChunk[]> {
+    const rows = await this.db
+      .select()
+      .from(fileChunks)
+      .where(eq(fileChunks.fileRecordId, fileRecordId))
+      .orderBy(fileChunks.chunkIndex);
+    return rows.map((row) => this.fromRow(row));
+  }
+
+  async insert(chunk: FileChunkInsert): Promise<FileChunk> {
+    const [row] = await this.db
+      .insert(fileChunks)
+      .values({
+        id: chunk.id,
+        fileRecordId: chunk.fileRecordId,
+        chunkIndex: chunk.chunkIndex,
+        content: chunk.content,
+        contentHash: chunk.contentHash ?? null,
+        tokenCount: chunk.tokenCount ?? null,
+        chunkType: chunk.chunkType ?? null,
+        chunkSize: chunk.chunkSize ?? null,
+        embedding: chunk.embedding ?? null,
+        embeddingSetId: chunk.embeddingSetId ?? null,
+        embeddingUpdatedAt: chunk.embeddingUpdatedAt ? new Date(chunk.embeddingUpdatedAt) : null,
+        embeddingHash: chunk.embeddingHash ?? null,
+        createdAt: new Date(chunk.createdAt),
+        updatedAt: new Date(chunk.updatedAt),
+      })
+      .onConflictDoUpdate({
+        target: fileChunks.id,
+        set: {
+          content: sql`excluded.content`,
+          contentHash: sql`excluded.content_hash`,
+          tokenCount: sql`excluded.token_count`,
+          chunkType: sql`excluded.chunk_type`,
+          chunkSize: sql`excluded.chunk_size`,
+          embedding: sql`excluded.embedding`,
+          embeddingSetId: sql`excluded.embedding_set_id`,
+          embeddingUpdatedAt: sql`excluded.embedding_updated_at`,
+          embeddingHash: sql`excluded.embedding_hash`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      })
+      .returning();
+
+    if (!row) {
+      throw new Error(`Failed to insert chunk ${chunk.id}`);
+    }
+
+    return this.fromRow(row);
+  }
+
+  async insertMany(chunks: FileChunkInsert[]): Promise<FileChunk[]> {
+    if (chunks.length === 0) {
+      return [];
+    }
+
+    const values = chunks.map((chunk) => ({
+      id: chunk.id,
+      fileRecordId: chunk.fileRecordId,
+      chunkIndex: chunk.chunkIndex,
+      content: chunk.content,
+      contentHash: chunk.contentHash ?? null,
+      tokenCount: chunk.tokenCount ?? null,
+      chunkType: chunk.chunkType ?? null,
+      chunkSize: chunk.chunkSize ?? null,
+      embedding: chunk.embedding ?? null,
+      embeddingSetId: chunk.embeddingSetId ?? null,
+      embeddingUpdatedAt: chunk.embeddingUpdatedAt ? new Date(chunk.embeddingUpdatedAt) : null,
+      embeddingHash: chunk.embeddingHash ?? null,
+      createdAt: new Date(chunk.createdAt),
+      updatedAt: new Date(chunk.updatedAt),
+    }));
+
+    const rows = await this.db
+      .insert(fileChunks)
+      .values(values)
+      .onConflictDoUpdate({
+        target: fileChunks.id,
+        set: {
+          content: sql`excluded.content`,
+          contentHash: sql`excluded.content_hash`,
+          tokenCount: sql`excluded.token_count`,
+          chunkType: sql`excluded.chunk_type`,
+          chunkSize: sql`excluded.chunk_size`,
+          embedding: sql`excluded.embedding`,
+          embeddingSetId: sql`excluded.embedding_set_id`,
+          embeddingUpdatedAt: sql`excluded.embedding_updated_at`,
+          embeddingHash: sql`excluded.embedding_hash`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      })
+      .returning();
+
+    return rows.map((row) => this.fromRow(row));
+  }
+
+  async update(chunk: FileChunkUpdate): Promise<FileChunk | null> {
+    const updateData: Partial<typeof fileChunks.$inferInsert> = {
+      updatedAt: new Date(chunk.updatedAt),
+    };
+
+    if (chunk.content !== undefined) {
+      updateData.content = chunk.content;
+    }
+    if (chunk.contentHash !== undefined) {
+      updateData.contentHash = chunk.contentHash;
+    }
+    if (chunk.tokenCount !== undefined) {
+      updateData.tokenCount = chunk.tokenCount;
+    }
+    if (chunk.chunkType !== undefined) {
+      updateData.chunkType = chunk.chunkType;
+    }
+    if (chunk.chunkSize !== undefined) {
+      updateData.chunkSize = chunk.chunkSize;
+    }
+    if (chunk.embedding !== undefined) {
+      updateData.embedding = chunk.embedding;
+      updateData.embeddingUpdatedAt = chunk.embeddingUpdatedAt
+        ? new Date(chunk.embeddingUpdatedAt)
+        : new Date(chunk.updatedAt);
+    }
+    if (chunk.embeddingSetId !== undefined) {
+      updateData.embeddingSetId = chunk.embeddingSetId;
+    }
+    if (chunk.embeddingHash !== undefined) {
+      updateData.embeddingHash = chunk.embeddingHash;
+    }
+
+    const [row] = await this.db
+      .update(fileChunks)
+      .set(updateData)
+      .where(eq(fileChunks.id, chunk.id))
+      .returning();
+
+    return row ? this.fromRow(row) : null;
+  }
+
+  async delete(id: string): Promise<boolean> {
+    const result = await this.db.delete(fileChunks).where(eq(fileChunks.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async deleteByFileRecordId(fileRecordId: string): Promise<number> {
+    const result = await this.db
+      .delete(fileChunks)
+      .where(eq(fileChunks.fileRecordId, fileRecordId))
+      .returning();
+    return result.length;
+  }
+
+  async findAll(): Promise<FileChunk[]> {
+    const rows = await this.db.select().from(fileChunks).orderBy(sql`${fileChunks.createdAt} DESC`);
+    return rows.map((row) => this.fromRow(row));
+  }
+
+  /**
+   * Vector similarity search using pgvector operators.
+   * Uses raw SQL through Drizzle's execute() since pgvector operators
+   * aren't natively supported by the query builder.
+   */
+  async searchSimilar(
+    queryEmbedding: number[],
+    options: ChunkSearchOptions = {}
+  ): Promise<ChunkSearchResult[]> {
+    const { limit = 10, threshold = 0.5, fileRecordId, chunkType, embeddingSetId } = options;
+
+    if (!embeddingSetId) {
+      throw new Error('searchSimilar requires embeddingSetId to avoid dimension mismatches');
+    }
+
+    // Get embedding set config
+    const [setRow] = await this.db
+      .select()
+      .from(embeddingSets)
+      .where(eq(embeddingSets.id, embeddingSetId));
+
+    if (!setRow) {
+      throw new Error(`Embedding set ${embeddingSetId} not found.`);
+    }
+
+    const dimension = setRow.dimensions;
+    if (queryEmbedding.length !== dimension) {
+      throw new Error(
+        `Query embedding dimension mismatch: received ${queryEmbedding.length}, expected ${dimension}`
+      );
+    }
+
+    const distance = setRow.distance || 'cosine';
+    const { similarityExpr, orderExpr } = this.buildDistanceExpressions(
+      distance as 'cosine' | 'l2' | 'ip',
+      dimension
+    );
+
+    const vectorParam = `[${queryEmbedding.join(',')}]`;
+
+    // Build WHERE clause
+    const whereParts = [
+      'embedding IS NOT NULL',
+      `vector_dims(embedding) = ${dimension}`,
+      `embedding_set_id = '${embeddingSetId}'`,
+    ];
+
+    if (fileRecordId) {
+      whereParts.push(`file_record_id = '${fileRecordId}'`);
+    }
+    if (chunkType) {
+      whereParts.push(`chunk_type = '${chunkType}'`);
+    }
+
+    const overfetchLimit = Math.max(limit * 10, 100);
+
+    const result = await this.db.execute(
+      sql.raw(`
+      SELECT *,
+        ${similarityExpr.replace(/\$1/g, `'${vectorParam}'`)} as similarity,
+        ROW_NUMBER() OVER (ORDER BY ${orderExpr.replace(/\$1/g, `'${vectorParam}'`)}) as rank
+      FROM file_chunks
+      WHERE ${whereParts.join(' AND ')}
+      ORDER BY ${orderExpr.replace(/\$1/g, `'${vectorParam}'`)}
+      LIMIT ${overfetchLimit}
+    `)
+    );
+
+    const mapped = (result.rows as Record<string, unknown>[]).map((row) => ({
+      chunk: this.fromRawRow(row),
+      similarity: Number(row['similarity']),
+      rank: Number(row['rank']),
+    }));
+
+    // Apply threshold and limit
+    return mapped
+      .filter((r) => Number.isFinite(r.similarity) && r.similarity >= threshold)
+      .slice(0, limit);
+  }
+
+  async getStats(): Promise<{
+    totalChunks: number;
+    chunksWithEmbeddings: number;
+    averageTokenCount: number;
+    chunkTypeDistribution: Record<string, number>;
+  }> {
+    const [countResult] = await this.db.select({ count: count() }).from(fileChunks);
+    const totalChunks = countResult?.count ?? 0;
+
+    const result = await this.db.execute(sql`
+      SELECT
+        COUNT(*) as total_chunks,
+        COUNT(embedding) as chunks_with_embeddings,
+        AVG(token_count) as average_token_count,
+        chunk_type,
+        COUNT(*) as type_count
+      FROM file_chunks
+      GROUP BY chunk_type
+    `);
+
+    const stats = {
+      totalChunks,
+      chunksWithEmbeddings: 0,
+      averageTokenCount: 0,
+      chunkTypeDistribution: {} as Record<string, number>,
+    };
+
+    let totalTokenSum = 0;
+    let totalWithTokens = 0;
+
+    for (const row of result.rows as Record<string, unknown>[]) {
+      stats.chunksWithEmbeddings += Number(row['chunks_with_embeddings'] ?? 0);
+      const typeCount = Number(row['type_count'] ?? 0);
+      const chunkType = String(row['chunk_type'] ?? 'unknown');
+      stats.chunkTypeDistribution[chunkType] = typeCount;
+
+      const avgTokens = Number(row['average_token_count'] ?? 0);
+      totalTokenSum += avgTokens * typeCount;
+      totalWithTokens += typeCount;
+    }
+
+    if (totalWithTokens > 0) {
+      stats.averageTokenCount = totalTokenSum / totalWithTokens;
+    }
+
+    return stats;
+  }
+
+  async getCoverageForSet(embeddingSetId: string): Promise<{
+    totalChunks: number;
+    chunksWithEmbeddingsForSet: number;
+  }> {
+    if (!embeddingSetId) {
+      throw new Error('embeddingSetId is required');
+    }
+
+    const [totalResult] = await this.db.select({ count: count() }).from(fileChunks);
+
+    const result = await this.db.execute(sql`
+      SELECT COUNT(*)::text as count
+      FROM file_chunks
+      WHERE embedding_set_id = ${embeddingSetId} AND embedding IS NOT NULL
+    `);
+
+    const countRow = (result.rows as Record<string, unknown>[])[0];
+
+    return {
+      totalChunks: totalResult?.count ?? 0,
+      chunksWithEmbeddingsForSet: Number(countRow?.['count'] ?? 0),
+    };
+  }
+
+  async clearAll(): Promise<number> {
+    const [countResult] = await this.db.select({ count: count() }).from(fileChunks);
+    const totalCount = countResult?.count ?? 0;
+
+    await this.db.delete(fileChunks);
+    return totalCount;
+  }
+
+  private buildDistanceExpressions(
+    distance: 'cosine' | 'l2' | 'ip',
+    dimension: number
+  ): { similarityExpr: string; orderExpr: string } {
+    const embeddingCast = `(embedding::vector(${dimension}))`;
+    const paramCast = `$1::vector(${dimension})`;
+
+    if (distance === 'l2') {
+      return {
+        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
+        orderExpr: `${embeddingCast} <-> ${paramCast}`,
+      };
+    }
+    if (distance === 'ip') {
+      return {
+        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
+        orderExpr: `${embeddingCast} <#> ${paramCast}`,
+      };
+    }
+    return {
+      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
+      orderExpr: `${embeddingCast} <=> ${paramCast}`,
+    };
+  }
+
+  private fromRow(row: typeof fileChunks.$inferSelect): FileChunk {
+    const chunk: FileChunk = {
+      id: row.id,
+      fileRecordId: row.fileRecordId,
+      chunkIndex: row.chunkIndex,
+      content: row.content,
+      contentHash: row.contentHash ?? '',
+      tokenCount: row.tokenCount ?? 0,
+      chunkType: row.chunkType ?? 'text',
+      chunkSize: row.chunkSize ?? 0,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    };
+
+    if (row.embedding) {
+      chunk.embedding = row.embedding;
+    }
+    if (row.embeddingSetId) {
+      chunk.embeddingSetId = row.embeddingSetId;
+    }
+    if (row.embeddingUpdatedAt) {
+      chunk.embeddingUpdatedAt = row.embeddingUpdatedAt.toISOString();
+    }
+    if (row.embeddingHash) {
+      chunk.embeddingHash = row.embeddingHash;
+    }
+
+    return chunk;
+  }
+
+  private fromRawRow(row: Record<string, unknown>): FileChunk {
+    const chunk: FileChunk = {
+      id: String(row['id']),
+      fileRecordId: String(row['file_record_id']),
+      chunkIndex: Number(row['chunk_index']),
+      content: String(row['content']),
+      contentHash: row['content_hash'] ? String(row['content_hash']) : '',
+      tokenCount: Number(row['token_count'] ?? 0),
+      chunkType: (row['chunk_type'] as FileChunk['chunkType']) ?? 'text',
+      chunkSize: Number(row['chunk_size'] ?? 0),
+      createdAt: String(row['created_at']),
+      updatedAt: String(row['updated_at']),
+    };
+
+    if (row['embedding']) {
+      const embStr = String(row['embedding']);
+      // Parse vector string format "[0.1,0.2,0.3]"
+      const cleaned = embStr.replace(/[[\]()]/g, '');
+      chunk.embedding = cleaned.split(',').map(Number);
+    }
+    if (row['embedding_set_id']) {
+      chunk.embeddingSetId = String(row['embedding_set_id']);
+    }
+    if (row['embedding_updated_at']) {
+      chunk.embeddingUpdatedAt = String(row['embedding_updated_at']);
+    }
+    if (row['embedding_hash']) {
+      chunk.embeddingHash = String(row['embedding_hash']);
+    }
+
+    return chunk;
+  }
+}
