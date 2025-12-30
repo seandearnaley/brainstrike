@@ -7,11 +7,14 @@
  * Migration SQL is bundled as JSON at build time via the export-migrations script.
  */
 
+import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 
 // Import the pre-compiled migrations manifest
 // Using import attribute for Node.js 22+ ESM compatibility
 import migrationsManifest from './migrations.json' with { type: 'json' };
+
+const logger = createLogger('DrizzleMigrate');
 
 type Migration = {
   version: string;
@@ -81,6 +84,36 @@ function splitStatements(sql: string): string[] {
 }
 
 /**
+ * Applies a single migration within a transaction.
+ * Handles rollback on failure and preserves the original error.
+ */
+async function applySingleMigration(db: PGlite, migration: Migration): Promise<void> {
+  try {
+    await db.query('BEGIN');
+
+    const statements = splitStatements(migration.sql);
+    for (const statement of statements) {
+      await db.query(statement);
+    }
+
+    await recordMigration(db, migration.hash);
+    await db.query('COMMIT');
+  } catch (migrationError) {
+    // Attempt rollback on failure - wrap in try-catch to preserve original error
+    try {
+      await db.query('ROLLBACK');
+    } catch (rollbackError: unknown) {
+      const rollbackMessage =
+        rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
+      logger.error(`Failed to rollback migration "${migration.name}": ${rollbackMessage}`);
+    }
+    const errorMessage =
+      migrationError instanceof Error ? migrationError.message : String(migrationError);
+    throw new Error(`Migration "${migration.name}" failed: ${errorMessage}`);
+  }
+}
+
+/**
  * Runs all pending migrations
  *
  * @param db - PGlite database instance
@@ -102,66 +135,29 @@ export async function runMigrations(
   const appliedMigrations: string[] = [];
 
   try {
-    // Enable vector extension if requested
     if (enableVector) {
       await db.query('CREATE EXTENSION IF NOT EXISTS vector');
     }
 
-    // Ensure migrations table exists
     await ensureMigrationsTable(db);
-
-    // Get already applied migrations
     const applied = await getAppliedMigrations(db);
-
-    // Load migrations from manifest
     const manifest = migrationsManifest as MigrationManifest;
 
     for (const migration of manifest.migrations) {
-      // Skip if already applied
       if (applied.has(migration.hash)) {
         continue;
       }
 
       onMigrationStart?.(migration.name);
-
-      // Wrap each migration in a transaction for atomicity
-      // If any statement fails, the entire migration is rolled back
-      try {
-        await db.query('BEGIN');
-
-        // Split and execute each statement
-        const statements = splitStatements(migration.sql);
-
-        for (const statement of statements) {
-          await db.query(statement);
-        }
-
-        // Record as applied (within transaction)
-        await recordMigration(db, migration.hash);
-
-        await db.query('COMMIT');
-        appliedMigrations.push(migration.name);
-      } catch (migrationError) {
-        // Rollback on failure
-        await db.query('ROLLBACK');
-        throw new Error(
-          `Migration "${migration.name}" failed: ${migrationError instanceof Error ? migrationError.message : String(migrationError)}`
-        );
-      }
-
+      await applySingleMigration(db, migration);
+      appliedMigrations.push(migration.name);
       onMigrationComplete?.(migration.name);
     }
 
-    return {
-      success: true,
-      appliedMigrations,
-    };
+    return { success: true, appliedMigrations };
   } catch (error) {
-    return {
-      success: false,
-      appliedMigrations,
-      error: error instanceof Error ? error.message : String(error),
-    };
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, appliedMigrations, error: errorMessage };
   }
 }
 

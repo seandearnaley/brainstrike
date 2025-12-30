@@ -369,6 +369,18 @@ export class DrizzleFileRecordRepository {
     return `${normalizedHash}::${normalizedSet}`;
   }
 
+  /**
+   * Estimates token count using a simple character-to-token ratio.
+   *
+   * This is a rough heuristic assuming ~4 characters per token on average.
+   * This ratio varies by language and content type:
+   * - English prose: ~4-5 chars/token
+   * - Code: ~3-4 chars/token
+   * - Languages with longer words: may differ
+   *
+   * For accurate counts, use a proper tokenizer (e.g., tiktoken).
+   * This heuristic is used as a fast fallback during bulk import.
+   */
   private countTokensHeuristic(content: string): number {
     return Math.ceil(content.length / 4);
   }

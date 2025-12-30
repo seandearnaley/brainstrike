@@ -134,41 +134,42 @@ export class DrizzleTokenCacheStore {
 
   /**
    * Batch upsert multiple entries efficiently.
+   * Uses Drizzle's bulk insert for better performance than one-by-one inserts.
    */
   async setBatch(entries: TokenCacheEntry[]): Promise<void> {
     if (entries.length === 0) {
       return;
     }
 
-    // Use a transaction for atomicity
-    await this.db.transaction(async (tx) => {
-      for (const entry of entries) {
-        await tx
-          .insert(fileTokenCache)
-          .values({
-            folderId: entry.folderId,
-            filePath: entry.filePath,
-            contentHash: entry.contentHash,
-            fileSize: String(entry.fileSize),
-            mtimeMs: entry.mtimeMs !== null ? String(entry.mtimeMs) : null,
-            tokenCount: entry.tokenCount,
-            countingMode: entry.countingMode,
-            modelEncoding: entry.modelEncoding,
-          })
-          .onConflictDoUpdate({
-            target: [fileTokenCache.folderId, fileTokenCache.filePath],
-            set: {
-              contentHash: sql`excluded.content_hash`,
-              fileSize: sql`excluded.file_size`,
-              mtimeMs: sql`excluded.mtime_ms`,
-              tokenCount: sql`excluded.token_count`,
-              countingMode: sql`excluded.counting_mode`,
-              modelEncoding: sql`excluded.model_encoding`,
-              updatedAt: sql`CURRENT_TIMESTAMP`,
-            },
-          });
-      }
-    });
+    // Convert entries to insert format
+    const values = entries.map((entry) => ({
+      folderId: entry.folderId,
+      filePath: entry.filePath,
+      contentHash: entry.contentHash,
+      fileSize: String(entry.fileSize),
+      mtimeMs: entry.mtimeMs !== null ? String(entry.mtimeMs) : null,
+      tokenCount: entry.tokenCount,
+      countingMode: entry.countingMode,
+      modelEncoding: entry.modelEncoding,
+    }));
+
+    // Use bulk insert with onConflictDoUpdate for efficient upsert
+    // This generates a single INSERT statement with multiple VALUES
+    await this.db
+      .insert(fileTokenCache)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [fileTokenCache.folderId, fileTokenCache.filePath],
+        set: {
+          contentHash: sql`excluded.content_hash`,
+          fileSize: sql`excluded.file_size`,
+          mtimeMs: sql`excluded.mtime_ms`,
+          tokenCount: sql`excluded.token_count`,
+          countingMode: sql`excluded.counting_mode`,
+          modelEncoding: sql`excluded.model_encoding`,
+          updatedAt: sql`CURRENT_TIMESTAMP`,
+        },
+      });
   }
 
   /**

@@ -52,6 +52,28 @@ function validateDimension(dimension: number, context: string): void {
   }
 }
 
+/**
+ * Maximum number of rows to overfetch when searching for similar embeddings.
+ * This prevents memory exhaustion when limit is very large.
+ */
+const MAX_OVERFETCH_LIMIT = 10_000;
+
+/**
+ * Safely constructs a pgvector literal string from a validated embedding array.
+ *
+ * SECURITY NOTE: This function is safe because:
+ * 1. The embedding array MUST be validated via validateEmbeddingVector() before calling
+ * 2. validateEmbeddingVector() ensures all elements are finite JavaScript numbers
+ * 3. JavaScript numbers cannot contain SQL injection characters (no quotes, semicolons, etc.)
+ * 4. The resulting format [n1,n2,n3] is the exact literal format pgvector expects
+ *
+ * @param embedding - Validated array of finite numbers
+ * @returns pgvector literal string in format '[n1,n2,...]'
+ */
+function toPgvectorLiteral(embedding: number[]): string {
+  return `[${embedding.join(',')}]`;
+}
+
 export class DrizzleFileChunkRepository {
   constructor(private readonly db: DrizzleDb) {}
 
@@ -250,6 +272,7 @@ export class DrizzleFileChunkRepository {
     }
 
     // Validate all embedding values are finite numbers (defense-in-depth)
+    // This MUST be called before toPgvectorLiteral() for security
     validateEmbeddingVector(queryEmbedding, 'searchSimilar');
 
     const distance = setRow.distance || 'cosine';
@@ -258,19 +281,22 @@ export class DrizzleFileChunkRepository {
       dimension
     );
 
-    const vectorParam = `[${queryEmbedding.join(',')}]`;
+    // Convert validated embedding to pgvector literal format
+    // Safe because validateEmbeddingVector guarantees all values are finite numbers
+    const vectorLiteral = toPgvectorLiteral(queryEmbedding);
 
-    // Build parameterized WHERE clause to prevent SQL injection
-    // Use Drizzle's sql template tag for safe parameter binding
-    const overfetchLimit = Math.max(limit * 10, 100);
+    // Overfetch to improve result quality, but cap at MAX_OVERFETCH_LIMIT
+    // to prevent memory exhaustion with very large limit values
+    const overfetchLimit = Math.min(Math.max(limit * 10, 100), MAX_OVERFETCH_LIMIT);
 
     // Build dynamic query with proper parameterization
     // Note: We use sql template tag for parameters, but still need raw for pgvector operators
     // The embeddingSetId, fileRecordId, and chunkType are parameterized via sql template
+    // The vectorLiteral is safe because it was validated via validateEmbeddingVector()
     let baseQuery = sql`
       SELECT *,
-        ${sql.raw(similarityExpr.replace(/\$1/g, `'${vectorParam}'`))} as similarity,
-        ROW_NUMBER() OVER (ORDER BY ${sql.raw(orderExpr.replace(/\$1/g, `'${vectorParam}'`))}) as rank
+        ${sql.raw(similarityExpr.replace(/\$1/g, `'${vectorLiteral}'`))} as similarity,
+        ROW_NUMBER() OVER (ORDER BY ${sql.raw(orderExpr.replace(/\$1/g, `'${vectorLiteral}'`))}) as rank
       FROM file_chunks
       WHERE embedding IS NOT NULL
         AND vector_dims(embedding) = ${dimension}
@@ -285,7 +311,7 @@ export class DrizzleFileChunkRepository {
     }
 
     baseQuery = sql`${baseQuery}
-      ORDER BY ${sql.raw(orderExpr.replace(/\$1/g, `'${vectorParam}'`))}
+      ORDER BY ${sql.raw(orderExpr.replace(/\$1/g, `'${vectorLiteral}'`))}
       LIMIT ${overfetchLimit}
     `;
 
