@@ -72,25 +72,6 @@ function buildNodeFromPath(
 }
 
 /**
- * Log directory load result for debugging.
- */
-function logDirectoryLoad(
-  path: string,
-  children: IFileNode[],
-  mapSizeBefore: number,
-  mapSizeAfter: number
-): void {
-  const childrenWithHandles = children.filter((c) => c.handle).length;
-  logger.info('loaded directory', {
-    path,
-    childrenCount: children.length,
-    childrenWithHandles,
-    mapSizeBefore,
-    mapSizeAfter,
-  });
-}
-
-/**
  * Load a single directory for worker request.
  */
 async function loadSingleDirectory(
@@ -114,9 +95,7 @@ async function loadSingleDirectory(
       sortFileNodes,
     });
 
-    const mapSizeBefore = handleMap.size;
     addHandlesToMap(children, handleMap);
-    logDirectoryLoad(path, children, mapSizeBefore, handleMap.size);
 
     return { path, children: toWorkerFileNodes(children) };
   } catch (err) {
@@ -225,12 +204,6 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
     // Handle load requests from worker - perform I/O with FileSystemHandles
     unsubscribes.push(
       port.onRequestLoad(async (_requestId, paths) => {
-        logger.info('onRequestLoad called', {
-          pathCount: paths.length,
-          hasAdapter: !!fileSystemAdapter,
-          firstPath: paths[0],
-        });
-
         if (!fileSystemAdapter) {
           logger.warn('onRequestLoad: no file system adapter');
           return paths.map((path) => ({ path, error: 'No file system adapter' }));
@@ -241,11 +214,6 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
         // Get root info for building nodes
         const rootPath = rootHandleRef.current?.path ?? '';
         const rootName = rootHandleRef.current?.name ?? '';
-        logger.info('onRequestLoad: loading directories', {
-          rootPath,
-          rootName,
-          pathCount: paths.length,
-        });
 
         // Load directories with concurrency limit to prevent overwhelming the browser
         const results = await runWithConcurrency(
@@ -273,12 +241,6 @@ export function useFileTreeWorker(options: UseFileTreeWorkerOptions): UseFileTre
             }
           }
         );
-
-        logger.info('onRequestLoad: completed', {
-          resultCount: results.length,
-          successCount: results.filter((r) => r.children).length,
-          errorCount: results.filter((r) => r.error).length,
-        });
 
         return results;
       })

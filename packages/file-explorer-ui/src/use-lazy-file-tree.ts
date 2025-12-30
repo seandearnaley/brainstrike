@@ -256,7 +256,7 @@ export function useLazyFileTree(
     );
 
     if (skipCheck.skip) {
-      logger.info(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
+      logger.debug(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
       return;
     }
 
@@ -506,7 +506,7 @@ export function useLazyFileTree(
     async (
       setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void
     ): Promise<void> => {
-      logger.info('expandAllProgressively wrapper called', {
+      logger.debug('expandAllProgressively wrapper called', {
         hasAdapter: !!fileSystemAdapter,
         hasPort: !!portRef.current,
       });
@@ -529,7 +529,7 @@ export function useLazyFileTree(
         return;
       }
 
-      logger.info('expandAllProgressively: calling expandAllFromHook');
+      logger.debug('expandAllProgressively: calling expandAllFromHook');
 
       // Use the expand-all hook's implementation
       try {
@@ -563,7 +563,7 @@ export function useLazyFileTree(
 
       // Skip if expand-all is in progress
       if (isExpandingAllRef.current) {
-        logger.info('loadSpecificPaths skipped - expand-all in progress');
+        logger.debug('loadSpecificPaths skipped - expand-all in progress');
         return;
       }
 
@@ -572,7 +572,7 @@ export function useLazyFileTree(
         return;
       }
 
-      logger.info('loadSpecificPaths starting', { pathCount: paths.length });
+      logger.debug('loadSpecificPaths starting', { pathCount: paths.length });
 
       // Set up progress handler if provided
       const unsubProgress = onProgress
@@ -619,10 +619,10 @@ export function useLazyFileTree(
       }
       // Skip if expand-all is in progress for THIS root (same folder)
       if (isExpandingAllRef.current && initializedRootRef.current === rootPath) {
-        logger.info('loadRoot skipped - expand-all in progress for same root');
+        logger.debug('loadRoot skipped - expand-all in progress for same root');
         return;
       }
-      logger.info('loadRoot triggered', { rootPath });
+      logger.debug('loadRoot triggered', { rootPath });
       void loadRoot();
     } else {
       // Clear handle map and initialized ref when root changes

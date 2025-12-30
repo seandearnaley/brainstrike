@@ -37,6 +37,7 @@ type DbContextValue = {
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
   error: Error | null;
   ready: boolean;
+  initializing: boolean; // Whether database initialization is in progress
   db: DbHandle | null;
   clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
   initializeDatabase: () => Promise<void>; // Lazy initialization trigger
@@ -128,6 +129,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const [error, setError] = useState<Error | null>(null);
   const [ready, setReady] = useState(false);
   const [lazyInitialized, setLazyInitialized] = useState(false);
+  const [initializing, setInitializing] = useState(false);
   const [vectorEnabled, setVectorEnabled] = useState(false);
   const [exposedDb, setExposedDb] = useState<DbHandle | null>(null);
 
@@ -261,6 +263,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
 
     initializingRef.current = true;
+    setInitializing(true);
     logger.info('🚀 Lazy-loading database (triggered by actual usage)');
 
     initializingPromiseRef.current = (async () => {
@@ -280,6 +283,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       } finally {
         initializingRef.current = false;
         initializingPromiseRef.current = null;
+        setInitializing(false);
       }
     })();
 
@@ -555,6 +559,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     setVectorEnabled(false);
     setReady(false);
     setLazyInitialized(false);
+    setInitializing(false);
 
     // Clear active embedding set ID from localStorage to prevent stale collections
     clearActiveEmbeddingSetIdFromStorage();
@@ -602,6 +607,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       chunkRepository,
       error,
       ready,
+      initializing,
       db: exposedDb,
       clearAllData,
       initializeDatabase,
@@ -649,6 +655,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       chunkRepository,
       error,
       ready,
+      initializing,
       clearAllData,
       initializeDatabase,
       vectorEnabled,
@@ -672,20 +679,39 @@ export function useVectorEnabled(): boolean {
   return context.vectorEnabled;
 }
 
+/**
+ * Hook to check if database initialization is in progress.
+ * Useful for showing loading states in UI components.
+ */
+export function useDbInitializing(): boolean {
+  const ctx = useContext(DbContext);
+  if (!ctx) {
+    throw new Error('useDbInitializing must be used within a DbProvider');
+  }
+  return ctx.initializing;
+}
+
 export function useFileRecordRepository():
   | FileRecordRepository
   | ElectronFileRecordRepository
   | null {
   const ctx = useContext(DbContext);
 
+  // Destructure to get stable references for dependency array
+  const fileRecordRepository = ctx?.fileRecordRepository;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
   // Trigger lazy initialization when first accessed
+  // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (ctx && !ctx.fileRecordRepository && !ctx.error) {
-      ctx.initializeDatabase().catch((err) => {
+    if (!(fileRecordRepository || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
         logger.error('Failed to lazy-initialize database:', err);
       });
     }
-  }, [ctx]);
+  }, [fileRecordRepository, error, initializing, initializeDatabase]);
 
   if (!ctx) {
     logger.warn('useFileRecordRepository must be used within a DbProvider');
@@ -698,14 +724,21 @@ export function useFileRecordRepository():
 export function usePGliteDatabase(): DbHandle | null {
   const ctx = useContext(DbContext);
 
+  // Destructure to get stable references for dependency array
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
   // Trigger lazy initialization when first accessed
+  // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (ctx && !ctx.db && !ctx.error) {
-      ctx.initializeDatabase().catch((err) => {
+    if (!(db || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
         logger.error('Failed to lazy-initialize database:', err);
       });
     }
-  }, [ctx]);
+  }, [db, error, initializing, initializeDatabase]);
 
   if (!ctx) {
     logger.warn('usePGliteDatabase must be used within a DbProvider');
@@ -726,14 +759,21 @@ export function useDbProviderError(): Error | null {
 export function useFileChunkRepository(): FileChunkRepository | ElectronFileChunkRepository | null {
   const ctx = useContext(DbContext);
 
+  // Destructure to get stable references for dependency array
+  const chunkRepository = ctx?.chunkRepository;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
   // Trigger lazy initialization when first accessed
+  // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (ctx && !ctx.chunkRepository && !ctx.error) {
-      ctx.initializeDatabase().catch((err) => {
+    if (!(chunkRepository || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
         logger.error('Failed to lazy-initialize database:', err);
       });
     }
-  }, [ctx]);
+  }, [chunkRepository, error, initializing, initializeDatabase]);
 
   if (!ctx) {
     logger.warn('useFileChunkRepository must be used within a DbProvider');
@@ -748,14 +788,21 @@ export function useClearAllData():
   | null {
   const ctx = useContext(DbContext);
 
+  // Destructure to get stable references for dependency array
+  const fileRecordRepository = ctx?.fileRecordRepository;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
   // Trigger lazy initialization when first accessed
+  // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (ctx && !ctx.fileRecordRepository && !ctx.error) {
-      ctx.initializeDatabase().catch((err) => {
+    if (!(fileRecordRepository || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
         logger.error('Failed to lazy-initialize database:', err);
       });
     }
-  }, [ctx]);
+  }, [fileRecordRepository, error, initializing, initializeDatabase]);
 
   if (!ctx) {
     logger.warn('useClearAllData must be used within a DbProvider');
@@ -767,13 +814,23 @@ export function useClearAllData():
 
 export function useFactoryReset(): (() => Promise<void>) | null {
   const ctx = useContext(DbContext);
+
+  // Destructure to get stable references for dependency array
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
+  // Trigger lazy initialization when first accessed
+  // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (ctx && !ctx.db && !ctx.error) {
-      ctx.initializeDatabase().catch((err) => {
+    if (!(db || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
         logger.error('Failed to lazy-initialize database:', err);
       });
     }
-  }, [ctx]);
+  }, [db, error, initializing, initializeDatabase]);
+
   if (!ctx) {
     return null;
   }
@@ -782,13 +839,23 @@ export function useFactoryReset(): (() => Promise<void>) | null {
 
 export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
   const ctx = useContext(DbContext);
+
+  // Destructure to get stable references for dependency array
+  const db = ctx?.db;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
+  // Trigger lazy initialization when first accessed
+  // Only trigger if not already initializing to avoid duplicate calls
   useEffect(() => {
-    if (ctx && !ctx.db && !ctx.error) {
-      ctx.initializeDatabase().catch((err) => {
+    if (!(db || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
         logger.error('Failed to lazy-initialize database:', err);
       });
     }
-  }, [ctx]);
+  }, [db, error, initializing, initializeDatabase]);
+
   if (!ctx) {
     return null;
   }

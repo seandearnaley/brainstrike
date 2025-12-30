@@ -88,7 +88,10 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
   const messageType = message?.type;
 
   try {
-    log('debug', 'onmessage received', { type: messageType });
+    // Only log non-routine messages to reduce console spam during expand-all
+    if (messageType !== 'loadResult' && messageType !== 'loadError') {
+      log('debug', 'onmessage received', { type: messageType });
+    }
 
     switch (messageType) {
       case 'init': {
@@ -110,7 +113,7 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
       case 'loadResult': {
         const { path, children } = message.payload;
         engine.handleLoadResult(path, children);
-        log('debug', 'load result processed', { path, childCount: children.length });
+        // Removed per-result debug log to reduce console spam during expand-all
         break;
       }
 

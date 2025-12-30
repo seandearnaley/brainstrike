@@ -282,7 +282,6 @@ export class BFSEngine {
 
     while (currentWave.size > 0 && !this.aborted) {
       const toLoad = getUnloadedDirectories(currentWave, processed, this.tree);
-      this.logDebug(`[expand-all] Wave has ${currentWave.size} dirs, toLoad: ${toLoad.length}`);
 
       // Process batches
       const batchResult = await this.processExpandBatches(
@@ -303,8 +302,6 @@ export class BFSEngine {
       // Discover child directories from loaded nodes
       const { nextWave, newCount } = discoverChildDirectories(currentWave, processed, this.tree);
       totalDiscovered += newCount;
-
-      this.logDebug(`[expand-all] Discovered ${newCount} new dirs, nextWave: ${nextWave.size}`);
       currentWave = nextWave;
 
       await yieldControl();
@@ -475,7 +472,6 @@ export class BFSEngine {
       }
 
       const pathsAtDepth = depthGroups.get(depth) ?? [];
-      this.logDebug(`[loadPaths] Processing depth ${depth} with ${pathsAtDepth.length} paths`);
 
       // Process paths at this depth in batches
       for (let i = 0; i < pathsAtDepth.length && !this.aborted; i += BATCH_SIZE) {
