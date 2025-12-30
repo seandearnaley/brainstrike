@@ -58,8 +58,8 @@ function logRehydrationResult(
   rehydratedNodes: number,
   rehydratedTree: IFileNode[]
 ): void {
-  logger.info(`${operation} complete`, { handleMapSize, workerTreeNodes });
-  logger.info(`${operation} rehydrated`, { rehydratedNodes });
+  logger.debug(`${operation} complete`, { handleMapSize, workerTreeNodes });
+  logger.debug(`${operation} rehydrated`, { rehydratedNodes });
 
   const filesWithoutHandles = countFilesWithoutHandles(rehydratedTree);
   if (filesWithoutHandles > 0) {
@@ -84,7 +84,7 @@ function processExpandResult(
 ): void {
   // Skip rehydration when all directories were already cached
   if (result.loadedCount === 0) {
-    logger.info('expandAllProgressively: skipping rehydration (all cached)', {
+    logger.debug('expandAllProgressively: skipping rehydration (all cached)', {
       expandedPathsCount: result.expandedPaths.length,
     });
     setExpandedPaths(() => new Set(result.expandedPaths));
@@ -228,7 +228,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
       const skipCheck = shouldSkipExpandAll(workerPort, isExpandAllStartingRef.current);
       if (skipCheck.skip || !workerPort) {
         if (skipCheck.reason) {
-          logger.info(`expandAllProgressively: ${skipCheck.reason}`);
+          logger.debug(`expandAllProgressively: ${skipCheck.reason}`);
         }
         return;
       }
