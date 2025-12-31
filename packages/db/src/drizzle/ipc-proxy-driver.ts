@@ -31,6 +31,38 @@ const logger = createLogger('IPCProxyDriver');
 export type IPCProxyDb = PgRemoteDatabase;
 
 /**
+ * Convert snake_case string to camelCase.
+ *
+ * @example
+ * snakeToCamel('model_key') // 'modelKey'
+ * snakeToCamel('created_at') // 'createdAt'
+ * snakeToCamel('id') // 'id' (unchanged)
+ */
+function snakeToCamel(str: string): string {
+  return str.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
+
+/**
+ * Transform a row object's keys from snake_case to camelCase.
+ *
+ * This is necessary because:
+ * 1. Drizzle with casing: 'snake_case' generates SQL with snake_case column names
+ * 2. PGlite returns rows with those snake_case keys
+ * 3. Drizzle pg-proxy expects rows with camelCase keys matching the TypeScript schema
+ *
+ * @param row - Row object with snake_case keys from PGlite
+ * @returns Row object with camelCase keys for Drizzle schema mapping
+ */
+function transformRowKeys(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    const camelKey = snakeToCamel(key);
+    result[camelKey] = row[key];
+  }
+  return result;
+}
+
+/**
  * Create a RemoteCallback that sends queries over Electron IPC.
  *
  * The callback translates Drizzle's query interface to the IPC API:
@@ -52,7 +84,22 @@ export function createIPCRemoteCallback(electronDb: ElectronDatabaseAPI): Remote
     try {
       // Both 'all' and 'execute' methods use query() - PGlite handles both
       const result = await electronDb.query(sql, params);
-      return { rows: result.rows };
+
+      // Transform row keys from snake_case (PGlite) to camelCase (Drizzle schema)
+      // This is essential because pg-proxy doesn't automatically apply the
+      // reverse casing transformation that native drivers do
+      const transformedRows = result.rows.map((row) =>
+        transformRowKeys(row as Record<string, unknown>)
+      );
+
+      logger.debug('IPC query result', {
+        method,
+        rowCount: result.rows.length,
+        sampleKeys: result.rows[0] ? Object.keys(result.rows[0] as object).slice(0, 5) : [],
+        transformedKeys: transformedRows[0] ? Object.keys(transformedRows[0]).slice(0, 5) : [],
+      });
+
+      return { rows: transformedRows };
     } catch (error) {
       logger.error('IPC query failed', {
         method,

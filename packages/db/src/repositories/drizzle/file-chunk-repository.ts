@@ -34,6 +34,22 @@ type FileChunkRow = Omit<
 type RawRow = Record<string, unknown>;
 
 /**
+ * Get value from row using either camelCase or snake_case key.
+ *
+ * This is needed because:
+ * - Web path (direct PGlite): execute() returns snake_case keys
+ * - Electron path (IPC proxy): execute() returns camelCase keys (after transformation)
+ *
+ * @param row - Raw row from execute() result
+ * @param camelKey - camelCase key name (e.g., 'fileRecordId')
+ * @param snakeKey - snake_case key name (e.g., 'file_record_id')
+ * @returns The value from the row, or undefined if neither key exists
+ */
+function getRowValue(row: RawRow, camelKey: string, snakeKey: string): unknown {
+  return row[camelKey] ?? row[snakeKey];
+}
+
+/**
  * Validates that all elements in an embedding vector are finite numbers.
  * This is a defense-in-depth measure to prevent malformed data from being
  * interpolated into SQL queries.
@@ -417,12 +433,15 @@ export class DrizzleFileChunkRepository {
 
     const statsRows = (Array.isArray(result) ? result : result.rows) as RawRow[];
     for (const row of statsRows) {
-      stats.chunksWithEmbeddings += Number(row['chunks_with_embeddings'] ?? 0);
-      const typeCount = Number(row['type_count'] ?? 0);
-      const chunkType = String(row['chunk_type'] ?? 'unknown');
+      // Use getRowValue to handle both web (snake_case) and Electron (camelCase) paths
+      stats.chunksWithEmbeddings += Number(
+        getRowValue(row, 'chunksWithEmbeddings', 'chunks_with_embeddings') ?? 0
+      );
+      const typeCount = Number(getRowValue(row, 'typeCount', 'type_count') ?? 0);
+      const chunkType = String(getRowValue(row, 'chunkType', 'chunk_type') ?? 'unknown');
       stats.chunkTypeDistribution[chunkType] = typeCount;
 
-      const avgTokens = Number(row['average_token_count'] ?? 0);
+      const avgTokens = Number(getRowValue(row, 'averageTokenCount', 'average_token_count') ?? 0);
       totalTokenSum += avgTokens * typeCount;
       totalWithTokens += typeCount;
     }
@@ -525,18 +544,25 @@ export class DrizzleFileChunkRepository {
     return chunk;
   }
 
+  /**
+   * Convert raw SQL result row to FileChunk.
+   *
+   * Uses getRowValue to handle both web (snake_case) and Electron (camelCase) paths.
+   */
   private fromRawRow(row: Record<string, unknown>): FileChunk {
     const chunk: FileChunk = {
       id: String(row['id']),
-      fileRecordId: String(row['file_record_id']),
-      chunkIndex: Number(row['chunk_index']),
+      fileRecordId: String(getRowValue(row, 'fileRecordId', 'file_record_id')),
+      chunkIndex: Number(getRowValue(row, 'chunkIndex', 'chunk_index')),
       content: String(row['content']),
-      contentHash: row['content_hash'] ? String(row['content_hash']) : '',
-      tokenCount: Number(row['token_count'] ?? 0),
-      chunkType: (row['chunk_type'] as FileChunk['chunkType']) ?? 'text',
-      chunkSize: Number(row['chunk_size'] ?? 0),
-      createdAt: String(row['created_at']),
-      updatedAt: String(row['updated_at']),
+      contentHash: getRowValue(row, 'contentHash', 'content_hash')
+        ? String(getRowValue(row, 'contentHash', 'content_hash'))
+        : '',
+      tokenCount: Number(getRowValue(row, 'tokenCount', 'token_count') ?? 0),
+      chunkType: (getRowValue(row, 'chunkType', 'chunk_type') as FileChunk['chunkType']) ?? 'text',
+      chunkSize: Number(getRowValue(row, 'chunkSize', 'chunk_size') ?? 0),
+      createdAt: String(getRowValue(row, 'createdAt', 'created_at')),
+      updatedAt: String(getRowValue(row, 'updatedAt', 'updated_at')),
     };
 
     if (row['embedding']) {
@@ -545,14 +571,20 @@ export class DrizzleFileChunkRepository {
       const cleaned = embStr.replace(/[[\]()]/g, '');
       chunk.embedding = cleaned.split(',').map(Number);
     }
-    if (row['embedding_set_id']) {
-      chunk.embeddingSetId = String(row['embedding_set_id']);
+
+    const embeddingSetId = getRowValue(row, 'embeddingSetId', 'embedding_set_id');
+    if (embeddingSetId) {
+      chunk.embeddingSetId = String(embeddingSetId);
     }
-    if (row['embedding_updated_at']) {
-      chunk.embeddingUpdatedAt = String(row['embedding_updated_at']);
+
+    const embeddingUpdatedAt = getRowValue(row, 'embeddingUpdatedAt', 'embedding_updated_at');
+    if (embeddingUpdatedAt) {
+      chunk.embeddingUpdatedAt = String(embeddingUpdatedAt);
     }
-    if (row['embedding_hash']) {
-      chunk.embeddingHash = String(row['embedding_hash']);
+
+    const embeddingHash = getRowValue(row, 'embeddingHash', 'embedding_hash');
+    if (embeddingHash) {
+      chunk.embeddingHash = String(embeddingHash);
     }
 
     return chunk;
