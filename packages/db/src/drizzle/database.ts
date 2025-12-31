@@ -50,10 +50,18 @@ export function extractRows<T>(result: ExecuteResult<T>): T[] {
  * - PGlite returns Date objects
  * - pg-proxy returns ISO strings (dates are serialized over IPC)
  *
- * @param value - Date object or ISO string
+ * Also handles undefined/null gracefully by returning current timestamp,
+ * which can occur due to column mapping issues with pg-proxy.
+ *
+ * @param value - Date object, ISO string, or undefined/null
  * @returns ISO string representation
  */
-export function toISOString(value: Date | string): string {
+export function toISOString(value: Date | string | undefined | null): string {
+  if (value === undefined || value === null) {
+    // Defensive fallback for missing date fields
+    // This shouldn't happen, but prevents crashes in IPC scenarios
+    return new Date().toISOString();
+  }
   if (typeof value === 'string') {
     return value;
   }

@@ -56,6 +56,14 @@ export class DrizzleEmbeddingSetsRepository {
       throw new Error(`Failed to create embedding set for ${modelKey}/${dimensions}/${distance}`);
     }
 
+    // Debug: Log the raw row structure to diagnose IPC serialization issues
+    this.logger.debug('getOrCreateSet insertedRow structure', {
+      hasCreatedAt: 'createdAt' in insertedRow,
+      createdAtType: typeof insertedRow.createdAt,
+      createdAtValue: String(insertedRow.createdAt),
+      keys: Object.keys(insertedRow),
+    });
+
     // Ensure HNSW index exists for this dimension (idempotent, best-effort)
     try {
       // Note: This still uses raw SQL as index creation isn't supported by Drizzle query builder
