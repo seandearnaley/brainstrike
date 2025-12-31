@@ -4,6 +4,7 @@ import type {
   FileRecord,
   FileRecordRepository,
 } from '@brainstrike/db';
+import { useModelRegistryStore } from '@brainstrike/preferences';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSearchFunctionality } from '../use-search-functionality';
@@ -16,7 +17,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
   };
 });
 
-const initializeWithModel = vi.fn<() => Promise<void>>();
+const initializeWithModel = vi.fn<(modelConfig: unknown) => Promise<void>>();
 const dispose = vi.fn<() => void>();
 const generateQueryEmbedding = vi.fn<(text: string) => Promise<{ embedding: Float32Array }>>();
 
@@ -24,13 +25,8 @@ vi.mock('@brainstrike/embeddings', async (importOriginal) => {
   const mod = (await importOriginal()) as Record<string, unknown>;
 
   class MockSimpleEmbeddingService {
-    static getDefaultModelKey(): string {
-      return 'local:test-model';
-    }
-
-    initializeWithModel(modelKey: string): Promise<void> {
-      void modelKey;
-      return initializeWithModel();
+    initializeWithModel(modelConfig: unknown): Promise<void> {
+      return initializeWithModel(modelConfig);
     }
 
     generateQueryEmbedding(text: string): Promise<{ embedding: Float32Array }> {
@@ -64,6 +60,26 @@ describe('useSearchFunctionality', () => {
     vi.clearAllMocks();
     initializeWithModel.mockResolvedValue(undefined);
     generateQueryEmbedding.mockResolvedValue({ embedding: new Float32Array([0.1, 0.2, 0.3]) });
+    useModelRegistryStore.setState({
+      models: [
+        {
+          id: 'jinaai/jina-embeddings-v3',
+          providerId: 'transformers',
+          name: 'Jina Code',
+          description: 'Code-optimized embeddings',
+          tagline: null,
+          bestFor: ['code', 'default'],
+          icon: null,
+          isEnabled: true,
+          capabilities: { type: 'embedding', defaultDimension: 768 },
+          parameters: { size: '~300MB' },
+          sortOrder: 1,
+        },
+      ],
+      providers: [],
+      isLoading: false,
+      error: null,
+    });
   });
 
   it('no-ops when query is empty', async () => {
@@ -142,7 +158,9 @@ describe('useSearchFunctionality', () => {
       expect(result.current.searchResults.length).toBe(2);
     });
 
-    expect(initializeWithModel).toHaveBeenCalled();
+    expect(initializeWithModel).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'jinaai/jina-embeddings-v3' })
+    );
     expect(generateQueryEmbedding).toHaveBeenCalledWith('hello line');
 
     // We should enrich each chunk with file record metadata

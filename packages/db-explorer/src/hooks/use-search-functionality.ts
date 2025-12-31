@@ -7,16 +7,25 @@ import type {
   FileRecordRepository,
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db';
-import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
+import type { EmbeddingProviderConfig, ModelConfig } from '@brainstrike/embeddings';
 import {
   EmbeddingProviderFactory,
   isHostedProvider,
   parseProviderModelKey,
   SimpleEmbeddingService,
 } from '@brainstrike/embeddings';
+import { useModelRegistryStore } from '@brainstrike/preferences';
+import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type { useToast } from '@brainstrike/ui';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChunkSearchResult, SearchFunctionality } from '../types';
+import {
+  buildLocalEmbeddingModelConfigMap,
+  type EffectiveModelInfo,
+  getDefaultLocalEmbeddingModel,
+  resolveEmbeddingSetModelInfo,
+  toEmbeddingModelConfig,
+} from '../utils/embedding-models';
 import { getActiveEmbeddingSetId } from '../vector-preferences';
 
 type SearchEmbedder = {
@@ -35,15 +44,100 @@ export function useSearchFunctionality(
   const [searchThreshold, setSearchThreshold] = useState(getDefaultSearchThreshold());
   const [hasSearched, setHasSearched] = useState(false);
   const db = usePGliteDatabase();
+  const { models, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();
 
   // Maintain an internal service wrapper
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
 
-  async function ensureEmbedderReady(
-    modelKey: string,
+  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
+  useEffect(() => {
+    if (db && models.length === 0 && !modelsLoading) {
+      void fetchRegistry(db);
+    }
+  }, [db, fetchRegistry, models.length, modelsLoading]);
+
+  const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
+  const defaultModelConfig = useMemo(() => {
+    const fallback = getDefaultLocalEmbeddingModel(models);
+    return fallback ? toEmbeddingModelConfig(fallback) : null;
+  }, [models]);
+  const fallbackInfo = useMemo<EffectiveModelInfo>(() => {
+    const fallbackKey = defaultModelConfig?.id ?? '';
+    const fallbackDim = defaultModelConfig?.dimensions ?? DEFAULT_EMBEDDING_DIMENSION;
+    return {
+      modelKey: fallbackKey,
+      dimensions: fallbackDim,
+      ...(defaultModelConfig ? { modelConfig: defaultModelConfig } : {}),
+    };
+  }, [defaultModelConfig]);
+
+  async function createHostedEmbedder(
+    provider: string,
+    modelId: string,
     dimensions: number
   ): Promise<SearchEmbedder> {
+    const providerConfig = createHostedConfig(provider, modelId, dimensions);
+    const providerResult = await EmbeddingProviderFactory.createProvider(providerConfig);
+
+    if (!providerResult.ok) {
+      throw new Error(
+        `Failed to initialize hosted provider: ${
+          'message' in providerResult.error
+            ? providerResult.error.message
+            : providerResult.error.type
+        }`
+      );
+    }
+
+    const providerInstance = providerResult.value;
+    return {
+      embedQuery: async (text: string) => {
+        const result = await providerInstance.embed({ text, modelId });
+        if (!result.ok) {
+          const error = result.error;
+          const msg =
+            'message' in error
+              ? error.message
+              : 'originalError' in error
+                ? error.originalError.message
+                : error.type;
+          throw new Error(`Embedding failed: ${msg}`);
+        }
+        return { embedding: result.value.embedding };
+      },
+    };
+  }
+
+  async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbedder> {
+    // We rely on SimpleEmbeddingService because it handles retrieval prompts for models like BGE-M3
+    const svc = new SimpleEmbeddingService();
+    await svc.initializeWithModel(modelConfig);
+
+    return {
+      embedQuery: async (text: string) => {
+        const result = await svc.generateQueryEmbedding(text);
+        return { embedding: Array.from(result.embedding) };
+      },
+      dispose: () => svc.dispose(),
+    };
+  }
+
+  async function createEmbedder(modelInfo: EffectiveModelInfo): Promise<SearchEmbedder> {
+    const parsed = parseProviderModelKey(modelInfo.modelKey);
+    if (parsed && isHostedProvider(parsed.provider)) {
+      return createHostedEmbedder(parsed.provider, parsed.modelId, modelInfo.dimensions);
+    }
+
+    if (!modelInfo.modelConfig) {
+      throw new Error('No local embedding model configured. Enable one in Settings > Models.');
+    }
+
+    return createLocalEmbedder(modelInfo.modelConfig);
+  }
+
+  async function ensureEmbedderReady(modelInfo: EffectiveModelInfo): Promise<SearchEmbedder> {
+    const { modelKey } = modelInfo;
     // If we already have an embedder for this model, return it
     if (embedderRef.current && currentModelKeyRef.current === modelKey) {
       return embedderRef.current;
@@ -53,62 +147,7 @@ export function useSearchFunctionality(
     if (embedderRef.current?.dispose) {
       await embedderRef.current.dispose();
     }
-
-    const parsed = parseProviderModelKey(modelKey);
-    const isHosted = parsed && isHostedProvider(parsed.provider);
-
-    if (isHosted) {
-      // Hosted provider path
-      const providerConfig = createHostedConfig(parsed.provider, parsed.modelId, dimensions);
-      const providerResult = await EmbeddingProviderFactory.createProvider(providerConfig);
-
-      if (!providerResult.ok) {
-        throw new Error(
-          `Failed to initialize hosted provider: ${
-            'message' in providerResult.error
-              ? providerResult.error.message
-              : providerResult.error.type
-          }`
-        );
-      }
-
-      const provider = providerResult.value;
-      const embedder: SearchEmbedder = {
-        embedQuery: async (text: string) => {
-          const result = await provider.embed({ text, modelId: parsed.modelId });
-          if (!result.ok) {
-            // Extract error message safely
-            const error = result.error;
-            const msg =
-              'message' in error
-                ? error.message
-                : 'originalError' in error
-                  ? error.originalError.message
-                  : error.type;
-            throw new Error(`Embedding failed: ${msg}`);
-          }
-          return { embedding: result.value.embedding };
-        },
-        // Providers don't necessarily need explicit disposal, but good practice if added later
-      };
-
-      embedderRef.current = embedder;
-      currentModelKeyRef.current = modelKey;
-      return embedder;
-    }
-
-    // Local provider path (legacy SimpleEmbeddingService)
-    // We rely on SimpleEmbeddingService because it handles retrieval prompts for models like BGE-M3
-    const svc = new SimpleEmbeddingService();
-    await svc.initializeWithModel(modelKey);
-
-    const embedder: SearchEmbedder = {
-      embedQuery: async (text: string) => {
-        const result = await svc.generateQueryEmbedding(text);
-        return { embedding: Array.from(result.embedding) };
-      },
-      dispose: () => svc.dispose(),
-    };
+    const embedder = await createEmbedder(modelInfo);
 
     embedderRef.current = embedder;
     currentModelKeyRef.current = modelKey;
@@ -148,11 +187,8 @@ export function useSearchFunctionality(
     };
   }
 
-  async function getEffectiveModelInfo(): Promise<{ modelKey: string; dimensions: number }> {
+  async function getEffectiveModelInfo(): Promise<EffectiveModelInfo> {
     const activeSetId = getActiveEmbeddingSetId();
-    const defaultKey = SimpleEmbeddingService.getDefaultModelKey();
-    // Default dimension for fallback (local BGE-M3)
-    const defaultDim = 1024;
 
     if (db && activeSetId) {
       try {
@@ -162,17 +198,17 @@ export function useSearchFunctionality(
         );
         const row = res.rows[0];
         if (row?.modelKey) {
-          return {
-            modelKey: row.modelKey,
-            // Use row dimensions if available, otherwise fallback
-            dimensions: Number(row.dimensions) || defaultDim,
-          };
+          return resolveEmbeddingSetModelInfo(
+            { modelKey: row.modelKey, dimensions: Number(row.dimensions) },
+            modelConfigMap,
+            fallbackInfo
+          );
         }
       } catch {
         // keep fallback
       }
     }
-    return { modelKey: defaultKey, dimensions: defaultDim };
+    return fallbackInfo;
   }
 
   async function performRepositorySearch(
@@ -235,8 +271,8 @@ export function useSearchFunctionality(
     setHasSearched(true);
     try {
       // Prefer active embedding set's model when available to avoid dimension mismatch
-      const { modelKey, dimensions } = await getEffectiveModelInfo();
-      const embedder = await ensureEmbedderReady(modelKey, dimensions);
+      const modelInfo = await getEffectiveModelInfo();
+      const embedder = await ensureEmbedderReady(modelInfo);
       const queryEmbedding = await embedder.embedQuery(searchQuery);
       const chunkResults = await performRepositorySearch(queryEmbedding.embedding);
 

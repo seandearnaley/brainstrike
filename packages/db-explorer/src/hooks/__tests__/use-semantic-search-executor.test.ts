@@ -5,6 +5,7 @@ import type {
   FileChunk,
   FileRecord,
 } from '@brainstrike/db';
+import { useModelRegistryStore } from '@brainstrike/preferences';
 import type { SearchConfig } from '@brainstrike/ui';
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -58,12 +59,6 @@ vi.mock('@brainstrike/embeddings', () => {
     SimpleEmbeddingService: MockSimpleEmbeddingService,
   };
 });
-
-// Get reference to mocked SimpleEmbeddingService
-const { SimpleEmbeddingService } =
-  await vi.importMock<typeof import('@brainstrike/embeddings')>('@brainstrike/embeddings');
-(SimpleEmbeddingService as unknown as { getDefaultModelKey: () => string }).getDefaultModelKey =
-  vi.fn(() => 'Xenova/bge-m3');
 
 const createMockChunk = (id: string, fileRecordId: string): FileChunk => ({
   id,
@@ -131,6 +126,26 @@ const createSearchConfig = (overrides: Partial<SearchConfig> = {}): SearchConfig
 describe('useSemanticSearchExecutor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useModelRegistryStore.setState({
+      models: [
+        {
+          id: 'jinaai/jina-embeddings-v3',
+          providerId: 'transformers',
+          name: 'Jina Code',
+          description: 'Code-optimized embeddings',
+          tagline: null,
+          bestFor: ['code', 'default'],
+          icon: null,
+          isEnabled: true,
+          capabilities: { type: 'embedding', defaultDimension: 1024 },
+          parameters: { size: '~300MB' },
+          sortOrder: 1,
+        },
+      ],
+      providers: [],
+      isLoading: false,
+      error: null,
+    });
   });
 
   it('returns undefined when chunkRepository is null', () => {

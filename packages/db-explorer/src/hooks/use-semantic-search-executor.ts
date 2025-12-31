@@ -16,13 +16,23 @@ import {
   type EmbeddingProviderConfig,
   EmbeddingProviderFactory,
   isHostedProvider,
+  type ModelConfig,
   parseProviderModelKey,
   SimpleEmbeddingService,
 } from '@brainstrike/embeddings';
+import { useModelRegistryStore } from '@brainstrike/preferences';
+import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { SearchExecutor } from '../contexts/semantic-search-context';
+import {
+  buildLocalEmbeddingModelConfigMap,
+  type EffectiveModelInfo,
+  getDefaultLocalEmbeddingModel,
+  resolveEmbeddingSetModelInfo,
+  toEmbeddingModelConfig,
+} from '../utils/embedding-models';
 
 const logger = createLogger('SemanticSearchExecutor');
 
@@ -76,11 +86,11 @@ async function createHostedEmbedder(
 /**
  * Create a local provider embedder
  */
-async function createLocalEmbedder(modelKey: string): Promise<SearchEmbedder> {
-  logger.info('Creating local embedder (SimpleEmbeddingService)', { modelKey });
+async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbedder> {
+  logger.info('Creating local embedder (SimpleEmbeddingService)', { modelKey: modelConfig.id });
   const svc = new SimpleEmbeddingService();
   logger.info('Initializing local model...');
-  await svc.initializeWithModel(modelKey);
+  await svc.initializeWithModel(modelConfig);
   logger.info('Local model initialized');
 
   return {
@@ -102,17 +112,37 @@ export function useSemanticSearchExecutor({
   fileRepository,
 }: UseSemanticSearchExecutorOptions): SearchExecutor | undefined {
   const db = usePGliteDatabase();
+  const { models, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
+
+  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
+  useEffect(() => {
+    if (db && models.length === 0 && !modelsLoading) {
+      void fetchRegistry(db);
+    }
+  }, [db, fetchRegistry, models.length, modelsLoading]);
+
+  const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
+  const defaultModelConfig = useMemo(() => {
+    const fallback = getDefaultLocalEmbeddingModel(models);
+    return fallback ? toEmbeddingModelConfig(fallback) : null;
+  }, [models]);
+  const fallbackInfo = useMemo<EffectiveModelInfo>(() => {
+    const fallbackKey = defaultModelConfig?.id ?? '';
+    const fallbackDim = defaultModelConfig?.dimensions ?? DEFAULT_EMBEDDING_DIMENSION;
+    return {
+      modelKey: fallbackKey,
+      dimensions: fallbackDim,
+      ...(defaultModelConfig ? { modelConfig: defaultModelConfig } : {}),
+    };
+  }, [defaultModelConfig]);
 
   /**
    * Get the model info for the active embedding set
    */
   const getModelInfo = useCallback(
-    async (embeddingSetId: string | null): Promise<{ modelKey: string; dimensions: number }> => {
-      const defaultKey = SimpleEmbeddingService.getDefaultModelKey();
-      const defaultDim = 1024;
-
+    async (embeddingSetId: string | null): Promise<EffectiveModelInfo> => {
       if (db && embeddingSetId) {
         try {
           const res = await db.query<{ modelKey: string; dimensions: number }>(
@@ -121,18 +151,19 @@ export function useSemanticSearchExecutor({
           );
           const row = res.rows[0];
           if (row?.modelKey) {
-            return {
-              modelKey: row.modelKey,
-              dimensions: Number(row.dimensions) || defaultDim,
-            };
+            return resolveEmbeddingSetModelInfo(
+              { modelKey: row.modelKey, dimensions: Number(row.dimensions) },
+              modelConfigMap,
+              fallbackInfo
+            );
           }
         } catch {
           // keep fallback
         }
       }
-      return { modelKey: defaultKey, dimensions: defaultDim };
+      return fallbackInfo;
     },
-    [db]
+    [db, fallbackInfo, modelConfigMap]
   );
 
   /**
@@ -171,7 +202,7 @@ export function useSemanticSearchExecutor({
    * Ensure embedder is ready for the given model
    */
   const ensureEmbedderReady = useCallback(
-    async (modelKey: string, dimensions: number): Promise<SearchEmbedder> => {
+    async ({ modelKey, dimensions, modelConfig }: EffectiveModelInfo): Promise<SearchEmbedder> => {
       logger.info('ensureEmbedderReady called', { modelKey, dimensions });
 
       // Reuse cached embedder if same model
@@ -188,17 +219,20 @@ export function useSemanticSearchExecutor({
 
       // Detect provider type
       const parsed = parseProviderModelKey(modelKey);
-      const isHosted = parsed && isHostedProvider(parsed.provider);
+      const isHosted = parsed ? isHostedProvider(parsed.provider) : false;
       logger.info('Provider detection', { isHosted });
 
       // Create appropriate embedder
       let embedder: SearchEmbedder;
-      if (isHosted) {
+      if (parsed && isHostedProvider(parsed.provider)) {
         logger.info('Creating hosted provider', { provider: parsed.provider });
         const providerConfig = createHostedConfig(parsed.provider, parsed.modelId, dimensions);
         embedder = await createHostedEmbedder(providerConfig, parsed.modelId);
       } else {
-        embedder = await createLocalEmbedder(modelKey);
+        if (!modelConfig) {
+          throw new Error('No local embedding model configured. Enable one in Settings > Models.');
+        }
+        embedder = await createLocalEmbedder(modelConfig);
       }
 
       // Cache and return
@@ -236,12 +270,15 @@ export function useSemanticSearchExecutor({
 
       // Get model info for the embedding set
       logger.info('Getting model info for embedding set...');
-      const { modelKey, dimensions } = await getModelInfo(embeddingSetId);
-      logger.info('Model info retrieved', { modelKey, dimensions });
+      const modelInfo = await getModelInfo(embeddingSetId);
+      logger.info('Model info retrieved', {
+        modelKey: modelInfo.modelKey,
+        dimensions: modelInfo.dimensions,
+      });
 
       // Ensure embedder is ready
       logger.info('Initializing embedder...');
-      const embedder = await ensureEmbedderReady(modelKey, dimensions);
+      const embedder = await ensureEmbedderReady(modelInfo);
       logger.info('Embedder ready');
 
       // Generate query embedding

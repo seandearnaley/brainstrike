@@ -1,8 +1,6 @@
-import {
-  type EmbeddingStatus,
-  type ModelConfig,
-  SimpleEmbeddingService,
-} from '@brainstrike/embeddings';
+import { usePGliteDatabase } from '@brainstrike/db';
+import type { EmbeddingStatus, ModelConfig } from '@brainstrike/embeddings';
+import { useModelRegistryStore } from '@brainstrike/preferences';
 import {
   Badge,
   Button,
@@ -17,13 +15,15 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { AlertCircle, Brain, Copy, Cpu, Square, Zap } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 // no-op
 import { useEmbeddingsPanelStore } from './stores/embeddings-panel-store';
-
-// Get models from registry
-const AVAILABLE_MODELS = SimpleEmbeddingService.listModels();
-const DEFAULT_MODEL_KEY = SimpleEmbeddingService.getDefaultModelKey();
+import {
+  buildLocalEmbeddingModelConfigMap,
+  getDefaultLocalEmbeddingModel,
+  getEmbeddingsPanelModels,
+  toEmbeddingModelConfig,
+} from './utils/embedding-models';
 
 type ModelKey = string;
 
@@ -240,6 +240,8 @@ const SimilarityInterface = ({
 };
 
 export function EmbeddingsPanel() {
+  const db = usePGliteDatabase();
+  const { models, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();
   const [
     status,
     progress,
@@ -268,6 +270,42 @@ export function EmbeddingsPanel() {
   const calculateSimilarity = useEmbeddingsPanelStore((s) => s.calculateSimilarity);
   const dispose = useEmbeddingsPanelStore((s) => s.dispose);
 
+  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
+  useEffect(() => {
+    if (db && models.length === 0 && !modelsLoading) {
+      void fetchRegistry(db);
+    }
+  }, [db, fetchRegistry, models.length, modelsLoading]);
+
+  const panelModels = useMemo(() => getEmbeddingsPanelModels(models), [models]);
+  const modelOptions = useMemo(
+    () =>
+      panelModels.map((model) => ({
+        id: model.id,
+        config: toEmbeddingModelConfig(model),
+      })),
+    [panelModels]
+  );
+  const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
+  const defaultModelConfig = useMemo(() => {
+    const defaultModel = getDefaultLocalEmbeddingModel(models);
+    return defaultModel ? toEmbeddingModelConfig(defaultModel) : null;
+  }, [models]);
+
+  useEffect(() => {
+    if (status !== 'idle') {
+      return;
+    }
+    if (modelOptions.length === 0) {
+      return;
+    }
+    if (!(selectedModel && modelConfigMap.has(selectedModel))) {
+      setSelectedModel(modelOptions[0]?.id ?? '');
+    }
+  }, [modelOptions, modelConfigMap, selectedModel, setSelectedModel, status]);
+
+  const selectedModelConfig = modelConfigMap.get(selectedModel) ?? defaultModelConfig ?? undefined;
+
   const handleModelChange = (newModel: ModelKey) => {
     if (status !== 'idle') {
       // If a model is already loaded, show warning
@@ -281,12 +319,18 @@ export function EmbeddingsPanel() {
   };
 
   const handleInitialize = async () => {
-    await initialize();
+    if (!selectedModelConfig) {
+      useEmbeddingsPanelStore.setState({
+        error: 'No local embedding models available. Enable one in Settings > Models.',
+      });
+      return;
+    }
+
+    await initialize(selectedModelConfig);
     // Translate any raw error to a nicer message if present
     const e = useEmbeddingsPanelStore.getState().error;
     if (e) {
-      const currentModel = AVAILABLE_MODELS[selectedModel];
-      const errorMessage = formatInitializationError(e, currentModel?.name || selectedModel);
+      const errorMessage = formatInitializationError(e, selectedModelConfig?.name || selectedModel);
       useEmbeddingsPanelStore.setState({ error: errorMessage });
     }
   };
@@ -340,23 +384,27 @@ export function EmbeddingsPanel() {
               value={selectedModel}
             >
               <SelectTrigger className="text-xs" id="model-select">
-                <SelectValue placeholder="Select a model" />
+                <SelectValue
+                  placeholder={
+                    modelOptions.length > 0 ? 'Select a model' : 'No local models available'
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(AVAILABLE_MODELS).map(([key, model]) => (
-                  <SelectItem className="text-xs" key={key} value={key}>
+                {modelOptions.map(({ id, config }) => (
+                  <SelectItem className="text-xs" key={id} value={id}>
                     <div>
-                      <div className="font-medium">{model.name}</div>
-                      <div className="text-muted-foreground text-xs">{model.description}</div>
+                      <div className="font-medium">{config.name}</div>
+                      <div className="text-muted-foreground text-xs">{config.description}</div>
                       <div className="text-muted-foreground text-xs">
-                        {model.dimensions}D • {model.size}
+                        {config.dimensions}D • {config.size ?? 'Unknown size'}
                       </div>
                     </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {AVAILABLE_MODELS[selectedModel]?.quantized && (
+            {selectedModelConfig?.quantized && (
               <div className="rounded border border-orange-200 bg-orange-50 p-2 text-xs">
                 <p className="font-medium text-orange-800">Note:</p>
                 <p className="text-orange-700">
@@ -369,8 +417,8 @@ export function EmbeddingsPanel() {
 
         {/* Model Info */}
         <ModelInfo
-          isDefault={selectedModel === DEFAULT_MODEL_KEY}
-          modelConfig={AVAILABLE_MODELS[selectedModel]}
+          isDefault={selectedModelConfig?.id === defaultModelConfig?.id}
+          modelConfig={selectedModelConfig}
         />
 
         {/* Error Display */}
@@ -392,7 +440,7 @@ export function EmbeddingsPanel() {
               Initialize Model
             </Button>
             <p className="text-muted-foreground text-xs">
-              Downloads {AVAILABLE_MODELS[selectedModel]?.size || '~??MB'} model for local inference
+              Downloads {selectedModelConfig?.size || '~??MB'} model for local inference
             </p>
           </div>
         )}
@@ -425,9 +473,9 @@ export function EmbeddingsPanel() {
 
         {/* Info */}
         <div className="rounded bg-muted/30 p-2 text-xs">
-          <p className="mb-1 font-medium">About {AVAILABLE_MODELS[selectedModel]?.name}:</p>
+          <p className="mb-1 font-medium">About {selectedModelConfig?.name}:</p>
           <ul className="space-y-1 text-muted-foreground">
-            {AVAILABLE_MODELS[selectedModel]?.tags.map((tag) => (
+            {selectedModelConfig?.tags.map((tag) => (
               <li key={tag}>• {tag}</li>
             ))}
           </ul>
