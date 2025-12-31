@@ -65,9 +65,9 @@ brainstrike/
 This project utilizes a modern stack focused on performance, type safety, and developer productivity.
 
 - **Build & Orchestration**:
-  - **Turborepo `2.6.1`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
+  - **Turborepo `2.7.2`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
 - **Package Management**:
-  - **pnpm `10.17.0`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](./pnpm-workspace.yaml), root [`package.json`](./package.json))
+  - **pnpm `10.26.2`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](./pnpm-workspace.yaml), root [`package.json`](./package.json))
 - **Runtime & Language**:
   - **Node.js `v22`**: Specified in [`.nvmrc`](./.nvmrc). Use `nvm use` to switch.
   - **TypeScript `5.9.3`**: Provides static typing across the entire codebase. ([`tsconfig.json`](./tsconfig.json), [`packages/config/tsconfig/base.json`](./packages/config/tsconfig/base.json))
@@ -81,12 +81,12 @@ This project utilizes a modern stack focused on performance, type safety, and de
   - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` and `apps/desktop` directories. (See `apps/web/e2e/` and `apps/desktop/e2e/`). See [docs/playwright-ci-optimization.md](./docs/playwright-ci-optimization.md) for our current Playwright guidance.
   - **NYC `17.1.0`**: Generates code coverage reports.
 - **Code Quality & Formatting**:
-  - **Biome `2.3.5`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json))
+  - **Biome `2.3.8`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json))
 - **Commit Linting & Hooks**:
   - **Commitlint `20.1.0`**: Enforces conventional commit message formats using `@commitlint/config-conventional`. ([`commitlint.config.ts`](./commitlint.config.ts))
   - **Lefthook**: Automates pre-commit Biome checks and commit message linting via [`lefthook.yml`](../lefthook.yml).
 - **Code Health**:
-  - **Knip `5.64.2`**: Detects unused files, dependencies, and exports. ([`knip.jsonc`](./knip.jsonc))
+  - **Knip `5.70.2`**: Detects unused files, dependencies, and exports. ([`knip.jsonc`](./knip.jsonc))
 
 ---
 
@@ -115,7 +115,7 @@ pnpm manages dependencies efficiently within the monorepo structure defined in [
 - **Root `package.json`**:
   - Defines scripts that use `turbo run ...` to execute tasks across workspaces (e.g., `pnpm build` runs `turbo run build`).
   - Lists root-level `devDependencies` essential for the monorepo tooling (turbo, biome, typescript, commitlint, knip, nyc).
-  - Specifies the exact `packageManager` version (`pnpm@10.17.0`).
+  - Specifies the exact `packageManager` version (`pnpm@10.26.2`).
   - `workspaces` field mirrors `pnpm-workspace.yaml`.
   - `pnpm.onlyBuiltDependencies` might optimize installations for certain native packages.
 

@@ -28,8 +28,8 @@ flowchart LR
   end
 
   subgraph Backend[Backend/Infra]
-    API["brainstrike-api - AWS CDK<br/>API Gateway/Lambda - verify"]
-    LLM["LLM & Embedding Providers<br/>OpenAI/others - verify"]
+    API["brainstrike-api - AWS CDK<br/>API Gateway/Lambda"]
+    LLM["LLM & Embedding Providers<br/>OpenAI/others"]
   end
 
   U1 -->|interacts| W

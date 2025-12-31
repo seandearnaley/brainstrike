@@ -26,3 +26,10 @@ This pack contains a concise set of C4-style views, sequence diagrams, and state
 - **Build Configuration**: Vite 7 for both web and desktop renderer, with shared Tailwind v4 configuration
 
 Note: Some diagrams may include **(verify)** labels indicating areas pending validation or upcoming changes.
+
+### Quick Reference — Versions (keep in sync with package.json)
+- Node.js: 22.x (see .nvmrc)
+- pnpm: 10.26.2
+- Turbo: 2.7.2
+- Biome: 2.3.8
+- Vitest: 4.0.14
