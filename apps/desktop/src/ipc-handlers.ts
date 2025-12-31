@@ -40,6 +40,52 @@ let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
 
 /**
+ * Convert snake_case string to camelCase.
+ * @example snakeToCamel('model_key') // 'modelKey'
+ */
+function snakeToCamel(str: string): string {
+  return str.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase());
+}
+
+/**
+ * Transform row object keys from snake_case to camelCase.
+ *
+ * This is necessary because PGlite returns rows with snake_case column names
+ * from the database, but the UI components expect camelCase property names
+ * matching the TypeScript types.
+ */
+function transformRowKeys(row: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) {
+    const camelKey = snakeToCamel(key);
+    result[camelKey] = row[key];
+  }
+  return result;
+}
+
+/**
+ * Transform query results by converting all row keys from snake_case to camelCase.
+ * This centralizes the transformation for all IPC database responses.
+ */
+function transformQueryResults<T>(results: { rows: unknown[] }): { rows: T[] } {
+  return {
+    ...results,
+    rows: results.rows.map((row) => transformRowKeys(row as Record<string, unknown>)) as T[],
+  };
+}
+
+/**
+ * Transform live query results by converting all row keys from snake_case to camelCase.
+ * Preserves the rest of the LiveQueryResults structure (fields, affectedRows).
+ */
+function transformLiveQueryResults<T>(results: LiveQueryResults<unknown>): LiveQueryResults<T> {
+  return {
+    ...results,
+    rows: results.rows.map((row) => transformRowKeys(row as Record<string, unknown>)) as T[],
+  };
+}
+
+/**
  * Wrap a database operation with corruption detection and auto-recovery.
  * If the operation fails with a corruption error (XX002, etc.), it will
  * reset the database and retry the operation once.
@@ -331,11 +377,14 @@ export function registerIpcHandlers(
   });
 
   // Database IPC handlers (wrapped with corruption recovery)
+  // All query results are transformed from snake_case to camelCase for UI components
   ipcMain.handle('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) =>
     withCorruptionRecovery(async () => {
       const { getDatabase } = await import('./db-main');
       const db = await getDatabase();
-      return await db.query(sql, params);
+      const result = await db.query(sql, params);
+      // Transform row keys from snake_case (PGlite) to camelCase (TypeScript schema)
+      return transformQueryResults(result);
     }, 'db:query')
   );
 
@@ -368,14 +417,18 @@ export function registerIpcHandlers(
             void cleanupLiveSubscription(id);
             return;
           }
-          sender.send('db:live-query:update', { id, results });
+          // Transform row keys from snake_case to camelCase for UI components
+          const transformedResults = transformLiveQueryResults(results);
+          sender.send('db:live-query:update', { id, results: transformedResults });
         };
 
         handle.subscribe(listener);
         liveSubscriptions.set(id, { id, mode, handle, listener, webContentsId: sender.id });
         sender.once('destroyed', () => void cleanupLiveSubscription(id));
 
-        return { id, initialResults: handle.initialResults };
+        // Transform initial results as well
+        const transformedInitialResults = transformLiveQueryResults(handle.initialResults);
+        return { id, initialResults: transformedInitialResults };
       }, 'db:live-query:start')
   );
 
