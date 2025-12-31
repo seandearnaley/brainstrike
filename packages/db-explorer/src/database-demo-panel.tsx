@@ -93,7 +93,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const activeCollectionId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const setActiveCollectionId = useVectorStatusUIStore((s) => s.setActiveEmbeddingSetId);
   const setIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
-  const isEmbeddingActive = useVectorStatusUIStore((s) => s.isEmbeddingActive);
 
   // Get embedding sets repository from DbProvider (Drizzle-based)
   const embeddingSetsRepository = useEmbeddingSetsRepository();
@@ -129,7 +128,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     database: dbContext,
     activeCollectionId,
     isImporting: isImportActive,
-    isEmbeddingActive,
   });
   const { records, chunks, refreshing, loadRecords, loadChunks } = data;
 

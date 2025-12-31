@@ -51,8 +51,6 @@ export type UseDatabaseDemoDataOptions = {
   activeCollectionId: string | null;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
   isImporting?: boolean;
-  /** When true, live queries are paused to avoid performance degradation during embedding generation */
-  isEmbeddingActive?: boolean;
 };
 
 type DatabaseLoaders = {
@@ -74,6 +72,8 @@ const DEFAULT_DB_INFO: DatabaseInfo = {
   connected: false,
 };
 
+// PERFORMANCE: Do NOT select the full embedding column in live queries!
+// See FILE_CHUNKS_LIVE_QUERY comment for details.
 const FILE_RECORDS_LIVE_QUERY = `
   SELECT
     id,
@@ -89,13 +89,19 @@ const FILE_RECORDS_LIVE_QUERY = `
     chunks_processed_at AS "chunksProcessedAt",
     chunks_count AS "chunksCount",
     chunking_strategy AS "chunkingStrategy",
-    embedding,
+    (embedding IS NOT NULL) AS "hasEmbedding",
     embedding_set_id AS "embeddingSetId"
   FROM file_records
   WHERE embedding_set_id = $1
   ORDER BY updated_at DESC
 `.trim();
 
+// PERFORMANCE: Do NOT select the full embedding column in live queries!
+// Embeddings are 384-768+ dimension float arrays - fetching them for every chunk
+// causes massive slowdowns in browser WASM (PGlite). Instead, we compute:
+// - hasEmbedding: boolean flag for UI status display
+// - embeddingDimensions: length for metadata display (using vector_dims() for pgvector type)
+// Full embeddings are only fetched on-demand during export operations.
 const FILE_CHUNKS_LIVE_QUERY = `
   SELECT
     id,
@@ -106,7 +112,8 @@ const FILE_CHUNKS_LIVE_QUERY = `
     token_count AS "tokenCount",
     chunk_type AS "chunkType",
     chunk_size AS "chunkSize",
-    embedding,
+    (embedding IS NOT NULL) AS "hasEmbedding",
+    COALESCE(vector_dims(embedding), 0) AS "embeddingDimensions",
     embedding_set_id AS "embeddingSetId",
     embedding_updated_at AS "embeddingUpdatedAt",
     embedding_hash AS "embeddingHash",
@@ -131,7 +138,8 @@ type FileRecordRow = {
   chunksProcessedAt: string | null;
   chunksCount: number | null;
   chunkingStrategy: string | null;
-  embedding: unknown;
+  /** Boolean flag - embedding exists but not fetched for performance */
+  hasEmbedding: boolean;
   embeddingSetId: string | null;
 };
 
@@ -144,7 +152,10 @@ type FileChunkRow = {
   tokenCount: number;
   chunkType: FileChunk['chunkType'];
   chunkSize: number;
-  embedding: unknown;
+  /** Boolean flag - embedding exists but not fetched for performance */
+  hasEmbedding: boolean;
+  /** Embedding dimensions - computed from ARRAY_LENGTH for display without fetching full vector */
+  embeddingDimensions: number;
   embeddingSetId: string | null;
   embeddingUpdatedAt: string | null;
   embeddingHash: string | null;
@@ -152,57 +163,11 @@ type FileChunkRow = {
   updatedAt: string;
 };
 
-function coerceNumericArray(values: ArrayLike<unknown>): number[] | undefined {
-  const normalized = Array.from(values)
-    .map((entry) => Number(entry))
-    .filter((entry) => Number.isFinite(entry));
-  return normalized.length ? normalized : undefined;
-}
-
-function parseStringEmbedding(value: string): number[] | undefined {
-  const trimmed = value.trim();
-  if (!trimmed.length) {
-    return;
-  }
-
-  try {
-    const parsed = JSON.parse(trimmed);
-    if (Array.isArray(parsed)) {
-      return coerceNumericArray(parsed);
-    }
-  } catch {
-    // fall through to manual parsing
-  }
-
-  const withoutBrackets = trimmed.replace(/^\s*\[?/, '').replace(/\]?\s*$/, '');
-  if (!withoutBrackets.length) {
-    return;
-  }
-  const parts = withoutBrackets.split(/,\s*/).filter(Boolean);
-  if (!parts.length) {
-    return;
-  }
-  return coerceNumericArray(parts);
-}
-
-function normalizeEmbeddingVector(value: unknown): number[] | undefined {
-  if (!value) {
-    return;
-  }
-  if (Array.isArray(value)) {
-    return coerceNumericArray(value);
-  }
-
-  if (ArrayBuffer.isView(value)) {
-    return coerceNumericArray(value as unknown as ArrayLike<number>);
-  }
-
-  if (typeof value === 'string') {
-    return parseStringEmbedding(value);
-  }
-
-  return;
-}
+// NOTE: Embedding normalization functions (coerceNumericArray, parseStringEmbedding,
+// normalizeEmbeddingVector) were removed as part of the performance optimization.
+// Full embedding vectors are no longer fetched in live queries - only hasEmbedding
+// and embeddingDimensions flags are used. If export functionality needs raw embeddings,
+// a separate on-demand fetch should be implemented.
 
 function mapRecordRow(row: FileRecordRow): FileRecord {
   const record: FileRecord = {
@@ -226,9 +191,12 @@ function mapRecordRow(row: FileRecordRow): FileRecord {
   if (row.processedAt) {
     record.processedAt = row.processedAt;
   }
-  const embeddingVector = normalizeEmbeddingVector(row.embedding);
-  if (embeddingVector?.length) {
-    record.embedding = embeddingVector;
+  // PERFORMANCE: We don't fetch full embedding vectors in live queries.
+  // hasEmbedding is a boolean flag from the DB, used for UI status display.
+  // NOTE: Export operations that need actual embedding values must fetch them separately.
+  if (row.hasEmbedding) {
+    // Set a placeholder array to indicate embedding exists (for backward compat with UI checks)
+    record.embedding = [] as number[];
   }
   if (row.embeddingSetId) {
     record.embeddingSetId = row.embeddingSetId;
@@ -264,9 +232,15 @@ function mapChunkRow(row: FileChunkRow): FileChunk {
     updatedAt: row.updatedAt,
   };
 
-  const embeddingVector = normalizeEmbeddingVector(row.embedding);
-  if (embeddingVector?.length) {
-    chunk.embedding = embeddingVector;
+  // PERFORMANCE: We don't fetch full embedding vectors in live queries.
+  // Instead we use hasEmbedding flag and embeddingDimensions for UI display.
+  // Create a placeholder array with correct length for backward compatibility
+  // with UI code that checks `chunk.embedding?.length`.
+  // NOTE: Export operations that need actual embedding values must fetch them separately.
+  if (row.hasEmbedding && row.embeddingDimensions > 0) {
+    // Placeholder array - indicates embedding exists with correct dimensions
+    // Values are undefined but length is accurate for UI status display
+    chunk.embedding = new Array(row.embeddingDimensions) as number[];
   }
   if (row.embeddingSetId) {
     chunk.embeddingSetId = row.embeddingSetId;
@@ -306,7 +280,6 @@ export function useDatabaseDemoData({
   database,
   activeCollectionId,
   isImporting = false,
-  isEmbeddingActive = false,
 }: UseDatabaseDemoDataOptions): UseDatabaseDemoDataResult {
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
   const [schemaReady, setSchemaReady] = useState(false);
@@ -505,11 +478,14 @@ export function useDatabaseDemoData({
     [activeCollectionId]
   );
 
-  // Pause live queries during import to avoid performance degradation
+  // Pause live queries during IMPORT to avoid performance degradation
   // Live queries fire on every DB mutation, causing O(n²) work during bulk inserts
-  const liveQueryEnabled = Boolean(
-    database && schemaReady && activeCollectionId && !isImporting && !isEmbeddingActive
-  );
+  //
+  // NOTE: We do NOT pause during embedding (isEmbeddingActive) because:
+  // 1. Embedding updates file_chunks.embedding which we no longer fetch in live queries
+  // 2. Users need to browse/search collections while embedding runs in background
+  // 3. Embedding worker runs in separate thread and shouldn't block UI
+  const liveQueryEnabled = Boolean(database && schemaReady && activeCollectionId && !isImporting);
 
   const {
     rows: recordRows,

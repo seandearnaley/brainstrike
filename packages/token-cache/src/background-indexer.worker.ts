@@ -255,7 +255,7 @@ async function processFile(
   utils: Awaited<ReturnType<typeof getTokenUtils>>
 ): Promise<IndexerResult | IndexerError> {
   try {
-    log('info', 'processFile start', {
+    log('debug', 'processFile start', {
       id: request.id,
       compositeKey: request.compositeKey,
       filePath: request.filePath,
@@ -288,7 +288,7 @@ async function processFile(
 
     // Check if hash matches cached - skip counting if so
     if (request.cachedHash && request.cachedHash === contentHash) {
-      log('info', 'processFile cache hit; skipping count', { id: request.id });
+      log('debug', 'processFile cache hit; skipping count', { id: request.id });
       return {
         type: 'result',
         id: request.id,
@@ -308,7 +308,7 @@ async function processFile(
       request.mode === 'accurate'
         ? await utils.countTokensAccurate(content)
         : utils.countTokensHeuristic(content);
-    log('info', 'processFile token counted', { tokenCount, mode: request.mode });
+    log('debug', 'processFile token counted', { tokenCount, mode: request.mode });
 
     return {
       type: 'result',
@@ -346,7 +346,7 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
     return;
   }
 
-  log('info', 'processBatch start', { total: requests.length });
+  log('debug', 'processBatch start', { total: requests.length });
 
   try {
     // Pre-initialize to avoid repeated async overhead
@@ -395,7 +395,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const message = event.data;
 
   try {
-    log('info', 'onmessage received', { type: (message as { type?: unknown }).type });
+    log('debug', 'onmessage received', { type: (message as { type?: unknown }).type });
     if (message.type === 'index') {
       const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
       const result = await processFile(message, hasher, utils);

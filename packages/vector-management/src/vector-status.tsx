@@ -21,7 +21,11 @@ import {
   TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+
+const logger = createLogger('VectorStatus');
+
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
 import {
@@ -570,8 +574,8 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     } catch {}
   }, [verboseOrtLogs]);
 
-  // Use repository from DbProvider if it has getCoverageForSet (DrizzleFileChunkRepository)
-  // ElectronFileChunkRepository doesn't have this method - vector status is not supported in Electron IPC mode
+  // Use repository from DbProvider if it has getCoverageForSet
+  // Both DrizzleFileChunkRepository and ElectronFileChunkRepository now have this method
   const coverageRepository = useMemo(() => {
     if (chunkRepository && 'getCoverageForSet' in chunkRepository) {
       return chunkRepository as {
@@ -585,8 +589,14 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
 
   const service = useMemo(() => {
     if (!(db && coverageRepository)) {
+      // Log diagnostic info for debugging when service is null
+      logger.debug('VectorQueueService is null', {
+        hasDb: Boolean(db),
+        hasCoverageRepository: Boolean(coverageRepository),
+      });
       return null;
     }
+    logger.debug('VectorQueueService created successfully');
     return createVectorQueueService({
       db,
       jobQueue: new JobQueue(db),
@@ -640,6 +650,32 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
 
   // Combined action: auto-start worker on web, then backfill
   const invokeBackfillWithWorkerStart = useCallback(async () => {
+    // Check preconditions and show helpful error messages instead of silent failures
+    if (!service) {
+      logger.warn('invokeBackfillWithWorkerStart: service is null', {
+        hasDb: Boolean(db),
+        hasChunkRepository: Boolean(chunkRepository),
+        hasCoverageRepository: Boolean(coverageRepository),
+      });
+      toast({
+        title: 'Database Not Ready',
+        description:
+          'The vector queue service is not available. Try switching tabs or restarting the app.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!activeId) {
+      logger.warn('invokeBackfillWithWorkerStart: no active collection selected');
+      toast({
+        title: 'No Collection Selected',
+        description: 'Please select an embedding collection before backfilling.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     // Validate API key availability before backfilling
     const validation = await validateApiKeyRef.current();
     if (!validation.valid) {
@@ -658,7 +694,16 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
 
     // Proceed with backfill
     await backfillRef.current();
-  }, [toast, isWebPlatform, workerControls]);
+  }, [
+    toast,
+    isWebPlatform,
+    workerControls,
+    service,
+    db,
+    chunkRepository,
+    coverageRepository,
+    activeId,
+  ]);
 
   const throughputTrend = useMemo(
     () => queueState.telemetryTrend.map((point) => point.throughput),

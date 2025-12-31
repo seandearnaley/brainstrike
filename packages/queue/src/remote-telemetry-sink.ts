@@ -15,6 +15,12 @@ export type QueueTelemetrySinkOptions = {
   readonly maxBatchSize?: number;
   readonly useSendBeacon?: boolean;
   readonly enableInTest?: boolean;
+  /**
+   * Maximum consecutive failures before disabling the sink.
+   * After this many failures in a row, the sink stops attempting to send.
+   * Defaults to 3.
+   */
+  readonly maxConsecutiveFailures?: number;
 };
 
 export type QueueTelemetrySink = {
@@ -136,6 +142,7 @@ export function initializeQueueTelemetrySink(
     maxBatchSize = 20,
     useSendBeacon,
     enableInTest = false,
+    maxConsecutiveFailures = 3,
   } = options;
 
   if (!endpoint) {
@@ -165,7 +172,13 @@ export function initializeQueueTelemetrySink(
   const events: QueueTelemetryEvent[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
   let flushing = false;
+  // Track consecutive failures to disable sink after too many in a row
+  const failureState = { consecutiveFailures: 0, disabled: false };
   const unsubscribe = addQueueTelemetryListener((event) => {
+    // Drop events if sink is disabled due to repeated failures
+    if (failureState.disabled) {
+      return;
+    }
     events.push(event);
     if (events.length >= maxBatchSize) {
       void flush();
@@ -179,11 +192,33 @@ export function initializeQueueTelemetrySink(
     }
   });
 
-  const flush = async () => {
-    if (flushing) {
+  const handleFlushError = (error: unknown, payloadEvents: QueueTelemetryEvent[]): void => {
+    failureState.consecutiveFailures += 1;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    if (failureState.consecutiveFailures >= maxConsecutiveFailures) {
+      failureState.disabled = true;
+      logger.warn(
+        'Queue telemetry sink disabled after repeated failures - endpoint may be unreachable',
+        {
+          error: errorMessage,
+          consecutiveFailures: failureState.consecutiveFailures,
+          droppedEvents: payloadEvents.length,
+        }
+      );
       return;
     }
-    if (events.length === 0) {
+
+    logger.debug('Queue telemetry sink failed to send payload, will retry', {
+      error: errorMessage,
+      eventCount: payloadEvents.length,
+      consecutiveFailures: failureState.consecutiveFailures,
+    });
+    events.unshift(...payloadEvents);
+  };
+
+  const flush = async () => {
+    if (flushing || failureState.disabled || events.length === 0) {
       return;
     }
     flushing = true;
@@ -197,12 +232,9 @@ export function initializeQueueTelemetrySink(
 
     try {
       await sendPayload(endpoint, body, headers, useSendBeacon);
+      failureState.consecutiveFailures = 0;
     } catch (error) {
-      logger.warn('Queue telemetry sink failed to send payload', {
-        error: error instanceof Error ? error.message : String(error),
-        eventCount: payloadEvents.length,
-      });
-      events.unshift(...payloadEvents);
+      handleFlushError(error, payloadEvents);
     } finally {
       flushing = false;
     }

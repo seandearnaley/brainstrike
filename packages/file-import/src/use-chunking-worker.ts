@@ -74,9 +74,17 @@ async function initializeSingleton(): Promise<void> {
           filename: event.filename || 'unknown',
           lineno: event.lineno || 0,
           colno: event.colno || 0,
+          workerUrl,
+          timestamp: new Date().toISOString(),
         };
         logger.error('Chunking worker error event', errorDetails);
-        singletonError = new Error(errorDetails.message);
+        // Include full details in error message for debugging
+        const detailedMessage =
+          `Chunking worker error: ${errorDetails.message} ` +
+          `(file: ${errorDetails.filename}:${errorDetails.lineno}:${errorDetails.colno})`;
+        singletonError = new Error(detailedMessage);
+        // Attach details as a property for programmatic access
+        (singletonError as Error & { details?: typeof errorDetails }).details = errorDetails;
         notifyListeners();
       };
 
@@ -95,11 +103,25 @@ async function initializeSingleton(): Promise<void> {
         }
       }, 100);
 
-      // Clear interval after 10s regardless
+      // CRITICAL: Set error after 10s if worker is not ready - no silent failures
       setTimeout(() => {
         clearInterval(checkReadyInterval);
-        if (!singletonReady) {
-          logger.warn('Worker ready timeout after 10s');
+        if (!(singletonReady || singletonError)) {
+          const errorDetails = {
+            message: 'Chunking worker failed to become ready within 10 seconds',
+            workerUrl,
+            workerExists: !!singletonWorker,
+            portExists: !!singletonPort,
+            timestamp: new Date().toISOString(),
+          };
+          logger.error('Chunking worker ready timeout', errorDetails);
+          const detailedMessage =
+            `${errorDetails.message}. ` +
+            `Worker URL: ${errorDetails.workerUrl}, ` +
+            `worker: ${errorDetails.workerExists}, port: ${errorDetails.portExists}`;
+          singletonError = new Error(detailedMessage);
+          (singletonError as Error & { details?: typeof errorDetails }).details = errorDetails;
+          notifyListeners();
         }
       }, 10_000);
     } catch (err) {

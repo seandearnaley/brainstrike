@@ -1,8 +1,8 @@
-import { DbProvider } from '@brainstrike/db';
+import { DbProvider, usePGliteDatabase } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
-import { useLoggingPreferencesStore } from '@brainstrike/preferences';
+import { useLoggingPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import type { LoggingPreferences } from '@brainstrike/utils';
 import {
@@ -149,6 +149,29 @@ declare global {
   }
 }
 
+/**
+ * Component that sets schemaVerified when the database is ready.
+ * This ensures collections can load regardless of which panel opens first.
+ * Must be rendered inside DbProvider.
+ *
+ * NOTE: This is duplicated in apps/web/src/main.tsx - both apps need this
+ * to ensure the Vector Status panel's collections load properly.
+ */
+function DbSchemaVerifier({ children }: { children: React.ReactNode }) {
+  const db = usePGliteDatabase();
+  const setSchemaVerified = useVectorStatusUIStore((s) => s.setSchemaVerified);
+
+  // biome-ignore lint/plugin: This is a valid side effect - setting schemaVerified when db is ready
+  useEffect(() => {
+    if (db) {
+      // Database is ready (migrations have run in DbProvider), set schemaVerified
+      setSchemaVerified(true);
+    }
+  }, [db, setSchemaVerified]);
+
+  return <>{children}</>;
+}
+
 function App() {
   const [dbPath, setDbPath] = useState<string | null>(null);
 
@@ -184,11 +207,13 @@ function App() {
 
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>
-      <ChunkingWorkerProvider>
-        <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-          <RootLayoutContent />
-        </AdaptersProvider>
-      </ChunkingWorkerProvider>
+      <DbSchemaVerifier>
+        <ChunkingWorkerProvider>
+          <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+            <RootLayoutContent />
+          </AdaptersProvider>
+        </ChunkingWorkerProvider>
+      </DbSchemaVerifier>
     </DbProvider>
   );
 }

@@ -287,7 +287,7 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
       filePath: request.filePath,
     });
 
-    log('info', 'processFile completed', {
+    log('debug', 'processFile completed', {
       id: request.id,
       fileRecordId: request.fileRecordId,
       chunksCreated: result.chunks.length,
@@ -352,7 +352,7 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
     return;
   }
 
-  log('info', 'processBatch start', { total: requests.length });
+  log('debug', 'processBatch start', { total: requests.length });
 
   const total = requests.length;
 
@@ -391,7 +391,7 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
     }
   }
 
-  log('info', 'processBatch complete', { total });
+  log('debug', 'processBatch complete', { total });
 }
 
 // Handle incoming messages with input validation
@@ -400,7 +400,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const messageType = (message as { type?: unknown } | null)?.type;
 
   try {
-    log('info', 'onmessage received', { type: messageType });
+    log('debug', 'onmessage received', { type: messageType });
 
     // Handle cleanup message (defensive cleanup for edge cases)
     if (messageType === 'cleanup') {
