@@ -96,24 +96,40 @@ type EmbeddingSetRow = {
 
 export function resolveEmbeddingSetModelInfo(
   row: EmbeddingSetRow,
-  modelConfigMap: Map<string, ModelConfig>,
-  fallback: EffectiveModelInfo
+  modelConfigMap: Map<string, ModelConfig>
 ): EffectiveModelInfo {
-  const dimensions = Number(row.dimensions) || fallback.dimensions;
+  if (!row.modelKey) {
+    throw new Error('Embedding set is missing a model key.');
+  }
+
+  const dimensions = Number(row.dimensions);
+  if (!Number.isFinite(dimensions) || dimensions <= 0) {
+    throw new Error('Embedding set dimensions are missing or invalid.');
+  }
   const parsed = parseProviderModelKey(row.modelKey);
   if (parsed && isHostedProvider(parsed.provider)) {
     return { modelKey: row.modelKey, dimensions };
   }
 
   const localModelId = parsed?.modelId ?? row.modelKey;
-  const localConfig = modelConfigMap.get(localModelId) ?? fallback.modelConfig;
-  if (localConfig) {
-    return {
-      modelKey: localConfig.id,
-      dimensions: localConfig.dimensions || dimensions,
-      modelConfig: localConfig,
-    };
+  const localConfig = modelConfigMap.get(localModelId);
+  if (!localConfig) {
+    throw new Error(`Embedding set references unknown model: ${localModelId}`);
   }
 
-  return { modelKey: localModelId, dimensions };
+  if (!Number.isFinite(localConfig.dimensions) || localConfig.dimensions <= 0) {
+    throw new Error(`Model ${localModelId} has invalid dimensions in the registry.`);
+  }
+
+  if (localConfig.dimensions !== dimensions) {
+    throw new Error(
+      `Embedding set dimensions (${dimensions}) do not match registry (${localConfig.dimensions}) for ${localModelId}.`
+    );
+  }
+
+  return {
+    modelKey: localConfig.id,
+    dimensions: localConfig.dimensions,
+    modelConfig: localConfig,
+  };
 }

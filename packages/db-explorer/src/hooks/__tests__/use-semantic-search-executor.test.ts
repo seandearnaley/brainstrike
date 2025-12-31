@@ -11,12 +11,16 @@ import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSemanticSearchExecutor } from '../use-semantic-search-executor';
 
+const mockDb = {
+  query: vi.fn(),
+};
+
 // Mock @brainstrike/db
 vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
   return {
     ...actual,
-    usePGliteDatabase: vi.fn(() => null),
+    usePGliteDatabase: vi.fn(() => mockDb),
   };
 });
 
@@ -126,6 +130,14 @@ const createSearchConfig = (overrides: Partial<SearchConfig> = {}): SearchConfig
 describe('useSemanticSearchExecutor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDb.query.mockResolvedValue({
+      rows: [
+        {
+          modelKey: 'jinaai/jina-embeddings-v3',
+          dimensions: 1024,
+        },
+      ],
+    });
     useModelRegistryStore.setState({
       models: [
         {

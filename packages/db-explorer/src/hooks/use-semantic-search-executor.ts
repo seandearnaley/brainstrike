@@ -21,7 +21,6 @@ import {
   SimpleEmbeddingService,
 } from '@brainstrike/embeddings';
 import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
-import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useMemo, useRef } from 'react';
@@ -123,15 +122,23 @@ export function useSemanticSearchExecutor({
     const fallback = getDefaultLocalEmbeddingModel(models);
     return fallback ? toEmbeddingModelConfig(fallback) : null;
   }, [models]);
-  const fallbackInfo = useMemo<EffectiveModelInfo>(() => {
-    const fallbackKey = defaultModelConfig?.id ?? '';
-    const fallbackDim = defaultModelConfig?.dimensions ?? DEFAULT_EMBEDDING_DIMENSION;
+  const defaultModelInfo = useMemo<EffectiveModelInfo | null>(() => {
+    if (!defaultModelConfig) {
+      return null;
+    }
     return {
-      modelKey: fallbackKey,
-      dimensions: fallbackDim,
-      ...(defaultModelConfig ? { modelConfig: defaultModelConfig } : {}),
+      modelKey: defaultModelConfig.id,
+      dimensions: defaultModelConfig.dimensions,
+      modelConfig: defaultModelConfig,
     };
   }, [defaultModelConfig]);
+
+  const getDefaultModelInfo = useCallback((): EffectiveModelInfo => {
+    if (!defaultModelInfo) {
+      throw new Error('No local embedding model configured. Enable one in Settings > Models.');
+    }
+    return defaultModelInfo;
+  }, [defaultModelInfo]);
 
   /**
    * Get the model info for the active embedding set
@@ -139,26 +146,25 @@ export function useSemanticSearchExecutor({
   const getModelInfo = useCallback(
     async (embeddingSetId: string | null): Promise<EffectiveModelInfo> => {
       if (db && embeddingSetId) {
-        try {
-          const res = await db.query<{ modelKey: string; dimensions: number }>(
-            'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
-            [embeddingSetId]
-          );
-          const row = res.rows[0];
-          if (row?.modelKey) {
-            return resolveEmbeddingSetModelInfo(
-              { modelKey: row.modelKey, dimensions: Number(row.dimensions) },
-              modelConfigMap,
-              fallbackInfo
-            );
-          }
-        } catch {
-          // keep fallback
+        const res = await db.query<{ modelKey: string; dimensions: number }>(
+          'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
+          [embeddingSetId]
+        );
+        const row = res.rows[0];
+        if (!row?.modelKey) {
+          throw new Error('Active embedding set is missing a model.');
         }
+        return resolveEmbeddingSetModelInfo(
+          { modelKey: row.modelKey, dimensions: Number(row.dimensions) },
+          modelConfigMap
+        );
       }
-      return fallbackInfo;
+      if (embeddingSetId && !db) {
+        throw new Error('Database is not available to resolve the active embedding set.');
+      }
+      return getDefaultModelInfo();
     },
-    [db, fallbackInfo, modelConfigMap]
+    [db, getDefaultModelInfo, modelConfigMap]
   );
 
   /**
