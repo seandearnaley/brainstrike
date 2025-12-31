@@ -36,6 +36,10 @@ function readQuantizedFlag(parameters: ModelParameters): boolean {
   return typeof value === 'boolean' ? value : false;
 }
 
+function sanitizeModelId(value: string): string {
+  return value.slice(0, 100).replace(/[^\w\-:./@]/g, '_');
+}
+
 export function isLocalProviderId(providerId: string): boolean {
   return LOCAL_PROVIDER_IDS.has(providerId);
 }
@@ -120,8 +124,9 @@ export function resolveEmbeddingSetModelInfo(
   const localConfig = modelConfigMap.get(localModelId);
   if (!localConfig) {
     const availableModels = Array.from(modelConfigMap.keys()).join(', ');
+    const safeModelId = sanitizeModelId(localModelId);
     throw new Error(
-      `Embedding set references unknown model: ${localModelId}. Available models: ${
+      `Embedding set references unknown model: ${safeModelId}. Available models: ${
         availableModels || 'none'
       }. If the model exists but is disabled, enable it in Settings > Models.`
     );

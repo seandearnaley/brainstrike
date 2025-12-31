@@ -177,6 +177,23 @@ describe('embedding-models utilities', () => {
     );
   });
 
+  it('throws when dimensions are NaN or infinite', () => {
+    const map = new Map();
+    expect(() =>
+      resolveEmbeddingSetModelInfo({ modelKey: 'local', dimensions: Number.NaN }, map)
+    ).toThrow('Embedding set dimensions are missing or invalid.');
+    expect(() =>
+      resolveEmbeddingSetModelInfo({ modelKey: 'local', dimensions: Number.POSITIVE_INFINITY }, map)
+    ).toThrow('Embedding set dimensions are missing or invalid.');
+  });
+
+  it('includes empty available list when no models are registered', () => {
+    const map = new Map();
+    expect(() =>
+      resolveEmbeddingSetModelInfo({ modelKey: 'missing', dimensions: 768 }, map)
+    ).toThrow(/Available models: none/iu);
+  });
+
   it('throws when local model is unknown with available list', () => {
     const model = makeModel({ id: 'known', providerId: 'transformers' });
     const map = buildLocalEmbeddingModelConfigMap([model]);
@@ -193,5 +210,16 @@ describe('embedding-models utilities', () => {
     expect(() =>
       resolveEmbeddingSetModelInfo({ modelKey: 'local', dimensions: 1024 }, map)
     ).toThrow(/Embedding set dimensions \(1024\) do not match registry \(768\)/u);
+  });
+
+  it('accepts legacy hosted model keys', () => {
+    const result = resolveEmbeddingSetModelInfo(
+      { modelKey: 'openai:text-embedding-3-small', dimensions: 1536 },
+      new Map()
+    );
+
+    expect(result.modelKey).toBe('openai:text-embedding-3-small');
+    expect(result.dimensions).toBe(1536);
+    expect(result.modelConfig).toBeUndefined();
   });
 });

@@ -23,7 +23,7 @@ import {
 import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { SearchExecutor } from '../contexts/semantic-search-context';
 import {
   buildLocalEmbeddingModelConfigMap,
@@ -37,6 +37,11 @@ type SearchEmbedder = {
   embedQuery: (text: string) => Promise<{ embedding: number[] }>;
   dispose?: () => Promise<void> | void;
 };
+
+type EmbedderError =
+  | { message: string }
+  | { originalError: { message: string }; type: string }
+  | { type: string };
 
 type UseSemanticSearchExecutorOptions = {
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
@@ -66,7 +71,7 @@ async function createHostedEmbedder(
     embedQuery: async (text: string) => {
       const result = await provider.embed({ text, modelId });
       if (!result.ok) {
-        const error = result.error;
+        const error: EmbedderError = result.error;
         const msg =
           'message' in error
             ? error.message
@@ -114,6 +119,18 @@ export function useSemanticSearchExecutor({
   const currentModelKeyRef = useRef<string | null>(null);
 
   useEnsureModelRegistry({ db });
+
+  useEffect(() => {
+    const cleanup = () => {
+      const embedder = embedderRef.current;
+      embedderRef.current = null;
+      currentModelKeyRef.current = null;
+      if (embedder?.dispose) {
+        void embedder.dispose();
+      }
+    };
+    return cleanup;
+  }, []);
 
   const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
   const getEmbeddingSetModelInfo = useCallback(
@@ -280,11 +297,15 @@ export function useSemanticSearchExecutor({
       logger.info('Search completed', { resultCount: searchResults.length });
 
       // Build a map of file records for enrichment
-      const fileIds = new Set(searchResults.map((r) => r.chunk.fileRecordId));
+      const fileIds = Array.from(new Set(searchResults.map((r) => r.chunk.fileRecordId)));
+      const fileEntries = await Promise.all(
+        fileIds.map(async (fileId) => {
+          const record = await fileRepository.findById(fileId);
+          return [fileId, record] as const;
+        })
+      );
       const fileRecordsMap = new Map<string, { name: string; path: string }>();
-
-      for (const fileId of fileIds) {
-        const record = await fileRepository.findById(fileId);
+      for (const [fileId, record] of fileEntries) {
         if (record) {
           fileRecordsMap.set(fileId, { name: record.name, path: record.path });
         } else {

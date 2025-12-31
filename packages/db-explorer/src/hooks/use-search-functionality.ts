@@ -46,6 +46,7 @@ export function useSearchFunctionality(
   // Maintain an internal service wrapper
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
+  const embedderInitPromiseRef = useRef<Promise<SearchEmbedder> | null>(null);
 
   useEnsureModelRegistry({ db });
 
@@ -142,15 +143,28 @@ export function useSearchFunctionality(
       return embedderRef.current;
     }
 
-    // Dispose previous if exists
-    if (embedderRef.current?.dispose) {
-      await embedderRef.current.dispose();
+    if (embedderInitPromiseRef.current) {
+      await embedderInitPromiseRef.current;
+      if (embedderRef.current && currentModelKeyRef.current === modelKey) {
+        return embedderRef.current;
+      }
     }
-    const embedder = await createEmbedder(modelInfo);
 
-    embedderRef.current = embedder;
-    currentModelKeyRef.current = modelKey;
-    return embedder;
+    embedderInitPromiseRef.current = (async () => {
+      if (embedderRef.current?.dispose) {
+        await embedderRef.current.dispose();
+      }
+      const embedder = await createEmbedder(modelInfo);
+      embedderRef.current = embedder;
+      currentModelKeyRef.current = modelKey;
+      return embedder;
+    })();
+
+    try {
+      return await embedderInitPromiseRef.current;
+    } finally {
+      embedderInitPromiseRef.current = null;
+    }
   }
 
   // Helper to build config for factory
@@ -236,11 +250,34 @@ export function useSearchFunctionality(
 
   const enrichChunkResults = useCallback(
     async (chunkResults: Array<{ chunk: FileChunk; similarity: number }>) => {
-      const results: ChunkSearchResult[] = [];
-      for (const chunkResult of chunkResults) {
-        let fileRecord: FileRecord | null = (await repository?.findById(
-          chunkResult.chunk.fileRecordId
-        )) as FileRecord | null;
+      if (!repository) {
+        return chunkResults.map((chunkResult) => ({
+          chunk: chunkResult.chunk,
+          similarity: chunkResult.similarity,
+          fileRecord: {
+            id: chunkResult.chunk.fileRecordId,
+            name: 'Unknown file',
+            path: '(unavailable)',
+            size: 0,
+            createdAt: chunkResult.chunk.createdAt,
+            updatedAt: chunkResult.chunk.updatedAt,
+          } as FileRecord,
+        }));
+      }
+
+      const fileIds = Array.from(
+        new Set(chunkResults.map((chunkResult) => chunkResult.chunk.fileRecordId))
+      );
+      const fileEntries = await Promise.all(
+        fileIds.map(async (fileId) => {
+          const record = (await repository.findById(fileId)) as FileRecord | null;
+          return [fileId, record] as const;
+        })
+      );
+      const fileRecordMap = new Map(fileEntries);
+
+      return chunkResults.map((chunkResult) => {
+        let fileRecord = fileRecordMap.get(chunkResult.chunk.fileRecordId) ?? null;
         if (!fileRecord) {
           // Fallback: synthesize minimal record to avoid hiding valid matches
           fileRecord = {
@@ -252,13 +289,12 @@ export function useSearchFunctionality(
             updatedAt: chunkResult.chunk.updatedAt,
           } as FileRecord;
         }
-        results.push({
+        return {
           chunk: chunkResult.chunk,
           similarity: chunkResult.similarity,
           fileRecord,
-        });
-      }
-      return results;
+        };
+      });
     },
     [repository]
   );
@@ -357,7 +393,11 @@ function lexicalOverlapScore(queryTokens: Set<string>, doc: string): number {
     }
   }
   // Jaccard-like score
-  return overlap / (queryTokens.size + docTokens.size - overlap);
+  const denominator = queryTokens.size + docTokens.size - overlap;
+  if (denominator <= 0) {
+    return 0;
+  }
+  return overlap / denominator;
 }
 
 function isLikelyCodeQuery(text: string): boolean {
