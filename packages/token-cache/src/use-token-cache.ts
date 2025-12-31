@@ -131,14 +131,6 @@ export function useTokenCache({
   countingMode,
   onTokenResolved,
 }: UseTokenCacheOptions): UseTokenCacheReturn {
-  // Log initialization for debugging
-  logger.info('useTokenCache hook initialized', {
-    hasStore: !!store,
-    hasHasher: !!hasher,
-    hasWorkerPool: !!workerPool,
-    countingMode,
-  });
-
   // Hot cache: in-memory for instant access
   const hotCache = useRef(new Map<string, number>());
 
@@ -191,10 +183,8 @@ export function useTokenCache({
   // Reset mounted flag on mount and cleanup on unmount (StrictMode compatibility)
   useEffect(() => {
     // Reset mounted flag on each mount (fixes React StrictMode double-mount issue)
-    logger.info('useTokenCache mount effect - setting isMountedRef to true');
     isMountedRef.current = true;
     return () => {
-      logger.info('useTokenCache cleanup - setting isMountedRef to false');
       isMountedRef.current = false;
       if (versionDebounceRef.current) {
         clearTimeout(versionDebounceRef.current);
@@ -279,6 +269,29 @@ export function useTokenCache({
     [store, hasher, workerPool, countingMode, onTokenResolved, debouncedSetVersion]
   );
 
+  // Queue for deferred loading - avoids setState during render
+  const deferredLoadQueue = useRef<Array<{ folderId: string; filePath: string; content: string }>>(
+    []
+  );
+
+  // Process deferred loads in useEffect (after render completes)
+  useEffect(() => {
+    if (deferredLoadQueue.current.length === 0) {
+      return;
+    }
+    // Copy and clear queue before processing to avoid infinite loops
+    const toProcess = [...deferredLoadQueue.current];
+    deferredLoadQueue.current = [];
+
+    for (const { folderId, filePath, content } of toProcess) {
+      const key = createCacheKey(folderId, filePath);
+      // Double-check it's not already pending or cached
+      if (!(pendingRequests.current.has(key) || hotCache.current.has(key))) {
+        void loadOrCount(folderId, filePath, content);
+      }
+    }
+  });
+
   /**
    * Get token count (synchronous, returns cached or null)
    */
@@ -299,9 +312,10 @@ export function useTokenCache({
         return cached;
       }
 
-      // If content provided and not pending, trigger load
+      // If content provided and not pending, queue for deferred loading
+      // This avoids calling setState during render (React anti-pattern)
       if (content && !pendingRequests.current.has(key)) {
-        void loadOrCount(folderId, filePath, content);
+        deferredLoadQueue.current.push({ folderId, filePath, content });
       }
 
       if (DIAG_KEY && key === DIAG_KEY && diagLogger) {
@@ -310,7 +324,7 @@ export function useTokenCache({
 
       return null; // Loading
     },
-    [loadOrCount]
+    []
   );
 
   /**

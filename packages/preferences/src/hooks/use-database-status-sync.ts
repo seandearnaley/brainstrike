@@ -1,12 +1,12 @@
 import {
+  type DrizzleFileRecordRepository,
   ElectronFileRecordRepository,
-  type FileRecordRepository,
   useFileRecordRepository,
 } from '@brainstrike/db';
 import { useEffect } from 'react';
 import { useDatabaseStatusStore } from '../stores/database-status-store';
 
-function resolveLocation(repo: FileRecordRepository): {
+function resolveLocation(repo: DrizzleFileRecordRepository | ElectronFileRecordRepository): {
   location: string;
   testResult: string;
 } {

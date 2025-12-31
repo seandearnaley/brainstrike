@@ -10,8 +10,60 @@ export type Queryable = {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
 };
 
-// Process-local cache; follow-up hardening tracked in brainstrike-38 for invalidation strategy.
-const embeddingDimensionCache = new Map<string, number>();
+/**
+ * Maximum number of embedding dimension entries to cache.
+ * Prevents unbounded memory growth in long-running processes.
+ */
+const MAX_CACHE_SIZE = 100;
+
+/**
+ * LRU cache for embedding dimensions with bounded size.
+ * Uses Map's insertion order property for LRU eviction.
+ */
+class EmbeddingDimensionCache {
+  private readonly cache = new Map<string, number>();
+  private readonly maxSize: number;
+
+  constructor(maxSize: number = MAX_CACHE_SIZE) {
+    this.maxSize = maxSize;
+  }
+
+  get(key: string): number | undefined {
+    const value = this.cache.get(key);
+    if (value !== undefined) {
+      // Move to end (most recently used) by re-inserting
+      this.cache.delete(key);
+      this.cache.set(key, value);
+    }
+    return value;
+  }
+
+  set(key: string, value: number): void {
+    // If key exists, delete it first to update insertion order
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    }
+    // Evict oldest entries if at capacity
+    while (this.cache.size >= this.maxSize) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.cache.delete(oldestKey);
+      }
+    }
+    this.cache.set(key, value);
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+
+  get size(): number {
+    return this.cache.size;
+  }
+}
+
+// Process-local LRU cache with bounded size to prevent memory leaks.
+const embeddingDimensionCache = new EmbeddingDimensionCache(MAX_CACHE_SIZE);
 
 async function resolveEmbeddingSetDimension(
   db: Queryable,

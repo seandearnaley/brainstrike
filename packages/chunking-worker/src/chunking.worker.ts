@@ -168,8 +168,6 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
   postLog(level, message, data);
 }
 
-log('info', 'worker script evaluated');
-
 // ============================================================================
 // Global Error Handlers (with cleanup support)
 // ============================================================================
@@ -289,7 +287,7 @@ async function processFile(request: Omit<ChunkRequest, 'type'>): Promise<ChunkRe
       filePath: request.filePath,
     });
 
-    log('info', 'processFile completed', {
+    log('debug', 'processFile completed', {
       id: request.id,
       fileRecordId: request.fileRecordId,
       chunksCreated: result.chunks.length,
@@ -354,7 +352,7 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
     return;
   }
 
-  log('info', 'processBatch start', { total: requests.length });
+  log('debug', 'processBatch start', { total: requests.length });
 
   const total = requests.length;
 
@@ -393,7 +391,7 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
     }
   }
 
-  log('info', 'processBatch complete', { total });
+  log('debug', 'processBatch complete', { total });
 }
 
 // Handle incoming messages with input validation
@@ -402,7 +400,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const messageType = (message as { type?: unknown } | null)?.type;
 
   try {
-    log('info', 'onmessage received', { type: messageType });
+    log('debug', 'onmessage received', { type: messageType });
 
     // Handle cleanup message (defensive cleanup for edge cases)
     if (messageType === 'cleanup') {
@@ -485,11 +483,9 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 
 // Bootstrap - signal ready
 const bootstrap = async (): Promise<void> => {
-  log('info', 'worker bootstrap start');
   try {
     // Pre-warm the chunking modules by doing a tiny chunk
     await chunkContent('// test', { strategy: 'sentence' });
-    log('info', 'worker bootstrap modules loaded');
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'worker bootstrap failed', formatted);
@@ -503,7 +499,6 @@ const bootstrap = async (): Promise<void> => {
   }
 
   self.postMessage({ type: 'ready' });
-  log('info', 'worker ready posted');
 };
 
 void bootstrap();

@@ -1,0 +1,259 @@
+/**
+ * Drizzle TokenCacheStore Tests
+ *
+ * Tests the Drizzle-based TokenCacheStore implementation.
+ */
+
+import { PGlite } from '@electric-sql/pglite';
+import { vector } from '@electric-sql/pglite/vector';
+import { drizzle } from 'drizzle-orm/pglite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { runMigrations } from '../src/drizzle/migrate.js';
+import {
+  DrizzleTokenCacheStore,
+  type TokenCacheEntry,
+} from '../src/repositories/drizzle/token-cache-store.js';
+import * as schema from '../src/schema/index.js';
+
+describe('DrizzleTokenCacheStore', () => {
+  let client: PGlite;
+  let db: ReturnType<typeof drizzle>;
+  let store: DrizzleTokenCacheStore;
+
+  const testFolderId = 'test-folder-001';
+
+  function createEntry(overrides: Partial<TokenCacheEntry> = {}): TokenCacheEntry {
+    return {
+      folderId: testFolderId,
+      filePath: '/src/test.ts',
+      contentHash: 'abc123',
+      fileSize: 1024,
+      mtimeMs: Date.now(),
+      tokenCount: 100,
+      countingMode: 'accurate',
+      modelEncoding: 'o200k_base',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...overrides,
+    };
+  }
+
+  beforeEach(async () => {
+    client = new PGlite({
+      extensions: { vector },
+    });
+
+    await runMigrations(client);
+    db = drizzle(client, { schema });
+    store = new DrizzleTokenCacheStore(db);
+  });
+
+  afterEach(async () => {
+    await client.close();
+  });
+
+  describe('get and set', () => {
+    it('should set and get a single entry', async () => {
+      const entry = createEntry({ filePath: '/src/file1.ts' });
+
+      await store.set(entry);
+      const found = await store.get(testFolderId, '/src/file1.ts');
+
+      expect(found).toBeDefined();
+      expect(found?.filePath).toBe('/src/file1.ts');
+      expect(found?.tokenCount).toBe(100);
+      expect(found?.countingMode).toBe('accurate');
+    });
+
+    it('should return null for non-existent entry', async () => {
+      const found = await store.get(testFolderId, '/non-existent.ts');
+      expect(found).toBeNull();
+    });
+
+    it('should upsert on conflict', async () => {
+      const entry1 = createEntry({ filePath: '/src/file.ts', tokenCount: 100 });
+      await store.set(entry1);
+
+      const entry2 = createEntry({ filePath: '/src/file.ts', tokenCount: 200 });
+      await store.set(entry2);
+
+      const found = await store.get(testFolderId, '/src/file.ts');
+      expect(found?.tokenCount).toBe(200);
+    });
+  });
+
+  describe('getBatch', () => {
+    it('should get multiple entries in one query', async () => {
+      await store.set(createEntry({ filePath: '/src/file1.ts', tokenCount: 100 }));
+      await store.set(createEntry({ filePath: '/src/file2.ts', tokenCount: 200 }));
+      await store.set(createEntry({ filePath: '/src/file3.ts', tokenCount: 300 }));
+
+      const result = await store.getBatch(testFolderId, ['/src/file1.ts', '/src/file3.ts']);
+
+      expect(result.size).toBe(2);
+      expect(result.get('/src/file1.ts')?.tokenCount).toBe(100);
+      expect(result.get('/src/file3.ts')?.tokenCount).toBe(300);
+    });
+
+    it('should return empty map for empty paths', async () => {
+      const result = await store.getBatch(testFolderId, []);
+      expect(result.size).toBe(0);
+    });
+  });
+
+  describe('getAllForFolder', () => {
+    it('should get all entries for a folder', async () => {
+      await store.set(createEntry({ filePath: '/src/file1.ts' }));
+      await store.set(createEntry({ filePath: '/src/file2.ts' }));
+      await store.set(createEntry({ folderId: 'other-folder', filePath: '/src/file3.ts' }));
+
+      const entries = await store.getAllForFolder(testFolderId);
+
+      expect(entries).toHaveLength(2);
+    });
+  });
+
+  describe('setBatch', () => {
+    it('should set multiple entries atomically', async () => {
+      const entries = [
+        createEntry({ filePath: '/src/file1.ts', tokenCount: 100 }),
+        createEntry({ filePath: '/src/file2.ts', tokenCount: 200 }),
+      ];
+
+      await store.setBatch(entries);
+
+      const all = await store.getAllForFolder(testFolderId);
+      expect(all).toHaveLength(2);
+    });
+
+    it('should handle empty batch', async () => {
+      await store.setBatch([]);
+      const all = await store.getAllForFolder(testFolderId);
+      expect(all).toHaveLength(0);
+    });
+  });
+
+  describe('delete', () => {
+    it('should delete a single entry', async () => {
+      await store.set(createEntry({ filePath: '/src/file.ts' }));
+
+      const deleted = await store.delete(testFolderId, '/src/file.ts');
+
+      expect(deleted).toBe(true);
+      const found = await store.get(testFolderId, '/src/file.ts');
+      expect(found).toBeNull();
+    });
+
+    it('should return false for non-existent entry', async () => {
+      const deleted = await store.delete(testFolderId, '/non-existent.ts');
+      expect(deleted).toBe(false);
+    });
+  });
+
+  describe('clearFolder', () => {
+    it('should clear all entries for a folder', async () => {
+      await store.set(createEntry({ filePath: '/src/file1.ts' }));
+      await store.set(createEntry({ filePath: '/src/file2.ts' }));
+      await store.set(createEntry({ folderId: 'other-folder', filePath: '/src/file3.ts' }));
+
+      const cleared = await store.clearFolder(testFolderId);
+
+      expect(cleared).toBe(2);
+
+      const remaining = await store.getAllForFolder(testFolderId);
+      expect(remaining).toHaveLength(0);
+
+      const otherRemaining = await store.getAllForFolder('other-folder');
+      expect(otherRemaining).toHaveLength(1);
+    });
+  });
+
+  describe('clearAll', () => {
+    it('should clear all entries and return count', async () => {
+      await store.set(createEntry({ filePath: '/src/file1.ts' }));
+      await store.set(createEntry({ folderId: 'other-folder', filePath: '/src/file2.ts' }));
+
+      const cleared = await store.clearAll();
+
+      expect(cleared).toBe(2);
+    });
+  });
+
+  describe('getTotalTokens', () => {
+    it('should sum tokens for selected files', async () => {
+      await store.set(createEntry({ filePath: '/src/file1.ts', tokenCount: 100 }));
+      await store.set(createEntry({ filePath: '/src/file2.ts', tokenCount: 200 }));
+      await store.set(createEntry({ filePath: '/src/file3.ts', tokenCount: 300 }));
+
+      const total = await store.getTotalTokens(testFolderId, ['/src/file1.ts', '/src/file2.ts']);
+
+      expect(total).toBe(300);
+    });
+
+    it('should return 0 for empty paths', async () => {
+      const total = await store.getTotalTokens(testFolderId, []);
+      expect(total).toBe(0);
+    });
+  });
+
+  describe('getStats', () => {
+    it('should return statistics for folder', async () => {
+      await store.set(
+        createEntry({ filePath: '/src/file1.ts', tokenCount: 100, countingMode: 'accurate' })
+      );
+      await store.set(
+        createEntry({ filePath: '/src/file2.ts', tokenCount: 200, countingMode: 'heuristic' })
+      );
+
+      const stats = await store.getStats(testFolderId);
+
+      expect(stats.entryCount).toBe(2);
+      expect(stats.totalTokens).toBe(300);
+      expect(stats.accurateCount).toBe(1);
+      expect(stats.heuristicCount).toBe(1);
+    });
+
+    it('should return global statistics when no folder specified', async () => {
+      await store.set(createEntry({ filePath: '/src/file1.ts', tokenCount: 100 }));
+      await store.set(
+        createEntry({ folderId: 'other-folder', filePath: '/src/file2.ts', tokenCount: 200 })
+      );
+
+      const stats = await store.getStats();
+
+      expect(stats.entryCount).toBe(2);
+      expect(stats.totalTokens).toBe(300);
+    });
+  });
+
+  describe('findByCountingMode', () => {
+    it('should find entries by counting mode', async () => {
+      await store.set(createEntry({ filePath: '/src/file1.ts', countingMode: 'accurate' }));
+      await store.set(createEntry({ filePath: '/src/file2.ts', countingMode: 'heuristic' }));
+      await store.set(createEntry({ filePath: '/src/file3.ts', countingMode: 'heuristic' }));
+
+      const heuristic = await store.findByCountingMode(testFolderId, 'heuristic');
+
+      expect(heuristic).toHaveLength(2);
+    });
+
+    it('should respect limit', async () => {
+      for (let i = 0; i < 5; i++) {
+        await store.set(createEntry({ filePath: `/src/file${i}.ts`, countingMode: 'heuristic' }));
+      }
+
+      const limited = await store.findByCountingMode(testFolderId, 'heuristic', 3);
+
+      expect(limited).toHaveLength(3);
+    });
+  });
+
+  describe('vacuum', () => {
+    it('should run without error', async () => {
+      await store.set(createEntry({ filePath: '/src/file.ts' }));
+      await store.delete(testFolderId, '/src/file.ts');
+
+      await expect(store.vacuum()).resolves.not.toThrow();
+    });
+  });
+});

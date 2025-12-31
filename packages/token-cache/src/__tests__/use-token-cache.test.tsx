@@ -93,13 +93,18 @@ describe('useTokenCache', () => {
   });
 
   it('returns null and triggers background count when not cached', async () => {
-    const { result } = renderCacheHook();
+    const { result, rerender } = renderCacheHook();
 
     let value: number | null = 0;
     await act(async () => {
       value = result.current.getTokenCount('folder', 'file.txt', 'hello world');
     });
     expect(value).toBeNull();
+
+    // Trigger another render to process deferred load queue
+    await act(async () => {
+      rerender();
+    });
 
     await flushMicrotasks();
 
@@ -124,11 +129,16 @@ describe('useTokenCache', () => {
         })
     );
 
-    const { result } = renderCacheHook();
+    const { result, rerender } = renderCacheHook();
 
     await act(async () => {
       expect(result.current.getTokenCount('folder', 'file.txt', 'content')).toBeNull();
       expect(result.current.getTokenCount('folder', 'file.txt', 'content')).toBeNull();
+    });
+
+    // Trigger another render to process deferred load queue
+    await act(async () => {
+      rerender();
     });
 
     await flushMicrotasks();
@@ -154,7 +164,7 @@ describe('useTokenCache', () => {
 
     store.get.mockResolvedValueOnce(cachedEntry);
 
-    const { result } = renderCacheHook('accurate');
+    const { result, rerender } = renderCacheHook('accurate');
 
     let value: number | null = 0;
     await act(async () => {
@@ -162,7 +172,16 @@ describe('useTokenCache', () => {
     });
     expect(value).toBeNull(); // initial lookup is async
 
+    // Trigger another render to process deferred load queue
+    await act(async () => {
+      rerender();
+    });
+
     await flushMicrotasks();
+    // Allow debounced version update to complete
+    act(() => {
+      vi.advanceTimersByTime(VERSION_DEBOUNCE_MS);
+    });
 
     expect(workerPool.exec).not.toHaveBeenCalled();
     expect(result.current.getTokenCount('folder', 'file.txt')).toBe(99);
@@ -170,7 +189,7 @@ describe('useTokenCache', () => {
 
   it('updates hot cache after counting and calls onTokenResolved', async () => {
     const onTokenResolved = vi.fn();
-    const { result } = renderHook(() =>
+    const { result, rerender } = renderHook(() =>
       useTokenCache({
         store: store as unknown as Parameters<typeof useTokenCache>[0]['store'],
         hasher: hasher as unknown as Parameters<typeof useTokenCache>[0]['hasher'],
@@ -184,7 +203,16 @@ describe('useTokenCache', () => {
       expect(result.current.getTokenCount('folder', 'file.txt', 'hello')).toBeNull();
     });
 
+    // Trigger another render to process deferred load queue
+    await act(async () => {
+      rerender();
+    });
+
     await flushMicrotasks();
+    // Allow debounced version update to complete
+    act(() => {
+      vi.advanceTimersByTime(VERSION_DEBOUNCE_MS);
+    });
 
     expect(store.set).toHaveBeenCalledTimes(1);
     expect(onTokenResolved).toHaveBeenCalledWith('folder', 'file.txt', 5);

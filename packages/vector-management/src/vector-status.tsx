@@ -1,5 +1,4 @@
 import {
-  FileChunkRepository,
   JobQueue,
   useFileChunkRepository,
   usePGliteDatabase,
@@ -22,7 +21,11 @@ import {
   TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+
+const logger = createLogger('VectorStatus');
+
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
 import {
@@ -194,16 +197,7 @@ function WorkerControls({
   );
 }
 
-function BackfillButton({
-  activeId,
-  activeLabel,
-  hasDb,
-  backfilling,
-  backfillProgress,
-  onBackfill,
-  coverage,
-  queueCounts,
-}: {
+type BackfillButtonProps = {
   activeId: string | null;
   activeLabel?: string | null;
   hasDb: boolean;
@@ -212,7 +206,104 @@ function BackfillButton({
   onBackfill: () => Promise<void>;
   coverage: { total: number; withSet: number };
   queueCounts: { queued: number; running: number };
-}) {
+  /** Whether clicking backfill will auto-start the worker (web only) */
+  willAutoStartWorker?: boolean;
+  /** Whether worker is currently starting */
+  startingWorker?: boolean;
+};
+
+/** Truncates label to 24 chars with ellipsis */
+export function truncateLabel(label: string): string {
+  const trimmed = label.trim();
+  return trimmed.length > 24 ? `${trimmed.slice(0, 21)}…` : trimmed;
+}
+
+/** Builds base label like "Backfill" or "Backfill MySet" */
+export function buildBaseLabel(label: string | null): string {
+  const preview = label ? truncateLabel(label) : '';
+  return preview ? `Backfill ${preview}` : 'Backfill';
+}
+
+/** Determines button text based on current state */
+export function getBackfillButtonText(
+  baseLabel: string,
+  startingWorker: boolean,
+  backfilling: boolean,
+  backfillProgress: { done: number; total: number } | null,
+  willAutoStartWorker: boolean
+): string {
+  if (startingWorker) {
+    return 'Starting…';
+  }
+  if (backfilling && backfillProgress) {
+    return `${backfillProgress.done}/${backfillProgress.total}`;
+  }
+  if (backfilling) {
+    return 'Backfilling…';
+  }
+  if (willAutoStartWorker) {
+    return `Start & ${baseLabel}`;
+  }
+  return baseLabel;
+}
+
+/** Determines aria label for accessibility */
+export function getBackfillAriaLabel(
+  baseLabel: string,
+  activeLabel: string | null,
+  startingWorker: boolean,
+  backfilling: boolean,
+  willAutoStartWorker: boolean
+): string {
+  if (startingWorker) {
+    return 'Starting worker…';
+  }
+  if (backfilling && activeLabel) {
+    return `Backfilling ${activeLabel}`;
+  }
+  if (backfilling) {
+    return 'Backfilling current collection';
+  }
+  if (willAutoStartWorker) {
+    return `Start worker and ${baseLabel.toLowerCase()}`;
+  }
+  return activeLabel ? `Backfill ${truncateLabel(activeLabel)}` : 'Backfill current collection';
+}
+
+/** Determines tooltip text */
+export function getBackfillTooltip(
+  defaultTitle: string,
+  _baseLabel: string,
+  activeLabel: string | null,
+  startingWorker: boolean,
+  willAutoStartWorker: boolean
+): string {
+  if (startingWorker) {
+    return 'Starting embedding worker…';
+  }
+  if (willAutoStartWorker) {
+    return 'Start embedding worker and enqueue backfill jobs';
+  }
+  if (defaultTitle) {
+    return defaultTitle;
+  }
+  return activeLabel ? `Backfill ${truncateLabel(activeLabel)}` : 'Backfill current collection';
+}
+
+function BackfillButton(props: BackfillButtonProps) {
+  const {
+    activeId,
+    activeLabel = null,
+    hasDb,
+    backfilling,
+    backfillProgress,
+    onBackfill,
+    coverage,
+    queueCounts,
+    willAutoStartWorker = false,
+    startingWorker = false,
+  } = props;
+
   const { disabled: isDisabled, title } = getBackfillDisabledState({
     activeId,
     hasDb,
@@ -220,24 +311,38 @@ function BackfillButton({
     coverage,
     queueCounts,
   });
-  const normalizedLabel = activeLabel?.trim() ?? '';
-  const labelPreview =
-    normalizedLabel.length > 24 ? `${normalizedLabel.slice(0, 21)}…` : normalizedLabel;
-  const descriptiveLabel = normalizedLabel
-    ? `Backfill ${labelPreview}`
-    : 'Backfill current collection';
-  const ariaLabel = backfilling
-    ? activeLabel
-      ? `Backfilling ${activeLabel}`
-      : 'Backfilling current collection'
-    : descriptiveLabel;
-  const resolvedTitle = title ?? descriptiveLabel;
+  // Also disable while worker is starting to prevent double-clicks
+  const effectivelyDisabled = isDisabled || startingWorker;
+
+  // Compute display labels using focused helper functions
+  const baseLabel = buildBaseLabel(activeLabel);
+  const buttonText = getBackfillButtonText(
+    baseLabel,
+    startingWorker,
+    backfilling,
+    backfillProgress,
+    willAutoStartWorker
+  );
+  const ariaLabel = getBackfillAriaLabel(
+    baseLabel,
+    activeLabel,
+    startingWorker,
+    backfilling,
+    willAutoStartWorker
+  );
+  const resolvedTitle = getBackfillTooltip(
+    title,
+    baseLabel,
+    activeLabel,
+    startingWorker,
+    willAutoStartWorker
+  );
 
   const button = (
     <Button
       aria-label={ariaLabel}
       className="h-6 w-full px-1.5 text-[10px]"
-      disabled={isDisabled}
+      disabled={effectivelyDisabled}
       onClick={() => {
         void onBackfill();
       }}
@@ -245,17 +350,11 @@ function BackfillButton({
       title={resolvedTitle}
       variant="outline"
     >
-      {backfilling
-        ? backfillProgress
-          ? `${backfillProgress.done}/${backfillProgress.total}`
-          : 'Backfilling…'
-        : normalizedLabel
-          ? `Backfill ${labelPreview}`
-          : 'Backfill'}
+      {buttonText}
     </Button>
   );
 
-  if (!isDisabled) {
+  if (!effectivelyDisabled) {
     return button;
   }
 
@@ -475,25 +574,29 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     } catch {}
   }, [verboseOrtLogs]);
 
+  // Use repository from DbProvider if it has getCoverageForSet
+  // Both DrizzleFileChunkRepository and ElectronFileChunkRepository now have this method
   const coverageRepository = useMemo(() => {
     if (chunkRepository && 'getCoverageForSet' in chunkRepository) {
-      return chunkRepository;
-    }
-    const raw = db?.raw as { query?: unknown } | undefined;
-    if (raw && typeof (raw as { query?: unknown }).query === 'function' && vectorEnabled) {
-      try {
-        return new FileChunkRepository(raw as ConstructorParameters<typeof FileChunkRepository>[0]);
-      } catch {
-        return null;
-      }
+      return chunkRepository as {
+        getCoverageForSet: (
+          setId: string
+        ) => Promise<{ totalChunks: number; chunksWithEmbeddingsForSet: number }>;
+      };
     }
     return null;
-  }, [chunkRepository, db, vectorEnabled]);
+  }, [chunkRepository]);
 
   const service = useMemo(() => {
     if (!(db && coverageRepository)) {
+      // Log diagnostic info for debugging when service is null
+      logger.debug('VectorQueueService is null', {
+        hasDb: Boolean(db),
+        hasCoverageRepository: Boolean(coverageRepository),
+      });
       return null;
     }
+    logger.debug('VectorQueueService created successfully');
     return createVectorQueueService({
       db,
       jobQueue: new JobQueue(db),
@@ -539,6 +642,68 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
 
   backfillRef.current = queueState.backfillActiveSet;
   validateApiKeyRef.current = queueState.validateApiKey;
+
+  // On web, determine if we need to auto-start the worker when backfill is clicked
+  const isWebPlatform = typeof window !== 'undefined' && !isElectronRenderer();
+  const needsWorkerStart =
+    isWebPlatform && !workerControls.workerLocalRunning && !workerControls.startingWorker;
+
+  // Combined action: auto-start worker on web, then backfill
+  const invokeBackfillWithWorkerStart = useCallback(async () => {
+    // Check preconditions and show helpful error messages instead of silent failures
+    if (!service) {
+      logger.warn('invokeBackfillWithWorkerStart: service is null', {
+        hasDb: Boolean(db),
+        hasChunkRepository: Boolean(chunkRepository),
+        hasCoverageRepository: Boolean(coverageRepository),
+      });
+      toast({
+        title: 'Database Not Ready',
+        description:
+          'The vector queue service is not available. Try switching tabs or restarting the app.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!activeId) {
+      logger.warn('invokeBackfillWithWorkerStart: no active collection selected');
+      toast({
+        title: 'No Collection Selected',
+        description: 'Please select an embedding collection before backfilling.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validate API key availability before backfilling
+    const validation = await validateApiKeyRef.current();
+    if (!validation.valid) {
+      toast({
+        title: 'API Key Required',
+        description: validation.message ?? 'Please configure your API key before embedding.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // On web, auto-start worker if not running
+    if (isWebPlatform && !workerControls.workerLocalRunning) {
+      await workerControls.startWorker();
+    }
+
+    // Proceed with backfill
+    await backfillRef.current();
+  }, [
+    toast,
+    isWebPlatform,
+    workerControls,
+    service,
+    db,
+    chunkRepository,
+    coverageRepository,
+    activeId,
+  ]);
 
   const throughputTrend = useMemo(
     () => queueState.telemetryTrend.map((point) => point.throughput),
@@ -673,8 +838,10 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             backfillProgress={queueState.backfillProgress}
             coverage={queueState.coverage}
             hasDb={hasDb}
-            onBackfill={invokeBackfill}
+            onBackfill={invokeBackfillWithWorkerStart}
             queueCounts={queueState.queueCounts}
+            startingWorker={workerControls.startingWorker}
+            willAutoStartWorker={needsWorkerStart}
           />
           <QueueControls
             hasDb={hasDb}

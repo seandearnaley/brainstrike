@@ -1,13 +1,6 @@
-import type {
-  ChunkingResult,
-  ChunkingStrategy,
-  FileChunk,
-  FileChunkInsert,
-  FileImportResult,
-  IDatabase,
-} from '@brainstrike/db';
-import { CHUNKING_CONFIG, ChunkingService } from '@brainstrike/db';
-import { countTokensAccurate, createLogger, fileExplorer } from '@brainstrike/utils';
+import type { ChunkingStrategy, FileChunk, FileImportResult, IDatabase } from '@brainstrike/db';
+import { CHUNKING_CONFIG } from '@brainstrike/db';
+import { createLogger, fileExplorer } from '@brainstrike/utils';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 const logger = createLogger('FileImport:Chunking');
@@ -149,38 +142,6 @@ function createChunkingProgressScheduler(
   };
 }
 
-async function handleChunkInsertion(
-  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
-  chunkingResult: ChunkingResult,
-  options: ChunkingOptions,
-  result: FileImportResult
-): Promise<void> {
-  // Apply embeddingSetId to chunks if targetEmbeddingSetId is provided (matches streaming path)
-  const setId = options.targetEmbeddingSetId;
-  const chunksWithSetId: FileChunkInsert[] = setId
-    ? chunkingResult.chunks.map((chunk) => ({
-        ...chunk,
-        embeddingSetId: setId,
-      }))
-    : chunkingResult.chunks;
-
-  const shouldUseTransaction =
-    options.embedQueueEnabled && options.runInTransaction && options.enqueueJobsForChunksTx;
-
-  if (shouldUseTransaction && options.runInTransaction) {
-    await options.runInTransaction(async (tx) => {
-      await insertChunksWithTransaction(tx, chunkRepository, chunksWithSetId);
-      await options.enqueueJobsForChunksTx?.(tx, chunksWithSetId, result.id);
-      return undefined as unknown as undefined;
-    });
-  } else {
-    await chunkRepository.insertMany(chunksWithSetId);
-    if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
-      await options.enqueueJobsForChunks(chunksWithSetId, result.id);
-    }
-  }
-}
-
 /**
  * Type guard to check if repository supports transactional insert.
  * Used to safely detect if insertManyWithTx is available.
@@ -314,7 +275,6 @@ async function prepareChunkingExecution(
   };
 }
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Chunking flow coordinates multiple paths.
 export async function processFileChunking(
   result: FileImportResult,
   index: number,
@@ -359,11 +319,9 @@ export async function processFileChunking(
       : null
   );
 
-  const chunkingService = new ChunkingService();
   const chunkSizeOverride = options.chunkSize;
   const chunkOverlapOverride = options.chunkOverlap;
   const hasUserOverrides = chunkSizeOverride !== undefined || chunkOverlapOverride !== undefined;
-  const tokenTrueSizingEnabled = options.tokenTrueSizing ?? true;
 
   const shouldStream =
     !!options.useStreamingForLargeFiles &&
@@ -430,234 +388,17 @@ export async function processFileChunking(
     return workerResult;
   }
 
-  if (shouldStream) {
-    logger.info('Using STREAMING path for chunking', { fileId: result.id });
-    const streamed = await processFileChunkingStreamPath(
-      chunkingService,
-      fileRecord.content,
-      result,
-      strategy,
-      repository,
-      chunkRepository,
-      fileRecord.name,
-      fileRecord.path,
-      options,
-      forceStrategy,
-      hasUserOverrides
-    );
-    logger.info('File chunked successfully (streaming)', {
-      fileId: result.id,
-      fileName: fileRecord.name,
-      chunksCreated: streamed.chunksCreated,
-      requestedStrategy: strategy,
-      strategyUsed: streamed.strategyUsed,
-    });
-    options.updateProgress((prev) =>
-      prev
-        ? {
-            ...prev,
-            phase: 'chunking',
-            chunkingProgress: {
-              filesProcessed: index + 1,
-              totalFiles,
-              currentFile: fileRecord.name,
-              chunksCreated: totalChunksCreated + streamed.chunksCreated,
-              strategyUsed: streamed.strategyUsed,
-            },
-          }
-        : null
-    );
-    return streamed;
-  }
-
-  logger.info('Using MAIN-THREAD path for chunking', { fileId: result.id });
-  const chunkingResult = await chunkingService.chunkContent(fileRecord.content, result.id, {
-    strategy,
-    ...(chunkSizeOverride !== undefined ? { maxTokens: chunkSizeOverride } : {}),
-    ...(chunkOverlapOverride !== undefined ? { overlap: chunkOverlapOverride } : {}),
-    fileName: fileRecord.name,
-    filePath: fileRecord.path,
-    forceStrategy,
-    ignoreFileTypeRecommendations: hasUserOverrides,
-    tokenTrueSizing: tokenTrueSizingEnabled,
-    ...(options.tokenLimit !== undefined ? { maxTokensCap: options.tokenLimit } : {}),
-    ...(tokenTrueSizingEnabled ? { tokenCounter: countTokensAccurate } : {}),
-  });
-
-  if (chunkingResult.skipped) {
-    logger.warn('Chunking skipped for file', {
-      fileId: result.id,
-      fileName: fileRecord.name,
-      skipReason: chunkingResult.skipReason,
-    });
-    await updateFileRecordWithChunkInfo(repository, result.id, 0, chunkingResult.strategyUsed);
-    options.updateProgress((prev) =>
-      prev
-        ? {
-            ...prev,
-            phase: 'chunking',
-            chunkingProgress: {
-              filesProcessed: index + 1,
-              totalFiles,
-              currentFile: fileRecord.name,
-              chunksCreated: totalChunksCreated,
-              strategyUsed: chunkingResult.strategyUsed,
-            },
-          }
-        : null
-    );
-    return {
-      enhancedResult: {
-        ...result,
-        chunksCreated: 0,
-        error: `Chunking skipped: ${chunkingResult.skipReason}`,
-        chunkingStrategy: chunkingResult.strategyUsed,
-      },
-      chunksCreated: 0,
-      strategyUsed: chunkingResult.strategyUsed,
-    };
-  }
-
-  logger.info('File chunked successfully', {
-    fileId: result.id,
-    fileName: fileRecord.name,
-    chunksCreated: chunkingResult.chunks.length,
-    requestedStrategy: strategy,
-    strategyUsed: chunkingResult.strategyUsed,
-  });
-
-  await handleChunkInsertion(chunkRepository, chunkingResult, options, result);
-  await updateFileRecordWithChunkInfo(
-    repository,
-    result.id,
-    chunkingResult.chunks.length,
-    chunkingResult.strategyUsed
+  // CRITICAL: No main-thread fallback allowed. Chunking MUST use the Web Worker.
+  // If we reach this point, the worker was not provided.
+  // Note: The streaming path is also disabled - it was a main-thread fallback for large files.
+  // All chunking MUST go through the worker to prevent UI blocking.
+  throw new Error(
+    'Chunking worker is required but not available. ' +
+      'Main-thread chunking (including streaming) is disabled to prevent UI blocking. ' +
+      `File: ${fileRecord.name}, contentLength: ${fileRecord.content.length}, ` +
+      `wouldHaveStreamed: ${shouldStream}, ` +
+      'chunkingWorkerPort: not provided'
   );
-
-  options.updateProgress((prev) =>
-    prev
-      ? {
-          ...prev,
-          phase: 'chunking',
-          chunkingProgress: {
-            filesProcessed: index + 1,
-            totalFiles,
-            currentFile: fileRecord.name,
-            chunksCreated: totalChunksCreated + chunkingResult.chunks.length,
-            strategyUsed: chunkingResult.strategyUsed,
-          },
-        }
-      : null
-  );
-
-  return {
-    enhancedResult: {
-      ...result,
-      chunksCreated: chunkingResult.chunks.length,
-      chunkingStrategy: chunkingResult.strategyUsed,
-    },
-    chunksCreated: chunkingResult.chunks.length,
-    chunks: chunkingResult.chunks,
-    strategyUsed: chunkingResult.strategyUsed,
-  };
-}
-
-async function processFileChunkingStreamPath(
-  chunkingService: ChunkingService,
-  content: string,
-  result: FileImportResult,
-  strategy: ChunkingStrategy,
-  repository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileRecordRepository>>,
-  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
-  fileName: string,
-  filePath: string,
-  options: ChunkingOptions,
-  forceStrategy: boolean,
-  hasUserOverrides: boolean
-): Promise<{
-  enhancedResult: EnhancedImportResult;
-  chunksCreated: number;
-  strategyUsed: ChunkingStrategy;
-}> {
-  const tokenTrueSizingEnabled = options.tokenTrueSizing ?? true;
-  /**
-   * Maximum chunks per batch to prevent excessive memory usage.
-   * Caps streamBatchSize overrides to balance memory efficiency and insertion performance.
-   */
-  const MaxBatchSize = 1000;
-  const requestedBatchSize = options.streamBatchSize ?? 250;
-  const batchSize = Math.max(1, Math.min(requestedBatchSize, MaxBatchSize));
-  let resolvedStrategy: ChunkingStrategy = strategy;
-  const stream = chunkingService.chunkContentStream(content, result.id, {
-    strategy,
-    ...(options.chunkSize !== undefined ? { maxTokens: options.chunkSize } : {}),
-    ...(options.chunkOverlap !== undefined ? { overlap: options.chunkOverlap } : {}),
-    fileName,
-    filePath,
-    allowLargeFiles: true,
-    forceStrategy,
-    ignoreFileTypeRecommendations: hasUserOverrides,
-    tokenTrueSizing: tokenTrueSizingEnabled,
-    ...(options.tokenLimit !== undefined ? { maxTokensCap: options.tokenLimit } : {}),
-    ...(tokenTrueSizingEnabled ? { tokenCounter: countTokensAccurate } : {}),
-    onStrategyResolved: (s) => {
-      resolvedStrategy = s;
-    },
-  });
-
-  let totalCreated = 0;
-  const batch: FileChunkInsert[] = [];
-  let chunkCount = 0;
-  for await (const ch of stream) {
-    // Set embedding_set_id on chunk if targetEmbeddingSetId is provided
-    const chunkWithSetId: FileChunkInsert = options.targetEmbeddingSetId
-      ? { ...ch, embeddingSetId: options.targetEmbeddingSetId }
-      : ch;
-
-    // Debug log first chunk to verify embeddingSetId is set
-    if (chunkCount === 0) {
-      logger.info('[DEBUG] First chunk embeddingSetId', {
-        targetEmbeddingSetId: options.targetEmbeddingSetId,
-        chunkEmbeddingSetId: chunkWithSetId.embeddingSetId,
-        fileRecordId: result.id,
-      });
-    }
-    chunkCount++;
-
-    batch.push(chunkWithSetId);
-    if (batch.length >= batchSize) {
-      totalCreated += await flushBatch(batch, chunkRepository, options, result.id);
-    }
-  }
-
-  if (batch.length > 0) {
-    totalCreated += await flushBatch(batch, chunkRepository, options, result.id);
-  }
-
-  await updateFileRecordWithChunkInfo(repository, result.id, totalCreated, resolvedStrategy);
-  return {
-    enhancedResult: {
-      ...result,
-      chunksCreated: totalCreated,
-      chunkingStrategy: resolvedStrategy,
-    },
-    chunksCreated: totalCreated,
-    strategyUsed: resolvedStrategy,
-  };
-}
-
-async function flushBatch(
-  batch: FileChunkInsert[],
-  chunkRepository: { insertMany: (chunks: FileChunkInsert[]) => Promise<FileChunk[]> },
-  options: ChunkingOptions,
-  fileRecordId: string
-): Promise<number> {
-  const inserted = await chunkRepository.insertMany(batch);
-  if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
-    await options.enqueueJobsForChunks(inserted, fileRecordId);
-  }
-  batch.length = 0;
-  return inserted.length;
 }
 
 /**

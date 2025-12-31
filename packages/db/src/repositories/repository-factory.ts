@@ -10,7 +10,12 @@ import type { IFileRecordRepository } from './interfaces.js';
 export type { ElectronDbAPI } from './electron-file-record-repository.js';
 
 /**
- * Create a FileRecordRepository for the given database
+ * Create a FileRecordRepository for the given database.
+ *
+ * @deprecated For PGlite, prefer using DrizzleFileRecordRepository directly via
+ * the DbProvider hooks (useFileRecordRepository). This factory returns the legacy
+ * raw SQL FileRecordRepository for PGlite which is being phased out.
+ * The Electron IPC path still uses this factory.
  */
 export function createFileRecordRepository(db: PGlite | ElectronDbAPI): IFileRecordRepository {
   // Check if it's a PGlite instance by looking for PGlite-specific properties

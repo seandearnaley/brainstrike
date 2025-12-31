@@ -102,6 +102,11 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const selectSetFilters = (s: FileExplorerState) => s.setFilters;
   const selectSetUseRegex = (s: FileExplorerState) => s.setUseRegex;
   const selectClearFileContents = (s: FileExplorerState) => s.clearFileContents;
+  const selectClearSelectedFiles = (s: FileExplorerState) => s.clearSelectedFiles;
+  const selectSetExpandedPaths = (s: FileExplorerState) => s.setExpandedPaths;
+  // Subscribe to selection/expansion state for stale state detection
+  const selectSelectedFilePaths = (s: FileExplorerState) => s.selectedFilePaths;
+  const selectExpandedDirectoryPaths = (s: FileExplorerState) => s.expandedDirectoryPaths;
 
   const store = useFileExplorerStoreContext();
   const includeFilters = store(selectIncludeFilters);
@@ -110,6 +115,11 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const setFilters = store(selectSetFilters);
   const setUseRegex = store(selectSetUseRegex);
   const storeClearFileContents = store(selectClearFileContents);
+  const clearSelectedFiles = store(selectClearSelectedFiles);
+  const setExpandedPaths = store(selectSetExpandedPaths);
+  // Subscribe to these values so effect fires when store rehydrates
+  const selectedFilePaths = store(selectSelectedFilePaths);
+  const expandedDirectoryPaths = store(selectExpandedDirectoryPaths);
 
   const {
     rootDirectoryHandle,
@@ -235,6 +245,57 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // State for restoration progress - exposed to UI for feedback
   const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
   const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
+
+  /**
+   * Clear stale selection and expansion state when there's no root directory handle.
+   *
+   * On web, FileSystemHandle cannot be persisted to localStorage. When the app reloads:
+   * 1. Store restores selectedFilePaths and expandedDirectoryPaths from persistence
+   * 2. But rootDirectoryHandle is null (can't be serialized)
+   * 3. Without rootDirectoryHandle, the file tree never loads
+   * 4. This creates an inconsistent state where files appear "selected" but can't be acted upon
+   *
+   * This effect is REACTIVE - it subscribes to selectedFilePaths and expandedDirectoryPaths
+   * so it fires when Zustand's persist middleware rehydrates the store. The effect is
+   * self-limiting: once we clear the stale state, the sizes become 0 and the condition
+   * no longer matches.
+   */
+  useEffect(() => {
+    // Wait for initial mount to complete (not loading)
+    if (isTreeLoading) {
+      return;
+    }
+
+    // If we have a root directory handle, no cleanup needed - state is valid
+    if (rootDirectoryHandle) {
+      return;
+    }
+
+    // Check for stale state using subscribed values (reactive to store rehydration)
+    const hasStaleSelection = selectedFilePaths.size > 0;
+    const hasStaleExpansion = expandedDirectoryPaths.size > 0;
+
+    if (hasStaleSelection || hasStaleExpansion) {
+      logger.info('Clearing stale file explorer state - no root directory handle', {
+        staleSelectedFiles: selectedFilePaths.size,
+        staleExpandedPaths: expandedDirectoryPaths.size,
+      });
+
+      if (hasStaleSelection) {
+        clearSelectedFiles();
+      }
+      if (hasStaleExpansion) {
+        setExpandedPaths(new Set());
+      }
+    }
+  }, [
+    rootDirectoryHandle,
+    isTreeLoading,
+    selectedFilePaths,
+    expandedDirectoryPaths,
+    clearSelectedFiles,
+    setExpandedPaths,
+  ]);
 
   /**
    * Auto-restore expanded directories from persisted state.

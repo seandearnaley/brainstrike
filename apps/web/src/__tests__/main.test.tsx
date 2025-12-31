@@ -11,6 +11,7 @@ vi.mock('react-helmet-async', () => ({
 
 vi.mock('@brainstrike/db', () => ({
   DbProvider: ({ children }: { children: React.ReactNode }) => children,
+  usePGliteDatabase: vi.fn(() => null),
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -24,6 +25,44 @@ vi.mock('@brainstrike/file-system', () => ({
 
 vi.mock('@brainstrike/storage', () => ({
   createStorageAdapter: () => ({}),
+}));
+
+// Mock preferences stores
+const mockLoggingStore = {
+  hasHydrated: true,
+  preferences: { level: 'debug' },
+  updatePreferences: vi.fn(),
+  getState: vi.fn(() => ({
+    hasHydrated: true,
+    preferences: { level: 'debug' },
+  })),
+  subscribe: vi.fn(() => () => {}),
+};
+
+vi.mock('@brainstrike/preferences', () => ({
+  useLoggingPreferencesStore: Object.assign(
+    vi.fn(() => mockLoggingStore),
+    mockLoggingStore
+  ),
+  useVectorStatusUIStore: vi.fn((selector: (state: { setSchemaVerified: () => void }) => unknown) =>
+    selector({ setSchemaVerified: vi.fn() })
+  ),
+  // Mock DbSchemaVerifier component - renders children directly
+  DbSchemaVerifier: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+// Mock utils to prevent side effects
+vi.mock('@brainstrike/utils', () => ({
+  initializeLogging: vi.fn(),
+  applyLoggingPreferences: vi.fn(),
+  installConsoleGuard: vi.fn(),
+  installRendererErrorHooks: vi.fn(() => () => {}),
+  LogLevel: { DEBUG: 'debug', INFO: 'info' },
+}));
+
+// Mock queue telemetry
+vi.mock('@brainstrike/queue', () => ({
+  initializeQueueTelemetrySink: vi.fn(() => null),
 }));
 
 // Mock file-import to prevent worker initialization during tests

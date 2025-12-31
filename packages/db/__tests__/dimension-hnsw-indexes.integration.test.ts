@@ -99,7 +99,8 @@ describe('Dimension HNSW Index Helpers', () => {
     });
 
     it('should not error when dropping non-existent index', async () => {
-      await dropDimensionIndex(db, 99_999); // Should not throw
+      // Use a valid dimension (within 1-65535 range) that doesn't have an index
+      await dropDimensionIndex(db, 9999); // Should not throw
     });
   });
 

@@ -320,15 +320,229 @@ describe('initializeQueueTelemetrySink', () => {
 
     await vi.advanceTimersByTimeAsync(1000);
 
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      'Queue telemetry sink failed to send payload',
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      'Queue telemetry sink failed to send payload, will retry',
       expect.objectContaining({
         error: 'Network error',
         eventCount: 1,
+        consecutiveFailures: 1,
       })
     );
 
     await sink?.dispose();
+  });
+
+  describe('Consecutive Failure Disabling', () => {
+    it('should disable sink after maxConsecutiveFailures (default 3)', async () => {
+      fetchSpy.mockRejectedValue(new Error('Network error'));
+      beaconSpy.mockReturnValue(false);
+
+      const sink = initializeQueueTelemetrySink({
+        endpoint: 'https://example.com/telemetry',
+        flushIntervalMs: 1000,
+        enableInTest: true,
+      });
+
+      // First failure - emit event and flush
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: 'pqueue',
+        event: 'enqueue',
+        taskId: 'task-1',
+      });
+      await sink?.flush();
+
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        'Queue telemetry sink failed to send payload, will retry',
+        expect.objectContaining({ consecutiveFailures: 1 })
+      );
+
+      // Second failure - flush again (events were re-queued)
+      await sink?.flush();
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        'Queue telemetry sink failed to send payload, will retry',
+        expect.objectContaining({ consecutiveFailures: 2 })
+      );
+
+      // Third failure - should disable
+      await sink?.flush();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Queue telemetry sink disabled after repeated failures - endpoint may be unreachable',
+        expect.objectContaining({
+          consecutiveFailures: 3,
+        })
+      );
+
+      await sink?.dispose();
+    });
+
+    it('should respect custom maxConsecutiveFailures option', async () => {
+      fetchSpy.mockRejectedValue(new Error('Network error'));
+      beaconSpy.mockReturnValue(false);
+
+      const sink = initializeQueueTelemetrySink({
+        endpoint: 'https://example.com/telemetry',
+        flushIntervalMs: 1000,
+        maxConsecutiveFailures: 2,
+        enableInTest: true,
+      });
+
+      // First failure
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: 'pqueue',
+        event: 'enqueue',
+        taskId: 'task-1',
+      });
+      await sink?.flush();
+
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        'Queue telemetry sink failed to send payload, will retry',
+        expect.objectContaining({ consecutiveFailures: 1 })
+      );
+
+      // Second failure - should disable with maxConsecutiveFailures: 2
+      await sink?.flush();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Queue telemetry sink disabled after repeated failures - endpoint may be unreachable',
+        expect.objectContaining({
+          consecutiveFailures: 2,
+        })
+      );
+
+      await sink?.dispose();
+    });
+
+    it('should drop new events when sink is disabled', async () => {
+      fetchSpy.mockRejectedValue(new Error('Network error'));
+      beaconSpy.mockReturnValue(false);
+
+      const sink = initializeQueueTelemetrySink({
+        endpoint: 'https://example.com/telemetry',
+        flushIntervalMs: 1000,
+        maxConsecutiveFailures: 1, // Disable after first failure
+        enableInTest: true,
+      });
+
+      // First event triggers failure and disables sink
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: 'pqueue',
+        event: 'enqueue',
+        taskId: 'task-1',
+      });
+      await sink?.flush();
+
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Queue telemetry sink disabled after repeated failures - endpoint may be unreachable',
+        expect.any(Object)
+      );
+
+      vi.clearAllMocks();
+
+      // New events should be dropped (no fetch calls after sink is disabled)
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: 'pqueue',
+        event: 'enqueue',
+        taskId: 'task-2',
+      });
+      await sink?.flush();
+
+      // Fetch should not be called after sink was disabled
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      await sink?.dispose();
+    });
+
+    it('should reset failure counter on successful send', async () => {
+      let callCount = 0;
+      fetchSpy.mockImplementation(() => {
+        callCount += 1;
+        // First call fails, second succeeds, third fails
+        if (callCount === 1 || callCount === 3) {
+          return Promise.reject(new Error('Network error'));
+        }
+        return Promise.resolve({ ok: true, status: 200 });
+      });
+      beaconSpy.mockReturnValue(false);
+
+      const sink = initializeQueueTelemetrySink({
+        endpoint: 'https://example.com/telemetry',
+        flushIntervalMs: 1000,
+        maxConsecutiveFailures: 2,
+        enableInTest: true,
+      });
+
+      // First event - will fail
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: 'pqueue',
+        event: 'enqueue',
+        taskId: 'task-1',
+      });
+      await sink?.flush();
+
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        'Queue telemetry sink failed to send payload, will retry',
+        expect.objectContaining({ consecutiveFailures: 1 })
+      );
+
+      // Second attempt - will succeed (events were re-queued from first failure)
+      await sink?.flush();
+
+      // Clear mocks to verify next failure starts fresh
+      vi.clearAllMocks();
+
+      // Third event - will fail again, but counter should have been reset
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: 'pqueue',
+        event: 'enqueue',
+        taskId: 'task-3',
+      });
+      await sink?.flush();
+
+      // Should be consecutiveFailures: 1 (reset after success), not 2
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        'Queue telemetry sink failed to send payload, will retry',
+        expect.objectContaining({ consecutiveFailures: 1 })
+      );
+
+      await sink?.dispose();
+    });
+
+    it('should not attempt flush when disabled', async () => {
+      fetchSpy.mockRejectedValue(new Error('Network error'));
+      beaconSpy.mockReturnValue(false);
+
+      const sink = initializeQueueTelemetrySink({
+        endpoint: 'https://example.com/telemetry',
+        flushIntervalMs: 1000,
+        maxConsecutiveFailures: 1,
+        enableInTest: true,
+      });
+
+      // Trigger failure to disable sink
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: 'pqueue',
+        event: 'enqueue',
+        taskId: 'task-1',
+      });
+      await sink?.flush();
+
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      vi.clearAllMocks();
+
+      // Manual flush should not attempt to send
+      await sink?.flush();
+
+      // No additional calls after sink was disabled
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      await sink?.dispose();
+    });
   });
 
   it('should handle non-ok fetch response', async () => {
@@ -353,10 +567,11 @@ describe('initializeQueueTelemetrySink', () => {
 
     await vi.advanceTimersByTimeAsync(1000);
 
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      'Queue telemetry sink failed to send payload',
+    expect(mockLogger.debug).toHaveBeenCalledWith(
+      'Queue telemetry sink failed to send payload, will retry',
       expect.objectContaining({
         error: 'Unexpected response: 500',
+        consecutiveFailures: 1,
       })
     );
 

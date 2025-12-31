@@ -1,4 +1,4 @@
-import type { EmbeddingSetsRepository } from '@brainstrike/db';
+import type { IEmbeddingSetsRepository } from '@brainstrike/db';
 import { type ModelPickerModel, type ModelPickerProvider, Toaster } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
@@ -46,7 +46,7 @@ describe('CreateEmbeddingSetDialog', () => {
   const mockOnSetCreated = vi.fn();
   const mockRepository = {
     getOrCreateSet: vi.fn(),
-  } as unknown as EmbeddingSetsRepository;
+  } as unknown as IEmbeddingSetsRepository;
 
   const mockModels: ModelPickerModel[] = [
     {

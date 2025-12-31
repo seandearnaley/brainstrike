@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { formatRelativeTimeFromNow } from '../vector-status';
+import {
+  buildBaseLabel,
+  formatRelativeTimeFromNow,
+  getBackfillAriaLabel,
+  getBackfillButtonText,
+  getBackfillTooltip,
+  truncateLabel,
+} from '../vector-status';
 import { getBackfillDisabledState } from '../vector-status/backfill-utils';
 import { type VectorQueueDatabase, withTransaction } from '../vector-status/vector-queue-service';
 
@@ -181,5 +188,174 @@ describe('formatRelativeTimeFromNow', () => {
     expect(formatRelativeTimeFromNow('2025-01-01T11:45:00.000Z')).toBe('15m ago');
     expect(formatRelativeTimeFromNow('2025-01-01T10:00:00.000Z')).toBe('2h ago');
     expect(formatRelativeTimeFromNow('2024-12-28T12:00:00.000Z')).toBe('4d ago');
+  });
+});
+
+describe('truncateLabel', () => {
+  it('returns trimmed label when under 24 chars', () => {
+    expect(truncateLabel('Short Label')).toBe('Short Label');
+    expect(truncateLabel('  padded  ')).toBe('padded');
+  });
+
+  it('returns exactly 24 chars without truncation', () => {
+    const label24 = '123456789012345678901234';
+    expect(truncateLabel(label24)).toBe(label24);
+  });
+
+  it('truncates to 21 chars with ellipsis when over 24 chars', () => {
+    const longLabel = 'This is a very long label that exceeds 24 characters';
+    expect(truncateLabel(longLabel)).toBe('This is a very long l…');
+    expect(truncateLabel(longLabel).length).toBe(22); // 21 + ellipsis
+  });
+
+  it('handles empty string', () => {
+    expect(truncateLabel('')).toBe('');
+    expect(truncateLabel('   ')).toBe('');
+  });
+});
+
+describe('buildBaseLabel', () => {
+  it('returns "Backfill" when label is null', () => {
+    expect(buildBaseLabel(null)).toBe('Backfill');
+  });
+
+  it('returns "Backfill" when label is empty', () => {
+    expect(buildBaseLabel('')).toBe('Backfill');
+    expect(buildBaseLabel('   ')).toBe('Backfill');
+  });
+
+  it('returns "Backfill {label}" for short labels', () => {
+    expect(buildBaseLabel('MySet')).toBe('Backfill MySet');
+  });
+
+  it('truncates long labels in the base label', () => {
+    const longLabel = 'My Very Long Embedding Set Name Here';
+    expect(buildBaseLabel(longLabel)).toBe('Backfill My Very Long Embeddin…');
+  });
+});
+
+describe('getBackfillButtonText', () => {
+  const baseLabel = 'Backfill MySet';
+
+  it('returns "Starting…" when worker is starting', () => {
+    expect(getBackfillButtonText(baseLabel, true, false, null, false)).toBe('Starting…');
+  });
+
+  it('returns progress when backfilling with progress', () => {
+    expect(getBackfillButtonText(baseLabel, false, true, { done: 5, total: 10 }, false)).toBe(
+      '5/10'
+    );
+  });
+
+  it('returns "Backfilling…" when backfilling without progress', () => {
+    expect(getBackfillButtonText(baseLabel, false, true, null, false)).toBe('Backfilling…');
+  });
+
+  it('returns "Start & {baseLabel}" when willAutoStartWorker is true', () => {
+    expect(getBackfillButtonText(baseLabel, false, false, null, true)).toBe(
+      'Start & Backfill MySet'
+    );
+  });
+
+  it('returns baseLabel in default state', () => {
+    expect(getBackfillButtonText(baseLabel, false, false, null, false)).toBe('Backfill MySet');
+  });
+
+  it('prioritizes startingWorker over other states', () => {
+    expect(getBackfillButtonText(baseLabel, true, true, { done: 5, total: 10 }, true)).toBe(
+      'Starting…'
+    );
+  });
+
+  it('prioritizes backfilling with progress over willAutoStartWorker', () => {
+    expect(getBackfillButtonText(baseLabel, false, true, { done: 3, total: 8 }, true)).toBe('3/8');
+  });
+});
+
+describe('getBackfillAriaLabel', () => {
+  const baseLabel = 'Backfill MySet';
+  const activeLabel = 'MySet';
+
+  it('returns "Starting worker…" when worker is starting', () => {
+    expect(getBackfillAriaLabel(baseLabel, activeLabel, true, false, false)).toBe(
+      'Starting worker…'
+    );
+  });
+
+  it('returns "Backfilling {label}" when backfilling with active label', () => {
+    expect(getBackfillAriaLabel(baseLabel, activeLabel, false, true, false)).toBe(
+      'Backfilling MySet'
+    );
+  });
+
+  it('returns "Backfilling current collection" when backfilling without label', () => {
+    expect(getBackfillAriaLabel(baseLabel, null, false, true, false)).toBe(
+      'Backfilling current collection'
+    );
+  });
+
+  it('returns "Start worker and {baseLabel}" when willAutoStartWorker', () => {
+    expect(getBackfillAriaLabel(baseLabel, activeLabel, false, false, true)).toBe(
+      'Start worker and backfill myset'
+    );
+  });
+
+  it('returns "Backfill {truncated label}" with active label in default state', () => {
+    expect(getBackfillAriaLabel(baseLabel, activeLabel, false, false, false)).toBe(
+      'Backfill MySet'
+    );
+  });
+
+  it('returns "Backfill current collection" without label in default state', () => {
+    expect(getBackfillAriaLabel(baseLabel, null, false, false, false)).toBe(
+      'Backfill current collection'
+    );
+  });
+
+  it('truncates long labels in aria label', () => {
+    const longLabel = 'My Very Long Embedding Set Name Here';
+    expect(getBackfillAriaLabel(baseLabel, longLabel, false, false, false)).toBe(
+      'Backfill My Very Long Embeddin…'
+    );
+  });
+});
+
+describe('getBackfillTooltip', () => {
+  const baseLabel = 'Backfill MySet';
+  const activeLabel = 'MySet';
+  const defaultTitle = 'Enqueue jobs for chunks missing embeddings';
+
+  it('returns "Starting embedding worker…" when worker is starting', () => {
+    expect(getBackfillTooltip(defaultTitle, baseLabel, activeLabel, true, false)).toBe(
+      'Starting embedding worker…'
+    );
+  });
+
+  it('returns combined action tooltip when willAutoStartWorker', () => {
+    expect(getBackfillTooltip(defaultTitle, baseLabel, activeLabel, false, true)).toBe(
+      'Start embedding worker and enqueue backfill jobs'
+    );
+  });
+
+  it('returns defaultTitle when provided and not in special state', () => {
+    expect(getBackfillTooltip(defaultTitle, baseLabel, activeLabel, false, false)).toBe(
+      'Enqueue jobs for chunks missing embeddings'
+    );
+  });
+
+  it('returns "Backfill {label}" when no defaultTitle and has activeLabel', () => {
+    expect(getBackfillTooltip('', baseLabel, activeLabel, false, false)).toBe('Backfill MySet');
+  });
+
+  it('returns "Backfill current collection" when no defaultTitle and no activeLabel', () => {
+    expect(getBackfillTooltip('', baseLabel, null, false, false)).toBe(
+      'Backfill current collection'
+    );
+  });
+
+  it('prioritizes startingWorker over willAutoStartWorker', () => {
+    expect(getBackfillTooltip(defaultTitle, baseLabel, activeLabel, true, true)).toBe(
+      'Starting embedding worker…'
+    );
   });
 });

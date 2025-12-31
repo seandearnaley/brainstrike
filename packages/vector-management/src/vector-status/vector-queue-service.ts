@@ -219,6 +219,9 @@ export function createVectorQueueService(
 
     async backfill(activeSetId, onProgress) {
       logger.info('Backfill requested', { embeddingSetId: activeSetId });
+      // Match the coverage query logic: include chunks where embedding_set_id is directly
+      // on the chunk OR where chunk.embedding_set_id is NULL but file_record.embedding_set_id matches.
+      // This handles both the new pattern (embedding_set_id on chunk) and legacy pattern (on file_record only).
       const candidates = await db.query<{
         id: string;
         fileRecordId: string;
@@ -228,7 +231,11 @@ export function createVectorQueueService(
                 c.file_record_id AS "fileRecordId",
                 c.content_hash   AS "contentHash"
            FROM file_chunks c
-          WHERE c.embedding_set_id = $1
+           JOIN file_records fr ON fr.id = c.file_record_id
+          WHERE (
+                  c.embedding_set_id = $1
+                  OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = $1)
+                )
             AND c.embedding IS NULL
             AND NOT EXISTS (
                   SELECT 1

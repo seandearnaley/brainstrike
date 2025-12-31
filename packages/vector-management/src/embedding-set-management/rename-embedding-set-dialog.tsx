@@ -1,4 +1,4 @@
-import type { EmbeddingSet, EmbeddingSetsRepository } from '@brainstrike/db';
+import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
 import {
   Button,
   Dialog,
@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react';
 type RenameEmbeddingSetDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  repository: EmbeddingSetsRepository | null;
+  repository: IEmbeddingSetsRepository | null;
   embeddingSet: EmbeddingSet | null;
   onSetRenamed?: (setId: string) => void;
 };

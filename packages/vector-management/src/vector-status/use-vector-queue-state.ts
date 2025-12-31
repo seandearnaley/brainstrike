@@ -1,4 +1,5 @@
 import { usePGliteLiveQuery } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueue } from '../embedding-queue-provider';
 import {
@@ -7,6 +8,8 @@ import {
   type QueueCounts,
   type VectorQueueService,
 } from './vector-queue-service';
+
+const logger = createLogger('useVectorQueueState');
 
 export type BackfillProgress = { done: number; total: number } | null;
 
@@ -314,17 +317,34 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [metrics]);
 
   const backfillActiveSet = useCallback(async () => {
-    if (!(service && activeEmbeddingSetId)) {
+    // CRITICAL: Log precondition failures - these were previously silent failures
+    if (!service) {
+      logger.warn('backfillActiveSet: service is null - cannot backfill', {
+        hasActiveEmbeddingSetId: Boolean(activeEmbeddingSetId),
+        activeEmbeddingSetId,
+      });
+      return;
+    }
+    if (!activeEmbeddingSetId) {
+      logger.warn('backfillActiveSet: activeEmbeddingSetId is null - cannot backfill', {
+        hasService: Boolean(service),
+      });
       return;
     }
     setBackfilling(true);
     setBackfillProgress(null);
     try {
+      logger.info('backfillActiveSet: starting backfill', { activeEmbeddingSetId });
       await service.backfill(activeEmbeddingSetId, (done, total) => {
         setBackfillProgress({ done, total });
       });
-    } catch {
-      // swallow errors; live queries will reflect queue changes
+      logger.info('backfillActiveSet: backfill completed', { activeEmbeddingSetId });
+    } catch (error) {
+      // Log errors instead of swallowing them silently
+      logger.error('backfillActiveSet: backfill failed', {
+        activeEmbeddingSetId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       setBackfilling(false);
       if (backfillTimeoutRef.current) {

@@ -4,6 +4,10 @@ export const migration013EmbeddingSetsAllowDuplicates: Migration = {
   version: 13,
   name: 'embedding_sets_allow_duplicates',
   up: `
+    -- Add allow_duplicates column to embedding_sets
+    ALTER TABLE embedding_sets
+      ADD COLUMN IF NOT EXISTS allow_duplicates BOOLEAN DEFAULT false;
+
     ALTER TABLE embedding_sets
       DROP CONSTRAINT IF EXISTS embedding_sets_model_key_dimensions_distance_key;
 
@@ -16,5 +20,8 @@ export const migration013EmbeddingSetsAllowDuplicates: Migration = {
     ALTER TABLE embedding_sets
       ADD CONSTRAINT embedding_sets_model_key_dimensions_distance_key
         UNIQUE (model_key, dimensions, distance);
+
+    ALTER TABLE embedding_sets
+      DROP COLUMN IF EXISTS allow_duplicates;
   `,
 };

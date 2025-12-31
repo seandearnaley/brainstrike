@@ -1,4 +1,4 @@
-import type { EmbeddingSetsRepository } from '@brainstrike/db';
+import type { IEmbeddingSetsRepository } from '@brainstrike/db';
 import {
   Button,
   Dialog,
@@ -21,7 +21,7 @@ import { setActiveEmbeddingSetId } from '../vector-preferences';
 type CreateEmbeddingSetDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  repository: EmbeddingSetsRepository | null;
+  repository: IEmbeddingSetsRepository | null;
   models: ModelPickerModel[];
   providers: ModelPickerProvider[];
   isLoading?: boolean;

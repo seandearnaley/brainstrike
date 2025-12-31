@@ -77,7 +77,7 @@ pnpm type-check     # TypeScript validation
 ### Monorepo Structure
 - **`apps/web`**: Vite + React 19 web application
 - **`apps/desktop`**: Electron wrapper for native desktop experience
-- **`packages/`**: 28 shared packages with specific purposes
+- **`packages/`**: 30 shared packages with specific purposes
 
 ### Key Packages
 - **`@brainstrike/ui`**: React components based on shadcn/ui + Radix
@@ -106,12 +106,12 @@ Critical architectural pattern enabling cross-platform functionality:
 
 ### Technology Stack
 - **Node.js**: 22+ required (check `.nvmrc`)
-- **Package Manager**: pnpm 10.17.0+ with workspaces
-- **Build System**: Turborepo 2.6.1 with intelligent caching
+- **Package Manager**: pnpm 10.26.2+ with workspaces
+- **Build System**: Turborepo 2.7.2 with intelligent caching
 - **Frontend**: React 19, Vite 7, TypeScript 5.9
 - **Styling**: Tailwind CSS v4 with shared configuration
-- **Testing**: Vitest (unit), Playwright (E2E)
-- **Linting**: Biome 2.3.5
+- **Testing**: Vitest 4 (unit), Playwright (E2E)
+- **Linting**: Biome 2.3.8
 
 ### Code Standards
 - **TypeScript**: Strict mode enabled across all packages
@@ -184,7 +184,7 @@ When working with file operations:
 
 ## Build System
 
-### Turborepo Configuration (v2.6.1)
+### Turborepo Configuration (v2.7.2)
 - Topological builds with dependency awareness
 - Shared caching across local and CI environments
 - Parallel execution where possible

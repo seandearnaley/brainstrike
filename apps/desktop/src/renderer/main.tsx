@@ -2,7 +2,7 @@ import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
-import { useLoggingPreferencesStore } from '@brainstrike/preferences';
+import { DbSchemaVerifier, useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import type { LoggingPreferences } from '@brainstrike/utils';
 import {
@@ -184,11 +184,13 @@ function App() {
 
   return (
     <DbProvider dbPath={dbPath} useElectronIPC={true}>
-      <ChunkingWorkerProvider>
-        <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-          <RootLayoutContent />
-        </AdaptersProvider>
-      </ChunkingWorkerProvider>
+      <DbSchemaVerifier>
+        <ChunkingWorkerProvider>
+          <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+            <RootLayoutContent />
+          </AdaptersProvider>
+        </ChunkingWorkerProvider>
+      </DbSchemaVerifier>
     </DbProvider>
   );
 }

@@ -67,8 +67,6 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
   postLog(level, message, data);
 }
 
-log('info', 'worker script evaluated');
-
 // Message types for worker communication
 export type IndexerRequest = {
   type: 'index';
@@ -173,15 +171,12 @@ function hashToHex(hash: bigint): string {
  */
 async function initHasher(): Promise<XXHashModule> {
   if (hasherInstance) {
-    log('debug', 'initHasher reuse existing instance');
     return hasherInstance;
   }
 
-  log('info', 'initHasher start (loading xxhash-wasm)');
   const xxhashModule = await import('xxhash-wasm');
   const xxhashFn = typeof xxhashModule.default === 'function' ? xxhashModule.default : xxhashModule;
   hasherInstance = (await (xxhashFn as () => Promise<XXHashModule>)()) as XXHashModule;
-  log('info', 'initHasher complete');
   return hasherInstance;
 }
 
@@ -193,16 +188,11 @@ async function getTokenUtils(): Promise<{
   countTokensHeuristic: (text: string) => number;
 }> {
   if (!tokenUtilsPromise) {
-    log('info', 'getTokenUtils start (import token-utils-lite)');
     tokenUtilsPromise = import('./token-utils-lite')
       .then((mod) => ({
         countTokensAccurate: mod.countTokensAccurate,
         countTokensHeuristic: mod.countTokensHeuristic,
       }))
-      .then((utils) => {
-        log('info', 'getTokenUtils resolved');
-        return utils;
-      })
       .catch((error) => {
         const formatted = formatError(error);
         log('error', 'getTokenUtils failed', formatted);
@@ -265,7 +255,7 @@ async function processFile(
   utils: Awaited<ReturnType<typeof getTokenUtils>>
 ): Promise<IndexerResult | IndexerError> {
   try {
-    log('info', 'processFile start', {
+    log('debug', 'processFile start', {
       id: request.id,
       compositeKey: request.compositeKey,
       filePath: request.filePath,
@@ -298,7 +288,7 @@ async function processFile(
 
     // Check if hash matches cached - skip counting if so
     if (request.cachedHash && request.cachedHash === contentHash) {
-      log('info', 'processFile cache hit; skipping count', { id: request.id });
+      log('debug', 'processFile cache hit; skipping count', { id: request.id });
       return {
         type: 'result',
         id: request.id,
@@ -318,7 +308,7 @@ async function processFile(
       request.mode === 'accurate'
         ? await utils.countTokensAccurate(content)
         : utils.countTokensHeuristic(content);
-    log('info', 'processFile token counted', { tokenCount, mode: request.mode });
+    log('debug', 'processFile token counted', { tokenCount, mode: request.mode });
 
     return {
       type: 'result',
@@ -356,7 +346,7 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
     return;
   }
 
-  log('info', 'processBatch start', { total: requests.length });
+  log('debug', 'processBatch start', { total: requests.length });
 
   try {
     // Pre-initialize to avoid repeated async overhead
@@ -405,7 +395,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   const message = event.data;
 
   try {
-    log('info', 'onmessage received', { type: (message as { type?: unknown }).type });
+    log('debug', 'onmessage received', { type: (message as { type?: unknown }).type });
     if (message.type === 'index') {
       const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
       const result = await processFile(message, hasher, utils);
@@ -431,10 +421,8 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 };
 
 const bootstrap = async (): Promise<void> => {
-  log('info', 'worker bootstrap start');
   try {
     await Promise.all([initHasher(), getTokenUtils()]);
-    log('info', 'worker bootstrap modules loaded');
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'worker bootstrap failed', formatted);
@@ -448,7 +436,6 @@ const bootstrap = async (): Promise<void> => {
   }
 
   self.postMessage({ type: 'ready' });
-  log('info', 'worker ready posted');
 };
 
 void bootstrap();

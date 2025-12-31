@@ -54,9 +54,7 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
     });
   };
 
-  // Log worker initialization
-  // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-  console.log('[EmbeddingWorker] Worker script loaded and initializing...');
+  // Log worker initialization at debug level (removed - too verbose)
 }
 
 type FeatureExtractor = FeatureExtractionPipeline &
@@ -123,25 +121,17 @@ async function loadPipeline(
   const cacheKey = `${model}|${device}|${dtype}`;
   const existing = pipelines.get(cacheKey);
   if (existing !== undefined) {
-    // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-    console.log('[EmbeddingWorker] Using cached pipeline:', { model, device, dtype });
+    // Use cached pipeline - no need to log every time
     return existing;
   }
 
+  // Only log first-time pipeline loading (not cached hits)
   // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-  console.log('[EmbeddingWorker] Loading pipeline:', { model, device, dtype });
+  console.log('[EmbeddingWorker] Loading pipeline:', model, device);
 
   const loader = (async () => {
     try {
-      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-      console.log('[EmbeddingWorker] Creating feature-extraction pipeline...', {
-        model,
-        device,
-        dtype,
-      });
       const result = await pipeline('feature-extraction', model, { device, dtype });
-      // biome-ignore lint/suspicious/noConsole: Web workers don't have access to proper logger
-      console.log('[EmbeddingWorker] Pipeline loaded successfully:', { model, device, dtype });
       return result as FeatureExtractor;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);

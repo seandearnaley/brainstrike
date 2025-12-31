@@ -49,7 +49,11 @@ packages/
   db/                 # Local DB helpers
   agent/              # Mastra AI agent integration
   embeddings/         # Vector embedding generation
-  test-utils/, fonts/, workers/, styles/, platform-utils/, file-* ...
+  embedding-worker/   # Worker runtime (renderer)
+  queue/              # Job queue infrastructure
+  queue-telemetry-collector/ # Queue telemetry collector service
+  build-utils/, chunking-worker/, file-tree-worker/, platform-utils/,
+  token-cache/, workers/, file-import/, storage adapters, styles, fonts
 ```
 
 See also: [`docs/onboarding.md`](docs/onboarding.md) and [`docs/monorepo-docs.md`](docs/monorepo-docs.md) for deep dives into architecture, development workflow, and code extraction patterns.

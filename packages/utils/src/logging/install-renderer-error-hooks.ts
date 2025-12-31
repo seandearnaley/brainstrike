@@ -27,6 +27,14 @@ export function installRendererErrorHooks(options: RendererErrorHooksOptions = {
   const logger = createLogger(options.scope ?? 'Renderer');
 
   const handleError = (event: ErrorEvent) => {
+    // ResizeObserver loop errors are benign browser quirks that occur when resize
+    // observations can't complete in a single animation frame. They don't indicate
+    // real problems and shouldn't be logged as errors.
+    // See: https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver#observation_errors
+    if (event.message?.includes('ResizeObserver loop')) {
+      return;
+    }
+
     const payload: RendererErrorEventPayload = {
       type: 'error',
       message: event.message,

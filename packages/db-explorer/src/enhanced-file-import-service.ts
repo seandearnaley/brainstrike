@@ -274,6 +274,7 @@ export function useEnhancedFileImportService(
   const activeSetIdRef = useRef<string | null>(options.resolveTargetEmbeddingSetId?.() ?? null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const setIsEmbeddingQueueActive = useVectorStatusUIStore((s) => s.setIsEmbeddingQueueActive);
+  const setGlobalIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
   const lastQueueActiveRef = useRef(false);
   const queueActiveClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const baseCallbacksRef = useRef<{
@@ -534,6 +535,7 @@ export function useEnhancedFileImportService(
       }
 
       setIsImporting(true);
+      setGlobalIsImporting(true); // Pause background token indexer during import
 
       activeSetIdRef.current = options.resolveTargetEmbeddingSetId?.() ?? getActiveEmbeddingSetId();
 
@@ -566,10 +568,20 @@ export function useEnhancedFileImportService(
         });
       } finally {
         setIsImporting(false);
+        setGlobalIsImporting(false); // Resume background token indexer
         abortControllerRef.current = null;
       }
     },
-    [baseImportRunner, chunkRepository, chunkingWorkerPort, options, queuePort, repository, sqlPort]
+    [
+      baseImportRunner,
+      chunkRepository,
+      chunkingWorkerPort,
+      options,
+      queuePort,
+      repository,
+      setGlobalIsImporting,
+      sqlPort,
+    ]
   );
 
   const cancelImport = useCallback(() => {

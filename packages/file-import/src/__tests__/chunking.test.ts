@@ -375,7 +375,7 @@ describe('processFileChunking', () => {
     );
   });
 
-  it('uses main-thread chunking when worker port is not provided', async () => {
+  it('throws error when worker port is not provided (no main-thread fallback)', async () => {
     mockRepository.findById.mockResolvedValue({
       id: 'file-1',
       name: 'test.txt',
@@ -383,18 +383,17 @@ describe('processFileChunking', () => {
       content: 'File content to be chunked',
     });
 
-    const result = await processFileChunking(
-      { id: 'file-1', imported: true, existed: false },
-      0,
-      1,
-      0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress }
-    );
-
-    expect(mockChunkingService.chunkContent).toHaveBeenCalled();
-    expect(result.chunksCreated).toBe(1);
-    expect(result.strategyUsed).toBe('sentence');
+    // CRITICAL: Main-thread fallback is disabled. Must throw when worker not provided.
+    await expect(
+      processFileChunking(
+        { id: 'file-1', imported: true, existed: false },
+        0,
+        1,
+        0,
+        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        { updateProgress: mockUpdateProgress }
+      )
+    ).rejects.toThrow('Chunking worker is required but not available');
   });
 
   it('updates progress correctly via worker', async () => {
@@ -437,7 +436,7 @@ describe('processFileChunking', () => {
     expect(finalProgress?.chunkingProgress?.strategyUsed).toBe('sentence');
   });
 
-  it('uses streaming for large files when enabled', async () => {
+  it('throws error for large files without worker (no streaming fallback)', async () => {
     // Content length > 50 (mocked threshold)
     const largeContent =
       'This is a very large file content that should trigger streaming mode because it exceeds the threshold.';
@@ -448,36 +447,24 @@ describe('processFileChunking', () => {
       content: largeContent,
     });
 
-    // Configure repository mock to return inserted chunks for counting
-    mockChunkRepository.insertMany.mockImplementation((chunks) => Promise.resolve([...chunks]));
-
-    const result = await processFileChunking(
-      { id: 'file-large', imported: true, existed: false },
-      0,
-      1,
-      0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      {
-        updateProgress: mockUpdateProgress,
-        useStreamingForLargeFiles: true,
-        streamBatchSize: 2, // Small batch size to trigger flush during iteration
-      }
-    );
-
-    expect(result.enhancedResult.chunksCreated).toBe(2);
-    expect(mockChunkingService.chunkContentStream).toHaveBeenCalled();
-    expect(mockChunkRepository.insertMany).toHaveBeenCalled();
-
-    // Check that updateFileRecordWithChunkInfo was called with correct count
-    expect(mockRepository.update).toHaveBeenCalledWith(
-      'file-large',
-      expect.objectContaining({
-        chunksCount: 2,
-      })
-    );
+    // CRITICAL: Streaming fallback is disabled. Must throw when worker not provided, even for large files.
+    await expect(
+      processFileChunking(
+        { id: 'file-large', imported: true, existed: false },
+        0,
+        1,
+        0,
+        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        {
+          updateProgress: mockUpdateProgress,
+          useStreamingForLargeFiles: true,
+          streamBatchSize: 2,
+        }
+      )
+    ).rejects.toThrow('Chunking worker is required but not available');
   });
 
-  it('sets embeddingSetId on streamed chunks when targetEmbeddingSetId is provided', async () => {
+  it('throws error for large files with embeddingSetId without worker (no streaming fallback)', async () => {
     // Content length > 50 (mocked threshold)
     const largeContent =
       'This is a very large file content that should trigger streaming mode because it exceeds the threshold.';
@@ -488,30 +475,21 @@ describe('processFileChunking', () => {
       content: largeContent,
     });
 
-    const capturedChunks: { embeddingSetId?: string }[] = [];
-    mockChunkRepository.insertMany.mockImplementation((chunks) => {
-      capturedChunks.push(...chunks.map((c: any) => ({ ...c }))); // Capture copy
-      return Promise.resolve([...chunks]);
-    });
-
-    await processFileChunking(
-      { id: 'file-large-embed', imported: true, existed: false },
-      0,
-      1,
-      0,
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      {
-        updateProgress: mockUpdateProgress,
-        useStreamingForLargeFiles: true,
-        targetEmbeddingSetId: 'set-123',
-      }
-    );
-
-    expect(mockChunkingService.chunkContentStream).toHaveBeenCalled();
-
-    // Check captured chunks instead of mock.calls
-    expect(capturedChunks.length).toBeGreaterThan(0);
-    expect(capturedChunks[0]?.embeddingSetId).toBe('set-123');
+    // CRITICAL: Streaming fallback is disabled. Must throw when worker not provided.
+    await expect(
+      processFileChunking(
+        { id: 'file-large-embed', imported: true, existed: false },
+        0,
+        1,
+        0,
+        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        {
+          updateProgress: mockUpdateProgress,
+          useStreamingForLargeFiles: true,
+          targetEmbeddingSetId: 'set-123',
+        }
+      )
+    ).rejects.toThrow('Chunking worker is required but not available');
   });
 });
 

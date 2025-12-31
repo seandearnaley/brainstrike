@@ -1,8 +1,8 @@
 import type {
+  DrizzleFileChunkRepository,
+  DrizzleFileRecordRepository,
   FileChunk,
-  FileChunkRepository,
   FileRecord,
-  FileRecordRepository,
   UsePGliteLiveQueryOptions,
 } from '@brainstrike/db';
 import { usePGliteLiveQuery } from '@brainstrike/db';
@@ -71,16 +71,16 @@ const mockedUsePGliteLiveQuery = vi.mocked(usePGliteLiveQuery);
 const createRepository = (
   records: FileRecord[] = [],
   count = records.length
-): FileRecordRepository =>
+): DrizzleFileRecordRepository =>
   ({
     findAll: vi.fn().mockResolvedValue(records),
     count: vi.fn().mockResolvedValue(count),
-  }) as unknown as FileRecordRepository;
+  }) as unknown as DrizzleFileRecordRepository;
 
-const createChunkRepository = (chunks: FileChunk[]): FileChunkRepository =>
+const createChunkRepository = (chunks: FileChunk[]): DrizzleFileChunkRepository =>
   ({
     findAll: vi.fn().mockResolvedValue(chunks),
-  }) as unknown as FileChunkRepository;
+  }) as unknown as DrizzleFileChunkRepository;
 
 const setupLiveQueries = (
   options: {
@@ -366,7 +366,7 @@ describe('useDatabaseDemoData', () => {
       findAll: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(5),
       constructor: { name: 'ElectronFileRecordRepository' },
-    } as unknown as FileRecordRepository;
+    } as unknown as DrizzleFileRecordRepository;
 
     const chunkRepository = createChunkRepository([]);
     const toast = vi.fn();
@@ -406,7 +406,7 @@ describe('useDatabaseDemoData', () => {
       const repository = {
         findAll: vi.fn().mockResolvedValue([]),
         count: vi.fn().mockRejectedValue(new Error('Connection refused')),
-      } as unknown as FileRecordRepository;
+      } as unknown as DrizzleFileRecordRepository;
 
       const chunkRepository = createChunkRepository([]);
       const toast = vi.fn();

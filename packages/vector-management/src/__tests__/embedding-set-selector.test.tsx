@@ -86,7 +86,7 @@ const mockStoreState = {
       embeddingSetId: string | undefined;
     }>;
   },
-  schemaVerified: false,
+  schemaVerified: true,
   setActiveEmbeddingSetId: vi.fn(),
   setIsImporting: vi.fn(),
   setIsEmbeddingQueueActive: vi.fn(),

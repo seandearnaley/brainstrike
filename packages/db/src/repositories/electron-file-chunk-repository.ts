@@ -441,6 +441,48 @@ export class ElectronFileChunkRepository {
     return totalCount;
   }
 
+  /**
+   * Get coverage statistics for a specific embedding set.
+   * Returns total chunks in the set and how many have embeddings.
+   * Required by VectorQueueService for backfill operations.
+   */
+  async getCoverageForSet(embeddingSetId: string): Promise<{
+    totalChunks: number;
+    chunksWithEmbeddingsForSet: number;
+  }> {
+    if (!embeddingSetId) {
+      throw new Error('embeddingSetId is required');
+    }
+
+    // Query uses same logic as COVERAGE_QUERY in use-vector-queue-state.ts
+    // Handles both patterns: embedding_set_id on chunk OR on file_record (legacy)
+    const result = await this.db.query(
+      `WITH target AS (SELECT $1::text AS embedding_set_id)
+       SELECT
+         COUNT(*)::text AS "totalChunks",
+         COUNT(*) FILTER (
+           WHERE (
+             c.embedding_set_id = target.embedding_set_id
+             OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id)
+           )
+           AND c.embedding IS NOT NULL
+         )::text AS "chunksWithEmbeddingsForSet"
+       FROM file_chunks c
+       JOIN file_records fr ON fr.id = c.file_record_id
+       JOIN target ON fr.embedding_set_id = target.embedding_set_id`,
+      [embeddingSetId]
+    );
+
+    const row = result.rows[0] as
+      | { totalChunks: string; chunksWithEmbeddingsForSet: string }
+      | undefined;
+
+    return {
+      totalChunks: Number(row?.totalChunks ?? 0),
+      chunksWithEmbeddingsForSet: Number(row?.chunksWithEmbeddingsForSet ?? 0),
+    };
+  }
+
   private appendFilterClause(
     whereParts: string[],
     params: unknown[],

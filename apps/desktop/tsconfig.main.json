@@ -49,6 +49,8 @@
     "src/mcp-loader.ts",
     "src/create-window.ts",
     "src/setup-security.ts",
+    "src/agent-client-loader.ts",
+    "src/provider-api-key.ts",
     "src/types/**/*.d.ts"
   ],
   "exclude": [

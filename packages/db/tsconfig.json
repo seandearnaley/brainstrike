@@ -15,11 +15,13 @@
     "types": [
       "node"
     ],
-    "strictNullChecks": true
+    "strictNullChecks": true,
+    "resolveJsonModule": true
   },
   "include": [
     "src/**/*.ts",
-    "src/**/*.tsx"
+    "src/**/*.tsx",
+    "src/**/*.json"
   ],
   "exclude": [
     "dist",
