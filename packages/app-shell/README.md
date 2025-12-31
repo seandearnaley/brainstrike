@@ -44,6 +44,11 @@ Ensure you have the following peer dependencies installed:
 Add required peers to the consuming workspace with `pnpm add react zustand
 --filter <workspace>` if they are not already present.
 
+### Development Notes
+
+- `@brainstrike/db` is intentionally a devDependency in app-shell because it is only used in tests.
+  Runtime access flows through `@brainstrike/db-explorer`.
+
 ## Usage
 
 ### Basic Setup

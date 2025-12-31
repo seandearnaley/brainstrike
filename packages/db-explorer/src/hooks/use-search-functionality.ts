@@ -16,7 +16,7 @@ import {
 } from '@brainstrike/embeddings';
 import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
 import type { useToast } from '@brainstrike/ui';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ChunkSearchResult, SearchFunctionality } from '../types';
 import {
   buildLocalEmbeddingModelConfigMap,
@@ -56,6 +56,19 @@ export function useSearchFunctionality(
       throw new Error('Select an active embedding set to perform semantic search.');
     }
     return activeSetId;
+  }, []);
+
+  useEffect(() => {
+    const cleanup = () => {
+      const embedder = embedderRef.current;
+      embedderRef.current = null;
+      currentModelKeyRef.current = null;
+      if (embedder?.dispose) {
+        void embedder.dispose();
+      }
+    };
+
+    return cleanup;
   }, []);
 
   async function createHostedEmbedder(
@@ -146,20 +159,24 @@ export function useSearchFunctionality(
     modelId: string,
     dimensions: number
   ): EmbeddingProviderConfig {
-    // Type assertion or manual construction because TypeScript might not infer the discriminated union perfectly here
-    if (provider === 'openai') {
-      return { runtime: 'hosted', provider: 'openai', modelId, dimensions };
+    const supportedProviders = ['openai', 'google', 'cohere', 'voyage'] as const;
+    if (!supportedProviders.includes(provider as (typeof supportedProviders)[number])) {
+      throw new Error(
+        `Unsupported hosted provider: ${provider}. Must be one of: ${supportedProviders.join(', ')}`
+      );
     }
-    if (provider === 'google') {
-      return { runtime: 'hosted', provider: 'google', modelId, outputDimensionality: dimensions };
+    switch (provider) {
+      case 'openai':
+        return { runtime: 'hosted', provider: 'openai', modelId, dimensions };
+      case 'google':
+        return { runtime: 'hosted', provider: 'google', modelId, outputDimensionality: dimensions };
+      case 'cohere':
+        return { runtime: 'hosted', provider: 'cohere', modelId, inputType: 'search_query' };
+      case 'voyage':
+        return { runtime: 'hosted', provider: 'voyage', modelId, inputType: 'query' };
+      default:
+        throw new Error(`Unhandled hosted provider: ${provider}`);
     }
-    if (provider === 'cohere') {
-      return { runtime: 'hosted', provider: 'cohere', modelId, inputType: 'search_query' };
-    }
-    if (provider === 'voyage') {
-      return { runtime: 'hosted', provider: 'voyage', modelId, inputType: 'query' };
-    }
-    throw new Error(`Unsupported hosted provider: ${provider}`);
   }
 
   function buildSearchOptions(threshold: number) {
@@ -362,27 +379,11 @@ function isLikelyCodeQuery(text: string): boolean {
 
 function getDefaultSearchThreshold(): number {
   // Allow configuration via env (Vite and Node); clamp to [0,1]
-  let raw: unknown;
-  try {
-    // Vite-style
-    const meta = import.meta as unknown as { env?: Record<string, string> };
-    const viteEnv = meta?.env?.['VITE_SEARCH_DEFAULT_THRESHOLD'];
-    if (viteEnv !== undefined) {
-      raw = viteEnv;
-    }
-  } catch {}
-  if (raw === undefined) {
-    try {
-      // Node-style
-      raw = (
-        process?.env
-          ? process.env['SEARCH_DEFAULT_THRESHOLD'] ||
-            process.env['BRAINSTRIKE_SEARCH_DEFAULT_THRESHOLD']
-          : undefined
-      ) as unknown;
-    } catch {}
-  }
-  const n = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw);
+  const raw =
+    readEnvValue('VITE_SEARCH_DEFAULT_THRESHOLD') ??
+    readEnvValue('SEARCH_DEFAULT_THRESHOLD') ??
+    readEnvValue('BRAINSTRIKE_SEARCH_DEFAULT_THRESHOLD');
+  const n = raw !== undefined ? Number.parseFloat(raw) : Number.NaN;
   if (Number.isFinite(n)) {
     return Math.min(1, Math.max(0, n));
   }
@@ -390,6 +391,28 @@ function getDefaultSearchThreshold(): number {
   return 0.5;
 }
 
+const DEFAULT_RERANK_WEIGHTS = {
+  vector: 0.75,
+  fileBoost: 0.15,
+  lexical: 0.1,
+  adjacency: 0.05,
+};
+
+/**
+ * Retrieves re-ranking weights for semantic search result ordering.
+ *
+ * Defaults tuned empirically:
+ * - vector: primary signal from embedding similarity
+ * - fileBoost: coherence reward for multiple matching chunks in a file
+ * - lexical: textual overlap guard
+ * - adjacency: bonus for neighboring chunks
+ *
+ * Override via:
+ * - VITE_RERANK_VECTOR / RERANK_VECTOR
+ * - VITE_RERANK_FILE_BOOST / RERANK_FILE_BOOST
+ * - VITE_RERANK_LEXICAL / RERANK_LEXICAL
+ * - VITE_RERANK_ADJACENCY / RERANK_ADJACENCY
+ */
 function getReRankWeights(): {
   vector: number;
   fileBoost: number;
@@ -397,21 +420,47 @@ function getReRankWeights(): {
   adjacency: number;
 } {
   // Defaults chosen empirically; allow overrides via env for experimentation
-  let vector = 0.75;
-  let fileBoost = 0.15;
-  let lexical = 0.1;
-  let adjacency = 0.05;
-  try {
-    const meta = import.meta as unknown as { env?: Record<string, string> };
-    const env = meta?.env || (typeof process !== 'undefined' ? process.env : {});
-    const num = (v: unknown) => {
-      const n = typeof v === 'string' ? Number.parseFloat(v) : Number(v);
-      return Number.isFinite(n) ? n : undefined;
-    };
-    vector = num(env?.['VITE_RERANK_VECTOR'] ?? env?.['RERANK_VECTOR']) ?? vector;
-    fileBoost = num(env?.['VITE_RERANK_FILE_BOOST'] ?? env?.['RERANK_FILE_BOOST']) ?? fileBoost;
-    lexical = num(env?.['VITE_RERANK_LEXICAL'] ?? env?.['RERANK_LEXICAL']) ?? lexical;
-    adjacency = num(env?.['VITE_RERANK_ADJACENCY'] ?? env?.['RERANK_ADJACENCY']) ?? adjacency;
-  } catch {}
+  let vector = DEFAULT_RERANK_WEIGHTS.vector;
+  let fileBoost = DEFAULT_RERANK_WEIGHTS.fileBoost;
+  let lexical = DEFAULT_RERANK_WEIGHTS.lexical;
+  let adjacency = DEFAULT_RERANK_WEIGHTS.adjacency;
+
+  vector = readNumberEnv(['VITE_RERANK_VECTOR', 'RERANK_VECTOR']) ?? DEFAULT_RERANK_WEIGHTS.vector;
+  fileBoost =
+    readNumberEnv(['VITE_RERANK_FILE_BOOST', 'RERANK_FILE_BOOST']) ??
+    DEFAULT_RERANK_WEIGHTS.fileBoost;
+  lexical =
+    readNumberEnv(['VITE_RERANK_LEXICAL', 'RERANK_LEXICAL']) ?? DEFAULT_RERANK_WEIGHTS.lexical;
+  adjacency =
+    readNumberEnv(['VITE_RERANK_ADJACENCY', 'RERANK_ADJACENCY']) ??
+    DEFAULT_RERANK_WEIGHTS.adjacency;
   return { vector, fileBoost, lexical, adjacency };
+}
+
+type EnvMap = Record<string, string | undefined>;
+
+function readEnvValue(key: string): string | undefined {
+  const metaEnv = (import.meta as ImportMeta & { env?: EnvMap }).env;
+  const viteValue = metaEnv?.[key];
+  if (viteValue !== undefined) {
+    return viteValue;
+  }
+  if (typeof process !== 'undefined') {
+    return process.env?.[key];
+  }
+  return;
+}
+
+function readNumberEnv(keys: readonly string[]): number | undefined {
+  for (const key of keys) {
+    const value = readEnvValue(key);
+    if (value === undefined) {
+      continue;
+    }
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return;
 }

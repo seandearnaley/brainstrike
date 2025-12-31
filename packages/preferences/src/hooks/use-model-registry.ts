@@ -1,7 +1,10 @@
 import type { IDatabase } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/utils';
 import { useEffect } from 'react';
 import { useModelRegistryStore } from '../stores/model-registry-store';
+
+const logger = createLogger('UseEnsureModelRegistry');
 
 export type UseEnsureModelRegistryOptions = {
   db?: IDatabase | null;
@@ -18,6 +21,8 @@ export function useEnsureModelRegistry(options: UseEnsureModelRegistryOptions = 
     if (!(enabled && db)) {
       return;
     }
-    void ensureRegistry(db);
+    void ensureRegistry(db).catch((error) => {
+      logger.error('Failed to load model registry', error);
+    });
   }, [db, enabled, ensureRegistry]);
 }

@@ -183,13 +183,13 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       ...initialState,
 
       ensureRegistry: (db: IDatabase) => {
-        if (registryLoadPromise) {
-          return registryLoadPromise;
-        }
-
         const { hasLoaded, isLoading } = get();
         if (hasLoaded || isLoading) {
-          return Promise.resolve();
+          return registryLoadPromise ?? Promise.resolve();
+        }
+
+        if (registryLoadPromise) {
+          return registryLoadPromise;
         }
 
         registryLoadPromise = get()

@@ -65,9 +65,7 @@ export function getLocalEmbeddingModels(models: DbModel[]): DbModel[] {
 }
 
 export function getEmbeddingsPanelModels(models: DbModel[]): DbModel[] {
-  const local = getLocalEmbeddingModels(models);
-  const enabled = local.filter((model) => model.isEnabled);
-  return enabled.length > 0 ? enabled : local;
+  return getLocalEmbeddingModels(models).filter((model) => model.isEnabled);
 }
 
 export function getDefaultLocalEmbeddingModel(models: DbModel[]): DbModel | null {
@@ -77,7 +75,7 @@ export function getDefaultLocalEmbeddingModel(models: DbModel[]): DbModel | null
 
 export function buildLocalEmbeddingModelConfigMap(models: DbModel[]): Map<string, ModelConfig> {
   const map = new Map<string, ModelConfig>();
-  for (const model of getLocalEmbeddingModels(models)) {
+  for (const model of getLocalEmbeddingModels(models).filter((model) => model.isEnabled)) {
     map.set(model.id, toEmbeddingModelConfig(model));
   }
   return map;
@@ -98,23 +96,29 @@ export function resolveEmbeddingSetModelInfo(
   row: EmbeddingSetRow,
   modelConfigMap: Map<string, ModelConfig>
 ): EffectiveModelInfo {
-  if (!row.modelKey) {
-    throw new Error('Embedding set is missing a model key.');
+  const modelKey = typeof row.modelKey === 'string' ? row.modelKey.trim() : '';
+  if (!modelKey) {
+    throw new Error('Embedding set has invalid model key.');
   }
 
   const dimensions = Number(row.dimensions);
   if (!Number.isFinite(dimensions) || dimensions <= 0) {
     throw new Error('Embedding set dimensions are missing or invalid.');
   }
-  const parsed = parseProviderModelKey(row.modelKey);
+  const parsed = parseProviderModelKey(modelKey);
   if (parsed && isHostedProvider(parsed.provider)) {
-    return { modelKey: row.modelKey, dimensions };
+    return { modelKey, dimensions };
   }
 
-  const localModelId = parsed?.modelId ?? row.modelKey;
+  const localModelId = parsed?.modelId ?? modelKey;
   const localConfig = modelConfigMap.get(localModelId);
   if (!localConfig) {
-    throw new Error(`Embedding set references unknown model: ${localModelId}`);
+    const availableModels = Array.from(modelConfigMap.keys()).join(', ');
+    throw new Error(
+      `Embedding set references unknown model: ${localModelId}. Available models: ${
+        availableModels || 'none'
+      }. If the model exists but is disabled, enable it in Settings > Models.`
+    );
   }
 
   if (!Number.isFinite(localConfig.dimensions) || localConfig.dimensions <= 0) {

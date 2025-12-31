@@ -288,12 +288,16 @@ export function EmbeddingsPanel() {
       return;
     }
     if (modelOptions.length === 0) {
+      if (selectedModel) {
+        setSelectedModel('');
+      }
       return;
     }
-    if (!(selectedModel && modelConfigMap.has(selectedModel))) {
+    const hasValidSelection = modelOptions.some((option) => option.id === selectedModel);
+    if (!hasValidSelection) {
       setSelectedModel(modelOptions[0]?.id ?? '');
     }
-  }, [modelOptions, modelConfigMap, selectedModel, setSelectedModel, status]);
+  }, [modelOptions, selectedModel, setSelectedModel, status]);
 
   const selectedModelConfig = modelConfigMap.get(selectedModel) ?? defaultModelConfig ?? undefined;
 
@@ -312,7 +316,7 @@ export function EmbeddingsPanel() {
   const handleInitialize = async () => {
     if (!selectedModelConfig) {
       useEmbeddingsPanelStore.setState({
-        error: 'No local embedding models available. Enable one in Settings > Models.',
+        error: 'No enabled local embedding models available. Enable one in Settings > Models.',
       });
       return;
     }
@@ -321,7 +325,10 @@ export function EmbeddingsPanel() {
     // Translate any raw error to a nicer message if present
     const e = useEmbeddingsPanelStore.getState().error;
     if (e) {
-      const errorMessage = formatInitializationError(e, selectedModelConfig?.name || selectedModel);
+      const modelName =
+        selectedModelConfig?.name ??
+        (selectedModel ? `Unknown model (${selectedModel})` : 'Unknown model');
+      const errorMessage = formatInitializationError(e, modelName);
       useEmbeddingsPanelStore.setState({ error: errorMessage });
     }
   };
@@ -377,7 +384,7 @@ export function EmbeddingsPanel() {
               <SelectTrigger className="text-xs" id="model-select">
                 <SelectValue
                   placeholder={
-                    modelOptions.length > 0 ? 'Select a model' : 'No local models available'
+                    modelOptions.length > 0 ? 'Select a model' : 'No enabled local models available'
                   }
                 />
               </SelectTrigger>
