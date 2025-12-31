@@ -15,12 +15,20 @@ type TransformersModule = {
   ) => Promise<FeatureExtractionPipeline>;
 };
 
+/**
+ * Options for FeatureExtractionPipeline._call().
+ *
+ * Note: Truncation is handled internally by the pipeline - it passes
+ * `truncation: true` to the tokenizer automatically. The tokenizer uses
+ * the model's configured `model_max_length`.
+ *
+ * See: https://huggingface.co/docs/transformers.js/api/pipelines#featureextractionpipeline
+ */
 type FeatureExtractionPipelineOptions = {
   pooling: string;
   normalize: boolean;
-  truncation?: boolean;
-  // biome-ignore lint/style/useNamingConvention: Transformers.js API requires snake_case
-  max_length?: number;
+  quantize?: boolean;
+  precision?: 'binary' | 'ubinary';
 };
 
 type FeatureExtractionPipeline = (

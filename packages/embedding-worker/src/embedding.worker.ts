@@ -57,36 +57,40 @@ if (typeof self !== 'undefined' && typeof self.onerror !== 'undefined') {
   // Log worker initialization at debug level (removed - too verbose)
 }
 
+/**
+ * FeatureExtractor pipeline callable type.
+ *
+ * Note: The FeatureExtractionPipeline._call() method only accepts these options.
+ * Truncation is handled internally by the pipeline - it passes `truncation: true`
+ * to the tokenizer automatically. The tokenizer uses the model's configured
+ * `model_max_length` (e.g., 512 for MiniLM, 8192 for BGE-M3).
+ *
+ * See: https://huggingface.co/docs/transformers.js/api/pipelines#featureextractionpipeline
+ */
 type FeatureExtractor = FeatureExtractionPipeline &
   ((
     inputs: string | readonly string[],
     options?: {
-      readonly pooling?: 'mean' | 'max' | 'cls';
+      readonly pooling?: 'none' | 'mean' | 'cls';
       readonly normalize?: boolean;
-      readonly truncation?: boolean;
-      // biome-ignore lint/style/useNamingConvention: Transformers.js API requires snake_case
-      readonly max_length?: number;
+      readonly quantize?: boolean;
+      readonly precision?: 'binary' | 'ubinary';
     }
   ) => Promise<unknown>);
 
 /**
- * Get the maximum sequence length for a given model.
- * Prevents ONNX/WASM crashes from text that exceeds model context window.
+ * Model context window reference (for documentation).
+ *
+ * These values represent the maximum sequence length each model can handle.
+ * Truncation is handled automatically by the FeatureExtractionPipeline,
+ * which passes `truncation: true` to the tokenizer internally. The tokenizer
+ * uses the model's `model_max_length` from its configuration file.
+ *
+ * Common model context windows:
+ * - MiniLM models: 512 tokens
+ * - BGE-M3: 8192 tokens
+ * - Jina models: 8192 tokens
  */
-function getMaxLengthForModel(modelId: string): number {
-  const id = modelId.toLowerCase();
-  if (id.includes('bge-m3')) {
-    return 8192;
-  }
-  if (id.includes('minilm')) {
-    return 512;
-  }
-  if (id.includes('jina')) {
-    return 8192;
-  }
-  // Safe default for most sentence transformer models
-  return 512;
-}
 
 const pipelines = new Map<string, Promise<FeatureExtractor>>();
 
@@ -337,19 +341,17 @@ async function runBatches(
   extractor: FeatureExtractor
 ): Promise<Float32Array[]> {
   const vectors: Float32Array[] = [];
-  const { texts, truncateDim, id, total, model } = context;
-  const maxLength = getMaxLengthForModel(model);
+  const { texts, truncateDim, id, total } = context;
 
   for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
     const endIndex = Math.min(total, startIndex + state.batchSize);
     const slice = texts.slice(startIndex, endIndex);
-    // CRITICAL: truncation=true and max_length prevent ONNX/WASM crashes from overlong input
+    // Truncation is handled internally by FeatureExtractionPipeline - it passes
+    // `truncation: true` to the tokenizer automatically. The tokenizer respects
+    // the model's configured `model_max_length` to prevent ONNX/WASM crashes.
     const rawOutput = await extractor(slice, {
       pooling: 'mean',
       normalize: false,
-      truncation: true,
-      // biome-ignore lint/style/useNamingConvention: Transformers.js API requires snake_case
-      max_length: maxLength,
     });
     const vectorsFromBatch =
       rawOutput instanceof Tensor
