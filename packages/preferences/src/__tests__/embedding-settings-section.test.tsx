@@ -6,6 +6,12 @@ import {
   __resetEmbeddingPreferencesStoreForTests,
   useEmbeddingPreferencesStore,
 } from '../stores/embedding-preferences-store';
+import {
+  __resetModelRegistryStoreForTests,
+  type DbModel,
+  type DbProvider,
+  useModelRegistryStore,
+} from '../stores/model-registry-store';
 
 beforeAll(() => {
   const elementPrototype = Element.prototype as unknown as {
@@ -34,6 +40,35 @@ beforeAll(() => {
 describe('EmbeddingSettings', () => {
   beforeEach(() => {
     __resetEmbeddingPreferencesStoreForTests();
+    __resetModelRegistryStoreForTests();
+    const provider: DbProvider = {
+      id: 'transformers',
+      name: 'Local Models',
+      icon: null,
+      isEnabled: true,
+      sortOrder: 0,
+    };
+    const model: DbModel = {
+      id: 'jinaai/jina-embeddings-v2-base-code',
+      providerId: 'transformers',
+      name: 'Jina Code',
+      description: 'Code-aware embeddings',
+      tagline: null,
+      bestFor: ['code'],
+      icon: null,
+      isEnabled: true,
+      capabilities: { type: 'embedding', defaultDimension: 768 },
+      parameters: { size: '~300MB' },
+      sortOrder: 0,
+    };
+
+    useModelRegistryStore.setState({
+      providers: [provider],
+      models: [model],
+      isLoading: false,
+      error: null,
+      hasLoaded: true,
+    });
   });
 
   const renderComponent = () => render(<EmbeddingSettings />);

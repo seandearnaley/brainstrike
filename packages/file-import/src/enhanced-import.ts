@@ -7,12 +7,16 @@ import type {
   ImportProgress,
 } from '@brainstrike/db';
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/db';
-import type { EmbeddingProviderType } from '@brainstrike/embeddings';
+import type {
+  EmbeddingProviderType,
+  ModelConfig,
+  SimpleEmbeddingService,
+} from '@brainstrike/embeddings';
 import {
   canonicalizeProviderModelKey,
+  isLocalProviderType,
   parseProviderModelKey,
   resolveHostedProviderApiKey,
-  SimpleEmbeddingService,
 } from '@brainstrike/embeddings';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
@@ -30,6 +34,22 @@ const logger = createLogger('FileImport:Enhanced');
 // Cache for embedding set lookups to avoid repeated database queries
 const EMBEDDING_SET_CACHE_LIMIT = 200;
 const embeddingSetCache = new Map<string, { modelKey: string }>();
+const MODEL_CONFIG_CACHE_LIMIT = 200;
+const modelConfigCache = new Map<
+  string,
+  { dimensions: number; providerId: EmbeddingProviderType }
+>();
+
+type DbModelRow = {
+  id: string;
+  providerId: string;
+  capabilities: string | object;
+};
+
+type ModelCapabilities = {
+  type?: string;
+  defaultDimension?: number;
+};
 
 type EmbeddingModelDefinition = Extract<ProviderModelDefinition, { type: 'embedding' }>;
 
@@ -100,6 +120,19 @@ function cacheEmbeddingSet(targetSetId: string, modelKey: string): void {
     const oldestKey = embeddingSetCache.keys().next().value;
     if (oldestKey) {
       embeddingSetCache.delete(oldestKey);
+    }
+  }
+}
+
+function cacheModelConfig(
+  modelId: string,
+  entry: { dimensions: number; providerId: EmbeddingProviderType }
+): void {
+  modelConfigCache.set(modelId, entry);
+  if (modelConfigCache.size > MODEL_CONFIG_CACHE_LIMIT) {
+    const oldestKey = modelConfigCache.keys().next().value;
+    if (oldestKey) {
+      modelConfigCache.delete(oldestKey);
     }
   }
 }
@@ -236,15 +269,18 @@ async function resolveModelKeyFromTargetSet(
       return;
     }
 
-    const canonical = canonicalizeProviderModelKey(fetchedModelKey) ?? {
-      provider: 'local' as EmbeddingProviderType,
-      modelId: fetchedModelKey,
-      composite: fetchedModelKey,
-    };
+    const canonical = canonicalizeProviderModelKey(fetchedModelKey);
+    if (!canonical) {
+      throw new Error(`Embedding set ${targetSetId} has invalid model key "${fetchedModelKey}".`);
+    }
     cacheEmbeddingSet(targetSetId, canonical.composite);
     return canonical.composite;
-  } catch {
-    return;
+  } catch (error) {
+    logger.warn('Failed to resolve embedding set model key', {
+      targetSetId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }
 
@@ -472,9 +508,6 @@ async function resolveEnabledEmbeddingModel(
     ports?.sql,
     config.provider
   );
-  if (!compositeKey) {
-    return resolved;
-  }
 
   const parsed = parseProviderModelKey(compositeKey);
   const provider: EmbeddingProviderType = parsed?.provider ?? config.provider ?? 'local';
@@ -501,7 +534,7 @@ async function resolveEnabledEmbeddingModel(
     }
   }
 
-  if (provider === 'local') {
+  if (isLocalProviderType(provider)) {
     await attachLocalModelMetadata(resolved, config, ports);
     return resolved;
   }
@@ -519,13 +552,14 @@ async function attachLocalModelMetadata(
     return;
   }
 
-  const modelConfig = SimpleEmbeddingService.getModelConfig(resolved.modelId);
-  resolved.targetDimension = determineTargetDimension(modelConfig);
+  const modelEntry = await resolveLocalModelEntry(resolved.modelId, ports?.sql);
+  assertValidDimensions(modelEntry.dimensions);
+  resolved.targetDimension = modelEntry.dimensions;
 
   await ensureAndEmitEmbeddingSet({
     sql: ports?.sql,
     resolved,
-    modelConfig,
+    modelConfig: undefined,
     config,
   });
 }
@@ -603,28 +637,28 @@ async function determineCompositeModelKey(
   targetSetId: string | undefined,
   sql: SqlExecutorPort | null | undefined,
   providerHint: EmbeddingProviderType | undefined
-): Promise<string | undefined> {
+): Promise<string> {
   if (explicitModel) {
-    return canonicalizeProviderModelKey(explicitModel, providerHint)?.composite;
+    const canonical = canonicalizeProviderModelKey(explicitModel, providerHint);
+    if (!canonical) {
+      throw new Error(`Invalid embedding model key "${explicitModel}".`);
+    }
+    return canonical.composite;
   }
   if (targetSetId) {
     const key = await resolveModelKeyFromTargetSet(targetSetId, sql ?? null);
-    return key ? canonicalizeProviderModelKey(key, providerHint)?.composite : undefined;
+    if (!key) {
+      throw new Error(`Unable to resolve embedding model for set "${targetSetId}".`);
+    }
+    return key;
   }
-  return;
-}
-
-function determineTargetDimension(
-  modelConfig: ReturnType<typeof SimpleEmbeddingService.getModelConfig> | undefined
-): number {
-  const dim = modelConfig?.dimensions;
-  return Number.isFinite(dim) && dim !== undefined ? Number(dim) : DEFAULT_EMBEDDING_DIMENSION;
+  throw new Error('Embedding is enabled but no model key or target set was provided.');
 }
 
 async function ensureAndEmitEmbeddingSet(params: {
   sql: SqlExecutorPort | null | undefined;
   resolved: ResolvedEmbeddingModel;
-  modelConfig: ReturnType<typeof SimpleEmbeddingService.getModelConfig> | undefined;
+  modelConfig: ModelConfig | undefined;
   config: EmbeddingConfiguration;
 }): Promise<void> {
   const { sql, resolved, modelConfig, config } = params;
@@ -656,6 +690,69 @@ async function ensureAndEmitEmbeddingSet(params: {
   cacheEmbeddingSet(finalSetId, resolved.modelKey);
   config.onResolvedTargetSetId?.(finalSetId);
   dispatchEmbeddingSetUpdateEvent(finalSetId);
+}
+
+async function resolveLocalModelEntry(
+  modelId: string,
+  sql: SqlExecutorPort | null | undefined
+): Promise<{ dimensions: number; providerId: EmbeddingProviderType }> {
+  if (!sql) {
+    throw new Error('Database access is required to resolve local embedding models.');
+  }
+
+  const cached = modelConfigCache.get(modelId);
+  if (cached) {
+    return cached;
+  }
+
+  const result = await sql.query<DbModelRow>(
+    'SELECT id, provider_id AS "providerId", capabilities FROM models WHERE id = $1 LIMIT 1',
+    [modelId]
+  );
+  const row = result.rows[0];
+  if (!row) {
+    throw new Error(`Embedding model not found in registry: ${modelId}.`);
+  }
+
+  const providerId = row.providerId as EmbeddingProviderType;
+  if (!isLocalProviderType(providerId)) {
+    throw new Error(`Model "${modelId}" is not a local embedding model.`);
+  }
+
+  const capabilities = parseModelCapabilities(row.capabilities, modelId);
+  if (capabilities.type !== 'embedding') {
+    throw new Error(`Model "${modelId}" is not an embedding model.`);
+  }
+
+  const dimensions = Number(capabilities.defaultDimension);
+  if (!Number.isFinite(dimensions) || dimensions <= 0) {
+    throw new Error(`Model "${modelId}" has invalid dimensions in registry.`);
+  }
+
+  const entry = { dimensions, providerId };
+  cacheModelConfig(modelId, entry);
+  return entry;
+}
+
+function parseModelCapabilities(value: unknown, modelId: string): ModelCapabilities {
+  let parsed = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value);
+    } catch (error) {
+      throw new Error(
+        `Model "${modelId}" has invalid capabilities JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error(`Model "${modelId}" has invalid capabilities payload.`);
+  }
+
+  return parsed as ModelCapabilities;
 }
 
 type ChunkingOptionsConfig = {
