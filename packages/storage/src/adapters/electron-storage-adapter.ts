@@ -7,6 +7,9 @@ import type { StorageAdapter } from '../types.js';
 
 const logger = createLogger('ElectronStorageAdapter');
 
+/** JSON formatting indentation for storage files */
+const JSON_INDENT_SPACES = 2;
+
 /**
  * Error thrown when a path traversal attempt is detected
  */
@@ -54,6 +57,8 @@ export class ElectronStorageAdapter implements StorageAdapter {
   private storePath = '';
   private cache: Record<string, string> = {};
   private readonly ready: Promise<void>;
+  /** Write lock to serialize persist operations and prevent race conditions */
+  private persistLock: Promise<void> = Promise.resolve();
 
   constructor(storeFile = 'electron-storage.json') {
     this.ready = this.initialize(storeFile).catch((error) => {
@@ -146,8 +151,18 @@ export class ElectronStorageAdapter implements StorageAdapter {
   /**
    * Persists the cache to disk using atomic write (temp file + rename).
    * This prevents data corruption if the process crashes mid-write.
+   * Uses a write lock to serialize operations and prevent race conditions.
    */
   private async persist(): Promise<void> {
+    // Chain persist operations to prevent race conditions
+    this.persistLock = this.persistLock.then(() => this.doPersist());
+    return this.persistLock;
+  }
+
+  /**
+   * Internal persist implementation - writes cache to disk atomically.
+   */
+  private async doPersist(): Promise<void> {
     await this.ready;
 
     // Don't persist if storePath wasn't set (e.g., electron import failed)
@@ -162,7 +177,8 @@ export class ElectronStorageAdapter implements StorageAdapter {
 
     try {
       // Write to temp file first
-      await fsPromises.writeFile(tempPath, JSON.stringify(this.cache, null, 2), 'utf8');
+      const jsonContent = JSON.stringify(this.cache, null, JSON_INDENT_SPACES);
+      await fsPromises.writeFile(tempPath, jsonContent, 'utf8');
 
       // Atomic rename - this is atomic on POSIX systems and most Windows configurations
       await fsPromises.rename(tempPath, this.storePath);

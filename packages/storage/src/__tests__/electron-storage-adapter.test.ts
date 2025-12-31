@@ -409,6 +409,39 @@ describe('ElectronStorageAdapter', () => {
       await expect(maliciousAdapter.getItem('test')).rejects.toThrow(PathTraversalError);
     });
 
+    it('should reject path with mixed traversal sequences', async () => {
+      // path.resolve handles various traversal patterns
+      const { PathTraversalError } = await import('../adapters/electron-storage-adapter');
+
+      // These paths, when resolved, should escape the userDataDir
+      // Note: Backslash traversal only works on Windows; on Unix backslash is a valid filename char
+      const maliciousPaths = [
+        'foo/../../../etc/passwd', // Mixed with valid prefix then escape
+        './../../etc/passwd', // Starting with current dir then escape
+        'subdir/../.././../etc/passwd', // Complex traversal pattern
+      ];
+
+      for (const maliciousPath of maliciousPaths) {
+        const maliciousAdapter = new ElectronStorageAdapter(maliciousPath);
+        await expect(maliciousAdapter.getItem('test')).rejects.toThrow(PathTraversalError);
+      }
+    });
+
+    it('should reject paths that escape via symlink-like patterns', async () => {
+      const { PathTraversalError } = await import('../adapters/electron-storage-adapter');
+
+      // Paths that might try to escape through various means
+      const maliciousPaths = [
+        '../userdata-sibling/secret.json', // Try to access sibling directory
+        '../../secret.json', // Simple parent escape
+      ];
+
+      for (const maliciousPath of maliciousPaths) {
+        const maliciousAdapter = new ElectronStorageAdapter(maliciousPath);
+        await expect(maliciousAdapter.getItem('test')).rejects.toThrow(PathTraversalError);
+      }
+    });
+
     it('should allow valid nested paths within userData', async () => {
       const validPath = 'config/settings/storage.json';
       const validAdapter = new ElectronStorageAdapter(validPath);
@@ -433,6 +466,24 @@ describe('ElectronStorageAdapter', () => {
 
       // Cleanup
       await fsPromises.rm(path.join(userDataDir, simpleFilename), { force: true });
+    });
+
+    it('should handle paths with special characters safely', async () => {
+      // These should either work (if they stay within userData) or be rejected
+      const safePaths = [
+        'storage-file.json', // Hyphens are fine
+        'storage_file.json', // Underscores are fine
+        'storage.backup.json', // Multiple dots are fine
+      ];
+
+      for (const safePath of safePaths) {
+        const safeAdapter = new ElectronStorageAdapter(safePath);
+        await safeAdapter.setItem('test', 'value');
+        expect(await safeAdapter.getItem('test')).toBe('value');
+
+        // Cleanup
+        await fsPromises.rm(path.join(userDataDir, safePath), { force: true });
+      }
     });
   });
 
