@@ -99,17 +99,25 @@ async function applySingleMigration(db: PGlite, migration: Migration): Promise<v
     await recordMigration(db, migration.hash);
     await db.query('COMMIT');
   } catch (migrationError) {
-    // Attempt rollback on failure - wrap in try-catch to preserve original error
+    // Attempt rollback on failure - preserve both errors if rollback also fails
+    let rollbackFailed = false;
+    let rollbackMessage = '';
     try {
       await db.query('ROLLBACK');
     } catch (rollbackError: unknown) {
-      const rollbackMessage =
+      rollbackFailed = true;
+      rollbackMessage =
         rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
       logger.error(`Failed to rollback migration "${migration.name}": ${rollbackMessage}`);
     }
     const errorMessage =
       migrationError instanceof Error ? migrationError.message : String(migrationError);
-    throw new Error(`Migration "${migration.name}" failed: ${errorMessage}`);
+
+    // Include rollback error in thrown error if rollback also failed
+    const fullErrorMessage = rollbackFailed
+      ? `Migration "${migration.name}" failed: ${errorMessage}. Additionally, rollback failed: ${rollbackMessage}`
+      : `Migration "${migration.name}" failed: ${errorMessage}`;
+    throw new Error(fullErrorMessage);
   }
 }
 

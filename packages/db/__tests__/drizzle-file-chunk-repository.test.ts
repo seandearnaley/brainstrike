@@ -426,4 +426,87 @@ describe('DrizzleFileChunkRepository', () => {
       expect(all).toHaveLength(0);
     });
   });
+
+  describe('vector validation security', () => {
+    it('should reject NaN values in searchSimilar query embedding', async () => {
+      await expect(
+        repository.searchSimilar([0.1, Number.NaN, 0.3], { embeddingSetId: testEmbeddingSetId })
+      ).rejects.toThrow('Invalid');
+    });
+
+    it('should reject Infinity values in searchSimilar query embedding', async () => {
+      await expect(
+        repository.searchSimilar([0.1, Number.POSITIVE_INFINITY, 0.3], {
+          embeddingSetId: testEmbeddingSetId,
+        })
+      ).rejects.toThrow('Invalid');
+    });
+
+    it('should reject -Infinity values in searchSimilar query embedding', async () => {
+      await expect(
+        repository.searchSimilar([0.1, Number.NEGATIVE_INFINITY, 0.3], {
+          embeddingSetId: testEmbeddingSetId,
+        })
+      ).rejects.toThrow('Invalid');
+    });
+
+    it('should reject empty array in searchSimilar query embedding', async () => {
+      await expect(
+        repository.searchSimilar([], { embeddingSetId: testEmbeddingSetId })
+      ).rejects.toThrow();
+    });
+
+    it('should reject NaN values when inserting chunk with embedding', async () => {
+      const now = new Date().toISOString();
+      await expect(
+        repository.insert({
+          id: '00000000-0000-0000-0000-000000000099',
+          fileRecordId: testFileRecordId,
+          chunkIndex: 0,
+          content: 'test',
+          embedding: [0.1, Number.NaN, 0.3],
+          embeddingSetId: testEmbeddingSetId,
+          createdAt: now,
+          updatedAt: now,
+        })
+      ).rejects.toThrow('Invalid');
+    });
+
+    it('should reject Infinity values when inserting chunk with embedding', async () => {
+      const now = new Date().toISOString();
+      await expect(
+        repository.insert({
+          id: '00000000-0000-0000-0000-000000000099',
+          fileRecordId: testFileRecordId,
+          chunkIndex: 0,
+          content: 'test',
+          embedding: [0.1, Number.POSITIVE_INFINITY, 0.3],
+          embeddingSetId: testEmbeddingSetId,
+          createdAt: now,
+          updatedAt: now,
+        })
+      ).rejects.toThrow('Invalid');
+    });
+
+    it('should reject NaN values when updating chunk embedding', async () => {
+      const now = new Date().toISOString();
+      await repository.insert({
+        id: '00000000-0000-0000-0000-000000000098',
+        fileRecordId: testFileRecordId,
+        chunkIndex: 0,
+        content: 'test',
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await expect(
+        repository.update({
+          id: '00000000-0000-0000-0000-000000000098',
+          embedding: [0.1, Number.NaN, 0.3],
+          embeddingSetId: testEmbeddingSetId,
+          updatedAt: new Date().toISOString(),
+        })
+      ).rejects.toThrow('Invalid');
+    });
+  });
 });

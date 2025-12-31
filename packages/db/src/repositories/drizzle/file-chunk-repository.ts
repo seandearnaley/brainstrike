@@ -59,18 +59,29 @@ function validateDimension(dimension: number, context: string): void {
 const MAX_OVERFETCH_LIMIT = 10_000;
 
 /**
- * Safely constructs a pgvector literal string from a validated embedding array.
+ * Safely constructs a pgvector literal string from an embedding array.
  *
- * SECURITY NOTE: This function is safe because:
- * 1. The embedding array MUST be validated via validateEmbeddingVector() before calling
- * 2. validateEmbeddingVector() ensures all elements are finite JavaScript numbers
- * 3. JavaScript numbers cannot contain SQL injection characters (no quotes, semicolons, etc.)
- * 4. The resulting format [n1,n2,n3] is the exact literal format pgvector expects
+ * SECURITY NOTE: Defense-in-depth - validates INSIDE this function to ensure
+ * SQL injection is impossible even if upstream validation is bypassed:
+ * 1. Validates all elements are finite JavaScript numbers
+ * 2. JavaScript finite numbers cannot contain SQL injection characters
+ * 3. The resulting format [n1,n2,n3] is the exact literal format pgvector expects
  *
- * @param embedding - Validated array of finite numbers
+ * @param embedding - Array of numbers to convert
  * @returns pgvector literal string in format '[n1,n2,...]'
+ * @throws Error if any element is not a finite number
  */
 function toPgvectorLiteral(embedding: number[]): string {
+  // Defense-in-depth: validate INSIDE this function to guarantee safety
+  // even if upstream validation is bypassed or removed during refactoring
+  for (let i = 0; i < embedding.length; i++) {
+    const value = embedding[i];
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new Error(
+        `toPgvectorLiteral: Invalid value at index ${i}: ${value} (must be finite number)`
+      );
+    }
+  }
   return `[${embedding.join(',')}]`;
 }
 
