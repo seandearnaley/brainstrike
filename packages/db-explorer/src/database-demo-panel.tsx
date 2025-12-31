@@ -7,7 +7,11 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { useModelRegistryStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import {
+  useEnsureModelRegistry,
+  useModelRegistryStore,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,
@@ -98,14 +102,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const embeddingSetsRepository = useEmbeddingSetsRepository();
 
   // Get enabled models from model registry
-  const { models, providers, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();
-
-  // biome-ignore lint/plugin: Legitimate data loading pattern - fetch registry when db becomes available
-  useEffect(() => {
-    if (dbContext) {
-      void fetchRegistry(dbContext);
-    }
-  }, [dbContext, fetchRegistry]);
+  const { models, providers, isLoading: isRegistryLoading } = useModelRegistryStore();
+  useEnsureModelRegistry({ db: dbContext });
 
   const availableModels = useAvailableModels(models);
   const availableProviders = useAvailableProviders(providers);
@@ -501,7 +499,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {/* Create Collection Dialog */}
       {collectionDialogs.createCollectionOpen && (
         <CreateEmbeddingSetDialog
-          isLoading={modelsLoading}
+          isLoading={isRegistryLoading}
           models={availableModels}
           onOpenChange={(open) => {
             if (!open) {

@@ -1,6 +1,5 @@
-import { usePGliteDatabase } from '@brainstrike/db';
 import type { EmbeddingStatus, ModelConfig } from '@brainstrike/embeddings';
-import { useModelRegistryStore } from '@brainstrike/preferences';
+import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
 import {
   Badge,
   Button,
@@ -16,7 +15,6 @@ import {
 } from '@brainstrike/ui';
 import { AlertCircle, Brain, Copy, Cpu, Square, Zap } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
-// no-op
 import { useEmbeddingsPanelStore } from './stores/embeddings-panel-store';
 import {
   buildLocalEmbeddingModelConfigMap,
@@ -240,8 +238,8 @@ const SimilarityInterface = ({
 };
 
 export function EmbeddingsPanel() {
-  const db = usePGliteDatabase();
-  const { models, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();
+  useEnsureModelRegistry();
+  const { models } = useModelRegistryStore();
   const [
     status,
     progress,
@@ -269,13 +267,6 @@ export function EmbeddingsPanel() {
   const initialize = useEmbeddingsPanelStore((s) => s.initialize);
   const calculateSimilarity = useEmbeddingsPanelStore((s) => s.calculateSimilarity);
   const dispose = useEmbeddingsPanelStore((s) => s.dispose);
-
-  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
-  useEffect(() => {
-    if (db && models.length === 0 && !modelsLoading) {
-      void fetchRegistry(db);
-    }
-  }, [db, fetchRegistry, models.length, modelsLoading]);
 
   const panelModels = useMemo(() => getEmbeddingsPanelModels(models), [models]);
   const modelOptions = useMemo(

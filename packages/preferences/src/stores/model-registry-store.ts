@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
 const logger = createLogger('ModelRegistryStore');
+let registryLoadPromise: Promise<void> | null = null;
 
 export type DbProvider = {
   id: string;
@@ -36,6 +37,7 @@ type ModelRegistryState = {
   models: DbModel[];
   isLoading: boolean;
   error: string | null;
+  hasLoaded: boolean;
 
   modelCacheDir: string | null;
   downloadProgress: Record<string, number>; // modelId -> progress %
@@ -43,6 +45,7 @@ type ModelRegistryState = {
 
   // Actions
   fetchRegistry: (db: IDatabase) => Promise<void>;
+  ensureRegistry: (db: IDatabase) => Promise<void>;
   toggleProvider: (db: IDatabase, providerId: string, enabled: boolean) => Promise<void>;
   toggleModel: (db: IDatabase, modelId: string, enabled: boolean) => Promise<void>;
   setModelCacheDir: (dir: string) => void;
@@ -167,6 +170,7 @@ const initialState = {
   models: [] as DbModel[],
   isLoading: false,
   error: null as string | null,
+  hasLoaded: false,
   modelCacheDir: null as string | null,
   downloadProgress: {} as Record<string, number>,
   isDownloading: {} as Record<string, boolean>,
@@ -177,6 +181,25 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
   persist(
     (set, get) => ({
       ...initialState,
+
+      ensureRegistry: (db: IDatabase) => {
+        if (registryLoadPromise) {
+          return registryLoadPromise;
+        }
+
+        const { hasLoaded, isLoading } = get();
+        if (hasLoaded || isLoading) {
+          return Promise.resolve();
+        }
+
+        registryLoadPromise = get()
+          .fetchRegistry(db)
+          .finally(() => {
+            registryLoadPromise = null;
+          });
+
+        return registryLoadPromise;
+      },
 
       fetchRegistry: async (db: IDatabase) => {
         set({ isLoading: true, error: null });
@@ -199,14 +222,13 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
           }));
 
           // Check for existing downloads if in Electron environment
-          // Check for existing downloads if in Electron environment
           const downloadedModels = await checkDownloadedModels(
             models,
             get().modelCacheDir,
             get().downloadedModels
           );
 
-          set({ providers, models, downloadedModels, isLoading: false });
+          set({ providers, models, downloadedModels, isLoading: false, hasLoaded: true });
         } catch (error) {
           logger.error('Failed to fetch model registry', error);
           set({ error: (error as Error).message, isLoading: false });
@@ -290,6 +312,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
  */
 export function __resetModelRegistryStoreForTests() {
   try {
+    registryLoadPromise = null;
     useModelRegistryStore.setState(initialState);
     const persistApi = (
       useModelRegistryStore as unknown as {

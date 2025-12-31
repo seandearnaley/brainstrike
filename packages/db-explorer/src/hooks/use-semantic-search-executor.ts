@@ -20,11 +20,11 @@ import {
   parseProviderModelKey,
   SimpleEmbeddingService,
 } from '@brainstrike/embeddings';
-import { useModelRegistryStore } from '@brainstrike/preferences';
+import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import type { SearchExecutor } from '../contexts/semantic-search-context';
 import {
   buildLocalEmbeddingModelConfigMap,
@@ -112,16 +112,11 @@ export function useSemanticSearchExecutor({
   fileRepository,
 }: UseSemanticSearchExecutorOptions): SearchExecutor | undefined {
   const db = usePGliteDatabase();
-  const { models, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();
+  const { models } = useModelRegistryStore();
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
 
-  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
-  useEffect(() => {
-    if (db && models.length === 0 && !modelsLoading) {
-      void fetchRegistry(db);
-    }
-  }, [db, fetchRegistry, models.length, modelsLoading]);
+  useEnsureModelRegistry({ db });
 
   const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
   const defaultModelConfig = useMemo(() => {

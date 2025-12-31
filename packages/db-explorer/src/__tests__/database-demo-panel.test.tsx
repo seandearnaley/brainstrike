@@ -167,21 +167,28 @@ vi.mock('@brainstrike/ui', async () => {
   };
 });
 
-const { mockFetchRegistry, mockUseModelRegistryStore } = vi.hoisted(() => {
+const { mockEnsureModelRegistry, mockFetchRegistry, mockUseModelRegistryStore } = vi.hoisted(() => {
   const fetchRegistry = vi.fn();
+  const ensureModelRegistry = vi.fn();
   const useModelRegistryStore = vi.fn(() => ({
     models: [],
     providers: [],
+    ensureRegistry: fetchRegistry,
     fetchRegistry,
     isLoading: false,
   }));
-  return { mockFetchRegistry: fetchRegistry, mockUseModelRegistryStore: useModelRegistryStore };
+  return {
+    mockEnsureModelRegistry: ensureModelRegistry,
+    mockFetchRegistry: fetchRegistry,
+    mockUseModelRegistryStore: useModelRegistryStore,
+  };
 });
 
 vi.mock('@brainstrike/preferences', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
   return {
     ...actual,
+    useEnsureModelRegistry: mockEnsureModelRegistry,
     useModelRegistryStore: mockUseModelRegistryStore,
   };
 });
@@ -339,7 +346,9 @@ describe('DatabaseDemoPanel', () => {
       render(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(mockFetchRegistry).toHaveBeenCalledWith(mockDatabase);
+        expect(mockEnsureModelRegistry).toHaveBeenCalledWith(
+          expect.objectContaining({ db: mockDatabase })
+        );
       });
     });
   });
@@ -497,6 +506,7 @@ describe('DatabaseDemoPanel', () => {
       mockUseModelRegistryStore.mockReturnValue({
         models: [],
         providers: [],
+        ensureRegistry: mockFetchRegistry,
         fetchRegistry: mockFetchRegistry,
         isLoading: true,
       });

@@ -14,10 +14,10 @@ import {
   parseProviderModelKey,
   SimpleEmbeddingService,
 } from '@brainstrike/embeddings';
-import { useModelRegistryStore } from '@brainstrike/preferences';
+import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { ChunkSearchResult, SearchFunctionality } from '../types';
 import {
   buildLocalEmbeddingModelConfigMap,
@@ -44,18 +44,13 @@ export function useSearchFunctionality(
   const [searchThreshold, setSearchThreshold] = useState(getDefaultSearchThreshold());
   const [hasSearched, setHasSearched] = useState(false);
   const db = usePGliteDatabase();
-  const { models, fetchRegistry, isLoading: modelsLoading } = useModelRegistryStore();
+  const { models } = useModelRegistryStore();
 
   // Maintain an internal service wrapper
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
 
-  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
-  useEffect(() => {
-    if (db && models.length === 0 && !modelsLoading) {
-      void fetchRegistry(db);
-    }
-  }, [db, fetchRegistry, models.length, modelsLoading]);
+  useEnsureModelRegistry({ db });
 
   const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
   const defaultModelConfig = useMemo(() => {

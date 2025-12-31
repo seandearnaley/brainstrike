@@ -3,7 +3,8 @@ import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { Folder, RefreshCw } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
 import { ModelList } from './model-list';
 
@@ -29,12 +30,7 @@ export function ModelSelectionPage() {
   } = useModelRegistryStore();
   const { toast } = useToast();
 
-  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
-  useEffect(() => {
-    if (db) {
-      void fetchRegistry(db);
-    }
-  }, [db, fetchRegistry]);
+  useEnsureModelRegistry({ db });
 
   const handleDownload = async (modelId: string) => {
     if (isDownloading[modelId]) {

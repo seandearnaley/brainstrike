@@ -3,10 +3,22 @@
  * These tests don't require downloading models
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SimpleEmbeddingService } from '../bge-m3-service';
 import { ModelRegistryManager } from '../model-registry';
 import type { ModelRegistry } from '../types';
+import { TEST_MODEL_KEYS, TEST_MODEL_REGISTRY } from './fixtures/model-registry-fixture';
+
+let originalRegistry: ModelRegistry;
+
+beforeEach(() => {
+  originalRegistry = ModelRegistryManager.getRegistry();
+  ModelRegistryManager.updateRegistry(TEST_MODEL_REGISTRY);
+});
+
+afterEach(() => {
+  ModelRegistryManager.updateRegistry(originalRegistry);
+});
 
 describe('Model Registry Tests', () => {
   describe('ModelRegistryManager', () => {
@@ -21,34 +33,34 @@ describe('Model Registry Tests', () => {
       const models = ModelRegistryManager.listModels();
 
       // Check that hosted providers are included with proper keys
-      expect(models['openai::text-embedding-3-small']).toBeDefined();
-      expect(models['openai::text-embedding-3-large']).toBeDefined();
-      expect(models['voyage::voyage-3']).toBeDefined();
-      expect(models['cohere::embed-english-v3.0']).toBeDefined();
+      expect(models[TEST_MODEL_KEYS.openaiSmall]).toBeDefined();
+      expect(models[TEST_MODEL_KEYS.openaiLarge]).toBeDefined();
+      expect(models[TEST_MODEL_KEYS.voyage3]).toBeDefined();
+      expect(models[TEST_MODEL_KEYS.cohereEnglish]).toBeDefined();
 
       // Verify hosted models have correct dimensions
-      expect(models['openai::text-embedding-3-small']?.dimensions).toBe(1536);
-      expect(models['openai::text-embedding-3-large']?.dimensions).toBe(3072);
-      expect(models['voyage::voyage-3']?.dimensions).toBe(1024);
+      expect(models[TEST_MODEL_KEYS.openaiSmall]?.dimensions).toBe(1536);
+      expect(models[TEST_MODEL_KEYS.openaiLarge]?.dimensions).toBe(3072);
+      expect(models[TEST_MODEL_KEYS.voyage3]?.dimensions).toBe(1024);
     });
 
     it('should have jina-code as default model', () => {
       const defaultKey = ModelRegistryManager.getDefaultModelKey();
-      expect(defaultKey).toBe('jinaai/jina-embeddings-v2-base-code');
+      expect(defaultKey).toBe(TEST_MODEL_KEYS.jinaCode);
 
       const defaultModel = ModelRegistryManager.getDefaultModel();
-      expect(defaultModel.id).toBe('jinaai/jina-embeddings-v2-base-code');
+      expect(defaultModel.id).toBe(TEST_MODEL_KEYS.jinaCode);
       expect(defaultModel.name).toBe('Jina Code v2 (default)');
       expect(defaultModel.dimensions).toBe(768);
       expect(defaultModel.tags).toContain('code');
     });
 
     it('should get specific model configurations', () => {
-      const jinaModel = ModelRegistryManager.getModel('jinaai/jina-embeddings-v2-base-code');
+      const jinaModel = ModelRegistryManager.getModel(TEST_MODEL_KEYS.jinaCode);
       expect(jinaModel).toBeDefined();
-      expect(jinaModel?.id).toBe('jinaai/jina-embeddings-v2-base-code');
+      expect(jinaModel?.id).toBe(TEST_MODEL_KEYS.jinaCode);
 
-      const miniLM = ModelRegistryManager.getModel('Xenova/all-MiniLM-L6-v2');
+      const miniLM = ModelRegistryManager.getModel(TEST_MODEL_KEYS.miniLm);
       expect(miniLM).toBeDefined();
       expect(miniLM?.dimensions).toBe(384);
 
@@ -58,64 +70,62 @@ describe('Model Registry Tests', () => {
 
     it('should get model configurations by HuggingFace ID', () => {
       // Lookup by full HuggingFace model ID (the `id` field in registry)
-      const miniLM = ModelRegistryManager.getModel('Xenova/all-MiniLM-L6-v2');
+      const miniLM = ModelRegistryManager.getModel(TEST_MODEL_KEYS.miniLm);
       expect(miniLM).toBeDefined();
-      expect(miniLM?.id).toBe('Xenova/all-MiniLM-L6-v2');
+      expect(miniLM?.id).toBe(TEST_MODEL_KEYS.miniLm);
       expect(miniLM?.dimensions).toBe(384);
 
-      const jinaCode = ModelRegistryManager.getModel('jinaai/jina-embeddings-v2-base-code');
+      const jinaCode = ModelRegistryManager.getModel(TEST_MODEL_KEYS.jinaCode);
       expect(jinaCode).toBeDefined();
-      expect(jinaCode?.id).toBe('jinaai/jina-embeddings-v2-base-code');
+      expect(jinaCode?.id).toBe(TEST_MODEL_KEYS.jinaCode);
       expect(jinaCode?.dimensions).toBe(768);
 
       // Verify hasModel also works with HuggingFace IDs
-      expect(ModelRegistryManager.hasModel('Xenova/all-MiniLM-L6-v2')).toBe(true);
-      expect(ModelRegistryManager.hasModel('jinaai/jina-embeddings-v2-base-code')).toBe(true);
+      expect(ModelRegistryManager.hasModel(TEST_MODEL_KEYS.miniLm)).toBe(true);
+      expect(ModelRegistryManager.hasModel(TEST_MODEL_KEYS.jinaCode)).toBe(true);
       expect(ModelRegistryManager.hasModel('Xenova/nonexistent-model')).toBe(false);
     });
 
     it('should get model configurations by local provider composite keys', () => {
       // Lookup by transformers::HuggingFaceID format (as stored in database)
-      const miniLM = ModelRegistryManager.getModel('transformers::Xenova/all-MiniLM-L6-v2');
+      const miniLM = ModelRegistryManager.getModel(`transformers::${TEST_MODEL_KEYS.miniLm}`);
       expect(miniLM).toBeDefined();
-      expect(miniLM?.id).toBe('Xenova/all-MiniLM-L6-v2');
+      expect(miniLM?.id).toBe(TEST_MODEL_KEYS.miniLm);
       expect(miniLM?.dimensions).toBe(384);
 
       // Lookup by local::HuggingFaceId format
-      const jinaCode = ModelRegistryManager.getModel('local::jinaai/jina-embeddings-v2-base-code');
+      const jinaCode = ModelRegistryManager.getModel(`local::${TEST_MODEL_KEYS.jinaCode}`);
       expect(jinaCode).toBeDefined();
-      expect(jinaCode?.id).toBe('jinaai/jina-embeddings-v2-base-code');
+      expect(jinaCode?.id).toBe(TEST_MODEL_KEYS.jinaCode);
 
       // Lookup by transformers::HuggingFaceId format
-      const bgeSmall = ModelRegistryManager.getModel('transformers::Xenova/bge-small-en-v1.5');
+      const bgeSmall = ModelRegistryManager.getModel(`transformers::${TEST_MODEL_KEYS.bgeSmall}`);
       expect(bgeSmall).toBeDefined();
-      expect(bgeSmall?.id).toBe('Xenova/bge-small-en-v1.5');
+      expect(bgeSmall?.id).toBe(TEST_MODEL_KEYS.bgeSmall);
 
       // Verify hasModel also works with local provider composite keys
-      expect(ModelRegistryManager.hasModel('transformers::Xenova/all-MiniLM-L6-v2')).toBe(true);
-      expect(ModelRegistryManager.hasModel('local::jinaai/jina-embeddings-v2-base-code')).toBe(
-        true
-      );
+      expect(ModelRegistryManager.hasModel(`transformers::${TEST_MODEL_KEYS.miniLm}`)).toBe(true);
+      expect(ModelRegistryManager.hasModel(`local::${TEST_MODEL_KEYS.jinaCode}`)).toBe(true);
       expect(ModelRegistryManager.hasModel('transformers::nonexistent-model')).toBe(false);
     });
 
     it('should get hosted provider model configurations', () => {
       // Test OpenAI models
-      const openaiSmall = ModelRegistryManager.getModel('openai::text-embedding-3-small');
+      const openaiSmall = ModelRegistryManager.getModel(TEST_MODEL_KEYS.openaiSmall);
       expect(openaiSmall).toBeDefined();
       expect(openaiSmall?.dimensions).toBe(1536);
 
-      const openaiLarge = ModelRegistryManager.getModel('openai::text-embedding-3-large');
+      const openaiLarge = ModelRegistryManager.getModel(TEST_MODEL_KEYS.openaiLarge);
       expect(openaiLarge).toBeDefined();
       expect(openaiLarge?.dimensions).toBe(3072);
 
       // Test Voyage models
-      const voyage = ModelRegistryManager.getModel('voyage::voyage-3');
+      const voyage = ModelRegistryManager.getModel(TEST_MODEL_KEYS.voyage3);
       expect(voyage).toBeDefined();
       expect(voyage?.dimensions).toBe(1024);
 
       // Test Cohere models
-      const cohere = ModelRegistryManager.getModel('cohere::embed-english-v3.0');
+      const cohere = ModelRegistryManager.getModel(TEST_MODEL_KEYS.cohereEnglish);
       expect(cohere).toBeDefined();
       expect(cohere?.dimensions).toBe(1024);
 
@@ -125,17 +135,17 @@ describe('Model Registry Tests', () => {
     });
 
     it('should check model existence', () => {
-      expect(ModelRegistryManager.hasModel('jinaai/jina-embeddings-v2-base-code')).toBe(true);
-      expect(ModelRegistryManager.hasModel('Xenova/all-MiniLM-L6-v2')).toBe(true);
+      expect(ModelRegistryManager.hasModel(TEST_MODEL_KEYS.jinaCode)).toBe(true);
+      expect(ModelRegistryManager.hasModel(TEST_MODEL_KEYS.miniLm)).toBe(true);
       expect(ModelRegistryManager.hasModel('non-existent')).toBe(false);
     });
 
     it('should check hosted provider model existence', () => {
       // Test hosted models exist
-      expect(ModelRegistryManager.hasModel('openai::text-embedding-3-small')).toBe(true);
-      expect(ModelRegistryManager.hasModel('openai::text-embedding-3-large')).toBe(true);
-      expect(ModelRegistryManager.hasModel('voyage::voyage-3')).toBe(true);
-      expect(ModelRegistryManager.hasModel('cohere::embed-english-v3.0')).toBe(true);
+      expect(ModelRegistryManager.hasModel(TEST_MODEL_KEYS.openaiSmall)).toBe(true);
+      expect(ModelRegistryManager.hasModel(TEST_MODEL_KEYS.openaiLarge)).toBe(true);
+      expect(ModelRegistryManager.hasModel(TEST_MODEL_KEYS.voyage3)).toBe(true);
+      expect(ModelRegistryManager.hasModel(TEST_MODEL_KEYS.cohereEnglish)).toBe(true);
 
       // Test non-existent hosted models
       expect(ModelRegistryManager.hasModel('openai::non-existent')).toBe(false);
@@ -145,7 +155,7 @@ describe('Model Registry Tests', () => {
     it('should filter models by tag', () => {
       const codeModels = ModelRegistryManager.getModelsByTag('code');
       expect(Object.keys(codeModels).length).toBeGreaterThan(0);
-      expect(codeModels['jinaai/jina-embeddings-v2-base-code']).toBeDefined();
+      expect(codeModels[TEST_MODEL_KEYS.jinaCode]).toBeDefined();
 
       const englishModels = ModelRegistryManager.getModelsByTag('english');
       expect(Object.keys(englishModels).length).toBeGreaterThan(0);
@@ -158,24 +168,24 @@ describe('Model Registry Tests', () => {
       const models = ModelRegistryManager.listModels();
 
       // Test jina-code (768D, should force quantization)
-      const jinaCode = models['jinaai/jina-embeddings-v2-base-code'];
+      const jinaCode = models[TEST_MODEL_KEYS.jinaCode];
       expect(jinaCode).toBeDefined();
       expect(ModelRegistryManager.shouldQuantize(jinaCode!)).toBe(false);
 
       // Test all-MiniLM-L6-v2 (384D, should force quantization)
-      const miniLM = models['Xenova/all-MiniLM-L6-v2'];
+      const miniLM = models[TEST_MODEL_KEYS.miniLm];
       expect(miniLM).toBeDefined();
       expect(ModelRegistryManager.shouldQuantize(miniLM!)).toBe(false);
 
       // Test BGE-Large (1024D, should recommend quantization)
-      const bgeLarge = models['bge-large-en-v1.5'];
+      const bgeLarge = models[TEST_MODEL_KEYS.bgeLarge];
       if (bgeLarge) {
         expect(ModelRegistryManager.shouldQuantize(bgeLarge)).toBe(false);
       }
     });
 
     it('should auto-quantize models without explicit guidance when dimensions are small', () => {
-      const originalRegistry = ModelRegistryManager.getRegistry();
+      const previousRegistry = ModelRegistryManager.getRegistry();
       const testRegistry: ModelRegistry = {
         default: 'auto-model',
         models: {
@@ -196,11 +206,11 @@ describe('Model Registry Tests', () => {
       expect(autoModel).toBeDefined();
       expect(ModelRegistryManager.shouldQuantize(autoModel!)).toBe(true);
 
-      ModelRegistryManager.updateRegistry(originalRegistry);
+      ModelRegistryManager.updateRegistry(previousRegistry);
     });
 
     it('should allow registry updates', () => {
-      const originalRegistry = ModelRegistryManager.getRegistry();
+      const previousRegistry = ModelRegistryManager.getRegistry();
 
       const testRegistry: ModelRegistry = {
         default: 'test-model',
@@ -224,8 +234,8 @@ describe('Model Registry Tests', () => {
       expect(ModelRegistryManager.hasModel('test-model')).toBe(true);
 
       // Restore original registry
-      ModelRegistryManager.updateRegistry(originalRegistry);
-      expect(ModelRegistryManager.getDefaultModelKey()).toBe('jinaai/jina-embeddings-v2-base-code');
+      ModelRegistryManager.updateRegistry(previousRegistry);
+      expect(ModelRegistryManager.getDefaultModelKey()).toBe(TEST_MODEL_KEYS.jinaCode);
     });
   });
 
