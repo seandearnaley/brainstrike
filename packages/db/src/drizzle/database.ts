@@ -84,7 +84,11 @@ export function toISOString(value: Date | string | undefined | null): string {
  * ```
  */
 export function drizzle(pglite: PGlite): DrizzleDb {
-  return createDrizzle(pglite);
+  return createDrizzle(pglite, {
+    // Map snake_case database columns to camelCase JavaScript properties
+    // This ensures consistent behavior with the IPC proxy path
+    casing: 'snake_case',
+  });
 }
 
 /**

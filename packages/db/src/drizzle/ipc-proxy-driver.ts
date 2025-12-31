@@ -94,6 +94,10 @@ export function createIPCProxyDrizzle(electronDb: ElectronDatabaseAPI): IPCProxy
   const callback = createIPCRemoteCallback(electronDb);
   return createPgProxyDrizzle(callback, {
     logger: process.env['NODE_ENV'] === 'development',
+    // Map snake_case database columns to camelCase JavaScript properties
+    // This is essential for IPC serialization where PGlite returns snake_case
+    // column names that need to match schema-defined camelCase properties
+    casing: 'snake_case',
   });
 }
 
