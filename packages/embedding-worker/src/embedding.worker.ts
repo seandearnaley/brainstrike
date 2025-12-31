@@ -63,8 +63,9 @@ type FeatureExtractor = FeatureExtractionPipeline &
     options?: {
       readonly pooling?: 'mean' | 'max' | 'cls';
       readonly normalize?: boolean;
-      readonly truncate?: boolean;
-      readonly maxLength?: number;
+      readonly truncation?: boolean;
+      // biome-ignore lint/style/useNamingConvention: Transformers.js API requires snake_case
+      readonly max_length?: number;
     }
   ) => Promise<unknown>);
 
@@ -342,12 +343,13 @@ async function runBatches(
   for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
     const endIndex = Math.min(total, startIndex + state.batchSize);
     const slice = texts.slice(startIndex, endIndex);
-    // CRITICAL: truncate=true and maxLength prevent ONNX/WASM crashes from overlong input
+    // CRITICAL: truncation=true and max_length prevent ONNX/WASM crashes from overlong input
     const rawOutput = await extractor(slice, {
       pooling: 'mean',
       normalize: false,
-      truncate: true,
-      maxLength,
+      truncation: true,
+      // biome-ignore lint/style/useNamingConvention: Transformers.js API requires snake_case
+      max_length: maxLength,
     });
     const vectorsFromBatch =
       rawOutput instanceof Tensor

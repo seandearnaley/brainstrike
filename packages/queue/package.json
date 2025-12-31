@@ -1,7 +1,7 @@
 {
   "name": "@brainstrike/queue",
   "version": "0.1.0",
-  "description": "Browser/Electron renderer job queue with workerpool and p-queue fallback.",
+  "description": "Browser/Electron renderer job queue with workerpool for embedding tasks.",
   "private": true,
   "type": "module",
   "sideEffects": false,
@@ -30,8 +30,6 @@
   "dependencies": {
     "@brainstrike/embedding-worker": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^3.8.0",
-    "p-queue": "^9.0.1",
     "workerpool": "^10.0.1"
   },
   "devDependencies": {

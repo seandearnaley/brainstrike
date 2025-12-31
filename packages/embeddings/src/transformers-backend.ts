@@ -15,9 +15,17 @@ type TransformersModule = {
   ) => Promise<FeatureExtractionPipeline>;
 };
 
+type FeatureExtractionPipelineOptions = {
+  pooling: string;
+  normalize: boolean;
+  truncation?: boolean;
+  // biome-ignore lint/style/useNamingConvention: Transformers.js API requires snake_case
+  max_length?: number;
+};
+
 type FeatureExtractionPipeline = (
   text: string,
-  options: { pooling: string; normalize: boolean; truncate?: boolean; maxLength?: number }
+  options: FeatureExtractionPipelineOptions
 ) => Promise<{
   data: Float32Array;
 }>;

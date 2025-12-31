@@ -117,7 +117,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     const event: QueueTelemetryEvent = {
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-1',
     };
@@ -147,7 +147,7 @@ describe('initializeQueueTelemetrySink', () => {
     for (let index = 0; index < 3; index += 1) {
       emitQueueTelemetry({
         timestamp: Date.now(),
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'enqueue',
         taskId: `task-${index}`,
       });
@@ -170,7 +170,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-beacon',
     });
@@ -194,7 +194,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-fallback',
     });
@@ -218,7 +218,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-api-key',
     });
@@ -251,7 +251,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-headers',
     });
@@ -283,7 +283,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-metadata',
     });
@@ -313,7 +313,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-error',
     });
@@ -346,7 +346,7 @@ describe('initializeQueueTelemetrySink', () => {
       // First failure - emit event and flush
       emitQueueTelemetry({
         timestamp: Date.now(),
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-1',
       });
@@ -390,7 +390,7 @@ describe('initializeQueueTelemetrySink', () => {
       // First failure
       emitQueueTelemetry({
         timestamp: Date.now(),
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-1',
       });
@@ -427,7 +427,7 @@ describe('initializeQueueTelemetrySink', () => {
       // First event triggers failure and disables sink
       emitQueueTelemetry({
         timestamp: Date.now(),
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-1',
       });
@@ -443,7 +443,7 @@ describe('initializeQueueTelemetrySink', () => {
       // New events should be dropped (no fetch calls after sink is disabled)
       emitQueueTelemetry({
         timestamp: Date.now(),
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-2',
       });
@@ -477,7 +477,7 @@ describe('initializeQueueTelemetrySink', () => {
       // First event - will fail
       emitQueueTelemetry({
         timestamp: Date.now(),
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-1',
       });
@@ -497,7 +497,7 @@ describe('initializeQueueTelemetrySink', () => {
       // Third event - will fail again, but counter should have been reset
       emitQueueTelemetry({
         timestamp: Date.now(),
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-3',
       });
@@ -526,7 +526,7 @@ describe('initializeQueueTelemetrySink', () => {
       // Trigger failure to disable sink
       emitQueueTelemetry({
         timestamp: Date.now(),
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'enqueue',
         taskId: 'task-1',
       });
@@ -560,7 +560,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-500',
     });
@@ -590,7 +590,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-dispose',
     });
@@ -625,7 +625,7 @@ describe('initializeQueueTelemetrySink', () => {
     // Emit event and start flush
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-1',
     });
@@ -638,7 +638,7 @@ describe('initializeQueueTelemetrySink', () => {
     // Emit another event and try to flush again
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-2',
     });
@@ -682,7 +682,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-runtime',
     });
@@ -710,7 +710,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-electron',
     });
@@ -738,7 +738,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-main',
     });
@@ -765,7 +765,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-timeout',
     });
@@ -794,7 +794,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-timer',
     });
@@ -821,7 +821,7 @@ describe('initializeQueueTelemetrySink', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-beacon-error',
     });
@@ -852,7 +852,7 @@ describe('initializeQueueTelemetrySink', () => {
     for (let index = 0; index < 5; index += 1) {
       emitQueueTelemetry({
         timestamp: Date.now(),
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'enqueue',
         taskId: `task-${index}`,
       });

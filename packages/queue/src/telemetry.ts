@@ -1,4 +1,4 @@
-export type QueueTelemetryAdapter = 'workerpool' | 'pqueue' | 'custom';
+export type QueueTelemetryAdapter = 'workerpool' | 'custom';
 
 export type QueueTelemetryEventType = 'enqueue' | 'complete' | 'error';
 

@@ -1,5 +1,3 @@
-import { createLogger } from '@brainstrike/utils';
-import { createPQueueAdapter, type PQueueAdapterOptions } from './adapters/browser-pqueue';
 import {
   createWorkerpoolAdapter,
   type WorkerpoolAdapterOptions,
@@ -7,7 +5,6 @@ import {
 import type { QueueAdapter } from './types';
 import { supportsWorkers } from './util';
 
-export type { PQueueAdapterOptions } from './adapters/browser-pqueue';
 export type { WorkerpoolAdapterOptions } from './adapters/browser-workerpool';
 export {
   initializeQueueTelemetrySink,
@@ -32,37 +29,28 @@ export type {
   TaskPayload,
 } from './types';
 
-const logger = createLogger('EmbeddingQueue');
-
 export type CreateBrowserEmbeddingQueueOptions = {
-  readonly preferWorkerpool?: boolean;
   readonly worker?: WorkerpoolAdapterOptions;
-  readonly fallback?: PQueueAdapterOptions;
-  /** When true, require a workerpool adapter and throw if unavailable. */
+  /**
+   * When true, require a workerpool adapter and throw if unavailable.
+   * @deprecated Always true - workers are required. Kept for API compatibility.
+   */
   readonly requireWorkerpool?: boolean;
 };
 
+/**
+ * Create a browser embedding queue using Web Workers.
+ * Workers are required - this function throws if Web Workers are unavailable.
+ */
 export function createBrowserEmbeddingQueue(
   options: CreateBrowserEmbeddingQueueOptions = {}
 ): QueueAdapter {
-  const preferWorkerpool = options.preferWorkerpool ?? true;
-  const requireWorkerpool = options.requireWorkerpool ?? false;
-  if (preferWorkerpool && supportsWorkers()) {
-    try {
-      return createWorkerpoolAdapter(options.worker);
-    } catch (error) {
-      if (requireWorkerpool) {
-        throw error;
-      }
-      logger.warn('Failed to initialize workerpool adapter, falling back to p-queue', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+  if (!supportsWorkers()) {
+    throw new Error(
+      'Embedding queue requires Web Workers; this environment does not support them.'
+    );
   }
-  if (requireWorkerpool) {
-    throw new Error('Embedding queue requires Web Workers; fallback adapter disabled.');
-  }
-  return createPQueueAdapter(options.fallback);
+  return createWorkerpoolAdapter(options.worker);
 }
 
-export { createWorkerpoolAdapter, createPQueueAdapter };
+export { createWorkerpoolAdapter };

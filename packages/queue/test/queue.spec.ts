@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserEmbeddingQueue } from '../src';
-import { createPQueueAdapter } from '../src/adapters/browser-pqueue';
 import { createWorkerpoolAdapter } from '../src/adapters/browser-workerpool';
 import {
   addQueueTelemetryListener,
@@ -253,37 +252,7 @@ describe('createWorkerpoolAdapter', () => {
   });
 });
 
-describe('createPQueueAdapter', () => {
-  it('embeds on the main thread and emits progress events', async () => {
-    const adapter = createPQueueAdapter({ concurrency: 1 });
-    const events: unknown[] = [];
-    adapter.onProgress((event) => events.push(event));
-    const result = await adapter.add(minimalTask);
-    expect(result.vectors).toHaveLength(2);
-    expect(events).not.toHaveLength(0);
-    await adapter.drain();
-  });
-});
-
 describe('queue telemetry', () => {
-  it('emits telemetry events for the fallback p-queue adapter', async () => {
-    const adapter = createPQueueAdapter({ concurrency: 1 });
-    const events: QueueTelemetryEvent[] = [];
-    const unsubscribe = addQueueTelemetryListener((event) => {
-      if (event.taskId === 'telemetry-pqueue') {
-        events.push(event);
-      }
-    });
-    try {
-      await adapter.add({ ...minimalTask, id: 'telemetry-pqueue' });
-    } finally {
-      unsubscribe();
-    }
-
-    expect(events.some((event) => event.event === 'enqueue')).toBe(true);
-    expect(events.some((event) => event.event === 'complete')).toBe(true);
-  });
-
   it('emits telemetry events for the workerpool adapter', async () => {
     setWorkerSupport();
     const adapter = createWorkerpoolAdapter();
@@ -308,13 +277,13 @@ describe('queue telemetry', () => {
     const base = Date.now();
     emitQueueTelemetry({
       timestamp: base,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'aggregation-task',
     });
     emitQueueTelemetry({
       timestamp: base + 10,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'aggregation-task',
       elapsedMs: 10,
@@ -333,18 +302,17 @@ describe('queue telemetry', () => {
 });
 
 describe('createBrowserEmbeddingQueue', () => {
-  it('prefers workerpool when Worker is available', async () => {
+  it('uses workerpool when Worker is available', async () => {
     setWorkerSupport();
     const queue = createBrowserEmbeddingQueue();
     const result = await queue.add(minimalTask);
     expect(result.metadata.device).toBe('webgpu');
   });
 
-  it('falls back to p-queue when Worker is unavailable', async () => {
+  it('throws when Worker is unavailable', () => {
     (globalThis as Partial<typeof globalThis>).Worker = undefined;
-    const queue = createBrowserEmbeddingQueue();
-    const result = await queue.add({ ...minimalTask, id: 'task-fallback' });
-    expect(result.metadata.device).toBe('wasm');
-    expect(workerpoolMocks.execSpy).not.toHaveBeenCalled();
+    expect(() => createBrowserEmbeddingQueue()).toThrow(
+      'Embedding queue requires Web Workers; this environment does not support them.'
+    );
   });
 });
