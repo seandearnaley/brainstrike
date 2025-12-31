@@ -2,12 +2,79 @@
  * Helper functions for creating and managing dimension-based HNSW indexes.
  * These indexes use partial indexes with expression casting to support
  * multiple embedding dimensions in a single dimensionless VECTOR column.
+ *
+ * SECURITY NOTE: All functions that interpolate values into SQL must validate
+ * those values first to prevent SQL injection. Dimension and HNSW parameters
+ * are validated before being used in SQL strings.
  */
 
 type HnswParams = {
   m: number;
   ef: number;
 };
+
+/**
+ * Maximum allowed dimension for HNSW indexes.
+ * pgvector supports up to 2000 dimensions by default.
+ */
+const MAX_DIMENSION = 65_535;
+
+/**
+ * Maximum allowed value for HNSW M parameter.
+ * Higher values use more memory but may improve recall.
+ */
+const MAX_HNSW_M = 1000;
+
+/**
+ * Maximum allowed value for HNSW ef_construction parameter.
+ * Higher values build better indexes but take longer.
+ */
+const MAX_HNSW_EF = 10_000;
+
+/**
+ * Validates a dimension value for safe use in SQL interpolation.
+ * @throws Error if dimension is not a safe positive integer within bounds
+ */
+function validateDimensionForSql(dimension: number, context: string): void {
+  if (
+    typeof dimension !== 'number' ||
+    !Number.isInteger(dimension) ||
+    dimension <= 0 ||
+    dimension > MAX_DIMENSION
+  ) {
+    throw new Error(
+      `${context}: Invalid dimension ${dimension}. Must be integer between 1 and ${MAX_DIMENSION}.`
+    );
+  }
+}
+
+/**
+ * Validates HNSW parameters for safe use in SQL interpolation.
+ * @throws Error if parameters are not safe positive integers within bounds
+ */
+function validateHnswParamsForSql(params: HnswParams, context: string): void {
+  if (
+    typeof params.m !== 'number' ||
+    !Number.isInteger(params.m) ||
+    params.m <= 0 ||
+    params.m > MAX_HNSW_M
+  ) {
+    throw new Error(
+      `${context}: Invalid HNSW m parameter ${params.m}. Must be integer between 1 and ${MAX_HNSW_M}.`
+    );
+  }
+
+  if (
+    typeof params.ef !== 'number' ||
+    !Number.isInteger(params.ef) ||
+    params.ef <= 0 ||
+    params.ef > MAX_HNSW_EF
+  ) {
+    throw new Error(
+      `${context}: Invalid HNSW ef_construction parameter ${params.ef}. Must be integer between 1 and ${MAX_HNSW_EF}.`
+    );
+  }
+}
 
 type DimensionIndexDb = {
   exec(sql: string, params?: unknown): Promise<unknown>;
@@ -47,20 +114,34 @@ function indexName(dimension: number): string {
  * Create an HNSW index for a specific embedding dimension.
  * Uses partial indexing with expression casting to support dimensionless VECTOR column.
  *
+ * SECURITY: All parameters are validated before SQL interpolation to prevent injection.
+ *
  * @param db - PGlite database instance
- * @param dimension - The embedding dimension to index
- * @param params - HNSW tuning parameters (m, ef_construction)
+ * @param dimension - The embedding dimension to index (must be positive integer <= 65535)
+ * @param params - HNSW tuning parameters (m, ef_construction) - must be positive integers
  */
 export async function createDimensionIndex(
   db: DimensionIndexDb,
   dimension: number,
   params: HnswParams
 ): Promise<void> {
+  // CRITICAL: Validate all interpolated values before SQL construction
+  // This prevents SQL injection even if callers pass malicious input
+  validateDimensionForSql(dimension, 'createDimensionIndex');
+  validateHnswParamsForSql(params, 'createDimensionIndex');
+
   const name = indexName(dimension);
+
+  // Validate index name format as additional defense-in-depth
+  // This ensures the name matches expected format: idx_file_chunks_emb_hnsw_<digits>
+  if (!/^idx_file_chunks_emb_hnsw_\d+$/.test(name)) {
+    throw new Error(`createDimensionIndex: Invalid index name format: ${name}`);
+  }
 
   // Use expression cast + partial index on vector_dims()
   // This allows the query planner to use the index when WHERE includes vector_dims(embedding) = N
-  const sql = `
+  // SECURITY: dimension and params are validated integers above, safe for SQL interpolation
+  const sqlStatement = `
     CREATE INDEX IF NOT EXISTS ${name} ON file_chunks
     USING hnsw ((embedding::vector(${dimension})) vector_cosine_ops)
     WITH (m=${params.m}, ef_construction=${params.ef})
@@ -68,7 +149,7 @@ export async function createDimensionIndex(
   `;
 
   try {
-    await db.exec(sql);
+    await db.exec(sqlStatement);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     // Ignore "already exists" errors for idempotency
@@ -81,14 +162,25 @@ export async function createDimensionIndex(
 /**
  * Drop an HNSW index for a specific dimension.
  *
+ * SECURITY: Dimension is validated before SQL interpolation to prevent injection.
+ *
  * @param db - PGlite database instance
- * @param dimension - The embedding dimension whose index to drop
+ * @param dimension - The embedding dimension whose index to drop (must be positive integer <= 65535)
  */
 export async function dropDimensionIndex(
   db: Pick<DimensionIndexDb, 'exec'>,
   dimension: number
 ): Promise<void> {
+  // Validate dimension to prevent SQL injection via index name
+  validateDimensionForSql(dimension, 'dropDimensionIndex');
+
   const name = indexName(dimension);
+
+  // Validate index name format as additional defense-in-depth
+  if (!/^idx_file_chunks_emb_hnsw_\d+$/.test(name)) {
+    throw new Error(`dropDimensionIndex: Invalid index name format: ${name}`);
+  }
+
   try {
     await db.exec(`DROP INDEX IF EXISTS ${name}`);
   } catch {

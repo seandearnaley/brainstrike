@@ -47,6 +47,8 @@ vi.mock('@brainstrike/preferences', () => ({
   useVectorStatusUIStore: vi.fn((selector: (state: { setSchemaVerified: () => void }) => unknown) =>
     selector({ setSchemaVerified: vi.fn() })
   ),
+  // Mock DbSchemaVerifier component - renders children directly
+  DbSchemaVerifier: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 // Mock utils to prevent side effects
