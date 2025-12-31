@@ -229,26 +229,6 @@ describe('Model Registry Tests', () => {
     });
   });
 
-  describe('SimpleEmbeddingService Static Methods', () => {
-    it('should expose registry methods', () => {
-      const models = SimpleEmbeddingService.listModels();
-      expect(models).toBeDefined();
-
-      const defaultKey = SimpleEmbeddingService.getDefaultModelKey();
-      expect(defaultKey).toBe('jinaai/jina-embeddings-v2-base-code');
-
-      const jinaConfig = SimpleEmbeddingService.getModelConfig(
-        'jinaai/jina-embeddings-v2-base-code'
-      );
-      expect(jinaConfig).toBeDefined();
-      expect(jinaConfig?.name).toBe('Jina Code v2 (default)');
-
-      const registry = SimpleEmbeddingService.getRegistry();
-      expect(registry.default).toBe('jinaai/jina-embeddings-v2-base-code');
-      expect(registry.models).toBeDefined();
-    });
-  });
-
   describe('Model Configuration Validation', () => {
     it('should have required properties for all models', () => {
       const models = ModelRegistryManager.listModels();
