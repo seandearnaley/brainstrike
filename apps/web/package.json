@@ -55,7 +55,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.28.4",
-    "@biomejs/biome": "2.3.8",
+    "@biomejs/biome": "2.3.10",
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/tailwind-config": "workspace:*",
