@@ -1,8 +1,8 @@
-import { DbProvider, usePGliteDatabase } from '@brainstrike/db';
+import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { ChunkingWorkerProvider } from '@brainstrike/file-import';
 import { createFileSystemAdapter, createFixtureCapableAdapter } from '@brainstrike/file-system';
-import { useLoggingPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { DbSchemaVerifier, useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { createStorageAdapter } from '@brainstrike/storage';
 import {
@@ -12,7 +12,7 @@ import {
   installRendererErrorHooks,
   LogLevel,
 } from '@brainstrike/utils';
-import React, { useEffect } from 'react';
+import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
 // Import global CSS
@@ -126,26 +126,6 @@ if (telemetrySink) {
       void telemetrySink.dispose();
     });
   }
-}
-
-/**
- * Component that sets schemaVerified when the database is ready.
- * This ensures collections can load regardless of which panel opens first.
- * Must be rendered inside DbProvider.
- */
-function DbSchemaVerifier({ children }: { children: React.ReactNode }) {
-  const db = usePGliteDatabase();
-  const setSchemaVerified = useVectorStatusUIStore((s) => s.setSchemaVerified);
-
-  // biome-ignore lint/plugin: This is a valid side effect - setting schemaVerified when db is ready
-  useEffect(() => {
-    if (db) {
-      // Database is ready (migrations have run in DbProvider), set schemaVerified
-      setSchemaVerified(true);
-    }
-  }, [db, setSchemaVerified]);
-
-  return <>{children}</>;
 }
 
 const rootElement = document.getElementById('root');

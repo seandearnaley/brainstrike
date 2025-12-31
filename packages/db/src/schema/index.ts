@@ -17,7 +17,12 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-// Custom type for pgvector - flexible dimensions
+/**
+ * Custom type for pgvector - flexible dimensions
+ *
+ * Includes validation in toDriver to prevent invalid vector values
+ * (NaN, Infinity, -Infinity) from being stored in the database.
+ */
 const vector = customType<{
   data: number[];
   driverData: string;
@@ -30,12 +35,30 @@ const vector = customType<{
     return 'vector';
   },
   toDriver(value: number[]): string {
+    if (!Array.isArray(value) || value.length === 0) {
+      throw new Error('Vector must be a non-empty array of numbers');
+    }
+    for (let i = 0; i < value.length; i++) {
+      const v = value[i];
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        throw new Error(
+          `Invalid vector value at index ${i}: ${v} (must be a finite number, got ${typeof v})`
+        );
+      }
+    }
     return `[${value.join(',')}]`;
   },
   fromDriver(value: string): number[] {
     // Handle pgvector format: "[0.1,0.2,0.3]"
     const cleaned = value.replace(/[[\]()]/g, '');
-    return cleaned.split(',').map(Number);
+    const parsed = cleaned.split(',').map(Number);
+    // Validate parsed values - reject if any are NaN
+    for (let i = 0; i < parsed.length; i++) {
+      if (!Number.isFinite(parsed[i])) {
+        throw new Error(`Invalid vector value from database at index ${i}: ${parsed[i]}`);
+      }
+    }
+    return parsed;
   },
 });
 
