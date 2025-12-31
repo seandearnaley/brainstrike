@@ -47,6 +47,8 @@ export function useSearchFunctionality(
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
   const embedderInitPromiseRef = useRef<Promise<SearchEmbedder> | null>(null);
+  const embedderDisposePromiseRef = useRef<Promise<void> | null>(null);
+  const isDisposingRef = useRef(false);
 
   useEnsureModelRegistry({ db });
 
@@ -64,8 +66,17 @@ export function useSearchFunctionality(
       const embedder = embedderRef.current;
       embedderRef.current = null;
       currentModelKeyRef.current = null;
+      embedderInitPromiseRef.current = null;
       if (embedder?.dispose) {
-        void embedder.dispose();
+        isDisposingRef.current = true;
+        const disposePromise = Promise.resolve(embedder.dispose());
+        embedderDisposePromiseRef.current = disposePromise;
+        void disposePromise.finally(() => {
+          if (embedderDisposePromiseRef.current === disposePromise) {
+            embedderDisposePromiseRef.current = null;
+          }
+          isDisposingRef.current = false;
+        });
       }
     };
 
@@ -138,21 +149,34 @@ export function useSearchFunctionality(
 
   async function ensureEmbedderReady(modelInfo: EffectiveModelInfo): Promise<SearchEmbedder> {
     const { modelKey } = modelInfo;
+    const pendingDispose = embedderDisposePromiseRef.current;
+    if (pendingDispose) {
+      await pendingDispose;
+    }
+    if (isDisposingRef.current) {
+      throw new Error('Embedding model is still disposing. Please retry in a moment.');
+    }
+    if (embedderInitPromiseRef.current) {
+      await embedderInitPromiseRef.current;
+    }
     // If we already have an embedder for this model, return it
     if (embedderRef.current && currentModelKeyRef.current === modelKey) {
       return embedderRef.current;
     }
 
-    if (embedderInitPromiseRef.current) {
-      await embedderInitPromiseRef.current;
-      if (embedderRef.current && currentModelKeyRef.current === modelKey) {
-        return embedderRef.current;
-      }
-    }
-
     embedderInitPromiseRef.current = (async () => {
       if (embedderRef.current?.dispose) {
-        await embedderRef.current.dispose();
+        isDisposingRef.current = true;
+        const disposePromise = Promise.resolve(embedderRef.current.dispose());
+        embedderDisposePromiseRef.current = disposePromise;
+        try {
+          await disposePromise;
+        } finally {
+          if (embedderDisposePromiseRef.current === disposePromise) {
+            embedderDisposePromiseRef.current = null;
+          }
+          isDisposingRef.current = false;
+        }
       }
       const embedder = await createEmbedder(modelInfo);
       embedderRef.current = embedder;
