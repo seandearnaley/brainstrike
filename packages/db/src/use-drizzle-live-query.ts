@@ -8,7 +8,6 @@
  * This allows type-safe live queries while leveraging PGlite's live extension.
  */
 
-import type { PgSelect } from 'drizzle-orm/pg-core';
 import { useCallback, useMemo, useState } from 'react';
 import { type LiveQueryHookResult, usePGliteLiveQuery } from './use-live-query.js';
 
@@ -21,19 +20,19 @@ type DrizzleLiveQueryOptions = {
   readonly limit?: number;
 };
 
-type DrizzleQuery<T> = {
+/**
+ * Minimal interface for Drizzle query objects.
+ * Uses structural typing to accept any object with a toSQL() method,
+ * avoiding the need for complex Drizzle generic types.
+ */
+type DrizzleQueryLike = {
   toSQL(): { sql: string; params: unknown[] };
-  // Type inference helper - the actual type comes from Drizzle's SelectResult
-  _phantom?: T;
 };
 
 /**
  * Extracts SQL and params from a Drizzle query using toSQL()
  */
-function extractQueryDetails(
-  // biome-ignore lint/suspicious/noExplicitAny: Drizzle query types are complex unions
-  query: DrizzleQuery<any>
-): { sql: string; params: readonly unknown[] } {
+function extractQueryDetails(query: DrizzleQueryLike): { sql: string; params: readonly unknown[] } {
   const { sql, params } = query.toSQL();
   return { sql, params };
 }
@@ -57,8 +56,7 @@ function extractQueryDetails(
  * ```
  */
 export function useDrizzleLiveQuery<T extends Record<string, unknown>>(
-  // biome-ignore lint/suspicious/noExplicitAny: Drizzle PgSelect has complex generic types
-  query: PgSelect<any, any, any> | DrizzleQuery<T> | null,
+  query: DrizzleQueryLike | null,
   options: DrizzleLiveQueryOptions = {}
 ): LiveQueryHookResult<T> {
   const { enabled = true, offset, limit } = options;
@@ -69,7 +67,7 @@ export function useDrizzleLiveQuery<T extends Record<string, unknown>>(
       return null;
     }
     try {
-      return extractQueryDetails(query as DrizzleQuery<T>);
+      return extractQueryDetails(query);
     } catch {
       return null;
     }
@@ -120,8 +118,7 @@ export function useDrizzleLiveQuery<T extends Record<string, unknown>>(
  * ```
  */
 export function useDrizzleLiveQueryWithRefresh<T extends Record<string, unknown>>(
-  // biome-ignore lint/suspicious/noExplicitAny: Drizzle PgSelect has complex generic types
-  query: PgSelect<any, any, any> | DrizzleQuery<T> | null,
+  query: DrizzleQueryLike | null,
   options: DrizzleLiveQueryOptions = {}
 ): LiveQueryHookResult<T> & {
   /** Refresh counter for forcing re-evaluation */
@@ -135,16 +132,19 @@ export function useDrizzleLiveQueryWithRefresh<T extends Record<string, unknown>
     setRefreshCount((c) => c + 1);
   }, []);
 
-  const result = useDrizzleLiveQuery(query, options);
+  const result = useDrizzleLiveQuery<T>(query, options);
 
+  // Type assertion needed because useMemo cannot infer the generic type T
+  // through the spread operation. The underlying result is correctly typed.
   return useMemo(
-    () => ({
-      ...result,
-      refreshCount,
-      forceRefresh,
-    }),
+    () =>
+      ({
+        ...result,
+        refreshCount,
+        forceRefresh,
+      }) as LiveQueryHookResult<T> & { refreshCount: number; forceRefresh: () => void },
     [result, refreshCount, forceRefresh]
   );
 }
 
-export type { DrizzleLiveQueryOptions, DrizzleQuery };
+export type { DrizzleLiveQueryOptions, DrizzleQueryLike };

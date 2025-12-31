@@ -59,13 +59,37 @@ function validateDimension(dimension: number, context: string): void {
 const MAX_OVERFETCH_LIMIT = 10_000;
 
 /**
+ * Maximum user-specified limit for similarity search results.
+ * Prevents excessive memory usage from user requests.
+ */
+const MAX_USER_LIMIT = 1000;
+
+/**
  * Safely constructs a pgvector literal string from an embedding array.
  *
- * SECURITY NOTE: Defense-in-depth - validates INSIDE this function to ensure
- * SQL injection is impossible even if upstream validation is bypassed:
- * 1. Validates all elements are finite JavaScript numbers
- * 2. JavaScript finite numbers cannot contain SQL injection characters
- * 3. The resulting format [n1,n2,n3] is the exact literal format pgvector expects
+ * ┌─────────────────────────────────────────────────────────────────────────────┐
+ * │ SECURITY BOUNDARY: SQL Injection Prevention for Vector Literals            │
+ * ├─────────────────────────────────────────────────────────────────────────────┤
+ * │ This function is a critical security boundary that prevents SQL injection  │
+ * │ in pgvector similarity queries. The pgvector operators (<->, <=>, etc.)    │
+ * │ require vector literals to be interpolated directly into SQL because       │
+ * │ standard parameter binding doesn't work for pgvector's custom operators.   │
+ * │                                                                            │
+ * │ SECURITY GUARANTEES:                                                       │
+ * │ 1. Input MUST be a JavaScript number array (enforced by TypeScript)        │
+ * │ 2. Each element MUST be typeof 'number' (validated below)                  │
+ * │ 3. Each element MUST be finite - no NaN, Infinity, -Infinity (validated)   │
+ * │ 4. JavaScript finite numbers can only contain: digits, '.', '-', 'e', 'E'  │
+ * │    These characters cannot form SQL injection payloads                     │
+ * │ 5. Output format [n,n,n] is exactly what pgvector expects                  │
+ * │                                                                            │
+ * │ WHY sql.raw() IS SAFE HERE:                                                │
+ * │ - The only data interpolated is JavaScript finite numbers                  │
+ * │ - JavaScript Number.toString() cannot produce SQL metacharacters           │
+ * │ - Array.join(',') only adds safe comma separators                          │
+ * │ - Validation is inside this function, not a separate call that could be    │
+ * │   bypassed during refactoring                                              │
+ * └─────────────────────────────────────────────────────────────────────────────┘
  *
  * @param embedding - Array of numbers to convert
  * @returns pgvector literal string in format '[n1,n2,...]'
@@ -260,6 +284,14 @@ export class DrizzleFileChunkRepository {
     options: ChunkSearchOptions = {}
   ): Promise<ChunkSearchResult[]> {
     const { limit = 10, threshold = 0.5, fileRecordId, chunkType, embeddingSetId } = options;
+
+    // Validate limit to prevent memory exhaustion from excessive requests
+    if (limit > MAX_USER_LIMIT) {
+      throw new Error(
+        `searchSimilar limit ${limit} exceeds maximum allowed (${MAX_USER_LIMIT}). ` +
+          'Use pagination for larger result sets.'
+      );
+    }
 
     if (!embeddingSetId) {
       throw new Error('searchSimilar requires embeddingSetId to avoid dimension mismatches');

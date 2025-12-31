@@ -32,6 +32,49 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'embeddingSetId',
 ] as const;
 
+// Field validators - extract validation logic to reduce complexity
+function validateString(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid ${fieldName}: expected string, got ${typeof value}`);
+  }
+  return value;
+}
+
+function validateNullableString(value: unknown, fieldName: string): string | null {
+  if (value !== null && typeof value !== 'string') {
+    throw new Error(`Invalid ${fieldName}: expected string or null, got ${typeof value}`);
+  }
+  return value as string | null;
+}
+
+function validateSize(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`Invalid size: expected non-negative number, got ${value}`);
+  }
+  return value;
+}
+
+function validateNullableNumber(value: unknown, fieldName: string): number | null {
+  if (value !== null && (typeof value !== 'number' || !Number.isFinite(value))) {
+    throw new Error(`Invalid ${fieldName}: expected number or null, got ${value}`);
+  }
+  return value as number | null;
+}
+
+function validateDateString(value: unknown, fieldName: string): Date {
+  if (typeof value !== 'string') {
+    throw new Error(`Invalid ${fieldName}: expected ISO string, got ${typeof value}`);
+  }
+  return new Date(value);
+}
+
+function validateNullableDateString(value: unknown, fieldName: string): Date | null {
+  if (value !== null && value !== undefined && typeof value !== 'string') {
+    throw new Error(`Invalid ${fieldName}: expected ISO string or null, got ${typeof value}`);
+  }
+  return value ? new Date(value as string) : null;
+}
+
 export class DrizzleFileRecordRepository {
   constructor(private readonly db: DrizzleDb) {}
 
@@ -106,45 +149,69 @@ export class DrizzleFileRecordRepository {
       return;
     }
 
+    const updateData = this.buildUpdateData(fields, updates);
+    await this.db.update(fileRecords).set(updateData).where(eq(fileRecords.id, id));
+  }
+
+  /**
+   * Build validated update data from field updates.
+   * Extracted to reduce complexity of update method.
+   */
+  private buildUpdateData(
+    fields: (keyof FileRecord)[],
+    updates: Partial<FileRecord>
+  ): Partial<typeof fileRecords.$inferInsert> {
     const updateData: Partial<typeof fileRecords.$inferInsert> = {};
 
     for (const field of fields) {
       const value = updates[field];
-      switch (field) {
-        case 'name':
-          updateData.name = value as string;
-          break;
-        case 'path':
-          updateData.path = value as string;
-          break;
-        case 'size':
-          updateData.size = value as number;
-          break;
-        case 'createdAt':
-          updateData.createdAt = new Date(value as string);
-          break;
-        case 'updatedAt':
-          updateData.updatedAt = new Date(value as string);
-          break;
-        case 'content':
-          updateData.content = value as string | null;
-          break;
-        case 'contentHash':
-          updateData.contentHash = value as string | null;
-          break;
-        case 'tokenCount':
-          updateData.tokenCount = value as number | null;
-          break;
-        case 'processedAt':
-          updateData.processedAt = value ? new Date(value as string) : null;
-          break;
-        case 'embeddingSetId':
-          updateData.embeddingSetId = value as string | null;
-          break;
-      }
+      this.applyFieldUpdate(updateData, field, value);
     }
 
-    await this.db.update(fileRecords).set(updateData).where(eq(fileRecords.id, id));
+    return updateData;
+  }
+
+  /**
+   * Apply a single field update with validation.
+   * Uses extracted validators to keep complexity low.
+   */
+  private applyFieldUpdate(
+    updateData: Partial<typeof fileRecords.$inferInsert>,
+    field: keyof FileRecord,
+    value: unknown
+  ): void {
+    switch (field) {
+      case 'name':
+        updateData.name = validateString(value, 'name');
+        break;
+      case 'path':
+        updateData.path = validateString(value, 'path');
+        break;
+      case 'size':
+        updateData.size = validateSize(value);
+        break;
+      case 'createdAt':
+        updateData.createdAt = validateDateString(value, 'createdAt');
+        break;
+      case 'updatedAt':
+        updateData.updatedAt = validateDateString(value, 'updatedAt');
+        break;
+      case 'content':
+        updateData.content = validateNullableString(value, 'content');
+        break;
+      case 'contentHash':
+        updateData.contentHash = validateNullableString(value, 'contentHash');
+        break;
+      case 'tokenCount':
+        updateData.tokenCount = validateNullableNumber(value, 'tokenCount');
+        break;
+      case 'processedAt':
+        updateData.processedAt = validateNullableDateString(value, 'processedAt');
+        break;
+      case 'embeddingSetId':
+        updateData.embeddingSetId = validateNullableString(value, 'embeddingSetId');
+        break;
+    }
   }
 
   async updateContent(
