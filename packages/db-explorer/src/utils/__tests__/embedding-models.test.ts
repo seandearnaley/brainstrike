@@ -69,6 +69,15 @@ describe('embedding-models utilities', () => {
     expect(config.contextWindow).toBe(4096);
   });
 
+  it('reads quantized flag from parameters', () => {
+    const model = makeModel({
+      parameters: { ...(baseModel.parameters ?? {}), quantized: true },
+    });
+    const config = toEmbeddingModelConfig(model);
+
+    expect(config.quantized).toBe(true);
+  });
+
   it('uses default dimension when missing', () => {
     const model = makeModel({
       capabilities: { type: 'embedding' },

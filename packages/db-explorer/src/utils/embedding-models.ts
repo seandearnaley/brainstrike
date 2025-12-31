@@ -31,6 +31,11 @@ function readModelMetadata(parameters: ModelParameters): ModelMetadata {
   return metadata;
 }
 
+function readQuantizedFlag(parameters: ModelParameters): boolean {
+  const value = parameters?.['quantized'];
+  return typeof value === 'boolean' ? value : false;
+}
+
 export function isLocalProviderId(providerId: string): boolean {
   return LOCAL_PROVIDER_IDS.has(providerId);
 }
@@ -44,12 +49,13 @@ export function toEmbeddingModelConfig(model: DbModel): ModelConfig {
   const tags = Array.isArray(model.bestFor) ? model.bestFor : [];
   const description = model.description ?? model.tagline ?? '';
   const metadata = readModelMetadata(model.parameters);
+  const quantized = readQuantizedFlag(model.parameters);
 
   return {
     id: model.id,
     name: model.name,
     dimensions,
-    quantized: false,
+    quantized,
     description,
     tags,
     origin: model.providerId,
