@@ -21,9 +21,7 @@ import type { ChunkSearchResult, SearchFunctionality } from '../types';
 import {
   buildLocalEmbeddingModelConfigMap,
   type EffectiveModelInfo,
-  getDefaultLocalEmbeddingModel,
   resolveEmbeddingSetModelInfo,
-  toEmbeddingModelConfig,
 } from '../utils/embedding-models';
 import { getActiveEmbeddingSetId } from '../vector-preferences';
 
@@ -52,27 +50,13 @@ export function useSearchFunctionality(
   useEnsureModelRegistry({ db });
 
   const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
-  const defaultModelConfig = useMemo(() => {
-    const fallback = getDefaultLocalEmbeddingModel(models);
-    return fallback ? toEmbeddingModelConfig(fallback) : null;
-  }, [models]);
-  const defaultModelInfo = useMemo<EffectiveModelInfo | null>(() => {
-    if (!defaultModelConfig) {
-      return null;
+  const getActiveEmbeddingSetOrThrow = useCallback((): string => {
+    const activeSetId = getActiveEmbeddingSetId();
+    if (!activeSetId) {
+      throw new Error('Select an active embedding set to perform semantic search.');
     }
-    return {
-      modelKey: defaultModelConfig.id,
-      dimensions: defaultModelConfig.dimensions,
-      modelConfig: defaultModelConfig,
-    };
-  }, [defaultModelConfig]);
-
-  const getDefaultModelInfo = useCallback((): EffectiveModelInfo => {
-    if (!defaultModelInfo) {
-      throw new Error('No local embedding model configured. Enable one in Settings > Models.');
-    }
-    return defaultModelInfo;
-  }, [defaultModelInfo]);
+    return activeSetId;
+  }, []);
 
   async function createHostedEmbedder(
     provider: string,
@@ -190,27 +174,24 @@ export function useSearchFunctionality(
   }
 
   async function getEffectiveModelInfo(): Promise<EffectiveModelInfo> {
-    const activeSetId = getActiveEmbeddingSetId();
+    const activeSetId = getActiveEmbeddingSetOrThrow();
 
-    if (db && activeSetId) {
-      const res = await db.query<{ modelKey: string; dimensions: number }>(
-        'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
-        [activeSetId]
-      );
-      const row = res.rows[0];
-      if (!row?.modelKey) {
-        throw new Error('Active embedding set is missing a model.');
-      }
-      return resolveEmbeddingSetModelInfo(
-        { modelKey: row.modelKey, dimensions: Number(row.dimensions) },
-        modelConfigMap
-      );
-    }
-
-    if (activeSetId && !db) {
+    if (!db) {
       throw new Error('Database is not available to resolve the active embedding set.');
     }
-    return getDefaultModelInfo();
+
+    const res = await db.query<{ modelKey: string; dimensions: number }>(
+      'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
+      [activeSetId]
+    );
+    const row = res.rows[0];
+    if (!row?.modelKey) {
+      throw new Error('Active embedding set is missing a model.');
+    }
+    return resolveEmbeddingSetModelInfo(
+      { modelKey: row.modelKey, dimensions: Number(row.dimensions) },
+      modelConfigMap
+    );
   }
 
   async function performRepositorySearch(
@@ -226,7 +207,7 @@ export function useSearchFunctionality(
 
   function handleSearchError(err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    const needsSet = /requires embeddingSetId/i.test(message);
+    const needsSet = /requires embeddingSetId|active embedding set/i.test(message);
     toast({
       title: 'Search Failed',
       description: needsSet

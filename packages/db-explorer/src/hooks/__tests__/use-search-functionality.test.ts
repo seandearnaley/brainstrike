@@ -9,11 +9,15 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSearchFunctionality } from '../use-search-functionality';
 
+const mockDb = {
+  query: vi.fn(),
+};
+
 vi.mock('@brainstrike/db', async (importOriginal) => {
   const mod = (await importOriginal()) as Record<string, unknown>;
   return {
     ...mod,
-    usePGliteDatabase: () => null,
+    usePGliteDatabase: () => mockDb,
   };
 });
 
@@ -50,7 +54,7 @@ vi.mock('@brainstrike/embeddings', async (importOriginal) => {
 });
 
 vi.mock('../../vector-preferences', () => ({
-  getActiveEmbeddingSetId: () => null,
+  getActiveEmbeddingSetId: () => 'set-1',
 }));
 
 type ToastFn = Parameters<typeof useSearchFunctionality>[2];
@@ -58,6 +62,14 @@ type ToastFn = Parameters<typeof useSearchFunctionality>[2];
 describe('useSearchFunctionality', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDb.query.mockResolvedValue({
+      rows: [
+        {
+          modelKey: 'jinaai/jina-embeddings-v3',
+          dimensions: 768,
+        },
+      ],
+    });
     initializeWithModel.mockResolvedValue(undefined);
     generateQueryEmbedding.mockResolvedValue({ embedding: new Float32Array([0.1, 0.2, 0.3]) });
     useModelRegistryStore.setState({
@@ -78,6 +90,7 @@ describe('useSearchFunctionality', () => {
       ],
       providers: [],
       isLoading: false,
+      hasLoaded: true,
       error: null,
     });
   });
