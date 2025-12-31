@@ -8,10 +8,21 @@
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
 import { count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import type { DrizzleDb } from '../../drizzle/database.js';
+import { toISOString } from '../../drizzle/database.js';
 import type { FileImportRequest, FileImportResult, FileRecord } from '../../models/file-record.js';
 import { fileRecords } from '../../schema/index.js';
 
 const logger = createLogger('DrizzleFileRecordRepository');
+
+// Type for row with dates that can be Date or string (IPC serialization)
+type FileRecordRow = Omit<
+  typeof fileRecords.$inferSelect,
+  'createdAt' | 'updatedAt' | 'processedAt'
+> & {
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  processedAt: Date | string | null;
+};
 
 /**
  * Allowed fields for updates - prevents accidental ID updates
@@ -458,14 +469,14 @@ export class DrizzleFileRecordRepository {
     return totalCount;
   }
 
-  private fromRow(row: typeof fileRecords.$inferSelect): FileRecord {
+  private fromRow(row: FileRecordRow): FileRecord {
     const record: FileRecord = {
       id: row.id,
       name: row.name,
       path: row.path,
       size: row.size,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
+      createdAt: toISOString(row.createdAt),
+      updatedAt: toISOString(row.updatedAt),
     };
 
     // Add optional fields if they exist
@@ -479,7 +490,7 @@ export class DrizzleFileRecordRepository {
       record.tokenCount = row.tokenCount;
     }
     if (row.processedAt !== null) {
-      record.processedAt = row.processedAt.toISOString();
+      record.processedAt = toISOString(row.processedAt);
     }
     if (row.embeddingSetId !== null) {
       record.embeddingSetId = row.embeddingSetId;

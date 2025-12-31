@@ -44,6 +44,23 @@ export function extractRows<T>(result: ExecuteResult<T>): T[] {
 }
 
 /**
+ * Normalize a date value to an ISO string.
+ *
+ * Handles the difference between PGlite and pg-proxy:
+ * - PGlite returns Date objects
+ * - pg-proxy returns ISO strings (dates are serialized over IPC)
+ *
+ * @param value - Date object or ISO string
+ * @returns ISO string representation
+ */
+export function toISOString(value: Date | string): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  return value.toISOString();
+}
+
+/**
  * Create a Drizzle database instance from a PGlite connection.
  *
  * @example

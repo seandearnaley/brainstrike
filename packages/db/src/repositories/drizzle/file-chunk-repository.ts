@@ -10,6 +10,7 @@
 
 import { count, eq, sql } from 'drizzle-orm';
 import type { DrizzleDb } from '../../drizzle/database.js';
+import { toISOString } from '../../drizzle/database.js';
 import type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -18,6 +19,16 @@ import type {
   FileChunkUpdate,
 } from '../../models/file-chunk.js';
 import { embeddingSets, fileChunks } from '../../schema/index.js';
+
+// Type for row with dates that can be Date or string (IPC serialization)
+type FileChunkRow = Omit<
+  typeof fileChunks.$inferSelect,
+  'createdAt' | 'updatedAt' | 'embeddingUpdatedAt'
+> & {
+  createdAt: Date | string;
+  updatedAt: Date | string;
+  embeddingUpdatedAt: Date | string | null;
+};
 
 // Helper type for execute results
 type RawRow = Record<string, unknown>;
@@ -484,7 +495,7 @@ export class DrizzleFileChunkRepository {
     };
   }
 
-  private fromRow(row: typeof fileChunks.$inferSelect): FileChunk {
+  private fromRow(row: FileChunkRow): FileChunk {
     const chunk: FileChunk = {
       id: row.id,
       fileRecordId: row.fileRecordId,
@@ -494,8 +505,8 @@ export class DrizzleFileChunkRepository {
       tokenCount: row.tokenCount ?? 0,
       chunkType: row.chunkType ?? 'text',
       chunkSize: row.chunkSize ?? 0,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
+      createdAt: toISOString(row.createdAt),
+      updatedAt: toISOString(row.updatedAt),
     };
 
     if (row.embedding) {
@@ -505,7 +516,7 @@ export class DrizzleFileChunkRepository {
       chunk.embeddingSetId = row.embeddingSetId;
     }
     if (row.embeddingUpdatedAt) {
-      chunk.embeddingUpdatedAt = row.embeddingUpdatedAt.toISOString();
+      chunk.embeddingUpdatedAt = toISOString(row.embeddingUpdatedAt);
     }
     if (row.embeddingHash) {
       chunk.embeddingHash = row.embeddingHash;

@@ -21,7 +21,9 @@ export {
   drizzle,
   drizzleFromHandle,
   extractPGlite,
+  extractRows,
   hasPGliteRaw,
+  toISOString,
 } from './database.js';
 // IPC Proxy driver for Electron
 export {

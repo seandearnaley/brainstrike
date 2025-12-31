@@ -7,10 +7,15 @@
 
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { eq } from 'drizzle-orm';
-import { type DrizzleDb, extractRows } from '../../drizzle/database.js';
+import { type DrizzleDb, extractRows, toISOString } from '../../drizzle/database.js';
 import { ensureDimensionIndexExists } from '../../migrations/dimension-index-helpers.js';
 import type { EmbeddingDistance, EmbeddingSet } from '../../models/embedding-set.js';
 import { embeddingSets } from '../../schema/index.js';
+
+// Type for row with createdAt that can be Date or string (IPC serialization)
+type EmbeddingSetRow = Omit<typeof embeddingSets.$inferSelect, 'createdAt'> & {
+  createdAt: Date | string;
+};
 
 export class DrizzleEmbeddingSetsRepository {
   private readonly logger = createLogger('DrizzleEmbeddingSetsRepository');
@@ -142,14 +147,14 @@ export class DrizzleEmbeddingSetsRepository {
     return result.length > 0;
   }
 
-  private fromRow(row: typeof embeddingSets.$inferSelect): EmbeddingSet {
+  private fromRow(row: EmbeddingSetRow): EmbeddingSet {
     const base: EmbeddingSet = {
       id: row.id,
       modelKey: row.modelKey,
       modelId: row.modelId,
       dimensions: row.dimensions,
       distance: row.distance as EmbeddingDistance,
-      createdAt: row.createdAt.toISOString(),
+      createdAt: toISOString(row.createdAt),
     };
 
     // Add optional metadata fields only if they exist
