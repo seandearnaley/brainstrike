@@ -1,8 +1,7 @@
-// Interfaces
+// Drizzle ORM implementations (unified for both Web and Electron)
 
-// Base class
+// Legacy PGlite-based implementations (kept for backward compatibility with tests)
 export { BaseFileRecordRepository } from './base-repository.js';
-// Drizzle ORM implementations
 export {
   DrizzleEmbeddingSetsRepository,
   DrizzleFileChunkRepository,
@@ -12,21 +11,14 @@ export {
   type TokenCacheStats,
   type TokenCountingMode,
 } from './drizzle/index.js';
-export { ElectronEmbeddingSetsRepository } from './electron-embedding-sets-repository.js';
-// Legacy raw SQL implementations
-export { ElectronFileChunkRepository } from './electron-file-chunk-repository.js';
-export {
-  type ElectronDbAPI,
-  ElectronFileRecordRepository,
-} from './electron-file-record-repository.js';
 export { EmbeddingSetsRepository } from './embedding-sets-repository.js';
 export { FileChunkRepository } from './file-chunk-repository.js';
 export { FileRecordRepository } from './file-record-repository.js';
+// Interfaces
 export type {
   IDatabase,
   IEmbeddingSetsRepository,
   IFileRecordRepository,
 } from './interfaces.js';
-
-// Factory functions
+// Factory functions (kept for backward compatibility with tests)
 export { createFileRecordRepository, isPGlite } from './repository-factory.js';

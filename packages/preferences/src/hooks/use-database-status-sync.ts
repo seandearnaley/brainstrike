@@ -1,16 +1,13 @@
-import {
-  type DrizzleFileRecordRepository,
-  ElectronFileRecordRepository,
-  useFileRecordRepository,
-} from '@brainstrike/db';
+import { type DrizzleFileRecordRepository, useFileRecordRepository } from '@brainstrike/db';
 import { useEffect } from 'react';
 import { useDatabaseStatusStore } from '../stores/database-status-store';
 
-function resolveLocation(repo: DrizzleFileRecordRepository | ElectronFileRecordRepository): {
+function resolveLocation(_repo: DrizzleFileRecordRepository): {
   location: string;
   testResult: string;
 } {
-  if (repo instanceof ElectronFileRecordRepository) {
+  // Detect Electron IPC environment via window.electronAPI
+  if (typeof window !== 'undefined' && (window as { electronAPI?: unknown }).electronAPI) {
     return {
       location: 'Main Process',
       testResult: 'Connected (IPC)',

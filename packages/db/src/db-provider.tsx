@@ -12,11 +12,10 @@ import {
   useState,
 } from 'react';
 import { type DrizzleDb, drizzle } from './drizzle/database.js';
+import { createIPCProxyDrizzle } from './drizzle/ipc-proxy-driver.js';
 import { migrate } from './migrations/bootstrap.js';
 import { DrizzleFileChunkRepository } from './repositories/drizzle/file-chunk-repository.js';
 import { DrizzleFileRecordRepository } from './repositories/drizzle/file-record-repository.js';
-import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
-import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import type { IDatabase } from './repositories/interfaces.js';
 import { wasmLoader } from './wasm-loader.js';
 
@@ -37,8 +36,8 @@ type QueryExecutor = {
 type EmbeddingSetsRepo = import('./repositories/interfaces.js').IEmbeddingSetsRepository;
 
 type DbContextValue = {
-  fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  fileRecordRepository: DrizzleFileRecordRepository | null;
+  chunkRepository: DrizzleFileChunkRepository | null;
   embeddingSetsRepository: EmbeddingSetsRepo | null;
   drizzleDb: DrizzleDb | null; // Drizzle instance for direct access
   error: Error | null;
@@ -126,12 +125,9 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
 
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
-  const [fileRecordRepository, setFileRecordRepository] = useState<
-    DrizzleFileRecordRepository | ElectronFileRecordRepository | null
-  >(null);
-  const [chunkRepository, setChunkRepository] = useState<
-    DrizzleFileChunkRepository | ElectronFileChunkRepository | null
-  >(null);
+  const [fileRecordRepository, setFileRecordRepository] =
+    useState<DrizzleFileRecordRepository | null>(null);
+  const [chunkRepository, setChunkRepository] = useState<DrizzleFileChunkRepository | null>(null);
   const [embeddingSetsRepository, setEmbeddingSetsRepository] = useState<EmbeddingSetsRepo | null>(
     null
   );
@@ -169,25 +165,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         return false;
       }
 
-      logger.info('Using Electron IPC database connection');
+      logger.info('Using Electron IPC database connection with Drizzle proxy');
 
       const electronDB = window.electronAPI.db;
       await testElectronConnection(electronDB);
-      const electronExec = electronDB.exec;
 
-      if (!electronExec) {
-        throw new Error('Electron database exec operation is unavailable over IPC');
-      }
-
-      const exec: (sql: string) => Promise<void> = async (sql) => {
-        await electronExec(sql);
-      };
-
-      // The repository doesn't need the test method, so we can pass just the db interface
-      const repository = new ElectronFileRecordRepository({
-        query: electronDB.query,
-        exec,
-      });
       // Detect pgvector extension availability over IPC
       let hasVector = false;
       try {
@@ -202,23 +184,22 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           'pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.'
         );
       }
-      const chunkRepo = new ElectronFileChunkRepository({
-        query: electronDB.query,
-        exec,
-      });
 
-      // Dynamic import to match pattern used in Direct PGlite path
-      const { ElectronEmbeddingSetsRepository } = await import(
-        './repositories/electron-embedding-sets-repository.js'
+      // Create Drizzle instance over IPC proxy - uses same repositories as web!
+      const drizzleInstance = createIPCProxyDrizzle(electronDB);
+
+      // Use the same Drizzle repositories as the web path
+      const { DrizzleEmbeddingSetsRepository } = await import(
+        './repositories/drizzle/embedding-sets-repository.js'
       );
-      const embeddingSetsRepo = new ElectronEmbeddingSetsRepository({
-        query: electronDB.query,
-        exec,
-      });
+      const repository = new DrizzleFileRecordRepository(drizzleInstance);
+      const chunkRepo = new DrizzleFileChunkRepository(drizzleInstance);
+      const embeddingSetsRepo = new DrizzleEmbeddingSetsRepository(drizzleInstance);
 
       if (!cancelled.value) {
         dbRef.current = electronDB as unknown as PGlite;
         setExposedDb(createDbHandle(electronDB as unknown as QueryExecutor));
+        setDrizzleDb(drizzleInstance);
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
         setEmbeddingSetsRepository(embeddingSetsRepo);
@@ -726,10 +707,7 @@ export function useDbInitializing(): boolean {
   return ctx.initializing;
 }
 
-export function useFileRecordRepository():
-  | DrizzleFileRecordRepository
-  | ElectronFileRecordRepository
-  | null {
+export function useFileRecordRepository(): DrizzleFileRecordRepository | null {
   const ctx = useContext(DbContext);
 
   // Destructure to get stable references for dependency array
@@ -791,10 +769,7 @@ export function useDbProviderError(): Error | null {
   return ctx.error;
 }
 
-export function useFileChunkRepository():
-  | DrizzleFileChunkRepository
-  | ElectronFileChunkRepository
-  | null {
+export function useFileChunkRepository(): DrizzleFileChunkRepository | null {
   const ctx = useContext(DbContext);
 
   // Destructure to get stable references for dependency array

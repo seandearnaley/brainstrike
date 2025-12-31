@@ -7,11 +7,9 @@
 
 import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
 import { count, eq, inArray, isNotNull, sql } from 'drizzle-orm';
-import type { PgliteDatabase } from 'drizzle-orm/pglite';
+import type { DrizzleDb } from '../../drizzle/database.js';
 import type { FileImportRequest, FileImportResult, FileRecord } from '../../models/file-record.js';
 import { fileRecords } from '../../schema/index.js';
-
-type DrizzleDb = PgliteDatabase;
 
 const logger = createLogger('DrizzleFileRecordRepository');
 

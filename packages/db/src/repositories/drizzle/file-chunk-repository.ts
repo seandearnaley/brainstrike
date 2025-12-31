@@ -9,7 +9,7 @@
  */
 
 import { count, eq, sql } from 'drizzle-orm';
-import type { PgliteDatabase } from 'drizzle-orm/pglite';
+import type { DrizzleDb } from '../../drizzle/database.js';
 import type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -19,7 +19,8 @@ import type {
 } from '../../models/file-chunk.js';
 import { embeddingSets, fileChunks } from '../../schema/index.js';
 
-type DrizzleDb = PgliteDatabase;
+// Helper type for execute results
+type RawRow = Record<string, unknown>;
 
 /**
  * Validates that all elements in an embedding vector are finite numbers.
@@ -359,8 +360,9 @@ export class DrizzleFileChunkRepository {
     `;
 
     const result = await this.db.execute(baseQuery);
+    const rows = (Array.isArray(result) ? result : result.rows) as RawRow[];
 
-    const mapped = (result.rows as Record<string, unknown>[]).map((row) => ({
+    const mapped = rows.map((row) => ({
       chunk: this.fromRawRow(row),
       similarity: Number(row['similarity']),
       rank: Number(row['rank']),
@@ -402,7 +404,8 @@ export class DrizzleFileChunkRepository {
     let totalTokenSum = 0;
     let totalWithTokens = 0;
 
-    for (const row of result.rows as Record<string, unknown>[]) {
+    const statsRows = (Array.isArray(result) ? result : result.rows) as RawRow[];
+    for (const row of statsRows) {
       stats.chunksWithEmbeddings += Number(row['chunks_with_embeddings'] ?? 0);
       const typeCount = Number(row['type_count'] ?? 0);
       const chunkType = String(row['chunk_type'] ?? 'unknown');
@@ -436,7 +439,8 @@ export class DrizzleFileChunkRepository {
       WHERE embedding_set_id = ${embeddingSetId} AND embedding IS NOT NULL
     `);
 
-    const countRow = (result.rows as Record<string, unknown>[])[0];
+    const coverageRows = (Array.isArray(result) ? result : result.rows) as RawRow[];
+    const countRow = coverageRows[0];
 
     return {
       totalChunks: totalResult?.count ?? 0,

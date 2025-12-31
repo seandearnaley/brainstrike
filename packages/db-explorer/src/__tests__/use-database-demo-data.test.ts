@@ -360,35 +360,45 @@ describe('useDatabaseDemoData', () => {
     expect(result.current.dbInfo?.location).toBe('PGlite WASM');
   });
 
-  it('resolves storage location as Main Process for Electron repository', async () => {
-    // Create a mock repository with constructor name matching ElectronFileRecordRepository
-    const electronRepository = {
-      findAll: vi.fn().mockResolvedValue([]),
-      count: vi.fn().mockResolvedValue(5),
-      constructor: { name: 'ElectronFileRecordRepository' },
-    } as unknown as DrizzleFileRecordRepository;
-
-    const chunkRepository = createChunkRepository([]);
-    const toast = vi.fn();
-    setupLiveQueries();
-
-    const { result } = renderHook(() =>
-      useDatabaseDemoData({
-        repository: electronRepository,
-        chunkRepository,
-        toast,
-        database: createMockDatabase(),
-        activeCollectionId: 'set-1',
-      })
-    );
-
-    await waitFor(() => {
-      expect(result.current.dbInfo).toBeDefined();
-      expect(result.current.dbInfo?.connected).toBe(true);
+  it('resolves storage location as Main Process in Electron environment', async () => {
+    // Mock window.electronAPI to simulate Electron environment
+    // Use Object.defineProperty to bypass strict type checking for the mock
+    Object.defineProperty(window, 'electronAPI', {
+      value: { db: {} },
+      writable: true,
+      configurable: true,
     });
 
-    // ElectronFileRecordRepository should resolve to 'Main Process'
-    expect(result.current.dbInfo?.location).toBe('Main Process');
+    try {
+      const repository = createRepository([], 5);
+      const chunkRepository = createChunkRepository([]);
+      const toast = vi.fn();
+      setupLiveQueries();
+
+      const { result } = renderHook(() =>
+        useDatabaseDemoData({
+          repository,
+          chunkRepository,
+          toast,
+          database: createMockDatabase(),
+          activeCollectionId: 'set-1',
+        })
+      );
+
+      await waitFor(() => {
+        expect(result.current.dbInfo).toBeDefined();
+        expect(result.current.dbInfo?.connected).toBe(true);
+      });
+
+      // Electron environment should resolve to 'Main Process'
+      expect(result.current.dbInfo?.location).toBe('Main Process');
+    } finally {
+      Object.defineProperty(window, 'electronAPI', {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+    }
   });
 
   it('handles database connection failure gracefully', async () => {

@@ -6,9 +6,42 @@
  */
 
 import type { PGlite } from '@electric-sql/pglite';
+import type { PgRemoteDatabase } from 'drizzle-orm/pg-proxy';
 import { drizzle as createDrizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
 
-export type DrizzleDb = PgliteDatabase;
+/**
+ * Unified Drizzle database type that works with both:
+ * - PGlite (direct browser/web path)
+ * - pg-proxy (Electron IPC path)
+ *
+ * Both implementations provide the same query interface, differing only
+ * in internal session types. Repositories use this unified type.
+ */
+export type DrizzleDb = PgliteDatabase | PgRemoteDatabase;
+
+/**
+ * Result type from Drizzle execute() - can be either:
+ * - Results<T> from PGlite (has .rows property)
+ * - T[] from pg-proxy (direct array)
+ */
+type ExecuteResult<T> = T[] | { rows: T[] };
+
+/**
+ * Extract rows from a Drizzle execute() result.
+ *
+ * This normalizes the difference between PGlite and pg-proxy:
+ * - PGlite returns Results<T> with a .rows property
+ * - pg-proxy returns T[] directly
+ *
+ * @param result - The result from db.execute()
+ * @returns The rows array
+ */
+export function extractRows<T>(result: ExecuteResult<T>): T[] {
+  if (Array.isArray(result)) {
+    return result;
+  }
+  return result.rows;
+}
 
 /**
  * Create a Drizzle database instance from a PGlite connection.

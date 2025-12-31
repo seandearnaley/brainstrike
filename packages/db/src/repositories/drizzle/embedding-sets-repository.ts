@@ -7,12 +7,10 @@
 
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { eq } from 'drizzle-orm';
-import type { PgliteDatabase } from 'drizzle-orm/pglite';
+import { type DrizzleDb, extractRows } from '../../drizzle/database.js';
 import { ensureDimensionIndexExists } from '../../migrations/dimension-index-helpers.js';
 import type { EmbeddingDistance, EmbeddingSet } from '../../models/embedding-set.js';
 import { embeddingSets } from '../../schema/index.js';
-
-type DrizzleDb = PgliteDatabase;
 
 export class DrizzleEmbeddingSetsRepository {
   private readonly logger = createLogger('DrizzleEmbeddingSetsRepository');
@@ -58,12 +56,12 @@ export class DrizzleEmbeddingSetsRepository {
       // Note: This still uses raw SQL as index creation isn't supported by Drizzle query builder
       // Create adapter that conforms to DimensionIndexDb interface
       const dbAdapter = {
-        exec: async (sql: string) => {
-          await this.db.execute(sql);
+        exec: async (sqlQuery: string) => {
+          await this.db.execute(sqlQuery);
         },
-        query: async <T = unknown>(sql: string) => {
-          const result = await this.db.execute(sql);
-          return { rows: result.rows as T[] };
+        query: async <T = unknown>(sqlQuery: string) => {
+          const result = await this.db.execute(sqlQuery);
+          return { rows: extractRows(result) as T[] };
         },
       };
       await ensureDimensionIndexExists(dbAdapter, dimensions);

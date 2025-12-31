@@ -6,10 +6,11 @@
  */
 
 import { and, count, eq, inArray, sql, sum } from 'drizzle-orm';
-import type { PgliteDatabase } from 'drizzle-orm/pglite';
+import type { DrizzleDb } from '../../drizzle/database.js';
 import { fileTokenCache } from '../../schema/index.js';
 
-type DrizzleDb = PgliteDatabase;
+// Helper type for execute results
+type RawRow = Record<string, unknown>;
 
 /**
  * Token counting mode
@@ -245,7 +246,8 @@ export class DrizzleTokenCacheStore {
       ? await this.db.execute(sql`${baseQuery} WHERE folder_id = ${folderId}`)
       : await this.db.execute(baseQuery);
 
-    const row = (result.rows as Record<string, unknown>[])[0];
+    const statsRows = (Array.isArray(result) ? result : result.rows) as RawRow[];
+    const row = statsRows[0];
     return {
       entryCount: Number(row?.['entry_count'] ?? 0),
       totalTokens: Number(row?.['total_tokens'] ?? 0),

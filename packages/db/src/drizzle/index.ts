@@ -23,5 +23,12 @@ export {
   extractPGlite,
   hasPGliteRaw,
 } from './database.js';
+// IPC Proxy driver for Electron
+export {
+  createIPCProxyDrizzle,
+  createIPCRemoteCallback,
+  type IPCProxyDb,
+  isIPCProxyDb,
+} from './ipc-proxy-driver.js';
 // Migration utilities
 export { runMigrations } from './migrate.js';

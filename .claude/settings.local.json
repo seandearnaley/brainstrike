@@ -224,7 +224,14 @@
       "Skill(commit-commands:commit-push-pr)",
       "Skill(commit-commands:commit)",
       "mcp__atlassian__search",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(xargs cat:*)",
+      "Bash(CI=true pnpm --filter @brainstrike/db-explorer test:*)",
+      "Bash(CI=true pnpm --filter @brainstrike/db test:*)",
+      "Bash(CI=true pnpm:*)"
     ],
     "deny": [],
     "ask": []

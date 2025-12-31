@@ -1,6 +1,4 @@
 import type {
-  ElectronFileChunkRepository,
-  ElectronFileRecordRepository,
   FileChunk,
   FileChunkRepository,
   FileRecord,
@@ -25,8 +23,8 @@ type SearchEmbedder = {
 };
 
 export function useSearchFunctionality(
-  chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null,
-  repository: FileRecordRepository | ElectronFileRecordRepository | null,
+  chunkRepository: FileChunkRepository | null,
+  repository: FileRecordRepository | null,
   toast: ReturnType<typeof useToast>['toast']
 ): SearchFunctionality {
   const [searchQuery, setSearchQuery] = useState('');

@@ -5,12 +5,7 @@
  * that performs vector similarity search using the chunk repository.
  */
 
-import type {
-  DrizzleFileChunkRepository,
-  DrizzleFileRecordRepository,
-  ElectronFileChunkRepository,
-  ElectronFileRecordRepository,
-} from '@brainstrike/db';
+import type { DrizzleFileChunkRepository, DrizzleFileRecordRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db';
 import {
   type EmbeddingProviderConfig,
@@ -32,8 +27,8 @@ type SearchEmbedder = {
 };
 
 type UseSemanticSearchExecutorOptions = {
-  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
-  fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
+  chunkRepository: DrizzleFileChunkRepository | null;
+  fileRepository: DrizzleFileRecordRepository | null;
 };
 
 /**

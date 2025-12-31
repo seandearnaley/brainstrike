@@ -1,10 +1,6 @@
-import {
-  ElectronFileRecordRepository,
-  type FileRecordRepository,
-  useFileRecordRepository,
-} from '@brainstrike/db';
+import { type DrizzleFileRecordRepository, useFileRecordRepository } from '@brainstrike/db';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDatabaseStatusSync } from '../hooks/use-database-status-sync';
 import {
   __resetDatabaseStatusStoreForTests,
@@ -27,6 +23,15 @@ describe('useDatabaseStatusSync', () => {
     mockUseFileRecordRepository.mockReset();
   });
 
+  afterEach(() => {
+    // Clean up any electronAPI mock
+    Object.defineProperty(window, 'electronAPI', {
+      value: undefined,
+      writable: true,
+      configurable: true,
+    });
+  });
+
   it('keeps loading when repository is not available', () => {
     mockUseFileRecordRepository.mockReturnValue(null);
 
@@ -38,7 +43,7 @@ describe('useDatabaseStatusSync', () => {
   });
 
   it('marks connection as connected for PGlite repository', async () => {
-    mockUseFileRecordRepository.mockReturnValue({} as FileRecordRepository);
+    mockUseFileRecordRepository.mockReturnValue({} as DrizzleFileRecordRepository);
 
     renderHook(() => useDatabaseStatusSync());
 
@@ -50,13 +55,16 @@ describe('useDatabaseStatusSync', () => {
     expect(state.testResult).toBe('connected');
   });
 
-  it('detects Electron repository and sets IPC location', async () => {
-    const electronRepo = new ElectronFileRecordRepository({
-      query: async () => ({ rows: [] }),
-      exec: async () => {},
+  it('detects Electron environment and sets IPC location', async () => {
+    // Mock window.electronAPI to simulate Electron environment
+    // Use Object.defineProperty to bypass strict type checking for the mock
+    Object.defineProperty(window, 'electronAPI', {
+      value: { db: {} },
+      writable: true,
+      configurable: true,
     });
 
-    mockUseFileRecordRepository.mockReturnValue(electronRepo as unknown as FileRecordRepository);
+    mockUseFileRecordRepository.mockReturnValue({} as DrizzleFileRecordRepository);
 
     renderHook(() => useDatabaseStatusSync());
 
@@ -68,12 +76,12 @@ describe('useDatabaseStatusSync', () => {
   });
 
   it('reverts to loading when repository disappears after being connected', async () => {
-    const repoRef: { current: FileRecordRepository | null } = {
-      current: {} as FileRecordRepository,
+    const repoRef: { current: DrizzleFileRecordRepository | null } = {
+      current: {} as DrizzleFileRecordRepository,
     };
 
     mockUseFileRecordRepository.mockImplementation(
-      () => repoRef.current as FileRecordRepository | null
+      () => repoRef.current as DrizzleFileRecordRepository | null
     );
 
     const { rerender } = renderHook(() => useDatabaseStatusSync());

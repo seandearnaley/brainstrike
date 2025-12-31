@@ -1,8 +1,6 @@
 import {
   type DrizzleFileChunkRepository,
   type DrizzleFileRecordRepository,
-  type ElectronFileChunkRepository,
-  type ElectronFileRecordRepository,
   type FileChunk,
   type FileRecord,
   MigrationRunner,
@@ -18,20 +16,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 const logger = createLogger('DatabaseDemoData');
 
 /**
- * Resolve the storage location label based on the repository type.
+ * Resolve the storage location label based on the runtime environment.
  * This must match the expected values in database-status-item.tsx for proper status bar display.
- * - "Main Process" → displays as "IPC" in status bar
- * - "PGlite WASM" → displays as "PGlite WASM" in status bar
+ * - "Main Process" → displays as "IPC" in status bar (Electron desktop)
+ * - "PGlite WASM" → displays as "PGlite WASM" in status bar (Web)
  */
-function resolveStorageLocation(
-  repository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null
-): string {
+function resolveStorageLocation(repository: DrizzleFileRecordRepository | null): string {
   if (!repository) {
     return 'Unknown';
   }
-  // Check repository constructor name to determine if it's the Electron IPC repository
-  // This approach works even when ElectronFileRecordRepository is imported as a type
-  if (repository.constructor.name === 'ElectronFileRecordRepository') {
+  // Detect Electron IPC environment via window.electronAPI
+  if (typeof window !== 'undefined' && (window as { electronAPI?: unknown }).electronAPI) {
     return 'Main Process';
   }
   return 'PGlite WASM';
@@ -44,8 +39,8 @@ export type DatabaseInfo = {
 };
 
 export type UseDatabaseDemoDataOptions = {
-  repository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
-  chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
+  repository: DrizzleFileRecordRepository | null;
+  chunkRepository?: DrizzleFileChunkRepository | null;
   toast: ReturnType<typeof useToast>['toast'];
   database?: ReturnType<typeof usePGliteDatabase>;
   activeCollectionId: string | null;
