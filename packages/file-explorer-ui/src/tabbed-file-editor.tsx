@@ -1,9 +1,31 @@
-import { Button, cn } from '@brainstrike/ui';
-import { File, Loader2, X } from 'lucide-react';
+import {
+  Button,
+  cn,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuShortcut,
+  DropdownMenuTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@brainstrike/ui';
+import { File, Loader2, MoreHorizontal, X } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import type { FileTab } from './hooks/use-tab-manager';
 import { useEditorViewStateStore } from './stores/editor-view-state-store';
+
+export type TabStripAction = {
+  id: string;
+  label: string;
+  icon?: React.ReactNode;
+  shortcutHint?: string;
+  enabled?: boolean;
+  visible?: boolean;
+  onSelect: () => void;
+};
 
 type TabbedFileEditorProps = {
   tabs: FileTab[];
@@ -14,6 +36,7 @@ type TabbedFileEditorProps = {
   onTabClose: (tabId: string) => void;
   onLoadFileContent: (compositeKey: string) => void;
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
+  tabStripActions?: TabStripAction[];
 };
 
 function buildContentNode(opts: {
@@ -71,6 +94,63 @@ function buildContentNode(opts: {
   );
 }
 
+type TabStripOverflowMenuProps = {
+  actions: TabStripAction[];
+};
+
+function TabStripOverflowMenu({ actions }: TabStripOverflowMenuProps) {
+  const visibleActions = actions.filter((action) => action.visible !== false);
+
+  return (
+    <DropdownMenu>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                aria-label="More actions"
+                className="h-7 w-7 rounded-sm"
+                size="icon"
+                title="More actions"
+                variant="ghost"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">More actions</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      <DropdownMenuContent align="end" side="bottom" sideOffset={6}>
+        {visibleActions.map((action) => {
+          const isEnabled = action.enabled ?? true;
+          return (
+            <DropdownMenuItem
+              disabled={!isEnabled}
+              key={action.id}
+              onSelect={() => {
+                if (isEnabled) {
+                  action.onSelect();
+                }
+              }}
+            >
+              {action.icon ? (
+                <span aria-hidden className="text-muted-foreground">
+                  {action.icon}
+                </span>
+              ) : null}
+              <span>{action.label}</span>
+              {action.shortcutHint ? (
+                <DropdownMenuShortcut>{action.shortcutHint}</DropdownMenuShortcut>
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function TabbedFileEditor({
   tabs,
   activeTabId,
@@ -80,6 +160,7 @@ export function TabbedFileEditor({
   onTabClose,
   onLoadFileContent,
   decodeFileSelection,
+  tabStripActions = [],
 }: TabbedFileEditorProps) {
   const activeTabRef = useRef<HTMLButtonElement>(null);
   const activeContentRef = useRef<HTMLPreElement>(null);
@@ -231,64 +312,69 @@ export function TabbedFileEditor({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex-shrink-0 overflow-x-auto border-border border-b" role="tablist">
-        <div className="scrollbar-thin flex overflow-x-auto">
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTabId;
-            const { path } = decodeFileSelection(tab.compositeKey);
-            const fileName = getFileName(path);
-            const tabButtonId = `tab-${tab.id}`;
-            const panelId = `panel-${tab.id}`;
+      <div className="flex-shrink-0 border-border border-b">
+        <div className="flex items-stretch">
+          <div className="scrollbar-thin flex min-w-0 flex-1 overflow-x-auto" role="tablist">
+            {tabs.map((tab) => {
+              const isActive = tab.id === activeTabId;
+              const { path } = decodeFileSelection(tab.compositeKey);
+              const fileName = getFileName(path);
+              const tabButtonId = `tab-${tab.id}`;
+              const panelId = `panel-${tab.id}`;
 
-            return (
-              <div
-                className={cn(
-                  'flex-shrink-0 border-transparent border-r',
-                  isActive ? 'border-border' : ''
-                )}
-                key={tab.id}
-                role="presentation"
-              >
+              return (
                 <div
                   className={cn(
-                    'flex items-center',
-                    isActive ? 'bg-background' : 'bg-muted/50 hover:bg-muted'
+                    'flex-shrink-0 border-transparent border-r',
+                    isActive ? 'border-border' : ''
                   )}
+                  key={tab.id}
+                  role="presentation"
                 >
-                  <button
-                    aria-controls={panelId}
-                    aria-selected={isActive}
-                    className="flex items-center gap-2 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    id={tabButtonId}
-                    onClick={() => onTabClick(tab.id)}
-                    ref={isActive ? activeTabRef : null}
-                    role="tab"
-                    type="button"
-                  >
-                    {loadingFiles.has(tab.compositeKey) ? (
-                      <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
-                    ) : (
-                      <File className="h-3 w-3 flex-shrink-0" />
+                  <div
+                    className={cn(
+                      'flex items-center',
+                      isActive ? 'bg-background' : 'bg-muted/50 hover:bg-muted'
                     )}
-                    <span className="truncate">{fileName}</span>
-                  </button>
-                  <Button
-                    aria-label={`Close ${fileName}`}
-                    className="h-6 w-6 flex-shrink-0 rounded-sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTabClose(tab.id);
-                    }}
-                    size="icon"
-                    title={`Close ${fileName}`}
-                    variant="ghost"
                   >
-                    <X className="h-3 w-3" />
-                  </Button>
+                    <button
+                      aria-controls={panelId}
+                      aria-selected={isActive}
+                      className="flex items-center gap-2 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      id={tabButtonId}
+                      onClick={() => onTabClick(tab.id)}
+                      ref={isActive ? activeTabRef : null}
+                      role="tab"
+                      type="button"
+                    >
+                      {loadingFiles.has(tab.compositeKey) ? (
+                        <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
+                      ) : (
+                        <File className="h-3 w-3 flex-shrink-0" />
+                      )}
+                      <span className="truncate">{fileName}</span>
+                    </button>
+                    <Button
+                      aria-label={`Close ${fileName}`}
+                      className="h-6 w-6 flex-shrink-0 rounded-sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTabClose(tab.id);
+                      }}
+                      size="icon"
+                      title={`Close ${fileName}`}
+                      variant="ghost"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
+          <div className="flex items-center border-border border-l px-1">
+            <TabStripOverflowMenu actions={tabStripActions} />
+          </div>
         </div>
       </div>
 
