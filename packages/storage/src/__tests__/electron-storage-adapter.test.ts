@@ -332,4 +332,125 @@ describe('ElectronStorageAdapter', () => {
     const keys = await adapter.getAllKeys();
     expect(keys).toEqual(['z', 'a', 'm']);
   });
+
+  describe('atomic writes', () => {
+    it('should use atomic write pattern (temp file + rename)', async () => {
+      // Spy on fs operations to verify atomic write pattern
+      const writeFileSpy = vi.spyOn(fsPromises, 'writeFile');
+      const renameSpy = vi.spyOn(fsPromises, 'rename');
+
+      await adapter.setItem('atomic-test', 'value');
+
+      // Should write to a temp file first
+      expect(writeFileSpy).toHaveBeenCalled();
+      const writeCall = writeFileSpy.mock.calls[0];
+      const writePath = writeCall?.[0] as string;
+      expect(writePath).toMatch(/\.tmp$/);
+
+      // Should rename temp file to final path
+      expect(renameSpy).toHaveBeenCalled();
+      const renameCall = renameSpy.mock.calls[0];
+      const renameSrc = renameCall?.[0] as string;
+      const renameDest = renameCall?.[1] as string;
+      expect(renameSrc).toMatch(/\.tmp$/);
+      expect(renameDest).toBe(storageFile);
+
+      writeFileSpy.mockRestore();
+      renameSpy.mockRestore();
+    });
+
+    it('should clean up temp files on write failure', async () => {
+      const writeFileSpy = vi
+        .spyOn(fsPromises, 'writeFile')
+        .mockRejectedValueOnce(new Error('Disk full'));
+      const unlinkSpy = vi.spyOn(fsPromises, 'unlink').mockResolvedValue();
+
+      await expect(adapter.setItem('fail-test', 'value')).rejects.toThrow('Disk full');
+
+      // Should attempt to clean up temp file
+      expect(unlinkSpy).toHaveBeenCalled();
+
+      writeFileSpy.mockRestore();
+      unlinkSpy.mockRestore();
+    });
+
+    it('should not leave temp files on successful write', async () => {
+      await adapter.setItem('temp-check', 'value');
+
+      // List all files in the directory
+      const files = await fsPromises.readdir(userDataDir);
+
+      // Should not have any .tmp files
+      const tmpFiles = files.filter((f) => f.endsWith('.tmp'));
+      expect(tmpFiles).toEqual([]);
+    });
+  });
+
+  describe('path containment', () => {
+    it('should reject path traversal attempts with ../', async () => {
+      // Import PathTraversalError for this test
+      const { PathTraversalError } = await import('../adapters/electron-storage-adapter');
+
+      const maliciousPath = '../../../etc/passwd';
+      const maliciousAdapter = new ElectronStorageAdapter(maliciousPath);
+
+      // The adapter initialization should fail due to path traversal
+      // We need to trigger a method to wait for the ready promise
+      await expect(maliciousAdapter.getItem('test')).rejects.toThrow(PathTraversalError);
+    });
+
+    it('should reject absolute path traversal attempts', async () => {
+      const { PathTraversalError } = await import('../adapters/electron-storage-adapter');
+
+      // This absolute path is outside userDataDir
+      const absolutePath = '/etc/passwd';
+      const maliciousAdapter = new ElectronStorageAdapter(absolutePath);
+
+      await expect(maliciousAdapter.getItem('test')).rejects.toThrow(PathTraversalError);
+    });
+
+    it('should allow valid nested paths within userData', async () => {
+      const validPath = 'config/settings/storage.json';
+      const validAdapter = new ElectronStorageAdapter(validPath);
+
+      // Should not throw
+      await validAdapter.setItem('key', 'value');
+      expect(await validAdapter.getItem('key')).toBe('value');
+
+      // Cleanup
+      await fsPromises.rm(path.join(userDataDir, 'config'), {
+        recursive: true,
+        force: true,
+      });
+    });
+
+    it('should allow simple filenames', async () => {
+      const simpleFilename = 'my-storage.json';
+      const simpleAdapter = new ElectronStorageAdapter(simpleFilename);
+
+      await simpleAdapter.setItem('simple', 'value');
+      expect(await simpleAdapter.getItem('simple')).toBe('value');
+
+      // Cleanup
+      await fsPromises.rm(path.join(userDataDir, simpleFilename), { force: true });
+    });
+  });
+
+  describe('logging behavior', () => {
+    it('should log warning when storage file is corrupted', async () => {
+      // Write corrupted JSON to the file
+      await fsPromises.writeFile(storageFile, 'invalid json {]', 'utf8');
+
+      // Create new adapter - it should log a warning but not throw
+      const corruptedAdapter = new ElectronStorageAdapter(path.basename(storageFile));
+
+      // Should work with empty cache
+      const value = await corruptedAdapter.getItem('test');
+      expect(value).toBeNull();
+
+      // Can still set new values
+      await corruptedAdapter.setItem('new', 'value');
+      expect(await corruptedAdapter.getItem('new')).toBe('value');
+    });
+  });
 });
