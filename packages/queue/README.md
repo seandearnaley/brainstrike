@@ -1,6 +1,6 @@
 # @brainstrike/queue
 
-Core embedding queue primitives used across Brainstrike web and desktop runtimes. Provides a browser-first workerpool adapter with a `p-queue` fallback plus shared telemetry, typing, and utilities for scheduling embedding tasks.
+Core embedding queue primitives used across Brainstrike web and desktop runtimes. Provides a browser-first workerpool adapter plus shared telemetry, typing, and utilities for scheduling embedding tasks.
 
 ## Why This Package Exists
 
@@ -11,7 +11,6 @@ Core embedding queue primitives used across Brainstrike web and desktop runtimes
 ## Features
 
 - `createBrowserEmbeddingQueue()` – wraps `workerpool` with batching, concurrency control, and adapter wiring for module workers.
-- `createFallbackQueue()` – lightweight `p-queue`-based executor for Node/Electron-main testing.
 - Type-safe task/result helpers (`toWorkerRequest`, `QueueAdapter`, `QueueResult`) shared with downstream packages.
 - Telemetry utilities (`addQueueTelemetryListener`, `createQueueTelemetryAggregator`) for real-time monitoring.
 
@@ -59,7 +58,7 @@ When running in the browser with `initializeQueueTelemetrySink`, events are POST
 
 ## Development
 
-- `src/adapters/` – queue implementations (`browser`, `fallback`).
+- `src/adapters/` – queue implementations (`browser-workerpool`).
 - `src/telemetry.ts` – aggregator and listener plumbing.
 - `src/types.ts` – shared embedding task primitives.
 - Vitest suites in `test/` cover adapters, telemetry, and task conversion.

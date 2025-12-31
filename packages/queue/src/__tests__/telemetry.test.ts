@@ -18,7 +18,7 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
 
     const event: QueueTelemetryEvent = {
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-123',
       model: 'test-model',
@@ -66,7 +66,7 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
 
     const event: QueueTelemetryEvent = {
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'error',
       taskId: 'task-789',
       errorMessage: 'Test error',
@@ -122,7 +122,7 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
 
     const event: QueueTelemetryEvent = {
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-multi-unsub',
     };
@@ -163,7 +163,7 @@ describe('emitQueueTelemetry and addQueueTelemetryListener', () => {
   it('should emit when no listeners are registered', () => {
     const event: QueueTelemetryEvent = {
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'no-listeners',
     };
@@ -200,14 +200,14 @@ describe('createQueueTelemetryAggregator', () => {
 
     const event1: QueueTelemetryEvent = {
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-1',
     };
 
     const event2: QueueTelemetryEvent = {
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-1',
       elapsedMs: 1000,
@@ -233,7 +233,7 @@ describe('createQueueTelemetryAggregator', () => {
     for (let index = 0; index < 10; index += 1) {
       emitQueueTelemetry({
         timestamp: now,
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'complete',
         taskId: `task-${index}`,
         elapsedMs: 1000,
@@ -254,7 +254,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: now,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-1',
       elapsedMs: 1000,
@@ -262,7 +262,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: now,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-2',
       elapsedMs: 2000,
@@ -270,7 +270,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: now,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-3',
       elapsedMs: 3000,
@@ -292,7 +292,7 @@ describe('createQueueTelemetryAggregator', () => {
     for (const latency of latencies) {
       emitQueueTelemetry({
         timestamp: now,
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'complete',
         taskId: `task-${latency}`,
         elapsedMs: latency,
@@ -315,7 +315,7 @@ describe('createQueueTelemetryAggregator', () => {
     for (const latency of latencies) {
       emitQueueTelemetry({
         timestamp: now,
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'complete',
         taskId: `task-${latency}`,
         elapsedMs: latency,
@@ -336,7 +336,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: now,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-1',
       elapsedMs: 1000,
@@ -344,7 +344,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: now,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'error',
       taskId: 'task-2',
       errorMessage: 'Error 1',
@@ -352,7 +352,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: now,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'error',
       taskId: 'task-3',
       errorMessage: 'Error 2',
@@ -373,7 +373,7 @@ describe('createQueueTelemetryAggregator', () => {
     // Emit old event first (15 seconds ago, outside window)
     emitQueueTelemetry({
       timestamp: now - 15_000,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-old',
       elapsedMs: 500,
@@ -382,7 +382,7 @@ describe('createQueueTelemetryAggregator', () => {
     // Emit event at current time
     emitQueueTelemetry({
       timestamp: now,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-recent',
       elapsedMs: 1000,
@@ -404,7 +404,7 @@ describe('createQueueTelemetryAggregator', () => {
     for (let index = 0; index < 10; index += 1) {
       emitQueueTelemetry({
         timestamp: Date.now(),
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'enqueue',
         taskId: `task-${index}`,
       });
@@ -425,7 +425,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-no-latency',
     });
@@ -445,7 +445,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: now,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-1',
       elapsedMs: -100, // Negative latency
@@ -453,7 +453,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: now,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-2',
       elapsedMs: 1000,
@@ -474,7 +474,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: now,
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-single',
       elapsedMs: 1500,
@@ -494,7 +494,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-before-dispose',
     });
@@ -503,7 +503,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'enqueue',
       taskId: 'task-after-dispose',
     });
@@ -524,7 +524,7 @@ describe('createQueueTelemetryAggregator', () => {
     for (let index = 0; index < 15; index += 1) {
       emitQueueTelemetry({
         timestamp: now,
-        adapter: 'pqueue',
+        adapter: 'workerpool',
         event: 'complete',
         taskId: `task-${index}`,
         elapsedMs: 1000,
@@ -544,7 +544,7 @@ describe('createQueueTelemetryAggregator', () => {
 
     emitQueueTelemetry({
       timestamp: Date.now(),
-      adapter: 'pqueue',
+      adapter: 'workerpool',
       event: 'complete',
       taskId: 'task-1',
       elapsedMs: 1000,
