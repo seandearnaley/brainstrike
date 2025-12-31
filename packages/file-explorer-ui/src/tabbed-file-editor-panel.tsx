@@ -1,8 +1,8 @@
 import { useIdeFileEditor } from '@brainstrike/ui';
 import { decodeFileSelection } from '@brainstrike/utils';
-import { memo, useCallback, useEffect } from 'react';
+import { memo, useCallback, useEffect, useMemo } from 'react';
 import { useTabManager } from './hooks/use-tab-manager';
-import { TabbedFileEditor } from './tabbed-file-editor';
+import { TabbedFileEditor, type TabStripAction } from './tabbed-file-editor';
 import { useFileExplorer } from './use-file-explorer-context';
 
 export type TabbedFileEditorPanelProps = {
@@ -14,7 +14,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     const { registerOpenFileInTab } = useIdeFileEditor();
     const { rootDirectoryHandle, fileContents, loadingFiles, loadFileContent } = useFileExplorer();
 
-    const { tabs, activeTabId, openTab, closeTab, setActiveTab } = useTabManager();
+    const { tabs, activeTabId, openTab, closeTab, clearTabs, setActiveTab } = useTabManager();
 
     // Handle tab click
     const handleTabClick = useCallback(
@@ -31,6 +31,10 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
       },
       [closeTab]
     );
+
+    const handleCloseAllTabs = useCallback((): void => {
+      clearTabs();
+    }, [clearTabs]);
 
     // Handle loading file content for tabs
     const handleLoadFileContent = useCallback(
@@ -64,6 +68,18 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
       registerOpenFileInTab(handleOpenFileInTab);
     }, [registerOpenFileInTab, handleOpenFileInTab]);
 
+    const tabStripActions = useMemo<TabStripAction[]>(
+      () => [
+        {
+          id: 'close-all',
+          label: 'Close All',
+          enabled: tabs.length > 0,
+          onSelect: handleCloseAllTabs,
+        },
+      ],
+      [handleCloseAllTabs, tabs.length]
+    );
+
     return (
       <div className={className}>
         <TabbedFileEditor
@@ -74,6 +90,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
           onLoadFileContent={handleLoadFileContent}
           onTabClick={handleTabClick}
           onTabClose={handleTabClose}
+          tabStripActions={tabStripActions}
           tabs={tabs}
         />
       </div>

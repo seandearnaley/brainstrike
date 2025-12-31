@@ -1,9 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileTab } from '../hooks/use-tab-manager';
-import { TabbedFileEditor } from '../tabbed-file-editor';
+import { TabbedFileEditor, type TabStripAction } from '../tabbed-file-editor';
 
 describe('TabbedFileEditor', () => {
   let mockProps: {
@@ -417,6 +417,80 @@ describe('TabbedFileEditor', () => {
 
     const tabButton = screen.getByRole('tab', { name: 'ComponentWithReallyLongName.tsx' });
     expect(tabButton.querySelector('span')).toHaveClass('truncate');
+  });
+
+  it('should open the overflow menu and trigger Close All', async () => {
+    const user = userEvent.setup();
+    const closeAll = vi.fn();
+    const tabStripActions: TabStripAction[] = [
+      {
+        id: 'close-all',
+        label: 'Close All',
+        enabled: true,
+        onSelect: closeAll,
+      },
+    ];
+
+    render(<TabbedFileEditor {...mockProps} tabStripActions={tabStripActions} />);
+
+    const menuButton = screen.getByRole('button', { name: 'More actions' });
+    await user.click(menuButton);
+
+    const menuItem = screen.getByRole('menuitem', { name: 'Close All' });
+    await user.click(menuItem);
+
+    expect(closeAll).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.queryByRole('menuitem', { name: 'Close All' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('should disable Close All when there are no tabs', async () => {
+    const user = userEvent.setup();
+    const tabStripActions: TabStripAction[] = [
+      {
+        id: 'close-all',
+        label: 'Close All',
+        enabled: false,
+        onSelect: vi.fn(),
+      },
+    ];
+
+    render(<TabbedFileEditor {...mockProps} tabStripActions={tabStripActions} />);
+
+    const menuButton = screen.getByRole('button', { name: 'More actions' });
+    await user.click(menuButton);
+
+    const menuItem = screen.getByRole('menuitem', { name: 'Close All' });
+    expect(menuItem).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('should close the overflow menu on Escape and return focus', async () => {
+    const user = userEvent.setup();
+    const tabStripActions: TabStripAction[] = [
+      {
+        id: 'close-all',
+        label: 'Close All',
+        enabled: true,
+        onSelect: vi.fn(),
+      },
+    ];
+
+    render(<TabbedFileEditor {...mockProps} tabStripActions={tabStripActions} />);
+
+    const menuButton = screen.getByRole('button', { name: 'More actions' });
+    await user.click(menuButton);
+
+    expect(screen.getByRole('menuitem', { name: 'Close All' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('menuitem', { name: 'Close All' })).not.toBeInTheDocument();
+    });
+
+    expect(menuButton).toHaveFocus();
   });
 
   // Additional tests can be added here for hotkeys, etc.
