@@ -109,31 +109,6 @@ vi.mock('@brainstrike/embedding-worker', () => ({
   },
 }));
 
-class MockTensor {
-  readonly data: Float32Array;
-  readonly dims: number[];
-
-  constructor(values: readonly number[]) {
-    this.data = Float32Array.from(values);
-    this.dims = [1, this.data.length];
-  }
-
-  tolist(): number[][] {
-    return [Array.from(this.data)];
-  }
-}
-
-const pipelineMock = vi.fn(async () => async (inputs: string | readonly string[]) => {
-  const list = Array.isArray(inputs) ? inputs : [inputs];
-  return list.map(() => Float32Array.from([0.25, 0.5, 0.25]));
-});
-
-vi.mock('@huggingface/transformers', () => ({
-  pipeline: pipelineMock,
-  env: {},
-  Tensor: MockTensor,
-}));
-
 const minimalTask = {
   kind: 'embed' as const,
   deviceHint: 'webgpu' as const,
@@ -144,7 +119,6 @@ const minimalTask = {
 
 beforeEach(() => {
   workerpoolMocks.reset();
-  pipelineMock.mockClear();
 });
 
 afterEach(() => {
