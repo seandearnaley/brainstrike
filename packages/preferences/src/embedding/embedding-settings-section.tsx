@@ -399,6 +399,7 @@ function renderProviderSection({
 
 export function EmbeddingSettings() {
   const { models, providers: registryProviders, isLoading, hasLoaded } = useModelRegistryStore();
+  const registryError = useEnsureModelRegistry();
   const localPending = isLoading && !hasLoaded && models.length === 0;
   const providers = useMemo(
     () => buildEmbeddingProviders(models, registryProviders, localPending),
@@ -415,8 +416,6 @@ export function EmbeddingSettings() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const normalizedSearch = searchTerm.trim().toLowerCase();
-
-  useEnsureModelRegistry();
 
   // enabledOptions removed (selection UI removed); we keep enabledModelsByProvider for rendering availability.
 
@@ -493,6 +492,12 @@ export function EmbeddingSettings() {
           </div>
 
           <div className="space-y-3">
+            {registryError ? (
+              <div className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
+                <p className="font-medium text-sm">Failed to load model registry</p>
+                <p className="text-xs">{registryError}</p>
+              </div>
+            ) : null}
             {providers.map((provider) =>
               renderProviderSection({
                 provider,

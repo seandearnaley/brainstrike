@@ -11,11 +11,12 @@ export type UseEnsureModelRegistryOptions = {
   enabled?: boolean;
 };
 
-export function useEnsureModelRegistry(options: UseEnsureModelRegistryOptions = {}): void {
+export function useEnsureModelRegistry(options: UseEnsureModelRegistryOptions = {}): string | null {
   const contextDb = usePGliteDatabase();
   const db = options.db ?? contextDb;
   const enabled = options.enabled ?? true;
   const ensureRegistry = useModelRegistryStore((state) => state.ensureRegistry);
+  const error = useModelRegistryStore((state) => state.error);
 
   useEffect(() => {
     if (!(enabled && db)) {
@@ -25,4 +26,6 @@ export function useEnsureModelRegistry(options: UseEnsureModelRegistryOptions = 
       logger.error('Failed to load model registry', error);
     });
   }, [db, enabled, ensureRegistry]);
+
+  return error;
 }

@@ -47,6 +47,7 @@ export function useSearchFunctionality(
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
   const embedderInitPromiseRef = useRef<Promise<SearchEmbedder> | null>(null);
+  const embedderInitTokenRef = useRef(0);
   const embedderDisposePromiseRef = useRef<Promise<void> | null>(null);
   const isDisposingRef = useRef(false);
 
@@ -67,6 +68,7 @@ export function useSearchFunctionality(
       embedderRef.current = null;
       currentModelKeyRef.current = null;
       embedderInitPromiseRef.current = null;
+      embedderInitTokenRef.current += 1;
       if (embedder?.dispose) {
         isDisposingRef.current = true;
         const disposePromise = Promise.resolve(embedder.dispose());
@@ -147,6 +149,44 @@ export function useSearchFunctionality(
     return createLocalEmbedder(modelInfo.modelConfig);
   }
 
+  const disposeEmbedderWithTracking = async (embedder: SearchEmbedder): Promise<void> => {
+    isDisposingRef.current = true;
+    const disposePromise = Promise.resolve(embedder.dispose?.());
+    embedderDisposePromiseRef.current = disposePromise;
+    try {
+      await disposePromise;
+    } finally {
+      if (embedderDisposePromiseRef.current === disposePromise) {
+        embedderDisposePromiseRef.current = null;
+      }
+      isDisposingRef.current = false;
+    }
+  };
+
+  const disposeStaleEmbedder = async (embedder: SearchEmbedder): Promise<void> => {
+    if (embedder.dispose) {
+      await Promise.resolve(embedder.dispose());
+    }
+  };
+
+  const finalizeEmbedderInit = async (
+    embedder: SearchEmbedder,
+    modelKey: string,
+    initToken: number
+  ): Promise<SearchEmbedder> => {
+    if (embedderInitTokenRef.current !== initToken) {
+      await disposeStaleEmbedder(embedder);
+      const activeEmbedder = embedderRef.current;
+      if (activeEmbedder && currentModelKeyRef.current === modelKey) {
+        return activeEmbedder;
+      }
+      throw new Error('Embedding model initialization superseded by a newer request.');
+    }
+    embedderRef.current = embedder;
+    currentModelKeyRef.current = modelKey;
+    return embedder;
+  };
+
   async function ensureEmbedderReady(modelInfo: EffectiveModelInfo): Promise<SearchEmbedder> {
     const { modelKey } = modelInfo;
     const pendingDispose = embedderDisposePromiseRef.current;
@@ -164,30 +204,23 @@ export function useSearchFunctionality(
       return embedderRef.current;
     }
 
-    embedderInitPromiseRef.current = (async () => {
+    const initToken = embedderInitTokenRef.current + 1;
+    embedderInitTokenRef.current = initToken;
+    const initPromise = (async () => {
       if (embedderRef.current?.dispose) {
-        isDisposingRef.current = true;
-        const disposePromise = Promise.resolve(embedderRef.current.dispose());
-        embedderDisposePromiseRef.current = disposePromise;
-        try {
-          await disposePromise;
-        } finally {
-          if (embedderDisposePromiseRef.current === disposePromise) {
-            embedderDisposePromiseRef.current = null;
-          }
-          isDisposingRef.current = false;
-        }
+        await disposeEmbedderWithTracking(embedderRef.current);
       }
       const embedder = await createEmbedder(modelInfo);
-      embedderRef.current = embedder;
-      currentModelKeyRef.current = modelKey;
-      return embedder;
+      return finalizeEmbedderInit(embedder, modelKey, initToken);
     })();
+    embedderInitPromiseRef.current = initPromise;
 
     try {
-      return await embedderInitPromiseRef.current;
+      return await initPromise;
     } finally {
-      embedderInitPromiseRef.current = null;
+      if (embedderInitPromiseRef.current === initPromise) {
+        embedderInitPromiseRef.current = null;
+      }
     }
   }
 
