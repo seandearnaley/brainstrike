@@ -84,15 +84,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-${{ steps.electron-version.outputs.version }}
+          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
 
       - name: Ensure Electron binary is installed
-        if: steps.electron-cache.outputs.cache-hit != 'true'
+        # Always run to verify binary exists, even on cache hit (cache may be stale)
         run: |
           # Trigger Electron binary download via postinstall script
           # Electron is in apps/desktop/node_modules due to pnpm workspace structure
           cd apps/desktop/node_modules/electron
           node install.js
+          # Verify the binary exists
+          ls -la path.txt
+          cat path.txt
 
       - name: Lint
         run: pnpm run lint
@@ -512,15 +515,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-${{ steps.electron-version.outputs.version }}
+          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
 
       - name: Ensure Electron binary is installed
-        if: steps.electron-cache.outputs.cache-hit != 'true'
+        # Always run to verify binary exists, even on cache hit (cache may be stale)
         run: |
           # Trigger Electron binary download via postinstall script
           # Electron is in apps/desktop/node_modules due to pnpm workspace structure
           cd apps/desktop/node_modules/electron
           node install.js
+          # Verify the binary exists
+          ls -la path.txt
+          cat path.txt
 
       - name: Install system dependencies for Electron
         run: |
