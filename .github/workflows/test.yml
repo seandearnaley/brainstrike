@@ -90,7 +90,8 @@ jobs:
         if: steps.electron-cache.outputs.cache-hit != 'true'
         run: |
           # Trigger Electron binary download via postinstall script
-          cd node_modules/electron
+          # Electron is in apps/desktop/node_modules due to pnpm workspace structure
+          cd apps/desktop/node_modules/electron
           node install.js
 
       - name: Lint
@@ -517,7 +518,8 @@ jobs:
         if: steps.electron-cache.outputs.cache-hit != 'true'
         run: |
           # Trigger Electron binary download via postinstall script
-          cd node_modules/electron
+          # Electron is in apps/desktop/node_modules due to pnpm workspace structure
+          cd apps/desktop/node_modules/electron
           node install.js
 
       - name: Install system dependencies for Electron
