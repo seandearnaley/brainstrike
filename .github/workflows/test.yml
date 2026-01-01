@@ -497,9 +497,9 @@ jobs:
       - name: Ensure Electron binary is installed
         if: steps.electron-cache.outputs.cache-hit != 'true'
         run: |
-          # Force Electron to download its binary
-          cd apps/desktop
-          node -e "require('electron')"
+          # Trigger Electron binary download via postinstall script
+          cd node_modules/electron
+          node install.js
 
       - name: Install system dependencies for Electron
         run: |
