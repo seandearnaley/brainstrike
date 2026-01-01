@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SimpleEmbeddingService } from '../bge-m3-service';
 import { ModelRegistryManager } from '../model-registry';
 import type { EmbeddingProgress } from '../types';
+import { BGE_LARGE_MODEL, JINA_CODE_MODEL, MINILM_MODEL } from './fixtures/model-configs';
 
 // Skip integration tests by default (they require model downloads)
 const SKIP_INTEGRATION =
@@ -32,41 +33,11 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
   });
 
   describe('Model Registry Integration', () => {
-    it('should list available models from registry', () => {
-      const models = SimpleEmbeddingService.listModels();
-
-      expect(models).toBeDefined();
-      expect(Object.keys(models).length).toBeGreaterThan(0);
-
-      // Check that default model exists
-      const defaultKey = SimpleEmbeddingService.getDefaultModelKey();
-      expect(models[defaultKey]).toBeDefined();
-      expect(models[defaultKey]!.name).toBe('Jina Code (default)');
-    });
-
-    it('should get default model configuration', () => {
-      const defaultKey = SimpleEmbeddingService.getDefaultModelKey();
-      const model = SimpleEmbeddingService.getModelConfig(defaultKey);
-
-      expect(model).toBeDefined();
-      expect(model?.id).toBe('jinaai/jina-embeddings-v2-base-code');
-      expect(model?.dimensions).toBe(768);
-      expect(model?.tags).toContain('code');
-    });
-
     it('should determine quantization correctly', () => {
-      const models = SimpleEmbeddingService.listModels();
-
       // Test that smaller models (≤768D) force quantization
-      const jinaCode = models['jinaai/jina-embeddings-v2-base-code'];
-      expect(jinaCode).toBeDefined();
-      expect(ModelRegistryManager.shouldQuantize(jinaCode!)).toBe(true);
-
+      expect(ModelRegistryManager.shouldQuantize(JINA_CODE_MODEL)).toBe(true);
       // Test that larger models respect the quantized flag
-      const bgeLarge = models['bge-large-en-v1.5'];
-      if (bgeLarge) {
-        expect(ModelRegistryManager.shouldQuantize(bgeLarge)).toBe(bgeLarge.quantized);
-      }
+      expect(ModelRegistryManager.shouldQuantize(BGE_LARGE_MODEL)).toBe(BGE_LARGE_MODEL.quantized);
     });
   });
 
@@ -81,13 +52,13 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
           expect(progress.stage).toBeDefined();
         };
 
-        await service.initializeWithModel(undefined, progressCallback);
+        await service.initializeWithModel(JINA_CODE_MODEL, progressCallback);
 
         expect(service.getStatus()).toBe('ready');
         expect(progressCalled).toBe(true);
 
         const currentModel = service.getCurrentModelKey();
-        expect(currentModel).toBe('jinaai/jina-embeddings-v2-base-code');
+        expect(currentModel).toBe(JINA_CODE_MODEL.id);
       },
       LONG_TIMEOUT
     );
@@ -95,39 +66,24 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
     it(
       'should initialize with specific model',
       async () => {
-        const models = SimpleEmbeddingService.listModels();
-        const modelKeys = Object.keys(models);
+        await service.initializeWithModel(MINILM_MODEL);
 
-        // Find a small model for faster testing
-        const smallModel =
-          modelKeys.find((key) => models[key]!.dimensions <= 384) || 'Xenova/all-MiniLM-L6-v2';
+        expect(service.getStatus()).toBe('ready');
+        expect(service.getCurrentModelKey()).toBe(MINILM_MODEL.id);
 
-        if (models[smallModel]) {
-          await service.initializeWithModel(smallModel);
-
-          expect(service.getStatus()).toBe('ready');
-          expect(service.getCurrentModelKey()).toBe(smallModel);
-
-          const config = service.getCurrentModelConfig();
-          expect(config).toBeDefined();
-          expect(config?.id).toBe(models[smallModel].id);
-        }
+        const config = service.getCurrentModelConfig();
+        expect(config).toBeDefined();
+        expect(config?.id).toBe(MINILM_MODEL.id);
       },
       LONG_TIMEOUT
     );
 
-    it('should reject invalid model key', async () => {
-      await expect(service.initializeWithModel('invalid-model-key')).rejects.toThrow(
-        "Model 'invalid-model-key' not found in registry"
-      );
-    });
-
     it(
       'should prevent model switching without disposal',
       async () => {
-        await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
+        await service.initializeWithModel(MINILM_MODEL);
 
-        await expect(service.initializeWithModel('bge-small-en-v1.5')).rejects.toThrow(
+        await expect(service.initializeWithModel(JINA_CODE_MODEL)).rejects.toThrow(
           'Cannot switch models without disposing first'
         );
       },
@@ -138,7 +94,7 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
   describe('Embedding Generation', () => {
     beforeEach(async () => {
       // Use smallest model for faster tests
-      await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
+      await service.initializeWithModel(MINILM_MODEL);
     }, LONG_TIMEOUT);
 
     it('should generate embeddings for text', async () => {
@@ -147,9 +103,9 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
 
       expect(result).toBeDefined();
       expect(result.embedding).toBeInstanceOf(Array);
-      expect(result.embedding.length).toBe(384); // all-MiniLM-L6-v2 dimensions
-      expect(result.dimensions).toBe(384);
-      expect(result.model).toBe('Xenova/all-MiniLM-L6-v2');
+      expect(result.embedding.length).toBe(MINILM_MODEL.dimensions); // all-MiniLM-L6-v2 dimensions
+      expect(result.dimensions).toBe(MINILM_MODEL.dimensions);
+      expect(result.model).toBe(MINILM_MODEL.id);
 
       // Check that embeddings are normalized (roughly)
       const magnitude = Math.sqrt(result.embedding.reduce((sum, val) => sum + val * val, 0));
@@ -189,7 +145,7 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
       'should handle code embeddings with Jina model',
       async () => {
         await service.dispose();
-        await service.initializeWithModel('jinaai/jina-embeddings-v2-base-code');
+        await service.initializeWithModel(JINA_CODE_MODEL);
 
         const codeSnippet = `
 function calculateSum(a: number, b: number): number {
@@ -200,7 +156,7 @@ function calculateSum(a: number, b: number): number {
 
         expect(result).toBeDefined();
         expect(result.embedding.length).toBe(768); // Jina Code dimensions
-        expect(result.model).toBe('jinaai/jina-embeddings-v2-base-code');
+        expect(result.model).toBe(JINA_CODE_MODEL.id);
       },
       LONG_TIMEOUT
     );
@@ -208,7 +164,7 @@ function calculateSum(a: number, b: number): number {
 
   describe('Similarity Calculations', () => {
     beforeEach(async () => {
-      await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
+      await service.initializeWithModel(MINILM_MODEL);
     }, LONG_TIMEOUT);
 
     it('should calculate high similarity for identical texts', async () => {
@@ -224,7 +180,7 @@ function calculateSum(a: number, b: number): number {
     });
 
     it('should validate embedding dimensions', () => {
-      const embedding1 = new Array(384).fill(0.1);
+      const embedding1 = new Array(MINILM_MODEL.dimensions).fill(0.1);
       const embedding2 = new Array(256).fill(0.1); // Different dimensions
 
       expect(() => {
@@ -249,7 +205,7 @@ function calculateSum(a: number, b: number): number {
 
   describe('Code-Specific Embedding Tests', () => {
     beforeEach(async () => {
-      await service.initializeWithModel('jinaai/jina-embeddings-v2-base-code');
+      await service.initializeWithModel(JINA_CODE_MODEL);
     }, LONG_TIMEOUT);
 
     it('should achieve high similarity for semantically similar code', async () => {
@@ -335,7 +291,7 @@ async function fetchUserData(userId) {
     it(
       'should handle disposal and reinitialization',
       async () => {
-        await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
+        await service.initializeWithModel(MINILM_MODEL);
         expect(service.getStatus()).toBe('ready');
 
         await service.dispose();
@@ -343,9 +299,9 @@ async function fetchUserData(userId) {
         expect(service.getCurrentModelKey()).toBeNull();
 
         // Should be able to reinitialize
-        await service.initializeWithModel('bge-small-en-v1.5');
+        await service.initializeWithModel(JINA_CODE_MODEL);
         expect(service.getStatus()).toBe('ready');
-        expect(service.getCurrentModelKey()).toBe('bge-small-en-v1.5');
+        expect(service.getCurrentModelKey()).toBe(JINA_CODE_MODEL.id);
       },
       LONG_TIMEOUT
     );
@@ -353,7 +309,7 @@ async function fetchUserData(userId) {
     it(
       'should handle multiple dispose calls safely',
       async () => {
-        await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
+        await service.initializeWithModel(MINILM_MODEL);
 
         await service.dispose();
         await service.dispose(); // Should not throw
@@ -372,7 +328,7 @@ async function fetchUserData(userId) {
     it(
       'should handle empty text input',
       async () => {
-        await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
+        await service.initializeWithModel(MINILM_MODEL);
 
         const result = await service.generateEmbedding('');
         expect(result).toBeDefined();
@@ -384,14 +340,14 @@ async function fetchUserData(userId) {
     it(
       'should handle very long text input',
       async () => {
-        await service.initializeWithModel('Xenova/all-MiniLM-L6-v2');
+        await service.initializeWithModel(MINILM_MODEL);
 
         const longText = 'test '.repeat(1000); // 5000 characters
         const result = await service.generateEmbedding(longText);
 
         expect(result).toBeDefined();
         expect(result.embedding).toBeInstanceOf(Array);
-        expect(result.embedding.length).toBe(384);
+        expect(result.embedding.length).toBe(MINILM_MODEL.dimensions);
       },
       LONG_TIMEOUT
     );

@@ -70,6 +70,10 @@ describe('model-registry-store', () => {
       expect(useModelRegistryStore.getState().error).toBe(null);
     });
 
+    it('has hasLoaded set to false', () => {
+      expect(useModelRegistryStore.getState().hasLoaded).toBe(false);
+    });
+
     it('has modelCacheDir set to null', () => {
       expect(useModelRegistryStore.getState().modelCacheDir).toBe(null);
     });
@@ -184,6 +188,7 @@ describe('model-registry-store', () => {
       await useModelRegistryStore.getState().fetchRegistry(mockDb as never);
 
       expect(useModelRegistryStore.getState().isLoading).toBe(false);
+      expect(useModelRegistryStore.getState().hasLoaded).toBe(true);
       expect(useModelRegistryStore.getState().providers).toHaveLength(1);
       expect(useModelRegistryStore.getState().providers[0]?.name).toBe('OpenAI');
       expect(useModelRegistryStore.getState().models).toHaveLength(1);
@@ -321,6 +326,28 @@ describe('model-registry-store', () => {
     });
   });
 
+  describe('ensureRegistry', () => {
+    it('dedupes concurrent fetches while loading', async () => {
+      let resolveProviders!: (value: { rows: [] }) => void;
+      const providersPromise = new Promise<{ rows: [] }>((resolve) => {
+        resolveProviders = resolve;
+      });
+
+      const mockDb = {
+        query: vi.fn().mockReturnValueOnce(providersPromise).mockResolvedValueOnce({ rows: [] }),
+      };
+
+      const first = useModelRegistryStore.getState().ensureRegistry(mockDb as never);
+      const second = useModelRegistryStore.getState().ensureRegistry(mockDb as never);
+
+      expect(mockDb.query).toHaveBeenCalledTimes(1);
+      expect(second).toBe(first);
+
+      resolveProviders({ rows: [] });
+      await first;
+    });
+  });
+
   describe('toggleModel', () => {
     it('optimistically updates model enabled state', async () => {
       const model = createMockModel({ id: 'model-1', isEnabled: false });
@@ -391,6 +418,7 @@ describe('model-registry-store', () => {
         models: [createMockModel()],
         isLoading: true,
         error: 'Some error',
+        hasLoaded: true,
         modelCacheDir: '/custom/path',
         downloadProgress: { 'model-1': 50 },
         isDownloading: { 'model-1': true },
@@ -406,6 +434,7 @@ describe('model-registry-store', () => {
       expect(state.models).toEqual([]);
       expect(state.isLoading).toBe(false);
       expect(state.error).toBe(null);
+      expect(state.hasLoaded).toBe(false);
       expect(state.modelCacheDir).toBe(null);
       expect(state.downloadProgress).toEqual({});
       expect(state.isDownloading).toEqual({});

@@ -98,6 +98,10 @@
     "packages/app-shell": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignoreDependencies": [
+        // Used only in tests; app-shell excludes tests from knip project paths
+        "@brainstrike/db"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -226,6 +230,10 @@
     "packages/file-import": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignoreDependencies": [
+        // React is a peer dependency for the hooks/components; knip treats it as optional
+        "react"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
