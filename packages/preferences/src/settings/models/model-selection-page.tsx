@@ -1,13 +1,107 @@
-import { usePGliteDatabase } from '@brainstrike/db';
+import { DEFAULT_EMBEDDING_DIMENSION, usePGliteDatabase } from '@brainstrike/db';
+import type { ModelConfig } from '@brainstrike/embeddings';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { Button, Input, Label, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { Folder, RefreshCw } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
+import type { DbModel } from '../../stores/model-registry-store';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
 import { ModelList } from './model-list';
 
 const logger = createLogger('ModelSelectionPage');
+
+type ToastFn = ReturnType<typeof useToast>['toast'];
+
+type DownloadDeps = {
+  modelCacheDir: string | null;
+  setDownloadProgress: (modelId: string, progress: number) => void;
+  setDownloading: (modelId: string, isDownloading: boolean) => void;
+  toast: ToastFn;
+};
+
+type DownloadProgress = {
+  progress?: number;
+};
+
+function readQuantizedFlag(parameters: Record<string, unknown> | null): boolean {
+  const value = parameters?.['quantized'];
+  return typeof value === 'boolean' ? value : false;
+}
+
+function buildModelConfig(model: DbModel): ModelConfig {
+  const parameters = (model.parameters ?? {}) as Record<string, unknown>;
+  return {
+    id: model.id,
+    name: model.name,
+    description: model.description ?? '',
+    dimensions: model.capabilities.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION,
+    tags: Array.isArray(model.bestFor) ? model.bestFor : [],
+    // Add other optional fields if available in parameters
+    ...parameters,
+    quantized: readQuantizedFlag(parameters),
+  };
+}
+
+function updateProgress(
+  modelId: string,
+  setDownloadProgress: (modelId: string, progress: number) => void,
+  progress: number | undefined
+): void {
+  if (progress !== undefined) {
+    setDownloadProgress(modelId, progress);
+  }
+}
+
+async function downloadModel(
+  model: DbModel,
+  { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
+): Promise<void> {
+  const service = new SimpleEmbeddingService();
+  const modelConfig = buildModelConfig(model);
+
+  setDownloading(model.id, true);
+  setDownloadProgress(model.id, 0);
+
+  try {
+    toast({
+      title: 'Download Started',
+      description: `Starting download for ${model.name}...`,
+    });
+
+    const options: {
+      modelConfig: ModelConfig;
+      cacheDir?: string;
+      onProgress: (progress: DownloadProgress) => void;
+    } = {
+      modelConfig,
+      onProgress: (progress) => updateProgress(model.id, setDownloadProgress, progress.progress),
+    };
+
+    if (modelCacheDir) {
+      options.cacheDir = modelCacheDir;
+    }
+
+    // Pass full config to bypass registry lookup
+    await service.downloadModel(model.id, options);
+
+    setDownloadProgress(model.id, 100);
+    toast({
+      title: 'Download Complete',
+      description: `${model.name} downloaded successfully!`,
+    });
+  } catch (err) {
+    logger.error('Failed to download model', err);
+    toast({
+      title: 'Download Failed',
+      description: `Failed to download ${model.name}: ${(err as Error).message}`,
+      variant: 'destructive',
+    });
+  } finally {
+    setDownloading(model.id, false);
+  }
+}
 
 export function ModelSelectionPage() {
   const db = usePGliteDatabase();
@@ -29,12 +123,7 @@ export function ModelSelectionPage() {
   } = useModelRegistryStore();
   const { toast } = useToast();
 
-  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
-  useEffect(() => {
-    if (db) {
-      void fetchRegistry(db);
-    }
-  }, [db, fetchRegistry]);
+  useEnsureModelRegistry({ db });
 
   const handleDownload = async (modelId: string) => {
     if (isDownloading[modelId]) {
@@ -46,55 +135,12 @@ export function ModelSelectionPage() {
       return;
     }
 
-    try {
-      setDownloading(modelId, true);
-      setDownloadProgress(modelId, 0);
-
-      const service = new SimpleEmbeddingService();
-
-      // Map DbModel to ModelConfig
-      const modelConfig = {
-        id: model.id,
-        name: model.name,
-        description: model.description || '',
-        dimensions: model.capabilities.defaultDimension || 768,
-        tags: model.bestFor || [],
-        quantized: false, // Default to false for now, or read from parameters if available
-        // Add other optional fields if available in parameters
-        ...(model.parameters as Record<string, unknown>),
-      };
-
-      toast({
-        title: 'Download Started',
-        description: `Starting download for ${model.name}...`,
-      });
-
-      // Pass full config to bypass registry lookup
-      await service.downloadModel(modelId, {
-        modelConfig,
-        ...(modelCacheDir ? { cacheDir: modelCacheDir } : {}),
-        onProgress: (p) => {
-          if (p.progress !== undefined) {
-            setDownloadProgress(modelId, p.progress);
-          }
-        },
-      });
-
-      setDownloadProgress(modelId, 100);
-      toast({
-        title: 'Download Complete',
-        description: `${model.name} downloaded successfully!`,
-      });
-    } catch (err) {
-      logger.error('Failed to download model', err);
-      toast({
-        title: 'Download Failed',
-        description: `Failed to download ${model.name}: ${(err as Error).message}`,
-        variant: 'destructive',
-      });
-    } finally {
-      setDownloading(modelId, false);
-    }
+    await downloadModel(model, {
+      modelCacheDir,
+      setDownloadProgress,
+      setDownloading,
+      toast,
+    });
   };
 
   const handleSelectCacheDir = async (): Promise<void> => {

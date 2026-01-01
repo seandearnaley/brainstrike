@@ -11,13 +11,20 @@ import {
   type EmbeddingProviderConfig,
   EmbeddingProviderFactory,
   isHostedProvider,
+  type ModelConfig,
   parseProviderModelKey,
   SimpleEmbeddingService,
 } from '@brainstrike/embeddings';
+import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
 import type { SearchConfig, SemanticSearchResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { SearchExecutor } from '../contexts/semantic-search-context';
+import {
+  buildLocalEmbeddingModelConfigMap,
+  type EffectiveModelInfo,
+  resolveEmbeddingSetModelInfo,
+} from '../utils/embedding-models';
 
 const logger = createLogger('SemanticSearchExecutor');
 
@@ -25,6 +32,11 @@ type SearchEmbedder = {
   embedQuery: (text: string) => Promise<{ embedding: number[] }>;
   dispose?: () => Promise<void> | void;
 };
+
+type EmbedderError =
+  | { message: string }
+  | { originalError: { message: string }; type: string }
+  | { type: string };
 
 type UseSemanticSearchExecutorOptions = {
   chunkRepository: DrizzleFileChunkRepository | null;
@@ -54,7 +66,7 @@ async function createHostedEmbedder(
     embedQuery: async (text: string) => {
       const result = await provider.embed({ text, modelId });
       if (!result.ok) {
-        const error = result.error;
+        const error: EmbedderError = result.error;
         const msg =
           'message' in error
             ? error.message
@@ -71,11 +83,11 @@ async function createHostedEmbedder(
 /**
  * Create a local provider embedder
  */
-async function createLocalEmbedder(modelKey: string): Promise<SearchEmbedder> {
-  logger.info('Creating local embedder (SimpleEmbeddingService)', { modelKey });
+async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbedder> {
+  logger.info('Creating local embedder (SimpleEmbeddingService)', { modelKey: modelConfig.id });
   const svc = new SimpleEmbeddingService();
   logger.info('Initializing local model...');
-  await svc.initializeWithModel(modelKey);
+  await svc.initializeWithModel(modelConfig);
   logger.info('Local model initialized');
 
   return {
@@ -97,37 +109,57 @@ export function useSemanticSearchExecutor({
   fileRepository,
 }: UseSemanticSearchExecutorOptions): SearchExecutor | undefined {
   const db = usePGliteDatabase();
+  const { models } = useModelRegistryStore();
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
+
+  useEnsureModelRegistry({ db });
+
+  useEffect(() => {
+    const cleanup = () => {
+      const embedder = embedderRef.current;
+      embedderRef.current = null;
+      currentModelKeyRef.current = null;
+      if (embedder?.dispose) {
+        void embedder.dispose();
+      }
+    };
+    return cleanup;
+  }, []);
+
+  const modelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
+  const getEmbeddingSetModelInfo = useCallback(
+    async (embeddingSetId: string): Promise<EffectiveModelInfo> => {
+      if (!db) {
+        throw new Error('Database is not available to resolve the active embedding set.');
+      }
+      const res = await db.query<{ modelKey: string; dimensions: number }>(
+        'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
+        [embeddingSetId]
+      );
+      const row = res.rows[0];
+      if (!row?.modelKey) {
+        throw new Error('Active embedding set is missing a model.');
+      }
+      return resolveEmbeddingSetModelInfo(
+        { modelKey: row.modelKey, dimensions: Number(row.dimensions) },
+        modelConfigMap
+      );
+    },
+    [db, modelConfigMap]
+  );
 
   /**
    * Get the model info for the active embedding set
    */
   const getModelInfo = useCallback(
-    async (embeddingSetId: string | null): Promise<{ modelKey: string; dimensions: number }> => {
-      const defaultKey = SimpleEmbeddingService.getDefaultModelKey();
-      const defaultDim = 1024;
-
-      if (db && embeddingSetId) {
-        try {
-          const res = await db.query<{ modelKey: string; dimensions: number }>(
-            'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
-            [embeddingSetId]
-          );
-          const row = res.rows[0];
-          if (row?.modelKey) {
-            return {
-              modelKey: row.modelKey,
-              dimensions: Number(row.dimensions) || defaultDim,
-            };
-          }
-        } catch {
-          // keep fallback
-        }
+    async (embeddingSetId: string | null): Promise<EffectiveModelInfo> => {
+      if (!embeddingSetId) {
+        throw new Error('Select an active embedding set to perform semantic search');
       }
-      return { modelKey: defaultKey, dimensions: defaultDim };
+      return getEmbeddingSetModelInfo(embeddingSetId);
     },
-    [db]
+    [getEmbeddingSetModelInfo]
   );
 
   /**
@@ -166,7 +198,7 @@ export function useSemanticSearchExecutor({
    * Ensure embedder is ready for the given model
    */
   const ensureEmbedderReady = useCallback(
-    async (modelKey: string, dimensions: number): Promise<SearchEmbedder> => {
+    async ({ modelKey, dimensions, modelConfig }: EffectiveModelInfo): Promise<SearchEmbedder> => {
       logger.info('ensureEmbedderReady called', { modelKey, dimensions });
 
       // Reuse cached embedder if same model
@@ -183,17 +215,20 @@ export function useSemanticSearchExecutor({
 
       // Detect provider type
       const parsed = parseProviderModelKey(modelKey);
-      const isHosted = parsed && isHostedProvider(parsed.provider);
+      const isHosted = parsed ? isHostedProvider(parsed.provider) : false;
       logger.info('Provider detection', { isHosted });
 
       // Create appropriate embedder
       let embedder: SearchEmbedder;
-      if (isHosted) {
+      if (parsed && isHostedProvider(parsed.provider)) {
         logger.info('Creating hosted provider', { provider: parsed.provider });
         const providerConfig = createHostedConfig(parsed.provider, parsed.modelId, dimensions);
         embedder = await createHostedEmbedder(providerConfig, parsed.modelId);
       } else {
-        embedder = await createLocalEmbedder(modelKey);
+        if (!modelConfig) {
+          throw new Error('No local embedding model configured. Enable one in Settings > Models.');
+        }
+        embedder = await createLocalEmbedder(modelConfig);
       }
 
       // Cache and return
@@ -231,12 +266,15 @@ export function useSemanticSearchExecutor({
 
       // Get model info for the embedding set
       logger.info('Getting model info for embedding set...');
-      const { modelKey, dimensions } = await getModelInfo(embeddingSetId);
-      logger.info('Model info retrieved', { modelKey, dimensions });
+      const modelInfo = await getModelInfo(embeddingSetId);
+      logger.info('Model info retrieved', {
+        modelKey: modelInfo.modelKey,
+        dimensions: modelInfo.dimensions,
+      });
 
       // Ensure embedder is ready
       logger.info('Initializing embedder...');
-      const embedder = await ensureEmbedderReady(modelKey, dimensions);
+      const embedder = await ensureEmbedderReady(modelInfo);
       logger.info('Embedder ready');
 
       // Generate query embedding
@@ -254,11 +292,15 @@ export function useSemanticSearchExecutor({
       logger.info('Search completed', { resultCount: searchResults.length });
 
       // Build a map of file records for enrichment
-      const fileIds = new Set(searchResults.map((r) => r.chunk.fileRecordId));
+      const fileIds = Array.from(new Set(searchResults.map((r) => r.chunk.fileRecordId)));
+      const fileEntries = await Promise.all(
+        fileIds.map(async (fileId) => {
+          const record = await fileRepository.findById(fileId);
+          return [fileId, record] as const;
+        })
+      );
       const fileRecordsMap = new Map<string, { name: string; path: string }>();
-
-      for (const fileId of fileIds) {
-        const record = await fileRepository.findById(fileId);
+      for (const [fileId, record] of fileEntries) {
         if (record) {
           fileRecordsMap.set(fileId, { name: record.name, path: record.path });
         } else {

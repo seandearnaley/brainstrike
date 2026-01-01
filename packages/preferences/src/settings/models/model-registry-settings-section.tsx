@@ -3,7 +3,8 @@ import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { Badge, Button, Card, Input, Label, Progress, Switch } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { ChevronDown, ChevronRight, Download, Folder, RefreshCw } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useEnsureModelRegistry } from '../../hooks/use-model-registry';
 import { useModelRegistryStore } from '../../stores/model-registry-store';
 
 const logger = createLogger('ModelRegistrySettingsSection');
@@ -27,12 +28,7 @@ export function ModelRegistrySettingsSection() {
   } = useModelRegistryStore();
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set());
 
-  // biome-ignore lint/plugin: Fetch registry when db becomes available - data loading pattern
-  useEffect(() => {
-    if (db) {
-      void fetchRegistry(db);
-    }
-  }, [db, fetchRegistry]);
+  useEnsureModelRegistry({ db });
 
   const toggleExpanded = (providerId: string) => {
     const next = new Set(expandedProviders);

@@ -1,4 +1,8 @@
-import { type EmbeddingStatus, SimpleEmbeddingService } from '@brainstrike/embeddings';
+import {
+  type EmbeddingStatus,
+  type ModelConfig,
+  SimpleEmbeddingService,
+} from '@brainstrike/embeddings';
 import { createLogger, createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -21,7 +25,7 @@ type EmbeddingsPanelActions = {
   setSelectedModel: (k: ModelKey) => void;
   setText1: (v: string) => void;
   setText2: (v: string) => void;
-  initialize: () => Promise<void>;
+  initialize: (modelConfig: ModelConfig) => Promise<void>;
   calculateSimilarity: () => Promise<void>;
   dispose: () => Promise<void>;
 };
@@ -46,7 +50,7 @@ export const useEmbeddingsPanelStore = create<Store>()(
       status: 'idle',
       progress: 0,
       progressMessage: '',
-      selectedModel: SimpleEmbeddingService.getDefaultModelKey(),
+      selectedModel: '',
       text1: 'Hello world, this is a test sentence.',
       text2: 'Hi there, this is another test phrase.',
       similarity: null,
@@ -57,14 +61,13 @@ export const useEmbeddingsPanelStore = create<Store>()(
       setText1: (v) => set({ text1: v }),
       setText2: (v) => set({ text2: v }),
 
-      initialize: async () => {
+      initialize: async (modelConfig) => {
         if (!service) {
           service = new SimpleEmbeddingService();
         }
-        const { selectedModel } = get();
         set({ status: 'initializing', error: null, progress: 0, progressMessage: '' });
         try {
-          await service.initializeWithModel(selectedModel, (p) =>
+          await service.initializeWithModel(modelConfig, (p) =>
             set({
               progress: p.progress || 0,
               progressMessage: p.message || '',
@@ -143,7 +146,7 @@ export function __resetEmbeddingsPanelStoreForTests() {
       status: 'idle',
       progress: 0,
       progressMessage: '',
-      selectedModel: SimpleEmbeddingService.getDefaultModelKey(),
+      selectedModel: '',
       text1: 'Hello world, this is a test sentence.',
       text2: 'Hi there, this is another test phrase.',
       similarity: null,

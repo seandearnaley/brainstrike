@@ -1,8 +1,17 @@
+import { useModelRegistryStore } from '@brainstrike/preferences';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingsPanel } from '../embeddings-panel';
 import { __resetEmbeddingsPanelStoreForTests } from '../stores/embeddings-panel-store';
+
+vi.mock('@brainstrike/db', async (importOriginal) => {
+  const mod = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...mod,
+    usePGliteDatabase: () => null,
+  };
+});
 
 // Mock clipboard API (happy-dom compatible)
 Object.defineProperty(navigator, 'clipboard', {
@@ -36,36 +45,8 @@ let mockServiceInstance: {
 vi.mock('@brainstrike/embeddings', async () => {
   const actual =
     await vi.importActual<typeof import('@brainstrike/embeddings')>('@brainstrike/embeddings');
-  const mockListModels = vi.fn(() => ({
-    'jina-code': {
-      id: 'jinaai/jina-embeddings-v3',
-      name: 'Jina Code',
-      dimensions: 768,
-      quantized: false,
-      description: 'Code-optimized embeddings',
-      tags: ['code', 'default'],
-      origin: 'Jina AI',
-      size: '~300MB',
-    },
-    'all-MiniLM-L6-v2': {
-      id: 'Xenova/all-MiniLM-L6-v2',
-      name: 'all-MiniLM-L6-v2',
-      dimensions: 384,
-      quantized: true,
-      description: 'General purpose embeddings',
-      tags: ['general'],
-      origin: 'Sentence Transformers',
-      size: '~23MB',
-    },
-  }));
-
-  const mockGetDefaultModelKey = vi.fn(() => 'jina-code');
-
   // Create a proper mock class with static methods
   class MockSimpleEmbeddingService {
-    static listModels = mockListModels;
-    static getDefaultModelKey = mockGetDefaultModelKey;
-
     constructor() {
       mockServiceInstance = {
         initializeWithModel: vi.fn().mockResolvedValue(undefined),
@@ -117,6 +98,39 @@ describe('EmbeddingsPanel - Simple Coverage Tests', () => {
     vi.clearAllMocks();
     user = userEvent.setup();
     __resetEmbeddingsPanelStoreForTests();
+    useModelRegistryStore.setState({
+      models: [
+        {
+          id: 'jinaai/jina-embeddings-v3',
+          providerId: 'transformers',
+          name: 'Jina Code',
+          description: 'Code-optimized embeddings',
+          tagline: null,
+          bestFor: ['code', 'default'],
+          icon: null,
+          isEnabled: true,
+          capabilities: { type: 'embedding', defaultDimension: 768 },
+          parameters: { size: '~300MB' },
+          sortOrder: 1,
+        },
+        {
+          id: 'Xenova/all-MiniLM-L6-v2',
+          providerId: 'transformers',
+          name: 'all-MiniLM-L6-v2',
+          description: 'General purpose embeddings',
+          tagline: null,
+          bestFor: ['general'],
+          icon: null,
+          isEnabled: true,
+          capabilities: { type: 'embedding', defaultDimension: 384 },
+          parameters: { size: '~23MB' },
+          sortOrder: 2,
+        },
+      ],
+      providers: [],
+      isLoading: false,
+      error: null,
+    });
     if (mockServiceInstance) {
       mockServiceInstance.getStatus.mockReturnValue('idle');
       mockServiceInstance.getConfig.mockReturnValue({
@@ -156,7 +170,7 @@ describe('EmbeddingsPanel - Simple Coverage Tests', () => {
       expect(screen.getByText('Dimensions:')).toBeInTheDocument();
       expect(screen.getByText('768D')).toBeInTheDocument();
       expect(screen.getByText('Origin:')).toBeInTheDocument();
-      expect(screen.getByText('Jina AI')).toBeInTheDocument();
+      expect(screen.getByText('transformers')).toBeInTheDocument();
       expect(screen.getByText('Size:')).toBeInTheDocument();
       expect(screen.getByText('~300MB')).toBeInTheDocument();
     });
@@ -189,7 +203,7 @@ describe('EmbeddingsPanel - Simple Coverage Tests', () => {
       await user.click(initButton);
 
       expect(mockServiceInstance.initializeWithModel).toHaveBeenCalledWith(
-        'jina-code',
+        expect.objectContaining({ id: 'jinaai/jina-embeddings-v3' }),
         expect.any(Function)
       );
     });

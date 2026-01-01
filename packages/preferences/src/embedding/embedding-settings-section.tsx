@@ -7,7 +7,7 @@ import { CHUNKING_CONFIG } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,
   type HostedProviderType,
-  ModelRegistryManager,
+  isLocalProviderType,
   STANDARD_EMBEDDING_DIMENSION,
 } from '@brainstrike/embeddings';
 import {
@@ -22,8 +22,11 @@ import {
   Switch,
 } from '@brainstrike/ui';
 import { SearchIcon } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { type ReactElement, useMemo, useState } from 'react';
+import { useEnsureModelRegistry } from '../hooks/use-model-registry';
 import { useEmbeddingPreferencesStore } from '../stores/embedding-preferences-store';
+import type { DbModel, DbProvider } from '../stores/model-registry-store';
+import { useModelRegistryStore } from '../stores/model-registry-store';
 
 type HostedEmbeddingProviderId = HostedProviderType;
 
@@ -124,25 +127,45 @@ const HOSTED_EMBEDDING_PROVIDER_IDS: readonly HostedEmbeddingProviderId[] = [
   'voyage',
 ] as const;
 
-function normalizeLocalProvider(): NormalizedEmbeddingProvider {
-  const registry = ModelRegistryManager.getRegistry();
-  const defaultKey = ModelRegistryManager.getDefaultModelKey();
+function resolveLocalModelDimensions(model: DbModel): number {
+  const dimensions = Number(model.capabilities.defaultDimension);
+  if (!Number.isFinite(dimensions) || dimensions <= 0) {
+    throw new Error(`Local embedding model "${model.id}" has invalid dimensions.`);
+  }
+  return dimensions;
+}
 
-  const models = Object.entries(registry.models)
-    .map<NormalizedEmbeddingModel>(([key, model]) => {
+function getLocalProviderDisplayName(providers: DbProvider[]): string {
+  const localProvider = providers.find((provider) =>
+    isLocalProviderType(provider.id as EmbeddingProviderType)
+  );
+  return localProvider?.name ?? 'Local (Transformers.js)';
+}
+
+function buildLocalProvider(
+  models: DbModel[],
+  providers: DbProvider[],
+  pending: boolean
+): NormalizedEmbeddingProvider {
+  const localModels = models
+    .filter((model) => isLocalProviderType(model.providerId as EmbeddingProviderType))
+    .filter((model) => model.capabilities.type === 'embedding')
+    .map<NormalizedEmbeddingModel>((model) => {
+      const dimensions = resolveLocalModelDimensions(model);
       const baseModel: NormalizedEmbeddingModel = {
-        id: key,
-        label: model.name ?? key,
-        dimensions: model.dimensions,
-        supportsStandardDimension: model.dimensions === STANDARD_EMBEDDING_DIMENSION,
+        id: model.id,
+        label: model.name ?? model.id,
+        dimensions,
+        supportsStandardDimension: dimensions === STANDARD_EMBEDDING_DIMENSION,
         supportsCustomDimensions: false,
-        isDefault: key === defaultKey,
+        isDefault: false,
       };
 
-      if (model.description) {
+      const description = model.description ?? model.tagline;
+      if (description) {
         return {
           ...baseModel,
-          description: model.description,
+          description,
         };
       }
 
@@ -152,9 +175,10 @@ function normalizeLocalProvider(): NormalizedEmbeddingProvider {
 
   return {
     id: 'local',
-    displayName: 'Local (Transformers.js)',
+    displayName: getLocalProviderDisplayName(providers),
     runtime: 'browser',
-    models,
+    models: localModels,
+    ...(pending ? { pending: true } : {}),
   };
 }
 
@@ -210,13 +234,17 @@ function placeholderHostedProvider(id: HostedEmbeddingProviderId): NormalizedEmb
   };
 }
 
-function buildEmbeddingProviders(): readonly NormalizedEmbeddingProvider[] {
+function buildEmbeddingProviders(
+  models: DbModel[],
+  registryProviders: DbProvider[],
+  localPending: boolean
+): readonly NormalizedEmbeddingProvider[] {
   const providerDefinitions = listProviders();
   const providersById = new Map<string, ProviderDefinition>(
     providerDefinitions.map((definition: ProviderDefinition) => [definition.id, definition])
   );
 
-  const localProvider = normalizeLocalProvider();
+  const localProvider = buildLocalProvider(models, registryProviders, localPending);
 
   const hostedProviders = HOSTED_EMBEDDING_PROVIDER_IDS.map((providerId) => {
     if (!providersById.has(providerId)) {
@@ -243,10 +271,140 @@ function buildEmbeddingProviders(): readonly NormalizedEmbeddingProvider[] {
   return [localProvider, ...hostedProviders];
 }
 
+type EnabledModelsByProvider = Partial<Record<EmbeddingProviderType, string[]>>;
+
+function getEnabledSet(
+  enabledModelsByProvider: EnabledModelsByProvider,
+  providerId: EmbeddingProviderType
+): Set<string> {
+  return new Set(enabledModelsByProvider[providerId] ?? []);
+}
+
+function filterVisibleModels(
+  models: readonly NormalizedEmbeddingModel[],
+  normalizedSearch: string
+): readonly NormalizedEmbeddingModel[] {
+  if (!normalizedSearch) {
+    return models;
+  }
+  return models.filter((model) => {
+    const haystack = `${model.label} ${model.id}`.toLowerCase();
+    return haystack.includes(normalizedSearch);
+  });
+}
+
+type ProviderSectionContext = {
+  provider: NormalizedEmbeddingProvider;
+  enabledModelsByProvider: EnabledModelsByProvider;
+  normalizedSearch: string;
+  setModelEnabled: (provider: EmbeddingProviderType, model: string, enabled: boolean) => void;
+  setProviderModelsEnabled: (
+    provider: EmbeddingProviderType,
+    models: readonly string[],
+    enabled: boolean
+  ) => void;
+};
+
+function renderProviderSection({
+  provider,
+  enabledModelsByProvider,
+  normalizedSearch,
+  setModelEnabled,
+  setProviderModelsEnabled,
+}: ProviderSectionContext): ReactElement | null {
+  if (provider.id === 'local') {
+    if (provider.pending) {
+      return <LocalPendingSection key={provider.id} provider={provider} />;
+    }
+    if (provider.models.length === 0) {
+      return <LocalEmptySection key={provider.id} provider={provider} />;
+    }
+  }
+
+  if (provider.pending) {
+    return <PendingProviderSection key={provider.id} provider={provider} />;
+  }
+
+  if (provider.models.length === 0) {
+    return <EmptyProviderSection key={provider.id} provider={provider} />;
+  }
+
+  const enabledSet = getEnabledSet(enabledModelsByProvider, provider.id);
+  const visibleModels = filterVisibleModels(provider.models, normalizedSearch);
+
+  if (visibleModels.length === 0) {
+    return null;
+  }
+
+  const modelIds = provider.models.map((model) => model.id);
+  const totalModels = provider.models.length;
+  const enabledCount = provider.models.reduce(
+    (count, model) => count + (enabledSet.has(model.id) ? 1 : 0),
+    0
+  );
+
+  return (
+    <section
+      className="rounded-lg border border-border/60 bg-muted/10"
+      data-testid={`embedding-provider-${provider.id}`}
+      key={provider.id}
+    >
+      <header className="flex flex-wrap items-center justify-between gap-2 border-border/60 border-b px-3 py-2">
+        <div>
+          <p className="font-medium text-sm leading-tight">{provider.displayName}</p>
+          <p className="text-muted-foreground text-xs">
+            {enabledCount} of {totalModels} models enabled
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={provider.runtime === 'browser' ? 'secondary' : 'outline'}>
+            {provider.runtime === 'browser' ? 'Browser' : 'Hosted'}
+          </Badge>
+          <Button
+            data-testid={`embedding-enable-all-${provider.id}`}
+            disabled={enabledCount === totalModels}
+            onClick={() => setProviderModelsEnabled(provider.id, modelIds, true)}
+            size="sm"
+            variant="outline"
+          >
+            Enable all
+          </Button>
+          <Button
+            data-testid={`embedding-disable-all-${provider.id}`}
+            disabled={enabledCount === 0}
+            onClick={() => setProviderModelsEnabled(provider.id, modelIds, false)}
+            size="sm"
+            variant="ghost"
+          >
+            Disable all
+          </Button>
+        </div>
+      </header>
+      <div className="space-y-2 px-3 py-3">
+        {visibleModels.map((model) => (
+          <EmbeddingModelRow
+            enabled={enabledSet.has(model.id)}
+            key={model.id}
+            model={model}
+            onToggle={(next) => setModelEnabled(provider.id, model.id, next)}
+            providerId={provider.id}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // parseCompositeKey removed - selection is now per-collection/embedding-set, not a global preference.
 
 export function EmbeddingSettings() {
-  const providers = useMemo(buildEmbeddingProviders, []);
+  const { models, providers: registryProviders, isLoading, hasLoaded } = useModelRegistryStore();
+  const registryError = useEnsureModelRegistry();
+  const localPending = isLoading && !hasLoaded && models.length === 0;
+  const providers = useMemo(
+    () => buildEmbeddingProviders(models, registryProviders, localPending),
+    [localPending, models, registryProviders]
+  );
 
   const enabledModelsByProvider = useEmbeddingPreferencesStore(
     (state) => state.enabledModelsByProvider
@@ -334,87 +492,21 @@ export function EmbeddingSettings() {
           </div>
 
           <div className="space-y-3">
-            {providers.map((provider) => {
-              if (provider.pending) {
-                return <PendingProviderSection key={provider.id} provider={provider} />;
-              }
-
-              if (provider.models.length === 0) {
-                return <EmptyProviderSection key={provider.id} provider={provider} />;
-              }
-
-              const enabledSet = new Set(enabledModelsByProvider[provider.id] ?? []);
-
-              const visibleModels = normalizedSearch
-                ? provider.models.filter((model) => {
-                    const haystack = `${model.label} ${model.id}`.toLowerCase();
-                    return haystack.includes(normalizedSearch);
-                  })
-                : provider.models;
-
-              if (visibleModels.length === 0) {
-                return null;
-              }
-
-              const modelIds = provider.models.map((model) => model.id);
-
-              const totalModels = provider.models.length;
-              const enabledCount = provider.models.reduce(
-                (count, model) => count + (enabledSet.has(model.id) ? 1 : 0),
-                0
-              );
-
-              return (
-                <section
-                  className="rounded-lg border border-border/60 bg-muted/10"
-                  data-testid={`embedding-provider-${provider.id}`}
-                  key={provider.id}
-                >
-                  <header className="flex flex-wrap items-center justify-between gap-2 border-border/60 border-b px-3 py-2">
-                    <div>
-                      <p className="font-medium text-sm leading-tight">{provider.displayName}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {enabledCount} of {totalModels} models enabled
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={provider.runtime === 'browser' ? 'secondary' : 'outline'}>
-                        {provider.runtime === 'browser' ? 'Browser' : 'Hosted'}
-                      </Badge>
-                      <Button
-                        data-testid={`embedding-enable-all-${provider.id}`}
-                        disabled={enabledCount === totalModels}
-                        onClick={() => setProviderModelsEnabled(provider.id, modelIds, true)}
-                        size="sm"
-                        variant="outline"
-                      >
-                        Enable all
-                      </Button>
-                      <Button
-                        data-testid={`embedding-disable-all-${provider.id}`}
-                        disabled={enabledCount === 0}
-                        onClick={() => setProviderModelsEnabled(provider.id, modelIds, false)}
-                        size="sm"
-                        variant="ghost"
-                      >
-                        Disable all
-                      </Button>
-                    </div>
-                  </header>
-                  <div className="space-y-2 px-3 py-3">
-                    {visibleModels.map((model) => (
-                      <EmbeddingModelRow
-                        enabled={enabledSet.has(model.id)}
-                        key={model.id}
-                        model={model}
-                        onToggle={(next) => setModelEnabled(provider.id, model.id, next)}
-                        providerId={provider.id}
-                      />
-                    ))}
-                  </div>
-                </section>
-              );
-            })}
+            {registryError ? (
+              <div className="rounded-md bg-destructive/10 px-3 py-2 text-destructive">
+                <p className="font-medium text-sm">Failed to load model registry</p>
+                <p className="text-xs">{registryError}</p>
+              </div>
+            ) : null}
+            {providers.map((provider) =>
+              renderProviderSection({
+                provider,
+                enabledModelsByProvider,
+                normalizedSearch,
+                setModelEnabled,
+                setProviderModelsEnabled,
+              })
+            )}
             {providers.every((provider) => provider.pending || provider.models.length === 0) ? (
               <p className="text-muted-foreground text-xs">
                 Hosted provider integrations are on the roadmap. Local embeddings remain available.
@@ -528,6 +620,25 @@ type PendingProviderSectionProps = {
   provider: NormalizedEmbeddingProvider;
 };
 
+function LocalPendingSection({ provider }: PendingProviderSectionProps) {
+  return (
+    <section
+      className="rounded-lg border border-border/60 border-dashed bg-muted/20 px-3 py-3"
+      data-testid={`embedding-provider-${provider.id}-pending`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <p className="font-medium text-sm leading-tight">{provider.displayName}</p>
+          <p className="text-muted-foreground text-xs">
+            Loading local embedding models from the registry.
+          </p>
+        </div>
+        <Badge variant="outline">Browser</Badge>
+      </div>
+    </section>
+  );
+}
+
 function PendingProviderSection({ provider }: PendingProviderSectionProps) {
   const metadata = HOSTED_PROVIDER_METADATA[provider.id as HostedEmbeddingProviderId];
   return (
@@ -554,6 +665,26 @@ function PendingProviderSection({ provider }: PendingProviderSectionProps) {
 type EmptyProviderSectionProps = {
   provider: NormalizedEmbeddingProvider;
 };
+
+function LocalEmptySection({ provider }: EmptyProviderSectionProps) {
+  return (
+    <section
+      className="rounded-lg border border-border/60 bg-muted/10 px-3 py-3"
+      data-testid={`embedding-provider-${provider.id}-empty`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <p className="font-medium text-sm leading-tight">{provider.displayName}</p>
+          <p className="text-muted-foreground text-xs">
+            No local embedding models are available in the registry. Check Settings &gt; Models to
+            refresh or enable local entries.
+          </p>
+        </div>
+        <Badge variant="outline">Browser</Badge>
+      </div>
+    </section>
+  );
+}
 
 function EmptyProviderSection({ provider }: EmptyProviderSectionProps) {
   const metadata = HOSTED_PROVIDER_METADATA[provider.id as HostedEmbeddingProviderId];

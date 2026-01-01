@@ -1,4 +1,3 @@
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   BaseImportRunner,
@@ -106,17 +105,6 @@ describe('runEnhancedImport', () => {
     ]);
     const embeddingsImpl = vi.fn().mockResolvedValue(undefined);
 
-    vi.spyOn(SimpleEmbeddingService, 'getModelConfig').mockReturnValue({
-      id: 'db-model',
-      name: 'DB Model',
-      dimensions: 768,
-      quantized: false,
-      description: 'Test model',
-      tags: [],
-      origin: 'test',
-      size: 'test',
-    });
-
     const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
       if (sql.startsWith('SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1')) {
         return Promise.resolve({ rows: [{ modelKey: 'legacy-model' }] });
@@ -200,6 +188,39 @@ describe('runEnhancedImport', () => {
     const queuePort: EmbeddingJobQueuePort = {
       enqueueBatch: vi.fn().mockResolvedValue(undefined),
     };
+    const sqlPort: SqlExecutorPort = {
+      query: vi.fn().mockImplementation((sql: string) => {
+        if (sql.includes('FROM models')) {
+          return Promise.resolve({
+            rows: [
+              {
+                id: 'mock-model',
+                providerId: 'transformers',
+                capabilities: JSON.stringify({ type: 'embedding', defaultDimension: 768 }),
+              },
+            ],
+          });
+        }
+        if (sql.startsWith('SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1')) {
+          return Promise.resolve({ rows: [{ modelKey: 'local::mock-model' }] });
+        }
+        if (
+          sql.startsWith(
+            'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1'
+          )
+        ) {
+          return Promise.resolve({ rows: [] });
+        }
+        if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+          return Promise.resolve({ rows: [] });
+        }
+        if (sql.startsWith('INSERT INTO embedding_sets')) {
+          return Promise.resolve({ rows: [{ id: 'set-1' }] });
+        }
+        return Promise.resolve({ rows: [] });
+      }),
+      runInTransaction: vi.fn(),
+    };
 
     const results = await runEnhancedImport({
       request: {
@@ -214,7 +235,7 @@ describe('runEnhancedImport', () => {
         enabled: true,
         deps: { repository: {} as never, chunkRepository: {} as never },
       },
-      ports: { embeddingQueue: queuePort },
+      ports: { embeddingQueue: queuePort, sql: sqlPort },
       embedding: {
         enabled: true,
         model: 'mock-model',
@@ -292,14 +313,24 @@ describe('runEnhancedImport', () => {
 
     // Mock SQL responses for embedding set queries
     const sqlMockResponses: Record<string, () => Promise<{ rows: unknown[] }>> = {
+      'FROM models': () =>
+        Promise.resolve({
+          rows: [
+            {
+              id: 'db-model',
+              providerId: 'transformers',
+              capabilities: JSON.stringify({ type: 'embedding', defaultDimension: 768 }),
+            },
+          ],
+        }),
       'SELECT model_key': () => Promise.resolve({ rows: [{ modelKey: 'local::db-model' }] }),
       'SELECT id, model_key': () =>
         Promise.resolve({
-          rows: [{ id: 'set-1', modelKey: 'local::db-model', dimensions: 768, distance: 'cosine' }],
+          rows: [{ id: 'set-2', modelKey: 'local::db-model', dimensions: 768, distance: 'cosine' }],
         }),
       'FROM embedding_sets s': () =>
-        Promise.resolve({ rows: [{ id: 'set-1', modelKey: 'local::db-model' }] }),
-      'INSERT INTO embedding_sets': () => Promise.resolve({ rows: [{ id: 'set-1' }] }),
+        Promise.resolve({ rows: [{ id: 'set-2', modelKey: 'local::db-model' }] }),
+      'INSERT INTO embedding_sets': () => Promise.resolve({ rows: [{ id: 'set-2' }] }),
       'UPDATE embedding_sets': () => Promise.resolve({ rows: [] }),
     };
 
@@ -335,7 +366,7 @@ describe('runEnhancedImport', () => {
         enabled: true,
         service: {} as never,
         chunkRepository: {} as never,
-        resolveTargetEmbeddingSetId: () => 'set-1',
+        resolveTargetEmbeddingSetId: () => 'set-2',
         onResolvedTargetSetId: resolvedSetIdSpy,
       },
       ports: { sql: sqlPort },
@@ -353,27 +384,15 @@ describe('runEnhancedImport', () => {
     const lookupCall = calls.find(
       ([statement]) =>
         typeof statement === 'string' &&
-        statement.includes('model_key IN') &&
-        statement.includes('embedding_sets')
+        statement.includes('SELECT model_key AS "modelKey" FROM embedding_sets')
     );
     expect(lookupCall).toBeDefined();
     // Verify embeddings implementation was called with expected parameters
     expect(embeddingsImpl).toHaveBeenCalled();
-    expect(resolvedSetIdSpy).toHaveBeenCalledWith('set-1');
+    expect(resolvedSetIdSpy).toHaveBeenCalledWith('set-2');
   });
 
   it('does NOT create embedding set when embeddings are disabled', async () => {
-    vi.spyOn(SimpleEmbeddingService, 'getModelConfig').mockReturnValue({
-      id: 'db-model',
-      name: 'DB Model',
-      dimensions: 768,
-      quantized: false,
-      description: 'Test model',
-      tags: [],
-      origin: 'test',
-      size: 'test',
-    });
-
     const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
       if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
         return Promise.resolve({ rows: [] });

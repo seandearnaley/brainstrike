@@ -1,18 +1,10 @@
-import { usePGliteDatabase } from '@brainstrike/db';
-import { useModelRegistryStore } from '@brainstrike/preferences';
+import { useEnsureModelRegistry, useModelRegistryStore } from '@brainstrike/preferences';
 import { PromptManager } from '@brainstrike/ui';
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 
 export function ConnectedPromptManager() {
-  const db = usePGliteDatabase();
-  const { models, providers, fetchRegistry } = useModelRegistryStore();
-
-  // biome-ignore lint/plugin: Legitimate data loading pattern - fetch registry when db becomes available
-  useEffect(() => {
-    if (db) {
-      void fetchRegistry(db);
-    }
-  }, [db, fetchRegistry]);
+  useEnsureModelRegistry();
+  const { models, providers } = useModelRegistryStore();
 
   const availableModels = useMemo(
     () =>

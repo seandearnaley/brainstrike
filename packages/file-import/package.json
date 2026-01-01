@@ -37,11 +37,6 @@
   "peerDependencies": {
     "react": "^19.0.0"
   },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",
     "@types/node": "^24.10.1",
