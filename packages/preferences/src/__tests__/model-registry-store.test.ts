@@ -156,21 +156,21 @@ describe('model-registry-store', () => {
 
     it('fetches providers and models from database', async () => {
       const mockProviderRows = [
-        { id: 'openai', name: 'OpenAI', icon: null, is_enabled: 1, sort_order: 0 },
+        { id: 'openai', name: 'OpenAI', icon: null, isEnabled: 1, sortOrder: 0 },
       ];
       const mockModelRows = [
         {
           id: 'gpt-4',
-          provider_id: 'openai',
+          providerId: 'openai',
           name: 'GPT-4',
           description: 'Advanced LLM',
           tagline: 'Most capable',
-          best_for: JSON.stringify(['chat', 'code']),
+          bestFor: JSON.stringify(['chat', 'code']),
           icon: null,
-          is_enabled: 1,
+          isEnabled: 1,
           capabilities: JSON.stringify({ type: 'llm', streaming: true }),
           parameters: null,
-          sort_order: 0,
+          sortOrder: 0,
         },
       ];
 
@@ -192,21 +192,21 @@ describe('model-registry-store', () => {
 
     it('parses JSON fields correctly', async () => {
       const mockProviderRows = [
-        { id: 'test', name: 'Test', icon: null, is_enabled: true, sort_order: 0 },
+        { id: 'test', name: 'Test', icon: null, isEnabled: true, sortOrder: 0 },
       ];
       const mockModelRows = [
         {
           id: 'model-1',
-          provider_id: 'test',
+          providerId: 'test',
           name: 'Test Model',
           description: 'Test',
           tagline: null,
-          best_for: ['tag1', 'tag2'], // Already parsed object
+          bestFor: ['tag1', 'tag2'], // Already parsed object
           icon: null,
-          is_enabled: true,
+          isEnabled: true,
           capabilities: { type: 'embedding', defaultDimension: 384 }, // Already parsed
           parameters: { size: '100MB' }, // Already parsed
-          sort_order: 0,
+          sortOrder: 0,
         },
       ];
 
@@ -242,21 +242,21 @@ describe('model-registry-store', () => {
       });
 
       const mockProviderRows = [
-        { id: 'local', name: 'Local', icon: null, is_enabled: true, sort_order: 0 },
+        { id: 'local', name: 'Local', icon: null, isEnabled: true, sortOrder: 0 },
       ];
       const mockModelRows = [
         {
           id: 'local-model',
-          provider_id: 'local',
+          providerId: 'local',
           name: 'Local Model',
           description: 'Local model',
           tagline: null,
-          best_for: null,
+          bestFor: null,
           icon: null,
-          is_enabled: true,
+          isEnabled: true,
           capabilities: JSON.stringify({ type: 'embedding' }),
           parameters: null,
-          sort_order: 0,
+          sortOrder: 0,
         },
       ];
 
@@ -287,21 +287,21 @@ describe('model-registry-store', () => {
         });
 
         const mockProviderRows = [
-          { id: 'local', name: 'Local', icon: null, is_enabled: true, sort_order: 0 },
+          { id: 'local', name: 'Local', icon: null, isEnabled: true, sortOrder: 0 },
         ];
         const mockModelRows = [
           {
             id: 'local-model',
-            provider_id: 'local',
+            providerId: 'local',
             name: 'Local Model',
             description: 'Local model',
             tagline: null,
-            best_for: null,
+            bestFor: null,
             icon: null,
-            is_enabled: true,
+            isEnabled: true,
             capabilities: JSON.stringify({ type: 'embedding' }),
             parameters: null,
-            sort_order: 0,
+            sortOrder: 0,
           },
         ];
 

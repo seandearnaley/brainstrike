@@ -84,7 +84,8 @@ describe('database IPC handlers', () => {
 
     expect(getDatabaseMock).toHaveBeenCalled();
     expect(mockDb.query).toHaveBeenCalledWith('SELECT 1', [1]);
-    expect(result).toBe(rows);
+    // Note: IPC handler transforms row keys to camelCase, so we compare values not reference
+    expect(result).toStrictEqual(rows);
   });
 
   it('db:query throws on error', async () => {

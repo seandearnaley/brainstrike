@@ -6,24 +6,17 @@ import type { FileCollectionStatus } from '../types/file-collection-status';
 const logger = createLogger('useFileCollectionStatus');
 
 /**
- * Database row returned by file status query
- * Uses snake_case to match database column naming
+ * Database row returned by file status query.
+ * IPC transforms snake_case to camelCase automatically.
  */
 type FileStatusRow = {
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  file_id: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  file_name: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  file_path: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  searchable_chunks: string | number;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  total_chunks: string | number;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  other_collections: string | number;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  last_indexed: string | null;
+  fileId: string;
+  fileName: string;
+  filePath: string;
+  searchableChunks: string | number;
+  totalChunks: string | number;
+  otherCollections: string | number;
+  lastIndexed: string | null;
 };
 
 /**
@@ -36,13 +29,13 @@ function isValidFileStatusRow(row: unknown): row is FileStatusRow {
 
   const r = row as Record<string, unknown>;
   return (
-    typeof r['file_id'] === 'string' &&
-    typeof r['file_name'] === 'string' &&
-    typeof r['file_path'] === 'string' &&
-    (typeof r['searchable_chunks'] === 'string' || typeof r['searchable_chunks'] === 'number') &&
-    (typeof r['total_chunks'] === 'string' || typeof r['total_chunks'] === 'number') &&
-    (typeof r['other_collections'] === 'string' || typeof r['other_collections'] === 'number') &&
-    (r['last_indexed'] === null || typeof r['last_indexed'] === 'string')
+    typeof r['fileId'] === 'string' &&
+    typeof r['fileName'] === 'string' &&
+    typeof r['filePath'] === 'string' &&
+    (typeof r['searchableChunks'] === 'string' || typeof r['searchableChunks'] === 'number') &&
+    (typeof r['totalChunks'] === 'string' || typeof r['totalChunks'] === 'number') &&
+    (typeof r['otherCollections'] === 'string' || typeof r['otherCollections'] === 'number') &&
+    (r['lastIndexed'] === null || typeof r['lastIndexed'] === 'string')
   );
 }
 
@@ -50,22 +43,22 @@ function isValidFileStatusRow(row: unknown): row is FileStatusRow {
  * Maps database row to FileCollectionStatus
  */
 function mapRowToStatus(row: FileStatusRow): FileCollectionStatus {
-  const searchableChunksCount = Number(row.searchable_chunks ?? 0) || 0;
-  const totalChunksCount = Number(row.total_chunks ?? 0) || 0;
-  const otherCollectionsCount = Number(row.other_collections ?? 0) || 0;
+  const searchableChunksCount = Number(row.searchableChunks ?? 0) || 0;
+  const totalChunksCount = Number(row.totalChunks ?? 0) || 0;
+  const otherCollectionsCount = Number(row.otherCollections ?? 0) || 0;
 
   const status: FileCollectionStatus = {
-    fileId: row.file_id,
-    fileName: row.file_name,
-    filePath: row.file_path,
+    fileId: row.fileId,
+    fileName: row.fileName,
+    filePath: row.filePath,
     searchableInActive: searchableChunksCount > 0,
     searchableChunksCount,
     totalChunksCount,
     otherCollectionsCount,
   };
 
-  if (row.last_indexed) {
-    status.lastIndexedAt = row.last_indexed;
+  if (row.lastIndexed) {
+    status.lastIndexedAt = row.lastIndexed;
   }
 
   return status;
@@ -119,7 +112,7 @@ export function useFileCollectionStatus(activeCollectionId: string | null) {
     query: FILE_STATUS_QUERY,
     ...(params ? { params } : {}),
     mode: 'incremental',
-    key: 'file_id',
+    key: 'fileId',
     enabled: Boolean(activeCollectionId),
   });
 
@@ -134,7 +127,7 @@ export function useFileCollectionStatus(activeCollectionId: string | null) {
         logger.warn('Invalid row data returned from file status query', { row });
         continue;
       }
-      map.set(row.file_id, mapRowToStatus(row));
+      map.set(row.fileId, mapRowToStatus(row));
     }
     return map;
   }, [rows, activeCollectionId]);

@@ -3,13 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileCollectionStatus } from '../use-file-collection-status';
 
 type MockRow = {
-  file_id: string;
-  file_name: string;
-  file_path: string;
-  searchable_chunks: string;
-  total_chunks: string;
-  other_collections: string;
-  last_indexed: string | null;
+  fileId: string;
+  fileName: string;
+  filePath: string;
+  searchableChunks: string;
+  totalChunks: string;
+  otherCollections: string;
+  lastIndexed: string | null;
 };
 
 const mockLiveQueryState = {
@@ -56,13 +56,13 @@ describe('useFileCollectionStatus', () => {
     it('maps live query rows for a single file', async () => {
       mockLiveQueryState.rows = [
         {
-          file_id: 'file-1',
-          file_name: 'test.ts',
-          file_path: '/test/test.ts',
-          searchable_chunks: '5',
-          total_chunks: '5',
-          other_collections: '2',
-          last_indexed: '2025-11-02T10:00:00Z',
+          fileId: 'file-1',
+          fileName: 'test.ts',
+          filePath: '/test/test.ts',
+          searchableChunks: '5',
+          totalChunks: '5',
+          otherCollections: '2',
+          lastIndexed: '2025-11-02T10:00:00Z',
         },
       ];
 
@@ -86,22 +86,22 @@ describe('useFileCollectionStatus', () => {
     it('returns statuses only for requested ids', async () => {
       mockLiveQueryState.rows = [
         {
-          file_id: 'file-1',
-          file_name: 'test1.ts',
-          file_path: '/test/test1.ts',
-          searchable_chunks: '3',
-          total_chunks: '3',
-          other_collections: '0',
-          last_indexed: '2025-11-02T10:00:00Z',
+          fileId: 'file-1',
+          fileName: 'test1.ts',
+          filePath: '/test/test1.ts',
+          searchableChunks: '3',
+          totalChunks: '3',
+          otherCollections: '0',
+          lastIndexed: '2025-11-02T10:00:00Z',
         },
         {
-          file_id: 'file-2',
-          file_name: 'test2.ts',
-          file_path: '/test/test2.ts',
-          searchable_chunks: '0',
-          total_chunks: '5',
-          other_collections: '1',
-          last_indexed: null,
+          fileId: 'file-2',
+          fileName: 'test2.ts',
+          filePath: '/test/test2.ts',
+          searchableChunks: '0',
+          totalChunks: '5',
+          otherCollections: '1',
+          lastIndexed: null,
         },
       ];
 
@@ -116,22 +116,22 @@ describe('useFileCollectionStatus', () => {
     it('maps searchableInActive flag based on chunk count', async () => {
       mockLiveQueryState.rows = [
         {
-          file_id: 'file-searchable',
-          file_name: 'searchable.ts',
-          file_path: '/test/searchable.ts',
-          searchable_chunks: '5',
-          total_chunks: '5',
-          other_collections: '0',
-          last_indexed: '2025-11-02T10:00:00Z',
+          fileId: 'file-searchable',
+          fileName: 'searchable.ts',
+          filePath: '/test/searchable.ts',
+          searchableChunks: '5',
+          totalChunks: '5',
+          otherCollections: '0',
+          lastIndexed: '2025-11-02T10:00:00Z',
         },
         {
-          file_id: 'file-not-searchable',
-          file_name: 'not-searchable.ts',
-          file_path: '/test/not-searchable.ts',
-          searchable_chunks: '0',
-          total_chunks: '5',
-          other_collections: '0',
-          last_indexed: null,
+          fileId: 'file-not-searchable',
+          fileName: 'not-searchable.ts',
+          filePath: '/test/not-searchable.ts',
+          searchableChunks: '0',
+          totalChunks: '5',
+          otherCollections: '0',
+          lastIndexed: null,
         },
       ];
 
@@ -146,16 +146,16 @@ describe('useFileCollectionStatus', () => {
       expect(statuses[1]?.searchableInActive).toBe(false);
     });
 
-    it('handles null last_indexed gracefully', async () => {
+    it('handles null lastIndexed gracefully', async () => {
       mockLiveQueryState.rows = [
         {
-          file_id: 'file-1',
-          file_name: 'test.ts',
-          file_path: '/test/test.ts',
-          searchable_chunks: '0',
-          total_chunks: '5',
-          other_collections: '0',
-          last_indexed: null,
+          fileId: 'file-1',
+          fileName: 'test.ts',
+          filePath: '/test/test.ts',
+          searchableChunks: '0',
+          totalChunks: '5',
+          otherCollections: '0',
+          lastIndexed: null,
         },
       ];
 
@@ -169,13 +169,13 @@ describe('useFileCollectionStatus', () => {
     it('returns empty array when ids are not in the live map', async () => {
       mockLiveQueryState.rows = [
         {
-          file_id: 'file-known',
-          file_name: 'known.ts',
-          file_path: '/test/known.ts',
-          searchable_chunks: '1',
-          total_chunks: '1',
-          other_collections: '0',
-          last_indexed: null,
+          fileId: 'file-known',
+          fileName: 'known.ts',
+          filePath: '/test/known.ts',
+          searchableChunks: '1',
+          totalChunks: '1',
+          otherCollections: '0',
+          lastIndexed: null,
         },
       ];
 

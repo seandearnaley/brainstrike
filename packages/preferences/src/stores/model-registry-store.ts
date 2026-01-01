@@ -51,33 +51,27 @@ type ModelRegistryState = {
   downloadedModels: Record<string, boolean>;
 };
 
-// Raw DB types
+// Raw DB types - IPC transforms snake_case to camelCase automatically
 type RawProvider = {
   id: string;
   name: string;
   icon: string | null;
-  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-  is_enabled: number | boolean;
-  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-  sort_order: number;
+  isEnabled: number | boolean;
+  sortOrder: number;
 };
 
 type RawModel = {
   id: string;
-  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-  provider_id: string;
+  providerId: string;
   name: string;
   description: string | null;
   tagline: string | null;
-  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-  best_for: string | object | null;
+  bestFor: string | object | null;
   icon: string | null;
-  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-  is_enabled: number | boolean;
+  isEnabled: number | boolean;
   capabilities: string | object;
   parameters: string | object | null;
-  // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
-  sort_order: number;
+  sortOrder: number;
 };
 
 type FileSystemAccess = {
@@ -87,20 +81,20 @@ type FileSystemAccess = {
 function parseDbModel(row: RawModel): DbModel {
   return {
     id: row.id,
-    providerId: row.provider_id,
+    providerId: row.providerId,
     name: row.name,
     description: row.description,
     tagline: row.tagline,
-    bestFor: typeof row.best_for === 'string' ? JSON.parse(row.best_for) : row.best_for,
+    bestFor: typeof row.bestFor === 'string' ? JSON.parse(row.bestFor) : row.bestFor,
     icon: row.icon,
-    isEnabled: Boolean(row.is_enabled),
+    isEnabled: Boolean(row.isEnabled),
     capabilities:
       typeof row.capabilities === 'string' ? JSON.parse(row.capabilities) : row.capabilities,
     parameters:
       typeof row.parameters === 'string' && row.parameters
         ? JSON.parse(row.parameters)
         : row.parameters,
-    sortOrder: row.sort_order,
+    sortOrder: row.sortOrder,
   } as DbModel;
 }
 
@@ -194,8 +188,8 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
             id: row.id,
             name: row.name,
             icon: row.icon,
-            isEnabled: Boolean(row.is_enabled),
-            sortOrder: row.sort_order,
+            isEnabled: Boolean(row.isEnabled),
+            sortOrder: row.sortOrder,
           }));
 
           // Check for existing downloads if in Electron environment
