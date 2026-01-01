@@ -50,6 +50,19 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
       - name: Cache Turborepo
         uses: actions/cache@v4
         with:
@@ -246,6 +259,19 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
       - name: Cache Turborepo
         uses: actions/cache@v4
         with:
@@ -326,6 +352,19 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
       - name: Cache Turborepo
         uses: actions/cache@v4
         with:
@@ -357,32 +396,8 @@ jobs:
         run: pnpm exec playwright install-deps chromium
 
       - name: Build application
-        run: |
-          # Build with Tailwind debug output
-          TAILWIND_DEBUG=1 pnpm run build --filter @brainstrike/web
-          
-          # Check CSS bundle size (must be >= 50kB)
-          CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
-          echo "CSS bundle size: ${CSS_SIZE} bytes"
-          
-          if [ "$CSS_SIZE" -lt 50000 ]; then
-            echo "❌ CSS bundle too small: ${CSS_SIZE} bytes (expected >= 50,000 bytes)"
-            echo "This indicates Tailwind may not be scanning all package sources correctly"
-            exit 1
-          else
-            echo "✅ CSS bundle size OK: ${CSS_SIZE} bytes"
-          fi
-          
-          # Check for duplicate Tailwind layers
-          PAT='*,:after,:before,::backdrop{box-sizing:border-box'
-          DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
-          if [ "$DUPLICATE_COUNT" -ne 1 ]; then
-            echo "❌ Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies)"
-            echo "This indicates duplicate @import \"tailwindcss\" statements in package styles.css files"
-            exit 1
-          else
-            echo "✅ No duplicate CSS layers detected"
-          fi
+        # CSS validation already done in checks job - just build here
+        run: pnpm run build --filter @brainstrike/web
 
       - name: Run E2E tests (functional only, shard)
         run: |
@@ -415,11 +430,11 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-  # Desktop E2E tests - runs AFTER web E2E to reduce concurrent runner load
-  # This helps avoid resource contention that may cause Electron startup failures
+  # Desktop E2E tests - runs in parallel with web E2E after checks pass
+  # Each GitHub Actions runner is fully isolated, so no resource contention occurs
   desktop-e2e:
     name: Desktop E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
-    needs: [checks, e2e] # Run after web E2E completes to reduce concurrent load
+    needs: [checks] # Only wait for build/lint/tests - runners are isolated
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -429,8 +444,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Back to 4 shards - sequential ordering after e2e provides reliability
-        # while 4 shards keeps desktop E2E fast
+        # 4 shards for parallel execution - each shard gets unique DISPLAY number
         shardIndex: [1, 2, 3, 4]
         shardTotal: [4]
     steps:
@@ -444,6 +458,19 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -553,6 +580,27 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-v3-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -713,6 +761,27 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-v3-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
