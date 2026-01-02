@@ -1,4 +1,11 @@
-import { TableBody, TableCell, TableHead, TableHeader, TableRow } from '@brainstrike/ui';
+import {
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  useResizeObserver,
+} from '@brainstrike/ui';
 import { flexRender, type Table as ReactTableInstance, type Row } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown } from 'lucide-react';
@@ -27,18 +34,10 @@ export function LogList({
   const [, setParentHeight] = useState(0);
 
   // ResizeObserver to handle dynamic container sizing and fix "dead space" bug
-  useEffect(() => {
-    if (!parentRef.current) {
-      return;
-    }
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setParentHeight(entry.contentRect.height);
-      }
-    });
-    observer.observe(parentRef.current);
-    return () => observer.disconnect();
-  }, []);
+  // Uses RAF debouncing to prevent "ResizeObserver loop completed with undelivered notifications" errors
+  useResizeObserver(parentRef, (entry) => {
+    setParentHeight(entry.contentRect.height);
+  });
 
   const rowVirtualizer = useVirtualizer({
     count: rows.length,

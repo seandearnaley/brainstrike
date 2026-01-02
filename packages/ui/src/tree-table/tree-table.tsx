@@ -12,6 +12,7 @@
 
 import { useVirtualizer } from '@tanstack/react-virtual';
 import * as React from 'react';
+import { useResizeObserver } from '../hooks/use-resize-observer';
 import { cn } from '../lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../table';
 import { DEFAULT_ROW_HEIGHTS, TreeTableRow } from './tree-table-row';
@@ -139,21 +140,11 @@ export function TreeTable<T>({
     overscan,
   });
 
-  // ResizeObserver for container sizing
-  React.useEffect(() => {
-    if (!parentRef.current) {
-      return;
-    }
-
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setParentHeight(entry.contentRect.height);
-      }
-    });
-
-    observer.observe(parentRef.current);
-    return () => observer.disconnect();
-  }, []);
+  // ResizeObserver for container sizing - uses RAF debouncing to prevent
+  // "ResizeObserver loop completed with undelivered notifications" errors
+  useResizeObserver(parentRef, (entry) => {
+    setParentHeight(entry.contentRect.height);
+  });
 
   // Scroll to a specific node
   const scrollToNode = React.useCallback(
