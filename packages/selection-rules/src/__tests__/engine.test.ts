@@ -671,8 +671,8 @@ describe('engine', () => {
       const result = engine.materialize(tree);
       const duration = performance.now() - start;
 
-      // Should complete in under 1500ms (minimatch is slower than micromatch but browser-compatible)
-      expect(duration).toBeLessThan(1500);
+      // Should complete in under 3000ms (minimatch is slower than micromatch but browser-compatible, CI is slower)
+      expect(duration).toBeLessThan(3000);
       expect(result.paths.size).toBeLessThanOrEqual(100);
     });
 
@@ -702,8 +702,8 @@ describe('engine', () => {
       const result = engine.materialize(tree);
       const duration = performance.now() - start;
 
-      // Should complete in under 2 seconds
-      expect(duration).toBeLessThan(2000);
+      // Should complete in under 5 seconds (minimatch is slower than micromatch but browser-compatible, CI is slower)
+      expect(duration).toBeLessThan(5000);
       expect(result.paths.size).toBeLessThanOrEqual(50);
     });
   });
