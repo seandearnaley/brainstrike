@@ -26,8 +26,13 @@
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage"
   },
+  "dependencies": {
+    "micromatch": "^4.0.8",
+    "zod": "^3.25.76"
+  },
   "devDependencies": {
     "@swc/core": "^1.13.5",
+    "@types/micromatch": "^4.0.9",
     "@types/node": "^24.10.1",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",

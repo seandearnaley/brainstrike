@@ -1392,10 +1392,20 @@ importers:
         version: 4.0.14(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(@vitest/browser-playwright@4.0.14)(@vitest/ui@4.0.14)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.21.0)
 
   packages/selection-rules:
+    dependencies:
+      micromatch:
+        specifier: ^4.0.8
+        version: 4.0.8
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       '@swc/core':
         specifier: ^1.13.5
         version: 1.15.3(@swc/helpers@0.5.17)
+      '@types/micromatch':
+        specifier: ^4.0.9
+        version: 4.0.10
       '@types/node':
         specifier: ^24.10.1
         version: 24.10.1
@@ -5512,6 +5522,9 @@ packages:
   '@types/body-parser@1.19.6':
     resolution: {integrity: sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g==}
 
+  '@types/braces@3.0.5':
+    resolution: {integrity: sha512-SQFof9H+LXeWNz8wDe7oN5zu7ket0qwMu5vZubW4GCJ8Kkeh6nBWUz87+KTz/G3Kqsrp0j/W253XJb3KMEeg3w==}
+
   '@types/bunyan@1.8.11':
     resolution: {integrity: sha512-758fRH7umIMk5qt5ELmRMff4mLDlN+xyYzC+dkPTdKwbSkJFvz6xwyScrytPU0QIBbRRwbiE8/BIg8bpajerNQ==}
 
@@ -5673,6 +5686,9 @@ packages:
 
   '@types/memcached@2.2.10':
     resolution: {integrity: sha512-AM9smvZN55Gzs2wRrqeMHVP7KE8KWgCJO/XL5yCly2xF6EKa4YlbpK+cLSAH4NG/Ah64HrlegmGqW8kYws7Vxg==}
+
+  '@types/micromatch@4.0.10':
+    resolution: {integrity: sha512-5jOhFDElqr4DKTrTEbnW8DZ4Hz5LRUEmyrGpCMrD/NphYv3nUnaF08xmSLx1rGGnyEs/kFnhiw6dCgcDqMr5PQ==}
 
   '@types/mime@1.3.5':
     resolution: {integrity: sha512-/pyBZWSLD2n0dcHE3hq8s8ZvcETHtEuF+3E7XVt0Ig2nvsVQXdghHVcEkIWjy9A0wKfTn97a/PSDYohKIlnP/w==}
@@ -15357,6 +15373,8 @@ snapshots:
       '@types/connect': 3.4.38
       '@types/node': 24.10.1
 
+  '@types/braces@3.0.5': {}
+
   '@types/bunyan@1.8.11':
     dependencies:
       '@types/node': 24.10.1
@@ -15559,6 +15577,10 @@ snapshots:
   '@types/memcached@2.2.10':
     dependencies:
       '@types/node': 24.10.1
+
+  '@types/micromatch@4.0.10':
+    dependencies:
+      '@types/braces': 3.0.5
 
   '@types/mime@1.3.5': {}
 

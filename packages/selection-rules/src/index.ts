@@ -6,6 +6,16 @@
  * @packageDocumentation
  */
 
+// Engine (rule evaluation and materialization)
+export {
+  createSelectionRuleEngine,
+  type FileNode,
+  InMemoryTreeAdapter,
+  type MaterializeOptions,
+  type SelectionDiff,
+  SelectionRuleEngine,
+  type TreeAdapter,
+} from './engine';
 export {
   type CapRule,
   type CapStrategy,
@@ -45,3 +55,49 @@ export {
   // Rule types
   type SelectionRuleType,
 } from './schema';
+// Serialization
+export {
+  cloneMaterializedSelectionThroughSerialization,
+  cloneRuleSetThroughSerialization,
+  deserializeMaterializedSelection,
+  deserializeRuleSet,
+  type SerializedMaterializedSelection,
+  type SerializedSelectionRuleSet,
+  safeDeserializeMaterializedSelection,
+  safeDeserializeRuleSet,
+  serializeMaterializedSelection,
+  serializeRuleSet,
+  validateAndNormalizeRuleSet,
+} from './serialization';
+// Validation (Zod schemas and functions)
+export {
+  // Zod schemas
+  CapRuleSchema,
+  CapStrategySchema,
+  ExplicitRuleSchema,
+  GlobExcludeRuleSchema,
+  GlobIncludeRuleSchema,
+  // Validation functions
+  parseSelectionRule,
+  parseSelectionRuleSet,
+  RootExcludeRuleSchema,
+  RootIncludeRuleSchema,
+  SelectionRuleBaseSchema,
+  SelectionRuleSchema,
+  SelectionRuleSetMetadataSchema,
+  SelectionRuleSetSchema,
+  SelectionRulesSchemaVersionSchema,
+  SelectionRuleTypeSchema,
+  // Validated types (inferred from Zod)
+  type ValidatedCapRule,
+  type ValidatedExplicitRule,
+  type ValidatedGlobExcludeRule,
+  type ValidatedGlobIncludeRule,
+  type ValidatedRootExcludeRule,
+  type ValidatedRootIncludeRule,
+  type ValidatedSelectionRule,
+  type ValidatedSelectionRuleSet,
+  type ValidationResult,
+  validateSelectionRule,
+  validateSelectionRuleSet,
+} from './validation';
