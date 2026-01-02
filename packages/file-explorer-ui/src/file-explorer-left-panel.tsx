@@ -17,6 +17,8 @@ import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
 import { useRuleMaterialization } from './hooks/use-rule-materialization';
 import { RestorationStatus } from './restoration-status';
+import { SelectionModeBadge } from './selection-mode-badge';
+import { SelectionRulesEditor } from './selection-rules-editor';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
@@ -117,6 +119,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRulesEditorOpen, setIsRulesEditorOpen] = useState(false);
 
   const {
     fileTree,
@@ -450,16 +453,32 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
         {/* Fixed Footer */}
         <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent px-4 py-3">
-          <ActionButtons
-            currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
-            displayedFiles={displayedFileList}
-            encodeFileSelection={encodeFileSelection}
-            maxSelectionCount={maxSelectionCount}
-            onSelectionLimitExceeded={() => {}}
-            selectedFiles={safeSelectedFilesList}
-            setSelectedFiles={safeSetSelectedFilesFromList}
-          />
+          <div className="flex items-center justify-between gap-2">
+            <ActionButtons
+              currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
+              displayedFiles={displayedFileList}
+              encodeFileSelection={encodeFileSelection}
+              maxSelectionCount={maxSelectionCount}
+              onSelectionLimitExceeded={() => {}}
+              selectedFiles={safeSelectedFilesList}
+              setSelectedFiles={safeSetSelectedFilesFromList}
+            />
+            {/* Selection mode toggle - allows switching between manual and rules-based selection */}
+            {rootDirectoryHandle && (
+              <SelectionModeBadge
+                onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
+                rulesEditorAvailable={true}
+              />
+            )}
+          </div>
         </div>
+
+        {/* Selection Rules Editor Dialog */}
+        <SelectionRulesEditor
+          folderId={(rootDirectoryHandle?.name ?? currentFolderId) || ''}
+          isOpen={isRulesEditorOpen}
+          onOpenChange={setIsRulesEditorOpen}
+        />
       </div>
     </FileExplorerErrorBoundary>
   );
