@@ -6,4 +6,5 @@ export * from './use-file-explorer-toasts';
 export * from './use-file-tree-worker';
 export * from './use-keyboard-cancellation';
 export * from './use-loading-progress';
+export * from './use-rule-materialization';
 export * from './use-tab-manager';

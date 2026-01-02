@@ -17,7 +17,12 @@ vi.mock('../use-file-explorer-context', () => ({
 vi.mock('../use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(() => ({
     selectedFilePaths: new Set<string>(),
+    selectedFilesList: [],
+    setSelectedFilesFromList: vi.fn(),
     handleSelectionChange: vi.fn(),
+    wouldExceedSelectionLimit: vi.fn(() => false),
+    effectiveSelection: new Set<string>(),
+    isRulesMode: false,
   })),
 }));
 
@@ -120,6 +125,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       setSelectedFilesFromList: vi.fn(),
       handleSelectionChange: vi.fn(),
       wouldExceedSelectionLimit: vi.fn(() => false),
+      effectiveSelection: selectedFiles,
+      isRulesMode: false,
     });
 
     render(
@@ -289,6 +296,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       setSelectedFilesFromList: vi.fn(),
       handleSelectionChange: mockHandleSelectionChange,
       wouldExceedSelectionLimit: vi.fn(() => false),
+      effectiveSelection: new Set<string>(),
+      isRulesMode: false,
     });
 
     const previewPanelModule = await import('../preview-panel');

@@ -18,6 +18,13 @@ function createStore(overrides: Partial<Record<string, unknown>> = {}) {
     maxSelectionCount: 5,
     addMultipleSelectedFiles: vi.fn(),
     removeMultipleSelectedFiles: vi.fn(),
+    selectionModel: {
+      mode: 'explicit' as const,
+      explicitPaths: new Set<string>(),
+      ruleSetJson: null,
+      materializedPaths: null,
+      materializedAt: null,
+    },
     ...overrides,
   };
   const store = vi.fn((selector: (s: typeof state) => unknown) => selector(state));
@@ -150,4 +157,52 @@ it('renders loader and icon states correctly', () => {
     rerender(<OptimizedFileTreeRow {...baseDirProps} isExpanded={true} isLoading={false} />);
   });
   expect(screen.getByRole('button', { name: /collapse dir directory/i })).toBeInTheDocument();
+});
+
+it('shows rule-selected indicator when file is selected by rules', () => {
+  const store = createStore({
+    selectionModel: {
+      mode: 'rules' as const,
+      explicitPaths: new Set<string>(),
+      ruleSetJson: '{}',
+      materializedPaths: new Set(['/file.ts']),
+      materializedAt: new Date().toISOString(),
+    },
+  });
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+  render(<OptimizedFileTreeRow {...baseFileProps} />);
+  expect(screen.getByLabelText('Selected by rule')).toBeInTheDocument();
+});
+
+it('does not show rule-selected indicator in explicit mode', () => {
+  const store = createStore({
+    selectionModel: {
+      mode: 'explicit' as const,
+      explicitPaths: new Set<string>(['/file.ts']),
+      ruleSetJson: null,
+      materializedPaths: null,
+      materializedAt: null,
+    },
+  });
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+  render(<OptimizedFileTreeRow {...baseFileProps} />);
+  expect(screen.queryByLabelText('Selected by rule')).not.toBeInTheDocument();
+});
+
+it('does not show rule-selected indicator for non-matching files in rules mode', () => {
+  const store = createStore({
+    selectionModel: {
+      mode: 'rules' as const,
+      explicitPaths: new Set<string>(),
+      ruleSetJson: '{}',
+      materializedPaths: new Set(['/other-file.ts']),
+      materializedAt: new Date().toISOString(),
+    },
+  });
+  vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
+
+  render(<OptimizedFileTreeRow {...baseFileProps} />);
+  expect(screen.queryByLabelText('Selected by rule')).not.toBeInTheDocument();
 });

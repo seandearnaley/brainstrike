@@ -863,6 +863,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
+      '@brainstrike/selection-rules':
+        specifier: workspace:*
+        version: link:../selection-rules
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -1006,6 +1009,9 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
+      '@brainstrike/selection-rules':
+        specifier: workspace:*
+        version: link:../selection-rules
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage

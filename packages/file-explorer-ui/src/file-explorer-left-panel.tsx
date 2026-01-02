@@ -15,6 +15,7 @@ import FileExplorerSidebar from './file-explorer-sidebar';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
+import { useRuleMaterialization } from './hooks/use-rule-materialization';
 import { RestorationStatus } from './restoration-status';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
@@ -188,6 +189,12 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   }, [filterError]);
 
   const stableFileTree = useMemo(() => fileTree || [], [fileTree]);
+
+  // Materialize selection rules against the file tree when in 'rules' mode
+  useRuleMaterialization({
+    fileTree: stableFileTree,
+    enabled: !isLoading,
+  });
 
   // Background token indexing - processes selected files off the main thread
   const selectedFilesSet = useMemo(() => new Set(safeSelectedFilesList), [safeSelectedFilesList]);

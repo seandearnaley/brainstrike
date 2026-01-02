@@ -11,6 +11,7 @@ import {
   Link2 as Link2Icon,
   Loader2,
   MoreHorizontal as MoreHorizontalIcon,
+  Sparkles,
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { memo, useCallback, useMemo } from 'react';
@@ -99,6 +100,21 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     const maxSelectionCount = store((s) => s.maxSelectionCount);
     const addMultipleSelectedFiles = store((s) => s.addMultipleSelectedFiles);
     const removeMultipleSelectedFiles = store((s) => s.removeMultipleSelectedFiles);
+    const selectionModel = store((s) => s.selectionModel);
+
+    // Check if this file is selected by rules (in rules mode with materialized paths)
+    const isRuleSelected = useMemo(() => {
+      if (node.type !== 'file') {
+        return false;
+      }
+      if (selectionModel.mode !== 'rules') {
+        return false;
+      }
+      if (!selectionModel.materializedPaths) {
+        return false;
+      }
+      return selectionModel.materializedPaths.has(node.path);
+    }, [node.type, node.path, selectionModel.mode, selectionModel.materializedPaths]);
 
     // Memoize expensive calculations
     const allFilePaths = useMemo(
@@ -313,6 +329,12 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
               <Link2Icon className="mr-1.5 h-4 w-4 flex-shrink-0 text-blue-500" />
             )}
             <span className="truncate text-sm leading-4">{node.name}</span>
+            {isRuleSelected && (
+              <Sparkles
+                aria-label="Selected by rule"
+                className="ml-1.5 h-3.5 w-3.5 flex-shrink-0 text-amber-500 dark:text-amber-400"
+              />
+            )}
             {node.type === 'directory' && node.isDepthTruncated && (
               <MoreHorizontalIcon className="ml-1.5 h-4 w-4 flex-shrink-0 text-gray-500" />
             )}

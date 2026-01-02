@@ -126,7 +126,15 @@ describe('FileExplorerLeftPanel', () => {
       folderSummaryThreshold: 5,
       expandAllDirectories: vi.fn(),
       collapseAllDirectories: vi.fn(),
-    } as const;
+      selectionModel: {
+        mode: 'explicit' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+      },
+      setMaterializedPaths: vi.fn(),
+    };
 
     const mockStore = Object.assign(
       (selector?: (s: typeof storeState) => unknown) =>
@@ -478,6 +486,14 @@ describe('FileExplorerLeftPanel', () => {
       setQuickFilter: vi.fn(),
       clearQuickFilter: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
+      selectionModel: {
+        mode: 'explicit' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+      },
+      setMaterializedPaths: vi.fn(),
     };
 
     const mockStore = Object.assign(
@@ -532,6 +548,14 @@ describe('FileExplorerLeftPanel', () => {
       setQuickFilter: vi.fn(),
       clearQuickFilter: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
+      selectionModel: {
+        mode: 'explicit' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+      },
+      setMaterializedPaths: vi.fn(),
     };
 
     const mockStore = Object.assign(
@@ -675,6 +699,14 @@ describe('FileExplorerLeftPanel', () => {
       setQuickFilter: vi.fn(),
       clearQuickFilter: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
+      selectionModel: {
+        mode: 'explicit' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+      },
+      setMaterializedPaths: vi.fn(),
     };
 
     const mockStore = Object.assign(
@@ -724,6 +756,14 @@ describe('FileExplorerLeftPanel', () => {
       setRootDirectoryHandle: vi.fn(),
       devInlineFixtureEnabled: true,
       setDevInlineFixtureEnabled,
+      selectionModel: {
+        mode: 'explicit' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+      },
+      setMaterializedPaths: vi.fn(),
     };
 
     const mockStore = Object.assign(
