@@ -9,7 +9,7 @@ import {
 import { flexRender, type Table as ReactTableInstance, type Row } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { LogRow } from './log-row';
 import type { LogRecordRow } from './log-utils';
 
@@ -31,19 +31,19 @@ export function LogList({
   wrapLines,
 }: LogListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const [, setParentHeight] = useState(0);
-
-  // ResizeObserver to handle dynamic container sizing and fix "dead space" bug
-  // Uses RAF debouncing to prevent "ResizeObserver loop completed with undelivered notifications" errors
-  useResizeObserver(parentRef, (entry) => {
-    setParentHeight(entry.contentRect.height);
-  });
 
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 40, // Reduced estimate for tighter packing
     overscan: 20, // Increased overscan for smoother scrolling
+  });
+
+  // ResizeObserver to handle dynamic container sizing and fix "dead space" bug
+  // Uses RAF debouncing to prevent "ResizeObserver loop completed with undelivered notifications" errors
+  // Explicitly tells the virtualizer to remeasure when container size changes
+  useResizeObserver(parentRef, () => {
+    rowVirtualizer.measure();
   });
 
   const virtualRows = rowVirtualizer.getVirtualItems();

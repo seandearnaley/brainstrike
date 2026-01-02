@@ -21,6 +21,20 @@ class MockResizeObserver {
 let rafCallback: FrameRequestCallback | null = null;
 let rafId = 0;
 
+/**
+ * Test helper to create a mock ResizeObserverEntry.
+ * Reduces duplication of type assertions across tests.
+ */
+function createMockEntry(
+  element: Element,
+  dimensions: { width: number; height: number }
+): ResizeObserverEntry {
+  return {
+    contentRect: dimensions,
+    target: element,
+  } as unknown as ResizeObserverEntry;
+}
+
 describe('useResizeObserver', () => {
   beforeEach(() => {
     mockObserve = vi.fn();
@@ -84,10 +98,7 @@ describe('useResizeObserver', () => {
     renderHook(() => useResizeObserver(ref, onResize));
 
     // Simulate ResizeObserver firing
-    const mockEntry = {
-      contentRect: { width: 100, height: 200 },
-      target: element,
-    } as unknown as ResizeObserverEntry;
+    const mockEntry = createMockEntry(element, { width: 100, height: 200 });
 
     mockResizeObserverCallback?.([mockEntry], {} as ResizeObserver);
 
@@ -108,15 +119,8 @@ describe('useResizeObserver', () => {
 
     renderHook(() => useResizeObserver(ref, onResize));
 
-    const mockEntry1 = {
-      contentRect: { width: 100, height: 200 },
-      target: element,
-    } as unknown as ResizeObserverEntry;
-
-    const mockEntry2 = {
-      contentRect: { width: 150, height: 250 },
-      target: element,
-    } as unknown as ResizeObserverEntry;
+    const mockEntry1 = createMockEntry(element, { width: 100, height: 200 });
+    const mockEntry2 = createMockEntry(element, { width: 150, height: 250 });
 
     // Simulate multiple ResizeObserver events
     mockResizeObserverCallback?.([mockEntry1], {} as ResizeObserver);
@@ -140,10 +144,7 @@ describe('useResizeObserver', () => {
     const { unmount } = renderHook(() => useResizeObserver(ref, onResize));
 
     // Simulate ResizeObserver firing to schedule RAF
-    const mockEntry = {
-      contentRect: { width: 100, height: 200 },
-      target: element,
-    } as unknown as ResizeObserverEntry;
+    const mockEntry = createMockEntry(element, { width: 100, height: 200 });
 
     mockResizeObserverCallback?.([mockEntry], {} as ResizeObserver);
 
@@ -173,10 +174,7 @@ describe('useResizeObserver', () => {
     expect(mockObserve).toHaveBeenCalledTimes(1);
 
     // Simulate resize
-    const mockEntry = {
-      contentRect: { width: 100, height: 200 },
-      target: element,
-    } as unknown as ResizeObserverEntry;
+    const mockEntry = createMockEntry(element, { width: 100, height: 200 });
 
     mockResizeObserverCallback?.([mockEntry], {} as ResizeObserver);
     rafCallback?.(performance.now());
@@ -193,15 +191,8 @@ describe('useResizeObserver', () => {
 
     renderHook(() => useResizeObserver(ref, onResize));
 
-    const mockEntry1 = {
-      contentRect: { width: 100, height: 200 },
-      target: element,
-    } as unknown as ResizeObserverEntry;
-
-    const mockEntry2 = {
-      contentRect: { width: 150, height: 250 },
-      target: element,
-    } as unknown as ResizeObserverEntry;
+    const mockEntry1 = createMockEntry(element, { width: 100, height: 200 });
+    const mockEntry2 = createMockEntry(element, { width: 150, height: 250 });
 
     // Pass multiple entries in a single callback (rare but possible)
     mockResizeObserverCallback?.([mockEntry1, mockEntry2], {} as ResizeObserver);
@@ -257,5 +248,71 @@ describe('useResizeObserver', () => {
 
     // Should have disconnected
     expect(mockDisconnect).toHaveBeenCalled();
+  });
+
+  describe('disabled option', () => {
+    it('does not observe when disabled is true', () => {
+      const element = document.createElement('div');
+      const ref = { current: element };
+      const onResize = vi.fn();
+
+      renderHook(() => useResizeObserver(ref, onResize, { disabled: true }));
+
+      expect(mockObserve).not.toHaveBeenCalled();
+    });
+
+    it('starts observing when disabled changes from true to false', () => {
+      const element = document.createElement('div');
+      const ref = { current: element };
+      const onResize = vi.fn();
+
+      const { rerender } = renderHook(
+        ({ disabled }) => useResizeObserver(ref, onResize, { disabled }),
+        { initialProps: { disabled: true } }
+      );
+
+      expect(mockObserve).not.toHaveBeenCalled();
+
+      // Enable observation
+      rerender({ disabled: false });
+
+      expect(mockObserve).toHaveBeenCalledWith(element);
+    });
+
+    it('disconnects when disabled changes from false to true', () => {
+      const element = document.createElement('div');
+      const ref = { current: element };
+      const onResize = vi.fn();
+
+      const { rerender } = renderHook(
+        ({ disabled }) => useResizeObserver(ref, onResize, { disabled }),
+        { initialProps: { disabled: false } }
+      );
+
+      expect(mockObserve).toHaveBeenCalledWith(element);
+
+      // Disable observation
+      rerender({ disabled: true });
+
+      expect(mockDisconnect).toHaveBeenCalled();
+    });
+
+    it('does not receive resize events when disabled', () => {
+      const element = document.createElement('div');
+      const ref = { current: element };
+      const onResize = vi.fn();
+
+      renderHook(() => useResizeObserver(ref, onResize, { disabled: true }));
+
+      // Try to simulate a resize (shouldn't work since we never observed)
+      const mockEntry = createMockEntry(element, { width: 100, height: 200 });
+
+      // Since we never observed, mockResizeObserverCallback should be null
+      // or if a new observer was created (it wasn't), calling it shouldn't trigger our callback
+      mockResizeObserverCallback?.([mockEntry], {} as ResizeObserver);
+      rafCallback?.(performance.now());
+
+      expect(onResize).not.toHaveBeenCalled();
+    });
   });
 });

@@ -84,9 +84,6 @@ export function TreeTable<T>({
   // Ref for the scroll container
   const parentRef = React.useRef<HTMLDivElement>(null);
 
-  // Track container height for proper virtualization
-  const [, setParentHeight] = React.useState(0);
-
   // Create a children getter for the flat node array
   const getChildren = React.useMemo(() => createChildrenGetter(nodes), [nodes]);
 
@@ -142,8 +139,9 @@ export function TreeTable<T>({
 
   // ResizeObserver for container sizing - uses RAF debouncing to prevent
   // "ResizeObserver loop completed with undelivered notifications" errors
-  useResizeObserver(parentRef, (entry) => {
-    setParentHeight(entry.contentRect.height);
+  // Explicitly tells the virtualizer to remeasure when container size changes
+  useResizeObserver(parentRef, () => {
+    rowVirtualizer.measure();
   });
 
   // Scroll to a specific node
