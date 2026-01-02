@@ -19,6 +19,7 @@ import { createDirectoryExpansionActions } from './actions/directory-expansion-a
 import { createFileContentActions } from './actions/file-content-actions';
 import { createFileSelectionActions } from './actions/file-selection-actions';
 import { createFolderStateActions } from './actions/folder-state-actions';
+import { createSelectionModelActions } from './actions/selection-model-actions';
 import { createSettingsActions } from './actions/settings-actions';
 import { createPersistOptions } from './persistence/file-explorer-persistence';
 
@@ -48,6 +49,7 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createDirectoryExpansionActions(set, get),
     ...createSettingsActions(set, get),
     ...createFileContentActions(set, get),
+    ...createSelectionModelActions(set, get),
     setQuickFilter: (value: string) => {
       set({ quickFilter: value });
     },
