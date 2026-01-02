@@ -19,6 +19,24 @@ const MIN_WINDOW_BOUNDS = {
   height: 600,
 };
 
+type StoreWithGet = {
+  get: (key: string) => unknown;
+};
+
+type StoreWithSet = {
+  set: (key: string, value: unknown) => void;
+};
+
+const hasStoreGet = (
+  store: ElectronStore<DesktopSettingsStoreSchema>
+): store is ElectronStore<DesktopSettingsStoreSchema> & StoreWithGet =>
+  typeof (store as Partial<StoreWithGet>).get === 'function';
+
+const hasStoreSet = (
+  store: ElectronStore<DesktopSettingsStoreSchema>
+): store is ElectronStore<DesktopSettingsStoreSchema> & StoreWithSet =>
+  typeof (store as Partial<StoreWithSet>).set === 'function';
+
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
@@ -82,9 +100,12 @@ export const readStoredWindowState = (
   store: ElectronStore<DesktopSettingsStoreSchema>
 ): DesktopWindowState | null => {
   try {
-    const record = (
-      store as ElectronStore<DesktopSettingsStoreSchema> & { get: (key: string) => unknown }
-    ).get(WINDOW_STATE_KEY) as DesktopSettingsStoreSchema['windowState'] | undefined;
+    if (!hasStoreGet(store)) {
+      return null;
+    }
+    const record = store.get(WINDOW_STATE_KEY) as
+      | DesktopSettingsStoreSchema['windowState']
+      | undefined;
     return normalizeWindowState(record?.v1);
   } catch {
     return null;
@@ -108,11 +129,10 @@ export const persistWindowState = (
   state: DesktopWindowState
 ): void => {
   try {
-    (
-      store as ElectronStore<DesktopSettingsStoreSchema> & {
-        set: (key: string, value: unknown) => void;
-      }
-    ).set(WINDOW_STATE_KEY, { v1: state });
+    if (!hasStoreSet(store)) {
+      return;
+    }
+    store.set(WINDOW_STATE_KEY, { v1: state });
   } catch {
     // Persistence failures should not crash the app.
   }
