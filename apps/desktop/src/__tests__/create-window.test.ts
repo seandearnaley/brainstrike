@@ -4,9 +4,10 @@ import { createWindow } from '../create-window';
 import type { DesktopWindowState } from '../store-schema';
 
 // Hoist mocks for Vitest 4 compatibility
-const { existsSyncMock, MockBrowserWindow } = vi.hoisted(() => ({
+const { existsSyncMock, MockBrowserWindow, screenMock } = vi.hoisted(() => ({
   existsSyncMock: vi.fn(),
   MockBrowserWindow: vi.fn(),
+  screenMock: vi.fn(),
 }));
 vi.mock('node:fs', () => ({
   default: { existsSync: existsSyncMock },
@@ -25,6 +26,9 @@ vi.mock('electron', () => ({
   Menu: {
     setApplicationMenu: vi.fn(),
     buildFromTemplate: vi.fn(),
+  },
+  screen: {
+    getAllDisplays: screenMock,
   },
 }));
 
@@ -50,6 +54,8 @@ describe('createWindow', () => {
       on: vi.fn(),
       webContents: mockWebContents,
     } as any;
+
+    screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1440, height: 900 } }]);
 
     // Use function syntax for Vitest 4 constructor mocks
     MockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
@@ -112,6 +118,52 @@ describe('createWindow', () => {
         })
       );
       expect(mockBrowserWindow.maximize).toHaveBeenCalled();
+    });
+
+    it('should clamp stored window bounds to the visible work area', async () => {
+      existsSyncMock.mockReturnValue(true);
+      screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1200, height: 800 } }]);
+
+      const storedState: DesktopWindowState = {
+        bounds: { width: 1600, height: 900, x: 100, y: 100 },
+        isFullScreen: false,
+        isMaximized: false,
+      };
+
+      await createWindow({ windowState: storedState });
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          width: 1200,
+          height: 800,
+          x: 0,
+          y: 0,
+        })
+      );
+    });
+
+    it('should fall back to default bounds when stored window is off-screen', async () => {
+      existsSyncMock.mockReturnValue(true);
+      screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1200, height: 800 } }]);
+
+      const storedState: DesktopWindowState = {
+        bounds: { width: 900, height: 700, x: 5000, y: 4000 },
+        isFullScreen: false,
+        isMaximized: true,
+      };
+
+      await createWindow({ windowState: storedState });
+
+      const args = vi.mocked(BrowserWindow).mock.calls[0]?.[0] as Record<string, unknown>;
+
+      expect(args).toEqual(
+        expect.objectContaining({
+          width: 1536,
+          height: 800,
+        })
+      );
+      expect('x' in args).toBe(false);
+      expect('y' in args).toBe(false);
     });
 
     it('should disable sandbox in CI environment for Playwright compatibility', async () => {

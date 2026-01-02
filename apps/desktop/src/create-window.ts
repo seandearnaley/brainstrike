@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow } from 'electron';
+import type { Rectangle } from 'electron';
+import { app, BrowserWindow, screen } from 'electron';
 import type { DesktopWindowState } from './store-schema';
-import { resolveInitialWindowState } from './window-state';
+import { getDefaultWindowState, resolveInitialWindowState } from './window-state';
 
 /**
  * Configure security settings for the browser window.
@@ -87,9 +88,72 @@ type CreateWindowOptions = {
   windowState?: DesktopWindowState | null;
 };
 
+const rectanglesIntersect = (first: Rectangle, second: Rectangle): boolean => {
+  const left = Math.max(first.x, second.x);
+  const right = Math.min(first.x + first.width, second.x + second.width);
+  const top = Math.max(first.y, second.y);
+  const bottom = Math.min(first.y + first.height, second.y + second.height);
+
+  return right > left && bottom > top;
+};
+
+const clampBoundsToWorkArea = (
+  bounds: DesktopWindowState['bounds'],
+  workArea: Rectangle
+): DesktopWindowState['bounds'] => {
+  const width = Math.min(bounds.width, workArea.width);
+  const height = Math.min(bounds.height, workArea.height);
+  const x = bounds.x ?? workArea.x;
+  const y = bounds.y ?? workArea.y;
+
+  return {
+    width,
+    height,
+    x: Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - width),
+    y: Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - height),
+  };
+};
+
+const ensureWindowBoundsVisible = (state: DesktopWindowState): DesktopWindowState => {
+  const { bounds } = state;
+
+  if (bounds.x === undefined || bounds.y === undefined) {
+    return state;
+  }
+
+  const displays = screen.getAllDisplays();
+  if (displays.length === 0) {
+    return state;
+  }
+
+  const windowRect: Rectangle = {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+  };
+  const matchingDisplay = displays.find((display) =>
+    rectanglesIntersect(windowRect, display.workArea)
+  );
+
+  if (!matchingDisplay) {
+    return {
+      ...state,
+      bounds: { ...getDefaultWindowState().bounds },
+    };
+  }
+
+  return {
+    ...state,
+    bounds: clampBoundsToWorkArea(bounds, matchingDisplay.workArea),
+  };
+};
+
 export async function createWindow(options: CreateWindowOptions = {}) {
   const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
-  const resolvedWindowState = resolveInitialWindowState(options.windowState);
+  const resolvedWindowState = ensureWindowBoundsVisible(
+    resolveInitialWindowState(options.windowState)
+  );
   const { bounds, isFullScreen, isMaximized } = resolvedWindowState;
 
   // Sandbox must be disabled in CI/test environments because:
