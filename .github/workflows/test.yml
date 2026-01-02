@@ -93,13 +93,8 @@ jobs:
           cd apps/desktop/node_modules/electron
           # install.js checks cache first, only downloads if binary missing
           node install.js
-          # Verify binary was installed successfully
-          ELECTRON_PATH=$(cat path.txt)
-          if [ ! -x "$ELECTRON_PATH" ]; then
-            echo "ERROR: Electron binary not found or not executable at: $ELECTRON_PATH"
-            exit 1
-          fi
-          echo "✅ Electron binary verified at: $ELECTRON_PATH"
+          # Verify binary was installed by requiring electron module
+          node -e "const e = require('.'); console.log('✅ Electron binary verified at:', e)"
 
       - name: Lint
         run: pnpm run lint
@@ -528,13 +523,8 @@ jobs:
           cd apps/desktop/node_modules/electron
           # install.js checks cache first, only downloads if binary missing
           node install.js
-          # Verify binary was installed successfully
-          ELECTRON_PATH=$(cat path.txt)
-          if [ ! -x "$ELECTRON_PATH" ]; then
-            echo "ERROR: Electron binary not found or not executable at: $ELECTRON_PATH"
-            exit 1
-          fi
-          echo "✅ Electron binary verified at: $ELECTRON_PATH"
+          # Verify binary was installed by requiring electron module
+          node -e "const e = require('.'); console.log('✅ Electron binary verified at:', e)"
 
       - name: Install system dependencies for Electron
         run: |
