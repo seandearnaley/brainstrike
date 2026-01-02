@@ -10,7 +10,7 @@
  * @see docs/adr/0001-selection-rules-v1.md for evaluation semantics
  */
 
-import micromatch from 'micromatch';
+import { minimatch } from 'minimatch';
 import type {
   CapRule,
   ExplicitRule,
@@ -441,7 +441,7 @@ export class SelectionRuleEngine {
 
     for (const pattern of rule.patterns) {
       const fullPattern = rule.basePath ? `${rule.basePath}/${pattern}` : pattern;
-      const matches = micromatch(allPaths, fullPattern, { dot: true });
+      const matches = allPaths.filter((p) => minimatch(p, fullPattern, { dot: true }));
 
       if (matches.length === 0) {
         warnings.push({
@@ -492,7 +492,7 @@ export class SelectionRuleEngine {
 
     for (const pattern of rule.patterns) {
       const fullPattern = rule.basePath ? `${rule.basePath}/${pattern}` : pattern;
-      const excludedPaths = new Set(micromatch(paths, fullPattern, { dot: true }));
+      const excludedPaths = new Set(paths.filter((p) => minimatch(p, fullPattern, { dot: true })));
 
       for (const path of paths) {
         if (!excludedPaths.has(path)) {

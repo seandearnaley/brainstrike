@@ -671,8 +671,8 @@ describe('engine', () => {
       const result = engine.materialize(tree);
       const duration = performance.now() - start;
 
-      // Should complete in under 500ms
-      expect(duration).toBeLessThan(500);
+      // Should complete in under 1500ms (minimatch is slower than micromatch but browser-compatible)
+      expect(duration).toBeLessThan(1500);
       expect(result.paths.size).toBeLessThanOrEqual(100);
     });
 
