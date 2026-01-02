@@ -50,16 +50,51 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-v2-
+
       - name: Cache Turborepo
         uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
+          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
           restore-keys: |
-            ${{ runner.os }}-turbo-v3-
+            ${{ runner.os }}-turbo-v4-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # Desktop unit tests require Electron binary (mcp-loader, secrets, ipc-secrets tests)
+      - name: Get Electron version
+        id: electron-version
+        run: echo "version=$(node -e "console.log(require('./apps/desktop/package.json').devDependencies['electron'])")" >> $GITHUB_OUTPUT
+
+      - name: Cache Electron binaries
+        id: electron-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
+
+      - name: Ensure Electron binary is installed
+        # install.js is idempotent - it checks ~/.cache/electron and only downloads if missing
+        # We always run it to handle cache miss and verify binary exists
+        run: |
+          cd apps/desktop/node_modules/electron
+          # install.js checks cache first, only downloads if binary missing
+          node install.js
+          # Verify binary was installed by requiring electron module
+          node -e "const e = require('.'); console.log('✅ Electron binary verified at:', e)"
 
       - name: Lint
         run: pnpm run lint
@@ -246,13 +281,26 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-v2-
+
       - name: Cache Turborepo
         uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
+          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
           restore-keys: |
-            ${{ runner.os }}-turbo-v3-
+            ${{ runner.os }}-turbo-v4-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -326,13 +374,26 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-v2-
+
       - name: Cache Turborepo
         uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
+          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
           restore-keys: |
-            ${{ runner.os }}-turbo-v3-
+            ${{ runner.os }}-turbo-v4-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -357,32 +418,8 @@ jobs:
         run: pnpm exec playwright install-deps chromium
 
       - name: Build application
-        run: |
-          # Build with Tailwind debug output
-          TAILWIND_DEBUG=1 pnpm run build --filter @brainstrike/web
-          
-          # Check CSS bundle size (must be >= 50kB)
-          CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
-          echo "CSS bundle size: ${CSS_SIZE} bytes"
-          
-          if [ "$CSS_SIZE" -lt 50000 ]; then
-            echo "❌ CSS bundle too small: ${CSS_SIZE} bytes (expected >= 50,000 bytes)"
-            echo "This indicates Tailwind may not be scanning all package sources correctly"
-            exit 1
-          else
-            echo "✅ CSS bundle size OK: ${CSS_SIZE} bytes"
-          fi
-          
-          # Check for duplicate Tailwind layers
-          PAT='*,:after,:before,::backdrop{box-sizing:border-box'
-          DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
-          if [ "$DUPLICATE_COUNT" -ne 1 ]; then
-            echo "❌ Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies)"
-            echo "This indicates duplicate @import \"tailwindcss\" statements in package styles.css files"
-            exit 1
-          else
-            echo "✅ No duplicate CSS layers detected"
-          fi
+        # CSS validation already done in checks job - just build here
+        run: pnpm run build --filter @brainstrike/web
 
       - name: Run E2E tests (functional only, shard)
         run: |
@@ -415,11 +452,11 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-  # Desktop E2E tests - runs AFTER web E2E to reduce concurrent runner load
-  # This helps avoid resource contention that may cause Electron startup failures
+  # Desktop E2E tests - runs in parallel with web E2E after checks pass
+  # Each GitHub Actions runner is fully isolated, so no resource contention occurs
   desktop-e2e:
     name: Desktop E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
-    needs: [checks, e2e] # Run after web E2E completes to reduce concurrent load
+    needs: [checks] # Only wait for build/lint/tests - runners are isolated
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -429,8 +466,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Back to 4 shards - sequential ordering after e2e provides reliability
-        # while 4 shards keeps desktop E2E fast
+        # 4 shards for parallel execution - each shard gets unique DISPLAY number
         shardIndex: [1, 2, 3, 4]
         shardTotal: [4]
     steps:
@@ -445,16 +481,50 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-v2-
+
       - name: Cache Turborepo
         uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
+          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
           restore-keys: |
-            ${{ runner.os }}-turbo-v3-
+            ${{ runner.os }}-turbo-v4-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Get Electron version
+        id: electron-version
+        run: echo "version=$(node -e "console.log(require('./apps/desktop/package.json').devDependencies['electron'])")" >> $GITHUB_OUTPUT
+
+      - name: Cache Electron binaries
+        id: electron-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron
+          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
+
+      - name: Ensure Electron binary is installed
+        # install.js is idempotent - it checks ~/.cache/electron and only downloads if missing
+        # We always run it to handle cache miss and verify binary exists
+        run: |
+          cd apps/desktop/node_modules/electron
+          # install.js checks cache first, only downloads if binary missing
+          node install.js
+          # Verify binary was installed by requiring electron module
+          node -e "const e = require('.'); console.log('✅ Electron binary verified at:', e)"
 
       - name: Install system dependencies for Electron
         run: |
@@ -553,6 +623,27 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-v2-
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-v4-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -713,6 +804,27 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-v2-
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-v4-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
