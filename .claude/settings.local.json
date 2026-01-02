@@ -224,7 +224,12 @@
       "Skill(commit-commands:commit-push-pr)",
       "Skill(commit-commands:commit)",
       "mcp__atlassian__search",
-      "Bash(pkill:*)"
+      "Bash(pkill:*)",
+      "Bash(git pull:*)",
+      "mcp__plugin_atlassian_atlassian__getVisibleJiraProjects",
+      "mcp__plugin_atlassian_atlassian__createJiraIssue",
+      "Bash(mkdir:*)",
+      "mcp__plugin_atlassian_atlassian__getJiraIssue"
     ],
     "deny": [],
     "ask": []

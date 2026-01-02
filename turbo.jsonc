@@ -3,7 +3,7 @@
   "$schema": "https://turbo.build/schema.json",
 
   // Global configuration
-  "concurrency": "28",
+  "concurrency": "29",
 
   // Files that, when changed, should invalidate caches globally
   // These files affect all tasks and will cause cache misses when modified
