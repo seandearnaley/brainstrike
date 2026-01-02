@@ -36,7 +36,7 @@ export function useResizeObserver<T extends Element>(
       return;
     }
 
-    let rafId: number | null = null;
+    let rafId: ReturnType<typeof requestAnimationFrame> | null = null;
 
     const observer = new ResizeObserver((entries) => {
       // Cancel any pending animation frame to batch rapid resize events

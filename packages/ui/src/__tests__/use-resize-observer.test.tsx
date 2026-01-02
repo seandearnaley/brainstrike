@@ -211,4 +211,51 @@ describe('useResizeObserver', () => {
     expect(onResize).toHaveBeenCalledWith(mockEntry2);
     expect(onResize).toHaveBeenCalledTimes(1);
   });
+
+  it('re-observes when element ref changes', () => {
+    const element1 = document.createElement('div');
+    const element2 = document.createElement('div');
+    const onResize = vi.fn();
+
+    // Start with a mutable ref object
+    const ref = { current: element1 as HTMLDivElement | null };
+
+    const { rerender } = renderHook(({ elementRef }) => useResizeObserver(elementRef, onResize), {
+      initialProps: { elementRef: ref },
+    });
+
+    expect(mockObserve).toHaveBeenCalledWith(element1);
+    expect(mockObserve).toHaveBeenCalledTimes(1);
+
+    // Change the element in the ref
+    ref.current = element2;
+
+    // Create a new ref object to trigger the effect (since elementRef is in deps)
+    const newRef = { current: element2 };
+    rerender({ elementRef: newRef });
+
+    // Should have disconnected old observer and observed new element
+    expect(mockDisconnect).toHaveBeenCalled();
+    expect(mockObserve).toHaveBeenCalledWith(element2);
+  });
+
+  it('handles ref changing from element to null', () => {
+    const element = document.createElement('div');
+    const onResize = vi.fn();
+
+    const ref = { current: element as HTMLDivElement | null };
+
+    const { rerender } = renderHook(({ elementRef }) => useResizeObserver(elementRef, onResize), {
+      initialProps: { elementRef: ref },
+    });
+
+    expect(mockObserve).toHaveBeenCalledWith(element);
+
+    // Change to null ref
+    const nullRef = { current: null };
+    rerender({ elementRef: nullRef });
+
+    // Should have disconnected
+    expect(mockDisconnect).toHaveBeenCalled();
+  });
 });
