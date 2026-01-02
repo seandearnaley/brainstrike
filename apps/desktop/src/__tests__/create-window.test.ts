@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWindow } from '../create-window';
+import type { DesktopWindowState } from '../store-schema';
 
 // Hoist mocks for Vitest 4 compatibility
 const { existsSyncMock, MockBrowserWindow } = vi.hoisted(() => ({
@@ -45,6 +46,8 @@ describe('createWindow', () => {
       show: vi.fn(),
       loadFile: vi.fn(),
       loadURL: vi.fn(),
+      maximize: vi.fn(),
+      on: vi.fn(),
       webContents: mockWebContents,
     } as any;
 
@@ -72,6 +75,7 @@ describe('createWindow', () => {
         height: 800,
         minWidth: 800,
         minHeight: 600,
+        fullscreen: false,
         webPreferences: {
           preload: expect.stringContaining('preload.js'),
           nodeIntegration: false,
@@ -84,6 +88,30 @@ describe('createWindow', () => {
         titleBarStyle: 'default',
         show: false,
       });
+      expect(mockBrowserWindow.maximize).toHaveBeenCalled();
+    });
+
+    it('should apply stored window bounds and maximize preference', async () => {
+      existsSyncMock.mockReturnValue(true);
+
+      const storedState: DesktopWindowState = {
+        bounds: { width: 1024, height: 768, x: 120, y: 80 },
+        isFullScreen: false,
+        isMaximized: true,
+      };
+
+      await createWindow({ windowState: storedState });
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          width: 1024,
+          height: 768,
+          x: 120,
+          y: 80,
+          fullscreen: false,
+        })
+      );
+      expect(mockBrowserWindow.maximize).toHaveBeenCalled();
     });
 
     it('should disable sandbox in CI environment for Playwright compatibility', async () => {

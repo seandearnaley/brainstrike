@@ -1,6 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow } from 'electron';
+import type { DesktopWindowState } from './store-schema';
+import { resolveInitialWindowState } from './window-state';
 
 /**
  * Configure security settings for the browser window.
@@ -81,8 +83,14 @@ async function loadRenderer(win: BrowserWindow) {
 /**
  * Create the main application window and load the appropriate renderer.
  */
-export async function createWindow() {
+type CreateWindowOptions = {
+  windowState?: DesktopWindowState | null;
+};
+
+export async function createWindow(options: CreateWindowOptions = {}) {
   const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
+  const resolvedWindowState = resolveInitialWindowState(options.windowState);
+  const { bounds, isFullScreen, isMaximized } = resolvedWindowState;
 
   // Sandbox must be disabled in CI/test environments because:
   // 1. Playwright's Electron support does not work with sandbox enabled in CI
@@ -92,10 +100,12 @@ export async function createWindow() {
   const enableSandbox = !isTestMode;
 
   const win = new BrowserWindow({
-    width: 1536,
-    height: 800,
+    width: bounds.width,
+    height: bounds.height,
+    ...(bounds.x !== undefined && bounds.y !== undefined ? { x: bounds.x, y: bounds.y } : {}),
     minWidth: 800,
     minHeight: 600,
+    fullscreen: isFullScreen,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -108,6 +118,10 @@ export async function createWindow() {
     titleBarStyle: 'default',
     show: false,
   });
+
+  if (isMaximized) {
+    win.maximize();
+  }
 
   // In test mode, keep window hidden; otherwise show when ready
   if (!isTestMode) {
