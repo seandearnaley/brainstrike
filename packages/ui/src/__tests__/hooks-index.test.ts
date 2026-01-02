@@ -22,6 +22,11 @@ describe('hooks module exports', () => {
     expect(typeof hooksModule.useLoadPanelState).toBe('function');
   });
 
+  it('exports useResizeObserver', () => {
+    expect(hooksModule.useResizeObserver).toBeDefined();
+    expect(typeof hooksModule.useResizeObserver).toBe('function');
+  });
+
   it('exports all expected hooks', () => {
     const exportedKeys = Object.keys(hooksModule);
     expect(exportedKeys.length).toBeGreaterThan(0);
