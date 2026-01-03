@@ -24,11 +24,17 @@ export const createSelectionModelActions = (
   get: GetState<FileExplorerState>
 ): SelectionModelActions => ({
   setSelectionMode: (mode: SelectionMode) => {
+    const currentState = get();
+    const isEnteringRulesMode = mode === 'rules' && currentState.selectionModel.mode !== 'rules';
+
     set((state: FileExplorerState) => ({
       selectionModel: {
         ...state.selectionModel,
         mode,
       },
+      // Clear selectedFilePaths when entering rules mode to avoid stale explicit selections
+      // (will be repopulated by setMaterializedPaths when rules are evaluated)
+      ...(isEnteringRulesMode ? { selectedFilePaths: new Set<string>() } : {}),
     }));
   },
 
@@ -91,12 +97,36 @@ export const createSelectionModelActions = (
   },
 
   setMaterializedPaths: (paths: Set<string>) => {
-    set((state: FileExplorerState) => ({
-      selectionModel: {
-        ...state.selectionModel,
-        materializedPaths: paths,
-        materializedAt: new Date().toISOString(),
-      },
-    }));
+    const state = get();
+    const { currentFolderId, selectionModel } = state;
+
+    // Only sync to selectedFilePaths when in rules mode
+    // This allows all existing components (tree rows, preview, counters) to work
+    if (selectionModel.mode === 'rules' && currentFolderId) {
+      // Convert relative paths to composite keys for selectedFilePaths compatibility
+      const compositeKeys = new Set<string>();
+      for (const relativePath of paths) {
+        compositeKeys.add(`${currentFolderId}|@|${relativePath}`);
+      }
+
+      set({
+        selectionModel: {
+          ...selectionModel,
+          materializedPaths: paths,
+          materializedAt: new Date().toISOString(),
+        },
+        // Sync to selectedFilePaths so all existing components work automatically
+        selectedFilePaths: compositeKeys,
+      });
+    } else {
+      // Non-rules mode or no folder ID - just update materialized paths
+      set((s: FileExplorerState) => ({
+        selectionModel: {
+          ...s.selectionModel,
+          materializedPaths: paths,
+          materializedAt: new Date().toISOString(),
+        },
+      }));
+    }
   },
 });

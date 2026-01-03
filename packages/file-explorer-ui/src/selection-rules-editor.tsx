@@ -497,8 +497,9 @@ const RulesEditorContainer: React.FC<{
 
     // Only save if there are actual rules
     if (ruleSet.rules.length > 0) {
+      // serializeRuleSet already returns a JSON string - don't double-encode!
       const serialized = serializeRuleSet(ruleSet);
-      onSave(JSON.stringify(serialized));
+      onSave(serialized);
     } else {
       // Clear rules if none defined
       onSave('');

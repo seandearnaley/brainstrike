@@ -201,8 +201,35 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     enabled: !isLoading,
   });
 
+  // Get selection model for rules-based mode token counting and display
+  const selectionModel = store((s) => s.selectionModel);
+
   // Background token indexing - processes selected files off the main thread
-  const selectedFilesSet = useMemo(() => new Set(safeSelectedFilesList), [safeSelectedFilesList]);
+  // IMPORTANT: Convert materializedPaths to composite keys when in rules mode
+  // The indexer expects composite keys (folderId|@|path format), not relative paths
+  const selectedFilesSet = useMemo(() => {
+    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths && currentFolderId) {
+      const compositeKeys = new Set<string>();
+      for (const relativePath of selectionModel.materializedPaths) {
+        compositeKeys.add(encodeFileSelection(currentFolderId, relativePath));
+      }
+      return compositeKeys;
+    }
+    return new Set(safeSelectedFilesList);
+  }, [
+    selectionModel.mode,
+    selectionModel.materializedPaths,
+    currentFolderId,
+    safeSelectedFilesList,
+  ]);
+
+  // Selection count - mode-aware for display purposes
+  const selectedCount = useMemo(() => {
+    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths) {
+      return selectionModel.materializedPaths.size;
+    }
+    return safeSelectedFilesList.length;
+  }, [selectionModel.mode, selectionModel.materializedPaths, safeSelectedFilesList]);
 
   // Electron file reader - reads file content via IPC for the background worker
   // The worker cannot read files directly in Electron due to security restrictions
@@ -401,7 +428,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             onMaxSelectionCountChange={setMaxSelectionCount}
             quickFilter={quickFilter}
             rootDirectoryHandle={rootDirectoryHandle}
-            selectedCount={safeSelectedFilesList.length}
+            selectedCount={selectedCount}
             setQuickFilter={setQuickFilter}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
           />

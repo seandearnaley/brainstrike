@@ -20,17 +20,24 @@ type UseSelectionManagerProps = {
 
 export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionManagerProps) => {
   const store = useFileExplorerStoreContext();
-  const [selectedFilePaths, maxSelectionCount, setSelectedFiles, selectionModel, currentFolderId] =
-    store(
-      (s) =>
-        [
-          s.selectedFilePaths,
-          s.maxSelectionCount,
-          s.setSelectedFiles,
-          s.selectionModel,
-          s.currentFolderId,
-        ] as const
-    );
+  const [
+    selectedFilePaths,
+    maxSelectionCount,
+    setSelectedFiles,
+    selectionModel,
+    currentFolderId,
+    clearSelectionRules,
+  ] = store(
+    (s) =>
+      [
+        s.selectedFilePaths,
+        s.maxSelectionCount,
+        s.setSelectedFiles,
+        s.selectionModel,
+        s.currentFolderId,
+        s.clearSelectionRules,
+      ] as const
+  );
 
   const setSelectedFilesStable = useCallback(
     (next: ReadonlySet<string>) => {
@@ -71,8 +78,17 @@ export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionMa
   const selectedFilesList = useMemo(() => Array.from(effectiveSelection), [effectiveSelection]);
 
   const setSelectedFilesFromList = useCallback(
-    (list: readonly string[]) => core.handleSelectionChange(new Set(list)),
-    [core.handleSelectionChange]
+    (list: readonly string[]) => {
+      // When clearing all selections (Deselect All) in rules mode,
+      // also clear the rules and switch back to explicit mode.
+      // This provides intuitive UX: "Deselect All" means "start fresh".
+      if (list.length === 0 && selectionModel.mode === 'rules') {
+        clearSelectionRules();
+        return;
+      }
+      core.handleSelectionChange(new Set(list));
+    },
+    [core.handleSelectionChange, selectionModel.mode, clearSelectionRules]
   );
 
   return {
