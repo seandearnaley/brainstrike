@@ -255,6 +255,73 @@ describe('engine', () => {
         expect(result.paths.has('src/components/Button.tsx')).toBe(true);
         expect(result.paths.has('src/components/__tests__/Button.test.tsx')).toBe(false);
       });
+
+      it('should correctly exclude with multiple patterns', () => {
+        // Regression test: Previously only the last pattern was effective
+        const ruleSet: SelectionRuleSet = {
+          ...createEmptyRuleSet('folder'),
+          rules: [
+            {
+              id: 'include-all',
+              type: 'glob-include',
+              patterns: ['**/*'],
+              createdAt: now,
+            },
+            {
+              id: 'exclude-multi',
+              type: 'glob-exclude',
+              patterns: ['**/*.test.tsx', '**/*.json'],
+              createdAt: now,
+            },
+          ],
+        };
+
+        const engine = createSelectionRuleEngine(ruleSet);
+        const result = engine.materialize(sampleTree);
+
+        // Both patterns should be excluded
+        expect(result.paths.has('src/components/__tests__/Button.test.tsx')).toBe(false);
+        expect(result.paths.has('package.json')).toBe(false);
+        expect(result.paths.has('tsconfig.json')).toBe(false);
+
+        // But other files should still be included
+        expect(result.paths.has('src/index.ts')).toBe(true);
+        expect(result.paths.has('src/components/Button.tsx')).toBe(true);
+      });
+
+      it('should progressively exclude with each pattern', () => {
+        // Test that patterns are applied cumulatively
+        const ruleSet: SelectionRuleSet = {
+          ...createEmptyRuleSet('folder'),
+          rules: [
+            {
+              id: 'include-ts',
+              type: 'glob-include',
+              patterns: ['**/*.ts', '**/*.tsx'],
+              createdAt: now,
+            },
+            {
+              id: 'exclude-multi',
+              type: 'glob-exclude',
+              patterns: ['**/utils.ts', '**/helpers.ts', '**/Button.tsx'],
+              createdAt: now,
+            },
+          ],
+        };
+
+        const engine = createSelectionRuleEngine(ruleSet);
+        const result = engine.materialize(sampleTree);
+
+        // All three patterns should be excluded
+        expect(result.paths.has('src/utils.ts')).toBe(false);
+        expect(result.paths.has('lib/helpers.ts')).toBe(false);
+        expect(result.paths.has('src/components/Button.tsx')).toBe(false);
+
+        // But other files should remain
+        expect(result.paths.has('src/index.ts')).toBe(true);
+        expect(result.paths.has('src/components/Input.tsx')).toBe(true);
+        expect(result.paths.has('lib/constants.ts')).toBe(true);
+      });
     });
 
     describe('explicit rules', () => {

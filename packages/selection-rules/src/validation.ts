@@ -11,6 +11,111 @@ import { z } from 'zod';
 import { SELECTION_RULES_SCHEMA_VERSION } from './schema';
 
 // ============================================================================
+// Glob Pattern Security (ReDoS Prevention)
+// ============================================================================
+
+/** Maximum allowed pattern length to prevent ReDoS */
+const MAX_PATTERN_LENGTH = 256;
+
+/** Maximum number of globstar (**) segments allowed */
+const MAX_GLOBSTAR_COUNT = 5;
+
+/**
+ * Result of glob pattern validation.
+ */
+export type GlobPatternValidationResult = { valid: true } | { valid: false; reason: string };
+
+/**
+ * Validate a glob pattern for safety (ReDoS prevention).
+ *
+ * Checks for patterns that could cause catastrophic backtracking in the
+ * regex engine when converted by minimatch.
+ *
+ * @param pattern - The glob pattern to validate
+ * @returns Validation result with reason if invalid
+ */
+export function validateGlobPattern(pattern: string): GlobPatternValidationResult {
+  // Check pattern length
+  if (pattern.length > MAX_PATTERN_LENGTH) {
+    return {
+      valid: false,
+      reason: `Pattern exceeds maximum length of ${MAX_PATTERN_LENGTH} characters`,
+    };
+  }
+
+  // Count globstar (**) occurrences - these are the main ReDoS risk
+  const globstarCount = (pattern.match(/\*\*/g) ?? []).length;
+  if (globstarCount > MAX_GLOBSTAR_COUNT) {
+    return {
+      valid: false,
+      reason: `Pattern has too many globstar (**) segments (max: ${MAX_GLOBSTAR_COUNT})`,
+    };
+  }
+
+  // Detect potentially dangerous nested patterns
+  // These patterns can cause exponential backtracking
+  const dangerousPatterns = [
+    /\*{3,}/, // Three or more consecutive asterisks
+    /\(\*+\)\+/, // Nested quantifiers like (*)+
+    /\[\*+\]\+/, // Nested quantifiers like [*]+
+  ];
+
+  for (const dangerous of dangerousPatterns) {
+    if (dangerous.test(pattern)) {
+      return {
+        valid: false,
+        reason: 'Pattern contains potentially dangerous nested quantifiers',
+      };
+    }
+  }
+
+  // Check for excessively long brace expansions
+  const braceMatch = pattern.match(/\{([^}]+)\}/g);
+  if (braceMatch) {
+    for (const brace of braceMatch) {
+      const options = brace.slice(1, -1).split(',');
+      if (options.length > 20) {
+        return {
+          valid: false,
+          reason: 'Brace expansion has too many options (max: 20)',
+        };
+      }
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Validate multiple glob patterns.
+ *
+ * @param patterns - Array of patterns to validate
+ * @returns First invalid pattern result, or success if all valid
+ */
+export function validateGlobPatterns(patterns: string[]): GlobPatternValidationResult {
+  for (const pattern of patterns) {
+    const result = validateGlobPattern(pattern);
+    if (!result.valid) {
+      return result;
+    }
+  }
+  return { valid: true };
+}
+
+/**
+ * Zod refinement for safe glob patterns.
+ */
+const safeGlobPatternSchema = z.string().refine(
+  (pattern) => validateGlobPattern(pattern).valid,
+  (pattern) => {
+    const result = validateGlobPattern(pattern);
+    return {
+      message: result.valid ? '' : result.reason,
+    };
+  }
+);
+
+// ============================================================================
 // Schema Version
 // ============================================================================
 
@@ -59,17 +164,23 @@ export const ExplicitRuleSchema = SelectionRuleBaseSchema.extend({
   mode: z.enum(['include', 'exclude']).optional(),
 });
 
-/** Glob pattern inclusion rule */
+/** Glob pattern inclusion rule with ReDoS-safe pattern validation */
 export const GlobIncludeRuleSchema = SelectionRuleBaseSchema.extend({
   type: z.literal('glob-include'),
-  patterns: z.array(z.string()).min(1, 'At least one pattern is required'),
+  patterns: z
+    .array(safeGlobPatternSchema)
+    .min(1, 'At least one pattern is required')
+    .max(50, 'Too many patterns (max: 50)'),
   basePath: z.string().optional(),
 });
 
-/** Glob pattern exclusion rule */
+/** Glob pattern exclusion rule with ReDoS-safe pattern validation */
 export const GlobExcludeRuleSchema = SelectionRuleBaseSchema.extend({
   type: z.literal('glob-exclude'),
-  patterns: z.array(z.string()).min(1, 'At least one pattern is required'),
+  patterns: z
+    .array(safeGlobPatternSchema)
+    .min(1, 'At least one pattern is required')
+    .max(50, 'Too many patterns (max: 50)'),
   basePath: z.string().optional(),
 });
 

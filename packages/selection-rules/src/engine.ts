@@ -487,16 +487,16 @@ export class SelectionRuleEngine {
     selection: Set<string>,
     _warnings: MaterializationWarning[]
   ): Set<string> {
-    const paths = Array.from(selection);
-    const result = new Set<string>();
+    // Start with a copy of all selected paths
+    const result = new Set(selection);
 
     for (const pattern of rule.patterns) {
       const fullPattern = rule.basePath ? `${rule.basePath}/${pattern}` : pattern;
-      const excludedPaths = new Set(paths.filter((p) => minimatch(p, fullPattern, { dot: true })));
 
-      for (const path of paths) {
-        if (!excludedPaths.has(path)) {
-          result.add(path);
+      // Remove paths that match this exclusion pattern
+      for (const path of result) {
+        if (minimatch(path, fullPattern, { dot: true })) {
+          result.delete(path);
         }
       }
     }

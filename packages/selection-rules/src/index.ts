@@ -77,6 +77,8 @@ export {
   ExplicitRuleSchema,
   GlobExcludeRuleSchema,
   GlobIncludeRuleSchema,
+  // Glob pattern security (ReDoS prevention)
+  type GlobPatternValidationResult,
   // Validation functions
   parseSelectionRule,
   parseSelectionRuleSet,
@@ -98,6 +100,8 @@ export {
   type ValidatedSelectionRule,
   type ValidatedSelectionRuleSet,
   type ValidationResult,
+  validateGlobPattern,
+  validateGlobPatterns,
   validateSelectionRule,
   validateSelectionRuleSet,
 } from './validation';

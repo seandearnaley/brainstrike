@@ -5,9 +5,134 @@ import {
   parseSelectionRuleSet,
   SelectionRuleSchema,
   SelectionRuleSetSchema,
+  validateGlobPattern,
+  validateGlobPatterns,
   validateSelectionRule,
   validateSelectionRuleSet,
 } from '../validation';
+
+describe('glob pattern security (ReDoS prevention)', () => {
+  describe('validateGlobPattern', () => {
+    it('should accept valid simple patterns', () => {
+      expect(validateGlobPattern('*.ts').valid).toBe(true);
+      expect(validateGlobPattern('**/*.tsx').valid).toBe(true);
+      expect(validateGlobPattern('src/**/*.ts').valid).toBe(true);
+      expect(validateGlobPattern('*.{ts,tsx,js}').valid).toBe(true);
+    });
+
+    it('should accept patterns with reasonable globstar count', () => {
+      expect(validateGlobPattern('**/*.ts').valid).toBe(true);
+      expect(validateGlobPattern('src/**/test/**/*.ts').valid).toBe(true);
+      expect(validateGlobPattern('a/**/b/**/c/**/d/**/e.ts').valid).toBe(true); // 4 globstars
+    });
+
+    it('should reject patterns exceeding globstar limit', () => {
+      const result = validateGlobPattern('**/**/**/**/**/**/*.ts'); // 6 globstars
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.reason).toContain('globstar');
+      }
+    });
+
+    it('should reject patterns exceeding length limit', () => {
+      const longPattern = `${'a'.repeat(300)}/*.ts`;
+      const result = validateGlobPattern(longPattern);
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.reason).toContain('length');
+      }
+    });
+
+    it('should reject patterns with three or more consecutive asterisks', () => {
+      const result = validateGlobPattern('***/*.ts');
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.reason).toContain('dangerous');
+      }
+    });
+
+    it('should reject brace expansions with too many options', () => {
+      const manyOptions = Array.from({ length: 25 }, (_, i) => `ext${i}`).join(',');
+      const result = validateGlobPattern(`*.{${manyOptions}}`);
+      expect(result.valid).toBe(false);
+      if (!result.valid) {
+        expect(result.reason).toContain('Brace expansion');
+      }
+    });
+
+    it('should accept brace expansions with reasonable options', () => {
+      expect(validateGlobPattern('*.{ts,tsx,js,jsx,json}').valid).toBe(true);
+    });
+  });
+
+  describe('validateGlobPatterns', () => {
+    it('should accept array of valid patterns', () => {
+      const result = validateGlobPatterns(['*.ts', '**/*.tsx', 'src/**/*.js']);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should reject if any pattern is invalid', () => {
+      const result = validateGlobPatterns(['*.ts', '**/**/**/**/**/**/*.tsx', '*.js']);
+      expect(result.valid).toBe(false);
+    });
+
+    it('should accept empty array', () => {
+      const result = validateGlobPatterns([]);
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  describe('Zod schema integration', () => {
+    it('should reject glob-include rules with dangerous patterns', () => {
+      const dangerousRule = {
+        id: 'dangerous',
+        type: 'glob-include' as const,
+        patterns: ['**/**/**/**/**/**/*.ts'], // 6 globstars - exceeds limit
+        createdAt: '2026-01-02T00:00:00.000Z',
+      };
+
+      const result = validateSelectionRule(dangerousRule);
+      expect(result.success).toBe(false);
+    });
+
+    it('should reject glob-exclude rules with dangerous patterns', () => {
+      const dangerousRule = {
+        id: 'dangerous',
+        type: 'glob-exclude' as const,
+        patterns: ['a'.repeat(300)], // exceeds length limit
+        createdAt: '2026-01-02T00:00:00.000Z',
+      };
+
+      const result = validateSelectionRule(dangerousRule);
+      expect(result.success).toBe(false);
+    });
+
+    it('should accept safe glob patterns in rules', () => {
+      const safeRule = {
+        id: 'safe',
+        type: 'glob-include' as const,
+        patterns: ['**/*.ts', 'src/**/*.tsx', '*.{ts,tsx,js}'],
+        createdAt: '2026-01-02T00:00:00.000Z',
+      };
+
+      const result = validateSelectionRule(safeRule);
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject rules with too many patterns', () => {
+      const tooManyPatterns = Array.from({ length: 55 }, (_, i) => `pattern${i}/*.ts`);
+      const rule = {
+        id: 'too-many',
+        type: 'glob-include' as const,
+        patterns: tooManyPatterns,
+        createdAt: '2026-01-02T00:00:00.000Z',
+      };
+
+      const result = validateSelectionRule(rule);
+      expect(result.success).toBe(false);
+    });
+  });
+});
 
 describe('validation', () => {
   const validExplicitRule: ExplicitRule = {
