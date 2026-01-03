@@ -136,10 +136,9 @@ export function useRuleMaterialization({
   enabled = true,
 }: UseRuleMaterializationProps): UseRuleMaterializationReturn {
   const store = useFileExplorerStoreContext();
-  const [selectionModel, setMaterializedPaths] = store((s) => [
-    s.selectionModel,
-    s.setMaterializedPaths,
-  ]);
+  // Use separate selectors to avoid array reference instability with useSyncExternalStore
+  const selectionModel = store((s) => s.selectionModel);
+  const setMaterializedPaths = store((s) => s.setMaterializedPaths);
 
   const isEvaluatingRef = useRef(false);
   const evaluationErrorRef = useRef<Error | null>(null);

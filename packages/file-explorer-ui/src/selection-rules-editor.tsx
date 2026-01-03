@@ -568,12 +568,11 @@ export const SelectionRulesEditor = memo<SelectionRulesEditorProps>(function Sel
   folderId,
 }) {
   const store = useFileExplorerStoreContext();
-  const [selectionModel, setSelectionRules, setSelectionMode, clearSelectionRules] = store((s) => [
-    s.selectionModel,
-    s.setSelectionRules,
-    s.setSelectionMode,
-    s.clearSelectionRules,
-  ]);
+  // Use separate selectors to avoid array reference instability with useSyncExternalStore
+  const selectionModel = store((s) => s.selectionModel);
+  const setSelectionRules = store((s) => s.setSelectionRules);
+  const setSelectionMode = store((s) => s.setSelectionMode);
+  const clearSelectionRules = store((s) => s.clearSelectionRules);
 
   const handleSave = useCallback(
     (ruleSetJson: string) => {

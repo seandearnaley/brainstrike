@@ -194,6 +194,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const stableFileTree = useMemo(() => fileTree || [], [fileTree]);
 
   // Materialize selection rules against the file tree when in 'rules' mode
+  // Note: useRuleMaterialization already uses the single-selector pattern
+  // (selects entire selectionModel object once), which is safe for React Compiler.
   useRuleMaterialization({
     fileTree: stableFileTree,
     enabled: !isLoading,
@@ -463,13 +465,12 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               selectedFiles={safeSelectedFilesList}
               setSelectedFiles={safeSetSelectedFilesFromList}
             />
-            {/* Selection mode toggle - allows switching between manual and rules-based selection */}
-            {rootDirectoryHandle && (
-              <SelectionModeBadge
-                onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
-                rulesEditorAvailable={true}
-              />
-            )}
+            {/* Selection mode toggle */}
+            <SelectionModeBadge
+              onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
+              rulesEditorAvailable={true}
+              show={!!rootDirectoryHandle}
+            />
           </div>
         </div>
 
