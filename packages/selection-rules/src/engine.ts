@@ -202,7 +202,10 @@ export class SelectionRuleEngine {
 
     this.collectDisabledWarnings(warnings);
 
-    let selection = this.processInclusionRules(tree, warnings, appliedRules);
+    // Cache all file paths once for performance (avoids re-materializing for each glob rule)
+    const allPaths = Array.from(tree.getAllFilePaths());
+
+    let selection = this.processInclusionRules(tree, allPaths, warnings, appliedRules);
     selection = this.processExclusionRules(selection, warnings, appliedRules);
     selection = this.processExplicitRules(selection, tree, warnings, appliedRules);
 
@@ -233,13 +236,14 @@ export class SelectionRuleEngine {
 
   private processInclusionRules(
     tree: TreeAdapter,
+    allPaths: string[],
     warnings: MaterializationWarning[],
     appliedRules: string[]
   ): Set<string> {
     const selection = new Set<string>();
 
     for (const rule of this.enabledRules) {
-      const added = this.getIncludedPaths(rule, tree, warnings);
+      const added = this.getIncludedPaths(rule, tree, allPaths, warnings);
       if (added) {
         this.addPathsToSelection(added, selection, rule.id, appliedRules);
       }
@@ -251,13 +255,14 @@ export class SelectionRuleEngine {
   private getIncludedPaths(
     rule: SelectionRule,
     tree: TreeAdapter,
+    allPaths: string[],
     warnings: MaterializationWarning[]
   ): Set<string> | null {
     if (isRootIncludeRule(rule)) {
       return this.applyRootInclude(rule, tree, warnings);
     }
     if (isGlobIncludeRule(rule)) {
-      return this.applyGlobInclude(rule, tree, warnings);
+      return this.applyGlobInclude(rule, allPaths, warnings);
     }
     return null;
   }
@@ -433,11 +438,10 @@ export class SelectionRuleEngine {
 
   private applyGlobInclude(
     rule: GlobIncludeRule,
-    tree: TreeAdapter,
+    allPaths: string[],
     warnings: MaterializationWarning[]
   ): Set<string> {
     const result = new Set<string>();
-    const allPaths = Array.from(tree.getAllFilePaths());
 
     for (const pattern of rule.patterns) {
       const fullPattern = rule.basePath ? `${rule.basePath}/${pattern}` : pattern;
