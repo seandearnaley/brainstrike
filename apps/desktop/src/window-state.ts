@@ -1,4 +1,4 @@
-import type { BrowserWindow, Rectangle } from 'electron';
+import { type BrowserWindow, type Rectangle, screen } from 'electron';
 import type ElectronStore from 'electron-store';
 import type {
   DesktopSettingsStoreSchema,
@@ -6,8 +6,8 @@ import type {
   DesktopWindowState,
 } from './store-schema';
 
-const WINDOW_STATE_KEY = 'windowState';
-const WINDOW_STATE_DEBOUNCE_MS = 200;
+const WINDOW_STATE_KEY = 'windowState' satisfies keyof DesktopSettingsStoreSchema;
+const WINDOW_STATE_DEBOUNCE_MS = 200; // Debounce state persistence to reduce disk writes during window interactions.
 
 const DEFAULT_WINDOW_BOUNDS: DesktopWindowBounds = {
   width: 1536,
@@ -19,23 +19,16 @@ const MIN_WINDOW_BOUNDS = {
   height: 600,
 };
 
-type StoreWithGet = {
-  get: (key: string) => unknown;
+type WindowStateStore = ElectronStore<DesktopSettingsStoreSchema> & {
+  get: (key: typeof WINDOW_STATE_KEY) => DesktopSettingsStoreSchema[typeof WINDOW_STATE_KEY];
+  set: (
+    key: typeof WINDOW_STATE_KEY,
+    value: DesktopSettingsStoreSchema[typeof WINDOW_STATE_KEY]
+  ) => void;
 };
 
-type StoreWithSet = {
-  set: (key: string, value: unknown) => void;
-};
-
-const hasStoreGet = (
-  store: ElectronStore<DesktopSettingsStoreSchema>
-): store is ElectronStore<DesktopSettingsStoreSchema> & StoreWithGet =>
-  typeof (store as Partial<StoreWithGet>).get === 'function';
-
-const hasStoreSet = (
-  store: ElectronStore<DesktopSettingsStoreSchema>
-): store is ElectronStore<DesktopSettingsStoreSchema> & StoreWithSet =>
-  typeof (store as Partial<StoreWithSet>).set === 'function';
+const asWindowStateStore = (store: ElectronStore<DesktopSettingsStoreSchema>): WindowStateStore =>
+  store as WindowStateStore;
 
 const isFiniteNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
@@ -46,17 +39,17 @@ const toRoundedNumber = (value: unknown): number | undefined =>
 const normalizeBounds = (
   raw: Partial<DesktopWindowBounds> | Rectangle | null | undefined
 ): DesktopWindowBounds => {
-  const width = Math.max(
+  const normalizedWidth = Math.max(
     MIN_WINDOW_BOUNDS.width,
     toRoundedNumber(raw?.width) ?? DEFAULT_WINDOW_BOUNDS.width
   );
-  const height = Math.max(
+  const normalizedHeight = Math.max(
     MIN_WINDOW_BOUNDS.height,
     toRoundedNumber(raw?.height) ?? DEFAULT_WINDOW_BOUNDS.height
   );
   const x = toRoundedNumber(raw?.x);
   const y = toRoundedNumber(raw?.y);
-  const normalized: DesktopWindowBounds = { width, height };
+  const normalized: DesktopWindowBounds = { width: normalizedWidth, height: normalizedHeight };
 
   if (x !== undefined) {
     normalized.x = x;
@@ -92,6 +85,84 @@ export const getDefaultWindowState = (): DesktopWindowState => ({
   isMaximized: true,
 });
 
+const rectanglesIntersect = (first: Rectangle, second: Rectangle): boolean => {
+  const left = Math.max(first.x, second.x);
+  const right = Math.min(first.x + first.width, second.x + second.width);
+  const top = Math.max(first.y, second.y);
+  const bottom = Math.min(first.y + first.height, second.y + second.height);
+
+  return right > left && bottom > top;
+};
+
+const clampSizeToWorkArea = (
+  bounds: DesktopWindowBounds,
+  workArea: Rectangle
+): DesktopWindowBounds => ({
+  ...bounds,
+  width: Math.min(bounds.width, workArea.width),
+  height: Math.min(bounds.height, workArea.height),
+});
+
+const clampBoundsToWorkArea = (
+  bounds: DesktopWindowBounds,
+  workArea: Rectangle
+): DesktopWindowBounds => {
+  const width = Math.min(bounds.width, workArea.width);
+  const height = Math.min(bounds.height, workArea.height);
+  const x = bounds.x ?? workArea.x;
+  const y = bounds.y ?? workArea.y;
+
+  return {
+    width,
+    height,
+    x: Math.min(Math.max(x, workArea.x), workArea.x + workArea.width - width),
+    y: Math.min(Math.max(y, workArea.y), workArea.y + workArea.height - height),
+  };
+};
+
+export const ensureWindowBoundsVisible = (state: DesktopWindowState): DesktopWindowState => {
+  const { bounds } = state;
+  const displays = screen.getAllDisplays();
+
+  if (displays.length === 0) {
+    return state;
+  }
+
+  const primaryDisplay = displays[0];
+  if (!primaryDisplay) {
+    return state;
+  }
+
+  if (bounds.x === undefined || bounds.y === undefined) {
+    return {
+      ...state,
+      bounds: clampSizeToWorkArea(bounds, primaryDisplay.workArea),
+    };
+  }
+
+  const windowRect: Rectangle = {
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+  };
+  const matchingDisplay = displays.find((display) =>
+    rectanglesIntersect(windowRect, display.workArea)
+  );
+
+  if (!matchingDisplay) {
+    return {
+      ...state,
+      bounds: clampSizeToWorkArea(getDefaultWindowState().bounds, primaryDisplay.workArea),
+    };
+  }
+
+  return {
+    ...state,
+    bounds: clampBoundsToWorkArea(bounds, matchingDisplay.workArea),
+  };
+};
+
 export const resolveInitialWindowState = (
   stored: DesktopWindowState | null | undefined
 ): DesktopWindowState => stored ?? getDefaultWindowState();
@@ -100,12 +171,7 @@ export const readStoredWindowState = (
   store: ElectronStore<DesktopSettingsStoreSchema>
 ): DesktopWindowState | null => {
   try {
-    if (!hasStoreGet(store)) {
-      return null;
-    }
-    const record = store.get(WINDOW_STATE_KEY) as
-      | DesktopSettingsStoreSchema['windowState']
-      | undefined;
+    const record = asWindowStateStore(store).get(WINDOW_STATE_KEY);
     return normalizeWindowState(record?.v1);
   } catch {
     return null;
@@ -129,10 +195,7 @@ export const persistWindowState = (
   state: DesktopWindowState
 ): void => {
   try {
-    if (!hasStoreSet(store)) {
-      return;
-    }
-    store.set(WINDOW_STATE_KEY, { v1: state });
+    asWindowStateStore(store).set(WINDOW_STATE_KEY, { v1: state });
   } catch {
     // Persistence failures should not crash the app.
   }

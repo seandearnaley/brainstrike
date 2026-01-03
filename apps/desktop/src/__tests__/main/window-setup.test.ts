@@ -53,6 +53,9 @@ vi.mock('electron', () => ({
   BrowserWindow: mockBrowserWindow,
   session: mockSession,
   app: mockApp,
+  screen: {
+    getAllDisplays: vi.fn(() => [{ workArea: { x: 0, y: 0, width: 1536, height: 800 } }]),
+  },
   ipcMain: { handle: vi.fn() },
   Menu: {
     setApplicationMenu: vi.fn(),

@@ -77,7 +77,7 @@ describe('createWindow', () => {
       await createWindow();
 
       expect(BrowserWindow).toHaveBeenCalledWith({
-        width: 1536,
+        width: 1440,
         height: 800,
         minWidth: 800,
         minHeight: 600,
@@ -158,12 +158,32 @@ describe('createWindow', () => {
 
       expect(args).toEqual(
         expect.objectContaining({
-          width: 1536,
+          width: 1200,
           height: 800,
         })
       );
       expect('x' in args).toBe(false);
       expect('y' in args).toBe(false);
+    });
+
+    it('should clamp window size when position is undefined but size exceeds screen', async () => {
+      existsSyncMock.mockReturnValue(true);
+      screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1200, height: 800 } }]);
+
+      const storedState: DesktopWindowState = {
+        bounds: { width: 3000, height: 2000 },
+        isFullScreen: false,
+        isMaximized: true,
+      };
+
+      await createWindow({ windowState: storedState });
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          width: 1200,
+          height: 800,
+        })
+      );
     });
 
     it('should disable sandbox in CI environment for Playwright compatibility', async () => {
