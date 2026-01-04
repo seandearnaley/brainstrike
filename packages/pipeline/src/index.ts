@@ -64,6 +64,15 @@ export {
   // Type casts
   toFileId,
 } from './identifiers.js';
+// Streaming orchestrator (BST-156)
+export {
+  type FileProcessResult,
+  type ProcessFileCallback,
+  type StreamingImportInput,
+  type StreamingProgress,
+  type StreamingProgressCallback,
+  streamingImport,
+} from './streaming-orchestrator.js';
 // Types
 export type {
   ChunkId,
@@ -72,6 +81,8 @@ export type {
   ChunkingStrategy,
   ChunkOutput,
   ContentHash,
+  // Streaming types (BST-156)
+  ContentReader,
   DbMapping,
   // Schema mapping
   DedupeKeyFormat,
@@ -90,4 +101,7 @@ export type {
   PipelineProgress,
   // Progress types
   StageProgress,
+  StreamingFileResult,
+  StreamingImportOptions,
+  StreamingImportResult,
 } from './types.js';

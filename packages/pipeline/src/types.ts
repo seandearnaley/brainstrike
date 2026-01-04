@@ -275,6 +275,132 @@ export type DedupeKeyFormat = {
 };
 
 // =============================================================================
+// STREAMING IMPORT TYPES (BST-156)
+// =============================================================================
+
+/**
+ * Content reader interface for lazy/on-demand file content loading.
+ *
+ * This replaces the `fileContents: Record<string, string>` pattern
+ * which loads all content into memory upfront. With ContentReader,
+ * content is loaded one file at a time and can be released after processing.
+ *
+ * @example
+ * ```typescript
+ * const reader: ContentReader = {
+ *   async readContent(path) {
+ *     const content = await fs.readFile(path, 'utf-8');
+ *     return content;
+ *   }
+ * };
+ * ```
+ */
+export type ContentReader = {
+  /**
+   * Read content for a single file path on-demand.
+   *
+   * @param compositeKey - The file's composite key (folderId:path format)
+   * @returns File content as string, or null if file cannot be read
+   */
+  readContent(compositeKey: string): Promise<string | null>;
+
+  /**
+   * Optional: prefetch a batch of files for network optimization.
+   * Called before processing a batch to allow parallel network requests.
+   *
+   * @param compositeKeys - Array of composite keys to prefetch
+   */
+  prefetchBatch?(compositeKeys: string[]): Promise<void>;
+
+  /**
+   * Optional: release content after processing to allow GC.
+   * Called after a file has been fully processed (imported + chunked).
+   *
+   * @param compositeKey - The file's composite key
+   */
+  releaseContent?(compositeKey: string): void;
+};
+
+/**
+ * Streaming import configuration options.
+ */
+export type StreamingImportOptions = {
+  /**
+   * Number of files to process concurrently.
+   * Higher values increase throughput but use more memory.
+   * @default 1 (sequential processing for minimum memory)
+   */
+  concurrency?: number;
+
+  /**
+   * Number of files to prefetch ahead of processing.
+   * Useful when content comes from network (e.g., Web API).
+   * @default 0 (no prefetch)
+   */
+  prefetchAhead?: number;
+
+  /**
+   * Whether to continue processing on individual file errors.
+   * If false, first error stops the entire pipeline.
+   * @default true (isolate errors to individual files)
+   */
+  continueOnError?: boolean;
+
+  /**
+   * Progress update throttle in milliseconds.
+   * Lower values = more frequent updates but higher overhead.
+   * @default 100
+   */
+  progressThrottleMs?: number;
+};
+
+/**
+ * Result from streaming a single file through the pipeline.
+ */
+export type StreamingFileResult = {
+  /** File path that was processed */
+  path: string;
+  /** Composite key (folderId:path) */
+  compositeKey: string;
+  /** Whether import succeeded */
+  imported: boolean;
+  /** Whether file already existed */
+  existed: boolean;
+  /** File record ID if successful */
+  fileId?: FileId;
+  /** Number of chunks created */
+  chunksCreated: number;
+  /** Number of embedding jobs enqueued */
+  jobsEnqueued: number;
+  /** Error message if failed */
+  error?: string;
+  /** Processing time in ms */
+  durationMs: number;
+};
+
+/**
+ * Streaming import completion result.
+ */
+export type StreamingImportResult = {
+  /** All file results */
+  files: StreamingFileResult[];
+  /** Total files processed */
+  totalFiles: number;
+  /** Successfully imported files */
+  successCount: number;
+  /** Files with errors */
+  errorCount: number;
+  /** Total chunks created */
+  totalChunks: number;
+  /** Total jobs enqueued */
+  totalJobsEnqueued: number;
+  /** Total duration in ms */
+  durationMs: number;
+  /** Peak memory usage estimate (if available) */
+  peakMemoryMb?: number;
+};
+
+// =============================================================================
 // DATABASE MAPPING TYPES
 // =============================================================================
 
