@@ -171,6 +171,12 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
         break;
       }
 
+      case 'flattenTree': {
+        const { expandedPaths } = message.payload;
+        engine.flattenTree(expandedPaths);
+        break;
+      }
+
       default: {
         log('warn', 'unknown message type', { type: messageType });
         self.postMessage({

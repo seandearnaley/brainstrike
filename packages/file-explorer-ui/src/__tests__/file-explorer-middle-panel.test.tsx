@@ -162,6 +162,7 @@ describe('FileExplorerMiddlePanel', () => {
       expandAllProgress: null,
       isRestoringExpandedPaths: false,
       restorationProgress: null,
+      cancelChildLoading: vi.fn(),
     });
 
     handleSelectionChangeMock = vi.fn();
@@ -306,6 +307,7 @@ describe('FileExplorerMiddlePanel', () => {
       expandAllProgress: null,
       isRestoringExpandedPaths: false,
       restorationProgress: null,
+      cancelChildLoading: vi.fn(),
     });
 
     vi.mocked(useSelectionManager).mockReturnValue({

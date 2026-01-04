@@ -189,6 +189,7 @@ describe('useFileExplorer (context)', () => {
       isExpandingAll: false,
       expandAllProgress: null,
       loadSpecificPaths: vi.fn(),
+      cancelChildLoading: vi.fn(),
     });
 
     vi.mocked(useFileContentLoading).mockReturnValue({

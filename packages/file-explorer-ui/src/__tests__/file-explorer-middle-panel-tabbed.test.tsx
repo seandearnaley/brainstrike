@@ -197,6 +197,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       expandAllProgress: null,
       isRestoringExpandedPaths: false,
       restorationProgress: null,
+      cancelChildLoading: vi.fn(),
     });
 
     const previewPanelModule = await import('../preview-panel');
@@ -271,6 +272,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       expandAllProgress: null,
       isRestoringExpandedPaths: false,
       restorationProgress: null,
+      cancelChildLoading: vi.fn(),
     });
 
     const previewPanelModule = await import('../preview-panel');

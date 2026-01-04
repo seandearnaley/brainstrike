@@ -23,6 +23,7 @@ export * from './logging-initializer';
 export * from './logging-preferences';
 export * from './path-filter';
 export * from './path-utils';
+export * from './perf-timing';
 export * from './quick-filter-utils';
 export * from './report-generator';
 export * from './safe-storage';

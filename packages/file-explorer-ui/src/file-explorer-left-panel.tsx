@@ -140,6 +140,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     clearRootDirectory,
     loadingPaths,
     loadChildren,
+    cancelChildLoading,
     expandAllProgressively,
     cancelExpandAll,
     isExpandingAll,
@@ -465,6 +466,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           <div className="h-full overflow-y-auto">
             <Suspense fallback={<LoadingFallback />}>
               <FileExplorerSidebar
+                cancelChildLoading={cancelChildLoading}
                 currentFolderId={currentFolderId}
                 filterError={filterErrorAsError}
                 isInitialLoad={isInitialLoad}

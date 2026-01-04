@@ -76,6 +76,8 @@ type UseFileExplorerReturn = {
   loadingPaths: Set<string>;
   /** Load children of a directory on expand (lazy loading) */
   loadChildren: (path: string) => Promise<void>;
+  /** Cancel loading for a specific directory (e.g., on collapse) */
+  cancelChildLoading: (path: string) => void;
   /** Refresh a specific directory */
   refreshDirectory: (path: string) => Promise<void>;
   /** Progressively expand all directories (loads everything) */
@@ -149,6 +151,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     isCancelling,
     loadingPaths,
     loadChildren,
+    cancelChildLoading,
     refreshDirectory,
     expandAllProgressively,
     cancelExpandAll,
@@ -402,6 +405,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     clearRootDirectory,
     loadingPaths,
     loadChildren,
+    cancelChildLoading,
     refreshDirectory,
     expandAllProgressively,
     cancelExpandAll,
