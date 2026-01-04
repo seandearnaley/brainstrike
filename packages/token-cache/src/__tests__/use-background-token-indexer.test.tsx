@@ -95,6 +95,7 @@ describe('useBackgroundTokenIndexer', () => {
           filePath: 'file.txt',
           contentHash: 'hash',
           fileSize: 128,
+          mtimeMs: null, // BST-152: Required field in IndexerResult
           mode: 'heuristic',
           tokenCount: 42,
         },
@@ -232,6 +233,7 @@ describe('useBackgroundTokenIndexer', () => {
           filePath: 'file.txt',
           contentHash: 'hash',
           fileSize: 128,
+          mtimeMs: null, // BST-152: Required field in IndexerResult
           mode: 'accurate',
           tokenCount: 99,
         },
@@ -345,6 +347,7 @@ describe('useBackgroundTokenIndexer', () => {
             filePath: 'file.txt',
             contentHash: 'hash',
             fileSize: 128,
+            mtimeMs: null, // BST-152: Required field in IndexerResult
             mode: 'heuristic',
             tokenCount: 50,
           },
@@ -520,6 +523,217 @@ describe('useBackgroundTokenIndexer', () => {
       // activeBatches should be cleared
       expect(result.current.activeBatches.size).toBe(0);
       expect(result.current.isIndexing).toBe(false);
+    });
+  });
+
+  describe('BST-152: Metadata-based cache invalidation', () => {
+    it('skips worker entirely (Tier 1) when mtimeMs and fileSize match cached entry', async () => {
+      const cachedEntry: TokenCacheEntry = {
+        folderId: 'folder',
+        filePath: 'file.txt',
+        contentHash: 'abc123',
+        fileSize: 256,
+        mtimeMs: 1_700_000_000_000, // Valid mtimeMs for Tier 1 validation
+        tokenCount: 100,
+        countingMode: 'heuristic',
+        modelEncoding: null,
+      };
+
+      const store = {
+        get: vi.fn(async () => cachedEntry),
+        set: vi.fn(async () => {}),
+      };
+
+      const onFileIndexed = vi.fn();
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store,
+          mode: 'heuristic',
+          onFileIndexed,
+        })
+      );
+
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      // Index a file with matching mtimeMs and fileSize (Tier 1 skip)
+      await act(async () => {
+        result.current.indexFiles([
+          {
+            compositeKey: 'folder|@|file.txt',
+            folderId: 'folder',
+            filePath: 'file.txt',
+            mtimeMs: 1_700_000_000_000, // Matches cached
+            fileSize: 256, // Matches cached
+          },
+        ]);
+      });
+
+      // Should have called onFileIndexed directly without worker
+      expect(onFileIndexed).toHaveBeenCalledWith('folder|@|file.txt', 100);
+
+      // No messages sent to worker (beyond ready)
+      const worker = mockWorkers[0]!;
+      const batchMessages = worker.postedMessages.filter(
+        (m) =>
+          typeof m === 'object' && m !== null && (m as { type?: string }).type === 'index-batch'
+      );
+      expect(batchMessages).toHaveLength(0);
+
+      // Should not be stuck in indexing state
+      expect(result.current.isIndexing).toBe(false);
+    });
+
+    it('sends to worker (no Tier 1 skip) when mtimeMs differs from cached', async () => {
+      const cachedEntry: TokenCacheEntry = {
+        folderId: 'folder',
+        filePath: 'file.txt',
+        contentHash: 'abc123',
+        fileSize: 256,
+        mtimeMs: 1_700_000_000_000,
+        tokenCount: 100,
+        countingMode: 'heuristic',
+        modelEncoding: null,
+      };
+
+      const store = {
+        get: vi.fn(async () => cachedEntry),
+        set: vi.fn(async () => {}),
+      };
+
+      const onFileIndexed = vi.fn();
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store,
+          mode: 'heuristic',
+          onFileIndexed,
+        })
+      );
+
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      // Index a file with DIFFERENT mtimeMs (file was modified)
+      await act(async () => {
+        await result.current.indexFiles([
+          {
+            compositeKey: 'folder|@|file.txt',
+            folderId: 'folder',
+            filePath: 'file.txt',
+            mtimeMs: 1_700_000_001_000, // Different from cached!
+            fileSize: 256,
+          },
+        ]);
+      });
+
+      // Should NOT have called onFileIndexed yet (awaiting worker)
+      expect(onFileIndexed).not.toHaveBeenCalled();
+
+      // Should have sent batch to worker
+      const worker = mockWorkers[0]!;
+      const batchMessages = worker.postedMessages.filter(
+        (m) =>
+          typeof m === 'object' && m !== null && (m as { type?: string }).type === 'index-batch'
+      );
+      expect(batchMessages).toHaveLength(1);
+    });
+
+    it('sends to worker when cached entry has null mtimeMs (Tier 1 validation not possible)', async () => {
+      const cachedEntry: TokenCacheEntry = {
+        folderId: 'folder',
+        filePath: 'file.txt',
+        contentHash: 'abc123',
+        fileSize: 256,
+        mtimeMs: null, // No mtime cached - Tier 1 validation not possible
+        tokenCount: 100,
+        countingMode: 'heuristic',
+        modelEncoding: null,
+      };
+
+      const store = {
+        get: vi.fn(async () => cachedEntry),
+        set: vi.fn(async () => {}),
+      };
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store,
+          mode: 'heuristic',
+        })
+      );
+
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      await act(async () => {
+        await result.current.indexFiles([
+          {
+            compositeKey: 'folder|@|file.txt',
+            folderId: 'folder',
+            filePath: 'file.txt',
+            mtimeMs: 1_700_000_000_000,
+            fileSize: 256,
+          },
+        ]);
+      });
+
+      // Should have sent batch to worker (can't do Tier 1 skip)
+      const worker = mockWorkers[0]!;
+      const batchMessages = worker.postedMessages.filter(
+        (m) =>
+          typeof m === 'object' && m !== null && (m as { type?: string }).type === 'index-batch'
+      );
+      expect(batchMessages).toHaveLength(1);
+    });
+
+    it('includes mtimeMs in worker request when provided', async () => {
+      const store = {
+        get: vi.fn(async () => null),
+        set: vi.fn(async () => {}),
+      };
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store,
+          mode: 'heuristic',
+        })
+      );
+
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      await act(async () => {
+        await result.current.indexFiles([
+          {
+            compositeKey: 'folder|@|new-file.txt',
+            folderId: 'folder',
+            filePath: 'new-file.txt',
+            mtimeMs: 1_700_000_000_000,
+            fileSize: 512,
+            content: 'test content',
+          },
+        ]);
+      });
+
+      // Check that mtimeMs is included in the request
+      const worker = mockWorkers[0]!;
+      const batchMessage = worker.postedMessages.find(
+        (m): m is { type: string; requests: Array<{ mtimeMs?: number }> } =>
+          typeof m === 'object' && m !== null && (m as { type?: string }).type === 'index-batch'
+      );
+
+      expect(batchMessage).toBeDefined();
+      expect(batchMessage?.requests[0]?.mtimeMs).toBe(1_700_000_000_000);
     });
   });
 });

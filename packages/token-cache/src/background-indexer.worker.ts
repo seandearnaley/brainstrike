@@ -78,6 +78,8 @@ export type IndexerRequest = {
   content?: string;
   /** Pre-loaded file size in bytes */
   fileSize?: number;
+  /** File modification time in milliseconds (BST-152) */
+  mtimeMs?: number;
   /** Web FileSystemFileHandle for File System Access API (Web only) */
   fileHandle?: FileSystemFileHandle;
   cachedHash: string | undefined; // If provided, skip if hash matches
@@ -101,6 +103,8 @@ export type IndexerResult = {
   contentHash: string;
   mode: TokenCountingMode;
   fileSize: number;
+  /** File modification time in milliseconds (BST-152) */
+  mtimeMs: number | null;
   skipped: boolean; // True if hash matched and counting was skipped
 };
 
@@ -271,20 +275,23 @@ function isBinaryContent(content: string): boolean {
 
 /**
  * Read file content - uses pre-loaded content for Electron, FileSystemFileHandle for Web
+ * Returns mtimeMs from File.lastModified (Web) or from request (Electron) for BST-152 cache validation
  */
 async function readFileContent(
   request: Omit<IndexerRequest, 'type'>
-): Promise<{ content: string; fileSize: number }> {
+): Promise<{ content: string; fileSize: number; mtimeMs: number | null }> {
   // Pre-loaded content (required for Electron, optional optimization for Web)
   if (request.content !== undefined) {
     const fileSize = request.fileSize ?? new Blob([request.content]).size;
-    return { content: request.content, fileSize };
+    // Use mtimeMs from request if provided (Electron), otherwise null
+    return { content: request.content, fileSize, mtimeMs: request.mtimeMs ?? null };
   }
 
   // Web File System Access API (works in workers)
   if (request.fileHandle) {
     const file = await request.fileHandle.getFile();
-    return { content: await file.text(), fileSize: file.size };
+    // File.lastModified is milliseconds since epoch (BST-152)
+    return { content: await file.text(), fileSize: file.size, mtimeMs: file.lastModified };
   }
 
   throw new Error(
@@ -311,8 +318,8 @@ async function processFile(
       hasContent: request.content !== undefined,
     });
     // Read file content using appropriate method
-    const { content, fileSize } = await readFileContent(request);
-    log('debug', 'processFile file read', { fileSize });
+    const { content, fileSize, mtimeMs } = await readFileContent(request);
+    log('debug', 'processFile file read', { fileSize, mtimeMs });
 
     // Check for binary content
     if (isBinaryContent(content)) {
@@ -345,6 +352,7 @@ async function processFile(
         contentHash,
         mode: request.mode,
         fileSize,
+        mtimeMs,
         skipped: true,
       };
     }
@@ -366,6 +374,7 @@ async function processFile(
       contentHash,
       mode: request.mode,
       fileSize,
+      mtimeMs,
       skipped: false,
     };
   } catch (error) {

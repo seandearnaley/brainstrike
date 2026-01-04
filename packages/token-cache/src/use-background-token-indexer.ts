@@ -44,19 +44,29 @@ async function persistResultToStore(
   onFileIndexed?: (compositeKey: string, tokenCount: number) => void
 ): Promise<void> {
   if (result.skipped) {
+    // BST-152: Even for skipped results, update mtimeMs if it changed
+    // This keeps the cache metadata fresh for future quick validations
     const cached = await store.get(result.folderId, result.filePath);
     if (cached) {
+      // Update mtime if it changed (file was re-validated but content unchanged)
+      if (result.mtimeMs !== null && cached.mtimeMs !== result.mtimeMs) {
+        await store.set({
+          ...cached,
+          mtimeMs: result.mtimeMs,
+        });
+      }
       onFileIndexed?.(result.compositeKey, cached.tokenCount);
     }
     return;
   }
 
+  // BST-152: Save actual mtimeMs from worker result for future quick validation
   const entry: TokenCacheEntry = {
     folderId: result.folderId,
     filePath: result.filePath,
     contentHash: result.contentHash,
     fileSize: result.fileSize,
-    mtimeMs: null,
+    mtimeMs: result.mtimeMs,
     tokenCount: result.tokenCount,
     countingMode: result.mode,
     modelEncoding: result.mode === 'accurate' ? 'o200k_base' : null,
@@ -87,6 +97,8 @@ export type FileToIndex = {
   content?: string;
   /** Pre-loaded file size in bytes */
   fileSize?: number;
+  /** File modification time in milliseconds (BST-152: for quick cache validation) */
+  mtimeMs?: number;
   /** Web FileSystemFileHandle for File System Access API */
   fileHandle?: FileSystemFileHandle;
 };
@@ -523,13 +535,16 @@ export function useBackgroundTokenIndexer({
         const requests: IndexerBatchRequest['requests'] = [];
 
         for (const file of files) {
+          // Add to pending BEFORE any async operations to ensure consistent state
+          // (Worker may respond before async ops complete in tests/fast scenarios)
           pendingFilesRef.current.add(file.compositeKey);
 
-          // Check for cached hash to enable skip optimization (only if store is available)
+          // Check for cached entry to enable skip optimizations (only if store is available)
           let cachedHash: string | undefined;
+          let cached: TokenCacheEntry | null = null;
           if (currentStore) {
             try {
-              const cached = await currentStore.get(file.folderId, file.filePath);
+              cached = await currentStore.get(file.folderId, file.filePath);
               cachedHash = cached?.countingMode === currentMode ? cached.contentHash : undefined;
             } catch (error) {
               logger.error('indexFiles cache lookup failed', {
@@ -542,6 +557,51 @@ export function useBackgroundTokenIndexer({
             }
           }
 
+          // BST-152: Tier 1 quick validation - compare metadata before sending to worker
+          // If mtimeMs + fileSize match and mode is same, skip entirely
+          if (cached && cached.countingMode === currentMode && cached.mtimeMs !== null) {
+            let currentMtimeMs: number | null = null;
+            let currentFileSize: number | null = null;
+
+            // Get current file metadata based on source
+            if (file.fileHandle) {
+              // Web: Get metadata from FileSystemFileHandle (cheap, no content read)
+              try {
+                const fileObj = await file.fileHandle.getFile();
+                currentMtimeMs = fileObj.lastModified;
+                currentFileSize = fileObj.size;
+              } catch {
+                // Handle access error - file may have been deleted or moved
+                currentMtimeMs = null;
+              }
+            } else if (file.mtimeMs !== undefined && file.fileSize !== undefined) {
+              // Electron: Use pre-provided metadata
+              currentMtimeMs = file.mtimeMs;
+              currentFileSize = file.fileSize;
+            }
+
+            // If metadata matches, skip entirely (Tier 1 cache hit)
+            if (
+              currentMtimeMs !== null &&
+              currentFileSize !== null &&
+              cached.mtimeMs === currentMtimeMs &&
+              cached.fileSize === currentFileSize
+            ) {
+              logger.debug('Tier 1 cache hit - metadata unchanged', {
+                compositeKey: file.compositeKey,
+                mtimeMs: currentMtimeMs,
+                fileSize: currentFileSize,
+              });
+              // Remove from pending since we're skipping
+              pendingFilesRef.current.delete(file.compositeKey);
+              // Notify with cached token count directly
+              const currentOnFileIndexed = onFileIndexedRef.current;
+              currentOnFileIndexed?.(file.compositeKey, cached.tokenCount);
+              continue;
+            }
+          }
+
+          // Build request for worker (file already in pending)
           requests.push({
             id: createRequestId(),
             compositeKey: file.compositeKey,
@@ -552,6 +612,7 @@ export function useBackgroundTokenIndexer({
             // Include pre-loaded content for Electron files
             ...(file.content !== undefined ? { content: file.content } : {}),
             ...(file.fileSize !== undefined ? { fileSize: file.fileSize } : {}),
+            ...(file.mtimeMs !== undefined ? { mtimeMs: file.mtimeMs } : {}),
             // Include file handle for Web files
             ...(file.fileHandle ? { fileHandle: file.fileHandle } : {}),
           });
@@ -627,13 +688,15 @@ export function useBackgroundTokenIndexer({
         const requests: IndexerBatchRequest['requests'] = [];
 
         for (const file of files) {
+          // Add to pending BEFORE any async operations to ensure consistent state
           pendingFilesRef.current.add(file.compositeKey);
 
-          // Check for cached hash to enable skip optimization (only if store is available)
+          // Check for cached entry to enable skip optimizations (only if store is available)
           let cachedHash: string | undefined;
+          let cached: TokenCacheEntry | null = null;
           if (currentStore) {
             try {
-              const cached = await currentStore.get(file.folderId, file.filePath);
+              cached = await currentStore.get(file.folderId, file.filePath);
               cachedHash = cached?.countingMode === currentMode ? cached.contentHash : undefined;
             } catch (error) {
               logger.error('indexFilesWithPriority cache lookup failed', {
@@ -646,6 +709,52 @@ export function useBackgroundTokenIndexer({
             }
           }
 
+          // BST-152: Tier 1 quick validation - compare metadata before sending to worker
+          // If mtimeMs + fileSize match and mode is same, skip entirely
+          if (cached && cached.countingMode === currentMode && cached.mtimeMs !== null) {
+            let currentMtimeMs: number | null = null;
+            let currentFileSize: number | null = null;
+
+            // Get current file metadata based on source
+            if (file.fileHandle) {
+              // Web: Get metadata from FileSystemFileHandle (cheap, no content read)
+              try {
+                const fileObj = await file.fileHandle.getFile();
+                currentMtimeMs = fileObj.lastModified;
+                currentFileSize = fileObj.size;
+              } catch {
+                // Handle access error - file may have been deleted or moved
+                currentMtimeMs = null;
+              }
+            } else if (file.mtimeMs !== undefined && file.fileSize !== undefined) {
+              // Electron: Use pre-provided metadata
+              currentMtimeMs = file.mtimeMs;
+              currentFileSize = file.fileSize;
+            }
+
+            // If metadata matches, skip entirely (Tier 1 cache hit)
+            if (
+              currentMtimeMs !== null &&
+              currentFileSize !== null &&
+              cached.mtimeMs === currentMtimeMs &&
+              cached.fileSize === currentFileSize
+            ) {
+              logger.debug('Tier 1 cache hit (priority) - metadata unchanged', {
+                compositeKey: file.compositeKey,
+                mtimeMs: currentMtimeMs,
+                fileSize: currentFileSize,
+                priority,
+              });
+              // Remove from pending since we're skipping
+              pendingFilesRef.current.delete(file.compositeKey);
+              // Notify with cached token count directly
+              const currentOnFileIndexed = onFileIndexedRef.current;
+              currentOnFileIndexed?.(file.compositeKey, cached.tokenCount);
+              continue;
+            }
+          }
+
+          // Build request for worker (file already in pending)
           requests.push({
             id: createRequestId(),
             compositeKey: file.compositeKey,
@@ -656,6 +765,7 @@ export function useBackgroundTokenIndexer({
             // Include pre-loaded content for Electron files
             ...(file.content !== undefined ? { content: file.content } : {}),
             ...(file.fileSize !== undefined ? { fileSize: file.fileSize } : {}),
+            ...(file.mtimeMs !== undefined ? { mtimeMs: file.mtimeMs } : {}),
             // Include file handle for Web files
             ...(file.fileHandle ? { fileHandle: file.fileHandle } : {}),
           });
