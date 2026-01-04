@@ -54,6 +54,21 @@ export {
   type PortableChunk,
   type WorkerChunkResult,
 } from './chunking-stage.js';
+// Embedding stage (BST-158)
+export {
+  createEmbeddingStage,
+  type EmbeddingBatchInput,
+  type EmbeddingBatchResult,
+  type EmbeddingEnqueueProgress,
+  type EmbeddingEnqueueProgressCallback,
+  type EmbeddingStage,
+  type EmbeddingStageConfig,
+  type EnqueueChunksInput,
+  type EnqueueChunksOutput,
+  type EnqueuedJob,
+  type EnqueueJobParams,
+  type JobQueueLike,
+} from './embedding-stage.js';
 // Identifiers
 export {
   buildChunkDedupeKey,
