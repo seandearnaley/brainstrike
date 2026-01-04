@@ -32,7 +32,6 @@
   },
   "devDependencies": {
     "@swc/core": "^1.13.5",
-    "@types/minimatch": "^6.0.0",
     "@types/node": "^24.10.1",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3",
