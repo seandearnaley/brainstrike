@@ -94,6 +94,20 @@ export {
   // Type casts
   toFileId,
 } from './identifiers.js';
+// Progress aggregation (BST-159)
+export {
+  calculateOverallPercentage,
+  createProgressAggregator,
+  formatProgress,
+  getTotalCounts,
+  hasFailures,
+  type PipelineError,
+  type PipelineTotals,
+  type ProgressAggregator,
+  type ProgressAggregatorConfig,
+  type ProgressCallback,
+  type StageUpdate,
+} from './progress-aggregator.js';
 // Streaming orchestrator (BST-156)
 export {
   type FileProcessResult,
