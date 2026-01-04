@@ -94,6 +94,19 @@ export {
   // Type casts
   toFileId,
 } from './identifiers.js';
+// Pipeline controls (BST-160)
+export {
+  createPipelineController,
+  describeState,
+  getAvailableActions,
+  isActiveState,
+  isTerminalState,
+  type PipelineController,
+  type PipelineControllerConfig,
+  type PipelineState,
+  type StateChangeCallback,
+  type StateChangeMetadata,
+} from './pipeline-controller.js';
 // Progress aggregation (BST-159)
 export {
   calculateOverallPercentage,
