@@ -22,6 +22,7 @@ import type {
   WorkerResponse,
 } from './background-indexer.worker';
 import { resolveBackgroundIndexerWorkerUrl } from './resolve-worker-url';
+import { emitIndexedFile, emitIndexingBacklog, emitIndexingError } from './telemetry';
 import type { TokenCacheStore } from './token-cache-store';
 import type { TokenCacheEntry, TokenCountingMode } from './types';
 
@@ -349,6 +350,18 @@ export function useBackgroundTokenIndexer({
     try {
       pendingFilesRef.current.delete(result.compositeKey);
 
+      // Emit telemetry for successful indexing (BST-154)
+      emitIndexedFile({
+        compositeKey: result.compositeKey,
+        folderId: result.folderId,
+        filePath: result.filePath,
+        tokenCount: result.tokenCount,
+        mode: result.mode,
+        fileSize: result.fileSize,
+        elapsedMs: result.elapsedMs,
+        skipped: result.skipped,
+      });
+
       // Get latest callback and store from refs
       const currentOnFileIndexed = onFileIndexedRef.current;
       const currentStore = storeRef.current;
@@ -364,6 +377,13 @@ export function useBackgroundTokenIndexer({
       logger.error('handleResult failed', {
         compositeKey: result.compositeKey,
         error: formatErrorMessage(error),
+      });
+      // Emit telemetry for persistence error (BST-154)
+      emitIndexingError({
+        compositeKey: result.compositeKey,
+        folderId: result.folderId,
+        filePath: result.filePath,
+        errorMessage: `Persistence failed: ${formatErrorMessage(error)}`,
       });
       const currentOnFileError = onFileErrorRef.current;
       if (currentOnFileError) {
@@ -390,6 +410,13 @@ export function useBackgroundTokenIndexer({
     };
     setProgress(newProgress);
     onProgressRef.current?.(newProgress);
+
+    // Emit backlog telemetry (BST-154)
+    emitIndexingBacklog({
+      inFlight: pendingFilesRef.current.size,
+      batchTotal: progressMsg.total,
+      batchCompleted: progressMsg.completed,
+    });
   }, []);
 
   /**
@@ -398,6 +425,12 @@ export function useBackgroundTokenIndexer({
    */
   const handleError = useCallback((error: IndexerError) => {
     pendingFilesRef.current.delete(error.compositeKey);
+
+    // Emit telemetry for indexing error (BST-154)
+    emitIndexingError({
+      compositeKey: error.compositeKey,
+      errorMessage: error.error,
+    });
 
     const currentOnFileError = onFileErrorRef.current;
     if (currentOnFileError) {

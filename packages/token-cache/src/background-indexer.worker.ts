@@ -100,6 +100,8 @@ export type IndexerResult = {
   mode: TokenCountingMode;
   fileSize: number;
   skipped: boolean; // True if hash matched and counting was skipped
+  /** Time taken to process this file (ms) */
+  elapsedMs: number;
 };
 
 export type IndexerProgress = {
@@ -254,6 +256,8 @@ async function processFile(
   hasher: XXHashModule,
   utils: Awaited<ReturnType<typeof getTokenUtils>>
 ): Promise<IndexerResult | IndexerError> {
+  const startTime = performance.now();
+
   try {
     log('debug', 'processFile start', {
       id: request.id,
@@ -288,7 +292,8 @@ async function processFile(
 
     // Check if hash matches cached - skip counting if so
     if (request.cachedHash && request.cachedHash === contentHash) {
-      log('debug', 'processFile cache hit; skipping count', { id: request.id });
+      const elapsedMs = performance.now() - startTime;
+      log('debug', 'processFile cache hit; skipping count', { id: request.id, elapsedMs });
       return {
         type: 'result',
         id: request.id,
@@ -300,6 +305,7 @@ async function processFile(
         mode: request.mode,
         fileSize,
         skipped: true,
+        elapsedMs,
       };
     }
 
@@ -308,7 +314,8 @@ async function processFile(
       request.mode === 'accurate'
         ? await utils.countTokensAccurate(content)
         : utils.countTokensHeuristic(content);
-    log('debug', 'processFile token counted', { tokenCount, mode: request.mode });
+    const elapsedMs = performance.now() - startTime;
+    log('debug', 'processFile token counted', { tokenCount, mode: request.mode, elapsedMs });
 
     return {
       type: 'result',
@@ -321,6 +328,7 @@ async function processFile(
       mode: request.mode,
       fileSize,
       skipped: false,
+      elapsedMs,
     };
   } catch (error) {
     const formatted = formatError(error);
