@@ -39,6 +39,21 @@
  * ```
  */
 
+// Chunking stage (BST-157)
+export {
+  type ChunkingBatchInput,
+  type ChunkingBatchResult,
+  type ChunkingProgressCallback,
+  type ChunkingRequestOptions,
+  type ChunkingStage,
+  type ChunkingStageConfig,
+  type ChunkingStageProgress,
+  type ChunkingWorkerPortLike,
+  createChunkingStage,
+  getRecommendedStrategy,
+  type PortableChunk,
+  type WorkerChunkResult,
+} from './chunking-stage.js';
 // Identifiers
 export {
   buildChunkDedupeKey,
