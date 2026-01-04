@@ -86,7 +86,7 @@ describe('useTreePerfMetrics', () => {
 
       expect(result.current.metrics[0]).toMatchObject({
         name: 'flattenTree',
-        budgetKey: 'FLATTEN_TREE',
+        budgetKey: 'flattenTree',
         metadata: { nodeCount: 100 },
       });
     });
@@ -141,7 +141,7 @@ describe('useTreePerfMetrics', () => {
 
       expect(result.current.metrics[0]).toMatchObject({
         name: 'render',
-        budgetKey: 'TREE_SNAPSHOT',
+        budgetKey: 'treeSnapshot',
         metadata: { rowCount: 50 },
       });
     });

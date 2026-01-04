@@ -167,7 +167,8 @@ describe('useFileTree (lazy loading version)', () => {
       const handle = await mockAdapter.requestDirectoryAccess();
 
       // Mock the adapter to throw a non-Error
-      vi.spyOn(mockAdapter, 'readDirectory').mockRejectedValueOnce('String error');
+      // Note: useLazyFileTree uses readDirectoryStreaming when available
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockRejectedValueOnce('String error');
 
       const TestWrapper = ({ children }: { children: ReactNode }) =>
         FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
@@ -259,7 +260,10 @@ describe('useFileTree (lazy loading version)', () => {
       const handle = await mockAdapter.requestDirectoryAccess();
 
       // First simulate an error
-      vi.spyOn(mockAdapter, 'readDirectory').mockRejectedValueOnce(new Error('Test error'));
+      // Note: useLazyFileTree uses readDirectoryStreaming when available
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockRejectedValueOnce(
+        new Error('Test error')
+      );
 
       const TestWrapper = ({ children }: { children: ReactNode }) =>
         FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
