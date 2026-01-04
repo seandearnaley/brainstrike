@@ -201,6 +201,8 @@ export function useBackgroundTokenIndexerIntegration({
   const indexedFilesRef = useRef<Set<string>>(new Set());
   // Track files currently in flight to avoid re-queuing while a batch is running
   const inFlightRef = useRef<Set<string>>(new Set());
+  // Track mount state to prevent state updates after unmount
+  const isMountedRef = useRef(true);
   const previousSelectionSizeRef = useRef<number>(0);
   const [_inFlightPulse, bumpInFlightPulse] = useState(0);
   // Track file handle map population to trigger selection effect re-run
@@ -664,6 +666,11 @@ export function useBackgroundTokenIndexerIntegration({
 
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex prioritized indexing logic requires multiple conditional paths
       reprioritizeVisibleTimeoutRef.current = setTimeout(async () => {
+        // Guard against unmounted component (Critical #7)
+        if (!isMountedRef.current) {
+          return;
+        }
+
         const indexer = backgroundIndexerRef.current;
         const cache = tokenCacheRef.current;
 
@@ -762,6 +769,15 @@ export function useBackgroundTokenIndexerIntegration({
     },
     [handleFileError]
   );
+
+  // Track mount state to prevent state updates after unmount (Critical #7)
+  // biome-ignore lint/plugin: Valid mount tracking effect pattern
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Cleanup reprioritize timeout on unmount
   // biome-ignore lint/plugin: Valid cleanup-only effect pattern (no setup, just cleanup on unmount)

@@ -185,6 +185,9 @@ export function useBackgroundTokenIndexer({
   const [activeBatches, setActiveBatches] = useState<Map<string, BatchInfo>>(new Map());
   const isMountedRef = useRef(true);
 
+  // Max batch registry size to prevent memory leaks from rapid scrolling
+  const MAX_BATCH_REGISTRY_SIZE = 100;
+
   // Use refs to always call the LATEST callbacks from worker message handler.
   // This prevents stale closure bugs where worker.onmessage captures old callback versions.
   const onFileIndexedRef = useRef(onFileIndexed);
@@ -309,6 +312,26 @@ export function useBackgroundTokenIndexer({
                 batchRegistryRef.current.delete(ack.batchId);
                 setActiveBatches(new Map(batchRegistryRef.current));
               }, 5000);
+            }
+
+            // Force cleanup if registry grows too large (prevents memory leak from rapid scrolling)
+            if (batchRegistryRef.current.size > MAX_BATCH_REGISTRY_SIZE) {
+              const now = Date.now();
+              const toDelete: string[] = [];
+              for (const [id, b] of batchRegistryRef.current.entries()) {
+                if (
+                  (b.status === 'completed' || b.status === 'cancelled') &&
+                  now - b.createdAt > 5000
+                ) {
+                  toDelete.push(id);
+                }
+              }
+              for (const id of toDelete) {
+                batchRegistryRef.current.delete(id);
+              }
+              if (toDelete.length > 0) {
+                setActiveBatches(new Map(batchRegistryRef.current));
+              }
             }
           }
         }

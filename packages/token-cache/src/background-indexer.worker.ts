@@ -169,6 +169,13 @@ let tokenUtilsPromise: Promise<{
  */
 const cancelledBatches = new Set<string>();
 
+/**
+ * Track currently active batch IDs (BST-151)
+ *
+ * Used by cancel-all to mark all in-flight batches as cancelled.
+ */
+const activeBatchIds = new Set<string>();
+
 self.addEventListener('error', (event) => {
   const payload = {
     type: event.type,
@@ -400,6 +407,9 @@ async function processBatch(
   log('debug', 'processBatch start', { batchId, total: requests.length });
   self.postMessage({ type: 'batch-ack', batchId, status: 'started' } satisfies BatchAck);
 
+  // Track active batch for cancel-all support
+  activeBatchIds.add(batchId);
+
   try {
     // Pre-initialize to avoid repeated async overhead
     const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
@@ -417,6 +427,18 @@ async function processBatch(
 
       log('debug', 'processBatch item start', { batchId, index: i, total, id: request.id });
       const result = await processFile(request, hasher, utils);
+
+      // Re-check cancellation after file processing completes (prevents posting orphaned results)
+      if (cancelledBatches.has(batchId)) {
+        log('debug', 'processBatch cancelled after file processing', {
+          batchId,
+          fileId: request.id,
+        });
+        self.postMessage({ type: 'batch-ack', batchId, status: 'cancelled' } satisfies BatchAck);
+        cancelledBatches.delete(batchId);
+        return;
+      }
+
       self.postMessage(result);
       log('debug', 'processBatch item posted', {
         batchId,
@@ -451,6 +473,9 @@ async function processBatch(
       compositeKey: '__batch__',
       error: formatted.message,
     } satisfies IndexerError);
+  } finally {
+    // Clean up batch tracking
+    activeBatchIds.delete(batchId);
   }
 }
 
@@ -474,12 +499,11 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
       log('debug', 'cancel-batch received', { batchId: message.batchId });
       cancelledBatches.add(message.batchId);
     } else if (message.type === 'cancel-all') {
-      // Cancel all batches (BST-151)
-      log('debug', 'cancel-all received');
-      // Note: We don't know all batch IDs here, but the main thread will also
-      // send cancel-batch for each known batch. This is a backstop that clears
-      // any in-flight state when the worker processes this message.
-      // The main thread should track which batches are active.
+      // Cancel all active batches (BST-151)
+      log('debug', 'cancel-all received', { activeBatchCount: activeBatchIds.size });
+      for (const batchId of activeBatchIds) {
+        cancelledBatches.add(batchId);
+      }
     } else {
       log('warn', 'Unknown message type', { type: (message as { type?: unknown }).type });
     }
