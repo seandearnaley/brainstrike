@@ -14,6 +14,8 @@
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
+  CancelAllMessage,
+  CancelBatchMessage,
   IndexerBatchRequest,
   IndexerError,
   IndexerProgress,
@@ -23,7 +25,7 @@ import type {
 } from './background-indexer.worker';
 import { resolveBackgroundIndexerWorkerUrl } from './resolve-worker-url';
 import type { TokenCacheStore } from './token-cache-store';
-import type { TokenCacheEntry, TokenCountingMode } from './types';
+import { IndexingPriority, type TokenCacheEntry, type TokenCountingMode } from './types';
 
 const logger = createLogger('BackgroundTokenIndexer');
 
@@ -108,9 +110,30 @@ export type UseBackgroundTokenIndexerOptions = {
   onFileError?: (compositeKey: string, error: string) => void;
 };
 
+/**
+ * Priority levels for indexing batches (BST-151)
+ * Re-exported from types for convenience
+ */
+export { IndexingPriority } from './types';
+
+/**
+ * State of a batch in the indexing queue (BST-151)
+ */
+export type BatchInfo = {
+  batchId: string;
+  priority: IndexingPriority;
+  fileCount: number;
+  status: 'queued' | 'processing' | 'completed' | 'cancelled';
+  createdAt: number;
+};
+
 export type UseBackgroundTokenIndexerReturn = {
-  /** Queue files for background indexing */
+  /** Queue files for background indexing (uses SELECTED priority) */
   indexFiles: (files: FileToIndex[]) => void;
+  /** Queue files with explicit priority (BST-151) - returns batchId */
+  indexFilesWithPriority: (files: FileToIndex[], priority: IndexingPriority) => Promise<string>;
+  /** Cancel a specific batch (BST-151) */
+  cancelBatch: (batchId: string) => void;
   /** Cancel all pending indexing */
   cancelIndexing: () => void;
   /** Whether indexing is in progress */
@@ -119,6 +142,8 @@ export type UseBackgroundTokenIndexerReturn = {
   progress: IndexingProgress | null;
   /** Whether the worker is ready */
   isReady: boolean;
+  /** Active batches for diagnostics (BST-151) */
+  activeBatches: ReadonlyMap<string, BatchInfo>;
 };
 
 /**
@@ -154,6 +179,10 @@ export function useBackgroundTokenIndexer({
 
   // Track pending files to enable cancellation
   const pendingFilesRef = useRef<Set<string>>(new Set());
+
+  // BST-151: Batch tracking for priority queue and cancellation
+  const batchRegistryRef = useRef<Map<string, BatchInfo>>(new Map());
+  const [activeBatches, setActiveBatches] = useState<Map<string, BatchInfo>>(new Map());
   const isMountedRef = useRef(true);
 
   // Use refs to always call the LATEST callbacks from worker message handler.
@@ -253,6 +282,35 @@ export function useBackgroundTokenIndexer({
           handleProgress(message as IndexerProgress);
         } else if (message.type === 'error') {
           handleError(message as IndexerError);
+        } else if (message.type === 'batch-ack') {
+          // BST-151: Handle batch acknowledgement from worker
+          const ack = message as { type: 'batch-ack'; batchId: string; status: string };
+          logger.debug('Batch acknowledgement received', {
+            batchId: ack.batchId,
+            status: ack.status,
+          });
+
+          // Update batch status in registry
+          const batch = batchRegistryRef.current.get(ack.batchId);
+          if (batch) {
+            const newStatus =
+              ack.status === 'started'
+                ? 'processing'
+                : ack.status === 'cancelled'
+                  ? 'cancelled'
+                  : 'completed';
+            batch.status = newStatus;
+            batchRegistryRef.current.set(ack.batchId, batch);
+            setActiveBatches(new Map(batchRegistryRef.current));
+
+            // Clean up completed/cancelled batches after a delay
+            if (newStatus === 'completed' || newStatus === 'cancelled') {
+              setTimeout(() => {
+                batchRegistryRef.current.delete(ack.batchId);
+                setActiveBatches(new Map(batchRegistryRef.current));
+              }, 5000);
+            }
+          }
         }
       };
 
@@ -482,13 +540,28 @@ export function useBackgroundTokenIndexer({
           return;
         }
 
-        // Send batch to worker
+        // Send batch to worker with unique batch ID (BST-151)
+        const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
         const batchMessage: IndexerBatchRequest = {
           type: 'index-batch',
+          batchId,
           requests,
         };
 
+        // Register batch in tracking registry (BST-151)
+        const batchInfo: BatchInfo = {
+          batchId,
+          priority: IndexingPriority.SELECTED, // Default priority for indexFiles
+          fileCount: requests.length,
+          status: 'queued',
+          createdAt: Date.now(),
+        };
+        batchRegistryRef.current.set(batchId, batchInfo);
+        setActiveBatches(new Map(batchRegistryRef.current));
+
         workerRef.current.postMessage(batchMessage);
+
+        return batchId;
       } catch (error) {
         logger.error('indexFiles failed before dispatch', { error: formatErrorMessage(error) });
         for (const file of files) {
@@ -497,28 +570,188 @@ export function useBackgroundTokenIndexer({
         }
         setIsIndexing(false);
         setProgress(null);
+        return '';
       }
     },
     [isReady]
   );
 
   /**
-   * Cancel all pending indexing.
-   * Clears pending files but keeps worker alive for reuse.
-   * Any in-flight results will be ignored since they're not in pendingFilesRef.
+   * Queue files with explicit priority (BST-151).
+   * Returns the batchId for tracking/cancellation.
+   */
+  const indexFilesWithPriority = useCallback(
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Batch request building requires multiple conditionals for caching and handle types
+    async (files: FileToIndex[], priority: IndexingPriority): Promise<string> => {
+      if (!(workerRef.current && isReady) || files.length === 0) {
+        logger.warn('indexFilesWithPriority skipped - worker not ready', {
+          hasWorker: !!workerRef.current,
+          isReady,
+          fileCount: files.length,
+        });
+        return '';
+      }
+
+      // Get latest values from refs
+      const currentStore = storeRef.current;
+      const currentMode = modeRef.current;
+      const currentOnFileError = onFileErrorRef.current;
+
+      setIsIndexing(true);
+
+      try {
+        // Build batch request, checking cache for existing hashes
+        const requests: IndexerBatchRequest['requests'] = [];
+
+        for (const file of files) {
+          pendingFilesRef.current.add(file.compositeKey);
+
+          // Check for cached hash to enable skip optimization (only if store is available)
+          let cachedHash: string | undefined;
+          if (currentStore) {
+            try {
+              const cached = await currentStore.get(file.folderId, file.filePath);
+              cachedHash = cached?.countingMode === currentMode ? cached.contentHash : undefined;
+            } catch (error) {
+              logger.error('indexFilesWithPriority cache lookup failed', {
+                compositeKey: file.compositeKey,
+                error: formatErrorMessage(error),
+              });
+              pendingFilesRef.current.delete(file.compositeKey);
+              currentOnFileError?.(file.compositeKey, formatErrorMessage(error));
+              continue;
+            }
+          }
+
+          requests.push({
+            id: createRequestId(),
+            compositeKey: file.compositeKey,
+            folderId: file.folderId,
+            filePath: file.filePath,
+            cachedHash,
+            mode: currentMode,
+            // Include pre-loaded content for Electron files
+            ...(file.content !== undefined ? { content: file.content } : {}),
+            ...(file.fileSize !== undefined ? { fileSize: file.fileSize } : {}),
+            // Include file handle for Web files
+            ...(file.fileHandle ? { fileHandle: file.fileHandle } : {}),
+          });
+        }
+
+        if (requests.length === 0) {
+          setIsIndexing(false);
+          setProgress(null);
+          return '';
+        }
+
+        // Send batch to worker with unique batch ID (BST-151)
+        const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+        const batchMessage: IndexerBatchRequest = {
+          type: 'index-batch',
+          batchId,
+          requests,
+        };
+
+        // Register batch in tracking registry with specified priority
+        const batchInfo: BatchInfo = {
+          batchId,
+          priority,
+          fileCount: requests.length,
+          status: 'queued',
+          createdAt: Date.now(),
+        };
+        batchRegistryRef.current.set(batchId, batchInfo);
+        setActiveBatches(new Map(batchRegistryRef.current));
+
+        workerRef.current.postMessage(batchMessage);
+
+        return batchId;
+      } catch (error) {
+        logger.error('indexFilesWithPriority failed before dispatch', {
+          error: formatErrorMessage(error),
+        });
+        for (const file of files) {
+          pendingFilesRef.current.delete(file.compositeKey);
+          currentOnFileError?.(file.compositeKey, formatErrorMessage(error));
+        }
+        setIsIndexing(false);
+        setProgress(null);
+        return '';
+      }
+    },
+    [isReady]
+  );
+
+  /**
+   * Cancel a specific batch (BST-151)
+   * Sends cancel message to worker and marks batch as cancelled.
+   */
+  const cancelBatch = useCallback((batchId: string) => {
+    if (!workerRef.current) {
+      return;
+    }
+
+    const batch = batchRegistryRef.current.get(batchId);
+    if (!batch || batch.status === 'completed' || batch.status === 'cancelled') {
+      return;
+    }
+
+    logger.debug('Cancelling batch', { batchId });
+
+    // Send cancel message to worker
+    const cancelMessage: CancelBatchMessage = {
+      type: 'cancel-batch',
+      batchId,
+    };
+    workerRef.current.postMessage(cancelMessage);
+
+    // Mark as cancelled locally (worker will confirm via batch-ack)
+    batch.status = 'cancelled';
+    batchRegistryRef.current.set(batchId, batch);
+    setActiveBatches(new Map(batchRegistryRef.current));
+  }, []);
+
+  /**
+   * Cancel all pending indexing (BST-151 enhanced).
+   * Sends cancel-all to worker and clears all batches.
+   * Keeps worker alive for reuse.
    */
   const cancelIndexing = useCallback(() => {
+    // Send cancel-all message to worker
+    if (workerRef.current) {
+      const cancelMessage: CancelAllMessage = {
+        type: 'cancel-all',
+      };
+      workerRef.current.postMessage(cancelMessage);
+
+      // Also send individual cancel for each active batch
+      for (const [batchId, batch] of batchRegistryRef.current) {
+        if (batch.status !== 'completed' && batch.status !== 'cancelled') {
+          const batchCancelMessage: CancelBatchMessage = {
+            type: 'cancel-batch',
+            batchId,
+          };
+          workerRef.current.postMessage(batchCancelMessage);
+        }
+      }
+    }
+
+    // Clear local state
     pendingFilesRef.current.clear();
+    batchRegistryRef.current.clear();
+    setActiveBatches(new Map());
     setIsIndexing(false);
     setProgress(null);
-    // Worker stays alive - no need to terminate and recreate
   }, []);
 
   return {
     indexFiles,
+    indexFilesWithPriority,
+    cancelBatch,
     cancelIndexing,
     isIndexing,
     progress,
     isReady,
+    activeBatches,
   };
 }

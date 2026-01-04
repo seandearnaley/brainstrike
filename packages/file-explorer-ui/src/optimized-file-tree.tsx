@@ -16,6 +16,11 @@ type IOptimizedFileTreeProps = {
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: ((path: string) => void) | undefined;
+  /**
+   * Callback when visible range changes (BST-151).
+   * Reports composite keys of visible files for priority indexing.
+   */
+  onVisibleRangeChange?: ((visibleCompositeKeys: string[]) => void) | undefined;
 };
 
 /**
@@ -43,6 +48,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     loadingPaths,
     onLoadChildren,
     cancelChildLoading,
+    onVisibleRangeChange,
   }) => {
     const store = useFileExplorerStoreContext();
     const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
@@ -172,6 +178,20 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       onRender?.();
     }, [onRender]);
 
+    // BST-151: Report visible file composite keys for priority indexing
+    useEffect(() => {
+      if (!onVisibleRangeChange) {
+        return;
+      }
+
+      const visibleFiles = visibleNodes
+        .slice(range.start, range.end + 1)
+        .filter(({ node }) => node.type === 'file')
+        .map(({ node }) => encodeFileSelection(folderId, node.path));
+
+      onVisibleRangeChange(visibleFiles);
+    }, [onVisibleRangeChange, visibleNodes, range.start, range.end, folderId]);
+
     // No cleanup needed anymore
 
     return (
@@ -218,6 +238,10 @@ const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps)
     return false;
   }
   if (prevProps.cancelChildLoading !== nextProps.cancelChildLoading) {
+    return false;
+  }
+  // BST-151: Include visible range callback in comparison
+  if (prevProps.onVisibleRangeChange !== nextProps.onVisibleRangeChange) {
     return false;
   }
   return true;

@@ -29,6 +29,11 @@ type FileExplorerSidebarProps = {
   onLoadChildren?: (path: string) => Promise<void>;
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: (path: string) => void;
+  /**
+   * Callback when visible range changes (BST-151).
+   * Reports composite keys of visible files for priority indexing.
+   */
+  onVisibleRangeChange?: (visibleCompositeKeys: string[]) => void;
 };
 
 const ErrorDisplay = ({
@@ -73,6 +78,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   loadingPaths,
   onLoadChildren,
   cancelChildLoading,
+  onVisibleRangeChange,
 }) => {
   // React 19: useDeferredValue keeps showing the old tree while new one renders
   // This prevents "flash" during rapid tree updates (like expand-all)
@@ -95,6 +101,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
               loadingPaths={loadingPaths}
               onLoadChildren={onLoadChildren}
               onRender={onTreeRender || undefined}
+              onVisibleRangeChange={onVisibleRangeChange}
             />
           ) : (
             <EmptyStateComponent

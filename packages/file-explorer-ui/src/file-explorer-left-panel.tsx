@@ -241,7 +241,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   );
 
   // This hook automatically indexes selected files when TokenCacheProvider is present
-  useBackgroundTokenIndexerIntegration({
+  // BST-151: Also get reprioritizeVisible for visible file priority indexing
+  const { reprioritizeVisible } = useBackgroundTokenIndexerIntegration({
     fileTree: stableFileTree,
     selectedFiles: selectedFilesSet,
     electronFileReader,
@@ -474,6 +475,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
                 loadingFiles={loadingFiles}
                 loadingPaths={loadingPaths}
                 onLoadChildren={loadChildren}
+                onVisibleRangeChange={reprioritizeVisible}
                 quickFilteredTree={quickFilteredTree}
                 rootDirectoryHandle={rootDirectoryHandle}
                 treeError={error}

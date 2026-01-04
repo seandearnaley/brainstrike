@@ -12,12 +12,17 @@ let capturedOnFileError: ((compositeKey: string, error: string) => void) | undef
 // Mock the token cache hook so we can control readiness and capture calls.
 const indexFilesMock = vi.fn();
 const cancelIndexingMock = vi.fn();
+const indexFilesWithPriorityMock = vi.fn(async () => 'mock-batch-id');
+const cancelBatchMock = vi.fn();
 const mockBackgroundIndexer = {
   indexFiles: indexFilesMock,
+  indexFilesWithPriority: indexFilesWithPriorityMock,
   cancelIndexing: cancelIndexingMock,
+  cancelBatch: cancelBatchMock,
   isIndexing: false,
   isReady: true,
   progress: null,
+  activeBatches: new Map(),
 };
 
 vi.mock('@brainstrike/token-cache', () => ({
@@ -29,6 +34,12 @@ vi.mock('@brainstrike/token-cache', () => ({
     capturedOnFileIndexed = opts.onFileIndexed;
     capturedOnFileError = opts.onFileError;
     return mockBackgroundIndexer;
+  },
+  // BST-151: Export IndexingPriority inline for dynamic imports (must be inline due to hoisting)
+  IndexingPriority: {
+    VISIBLE: 0,
+    SELECTED: 1,
+    BACKGROUND: 2,
   },
 }));
 
@@ -117,15 +128,16 @@ const fileTreeRootB: IFileNode[] = [
   },
 ];
 
-const flushTimers = (): void => {
+const flushTimers = async (): Promise<void> => {
   // Run multiple cycles to ensure:
   // 1. First cycle: debounced effects (500ms timeout for handle map build)
   // 2. Second cycle: effects triggered by state updates from first cycle
-  act(() => {
-    vi.runAllTimers();
+  // BST-151: Use runAllTimersAsync to handle async operations (dynamic imports, await)
+  await act(async () => {
+    await vi.runAllTimersAsync();
   });
-  act(() => {
-    vi.runAllTimers();
+  await act(async () => {
+    await vi.runAllTimersAsync();
   });
 };
 
@@ -142,7 +154,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     mockBackgroundIndexer.isIndexing = false;
   });
 
-  it('re-queues files when selection shrinks (stale cache is cleared)', () => {
+  it('re-queues files when selection shrinks (stale cache is cleared)', async () => {
     const { rerender } = renderHook(
       (selectedFiles: Set<string>) =>
         useBackgroundTokenIndexerIntegration({
@@ -156,20 +168,26 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     );
 
     // First selection: both files should be queued.
-    flushTimers();
-    expect(indexFilesMock).toHaveBeenCalledTimes(1);
-    expect(indexFilesMock.mock.calls[0]![0]).toHaveLength(2);
+    await flushTimers();
+    expect(indexFilesWithPriorityMock).toHaveBeenCalledTimes(1);
+    const firstCalls = indexFilesWithPriorityMock.mock.calls[0] as unknown as [
+      { compositeKey: string }[],
+    ];
+    expect(firstCalls[0]).toHaveLength(2);
 
     // Shrink selection to only fileA; cache should clear and re-queue fileA.
     rerender(new Set([fileAKey]));
-    flushTimers();
+    await flushTimers();
 
-    expect(indexFilesMock).toHaveBeenCalledTimes(2);
-    expect(indexFilesMock.mock.calls[1]![0]).toHaveLength(1);
-    expect(indexFilesMock.mock.calls[1]![0][0]?.compositeKey).toBe(fileAKey);
+    expect(indexFilesWithPriorityMock).toHaveBeenCalledTimes(2);
+    const calls1 = indexFilesWithPriorityMock.mock.calls[1] as unknown as [
+      { compositeKey: string }[],
+    ];
+    expect(calls1[0]).toHaveLength(1);
+    expect(calls1[0][0]?.compositeKey).toBe(fileAKey);
   });
 
-  it('re-queues files when root folder changes even if selection size stays the same', () => {
+  it('re-queues files when root folder changes even if selection size stays the same', async () => {
     const { rerender } = renderHook(
       (props: { tree: typeof fileTreeRootA | typeof fileTreeRootB; selected: Set<string> }) =>
         useBackgroundTokenIndexerIntegration({
@@ -182,18 +200,21 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       }
     );
 
-    flushTimers();
-    expect(indexFilesMock).toHaveBeenCalledTimes(1);
-    indexFilesMock.mockClear();
+    await flushTimers();
+    expect(indexFilesWithPriorityMock).toHaveBeenCalledTimes(1);
+    indexFilesWithPriorityMock.mockClear();
 
     rerender({ tree: fileTreeRootB, selected: new Set([fileCKey]) });
-    flushTimers();
+    await flushTimers();
 
-    expect(indexFilesMock).toHaveBeenCalledTimes(1);
-    expect(indexFilesMock.mock.calls[0]![0][0]?.compositeKey).toBe(fileCKey);
+    expect(indexFilesWithPriorityMock).toHaveBeenCalledTimes(1);
+    const calls0 = indexFilesWithPriorityMock.mock.calls[0] as unknown as [
+      { compositeKey: string }[],
+    ];
+    expect(calls0[0][0]?.compositeKey).toBe(fileCKey);
   });
 
-  it('recovers when indexed cache equals selection but no indexing is running', () => {
+  it('recovers when indexed cache equals selection but no indexing is running', async () => {
     renderHook(() =>
       useBackgroundTokenIndexerIntegration({
         fileTree: fileTreeRootA,
@@ -202,13 +223,16 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       })
     );
 
-    flushTimers();
+    await flushTimers();
     // The stale-cache safety should enqueue once.
-    expect(indexFilesMock).toHaveBeenCalled();
-    expect(indexFilesMock.mock.calls[0]![0][0]?.compositeKey).toBe(fileAKey);
+    expect(indexFilesWithPriorityMock).toHaveBeenCalled();
+    const calls0 = indexFilesWithPriorityMock.mock.calls[0] as unknown as [
+      { compositeKey: string }[],
+    ];
+    expect(calls0[0][0]?.compositeKey).toBe(fileAKey);
   });
 
-  it('preloads cached counts for each selected folder', () => {
+  it('preloads cached counts for each selected folder', async () => {
     const { rerender } = renderHook(
       (selectedFiles: Set<string>) =>
         useBackgroundTokenIndexerIntegration({
@@ -222,13 +246,14 @@ describe('useBackgroundTokenIndexerIntegration', () => {
     preloadSpy.mockClear();
 
     rerender(new Set([fileAKey, fileCKey]));
+    await flushTimers();
 
     expect(preloadSpy).toHaveBeenCalledTimes(2);
     expect(preloadSpy).toHaveBeenCalledWith('root');
     expect(preloadSpy).toHaveBeenCalledWith('other-root');
   });
 
-  it('does not requeue files that are already in flight across renders', () => {
+  it('does not requeue files that are already in flight across renders', async () => {
     const selected = new Set([fileAKey, fileBKey]);
     const { rerender } = renderHook(() =>
       useBackgroundTokenIndexerIntegration({
@@ -238,19 +263,20 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       })
     );
 
-    flushTimers();
-    expect(indexFilesMock).toHaveBeenCalledTimes(1);
+    await flushTimers();
+    // BST-151: Now uses indexFilesWithPriority with SELECTED priority
+    expect(indexFilesWithPriorityMock).toHaveBeenCalledTimes(1);
 
     mockBackgroundIndexer.isIndexing = true;
     rerender();
     advanceTimers(500);
     rerender();
 
-    expect(indexFilesMock).toHaveBeenCalledTimes(1);
+    expect(indexFilesWithPriorityMock).toHaveBeenCalledTimes(1);
   });
 
   describe('onFileIndexed callback (hot cache updates)', () => {
-    it('calls updateHotCache when a file is indexed', () => {
+    it('calls updateHotCache when a file is indexed', async () => {
       const updateHotCacheSpy = tokenCacheContext?.updateHotCache as ReturnType<typeof vi.fn>;
       updateHotCacheSpy.mockClear();
 
@@ -262,7 +288,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         })
       );
 
-      flushTimers();
+      await flushTimers();
 
       // Simulate the background indexer completing a file
       act(() => {
@@ -273,7 +299,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(updateHotCacheSpy).toHaveBeenCalledWith('root', 'a.txt', 42);
     });
 
-    it('forwards token count to onTokenResolved callback', () => {
+    it('forwards token count to onTokenResolved callback', async () => {
       const onTokenResolvedSpy = vi.fn();
 
       renderHook(() =>
@@ -284,7 +310,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         })
       );
 
-      flushTimers();
+      await flushTimers();
 
       // Simulate the background indexer completing a file
       act(() => {
@@ -295,7 +321,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(onTokenResolvedSpy).toHaveBeenCalledWith(fileAKey, 100);
     });
 
-    it('handles multiple files being indexed sequentially', () => {
+    it('handles multiple files being indexed sequentially', async () => {
       const updateHotCacheSpy = tokenCacheContext?.updateHotCache as ReturnType<typeof vi.fn>;
       const onTokenResolvedSpy = vi.fn();
       updateHotCacheSpy.mockClear();
@@ -308,7 +334,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         })
       );
 
-      flushTimers();
+      await flushTimers();
 
       // Simulate files being indexed one by one
       act(() => {
@@ -329,7 +355,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
   });
 
   describe('edge cases', () => {
-    it('handles empty selection gracefully', () => {
+    it('handles empty selection gracefully', async () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
@@ -338,13 +364,14 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         })
       );
 
-      flushTimers();
+      await flushTimers();
 
       // Should not attempt to index anything
-      expect(indexFilesMock).not.toHaveBeenCalled();
+      // BST-151: Now uses indexFilesWithPriority
+      expect(indexFilesWithPriorityMock).not.toHaveBeenCalled();
     });
 
-    it('handles empty file tree gracefully', () => {
+    it('handles empty file tree gracefully', async () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: [],
@@ -353,13 +380,14 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         })
       );
 
-      flushTimers();
+      await flushTimers();
 
       // Should not crash, but also won't find any handles to index
-      expect(indexFilesMock).not.toHaveBeenCalled();
+      // BST-151: Now uses indexFilesWithPriority
+      expect(indexFilesWithPriorityMock).not.toHaveBeenCalled();
     });
 
-    it('skips files without handles in the tree', () => {
+    it('skips files without handles in the tree', async () => {
       // Create a tree where one file has no handle (simulates edge case)
       const treeWithMissingHandle = [
         {
@@ -392,15 +420,19 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         })
       );
 
-      flushTimers();
+      await flushTimers();
 
       // Should only index the file with a handle
-      expect(indexFilesMock).toHaveBeenCalledTimes(1);
-      expect(indexFilesMock.mock.calls[0]![0]).toHaveLength(1);
-      expect(indexFilesMock.mock.calls[0]![0][0]?.compositeKey).toBe(fileAKey);
+      // BST-151: Now uses indexFilesWithPriority with SELECTED priority
+      expect(indexFilesWithPriorityMock).toHaveBeenCalledTimes(1);
+      const calls0 = indexFilesWithPriorityMock.mock.calls[0] as unknown as [
+        { compositeKey: string }[],
+      ];
+      expect(calls0[0]).toHaveLength(1);
+      expect(calls0[0][0]?.compositeKey).toBe(fileAKey);
     });
 
-    it('cancels indexing when selection shrinks while indexing is active', () => {
+    it('cancels indexing when selection shrinks while indexing is active', async () => {
       mockBackgroundIndexer.isIndexing = true;
 
       const { rerender } = renderHook(
@@ -415,17 +447,17 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         }
       );
 
-      flushTimers();
+      await flushTimers();
       cancelIndexingMock.mockClear();
 
       // Shrink selection while indexing is happening
       rerender(new Set([fileAKey]));
-      flushTimers();
+      await flushTimers();
 
       expect(cancelIndexingMock).toHaveBeenCalled();
     });
 
-    it('does not index when backgroundIndexer is not ready', () => {
+    it('does not index when backgroundIndexer is not ready', async () => {
       mockBackgroundIndexer.isReady = false;
 
       renderHook(() =>
@@ -436,9 +468,9 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         })
       );
 
-      flushTimers();
+      await flushTimers();
 
-      expect(indexFilesMock).not.toHaveBeenCalled();
+      expect(indexFilesWithPriorityMock).not.toHaveBeenCalled();
 
       // Reset for other tests
       mockBackgroundIndexer.isReady = true;
@@ -500,7 +532,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
   });
 
   describe('ref pattern stability', () => {
-    it('maintains stable callback identity across renders', () => {
+    it('maintains stable callback identity across renders', async () => {
       const onTokenResolvedSpy = vi.fn();
       const callbackCaptures: (typeof capturedOnFileIndexed)[] = [];
 
@@ -514,7 +546,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         return result;
       });
 
-      flushTimers();
+      await flushTimers();
 
       // Trigger multiple re-renders
       rerender();
@@ -527,7 +559,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(uniqueCallbacks.size).toBe(1);
     });
 
-    it('does not re-trigger effects when unrelated props change', () => {
+    it('does not re-trigger effects when unrelated props change', async () => {
       const onTokenResolvedSpy1 = vi.fn();
       const onTokenResolvedSpy2 = vi.fn();
 
@@ -543,15 +575,15 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         }
       );
 
-      flushTimers();
-      indexFilesMock.mockClear();
+      await flushTimers();
+      indexFilesWithPriorityMock.mockClear();
 
       // Change the callback (this should NOT re-trigger indexing)
       rerender({ onTokenResolved: onTokenResolvedSpy2 });
-      flushTimers();
+      await flushTimers();
 
       // Should not re-index files just because callback changed
-      expect(indexFilesMock).not.toHaveBeenCalled();
+      expect(indexFilesWithPriorityMock).not.toHaveBeenCalled();
 
       // But the new callback should still be used when files are indexed
       act(() => {
@@ -564,7 +596,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
   });
 
   describe('error handling', () => {
-    it('handles file indexing errors via onFileError', () => {
+    it('handles file indexing errors via onFileError', async () => {
       renderHook(() =>
         useBackgroundTokenIndexerIntegration({
           fileTree: fileTreeRootA,
@@ -573,7 +605,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
         })
       );
 
-      flushTimers();
+      await flushTimers();
 
       // Simulate an error from the background indexer
       act(() => {

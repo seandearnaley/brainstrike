@@ -18,6 +18,9 @@ import { useOptionalTokenCacheContext } from './token-cache-context';
 const logger = createLogger('BackgroundTokenIndexerIntegration');
 const INDEX_BATCH_SIZE = 200;
 
+// Re-export IndexingPriority for consumers (BST-151)
+export { IndexingPriority } from '@brainstrike/token-cache';
+
 /**
  * Helper hook to check if file import is in progress.
  * When true, background token indexing should be paused to avoid database contention.
@@ -66,6 +69,11 @@ export type UseBackgroundTokenIndexerIntegrationReturn = {
   isIndexing: boolean;
   /** Manually trigger indexing for specific files (async for Electron file reading) */
   triggerIndexing: (compositeKeys: string[]) => Promise<void>;
+  /**
+   * Trigger high-priority indexing for visible files (BST-151).
+   * Call this when visible range changes to ensure visible files are indexed first.
+   */
+  reprioritizeVisible: (visibleCompositeKeys: string[]) => void;
   /** Whether the background indexer is ready */
   isReady: boolean;
   /** Current indexing progress */
@@ -448,10 +456,13 @@ export function useBackgroundTokenIndexerIntegration({
         return;
       }
 
-      // Queue files for background indexing in manageable batches
+      // BST-151: Queue files for background indexing with priority support
+      // Import IndexingPriority at call site to avoid linter removing unused import
+      const { IndexingPriority: Priority } = await import('@brainstrike/token-cache');
       for (let i = 0; i < filesToIndex.length; i += INDEX_BATCH_SIZE) {
         const batch = filesToIndex.slice(i, i + INDEX_BATCH_SIZE);
-        indexer.indexFiles(batch);
+        // Use SELECTED priority for files selected by user (default behavior)
+        await indexer.indexFilesWithPriority(batch, Priority.SELECTED);
       }
     },
     [handleFileError]
@@ -636,9 +647,137 @@ export function useBackgroundTokenIndexerIntegration({
     logger.info('Manually cleared indexed cache', { previousSize });
   }, []);
 
+  /**
+   * BST-151: Reprioritize visible files for immediate indexing.
+   * Called when visible range changes (scroll) to ensure visible files
+   * are indexed before off-screen selected files.
+   *
+   * Uses debouncing internally to prevent scroll jank from rapid calls.
+   */
+  const reprioritizeVisibleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reprioritizeVisible = useCallback(
+    (visibleCompositeKeys: string[]) => {
+      // Debounce rapid scroll events (150ms as per plan)
+      if (reprioritizeVisibleTimeoutRef.current) {
+        clearTimeout(reprioritizeVisibleTimeoutRef.current);
+      }
+
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex prioritized indexing logic requires multiple conditional paths
+      reprioritizeVisibleTimeoutRef.current = setTimeout(async () => {
+        const indexer = backgroundIndexerRef.current;
+        const cache = tokenCacheRef.current;
+
+        if (!(cache?.isOperational && indexer.isReady)) {
+          return;
+        }
+
+        // Filter to unindexed visible files
+        const unindexedVisible = visibleCompositeKeys.filter(
+          (key) => !(indexedFilesRef.current.has(key) || inFlightRef.current.has(key))
+        );
+
+        if (unindexedVisible.length === 0) {
+          return;
+        }
+
+        logger.debug('reprioritizeVisible', {
+          visibleCount: visibleCompositeKeys.length,
+          unindexedCount: unindexedVisible.length,
+        });
+
+        // Build file info for visible files
+        const filesToIndex: FileToIndex[] = [];
+        const electronFilesToRead: Array<{
+          compositeKey: string;
+          folderId: string;
+          path: string;
+          handle: ElectronFileHandle;
+        }> = [];
+
+        for (const compositeKey of unindexedVisible) {
+          const handleInfo = fileHandleMapRef.current.get(compositeKey);
+          if (!handleInfo) {
+            continue;
+          }
+
+          const { folderId, path } = decodeFileSelection(compositeKey);
+
+          if (handleInfo.webHandle) {
+            inFlightRef.current.add(compositeKey);
+            filesToIndex.push({
+              compositeKey,
+              folderId,
+              filePath: path,
+              fileHandle: handleInfo.webHandle,
+            });
+          } else if (handleInfo.electronHandle) {
+            electronFilesToRead.push({
+              compositeKey,
+              folderId,
+              path,
+              handle: handleInfo.electronHandle,
+            });
+          }
+        }
+
+        // Read Electron files if needed
+        if (electronFilesToRead.length > 0) {
+          const fileReader = electronFileReaderRef.current;
+          if (fileReader) {
+            const results = await Promise.all(
+              electronFilesToRead.map(async ({ compositeKey, folderId, path, handle }) => {
+                try {
+                  const content = await fileReader(handle);
+                  return { compositeKey, folderId, path, content, error: null };
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : String(error);
+                  return { compositeKey, folderId, path, content: null, error: message };
+                }
+              })
+            );
+
+            for (const result of results) {
+              if (result.error || result.content === null) {
+                continue;
+              }
+              inFlightRef.current.add(result.compositeKey);
+              filesToIndex.push({
+                compositeKey: result.compositeKey,
+                folderId: result.folderId,
+                filePath: result.path,
+                content: result.content,
+                fileSize: new Blob([result.content]).size,
+              });
+            }
+          }
+        }
+
+        if (filesToIndex.length > 0) {
+          // Use dynamic import to avoid linter removing unused static import
+          const { IndexingPriority: Priority } = await import('@brainstrike/token-cache');
+          // Use VISIBLE priority (highest) for visible files
+          await indexer.indexFilesWithPriority(filesToIndex, Priority.VISIBLE);
+        }
+      }, 150); // 150ms debounce as per plan
+    },
+    [handleFileError]
+  );
+
+  // Cleanup reprioritize timeout on unmount
+  // biome-ignore lint/plugin: Valid cleanup-only effect pattern (no setup, just cleanup on unmount)
+  useEffect(
+    () => () => {
+      if (reprioritizeVisibleTimeoutRef.current) {
+        clearTimeout(reprioritizeVisibleTimeoutRef.current);
+      }
+    },
+    []
+  );
+
   return {
     isIndexing: backgroundIndexer.isIndexing,
     triggerIndexing,
+    reprioritizeVisible,
     isReady: backgroundIndexer.isReady && (tokenCache?.isOperational ?? false),
     progress: backgroundIndexer.progress,
     diagnostics: {

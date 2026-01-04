@@ -15,6 +15,11 @@ type IFileTreeProps = {
   loadingPaths?: Set<string>;
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: (path: string) => void;
+  /**
+   * Callback when visible range changes (BST-151).
+   * Reports composite keys of visible files for priority indexing.
+   */
+  onVisibleRangeChange?: (visibleCompositeKeys: string[]) => void;
 };
 
 /**
@@ -37,7 +42,15 @@ const selectAddSelectedFile = (s: FileExplorerState) => s.addSelectedFile;
 const selectRemoveSelectedFile = (s: FileExplorerState) => s.removeSelectedFile;
 
 const FileTree = memo<IFileTreeProps>(
-  ({ fileTree, loadingFiles, onRender, folderId, loadingPaths, cancelChildLoading }) => {
+  ({
+    fileTree,
+    loadingFiles,
+    onRender,
+    folderId,
+    loadingPaths,
+    cancelChildLoading,
+    onVisibleRangeChange,
+  }) => {
     const store = useFileExplorerStoreContext();
     const expandedDirectoryPaths = store(selectExpandedDirectoryPaths);
     const selectedFilePaths = store(selectSelectedFilePaths);
@@ -147,6 +160,20 @@ const FileTree = memo<IFileTreeProps>(
     useEffect(() => {
       onRender?.();
     }, [onRender]);
+
+    // BST-151: Report visible file composite keys for priority indexing
+    useEffect(() => {
+      if (!onVisibleRangeChange) {
+        return;
+      }
+
+      const visibleFiles = visibleNodes
+        .slice(range.start, range.end + 1)
+        .filter(({ node }) => node.type === 'file')
+        .map(({ node }) => encodeFileSelection(folderId, node.path));
+
+      onVisibleRangeChange(visibleFiles);
+    }, [onVisibleRangeChange, visibleNodes, range.start, range.end, folderId]);
 
     return (
       <div

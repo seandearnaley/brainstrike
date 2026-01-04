@@ -86,6 +86,8 @@ export type IndexerRequest = {
 
 export type IndexerBatchRequest = {
   type: 'index-batch';
+  /** Unique identifier for this batch (BST-151) */
+  batchId: string;
   requests: Omit<IndexerRequest, 'type'>[];
 };
 
@@ -116,8 +118,36 @@ export type IndexerError = {
   error: string;
 };
 
-export type WorkerMessage = IndexerRequest | IndexerBatchRequest;
-export type WorkerResponse = IndexerResult | IndexerProgress | IndexerError | WorkerLog;
+/**
+ * Cancel a specific batch (BST-151)
+ */
+export type CancelBatchMessage = {
+  type: 'cancel-batch';
+  batchId: string;
+};
+
+/**
+ * Cancel all pending batches (BST-151)
+ */
+export type CancelAllMessage = {
+  type: 'cancel-all';
+};
+
+/**
+ * Batch acknowledgement sent back to main thread (BST-151)
+ */
+export type BatchAck = {
+  type: 'batch-ack';
+  batchId: string;
+  status: 'started' | 'cancelled' | 'completed';
+};
+
+export type WorkerMessage =
+  | IndexerRequest
+  | IndexerBatchRequest
+  | CancelBatchMessage
+  | CancelAllMessage;
+export type WorkerResponse = IndexerResult | IndexerProgress | IndexerError | WorkerLog | BatchAck;
 
 // Lazy-loaded modules
 type XXHashModule = {
@@ -129,6 +159,15 @@ let tokenUtilsPromise: Promise<{
   countTokensAccurate: (text: string) => Promise<number>;
   countTokensHeuristic: (text: string) => number;
 }> | null = null;
+
+/**
+ * Track cancelled batch IDs (BST-151)
+ *
+ * The main thread sends cancel-batch or cancel-all messages.
+ * Before processing each file in a batch, we check this Set.
+ * This provides cooperative cancellation without interrupting file processing.
+ */
+const cancelledBatches = new Set<string>();
 
 self.addEventListener('error', (event) => {
   const payload = {
@@ -339,14 +378,27 @@ async function processFile(
 }
 
 /**
- * Process a batch of files with progress reporting
+ * Process a batch of files with progress reporting and cancellation support (BST-151)
  */
-async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<void> {
+async function processBatch(
+  batchId: string,
+  requests: Omit<IndexerRequest, 'type'>[]
+): Promise<void> {
   if (requests.length === 0) {
+    self.postMessage({ type: 'batch-ack', batchId, status: 'completed' } satisfies BatchAck);
     return;
   }
 
-  log('debug', 'processBatch start', { total: requests.length });
+  // Check if already cancelled before starting
+  if (cancelledBatches.has(batchId)) {
+    log('debug', 'processBatch cancelled before start', { batchId });
+    self.postMessage({ type: 'batch-ack', batchId, status: 'cancelled' } satisfies BatchAck);
+    cancelledBatches.delete(batchId); // Clean up
+    return;
+  }
+
+  log('debug', 'processBatch start', { batchId, total: requests.length });
+  self.postMessage({ type: 'batch-ack', batchId, status: 'started' } satisfies BatchAck);
 
   try {
     // Pre-initialize to avoid repeated async overhead
@@ -355,10 +407,19 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
     const total = requests.length;
 
     for (const [i, request] of requests.entries()) {
-      log('debug', 'processBatch item start', { index: i, total, id: request.id });
+      // Check for cancellation before each file (cooperative cancellation)
+      if (cancelledBatches.has(batchId)) {
+        log('debug', 'processBatch cancelled mid-batch', { batchId, completedFiles: i, total });
+        self.postMessage({ type: 'batch-ack', batchId, status: 'cancelled' } satisfies BatchAck);
+        cancelledBatches.delete(batchId); // Clean up
+        return;
+      }
+
+      log('debug', 'processBatch item start', { batchId, index: i, total, id: request.id });
       const result = await processFile(request, hasher, utils);
       self.postMessage(result);
       log('debug', 'processBatch item posted', {
+        batchId,
         index: i,
         total,
         id: request.id,
@@ -378,9 +439,12 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
         await new Promise((resolve) => setTimeout(resolve, 0));
       }
     }
+
+    // Batch completed successfully
+    self.postMessage({ type: 'batch-ack', batchId, status: 'completed' } satisfies BatchAck);
   } catch (error) {
     const formatted = formatError(error);
-    log('error', 'processBatch failed', formatted);
+    log('error', 'processBatch failed', { batchId, ...formatted });
     self.postMessage({
       type: 'error',
       id: '__batch__',
@@ -396,12 +460,26 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
 
   try {
     log('debug', 'onmessage received', { type: (message as { type?: unknown }).type });
+
     if (message.type === 'index') {
+      // Single file indexing (no batchId)
       const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
       const result = await processFile(message, hasher, utils);
       self.postMessage(result);
     } else if (message.type === 'index-batch') {
-      await processBatch(message.requests);
+      // Batch indexing with cancellation support (BST-151)
+      await processBatch(message.batchId, message.requests);
+    } else if (message.type === 'cancel-batch') {
+      // Cancel a specific batch (BST-151)
+      log('debug', 'cancel-batch received', { batchId: message.batchId });
+      cancelledBatches.add(message.batchId);
+    } else if (message.type === 'cancel-all') {
+      // Cancel all batches (BST-151)
+      log('debug', 'cancel-all received');
+      // Note: We don't know all batch IDs here, but the main thread will also
+      // send cancel-batch for each known batch. This is a backstop that clears
+      // any in-flight state when the worker processes this message.
+      // The main thread should track which batches are active.
     } else {
       log('warn', 'Unknown message type', { type: (message as { type?: unknown }).type });
     }

@@ -10,6 +10,62 @@
 export type TokenCountingMode = 'accurate' | 'heuristic';
 
 /**
+ * Priority levels for indexing batches (BST-151)
+ *
+ * Lower values = higher priority (processed first).
+ * - VISIBLE: Currently visible in viewport - immediate user feedback
+ * - SELECTED: Selected but not visible - queued for processing
+ * - BACKGROUND: Preemptive indexing - lowest priority
+ */
+export const IndexingPriority = {
+  VISIBLE: 0,
+  SELECTED: 1,
+  BACKGROUND: 2,
+} as const;
+
+export type IndexingPriority = (typeof IndexingPriority)[keyof typeof IndexingPriority];
+
+/**
+ * State of a batch in the indexing queue (BST-151)
+ */
+export type BatchState = {
+  /** Unique identifier for this batch */
+  batchId: string;
+  /** Priority level for queue ordering */
+  priority: IndexingPriority;
+  /** Composite keys of files in this batch */
+  pendingKeys: Set<string>;
+  /** Current status of the batch */
+  status: 'queued' | 'processing' | 'completed' | 'cancelled';
+  /** Timestamp when batch was created */
+  createdAt: number;
+};
+
+/**
+ * Batch acknowledgement from worker (BST-151)
+ */
+export type BatchAcknowledgement = {
+  type: 'batch-ack';
+  batchId: string;
+  status: 'started' | 'cancelled' | 'completed';
+};
+
+/**
+ * Cancel batch request (BST-151)
+ */
+export type CancelBatchRequest = {
+  type: 'cancel-batch';
+  batchId: string;
+};
+
+/**
+ * Cancel all batches request (BST-151)
+ */
+export type CancelAllRequest = {
+  type: 'cancel-all';
+};
+
+/**
  * Entry stored in the persistent token cache (PGlite)
  */
 export type TokenCacheEntry = {

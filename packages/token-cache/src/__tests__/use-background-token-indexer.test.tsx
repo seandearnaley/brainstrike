@@ -11,6 +11,7 @@ class MockWorker {
   public onmessage: ((event: MessageEvent) => void) | null = null;
   public onerror: ((event: Event | string) => void) | null = null;
   public onmessageerror: ((event: MessageEvent) => void) | null = null;
+  public postedMessages: unknown[] = []; // Track messages sent to worker (BST-151)
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   constructor(
@@ -23,8 +24,9 @@ class MockWorker {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   addEventListener(_type: string, _listener: (...args: unknown[]) => void) {}
   terminate() {}
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  postMessage(_message: unknown) {}
+  postMessage(message: unknown) {
+    this.postedMessages.push(message); // Capture for assertions (BST-151)
+  }
 }
 
 vi.mock('../resolve-worker-url', () => ({
@@ -240,5 +242,284 @@ describe('useBackgroundTokenIndexer', () => {
     expect(onFileError).toHaveBeenCalledWith('folder|@|file.txt', 'write failed');
     await waitFor(() => expect(result.current.isIndexing).toBe(false));
     expect(result.current.progress).toBeNull();
+  });
+
+  describe('BST-151: Batch cancellation protocol', () => {
+    it('includes batchId in index-batch messages', async () => {
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store: null,
+          mode: 'heuristic',
+        })
+      );
+
+      // Simulate worker ready
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      // Trigger indexing
+      act(() => {
+        result.current.indexFiles([
+          { compositeKey: 'folder|@|file1.txt', folderId: 'folder', filePath: 'file1.txt' },
+          { compositeKey: 'folder|@|file2.txt', folderId: 'folder', filePath: 'file2.txt' },
+        ]);
+      });
+
+      // Check the posted message includes batchId
+      const worker = mockWorkers[0]!;
+      const batchMessage = worker.postedMessages.find(
+        (m): m is { type: string; batchId: string; requests: unknown[] } =>
+          typeof m === 'object' && m !== null && (m as { type?: string }).type === 'index-batch'
+      );
+
+      expect(batchMessage).toBeDefined();
+      expect(batchMessage?.type).toBe('index-batch');
+      expect(batchMessage?.batchId).toMatch(/^batch-\d+-[a-z0-9]+$/);
+      expect(batchMessage?.requests).toHaveLength(2);
+    });
+
+    it('handles batch-ack started message', async () => {
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store: null,
+          mode: 'heuristic',
+        })
+      );
+
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      act(() => {
+        result.current.indexFiles([
+          { compositeKey: 'folder|@|file.txt', folderId: 'folder', filePath: 'file.txt' },
+        ]);
+      });
+
+      // Simulate batch-ack started from worker
+      await act(async () => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({
+          data: { type: 'batch-ack', batchId: 'batch-123', status: 'started' },
+        } as MessageEvent);
+      });
+
+      // isIndexing should still be true (batch is processing)
+      expect(result.current.isIndexing).toBe(true);
+    });
+
+    it('handles batch-ack completed message', async () => {
+      const onFileIndexed = vi.fn();
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store: null,
+          mode: 'heuristic',
+          onFileIndexed,
+        })
+      );
+
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      act(() => {
+        result.current.indexFiles([
+          { compositeKey: 'folder|@|file.txt', folderId: 'folder', filePath: 'file.txt' },
+        ]);
+      });
+
+      // Simulate result then batch-ack completed
+      await act(async () => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({
+          data: {
+            type: 'result',
+            skipped: false,
+            compositeKey: 'folder|@|file.txt',
+            folderId: 'folder',
+            filePath: 'file.txt',
+            contentHash: 'hash',
+            fileSize: 128,
+            mode: 'heuristic',
+            tokenCount: 50,
+          },
+        } as MessageEvent);
+      });
+
+      await act(async () => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({
+          data: { type: 'batch-ack', batchId: 'batch-123', status: 'completed' },
+        } as MessageEvent);
+      });
+
+      await waitFor(() => expect(result.current.isIndexing).toBe(false));
+    });
+
+    it('handles batch-ack cancelled message', async () => {
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store: null,
+          mode: 'heuristic',
+        })
+      );
+
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      act(() => {
+        result.current.indexFiles([
+          { compositeKey: 'folder|@|file.txt', folderId: 'folder', filePath: 'file.txt' },
+        ]);
+      });
+
+      // Simulate batch being cancelled
+      await act(async () => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({
+          data: { type: 'batch-ack', batchId: 'batch-123', status: 'cancelled' },
+        } as MessageEvent);
+      });
+
+      // Should still be indexing since the pending file wasn't resolved
+      // (In real usage, cancelIndexing would clear pending files)
+      expect(result.current.isIndexing).toBe(true);
+    });
+
+    it('indexFilesWithPriority returns batchId and sets priority in activeBatches', async () => {
+      // Import IndexingPriority at runtime to avoid linter removal
+      const { IndexingPriority } = await import('../types');
+
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store: null,
+          mode: 'heuristic',
+        })
+      );
+
+      // Simulate worker ready
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      // Trigger indexing with VISIBLE priority
+      let batchId = '';
+      await act(async () => {
+        batchId = await result.current.indexFilesWithPriority(
+          [{ compositeKey: 'folder|@|visible.txt', folderId: 'folder', filePath: 'visible.txt' }],
+          IndexingPriority.VISIBLE
+        );
+      });
+
+      // Should return a valid batchId
+      expect(batchId).toMatch(/^batch-\d+-[a-z0-9]+$/);
+
+      // Should be tracked in activeBatches with correct priority
+      const batch = result.current.activeBatches.get(batchId);
+      expect(batch).toBeDefined();
+      expect(batch?.priority).toBe(IndexingPriority.VISIBLE);
+      expect(batch?.status).toBe('queued');
+    });
+
+    it('cancelBatch sends cancel-batch message to worker', async () => {
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store: null,
+          mode: 'heuristic',
+        })
+      );
+
+      // Simulate worker ready
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      // Start indexing to get a batchId
+      act(() => {
+        result.current.indexFiles([
+          { compositeKey: 'folder|@|file.txt', folderId: 'folder', filePath: 'file.txt' },
+        ]);
+      });
+
+      // Get the batchId from posted messages
+      const worker = mockWorkers[0]!;
+      const batchMessage = worker.postedMessages.find(
+        (m): m is { type: string; batchId: string } =>
+          typeof m === 'object' && m !== null && (m as { type?: string }).type === 'index-batch'
+      );
+      const batchId = batchMessage?.batchId ?? '';
+
+      // Cancel the batch
+      act(() => {
+        result.current.cancelBatch(batchId);
+      });
+
+      // Should have sent cancel-batch message
+      const cancelMessage = worker.postedMessages.find(
+        (m): m is { type: string; batchId: string } =>
+          typeof m === 'object' && m !== null && (m as { type?: string }).type === 'cancel-batch'
+      );
+
+      expect(cancelMessage).toBeDefined();
+      expect(cancelMessage?.type).toBe('cancel-batch');
+      expect(cancelMessage?.batchId).toBe(batchId);
+
+      // Batch should be marked as cancelled in activeBatches
+      expect(result.current.activeBatches.get(batchId)?.status).toBe('cancelled');
+    });
+
+    it('cancelIndexing sends cancel-all and clears activeBatches', async () => {
+      const { result } = renderHook(() =>
+        useBackgroundTokenIndexer({
+          store: null,
+          mode: 'heuristic',
+        })
+      );
+
+      // Simulate worker ready
+      act(() => {
+        const worker = mockWorkers[0]!;
+        worker.onmessage?.({ data: { type: 'ready' } } as MessageEvent);
+      });
+
+      // Start indexing
+      act(() => {
+        result.current.indexFiles([
+          { compositeKey: 'folder|@|file1.txt', folderId: 'folder', filePath: 'file1.txt' },
+          { compositeKey: 'folder|@|file2.txt', folderId: 'folder', filePath: 'file2.txt' },
+        ]);
+      });
+
+      // Verify we have active batches
+      expect(result.current.activeBatches.size).toBe(1);
+
+      // Cancel all indexing
+      act(() => {
+        result.current.cancelIndexing();
+      });
+
+      // Should have sent cancel-all message
+      const worker = mockWorkers[0]!;
+      const cancelAllMessage = worker.postedMessages.find(
+        (m): m is { type: string } =>
+          typeof m === 'object' && m !== null && (m as { type?: string }).type === 'cancel-all'
+      );
+
+      expect(cancelAllMessage).toBeDefined();
+      expect(cancelAllMessage?.type).toBe('cancel-all');
+
+      // activeBatches should be cleared
+      expect(result.current.activeBatches.size).toBe(0);
+      expect(result.current.isIndexing).toBe(false);
+    });
   });
 });

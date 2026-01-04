@@ -13,6 +13,10 @@
 
 // Background Indexer Worker Types
 export type {
+  // BST-151: Cancellation protocol types
+  BatchAck,
+  CancelAllMessage,
+  CancelBatchMessage,
   IndexerBatchRequest,
   IndexerError,
   IndexerProgress,
@@ -23,10 +27,17 @@ export type {
 } from './background-indexer.worker';
 // File Hasher
 export { __resetHasherForTests, FileHasher, fileHasher } from './file-hasher';
+export type { PrioritizedBatch } from './priority-queue';
+// Priority Queue (BST-151)
+export { IndexerPriorityQueue } from './priority-queue';
 // Token Cache Store
 export { TokenCacheStore } from './token-cache-store';
-// Types
 export type {
+  // BST-151: Batch cancellation types
+  BatchAcknowledgement,
+  BatchState,
+  CancelAllRequest,
+  CancelBatchRequest,
   FileMetadata,
   TokenCacheEntry,
   TokenCacheStats,
@@ -37,6 +48,11 @@ export type {
   TokenCountRequest,
   TokenCountResult,
   TokenWorkerMessage,
+} from './types';
+// Types
+export {
+  // BST-151: Priority and batch management
+  IndexingPriority,
 } from './types';
 export type {
   ElectronFileHandle,
