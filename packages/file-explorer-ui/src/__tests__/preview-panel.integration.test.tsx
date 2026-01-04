@@ -569,6 +569,7 @@ describe('PreviewPanel Integration Tests', () => {
     totalStats: {
       totalFiles: fileCount,
       totalTokens: fileCount * 200, // Realistic token count
+      pendingCount: 0, // BST-153: No files pending by default
     },
     handleRemoveFile: vi.fn(),
     handleBatchRemove: vi.fn(),

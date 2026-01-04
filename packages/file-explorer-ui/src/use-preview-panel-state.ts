@@ -323,19 +323,23 @@ export function usePreviewPanelState({
   }, []);
 
   // Calculate total stats using the persistent cache
+  // BST-153: Also track pendingCount for "estimating..." UI state
   const totalStats = useMemo(() => {
     let totalTokens = 0;
     let totalFiles = 0;
+    let pendingCount = 0;
 
     for (const compositeKey of selectedFiles) {
       totalFiles++;
       const tokenCount = persistentCache.getTokenCount(compositeKey);
       if (tokenCount !== undefined) {
         totalTokens += tokenCount;
+      } else {
+        pendingCount++;
       }
     }
 
-    return { totalTokens, totalFiles };
+    return { totalTokens, totalFiles, pendingCount };
   }, [selectedFiles, persistentCache, persistentCache.cacheVersion, tokenVersion]);
 
   return {

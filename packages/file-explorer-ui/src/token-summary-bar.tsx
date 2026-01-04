@@ -108,6 +108,8 @@ type TokenSummaryBarProps = {
   treeTokens: number;
   includeTree: boolean;
   treeLoading?: boolean;
+  /** BST-153: Number of files still being indexed (for "estimating..." state) */
+  selectedTokensPendingCount?: number;
   budget: number;
   isOverBudget: boolean;
   tokenCounting: TokenCountingState;
@@ -125,11 +127,14 @@ export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryB
   treeTokens,
   includeTree,
   treeLoading = false,
+  selectedTokensPendingCount = 0,
   budget,
   isOverBudget,
   tokenCounting,
 }) {
   const remaining = budget - (selectedTokens + (includeTree ? treeTokens : 0));
+  // BST-153: Show estimating indicator when files are still being indexed
+  const isEstimating = selectedTokensPendingCount > 0;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -145,7 +150,7 @@ export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryB
         {/* Divider */}
         <div aria-hidden className="hidden h-4 w-px bg-border sm:block" />
 
-        {/* Selected tokens */}
+        {/* Selected tokens - BST-153: Show estimating state */}
         <StatItem
           icon={Layers}
           iconColor="text-primary"
@@ -154,11 +159,17 @@ export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryB
             <div className="text-xs">
               <div className="font-medium">Selected Tokens</div>
               <div className="text-muted-foreground">
-                Tokens from {totalFiles} selected file{totalFiles !== 1 ? 's' : ''}
+                {isEstimating
+                  ? `Counting ${selectedTokensPendingCount} of ${totalFiles} file${totalFiles !== 1 ? 's' : ''}…`
+                  : `Tokens from ${totalFiles} selected file${totalFiles !== 1 ? 's' : ''}`}
               </div>
             </div>
           }
-          value={`${selectedTokens.toLocaleString()} selected`}
+          value={
+            isEstimating
+              ? `${selectedTokens.toLocaleString()}+ estimating…`
+              : `${selectedTokens.toLocaleString()} selected`
+          }
         />
 
         {/* Tree tokens (if enabled) */}
