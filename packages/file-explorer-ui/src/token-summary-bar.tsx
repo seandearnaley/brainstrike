@@ -160,7 +160,7 @@ export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryB
               <div className="font-medium">Selected Tokens</div>
               <div className="text-muted-foreground">
                 {isEstimating
-                  ? `Counting ${selectedTokensPendingCount} of ${totalFiles} file${totalFiles !== 1 ? 's' : ''}…`
+                  ? `Counted ${totalFiles - selectedTokensPendingCount} of ${totalFiles} file${totalFiles !== 1 ? 's' : ''}…`
                   : `Tokens from ${totalFiles} selected file${totalFiles !== 1 ? 's' : ''}`}
               </div>
             </div>
