@@ -19,6 +19,7 @@ export * from './embedding-set-management';
 // Queue HUD and Diagnostics (BST-166)
 export { QueueDiagnosticsPanel } from './queue-diagnostics-panel';
 export { QueueHud } from './queue-hud';
+export { QueueStatusPopover } from './queue-status-popover';
 export type {
   UseQueueHealthMetricsOptions,
   UseQueueHealthMetricsReturn,
