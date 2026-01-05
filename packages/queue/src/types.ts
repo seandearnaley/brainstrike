@@ -43,16 +43,54 @@ export type QueueProgressEvent = EmbedWorkerProgress;
 
 export type QueueErrorEvent = EmbedWorkerError;
 
+/**
+ * Unified queue adapter interface.
+ *
+ * Provides standardized control semantics across durable (JobQueue) and
+ * ephemeral (workerpool) queue implementations per ADR-0002.
+ *
+ * @see docs/adr/0002-queue-boundaries.md
+ */
 export type QueueAdapter = {
+  /** Submit a single task for execution */
   add(task: TaskPayload, options?: QueueAddOptions): Promise<QueueResult>;
+  /** Submit multiple tasks for execution */
   addBulk(
     tasks: readonly TaskPayload[],
     options?: QueueAddBulkOptions
   ): Promise<readonly QueueResult[]>;
+  /** Subscribe to progress/error events */
   onProgress(listener: (event: QueueProgressEvent | QueueErrorEvent) => void): () => void;
+
+  // --- Control semantics (ADR-0002 QueueControl) ---
+
+  /**
+   * Pause accepting new work.
+   * Existing running tasks continue to completion.
+   */
   pause(): void;
+  /**
+   * Resume accepting work after pause.
+   */
   resume(): void;
+  /**
+   * Cancel all pending and running work.
+   * Returns when all cancellations complete.
+   */
+  cancel(): Promise<void>;
+  /**
+   * Wait for all in-flight work to complete.
+   * Does not accept new work during drain (use pause() first).
+   */
   drain(): Promise<void>;
+  /**
+   * Whether the adapter is paused.
+   */
+  readonly isPaused: boolean;
+  /**
+   * Whether the adapter has active tasks processing.
+   */
+  readonly isProcessing: boolean;
 };
 
 export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {

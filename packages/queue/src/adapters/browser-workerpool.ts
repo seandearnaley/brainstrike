@@ -91,7 +91,9 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   const pool: Pool = workerpool.pool(workerScript, poolOptions);
 
   let paused = false;
+  let canceled = false;
   const resumeWaiters: Array<() => void> = [];
+  const cancelWaiters: Array<() => void> = [];
   const emitter = new ProgressEmitter<WorkerEvent>();
   let activeTasks = 0;
   const drainWaiters: Array<() => void> = [];
@@ -100,6 +102,15 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     if (activeTasks === 0) {
       while (drainWaiters.length > 0) {
         const resolve = drainWaiters.pop();
+        resolve?.();
+      }
+    }
+  };
+
+  const notifyCancel = () => {
+    if (activeTasks === 0) {
+      while (cancelWaiters.length > 0) {
+        const resolve = cancelWaiters.pop();
         resolve?.();
       }
     }
@@ -132,6 +143,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     } finally {
       activeTasks = Math.max(activeTasks - 1, 0);
       notifyDrain();
+      notifyCancel();
     }
   };
 
@@ -253,9 +265,15 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
 
   return {
     async add(task, opts) {
+      if (canceled) {
+        throw new Error('Adapter has been canceled');
+      }
       return execute(task, opts);
     },
     async addBulk(tasks, opts) {
+      if (canceled) {
+        throw new Error('Adapter has been canceled');
+      }
       const promises = tasks.map((task) => execute(task, opts));
       return Promise.all(promises);
     },
@@ -277,6 +295,26 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
         resolve?.();
       }
     },
+    async cancel() {
+      if (canceled) {
+        return;
+      }
+      canceled = true;
+      paused = true; // Prevent new tasks
+      logger.debug('Workerpool adapter canceling', { activeTasks });
+
+      // Terminate the pool (cancels pending and running tasks)
+      await pool.terminate(true);
+
+      // Wait for active tasks to complete their cleanup
+      if (activeTasks > 0) {
+        await new Promise<void>((resolve) => {
+          cancelWaiters.push(resolve);
+        });
+      }
+
+      logger.debug('Workerpool adapter canceled');
+    },
     async drain() {
       if (activeTasks === 0) {
         return;
@@ -284,6 +322,12 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       await new Promise<void>((resolve) => {
         drainWaiters.push(resolve);
       });
+    },
+    get isPaused() {
+      return paused;
+    },
+    get isProcessing() {
+      return activeTasks > 0;
     },
   };
 }

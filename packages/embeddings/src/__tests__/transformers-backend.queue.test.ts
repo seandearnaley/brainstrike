@@ -34,7 +34,14 @@ function createQueueStub() {
     onProgress: vi.fn(() => () => {}),
     pause: vi.fn(),
     resume: vi.fn(),
+    cancel: vi.fn(async () => {}),
     drain: vi.fn(async () => {}),
+    get isPaused() {
+      return false;
+    },
+    get isProcessing() {
+      return false;
+    },
   };
   return { queue, add };
 }
