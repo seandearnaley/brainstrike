@@ -1,6 +1,24 @@
-export type QueueTelemetryAdapter = 'workerpool' | 'custom';
+/**
+ * Queue adapter identifier for telemetry.
+ *
+ * - 'job-queue': Durable DB-backed JobQueue (SQL persistence)
+ * - 'workerpool': Ephemeral in-memory workerpool (browser compute)
+ * - 'custom': Custom/third-party queue implementations
+ *
+ * @see docs/adr/0002-queue-boundaries.md for queue mental model
+ */
+export type QueueTelemetryAdapter = 'job-queue' | 'workerpool' | 'custom';
 
-export type QueueTelemetryEventType = 'enqueue' | 'complete' | 'error';
+/**
+ * Telemetry event types for queue operations.
+ *
+ * - 'enqueue': Task added to queue
+ * - 'start': Task claimed/started processing (for job-queue: claim; for workerpool: exec start)
+ * - 'complete': Task finished successfully
+ * - 'error': Task failed (may be retriable or terminal)
+ * - 'cancel': Task was canceled before completion
+ */
+export type QueueTelemetryEventType = 'enqueue' | 'start' | 'complete' | 'error' | 'cancel';
 
 export type QueueTelemetryEvent = {
   readonly timestamp: number;

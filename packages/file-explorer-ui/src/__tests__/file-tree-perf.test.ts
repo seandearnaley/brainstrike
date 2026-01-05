@@ -209,10 +209,8 @@ describe('FileTree Performance (BST-145)', () => {
         }
 
         // Log results for baseline recording
-        // biome-ignore lint/suspicious/noConsole: Intentional perf baseline logging
         console.log('[PERF] Scaling results:');
         for (const r of results) {
-          // biome-ignore lint/suspicious/noConsole: Intentional perf baseline logging
           console.log(
             `  ${r.nodes} nodes: ${r.timeMs.toFixed(2)}ms (${((r.timeMs / r.nodes) * 1000).toFixed(2)}μs/node)`
           );

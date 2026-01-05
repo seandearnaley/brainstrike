@@ -33,7 +33,12 @@ export interface Job extends Omit<JobRow, 'job_type' | 'payload' | 'run_at' | 'l
 }
 
 const logger = createLogger('JobQueue');
-const JOB_QUEUE_TELEMETRY_ADAPTER: QueueTelemetryAdapter = 'custom';
+
+/**
+ * Telemetry adapter identifier for the durable DB-backed JobQueue.
+ * @see docs/adr/0002-queue-boundaries.md for queue mental model
+ */
+const JOB_QUEUE_TELEMETRY_ADAPTER: QueueTelemetryAdapter = 'job-queue';
 
 function fromRow(row: JobRow): Job {
   const job: Job = {
@@ -99,6 +104,12 @@ export type FailParams = {
   error: string;
   backoffMs?: number;
   terminal?: boolean;
+};
+
+export type CancelParams = {
+  id: string;
+  leaseToken?: string;
+  reason?: string;
 };
 
 export class JobQueue {
@@ -256,6 +267,23 @@ export class JobQueue {
         leaseToken,
         workerId: params.workerId ?? null,
       });
+
+      // Emit 'start' telemetry for each claimed job
+      for (const job of jobs) {
+        emitQueueTelemetry({
+          timestamp: Date.now(),
+          adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+          event: 'start',
+          taskId: job.id,
+          metadata: {
+            queue: job.queue,
+            jobType: job.jobType,
+            attempt: job.attempts,
+            workerId: params.workerId ?? null,
+            leaseMs: params.leaseMs,
+          },
+        });
+      }
     }
     return jobs;
   }
@@ -399,6 +427,97 @@ export class JobQueue {
       },
     });
     return retriedJob;
+  }
+
+  async cancel(params: CancelParams): Promise<Job | null> {
+    const updatedAt = new Date().toISOString();
+
+    // If leaseToken provided, only cancel if we own the lease
+    const leaseCondition = params.leaseToken ? 'AND lease_token = $3' : '';
+    const queryParams = params.leaseToken
+      ? [updatedAt, params.id, params.leaseToken]
+      : [updatedAt, params.id];
+
+    const res = await this.db.query<JobRow>(
+      `UPDATE job_queue SET state = 'canceled', leased_until = NULL, updated_at = $1
+       WHERE id = $2 AND state IN ('queued', 'running') ${leaseCondition}
+       RETURNING *`,
+      queryParams
+    );
+
+    if (!res.rows[0]) {
+      return null;
+    }
+
+    const job = fromRow(res.rows[0]);
+    logger.info('Job canceled', {
+      jobId: job.id,
+      queue: job.queue,
+      jobType: job.jobType,
+      reason: params.reason,
+    });
+
+    emitQueueTelemetry({
+      timestamp: Date.now(),
+      adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+      event: 'cancel',
+      taskId: job.id,
+      metadata: {
+        queue: job.queue,
+        jobType: job.jobType,
+        reason: params.reason,
+      },
+    });
+
+    return job;
+  }
+
+  async cancelMany(queue: string, reason?: string): Promise<number> {
+    const updatedAt = new Date().toISOString();
+
+    // Get jobs to cancel for telemetry
+    const toCancel = await this.db.query<JobRow>(
+      `SELECT * FROM job_queue WHERE queue = $1 AND state IN ('queued', 'running')`,
+      [queue]
+    );
+
+    if (toCancel.rows.length === 0) {
+      return 0;
+    }
+
+    const res = await this.db.query<{ count: string }>(
+      `WITH del AS (
+        UPDATE job_queue SET state = 'canceled', leased_until = NULL, updated_at = $1
+        WHERE queue = $2 AND state IN ('queued', 'running')
+        RETURNING 1
+      ) SELECT COUNT(*)::text as count FROM del`,
+      [updatedAt, queue]
+    );
+
+    const count = Number(res.rows[0]?.count ?? 0);
+
+    if (count > 0) {
+      logger.info('Jobs canceled in bulk', { count, queue, reason });
+
+      // Emit telemetry for each canceled job
+      for (const row of toCancel.rows) {
+        const job = fromRow(row);
+        emitQueueTelemetry({
+          timestamp: Date.now(),
+          adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+          event: 'cancel',
+          taskId: job.id,
+          metadata: {
+            queue: job.queue,
+            jobType: job.jobType,
+            reason,
+            bulkCancel: true,
+          },
+        });
+      }
+    }
+
+    return count;
   }
 
   async expireLeases(nowIso?: string): Promise<number> {
