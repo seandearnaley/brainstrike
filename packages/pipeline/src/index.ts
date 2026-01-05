@@ -121,6 +121,20 @@ export {
   type ProgressCallback,
   type StageUpdate,
 } from './progress-aggregator.js';
+// Schema health + recovery (BST-161)
+export {
+  type CorruptionMetrics,
+  createSchemaHealthChecker,
+  formatHealthStatus,
+  getRecommendedActions,
+  type HealthCheckDb,
+  hasRecoverableIssues,
+  isSchemaReady,
+  type RecoveryResult,
+  type SchemaHealthChecker,
+  type SchemaHealthSummary,
+  type TableHealthResult,
+} from './schema-health.js';
 // Streaming orchestrator (BST-156)
 export {
   type FileProcessResult,
