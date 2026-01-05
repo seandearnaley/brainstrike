@@ -179,6 +179,109 @@ export type QueueAdapter = {
   readonly isProcessing: boolean;
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Queue Health Diagnostics (BST-166)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Durable queue statistics from database.
+ * Represents persistent job state counts (from JobQueue/SQL storage).
+ */
+export type DurableQueueStats = {
+  /** Number of jobs waiting to be processed */
+  readonly queued: number;
+  /** Number of jobs currently being processed */
+  readonly running: number;
+  /** Number of jobs that failed after all retries */
+  readonly failed: number;
+  /** Number of successfully completed jobs */
+  readonly succeeded: number;
+  /** ISO timestamp of next scheduled job, if any */
+  readonly nextRunnableAt: string | null;
+};
+
+/**
+ * Ephemeral queue metrics from runtime telemetry.
+ * Represents real-time performance data (from workerpool/telemetry).
+ */
+export type EphemeralQueueMetrics = {
+  /** Currently active tasks in the worker pool */
+  readonly active: number;
+  /** Total tasks completed in the current session */
+  readonly completed: number;
+  /** Total tasks failed in the current session */
+  readonly failed: number;
+  /** Total tasks enqueued in the current session */
+  readonly totalEnqueued: number;
+  /** Most recent error message, if any */
+  readonly lastError: string | null;
+  /** Throughput over the telemetry window (tasks/minute) */
+  readonly throughputPerMinute: number;
+  /** Average latency in the telemetry window (ms) */
+  readonly latencyAvgMs: number | null;
+  /** 50th percentile latency (ms) */
+  readonly latencyP50Ms: number | null;
+  /** 95th percentile latency (ms) */
+  readonly latencyP95Ms: number | null;
+  /** Error count in the telemetry window */
+  readonly windowErrorCount: number;
+};
+
+/**
+ * Worker health status for diagnostics.
+ */
+export type WorkerHealthStatus = {
+  /** Current worker lifecycle state */
+  readonly state: WorkerClientState;
+  /** Whether the worker is ready for work */
+  readonly isReady: boolean;
+  /** Error details if in error state */
+  readonly error: WorkerClientError | null;
+};
+
+/**
+ * Consolidated queue health metrics for diagnostics.
+ *
+ * Unifies durable (JobQueue) and ephemeral (workerpool) queue perspectives
+ * into a single diagnostics structure per ADR-0002 (BST-166).
+ *
+ * @example
+ * ```typescript
+ * const health: QueueHealthMetrics = {
+ *   durableQueue: { queued: 10, running: 2, failed: 0, succeeded: 100, nextRunnableAt: null },
+ *   ephemeralQueue: { active: 2, completed: 50, failed: 1, ... },
+ *   workerHealth: { state: 'ready', isReady: true, error: null },
+ *   lastUpdated: Date.now(),
+ * };
+ * ```
+ */
+export type QueueHealthMetrics = {
+  /**
+   * Durable queue stats from database.
+   * Null if DB is not available or not connected.
+   */
+  readonly durableQueue: DurableQueueStats | null;
+  /**
+   * Ephemeral queue metrics from runtime.
+   * Null if workerpool is not initialized.
+   */
+  readonly ephemeralQueue: EphemeralQueueMetrics | null;
+  /**
+   * Worker health status.
+   * Null if no worker client is available.
+   */
+  readonly workerHealth: WorkerHealthStatus | null;
+  /**
+   * Timestamp when metrics were last updated.
+   */
+  readonly lastUpdated: number;
+};
+
+/**
+ * Listener for queue health metric updates.
+ */
+export type QueueHealthListener = (metrics: QueueHealthMetrics) => void;
+
 export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {
   const baseRequest = {
     type: 'embed',

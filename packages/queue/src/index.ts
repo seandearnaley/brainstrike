@@ -21,9 +21,14 @@ export {
   type QueueTelemetrySnapshot,
 } from './telemetry';
 export type {
+  // Queue Health Diagnostics (BST-166)
+  DurableQueueStats,
+  EphemeralQueueMetrics,
   ProviderDimensionParameter,
   QueueAdapter,
   QueueErrorEvent,
+  QueueHealthListener,
+  QueueHealthMetrics,
   QueueProgressEvent,
   QueueResult,
   TaskPayload,
@@ -33,6 +38,7 @@ export type {
   WorkerClientErrorType,
   WorkerClientState,
   WorkerClientWithTimeout,
+  WorkerHealthStatus,
 } from './types';
 export {
   createTimeoutPromise,

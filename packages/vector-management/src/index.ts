@@ -12,10 +12,18 @@ export { EmbeddingJobQueueTracker } from './embedding-job-queue-tracker';
 export {
   EmbeddingQueueProvider,
   useEmbeddingQueue,
+  useEmbeddingQueueSafe,
 } from './embedding-queue-provider';
 // Embedding set management
 export * from './embedding-set-management';
+// Queue HUD and Diagnostics (BST-166)
+export { QueueDiagnosticsPanel } from './queue-diagnostics-panel';
 export { QueueHud } from './queue-hud';
+export type {
+  UseQueueHealthMetricsOptions,
+  UseQueueHealthMetricsReturn,
+} from './use-queue-health-metrics';
+export { useQueueHealthMetrics } from './use-queue-health-metrics';
 // Vector preferences
 export * from './vector-preferences';
 export { VectorStatus, VectorStatusWithDb } from './vector-status';

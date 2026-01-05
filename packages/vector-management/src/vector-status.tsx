@@ -67,7 +67,10 @@ function createDisabledQueueAdapter(): QueueAdapter {
     },
     pause() {},
     resume() {},
+    async cancel() {},
     async drain() {},
+    isPaused: false,
+    isProcessing: false,
   };
 }
 
