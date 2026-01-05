@@ -187,6 +187,76 @@ export interface QueueControl {
 }
 ```
 
+### WorkerClient Base Pattern (BST-165)
+
+To standardize worker lifecycle management across different worker port implementations, we define a base pattern:
+
+```typescript
+/**
+ * Lifecycle states for worker clients.
+ */
+export type WorkerClientState = 'initializing' | 'ready' | 'terminated' | 'error';
+
+/**
+ * Error types for worker failures.
+ */
+export type WorkerClientErrorType =
+  | 'initialization_timeout'
+  | 'worker_error'
+  | 'message_timeout'
+  | 'terminated';
+
+/**
+ * Base interface for worker client lifecycle management.
+ *
+ * All worker ports (ChunkingWorkerPort, FileTreeWorkerPort, etc.)
+ * should implement this interface for consistent behavior.
+ */
+export interface WorkerClient {
+  /** Check if the worker is ready to accept messages */
+  isReady(): boolean;
+
+  /** Get the current lifecycle state */
+  getState(): WorkerClientState;
+
+  /** Terminate the worker and release resources */
+  terminate(): void;
+}
+
+/**
+ * Extended interface with async ready-waiting support.
+ */
+export interface WorkerClientWithTimeout extends WorkerClient {
+  /**
+   * Wait for the worker to become ready.
+   *
+   * @param timeoutMs - Maximum wait time (default: 30s)
+   * @returns true if ready, false if timed out
+   */
+  waitForReady(timeoutMs?: number): Promise<boolean>;
+}
+```
+
+The `createWorkerReadyWaiter` utility provides a reusable implementation:
+
+```typescript
+import { createWorkerReadyWaiter } from '@brainstrike/queue';
+
+// Create a ready waiter for your worker port
+const waitForReady = createWorkerReadyWaiter(
+  () => workerState === 'ready',
+  { defaultTimeoutMs: 5000 }
+);
+
+// Use it in your port implementation
+const client: WorkerClientWithTimeout = {
+  isReady: () => workerState === 'ready',
+  getState: () => workerState,
+  terminate: () => worker.terminate(),
+  waitForReady,
+};
+```
+
 ### Telemetry Schema (Unified)
 
 ```typescript

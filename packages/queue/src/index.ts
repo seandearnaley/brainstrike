@@ -27,7 +27,19 @@ export type {
   QueueProgressEvent,
   QueueResult,
   TaskPayload,
+  // WorkerClient base pattern (BST-165)
+  WorkerClient,
+  WorkerClientError,
+  WorkerClientErrorType,
+  WorkerClientState,
+  WorkerClientWithTimeout,
 } from './types';
+export {
+  createTimeoutPromise,
+  createWorkerReadyWaiter,
+  DEFAULT_WORKER_READY_TIMEOUT_MS,
+  type WorkerReadyWaiterOptions,
+} from './util';
 
 export type CreateBrowserEmbeddingQueueOptions = {
   readonly worker?: WorkerpoolAdapterOptions;

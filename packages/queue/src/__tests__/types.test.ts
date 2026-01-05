@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { EmbedTaskPayload } from '../types';
+import type {
+  EmbedTaskPayload,
+  WorkerClient,
+  WorkerClientError,
+  WorkerClientErrorType,
+  WorkerClientState,
+  WorkerClientWithTimeout,
+} from '../types';
 import { toWorkerRequest } from '../types';
 
 const basePayload = {
@@ -335,5 +342,113 @@ describe('toWorkerRequest', () => {
 
       expect(result.dimensionParameter).toBe(param);
     }
+  });
+});
+
+describe('WorkerClient types (BST-165)', () => {
+  describe('WorkerClientState', () => {
+    it('should accept valid state values', () => {
+      const states: WorkerClientState[] = ['initializing', 'ready', 'terminated', 'error'];
+      expect(states).toHaveLength(4);
+    });
+  });
+
+  describe('WorkerClientErrorType', () => {
+    it('should accept valid error type values', () => {
+      const errorTypes: WorkerClientErrorType[] = [
+        'initialization_timeout',
+        'worker_error',
+        'message_timeout',
+        'terminated',
+      ];
+      expect(errorTypes).toHaveLength(4);
+    });
+  });
+
+  describe('WorkerClientError', () => {
+    it('should create valid error objects', () => {
+      const error: WorkerClientError = {
+        type: 'initialization_timeout',
+        message: 'Worker failed to initialize within timeout',
+      };
+      expect(error.type).toBe('initialization_timeout');
+      expect(error.message).toBeDefined();
+      expect(error.cause).toBeUndefined();
+    });
+
+    it('should allow optional cause', () => {
+      const cause = new Error('Original error');
+      const error: WorkerClientError = {
+        type: 'worker_error',
+        message: 'Worker crashed',
+        cause,
+      };
+      expect(error.cause).toBe(cause);
+    });
+  });
+
+  describe('WorkerClient', () => {
+    it('should define required lifecycle methods', () => {
+      const client: WorkerClient = {
+        isReady: () => true,
+        getState: () => 'ready',
+        terminate: () => {},
+      };
+
+      expect(client.isReady()).toBe(true);
+      expect(client.getState()).toBe('ready');
+      expect(() => client.terminate()).not.toThrow();
+    });
+
+    it('should support state transitions', () => {
+      let state: WorkerClientState = 'initializing';
+      const client: WorkerClient = {
+        isReady: () => state === 'ready',
+        getState: () => state,
+        terminate: () => {
+          state = 'terminated';
+        },
+      };
+
+      expect(client.isReady()).toBe(false);
+      expect(client.getState()).toBe('initializing');
+
+      state = 'ready';
+      expect(client.isReady()).toBe(true);
+
+      client.terminate();
+      expect(client.getState()).toBe('terminated');
+    });
+  });
+
+  describe('WorkerClientWithTimeout', () => {
+    it('should extend WorkerClient with waitForReady', () => {
+      const client: WorkerClientWithTimeout = {
+        isReady: () => true,
+        getState: () => 'ready',
+        terminate: () => {},
+        waitForReady: async () => true,
+      };
+
+      expect(client.isReady()).toBe(true);
+      expect(typeof client.waitForReady).toBe('function');
+    });
+
+    it('should allow optional timeout parameter', async () => {
+      const client: WorkerClientWithTimeout = {
+        isReady: () => true,
+        getState: () => 'ready',
+        terminate: () => {},
+        waitForReady: async (_timeout?: number) => true,
+      };
+
+      // Call without timeout
+      const result1 = await client.waitForReady();
+      expect(result1).toBe(true);
+
+      // Call with timeout
+      const result2 = await client.waitForReady(5000);
+      expect(result2).toBe(true);
+    });
   });
 });

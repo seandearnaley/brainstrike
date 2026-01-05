@@ -44,6 +44,92 @@ export type QueueProgressEvent = EmbedWorkerProgress;
 export type QueueErrorEvent = EmbedWorkerError;
 
 /**
+ * Worker client lifecycle states.
+ *
+ * Standardized state machine for worker readiness per ADR-0002 (BST-165).
+ */
+export type WorkerClientState = 'initializing' | 'ready' | 'terminated' | 'error';
+
+/**
+ * Error types for worker client failures.
+ *
+ * Provides consistent error categorization across all worker implementations.
+ */
+export type WorkerClientErrorType =
+  | 'initialization_timeout'
+  | 'worker_error'
+  | 'message_timeout'
+  | 'terminated';
+
+/**
+ * Structured error for worker client failures.
+ */
+export type WorkerClientError = {
+  readonly type: WorkerClientErrorType;
+  readonly message: string;
+  readonly cause?: Error;
+};
+
+/**
+ * Base interface for worker client implementations.
+ *
+ * Standardizes the common lifecycle patterns found across worker ports
+ * (ChunkingWorkerPort, FileTreeWorkerPort, etc.) per ADR-0002.
+ *
+ * @example
+ * ```typescript
+ * const worker: WorkerClient = {
+ *   isReady: () => ready,
+ *   getState: () => state,
+ *   terminate: () => { worker.terminate(); state = 'terminated'; },
+ * };
+ * ```
+ *
+ * @see docs/adr/0002-queue-boundaries.md
+ */
+export type WorkerClient = {
+  /**
+   * Check if the worker is ready to accept messages.
+   * Equivalent to `getState() === 'ready'`.
+   */
+  isReady(): boolean;
+  /**
+   * Get the current lifecycle state of the worker.
+   */
+  getState(): WorkerClientState;
+  /**
+   * Terminate the worker and release all resources.
+   * After termination, `getState()` returns 'terminated'.
+   */
+  terminate(): void;
+};
+
+/**
+ * Extended worker client with async ready-waiting capability.
+ *
+ * Use this interface when callers need to wait for worker initialization
+ * with timeout support.
+ *
+ * @example
+ * ```typescript
+ * const isReady = await worker.waitForReady(5000);
+ * if (!isReady) {
+ *   console.warn('Worker initialization timed out');
+ * }
+ * ```
+ */
+export type WorkerClientWithTimeout = WorkerClient & {
+  /**
+   * Wait for the worker to become ready.
+   *
+   * @param timeoutMs - Maximum time to wait in milliseconds.
+   *                    If undefined, uses implementation default (typically 30s).
+   * @returns Promise that resolves to true if ready, false if timed out.
+   */
+  waitForReady(timeoutMs?: number): Promise<boolean>;
+};
+
+/**
  * Unified queue adapter interface.
  *
  * Provides standardized control semantics across durable (JobQueue) and
