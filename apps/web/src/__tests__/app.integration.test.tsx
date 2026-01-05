@@ -28,6 +28,9 @@ const createQueueStub = (): QueueAdapter => {
     pause: vi.fn(),
     resume: vi.fn(),
     drain: vi.fn(async () => {}),
+    cancel: vi.fn(async () => {}),
+    isPaused: false,
+    isProcessing: false,
   };
 };
 
