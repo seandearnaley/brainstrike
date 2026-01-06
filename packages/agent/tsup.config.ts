@@ -13,5 +13,5 @@ export default defineConfig({
   clean: true,
   sourcemap: false,
   splitting: false,
-  external: ['@brainstrike/types', 'mastra'],
+  external: ['@brainstrike/types', '@mastra/core', '@mastra/mcp'],
 });

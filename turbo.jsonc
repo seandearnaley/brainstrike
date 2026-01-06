@@ -90,7 +90,18 @@
         "@brainstrike/file-system#dev", // Run the 'dev' script from the @brainstrike/file-system package
         "@brainstrike/storage#dev", // Run the 'dev' script from the @brainstrike/storage package
         "@brainstrike/token-cache#dev", // Run the 'dev' script from the @brainstrike/token-cache package (builds workers)
-        "@brainstrike/embedding-worker#dev" // Run the 'dev' script from the @brainstrike/embedding-worker package (builds workers)
+        "@brainstrike/embedding-worker#dev", // Run the 'dev' script from the @brainstrike/embedding-worker package (builds workers)
+        "@brainstrike/agent#dev",
+        "@brainstrike/embeddings#dev",
+        "@brainstrike/db#dev",
+        "@brainstrike/queue#dev",
+        "@brainstrike/preferences#dev",
+        "@brainstrike/vector-management#dev",
+        "@brainstrike/db-explorer#dev",
+        "@brainstrike/chunking-worker#dev",
+        "@brainstrike/file-tree-worker#dev",
+        "@brainstrike/queue-telemetry-collector#dev",
+        "@brainstrike/platform-utils#dev"
       ]
     },
 
