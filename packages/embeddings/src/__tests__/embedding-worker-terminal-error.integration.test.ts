@@ -70,7 +70,7 @@ describe('Embedding Worker - Terminal Errors', () => {
 
   beforeEach(async () => {
     const pglite = await wasmLoader.createPGlite('memory://terminal-error-test');
-    await migrate(pglite as any);
+    await migrate(pglite as unknown as Parameters<typeof migrate>[0]);
     db = pglite as unknown as IDatabase;
     jq = new JobQueue(db);
     // Clean up

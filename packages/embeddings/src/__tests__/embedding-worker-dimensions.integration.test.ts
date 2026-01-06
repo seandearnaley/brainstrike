@@ -55,7 +55,7 @@ describe('Embedding Worker Dimensions', () => {
     });
 
     const pglite = await wasmLoader.createPGlite('memory://dim-test');
-    await migrate(pglite as any);
+    await migrate(pglite as unknown as Parameters<typeof migrate>[0]);
     db = pglite as unknown as IDatabase;
     jq = new JobQueue(db);
 
