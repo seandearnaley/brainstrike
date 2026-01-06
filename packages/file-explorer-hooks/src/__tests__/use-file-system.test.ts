@@ -426,6 +426,35 @@ describe('useFileSystem', () => {
       restoreSpy.mockRestore();
     });
 
+    it('should set isAccessLoading=true synchronously before async restore starts', async () => {
+      // This test verifies the fix for the race condition where other effects
+      // might see isAccessLoading=false before the restore completes.
+      // The fix ensures isAccessLoading is set to true BEFORE the async operation starts.
+      MockFileSystemAdapter.setMockLastFolderPath('/test/restored/path');
+
+      // Track isAccessLoading values over time
+      const loadingStates: boolean[] = [];
+
+      const { result } = renderHook(
+        () => {
+          const state = useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId });
+          // Capture loading state on each render
+          loadingStates.push(state.isAccessLoading);
+          return state;
+        },
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      // Wait for restore to complete
+      await waitFor(() => expect(result.current.rootDirectoryHandle).not.toBeNull());
+
+      // Verify that isAccessLoading was true at some point during the render cycle
+      // (before the async restore completed)
+      expect(loadingStates).toContain(true);
+      // And that it eventually becomes false after completion
+      expect(result.current.isAccessLoading).toBe(false);
+    });
+
     it('should handle setCurrentFolderId being undefined gracefully', async () => {
       MockFileSystemAdapter.setMockLastFolderPath('/test/restored/path');
 

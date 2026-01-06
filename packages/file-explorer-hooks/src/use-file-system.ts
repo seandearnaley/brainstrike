@@ -87,9 +87,15 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
     if (typeof fileSystemAdapter.restoreLastFolder !== 'function') {
       return;
     }
+
+    // CRITICAL: Set loading state SYNCHRONOUSLY before starting async operation.
+    // This prevents race conditions where other effects (like stale state clearing)
+    // might see isAccessLoading=false and rootDirectoryHandle=null before the
+    // restore completes, causing them to incorrectly clear persisted state.
+    isRestoringRef.current = true;
+    dispatch({ type: 'setAccessLoading', loading: true });
+
     const run = async () => {
-      isRestoringRef.current = true;
-      dispatch({ type: 'setAccessLoading', loading: true });
       try {
         const restoreFn = (
           fileSystemAdapter as { restoreLastFolder?: () => Promise<DirectoryHandle | null> }

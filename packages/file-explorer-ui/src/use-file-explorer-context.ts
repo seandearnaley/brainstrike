@@ -125,6 +125,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   const {
     rootDirectoryHandle,
+    isAccessLoading,
     selectRootDirectory,
     isFileSystemAccessSupported,
     clearRootDirectory,
@@ -258,14 +259,25 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
    * 3. Without rootDirectoryHandle, the file tree never loads
    * 4. This creates an inconsistent state where files appear "selected" but can't be acted upon
    *
+   * IMPORTANT: We must wait for isAccessLoading to be false before clearing state.
+   * On desktop, the file system adapter may be restoring the last folder asynchronously.
+   * If we clear state while that restore is in progress, we lose persisted selections/expansions.
+   *
    * This effect is REACTIVE - it subscribes to selectedFilePaths and expandedDirectoryPaths
    * so it fires when Zustand's persist middleware rehydrates the store. The effect is
    * self-limiting: once we clear the stale state, the sizes become 0 and the condition
    * no longer matches.
    */
   useEffect(() => {
-    // Wait for initial mount to complete (not loading)
+    // Wait for initial mount to complete (not loading tree)
     if (isTreeLoading) {
+      return;
+    }
+
+    // CRITICAL: Wait for file system access loading to complete.
+    // On desktop, restoreLastFolder is called on startup and sets isAccessLoading=true.
+    // We must not clear state until that restore attempt completes.
+    if (isAccessLoading) {
       return;
     }
 
@@ -293,6 +305,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     }
   }, [
     rootDirectoryHandle,
+    isAccessLoading,
     isTreeLoading,
     selectedFilePaths,
     expandedDirectoryPaths,
