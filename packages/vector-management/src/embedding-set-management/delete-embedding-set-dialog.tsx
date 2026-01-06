@@ -33,8 +33,8 @@ export function DeleteEmbeddingSetDialog({
 }: DeleteEmbeddingSetDialogProps) {
   const { toast } = useToast();
   const [deleting, setDeleting] = useState(false);
-  const cachedCollections = useVectorStatusUIStore((s) => s.cachedCollections);
-  const setCachedCollections = useVectorStatusUIStore((s) => s.setCachedCollections);
+  // Use the functional action to avoid stale closure bugs in async handlers
+  const removeCachedCollection = useVectorStatusUIStore((s) => s.removeCachedCollection);
 
   const handleDelete = async () => {
     if (!(db && embeddingSet)) {
@@ -56,8 +56,8 @@ export function DeleteEmbeddingSetDialog({
 
       // Immediately update the Zustand cache to remove the deleted collection
       // This ensures UI updates instantly without waiting for live query refresh
-      const deletedId = embeddingSet.id;
-      setCachedCollections(cachedCollections.filter((c) => c.id !== deletedId));
+      // Uses functional action to avoid stale closure bugs
+      removeCachedCollection(embeddingSet.id);
 
       // Emit event to notify other components
       if (typeof window !== 'undefined') {
