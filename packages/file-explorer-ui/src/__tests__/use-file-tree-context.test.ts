@@ -285,6 +285,38 @@ describe('useFileTree (lazy loading version)', () => {
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       expect(result.current.error).toBeNull();
     });
+
+    it('should not block future loads when refreshTree runs without a handle', async () => {
+      const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      type HookProps = { handle: Parameters<typeof useFileTree>[0] };
+
+      const initialProps: HookProps = { handle: null };
+
+      const { result, rerender } = renderHook(({ handle }: HookProps) => useFileTree(handle), {
+        wrapper: TestWrapper,
+        initialProps,
+      });
+
+      await act(async () => {
+        await result.current.refreshTree();
+      });
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      act(() => {
+        rerender({ handle });
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const names = result.current.fileTree.map((node) => node.name);
+      expect(names).toEqual(['src', 'package.json', 'README.md']);
+    });
   });
 
   describe('Lazy loading specific behavior', () => {

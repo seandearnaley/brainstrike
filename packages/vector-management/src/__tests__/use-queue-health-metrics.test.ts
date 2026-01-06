@@ -5,7 +5,6 @@
 import { JobQueue, usePGliteDatabase } from '@brainstrike/db';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-// biome-ignore lint/correctness/noUnusedImports: Required for vi.mocked() type inference
 import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
 import { useQueueHealthMetrics } from '../use-queue-health-metrics';
 

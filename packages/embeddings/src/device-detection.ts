@@ -122,7 +122,6 @@ const WEBGPU_ADAPTER_TIMEOUT_MS = 5000;
 // Cache detection result for performance (refreshable)
 let cachedCapabilities: DeviceCapabilities | null = null;
 // Promise cache for concurrent detection requests (prevents race conditions)
-// biome-ignore lint/style/useConst: reassigned during detection lifecycle
 let pendingDetection: Promise<DeviceCapabilities> | null = null;
 
 /**

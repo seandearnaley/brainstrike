@@ -348,27 +348,29 @@ export function useLazyFileTree(
     // Set flag IMMEDIATELY after guard passes - before any other code
     isLoadingRootRef.current = true;
 
+    if (!(rootDirectoryHandle && fileSystemAdapter)) {
+      handleLoadRootNoHandle(setState, initializedRootRef);
+      isLoadingRootRef.current = false;
+      return;
+    }
+
+    const rootPath = rootDirectoryHandle.path;
+
+    // Check if we should skip loading (expand-all in progress or already initialized)
+    const skipCheck = shouldSkipLoadRoot(
+      rootPath,
+      isExpandingAllRef.current,
+      initializedRootRef.current,
+      fileTreeRef.current.length
+    );
+
+    if (skipCheck.skip) {
+      logger.debug(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
+      isLoadingRootRef.current = false;
+      return;
+    }
+
     try {
-      if (!(rootDirectoryHandle && fileSystemAdapter)) {
-        handleLoadRootNoHandle(setState, initializedRootRef);
-        return;
-      }
-
-      const rootPath = rootDirectoryHandle.path;
-
-      // Check if we should skip loading (expand-all in progress or already initialized)
-      const skipCheck = shouldSkipLoadRoot(
-        rootPath,
-        isExpandingAllRef.current,
-        initializedRootRef.current,
-        fileTreeRef.current.length
-      );
-
-      if (skipCheck.skip) {
-        logger.debug(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
-        return;
-      }
-
       // Log when we're about to reinitialize (this would reset the worker tree!)
       logger.info('loadRoot running - will reinitialize worker', {
         rootPath,

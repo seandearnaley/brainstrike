@@ -388,6 +388,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, getDecodedSelection]);
 
+  // biome-ignore lint/plugin: Cache cleanup for decoded selections; no data fetching
   useEffect(() => {
     const cache = decodedSelectionCacheRef.current;
     if (cache.size === 0) {
