@@ -9,6 +9,22 @@ export {
 } from './api-key-validation';
 // Export service implementation
 export { SimpleEmbeddingService } from './bge-m3-service';
+// Export device detection utilities (BST-169)
+export type {
+  DeviceCapabilities,
+  DeviceUnavailableGuidance,
+  EmbeddingDeviceType,
+  WebGPUAdapterInfo,
+} from './device-detection';
+export {
+  clearDeviceCapabilitiesCache,
+  detectDeviceCapabilities,
+  formatDeviceCapabilitiesSummary,
+  getCachedDeviceCapabilities,
+  getDeviceUnavailableGuidance,
+  isDeviceAvailable,
+  validateDeviceOrThrow,
+} from './device-detection';
 export {
   calculateCosineSimilarity,
   calculateDotProduct,

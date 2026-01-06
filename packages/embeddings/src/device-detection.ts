@@ -1,0 +1,501 @@
+/**
+ * Device Detection and Capabilities Utilities (BST-169)
+ *
+ * Provides detailed device capability detection for local embedding inference.
+ * Enables proper WebGPU validation and user-friendly error messages.
+ */
+
+import { createLogger } from '@brainstrike/utils';
+
+const logger = createLogger('device-detection');
+
+// WebGPU types for environments where @webgpu/types is not available
+// These are minimal type definitions for the APIs we use
+type GPURequestAdapterOptions = {
+  powerPreference?: 'low-power' | 'high-performance';
+};
+
+type GPUAdapterInfo = {
+  vendor: string;
+  architecture: string;
+  description: string;
+};
+
+type GPUSupportedLimits = {
+  maxBufferSize: number;
+  maxComputeWorkgroupsPerDimension: number;
+  maxStorageBufferBindingSize: number;
+};
+
+type GPUAdapter = {
+  features: Set<string>;
+  limits: GPUSupportedLimits;
+  isFallbackAdapter: boolean;
+  requestAdapterInfo: () => Promise<GPUAdapterInfo>;
+};
+
+type Gpu = {
+  requestAdapter: (options?: GPURequestAdapterOptions) => Promise<GPUAdapter | null>;
+};
+
+// Augment Navigator type for WebGPU
+declare global {
+  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface declaration merging is required for global type augmentation
+  interface Navigator {
+    gpu?: Gpu;
+  }
+}
+
+/**
+ * Supported device types for local embeddings
+ */
+export type EmbeddingDeviceType = 'webgpu' | 'wasm';
+
+/**
+ * Detailed WebGPU adapter information
+ */
+export type WebGPUAdapterInfo = {
+  /** Vendor string (e.g., 'intel', 'nvidia', 'amd', 'apple') */
+  vendor: string;
+  /** Architecture string (e.g., 'gen-12lp', 'ampere') */
+  architecture: string;
+  /** Device description from driver */
+  description: string;
+  /** Whether this is a fallback/software adapter */
+  isFallbackAdapter: boolean;
+  /** Supported features (subset of GPUSupportedFeatures) */
+  features: string[];
+  /** Device limits (selected important ones) */
+  limits: {
+    maxBufferSize: number;
+    maxComputeWorkgroupsPerDimension: number;
+    maxStorageBufferBindingSize: number;
+  };
+};
+
+/**
+ * Result of device capability detection
+ */
+export type DeviceCapabilities = {
+  /** Whether WebGPU API is present in the browser */
+  webgpuApiPresent: boolean;
+  /** Whether WebGPU adapter was successfully obtained */
+  webgpuAdapterAvailable: boolean;
+  /** Detailed adapter info if available */
+  webgpuAdapterInfo: WebGPUAdapterInfo | null;
+  /** Reason WebGPU is unavailable (if applicable) */
+  webgpuUnavailableReason: string | null;
+  /** Whether WASM is available */
+  wasmAvailable: boolean;
+  /** Whether Web Workers are available (required for embedding queue) */
+  webWorkersAvailable: boolean;
+  /** The recommended device based on capabilities */
+  recommendedDevice: EmbeddingDeviceType;
+  /** Human-readable recommendation explanation */
+  recommendationReason: string;
+  /** Detection timestamp */
+  detectedAt: number;
+};
+
+/**
+ * Guidance for users when a device is unavailable
+ */
+export type DeviceUnavailableGuidance = {
+  /** The device that failed */
+  device: EmbeddingDeviceType;
+  /** Human-readable error title */
+  title: string;
+  /** Detailed explanation */
+  explanation: string;
+  /** Suggested actions */
+  suggestions: string[];
+  /** Alternative device to try */
+  fallbackDevice: EmbeddingDeviceType | null;
+};
+
+// Cache detection result for performance (refreshable)
+let cachedCapabilities: DeviceCapabilities | null = null;
+
+/**
+ * Result of WebGPU adapter probing
+ */
+type WebGPUProbeResult = {
+  adapterAvailable: boolean;
+  adapterInfo: WebGPUAdapterInfo | null;
+  unavailableReason: string | null;
+};
+
+/**
+ * Probe WebGPU adapter availability (extracted for complexity reduction).
+ */
+async function probeWebGPUAdapter(gpu: Gpu): Promise<WebGPUProbeResult> {
+  try {
+    const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+
+    if (!adapter) {
+      return {
+        adapterAvailable: false,
+        adapterInfo: null,
+        unavailableReason:
+          'No WebGPU adapter found - GPU may not support WebGPU or driver update needed',
+      };
+    }
+
+    const info = await adapter.requestAdapterInfo();
+    const features: string[] = [...adapter.features];
+    const limits = adapter.limits;
+
+    const adapterInfo: WebGPUAdapterInfo = {
+      vendor: info.vendor || 'unknown',
+      architecture: info.architecture || 'unknown',
+      description: info.description || 'Unknown GPU',
+      isFallbackAdapter: adapter.isFallbackAdapter ?? false,
+      features,
+      limits: {
+        maxBufferSize: limits.maxBufferSize,
+        maxComputeWorkgroupsPerDimension: limits.maxComputeWorkgroupsPerDimension,
+        maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
+      },
+    };
+
+    // Warn about fallback adapter (software rendering)
+    if (adapter.isFallbackAdapter) {
+      logger.warn('WebGPU using fallback (software) adapter - performance may be degraded', {
+        vendor: adapterInfo.vendor,
+        description: adapterInfo.description,
+      });
+    }
+
+    return { adapterAvailable: true, adapterInfo, unavailableReason: null };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.debug('WebGPU adapter request error', { error });
+    return {
+      adapterAvailable: false,
+      adapterInfo: null,
+      unavailableReason: `WebGPU adapter request failed: ${errorMessage}`,
+    };
+  }
+}
+
+/**
+ * Detect device capabilities with full async WebGPU adapter validation.
+ *
+ * Unlike simple `'gpu' in navigator` checks, this actually attempts to
+ * obtain a WebGPU adapter, which validates that:
+ * 1. The browser supports WebGPU
+ * 2. The GPU driver is compatible
+ * 3. An adapter can be created (no hardware/driver issues)
+ *
+ * @param forceRefresh - Skip cache and re-detect
+ * @returns Detailed device capabilities
+ *
+ * @example
+ * ```typescript
+ * const caps = await detectDeviceCapabilities();
+ * if (caps.webgpuAdapterAvailable) {
+ *   console.log('WebGPU ready:', caps.webgpuAdapterInfo?.description);
+ * } else {
+ *   console.log('WebGPU unavailable:', caps.webgpuUnavailableReason);
+ *   console.log('Using fallback:', caps.recommendedDevice);
+ * }
+ * ```
+ */
+export async function detectDeviceCapabilities(forceRefresh = false): Promise<DeviceCapabilities> {
+  if (cachedCapabilities && !forceRefresh) {
+    return cachedCapabilities;
+  }
+
+  const detectedAt = Date.now();
+  const webWorkersAvailable = typeof Worker !== 'undefined';
+  const wasmAvailable = typeof WebAssembly !== 'undefined';
+
+  // Check WebGPU API presence
+  const webgpuApiPresent =
+    typeof navigator !== 'undefined' &&
+    'gpu' in navigator &&
+    typeof navigator.gpu?.requestAdapter === 'function';
+
+  // Probe WebGPU adapter if API is present
+  const webgpuProbe =
+    webgpuApiPresent && navigator.gpu
+      ? await probeWebGPUAdapter(navigator.gpu)
+      : {
+          adapterAvailable: false,
+          adapterInfo: null,
+          unavailableReason: 'WebGPU API not available in this browser',
+        };
+
+  // Determine recommendation
+  const { device: recommendedDevice, reason: recommendationReason } = getDeviceRecommendation({
+    webgpuAdapterAvailable: webgpuProbe.adapterAvailable,
+    webgpuAdapterInfo: webgpuProbe.adapterInfo,
+    wasmAvailable,
+  });
+
+  const capabilities: DeviceCapabilities = {
+    webgpuApiPresent,
+    webgpuAdapterAvailable: webgpuProbe.adapterAvailable,
+    webgpuAdapterInfo: webgpuProbe.adapterInfo,
+    webgpuUnavailableReason: webgpuProbe.unavailableReason,
+    wasmAvailable,
+    webWorkersAvailable,
+    recommendedDevice,
+    recommendationReason,
+    detectedAt,
+  };
+
+  cachedCapabilities = capabilities;
+
+  logger.info('Device capabilities detected', {
+    webgpu: webgpuProbe.adapterAvailable,
+    wasm: wasmAvailable,
+    recommended: recommendedDevice,
+    gpuVendor: webgpuProbe.adapterInfo?.vendor,
+  });
+
+  return capabilities;
+}
+
+/**
+ * Synchronous check for cached capabilities.
+ * Returns null if detection hasn't been run yet.
+ */
+export function getCachedDeviceCapabilities(): DeviceCapabilities | null {
+  return cachedCapabilities;
+}
+
+/**
+ * Clear the cached device capabilities.
+ * Call this if hardware/driver state may have changed.
+ */
+export function clearDeviceCapabilitiesCache(): void {
+  cachedCapabilities = null;
+}
+
+/**
+ * Determine the recommended device based on available capabilities.
+ */
+function getDeviceRecommendation(caps: {
+  webgpuAdapterAvailable: boolean;
+  webgpuAdapterInfo: WebGPUAdapterInfo | null;
+  wasmAvailable: boolean;
+}): { device: EmbeddingDeviceType; reason: string } {
+  const { webgpuAdapterAvailable, webgpuAdapterInfo, wasmAvailable } = caps;
+
+  // Prefer WebGPU if available and not a fallback adapter
+  if (webgpuAdapterAvailable && webgpuAdapterInfo && !webgpuAdapterInfo.isFallbackAdapter) {
+    return {
+      device: 'webgpu',
+      reason: `WebGPU acceleration available (${webgpuAdapterInfo.description})`,
+    };
+  }
+
+  // WebGPU with fallback adapter - still usable but WASM may be faster
+  if (webgpuAdapterAvailable && webgpuAdapterInfo?.isFallbackAdapter) {
+    if (wasmAvailable) {
+      return {
+        device: 'wasm',
+        reason: 'WASM recommended (WebGPU using software fallback would be slower)',
+      };
+    }
+    return {
+      device: 'webgpu',
+      reason: 'WebGPU available (software fallback - expect slower performance)',
+    };
+  }
+
+  // Fall back to WASM
+  if (wasmAvailable) {
+    return {
+      device: 'wasm',
+      reason: 'WASM fallback (WebGPU not available)',
+    };
+  }
+
+  // This shouldn't happen in a browser, but handle it
+  return {
+    device: 'wasm',
+    reason: 'No acceleration available - limited browser environment',
+  };
+}
+
+/**
+ * Check if a specific device is available.
+ * For WebGPU, uses cached detection if available, otherwise does quick sync check.
+ *
+ * @param device - The device to check
+ * @returns Whether the device is available
+ */
+export function isDeviceAvailable(device: EmbeddingDeviceType): boolean {
+  if (device === 'wasm') {
+    return typeof WebAssembly !== 'undefined';
+  }
+
+  if (device === 'webgpu') {
+    // Use cached result if available (from async detection)
+    if (cachedCapabilities) {
+      return cachedCapabilities.webgpuAdapterAvailable;
+    }
+
+    // Fallback to sync API check (less reliable)
+    return typeof navigator !== 'undefined' && 'gpu' in navigator;
+  }
+
+  return false;
+}
+
+/**
+ * Get user-friendly guidance when a device is unavailable.
+ *
+ * @param device - The device that failed
+ * @param reason - Optional specific reason from detection
+ * @returns Guidance with suggestions for the user
+ */
+export function getDeviceUnavailableGuidance(
+  device: EmbeddingDeviceType,
+  reason?: string | null
+): DeviceUnavailableGuidance {
+  if (device === 'webgpu') {
+    const suggestions: string[] = [];
+
+    // Determine cause-specific suggestions
+    if (reason?.includes('API not available')) {
+      suggestions.push(
+        'Use a browser that supports WebGPU (Chrome 113+, Edge 113+, or Safari 18+)',
+        'Enable WebGPU flag if using an older browser version',
+        'Consider using WASM as an alternative (slower but widely compatible)'
+      );
+    } else if (reason?.includes('No WebGPU adapter')) {
+      suggestions.push(
+        'Update your GPU drivers to the latest version',
+        'Ensure your GPU supports WebGPU (most GPUs from 2016+ should work)',
+        'Check that hardware acceleration is enabled in browser settings',
+        'Use WASM mode if GPU acceleration is not available'
+      );
+    } else if (reason?.includes('adapter request failed')) {
+      suggestions.push(
+        'Restart your browser and try again',
+        'Check for GPU driver updates',
+        'Try disabling other GPU-intensive applications',
+        'Fall back to WASM mode for compatibility'
+      );
+    } else {
+      suggestions.push(
+        'Check browser and GPU compatibility',
+        'Update GPU drivers',
+        'Use WASM as a fallback option'
+      );
+    }
+
+    return {
+      device: 'webgpu',
+      title: 'WebGPU Acceleration Unavailable',
+      explanation:
+        reason ||
+        'WebGPU is not available in this environment. This may be due to browser support, GPU compatibility, or driver issues.',
+      suggestions,
+      fallbackDevice: 'wasm',
+    };
+  }
+
+  // WASM unavailable (very rare)
+  return {
+    device: 'wasm',
+    title: 'WebAssembly Unavailable',
+    explanation:
+      reason ||
+      'WebAssembly is not available in this browser. This is required for embedding generation.',
+    suggestions: [
+      'Use a modern browser (Chrome, Firefox, Safari, or Edge)',
+      'Disable browser extensions that may block WebAssembly',
+      'Check browser security settings',
+    ],
+    fallbackDevice: null,
+  };
+}
+
+/**
+ * Format device capabilities as a human-readable summary.
+ *
+ * @param caps - Device capabilities from detection
+ * @returns Formatted summary string
+ */
+export function formatDeviceCapabilitiesSummary(caps: DeviceCapabilities): string {
+  const lines: string[] = [];
+
+  lines.push('Device Detection Summary');
+  lines.push('════════════════════════');
+
+  // WebGPU status
+  if (caps.webgpuAdapterAvailable && caps.webgpuAdapterInfo) {
+    const info = caps.webgpuAdapterInfo;
+    lines.push('✓ WebGPU: Available');
+    lines.push(`  GPU: ${info.description}`);
+    lines.push(`  Vendor: ${info.vendor}`);
+    if (info.isFallbackAdapter) {
+      lines.push('  ⚠ Using software fallback (slower)');
+    }
+  } else {
+    lines.push('✗ WebGPU: Unavailable');
+    if (caps.webgpuUnavailableReason) {
+      lines.push(`  Reason: ${caps.webgpuUnavailableReason}`);
+    }
+  }
+
+  // WASM status
+  lines.push(
+    `${caps.wasmAvailable ? '✓' : '✗'} WASM: ${caps.wasmAvailable ? 'Available' : 'Unavailable'}`
+  );
+
+  // Workers status
+  lines.push(
+    `${caps.webWorkersAvailable ? '✓' : '✗'} Web Workers: ${caps.webWorkersAvailable ? 'Available' : 'Unavailable'}`
+  );
+
+  // Recommendation
+  lines.push('');
+  lines.push(`Recommended: ${caps.recommendedDevice.toUpperCase()}`);
+  lines.push(`Reason: ${caps.recommendationReason}`);
+
+  return lines.join('\n');
+}
+
+/**
+ * Validate that a requested device is available and usable.
+ * Throws with helpful error message if not.
+ *
+ * @param requestedDevice - The device to validate
+ * @param caps - Pre-detected capabilities (optional, will detect if not provided)
+ * @throws Error with actionable guidance if device unavailable
+ */
+export async function validateDeviceOrThrow(
+  requestedDevice: EmbeddingDeviceType,
+  caps?: DeviceCapabilities
+): Promise<void> {
+  const capabilities = caps || (await detectDeviceCapabilities());
+
+  if (requestedDevice === 'webgpu' && !capabilities.webgpuAdapterAvailable) {
+    const guidance = getDeviceUnavailableGuidance('webgpu', capabilities.webgpuUnavailableReason);
+    throw new Error(
+      `${guidance.title}: ${guidance.explanation}\n\n` +
+        `Suggestions:\n${guidance.suggestions.map((s) => `  • ${s}`).join('\n')}\n\n` +
+        `Recommended fallback: ${guidance.fallbackDevice?.toUpperCase() || 'None available'}`
+    );
+  }
+
+  if (requestedDevice === 'wasm' && !capabilities.wasmAvailable) {
+    const guidance = getDeviceUnavailableGuidance('wasm');
+    throw new Error(
+      `${guidance.title}: ${guidance.explanation}\n\n` +
+        `Suggestions:\n${guidance.suggestions.map((s) => `  • ${s}`).join('\n')}`
+    );
+  }
+
+  if (!capabilities.webWorkersAvailable) {
+    throw new Error(
+      'Web Workers are not available. Embedding generation requires Web Worker support. ' +
+        'Please use a browser that supports Web Workers (all modern browsers do).'
+    );
+  }
+}

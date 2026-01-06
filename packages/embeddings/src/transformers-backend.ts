@@ -103,30 +103,100 @@ async function getTransformersModule(): Promise<TransformersModule> {
 }
 
 /**
+ * Build a user-friendly error message for device unavailability (BST-169)
+ */
+function buildDeviceUnavailableError(device: 'webgpu' | 'wasm', reason?: string): Error {
+  const suggestions: string[] = [];
+
+  if (device === 'webgpu') {
+    if (reason?.includes('API not available') || !reason) {
+      suggestions.push(
+        'Use a browser that supports WebGPU (Chrome 113+, Edge 113+, or Safari 18+)',
+        'Enable WebGPU flag if using an older browser version',
+        'Use WASM as an alternative (set device: "wasm")'
+      );
+    } else if (reason?.includes('No WebGPU adapter')) {
+      suggestions.push(
+        'Update your GPU drivers to the latest version',
+        'Ensure your GPU supports WebGPU (most GPUs from 2016+ should work)',
+        'Check that hardware acceleration is enabled in browser settings',
+        'Use WASM mode as fallback (set device: "wasm")'
+      );
+    } else {
+      suggestions.push(
+        'Check browser and GPU compatibility',
+        'Update GPU drivers',
+        'Use WASM as a fallback (set device: "wasm")'
+      );
+    }
+
+    return new Error(
+      'WebGPU Acceleration Unavailable\n\n' +
+        `${reason || 'WebGPU is not available in this environment.'}\n\n` +
+        `Suggestions:\n${suggestions.map((s) => `  • ${s}`).join('\n')}\n\n` +
+        `Recommended fallback: WASM (set device: "wasm" in configuration)`
+    );
+  }
+
+  // WASM unavailable
+  return new Error(
+    'WebAssembly Unavailable\n\n' +
+      'WebAssembly is required for embedding generation but is not available.\n\n' +
+      'Suggestions:\n' +
+      '  • Use a modern browser (Chrome, Firefox, Safari, or Edge)\n' +
+      '  • Disable browser extensions that may block WebAssembly\n' +
+      '  • Check browser security settings'
+  );
+}
+
+/**
  * Determine the device to use for local embeddings.
  * No automatic fallback is permitted; invalid or unsupported selections throw.
+ * Provides user-friendly error messages with actionable suggestions (BST-169).
  */
 function determineDevice(requestedDevice: string | undefined): 'webgpu' | 'wasm' {
   if (requestedDevice === 'webgpu') {
     if (!TransformersBackend.isDeviceAvailable('webgpu')) {
-      throw new Error('WebGPU is not available; embeddings require an explicit supported device.');
+      const reason =
+        typeof navigator !== 'undefined' && 'gpu' in navigator
+          ? 'WebGPU API is present but no adapter could be obtained. This may indicate a GPU driver issue.'
+          : 'WebGPU API is not available in this browser.';
+      throw buildDeviceUnavailableError('webgpu', reason);
     }
     return 'webgpu';
   }
 
   if (requestedDevice === 'wasm') {
+    if (typeof WebAssembly === 'undefined') {
+      throw buildDeviceUnavailableError('wasm');
+    }
     return 'wasm';
   }
 
   if (requestedDevice === 'cpu') {
-    throw new Error('CPU embeddings are disabled; choose WebGPU or WASM.');
+    throw new Error(
+      'CPU embeddings are disabled for performance reasons.\n\n' +
+        'Please choose one of the supported acceleration methods:\n' +
+        '  • webgpu - GPU acceleration (fastest, requires WebGPU support)\n' +
+        '  • wasm - WebAssembly (slower but widely compatible)\n\n' +
+        'Set device: "webgpu" or device: "wasm" in your configuration.'
+    );
   }
 
+  // Auto-detect: prefer WebGPU if available
   if (TransformersBackend.isDeviceAvailable('webgpu')) {
+    logger.info('Auto-selected WebGPU for embedding inference');
     return 'webgpu';
   }
 
-  throw new Error('No supported embedding device available. Configure WASM explicitly.');
+  // Throw with guidance instead of silently failing
+  throw new Error(
+    'No supported embedding device available.\n\n' +
+      'WebGPU was not detected in this environment. To use embeddings:\n' +
+      '  • Explicitly set device: "wasm" for WASM-based inference\n' +
+      '  • Or use a WebGPU-capable browser (Chrome 113+, Edge 113+)\n\n' +
+      'Example: new TransformersEmbeddingProvider("model-key", "wasm")'
+  );
 }
 
 /**
