@@ -93,17 +93,30 @@ function processLoadPathsResult(
   handleMap: Parameters<typeof rehydrateTree>[1],
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>
 ): void {
+  logger.debug('[processLoadPathsResult] Called', {
+    loadedCount: result.loadedCount,
+    expandedPathsCount: result.expandedPaths.length,
+    treeRootCount: result.tree.length,
+    handleMapSize: handleMap.size,
+  });
+
   // Skip rehydration when all directories were already cached
   if (result.loadedCount > 0) {
+    logger.debug('[processLoadPathsResult] Rehydrating tree');
     // Cast tree to expected type - rehydrateTree handles the conversion
     const rehydratedTree = rehydrateTree(
       result.tree as Parameters<typeof rehydrateTree>[0],
       handleMap
     );
+    logger.debug('[processLoadPathsResult] Rehydrated tree', {
+      rehydratedTreeRootCount: rehydratedTree.length,
+    });
     setState((s) => ({
       ...s,
       fileTree: rehydratedTree,
     }));
+  } else {
+    logger.debug('[processLoadPathsResult] Skipped rehydration - loadedCount is 0');
   }
   // When loadedCount === 0, tree is already correct - no state update needed
 }

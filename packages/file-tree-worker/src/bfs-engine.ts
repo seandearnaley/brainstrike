@@ -536,26 +536,58 @@ export class BFSEngine {
 
   /**
    * Filter paths that need loading (exist in tree and not already loaded/loading).
-   * Returns paths to load and count of skipped paths.
+   * Returns:
+   * - toLoad: paths that should be loaded now
+   * - skipped: count of permanently skipped paths (already loaded or not a directory)
+   * - notFound: paths that weren't found in tree (may need retry after parents load)
    */
-  private filterPathsForLoading(batch: string[]): { toLoad: string[]; skipped: number } {
+  private filterPathsForLoading(batch: string[]): {
+    toLoad: string[];
+    skipped: number;
+    notFound: string[];
+  } {
     const toLoad: string[] = [];
+    const notFound: string[] = [];
     let skipped = 0;
+    const skipReasons: { path: string; reason: string }[] = [];
 
     for (const path of batch) {
       const node = this.findNode(path);
-      if (!node || node.type !== 'directory') {
+      if (!node) {
+        // Node not found - may appear later after parent loads
+        notFound.push(path);
+        skipReasons.push({ path, reason: 'node not found in tree' });
+        continue;
+      }
+      if (node.type !== 'directory') {
         skipped++;
+        skipReasons.push({ path, reason: `not a directory (type: ${node.type})` });
         continue;
       }
       if (node.loadState === 'loaded' || node.loadState === 'loading') {
         skipped++;
+        skipReasons.push({ path, reason: `already ${node.loadState}` });
         continue;
       }
       toLoad.push(path);
     }
 
-    return { toLoad, skipped };
+    // Log skip reasons if any paths were skipped or not found
+    if (skipReasons.length > 0) {
+      const skipReasonsStr = skipReasons
+        .slice(0, 5)
+        .map((r) => `${r.path}: ${r.reason}`)
+        .join(', ');
+      const rootPaths = this.tree
+        .slice(0, 5)
+        .map((n) => n.path)
+        .join(', ');
+      this.logDebug(
+        `[filterPathsForLoading] ${batch.length} paths: ${toLoad.length} to load, ${skipped} skipped, ${notFound.length} not found. Details: [${skipReasonsStr}]. Tree roots: [${rootPaths}]`
+      );
+    }
+
+    return { toLoad, skipped, notFound };
   }
 
   /**
@@ -575,14 +607,14 @@ export class BFSEngine {
 
   /**
    * Process a batch of paths for loadPaths operation.
-   * Returns the count of loaded and skipped paths.
+   * Returns not found paths that may need retry.
    */
   private async processLoadPathsBatch(
     batch: string[],
     counters: { loadedCount: number; skippedCount: number },
     total: number
-  ): Promise<boolean> {
-    const { toLoad, skipped } = this.filterPathsForLoading(batch);
+  ): Promise<{ notFound: string[]; aborted: boolean }> {
+    const { toLoad, skipped, notFound } = this.filterPathsForLoading(batch);
     counters.skippedCount += skipped;
 
     if (toLoad.length > 0) {
@@ -590,7 +622,7 @@ export class BFSEngine {
       const results = await this.requestLoads(toLoad);
 
       if (this.aborted) {
-        return false; // Signal abort
+        return { notFound: [], aborted: true };
       }
 
       counters.loadedCount += results.filter((r) => r.children).length;
@@ -598,7 +630,40 @@ export class BFSEngine {
 
     this.sendProgress(counters.loadedCount + counters.skippedCount, total, batch[0] ?? '');
     await yieldControl();
-    return true; // Continue processing
+    return { notFound, aborted: false };
+  }
+
+  /**
+   * Process all paths at a given set of depth levels, returning not found paths.
+   * Used by loadPaths for both initial processing and retries.
+   */
+  private async processPathsByDepth(
+    paths: string[],
+    counters: { loadedCount: number; skippedCount: number },
+    total: number
+  ): Promise<string[]> {
+    const notFoundPaths: string[] = [];
+    const depthGroups = this.groupPathsByDepth(paths);
+    const sortedDepths = [...depthGroups.keys()].sort((a, b) => a - b);
+
+    for (const depth of sortedDepths) {
+      if (this.aborted) {
+        break;
+      }
+
+      const pathsAtDepth = depthGroups.get(depth) ?? [];
+
+      for (let i = 0; i < pathsAtDepth.length && !this.aborted; i += BATCH_SIZE) {
+        const batch = pathsAtDepth.slice(i, i + BATCH_SIZE);
+        const result = await this.processLoadPathsBatch(batch, counters, total);
+        if (result.aborted) {
+          return notFoundPaths;
+        }
+        notFoundPaths.push(...result.notFound);
+      }
+    }
+
+    return notFoundPaths;
   }
 
   /**
@@ -608,6 +673,9 @@ export class BFSEngine {
    * IMPORTANT: Paths are processed by depth level to ensure parents load before children.
    * This prevents "Handle not found" errors when a child path is in the same batch as its parent,
    * since the parent's handles must be added to the map before the child can be loaded.
+   *
+   * Paths that aren't found in the tree are collected and retried after all depths are processed,
+   * since they may become available after their parent directories are loaded.
    */
   async loadPaths(paths: string[]): Promise<void> {
     this.resetAbort();
@@ -622,26 +690,27 @@ export class BFSEngine {
 
     this.logInfo(`[loadPaths] Starting restoration of ${total} directories`);
 
-    // Group paths by depth and process each level sequentially
-    // This ensures parent directories load before their children
-    const depthGroups = this.groupPathsByDepth(paths);
-    const sortedDepths = [...depthGroups.keys()].sort((a, b) => a - b);
+    // Initial pass - process all paths by depth
+    let pathsToRetry = await this.processPathsByDepth(paths, counters, total);
 
-    for (const depth of sortedDepths) {
-      if (this.aborted) {
-        break;
-      }
+    // Retry paths that weren't found initially (they may exist now after parents loaded)
+    // Use multiple retry rounds since deeper children may need multiple parent loads
+    const maxRetries = 3;
+    for (let retry = 0; retry < maxRetries && pathsToRetry.length > 0 && !this.aborted; retry++) {
+      this.logInfo(
+        `[loadPaths] Retry ${retry + 1}/${maxRetries}: ${pathsToRetry.length} paths not found initially`
+      );
+      pathsToRetry = await this.processPathsByDepth(pathsToRetry, counters, total);
+    }
 
-      const pathsAtDepth = depthGroups.get(depth) ?? [];
-
-      // Process paths at this depth in batches
-      for (let i = 0; i < pathsAtDepth.length && !this.aborted; i += BATCH_SIZE) {
-        const batch = pathsAtDepth.slice(i, i + BATCH_SIZE);
-        const shouldContinue = await this.processLoadPathsBatch(batch, counters, total);
-        if (!shouldContinue) {
-          break;
-        }
-      }
+    // Count remaining not found paths as skipped
+    if (pathsToRetry.length > 0) {
+      const samplePaths = pathsToRetry.slice(0, 3).join(', ');
+      const suffix = pathsToRetry.length > 3 ? '...' : '';
+      this.logDebug(
+        `[loadPaths] ${pathsToRetry.length} paths still not found after retries: ${samplePaths}${suffix}`
+      );
+      counters.skippedCount += pathsToRetry.length;
     }
 
     if (this.aborted) {

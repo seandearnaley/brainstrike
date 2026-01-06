@@ -24,6 +24,16 @@ import { useSharedFileContentLoading } from './use-shared-file-content-loading';
 const logger = createLogger('FileExplorerContext');
 
 /**
+ * Module-level lock for restoration to prevent concurrent runs.
+ * React's concurrent rendering can cause multiple effect instances to run
+ * before any of them sets a ref, so we need a lock outside React's lifecycle.
+ */
+const restorationLock = {
+  inProgress: false,
+  folderId: null as string | null,
+};
+
+/**
  * Helper to get the depth of a path (number of path segments).
  * Used for sorting paths by depth (shallowest first) when restoring expanded directories.
  */
@@ -332,32 +342,53 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
     // Skip if no root, still loading, or no tree
     if (!currentFolderId || isTreeLoading || fileTree.length === 0) {
+      logger.debug('[Restoration Effect] Skipped - prerequisites not met', {
+        noFolderId: !currentFolderId,
+        stillLoading: isTreeLoading,
+        emptyTree: fileTree.length === 0,
+      });
       return;
     }
 
-    // Skip if already restored for this folder
-    if (restoredForFolderRef.current === currentFolderId) {
+    // Use module-level lock to prevent concurrent runs (React refs don't work in concurrent mode)
+    // Check if already restored for this folder
+    if (restorationLock.folderId === currentFolderId) {
+      logger.debug('[Restoration Effect] Skipped - already restored for this folder');
       return;
     }
 
-    // Skip if restoration is in progress
-    if (isRestoringRef.current) {
+    // Check if restoration is in progress
+    if (restorationLock.inProgress) {
+      logger.debug('[Restoration Effect] Skipped - restoration in progress');
       return;
     }
+
+    // IMMEDIATELY acquire module-level lock to prevent concurrent runs
+    // This happens synchronously before any async operations
+    restorationLock.inProgress = true;
+    restorationLock.folderId = currentFolderId;
+    // Also update refs for backwards compatibility
+    restoredForFolderRef.current = currentFolderId;
+    isRestoringRef.current = true;
 
     // Get persisted expanded paths from store
     const storeState = store.getState();
     const expandedPaths = storeState.expandedDirectoryPaths;
 
+    logger.debug('[Restoration Effect] Expanded paths from store', {
+      folderId: currentFolderId,
+      pathCount: expandedPaths.size,
+      paths: [...expandedPaths].slice(0, 10),
+    });
+
     // Skip if no paths to restore
     if (expandedPaths.size === 0) {
-      restoredForFolderRef.current = currentFolderId;
+      logger.debug('[Restoration Effect] Skipped - no paths to restore');
+      isRestoringRef.current = false;
       return;
     }
 
-    // Mark restoration as in progress
-    isRestoringRef.current = true;
-    restoredForFolderRef.current = currentFolderId;
+    // Now safe to update state - we've locked restoration for this folder
     setIsRestoringExpandedPaths(true);
 
     logger.info('Restoring expanded directories', {
@@ -386,6 +417,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
       } catch (error) {
         logger.warn('Failed to restore expanded directories', { error });
       } finally {
+        // Release module-level lock
+        restorationLock.inProgress = false;
+        // Also update refs for backwards compatibility
         isRestoringRef.current = false;
         setIsRestoringExpandedPaths(false);
         setRestorationProgress(null);

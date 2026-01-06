@@ -18,7 +18,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
-    "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
+    "dev": "tsup src/index.ts --format esm,cjs --out-dir dist && tsup src/index.ts --format esm,cjs --watch --out-dir dist",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
