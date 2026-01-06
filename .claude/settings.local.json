@@ -229,7 +229,8 @@
       "mcp__plugin_atlassian_atlassian__getVisibleJiraProjects",
       "mcp__plugin_atlassian_atlassian__createJiraIssue",
       "Bash(mkdir:*)",
-      "mcp__plugin_atlassian_atlassian__getJiraIssue"
+      "mcp__plugin_atlassian_atlassian__getJiraIssue",
+      "mcp__plugin_codanna-cc_codanna-cc__search_symbols"
     ],
     "deny": [],
     "ask": []

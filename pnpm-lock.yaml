@@ -1268,9 +1268,6 @@ importers:
         specifier: workspace:*
         version: link:../utils
     devDependencies:
-      '@brainstrike/config':
-        specifier: workspace:*
-        version: link:../config
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
