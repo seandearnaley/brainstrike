@@ -122,15 +122,19 @@ function Sparkline({
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   });
 
+  // Generate unique ID for accessibility linking between SVG and title
+  const titleId = `sparkline-${ariaLabel.toLowerCase().replace(/\s+/g, '-')}`;
+
   return (
     <svg
-      aria-label={ariaLabel}
+      aria-labelledby={titleId}
       className={['block', className ?? ''].filter(Boolean).join(' ')}
       height={height}
       role="img"
       viewBox={`0 0 ${width} ${height}`}
       width={width}
     >
+      <title id={titleId}>{ariaLabel}</title>
       <polyline
         fill="none"
         points={points.join(' ')}

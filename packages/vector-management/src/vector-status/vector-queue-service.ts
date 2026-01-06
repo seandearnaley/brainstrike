@@ -133,6 +133,24 @@ export type VectorQueueService = {
    * Re-embed workflow: clears existing embeddings and triggers backfill.
    * Use this when switching models or when embeddings need to be regenerated.
    *
+   * ## Atomicity & Recovery
+   *
+   * **Not atomic**: The clear and backfill steps are not transactional.
+   * If backfill fails after clear completes:
+   * 1. Embeddings will be cleared (lost) for this set
+   * 2. Chunks remain intact with `embedding_set_id` preserved
+   * 3. Simply call `backfill(embeddingSetId)` again to retry
+   *
+   * **Recovery steps** if backfill fails mid-way:
+   * - Check `queueCounts.failed` for failed jobs
+   * - Use `retryFailed()` to requeue failed jobs
+   * - Or call `backfill()` directly - it skips already-queued chunks
+   *
+   * **Why not transactional**: Backfill enqueues jobs asynchronously
+   * and embedding generation happens in workers. True atomicity would
+   * require blocking until all embeddings complete, which is impractical
+   * for large sets (thousands of chunks).
+   *
    * @param embeddingSetId - The embedding set to re-embed
    * @param onProgress - Progress callback for the backfill phase
    * @returns Result with cleared count and final queue counts

@@ -27,9 +27,16 @@ import { type EmbeddingCacheEntry, embeddingCache } from '../../schema/index.js'
 /**
  * Maximum batch size for getBatch/setBatch operations.
  * Larger batches may create excessively long SQL strings.
- * Callers should chunk larger requests.
+ * Operations automatically chunk larger requests.
  */
 export const MAX_BATCH_SIZE = 100;
+
+/**
+ * Threshold for alerting on fire-and-forget operation failures.
+ * When cumulative failures reach multiples of this threshold, an error log is emitted
+ * instead of a warning to trigger alerting systems.
+ */
+export const FAILURE_ALERT_THRESHOLD = 100;
 
 /**
  * Recommended maximum cache entries before triggering eviction.
@@ -139,11 +146,22 @@ export class DrizzleEmbeddingCacheRepository {
     // This is done asynchronously to not slow down cache lookups
     this.updateAccessTime(row.id).catch((error) => {
       this.metrics.failedAccessTimeUpdates++;
-      this.logger.warn('Failed to update cache access time', {
-        id: row.id,
-        error: error instanceof Error ? error.message : String(error),
-        totalFailures: this.metrics.failedAccessTimeUpdates,
-      });
+      const errorMsg = error instanceof Error ? error.message : String(error);
+
+      // Alert if failure rate exceeds threshold (triggers error-level logging)
+      if (this.metrics.failedAccessTimeUpdates % FAILURE_ALERT_THRESHOLD === 0) {
+        this.logger.error('Cache access time update failures exceeded threshold', {
+          totalFailures: this.metrics.failedAccessTimeUpdates,
+          threshold: FAILURE_ALERT_THRESHOLD,
+          lastError: errorMsg,
+        });
+      } else {
+        this.logger.warn('Failed to update cache access time', {
+          id: row.id,
+          error: errorMsg,
+          totalFailures: this.metrics.failedAccessTimeUpdates,
+        });
+      }
     });
 
     return { hit: true, entry: row };
@@ -153,8 +171,7 @@ export class DrizzleEmbeddingCacheRepository {
    * Batch lookup for multiple content hashes with the same model key.
    * More efficient than individual lookups when processing batches.
    *
-   * Note: For optimal performance, limit batches to MAX_BATCH_SIZE (100) entries.
-   * Larger batches will work but may create long SQL strings.
+   * Note: Automatically chunks large batches using MAX_BATCH_SIZE (100).
    *
    * @param requests - Array of (contentHash, modelKey) pairs to look up
    * @returns Map of "contentHash:modelKey" -> entry for hits only
@@ -164,14 +181,32 @@ export class DrizzleEmbeddingCacheRepository {
       return new Map();
     }
 
-    // Warn if batch exceeds recommended size
+    // Auto-chunk large batches to prevent excessively long SQL strings
     if (requests.length > MAX_BATCH_SIZE) {
-      this.logger.warn('getBatch called with large batch - consider chunking', {
+      this.logger.debug('getBatch auto-chunking large batch', {
         batchSize: requests.length,
-        maxRecommended: MAX_BATCH_SIZE,
+        chunkSize: MAX_BATCH_SIZE,
+        chunks: Math.ceil(requests.length / MAX_BATCH_SIZE),
       });
+
+      const result = new Map<string, EmbeddingCacheEntry>();
+      for (let i = 0; i < requests.length; i += MAX_BATCH_SIZE) {
+        const chunk = requests.slice(i, i + MAX_BATCH_SIZE);
+        const chunkResult = await this.getBatchInternal(chunk);
+        for (const [key, entry] of chunkResult) {
+          result.set(key, entry);
+        }
+      }
+      return result;
     }
 
+    return this.getBatchInternal(requests);
+  }
+
+  /**
+   * Internal batch lookup implementation (assumes batch is within size limits).
+   */
+  private async getBatchInternal(requests: BatchLookupRequest[]): Promise<BatchLookupResult> {
     // Group by model key for more efficient queries
     const byModelKey = new Map<string, string[]>();
     for (const req of requests) {
@@ -207,11 +242,23 @@ export class DrizzleEmbeddingCacheRepository {
     if (idsToUpdate.length > 0) {
       this.batchUpdateAccessTime(idsToUpdate).catch((error) => {
         this.metrics.failedBatchAccessTimeUpdates++;
-        this.logger.warn('Failed to batch update cache access times', {
-          count: idsToUpdate.length,
-          error: error instanceof Error ? error.message : String(error),
-          totalFailures: this.metrics.failedBatchAccessTimeUpdates,
-        });
+        const errorMsg = error instanceof Error ? error.message : String(error);
+
+        // Alert if failure rate exceeds threshold (triggers error-level logging)
+        if (this.metrics.failedBatchAccessTimeUpdates % FAILURE_ALERT_THRESHOLD === 0) {
+          this.logger.error('Batch cache access time update failures exceeded threshold', {
+            totalFailures: this.metrics.failedBatchAccessTimeUpdates,
+            threshold: FAILURE_ALERT_THRESHOLD,
+            lastError: errorMsg,
+            lastBatchSize: idsToUpdate.length,
+          });
+        } else {
+          this.logger.warn('Failed to batch update cache access times', {
+            count: idsToUpdate.length,
+            error: errorMsg,
+            totalFailures: this.metrics.failedBatchAccessTimeUpdates,
+          });
+        }
       });
     }
 
@@ -424,6 +471,53 @@ export class DrizzleEmbeddingCacheRepository {
     });
 
     return result.length;
+  }
+
+  /**
+   * Check if eviction is needed and optionally perform it.
+   *
+   * LRU eviction strategy: removes oldest entries (by accessedAt) when cache
+   * exceeds RECOMMENDED_MAX_CACHE_ENTRIES threshold.
+   *
+   * @param options.dryRun - If true, only returns stats without evicting
+   * @param options.targetUtilization - Target utilization ratio (default 0.9 = 90%)
+   * @returns Object with eviction decision and count of entries evicted (or would be evicted)
+   */
+  async evictIfNeeded(
+    options: { dryRun?: boolean; targetUtilization?: number } = {}
+  ): Promise<{ needed: boolean; evicted: number; totalEntries: number }> {
+    const { dryRun = false, targetUtilization = 0.9 } = options;
+
+    const [countResult] = await this.db.select({ count: count() }).from(embeddingCache);
+    const totalEntries = countResult?.count ?? 0;
+
+    if (totalEntries <= RECOMMENDED_MAX_CACHE_ENTRIES) {
+      return { needed: false, evicted: 0, totalEntries };
+    }
+
+    // Calculate how many entries to evict to reach target utilization
+    const targetCount = Math.floor(RECOMMENDED_MAX_CACHE_ENTRIES * targetUtilization);
+    const toEvict = totalEntries - targetCount;
+
+    if (dryRun) {
+      this.logger.info('Cache eviction dry run', {
+        totalEntries,
+        threshold: RECOMMENDED_MAX_CACHE_ENTRIES,
+        wouldEvict: toEvict,
+        targetCount,
+      });
+      return { needed: true, evicted: toEvict, totalEntries };
+    }
+
+    const evicted = await this.evictOldest(toEvict);
+    this.logger.info('Cache eviction completed', {
+      totalEntries,
+      threshold: RECOMMENDED_MAX_CACHE_ENTRIES,
+      evicted,
+      newTotal: totalEntries - evicted,
+    });
+
+    return { needed: true, evicted, totalEntries };
   }
 
   /**
