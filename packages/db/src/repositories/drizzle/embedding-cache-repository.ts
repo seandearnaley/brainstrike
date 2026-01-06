@@ -20,7 +20,7 @@
  */
 
 import { createLogger, generateUUID } from '@brainstrike/utils';
-import { and, asc, count, eq, sql } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { type EmbeddingCacheEntry, embeddingCache } from '../../schema/index.js';
 
@@ -185,17 +185,14 @@ export class DrizzleEmbeddingCacheRepository {
 
     // Query each model key group
     for (const [modelKey, contentHashes] of byModelKey) {
-      // Use SQL IN clause for batch lookup
+      // Use Drizzle's inArray for type-safe parameterized queries
       const rows = await this.db
         .select()
         .from(embeddingCache)
         .where(
           and(
             eq(embeddingCache.modelKey, modelKey),
-            sql`${embeddingCache.contentHash} IN (${sql.join(
-              contentHashes.map((h) => sql`${h}`),
-              sql`, `
-            )})`
+            inArray(embeddingCache.contentHash, contentHashes)
           )
         );
 
@@ -376,15 +373,10 @@ export class DrizzleEmbeddingCacheRepository {
 
     const ids = oldestIds.map((row) => row.id);
 
-    // Delete the oldest entries
+    // Delete the oldest entries using Drizzle's inArray for type-safe queries
     const deleted = await this.db
       .delete(embeddingCache)
-      .where(
-        sql`${embeddingCache.id} IN (${sql.join(
-          ids.map((id) => sql`${id}`),
-          sql`, `
-        )})`
-      )
+      .where(inArray(embeddingCache.id, ids))
       .returning({ id: embeddingCache.id });
 
     this.logger.info('Evicted oldest cache entries', {
@@ -485,17 +477,13 @@ export class DrizzleEmbeddingCacheRepository {
       return;
     }
 
+    // Use Drizzle's inArray for type-safe parameterized queries
     await this.db
       .update(embeddingCache)
       .set({
         accessedAt: new Date(),
         accessCount: sql`${embeddingCache.accessCount} + 1`,
       })
-      .where(
-        sql`${embeddingCache.id} IN (${sql.join(
-          ids.map((id) => sql`${id}`),
-          sql`, `
-        )})`
-      );
+      .where(inArray(embeddingCache.id, ids));
   }
 }

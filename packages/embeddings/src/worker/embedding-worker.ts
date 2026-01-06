@@ -904,21 +904,10 @@ export async function startEmbeddingWorker(
     });
 
     const texts = chunks.map((c) => c.content);
-    const svcAny = service as unknown as {
-      generateEmbeddings?: (t: string[]) => Promise<EmbeddingResult[]>;
-      generateEmbedding: (t: string) => Promise<EmbeddingResult>;
-    };
 
-    let results: EmbeddingResult[];
-    if (svcAny.generateEmbeddings) {
-      results = await svcAny.generateEmbeddings(texts);
-    } else {
-      // Fallback for services that don't support batching
-      results = [];
-      for (const text of texts) {
-        results.push(await service.generateEmbedding(text));
-      }
-    }
+    // EmbeddingService interface guarantees generateEmbeddings is available
+    // No unsafe casting needed - use the typed service directly
+    const results = await service.generateEmbeddings(texts);
 
     workerLogger.debug('service.generateEmbeddings completed');
 

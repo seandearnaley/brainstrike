@@ -234,9 +234,14 @@ export async function detectDeviceCapabilities(forceRefresh = false): Promise<De
   }
 
   // Use promise caching to handle concurrent calls (prevents race conditions)
-  // If detection is already in progress, return the pending promise
-  if (pendingDetection && !forceRefresh) {
-    return pendingDetection;
+  // If detection is already in progress, return the pending promise (unless forcing refresh)
+  if (pendingDetection) {
+    if (!forceRefresh) {
+      return pendingDetection;
+    }
+    // When forceRefresh is true, await the pending detection before starting a new one
+    // This prevents race conditions where multiple adapter requests run simultaneously
+    await pendingDetection;
   }
 
   // Create and cache the detection promise
