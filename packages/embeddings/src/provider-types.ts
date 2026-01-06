@@ -139,6 +139,30 @@ export type EmbeddingInput = {
 };
 
 /**
+ * Distance/similarity metric used for vector comparison
+ */
+export type DistanceMetric = 'cosine' | 'l2' | 'ip';
+
+/**
+ * Unified provider metadata for both local and hosted providers
+ * Used for embedding-set creation and validation (BST-167)
+ */
+export type ProviderMetadata = {
+  /** Provider identifier (e.g., 'local', 'openai', 'google', 'cohere', 'voyage') */
+  providerId: EmbeddingProviderType;
+  /** Model key/identifier used for embedding generation */
+  modelKey: string;
+  /** Expected embedding dimensions */
+  dimensions: number;
+  /** Distance metric for similarity calculations (defaults to 'cosine') */
+  distance: DistanceMetric;
+  /** Optional display name for the model */
+  displayName?: string;
+  /** Optional context window size */
+  contextWindow?: number;
+};
+
+/**
  * Output from embedding generation
  */
 export type EmbeddingOutput = {
@@ -147,6 +171,8 @@ export type EmbeddingOutput = {
   dimensions: number;
   modelId: string;
   provider: EmbeddingProviderType;
+  /** Distance metric used (defaults to 'cosine') */
+  distance?: DistanceMetric;
   usage?: {
     inputTokens: number;
     totalTokens?: number;

@@ -328,6 +328,25 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
     });
   });
 
+  describe('getMetadata (BST-167)', () => {
+    it('returns unified provider metadata for valid model', () => {
+      const metadata = provider.getMetadata('jinaai/jina-embeddings-v2-base-code');
+
+      expect(metadata).toBeDefined();
+      expect(metadata?.providerId).toBe('local');
+      expect(metadata?.modelKey).toBe('jinaai/jina-embeddings-v2-base-code');
+      expect(metadata?.dimensions).toBe(DEFAULT_EMBEDDING_DIMENSION);
+      expect(metadata?.distance).toBe('cosine');
+      expect(metadata?.displayName).toBeDefined();
+    });
+
+    it('returns null for unknown model', () => {
+      const metadata = provider.getMetadata('nonexistent-model');
+
+      expect(metadata).toBeNull();
+    });
+  });
+
   describe('resource management', () => {
     slowTest('can be disposed', async () => {
       await provider.initialize();

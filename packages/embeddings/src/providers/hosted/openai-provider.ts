@@ -1,7 +1,15 @@
 import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider';
-import type { EmbeddingOutput, EmbeddingProviderError, Result } from '../../provider-types';
+import type {
+  EmbeddingOutput,
+  EmbeddingProviderError,
+  ProviderMetadata,
+  Result,
+} from '../../provider-types';
 import { STANDARD_EMBEDDING_DIMENSION } from '../../provider-types';
 import type { ModelConfig } from '../../types';
+
+/** Default distance metric for OpenAI embeddings */
+const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';
 
 type FetchLike = typeof fetch;
 
@@ -82,6 +90,26 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
 
   getModelInfo(modelId: string): ModelConfig | null {
     return OPENAI_MODELS[modelId] ?? null;
+  }
+
+  /**
+   * Get unified provider metadata for embedding-set creation and validation (BST-167)
+   */
+  getMetadata(modelId: string): ProviderMetadata | null {
+    const modelConfig = this.getModelInfo(modelId);
+    if (!modelConfig) {
+      return null;
+    }
+
+    return {
+      providerId: 'openai',
+      modelKey: modelId,
+      // Use configured targetDimensions (OpenAI supports configurable dimensions)
+      dimensions: this.targetDimensions,
+      distance: DEFAULT_DISTANCE_METRIC,
+      displayName: modelConfig.name,
+      ...(modelConfig.contextWindow !== undefined && { contextWindow: modelConfig.contextWindow }),
+    };
   }
 
   async embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {

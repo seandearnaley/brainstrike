@@ -33,6 +33,7 @@ export {
 // Export model registry manager
 export { ModelRegistryManager } from './model-registry';
 export type {
+  DistanceMetric,
   EmbeddingInput,
   EmbeddingOutput,
   EmbeddingProviderConfig,
@@ -41,6 +42,7 @@ export type {
   EmbeddingRuntime,
   HostedProviderType,
   LocalProviderType,
+  ProviderMetadata,
   Result,
 } from './provider-types';
 export { isLocalProviderType, STANDARD_EMBEDDING_DIMENSION } from './provider-types';

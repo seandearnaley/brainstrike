@@ -1,6 +1,14 @@
 import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider';
-import type { EmbeddingOutput, EmbeddingProviderError, Result } from '../../provider-types';
+import type {
+  EmbeddingOutput,
+  EmbeddingProviderError,
+  ProviderMetadata,
+  Result,
+} from '../../provider-types';
 import type { ModelConfig } from '../../types';
+
+/** Default distance metric for Google embeddings */
+const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';
 
 type FetchLike = typeof fetch;
 
@@ -87,6 +95,26 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
 
   getModelInfo(modelId: string): ModelConfig | null {
     return GOOGLE_MODELS[modelId] ?? null;
+  }
+
+  /**
+   * Get unified provider metadata for embedding-set creation and validation (BST-167)
+   */
+  getMetadata(modelId: string): ProviderMetadata | null {
+    const modelConfig = this.getModelInfo(modelId);
+    if (!modelConfig) {
+      return null;
+    }
+
+    return {
+      providerId: 'google',
+      modelKey: modelId,
+      // Use configured targetDimensions (Google supports configurable output_dimensionality)
+      dimensions: this.targetDimensions,
+      distance: DEFAULT_DISTANCE_METRIC,
+      displayName: modelConfig.name,
+      ...(modelConfig.contextWindow !== undefined && { contextWindow: modelConfig.contextWindow }),
+    };
   }
 
   async embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {

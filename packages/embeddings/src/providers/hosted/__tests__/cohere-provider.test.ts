@@ -122,6 +122,47 @@ describe('CohereEmbeddingProvider', () => {
     });
   });
 
+  describe('getMetadata (BST-167)', () => {
+    it('should return unified provider metadata for known model', () => {
+      const provider = new CohereEmbeddingProvider({
+        modelId: mockModelId,
+        apiKey: mockApiKey,
+      });
+
+      const metadata = provider.getMetadata('embed-english-v3.0');
+      expect(metadata).toBeDefined();
+      expect(metadata?.providerId).toBe('cohere');
+      expect(metadata?.modelKey).toBe('embed-english-v3.0');
+      expect(metadata?.dimensions).toBe(1024);
+      expect(metadata?.distance).toBe('cosine');
+      expect(metadata?.displayName).toBe('Cohere Embed English v3');
+    });
+
+    it('should return metadata for multilingual model', () => {
+      const provider = new CohereEmbeddingProvider({
+        modelId: 'embed-multilingual-v3.0',
+        apiKey: mockApiKey,
+      });
+
+      const metadata = provider.getMetadata('embed-multilingual-v3.0');
+      expect(metadata).toBeDefined();
+      expect(metadata?.providerId).toBe('cohere');
+      expect(metadata?.modelKey).toBe('embed-multilingual-v3.0');
+      expect(metadata?.dimensions).toBe(1024);
+      expect(metadata?.displayName).toBe('Cohere Embed Multilingual v3');
+    });
+
+    it('should return null for unknown model', () => {
+      const provider = new CohereEmbeddingProvider({
+        modelId: mockModelId,
+        apiKey: mockApiKey,
+      });
+
+      const metadata = provider.getMetadata('unknown-model');
+      expect(metadata).toBeNull();
+    });
+  });
+
   describe('embed', () => {
     it('should successfully generate embeddings', async () => {
       const mockEmbedding = new Array(1024).fill(0).map(() => Math.random());
