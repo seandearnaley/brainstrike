@@ -3,8 +3,8 @@
 ```mermaid
 flowchart LR
   subgraph Electron
-    Main["Main Process\\n(ipc-mcp.ts, assistant-server.ts, db-main.ts)"]
-    Renderer["Renderer\\n(embedding-worker-provider.tsx)"]
+    Main["Main Process\\n(IPC, assistant server, DB init)"]
+    Renderer["Renderer\\n(EmbeddingWorkerProvider + Vector Status)"]
   end
 
   subgraph Adapters
@@ -18,10 +18,11 @@ flowchart LR
   Main --> FSA
   Main --> STA
   Main --> DRepo
-  Renderer --> Worker[embedding.worker.ts]
-  Worker --> DB[(local DB\\nPGlite + pgvector?)]
+  Renderer --> Worker["Embedding Worker\\nstartEmbeddingWorker()"]
+  Worker --> DB[(local DB\\nPGlite + pgvector + job_queue)]
 ```
 
 **Notes**
-- Desktop keeps processing local when possible for privacy & speed; IPC bridges UI to privileged capabilities.
+- Desktop keeps embedding work in the renderer for privacy and to ensure Web Workers are available for local models.
+- Hosted embedding providers (OpenAI/Google) still run in the renderer today; main process remains IPC + lifecycle only.
 - DB providers/repositories have electron-specific implementations for performance and sandboxing.

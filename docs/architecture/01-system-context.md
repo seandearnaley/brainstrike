@@ -13,11 +13,14 @@ flowchart LR
 
   subgraph Core[Brainstrike Monorepo]
     subgraph Pkgs[Packages]
-      DB["packages/db<br/>migrations, repos, wasm loader"]
-      EMB["packages/embeddings<br/>factory, types, math"]
+      DB["packages/db<br/>migrations, repos, job queue, model registry"]
+      EMB["packages/embeddings<br/>providers, device detection, math"]
       EW["packages/embedding-worker<br/>worker runtime"]
+      Q["packages/queue<br/>workerpool adapters, telemetry"]
       VM["packages/vector-management<br/>status UI, controls"]
       FS["packages/file-system & storage<br/>adapters: electron/mock"]
+      PL["packages/pipeline<br/>indexing stages<br/>(not wired yet)"]
+      SR["packages/selection-rules<br/>file selection engine"]
       AG["packages/agent<br/>MAStra runtime, MCP tooling"]
       UI[packages/ui, hooks, preferences]
     end
@@ -38,12 +41,14 @@ flowchart LR
   W <--> DB
   W <--> EMB
   W <--> EW
+  W <--> Q
   W <--> VM
   W <--> AG
 
   D <--> DB
   D <--> EMB
   D <--> EW
+  D <--> Q
   D <--> VM
   D <--> FS
   D <--> AG
@@ -52,6 +57,8 @@ flowchart LR
   ADesk <--> API
   EMB -->|create vectors| DB
   EW -->|batch/queue| EMB
+  PL -.-> DB
+  PL -.-> EMB
   AG <--> LLM
   API <--> LLM
 ```

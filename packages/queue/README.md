@@ -5,6 +5,7 @@ Core embedding queue primitives used across Brainstrike web and desktop runtimes
 ## Why This Package Exists
 
 - **Unified queue abstraction** – expose a consistent `QueueAdapter` API regardless of runtime (browser workerpool, Electron renderer, server-side fallback).
+- **Control semantics** – standardized pause/resume/cancel/drain lifecycle per ADR-0002.
 - **Worker-friendly task model** – convert high-level embedding requests into `EmbedWorkerRequest` objects consumed by `@brainstrike/embedding-worker`.
 - **Telemetry & instrumentation** – emit enqueue/progress/error events that power the HUD, analytics, and the standalone telemetry collector.
 
@@ -13,6 +14,7 @@ Core embedding queue primitives used across Brainstrike web and desktop runtimes
 - `createBrowserEmbeddingQueue()` – wraps `workerpool` with batching, concurrency control, and adapter wiring for module workers.
 - Type-safe task/result helpers (`toWorkerRequest`, `QueueAdapter`, `QueueResult`) shared with downstream packages.
 - Telemetry utilities (`addQueueTelemetryListener`, `createQueueTelemetryAggregator`) for real-time monitoring.
+- `WorkerClient` types for standardized worker lifecycle state.
 
 ## Installation
 
@@ -77,3 +79,4 @@ pnpm --filter @brainstrike/queue run build # clean + tsc + tsup bundle (esm + cj
 - Browser queues assume module worker support (`new URL(..., import.meta.url)` pattern). Ensure bundlers keep the worker asset alongside your build output.
 - Telemetry is opt-in: set `VITE_QUEUE_TELEMETRY_ENDPOINT` (and optional `VITE_QUEUE_TELEMETRY_API_KEY`) to enable batch uploads.
 - In non-browser environments, construct a custom adapter by implementing the `QueueAdapter` interface if neither built-in option fits your runtime.
+- Durable queue orchestration lives in `@brainstrike/db` (`JobQueue`); this package focuses on ephemeral workerpool queues.

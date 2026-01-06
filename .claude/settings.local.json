@@ -230,7 +230,8 @@
       "mcp__plugin_atlassian_atlassian__createJiraIssue",
       "Bash(mkdir:*)",
       "mcp__plugin_atlassian_atlassian__getJiraIssue",
-      "mcp__plugin_codanna-cc_codanna-cc__search_symbols"
+      "mcp__plugin_codanna-cc_codanna-cc__search_symbols",
+      "Bash(VITEST_RUN_INTEGRATION=true pnpm --filter @brainstrike/embeddings test:*)"
     ],
     "deny": [],
     "ask": []
