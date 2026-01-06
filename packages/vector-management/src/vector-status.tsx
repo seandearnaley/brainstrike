@@ -577,14 +577,19 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     } catch {}
   }, [verboseOrtLogs]);
 
-  // Use repository from DbProvider if it has getCoverageForSet
-  // Both DrizzleFileChunkRepository and ElectronFileChunkRepository now have this method
+  // Use repository from DbProvider if it has getCoverageForSet and clearEmbeddingsForSet
+  // Both DrizzleFileChunkRepository and ElectronFileChunkRepository now have these methods
   const coverageRepository = useMemo(() => {
-    if (chunkRepository && 'getCoverageForSet' in chunkRepository) {
+    if (
+      chunkRepository &&
+      'getCoverageForSet' in chunkRepository &&
+      'clearEmbeddingsForSet' in chunkRepository
+    ) {
       return chunkRepository as {
         getCoverageForSet: (
           setId: string
         ) => Promise<{ totalChunks: number; chunksWithEmbeddingsForSet: number }>;
+        clearEmbeddingsForSet: (embeddingSetId: string) => Promise<number>;
       };
     }
     return null;
