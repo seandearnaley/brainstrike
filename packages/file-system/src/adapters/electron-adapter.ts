@@ -2,15 +2,26 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
+import {
+  createMetadataCache,
+  type MetadataCache,
+  type MetadataCacheConfig,
+  type MetadataCacheStats,
+} from '../metadata-cache';
 import type {
   DirectoryHandle,
   DirectoryReadOptions,
+  DirectoryStreamCallback,
   FileHandle,
   FileSystemAdapter,
   FileSystemChange,
+  StreamingDirectoryReadOptions,
 } from '../types';
 import { normalizeDirectoryReadOptions, validateDirectoryPath } from '../utils';
 import { handleWatcherSetupError, startChokidarWatch } from './electron-watchers';
+
+/** Default batch size for streaming directory reads */
+const DEFAULT_STREAMING_BATCH_SIZE = 50;
 
 /**
  * File system adapter for Electron applications
@@ -23,8 +34,19 @@ import { handleWatcherSetupError, startChokidarWatch } from './electron-watchers
  * - User cancellation detection
  * - Permission and access validation
  * - File watching capabilities
+ * - Optional metadata caching (BST-146) to avoid redundant stat() calls
+ * - Streaming directory enumeration (BST-147) for progressive loading
  */
-// limiter moved to shared utils
+
+/** Configuration options for ElectronFileSystemAdapter */
+export type ElectronAdapterOptions = {
+  /**
+   * Enable metadata caching to reduce filesystem I/O.
+   * When true, uses default cache settings.
+   * Pass a MetadataCacheConfig object for custom settings.
+   */
+  cache?: boolean | MetadataCacheConfig;
+};
 
 // Helpers to build nodes
 function toDirectoryNode(root: DirectoryHandle, entryName: string, fullPath: string): IFileNode {
@@ -64,12 +86,13 @@ function toBasicFileNode(root: DirectoryHandle, entryName: string, fullPath: str
   };
 }
 
-async function fileNodeFromStat(
+function toFileNodeWithMetadata(
   root: DirectoryHandle,
   fullPath: string,
-  entryName: string
-): Promise<IFileNode> {
-  const stat = await fsPromises.stat(fullPath);
+  entryName: string,
+  size: number,
+  mtimeMs: number
+): IFileNode {
   return {
     name: entryName,
     path: fullPath,
@@ -78,8 +101,8 @@ async function fileNodeFromStat(
     selectionState: 'unchecked',
     rootFolderId: root.name,
     isVisible: true,
-    size: stat.size,
-    lastModified: stat.mtimeMs,
+    size,
+    lastModified: mtimeMs,
     handle: {
       path: fullPath,
       name: entryName,
@@ -89,7 +112,137 @@ async function fileNodeFromStat(
   };
 }
 
+/**
+ * Emit the final batch when streaming is complete.
+ * Helper to reduce complexity in readDirectoryStreaming.
+ */
+function emitFinalBatch(batch: IFileNode[], total: number, onBatch: DirectoryStreamCallback): void {
+  if (batch.length > 0 || total === 0) {
+    onBatch(batch, { done: true, total });
+  } else {
+    // Signal completion with empty batch if last batch was exactly full
+    onBatch([], { done: true, total });
+  }
+}
+
+/**
+ * Create a file node with optional metadata lookup.
+ * Helper to reduce complexity in readDirectoryStreaming.
+ */
+async function createStreamingFileNode(
+  root: DirectoryHandle,
+  fullPath: string,
+  entryName: string,
+  includeMetadata: boolean,
+  getFileMetadata: (path: string) => Promise<{ size: number; mtimeMs: number } | null>
+): Promise<IFileNode> {
+  if (!includeMetadata) {
+    return toBasicFileNode(root, entryName, fullPath);
+  }
+
+  const metadata = await getFileMetadata(fullPath);
+  if (metadata) {
+    return toFileNodeWithMetadata(root, fullPath, entryName, metadata.size, metadata.mtimeMs);
+  }
+  return toBasicFileNode(root, entryName, fullPath);
+}
+
 export class ElectronFileSystemAdapter implements FileSystemAdapter {
+  private readonly metadataCache: MetadataCache | null;
+
+  /**
+   * Creates a new ElectronFileSystemAdapter.
+   *
+   * @param options - Optional configuration for the adapter
+   * @example
+   * ```ts
+   * // Without caching (default)
+   * const adapter = new ElectronFileSystemAdapter();
+   *
+   * // With default caching
+   * const cachedAdapter = new ElectronFileSystemAdapter({ cache: true });
+   *
+   * // With custom cache settings
+   * const customAdapter = new ElectronFileSystemAdapter({
+   *   cache: { maxEntries: 5000, ttlMs: 60000 }
+   * });
+   * ```
+   */
+  constructor(options?: ElectronAdapterOptions) {
+    if (options?.cache) {
+      const cacheConfig = typeof options.cache === 'object' ? options.cache : undefined;
+      this.metadataCache = createMetadataCache(cacheConfig);
+    } else {
+      this.metadataCache = null;
+    }
+  }
+
+  /**
+   * Get cache statistics for monitoring.
+   * Returns null if caching is disabled.
+   */
+  getCacheStats(): MetadataCacheStats | null {
+    return this.metadataCache?.getStats() ?? null;
+  }
+
+  /**
+   * Clear the metadata cache.
+   * No-op if caching is disabled.
+   */
+  clearCache(): void {
+    this.metadataCache?.clear();
+  }
+
+  /**
+   * Invalidate cache entries for a specific path.
+   * Use this when you know a file has changed.
+   */
+  invalidateCachePath(filePath: string): boolean {
+    return this.metadataCache?.invalidatePath(filePath) ?? false;
+  }
+
+  /**
+   * Invalidate cache entries under a directory.
+   * Use this when directory contents have changed.
+   */
+  invalidateCacheDirectory(dirPath: string): number {
+    return this.metadataCache?.invalidateDirectory(dirPath) ?? 0;
+  }
+
+  /**
+   * Fetch file metadata, using cache if available.
+   * Falls back to stat() on cache miss.
+   */
+  private async getFileMetadata(
+    fullPath: string
+  ): Promise<{ size: number; mtimeMs: number } | null> {
+    // Try cache first
+    if (this.metadataCache) {
+      const cached = this.metadataCache.get(fullPath);
+      if (cached && !cached.isDirectory) {
+        return { size: cached.size, mtimeMs: cached.mtimeMs };
+      }
+    }
+
+    // Cache miss - fetch from filesystem
+    try {
+      const stat = await fsPromises.stat(fullPath);
+
+      // Store in cache
+      if (this.metadataCache) {
+        this.metadataCache.set(fullPath, {
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          isDirectory: stat.isDirectory(),
+        });
+      }
+
+      return { size: stat.size, mtimeMs: stat.mtimeMs };
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Requests directory access from the user via Electron's dialog
    *
@@ -181,12 +334,19 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       if (includeMetadata) {
         const works = files.map((entry) =>
           limiter(async () => {
-            try {
-              const fullPath = path.join(_handle.path, entry.name);
-              return await fileNodeFromStat(_handle, fullPath, entry.name);
-            } catch {
-              return null;
+            const fullPath = path.join(_handle.path, entry.name);
+            const metadata = await this.getFileMetadata(fullPath);
+            if (metadata) {
+              return toFileNodeWithMetadata(
+                _handle,
+                fullPath,
+                entry.name,
+                metadata.size,
+                metadata.mtimeMs
+              );
             }
+            // Fallback to basic node if stat fails
+            return toBasicFileNode(_handle, entry.name, fullPath);
           })
         );
         const settled = await Promise.allSettled(works);
@@ -248,9 +408,9 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     }
   }
 
-  async exists(path: string): Promise<boolean> {
+  async exists(filePath: string): Promise<boolean> {
     try {
-      await fsPromises.access(path);
+      await fsPromises.access(filePath);
       return true;
     } catch {
       return false;
@@ -272,7 +432,23 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     let closed = false;
     let dispose: () => void = () => {};
 
-    startChokidarWatch(handle, callback)
+    // Wrap callback to invalidate cache on changes
+    const callbackWithCacheInvalidation = (changes: FileSystemChange[]) => {
+      // Invalidate cache for changed paths
+      if (this.metadataCache) {
+        for (const change of changes) {
+          if (change.kind === 'directory') {
+            this.metadataCache.invalidateDirectory(change.path);
+          } else {
+            this.metadataCache.invalidatePath(change.path);
+          }
+        }
+      }
+      // Call original callback
+      callback(changes);
+    };
+
+    startChokidarWatch(handle, callbackWithCacheInvalidation)
       .then((stop) => {
         if (closed) {
           stop();
@@ -282,7 +458,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       })
       .catch((err) => {
         if (!closed) {
-          dispose = handleWatcherSetupError(err, handle, callback);
+          dispose = handleWatcherSetupError(err, handle, callbackWithCacheInvalidation);
         }
       });
 
@@ -290,5 +466,85 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       closed = true;
       dispose();
     };
+  }
+
+  /**
+   * Stream directory contents with batched callbacks (BST-147).
+   *
+   * Uses fs.opendir() for true streaming enumeration, calling onBatch
+   * with groups of entries as they're discovered. This keeps the UI
+   * responsive for large directories instead of blocking until all
+   * entries are read.
+   *
+   * @param handle - Directory to enumerate
+   * @param onBatch - Called with each batch of entries; meta.done indicates final batch
+   * @param options - Streaming options including batchSize and AbortSignal
+   */
+  async readDirectoryStreaming(
+    handle: DirectoryHandle,
+    onBatch: DirectoryStreamCallback,
+    options?: StreamingDirectoryReadOptions
+  ): Promise<void> {
+    const batchSize = options?.batchSize ?? DEFAULT_STREAMING_BATCH_SIZE;
+    const signal = options?.signal;
+    const { includeMetadata } = normalizeDirectoryReadOptions(options);
+
+    let dir: Awaited<ReturnType<typeof fsPromises.opendir>> | null = null;
+
+    try {
+      dir = await fsPromises.opendir(handle.path);
+
+      let batch: IFileNode[] = [];
+      let total = 0;
+
+      // Bind getFileMetadata for the helper function
+      const getMetadata = this.getFileMetadata.bind(this);
+
+      for await (const dirent of dir) {
+        // Check for cancellation
+        if (signal?.aborted) {
+          break;
+        }
+
+        const fullPath = path.join(handle.path, dirent.name);
+
+        // Use helper functions to reduce complexity
+        const node = dirent.isDirectory()
+          ? toDirectoryNode(handle, dirent.name, fullPath)
+          : await createStreamingFileNode(
+              handle,
+              fullPath,
+              dirent.name,
+              includeMetadata,
+              getMetadata
+            );
+
+        batch.push(node);
+        total++;
+
+        // Emit batch when full
+        if (batch.length >= batchSize) {
+          onBatch(batch, { done: false, total });
+          batch = [];
+        }
+      }
+
+      // Emit any remaining entries
+      emitFinalBatch(batch, total, onBatch);
+    } catch (error) {
+      throw new AccessError(
+        `Failed to stream directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        handle.path,
+        'read'
+      );
+    } finally {
+      // Dir is auto-closed by for-await-of, but close explicitly on error/abort
+      // Ignore "already closed" errors since that's the expected case
+      try {
+        await dir?.close();
+      } catch {
+        // Directory was already closed by the async iterator - that's fine
+      }
+    }
   }
 }

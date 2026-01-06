@@ -8,14 +8,15 @@ flowchart TB
     R[React Router] --> Layout[AppShell]
     Layout --> Home[Home Page]
     Layout --> Explore["DB Explorer\\n(packages/db-explorer)"]
-    Layout --> Vectors["Vector Mgmt\\n(packages/vector-management)"]
+    Layout --> Vectors["Vector Mgmt\\n(Vector Status + Collections)"]
     Layout --> Settings["Preferences\\n(embedding, import, providers)"]
   end
 
   Home --> ImportFlow[Import Flow]
-  ImportFlow --> Queue[Embedding Queue Provider]
-  Queue --> Worker[Web Worker]
-  Worker --> Status[Vector Status Widgets]
+  ImportFlow --> Queue["JobQueue (PGlite)"]
+  Vectors --> Worker["Embedding Worker (renderer)"]
+  Worker --> Queue
+  Worker --> DB[(PGlite + pgvector)]
 ```
 
 ## 5.2 Homepage “Happy Path”
@@ -25,14 +26,16 @@ sequenceDiagram
   actor User
   participant UI as Home (Web)
   participant Import as Import UI
-  participant Q as Queue Provider
-  participant W as Web Worker
-  participant DB as DB via API
+  participant V as Vector Status
+  participant Q as JobQueue
+  participant W as Embedding Worker
+  participant DB as DB (PGlite + pgvector)
 
   User->>UI: Select folder
   UI->>Import: preview + options
-  Import->>Q: enqueue(file chunks)
-  Q->>W: start
+  Import->>Q: enqueue(embed_chunk jobs)
+  User->>V: Backfill / Start worker
+  V->>W: startEmbeddingWorker()
   loop until done
     W->>DB: upsert vectors
     UI-->>User: progress, ETA

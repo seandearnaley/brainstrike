@@ -136,6 +136,19 @@ describe('useFileExplorer (context)', () => {
       clearQuickFilter: vi.fn(),
       rootDirectoryHandle: null,
       setRootDirectoryHandle: vi.fn(),
+      // Selection model actions (BST-142)
+      selectionModel: {
+        mode: 'explicit' as const,
+        explicitPaths: new Set<string>(),
+        ruleSetJson: null,
+        materializedPaths: null,
+        materializedAt: null,
+      },
+      setSelectionMode: vi.fn(),
+      setSelectionRules: vi.fn(),
+      clearSelectionRules: vi.fn(),
+      commitRulesToExplicit: vi.fn(),
+      setMaterializedPaths: vi.fn(),
     };
     // Mock store function to handle individual selector calls (split selector pattern)
     const mockStore = vi.fn((selector?: (state: FileExplorerState) => unknown) => {
@@ -176,6 +189,7 @@ describe('useFileExplorer (context)', () => {
       isExpandingAll: false,
       expandAllProgress: null,
       loadSpecificPaths: vi.fn(),
+      cancelChildLoading: vi.fn(),
     });
 
     vi.mocked(useFileContentLoading).mockReturnValue({

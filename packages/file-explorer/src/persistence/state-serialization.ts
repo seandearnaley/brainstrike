@@ -1,4 +1,11 @@
-import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
+import type {
+  FileExplorerState,
+  FolderState,
+  SelectionModel,
+  SerializedSelectionModel,
+  SerializedState,
+} from '@brainstrike/types';
+import { createEmptySelectionModel } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('Persistence');
@@ -42,6 +49,40 @@ function coerceBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+/**
+ * Serialize SelectionModel for persistence (Sets → Arrays).
+ */
+function serializeSelectionModel(model: SelectionModel): SerializedSelectionModel {
+  return {
+    mode: model.mode,
+    explicitPaths: cachedSetToArray(model.explicitPaths),
+    ruleSetJson: model.ruleSetJson,
+    materializedPaths: model.materializedPaths ? cachedSetToArray(model.materializedPaths) : null,
+    materializedAt: model.materializedAt,
+  };
+}
+
+/**
+ * Deserialize SelectionModel from persistence (Arrays → Sets).
+ */
+function deserializeSelectionModel(
+  serialized: SerializedSelectionModel | undefined
+): SelectionModel {
+  if (!serialized) {
+    return createEmptySelectionModel();
+  }
+
+  return {
+    mode: serialized.mode === 'rules' ? 'rules' : 'explicit',
+    explicitPaths: new Set(coerceStringArray(serialized.explicitPaths)),
+    ruleSetJson: serialized.ruleSetJson ?? null,
+    materializedPaths: serialized.materializedPaths
+      ? new Set(coerceStringArray(serialized.materializedPaths))
+      : null,
+    materializedAt: serialized.materializedAt ?? null,
+  };
+}
+
 export function serializeState(state: FileExplorerState): SerializedState {
   const serialized: SerializedState = {
     currentFolderId: state.currentFolderId,
@@ -69,6 +110,7 @@ export function serializeState(state: FileExplorerState): SerializedState {
     lastActiveTab: state.lastActiveTab ?? 'files',
     quickFilter: state.quickFilter,
     devInlineFixtureEnabled: state.devInlineFixtureEnabled,
+    selectionModel: serializeSelectionModel(state.selectionModel),
   };
 
   return serialized;
@@ -127,6 +169,7 @@ export function mergeState(
       persistedSerialized.devInlineFixtureEnabled,
       current.devInlineFixtureEnabled
     ),
+    selectionModel: deserializeSelectionModel(persistedSerialized.selectionModel),
   };
 
   for (const key in current.folderStates) {

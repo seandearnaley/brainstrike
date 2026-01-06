@@ -7,6 +7,7 @@
 
 import type {
   BatchLoadResult,
+  FlattenedNode,
   MainToWorkerMessage,
   RequestLoadMessage,
   WorkerFileNode,
@@ -23,6 +24,7 @@ type LogHandler = (
   message: string,
   data?: unknown
 ) => void;
+type FlattenedResultHandler = (nodes: FlattenedNode[], count: number, durationMs: number) => void;
 
 type PendingOperation = {
   resolve: (result: {
@@ -143,6 +145,14 @@ export type FileTreeWorkerPort = {
     handler: (level: 'debug' | 'info' | 'warn' | 'error', message: string, data?: unknown) => void
   ): () => void;
 
+  /** Register handler for flattened tree results */
+  onFlattenedResult(
+    handler: (nodes: FlattenedNode[], count: number, durationMs: number) => void
+  ): () => void;
+
+  /** Request worker to flatten tree with given expanded paths */
+  flattenTree(expandedPaths: string[]): void;
+
   /** Check if worker is ready */
   isReady(): boolean;
 
@@ -162,6 +172,7 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
   let treeSnapshotHandler: TreeSnapshotHandler | null = null;
   let errorHandler: ErrorHandler | null = null;
   let logHandler: LogHandler | null = null;
+  let flattenedResultHandler: FlattenedResultHandler | null = null;
 
   // Operation ID counter for thread-safe operation tracking
   // Must be mutable to increment for each new operation
@@ -224,6 +235,14 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
     logHandler?.(level, message, data);
   };
 
+  const handleFlattenedResult = (payload: {
+    nodes: FlattenedNode[];
+    count: number;
+    durationMs: number;
+  }): void => {
+    flattenedResultHandler?.(payload.nodes, payload.count, payload.durationMs);
+  };
+
   /**
    * Async message handler implementation.
    * Separated from the event listener to ensure proper listener removal.
@@ -258,6 +277,10 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
 
       case 'log':
         handleLog(msg.level, msg.message, msg.data);
+        break;
+
+      case 'flattenedResult':
+        handleFlattenedResult(msg.payload);
         break;
     }
   };
@@ -391,6 +414,20 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
       return () => {
         logHandler = null;
       };
+    },
+
+    onFlattenedResult(handler) {
+      flattenedResultHandler = handler;
+      return () => {
+        flattenedResultHandler = null;
+      };
+    },
+
+    flattenTree(expandedPaths) {
+      worker.postMessage({
+        type: 'flattenTree',
+        payload: { expandedPaths },
+      } satisfies MainToWorkerMessage);
     },
 
     isReady() {

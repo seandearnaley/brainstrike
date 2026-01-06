@@ -81,6 +81,11 @@ type VectorStatusUIActions = {
   setIsEmbeddingQueueActive: (active: boolean) => void;
   setIsJobQueueActive: (active: boolean) => void;
   setCachedCollections: (collections: CachedCollection[]) => void;
+  /**
+   * Remove a collection from the cache by ID.
+   * Uses functional state update to avoid stale closure bugs in async handlers.
+   */
+  removeCachedCollection: (collectionId: string) => void;
   setCachedFileData: (data: CollectionDataCache | null) => void;
   setSchemaVerified: (verified: boolean) => void;
 };
@@ -119,6 +124,10 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
           isEmbeddingActive: state.isEmbeddingQueueActive || active,
         })),
       setCachedCollections: (collections) => set({ cachedCollections: collections }),
+      removeCachedCollection: (collectionId) =>
+        set((state) => ({
+          cachedCollections: state.cachedCollections.filter((c) => c.id !== collectionId),
+        })),
       setCachedFileData: (data) => set({ cachedFileData: data }),
       setSchemaVerified: (verified) => set({ schemaVerified: verified }),
     }),

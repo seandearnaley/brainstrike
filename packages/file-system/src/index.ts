@@ -10,6 +10,8 @@ export * from './dev-fixture-adapter.js';
 export * from './dev-fixture-types.js';
 export * from './errors.js';
 export * from './factory.js';
+// Metadata cache for Electron adapter (BST-146)
+export * from './metadata-cache.js';
 // Node-only path helpers (avoid importing in renderer processes).
 export * from './path-validation.js';
 // Testing utilities

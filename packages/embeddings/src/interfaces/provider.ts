@@ -3,6 +3,7 @@ import type {
   EmbeddingOutput,
   EmbeddingProviderError,
   EmbeddingProviderType,
+  ProviderMetadata,
   Result,
 } from '../provider-types';
 import type { ModelConfig } from '../types';
@@ -44,6 +45,15 @@ export type IEmbeddingProvider = {
    * @returns Model configuration or null if not found
    */
   getModelInfo(modelId: string): ModelConfig | null;
+
+  /**
+   * Get unified provider metadata for embedding-set creation and validation (BST-167)
+   * Returns metadata about the current provider including dimensions and distance metric
+   *
+   * @param modelId - Model identifier to get metadata for
+   * @returns Provider metadata or null if model not found/configured
+   */
+  getMetadata(modelId: string): ProviderMetadata | null;
 
   /**
    * Validate embedding dimensions match expected value

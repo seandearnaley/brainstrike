@@ -6,8 +6,8 @@ Key points:
 
 - Per‑set metadata: Each embedding set records `model_key`, `model_id`, `dimensions`, and `distance` (cosine, l2, or ip).
 - Scoped operations: Chunk writes and search queries are scoped by `embedding_set_id`. This prevents mixing vectors with different dimensionality.
-- Runtime validation: When generating embeddings, the pipeline validates the output length against the active set’s `dimensions` and raises if mismatched.
-- Schema defaults: Although a DB column may be created as `VECTOR(768)` for a common baseline, mismatches are guarded. Use a set created for the selected model to ensure compatibility.
+- Runtime validation: The embedding worker validates output length against the active set’s `dimensions` and raises if mismatched.
+- Schema defaults: `file_chunks.embedding` is a dimensionless `VECTOR`; dimension-specific indexes are created via expression casts. Use a set created for the selected model to ensure compatibility.
 - Migration safety: Vector index migrations are defensive. If `VECTOR_INDEX_TYPE=ivfflat` is set, an IVFFlat index is created (with `IVFFLAT_LISTS`). Otherwise, HNSW is used with tunable `HNSW_M`/`HNSW_EF_CONSTRUCTION`, falling back to safe defaults.
 
 Practical guidance:
@@ -19,6 +19,5 @@ Practical guidance:
 Related:
 
 - README “Vector Search Tuning” section
-- `packages/embeddings/src/worker/embedding-worker.ts` for set creation and validation
+- `packages/embeddings/src/worker/embedding-worker.ts` for set resolution and validation
 - `packages/db/src/repositories/file-chunk-repository.ts` for set‑scoped SQL search
-

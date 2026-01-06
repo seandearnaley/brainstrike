@@ -76,7 +76,10 @@ const noopQueue: QueueAdapter = {
   onProgress: () => () => {},
   pause: vi.fn(),
   resume: vi.fn(),
+  cancel: vi.fn(async () => {}),
   drain: vi.fn(async () => {}),
+  isPaused: false,
+  isProcessing: false,
 };
 
 vi.mock('../embedding-queue-provider', () => ({

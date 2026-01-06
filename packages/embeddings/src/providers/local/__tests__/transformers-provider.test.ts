@@ -66,7 +66,14 @@ function createQueueStub() {
     onProgress: vi.fn(() => () => {}),
     pause: vi.fn(),
     resume: vi.fn(),
+    cancel: vi.fn(async () => {}),
     drain: vi.fn(async () => {}),
+    get isPaused() {
+      return false;
+    },
+    get isProcessing() {
+      return false;
+    },
   };
 
   return { queue, add };
@@ -318,6 +325,25 @@ describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
       const modelInfo = provider.getModelInfo('nonexistent-model');
 
       expect(modelInfo).toBeNull();
+    });
+  });
+
+  describe('getMetadata (BST-167)', () => {
+    it('returns unified provider metadata for valid model', () => {
+      const metadata = provider.getMetadata('jinaai/jina-embeddings-v2-base-code');
+
+      expect(metadata).toBeDefined();
+      expect(metadata?.providerId).toBe('local');
+      expect(metadata?.modelKey).toBe('jinaai/jina-embeddings-v2-base-code');
+      expect(metadata?.dimensions).toBe(DEFAULT_EMBEDDING_DIMENSION);
+      expect(metadata?.distance).toBe('cosine');
+      expect(metadata?.displayName).toBeDefined();
+    });
+
+    it('returns null for unknown model', () => {
+      const metadata = provider.getMetadata('nonexistent-model');
+
+      expect(metadata).toBeNull();
     });
   });
 

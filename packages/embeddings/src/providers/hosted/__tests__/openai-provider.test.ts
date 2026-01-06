@@ -5,6 +5,61 @@ import { OpenAIEmbeddingProvider } from '../openai-provider';
 const createMockFetch = (response: Response) => vi.fn(() => Promise.resolve(response));
 
 describe('OpenAIEmbeddingProvider', () => {
+  describe('getMetadata (BST-167)', () => {
+    it('should return unified provider metadata for text-embedding-3-small', () => {
+      const provider = new OpenAIEmbeddingProvider({
+        modelId: 'text-embedding-3-small',
+        apiKey: 'test-api-key',
+        targetDimensions: 1536,
+      });
+
+      const metadata = provider.getMetadata('text-embedding-3-small');
+      expect(metadata).toBeDefined();
+      expect(metadata?.providerId).toBe('openai');
+      expect(metadata?.modelKey).toBe('text-embedding-3-small');
+      expect(metadata?.dimensions).toBe(1536);
+      expect(metadata?.distance).toBe('cosine');
+      expect(metadata?.displayName).toBe('OpenAI text-embedding-3-small');
+    });
+
+    it('should return configured targetDimensions in metadata', () => {
+      const provider = new OpenAIEmbeddingProvider({
+        modelId: 'text-embedding-3-small',
+        apiKey: 'test-api-key',
+        targetDimensions: 512,
+      });
+
+      const metadata = provider.getMetadata('text-embedding-3-small');
+      expect(metadata).toBeDefined();
+      expect(metadata?.dimensions).toBe(512);
+    });
+
+    it('should return metadata for text-embedding-3-large', () => {
+      const provider = new OpenAIEmbeddingProvider({
+        modelId: 'text-embedding-3-large',
+        apiKey: 'test-api-key',
+        targetDimensions: 3072,
+      });
+
+      const metadata = provider.getMetadata('text-embedding-3-large');
+      expect(metadata).toBeDefined();
+      expect(metadata?.providerId).toBe('openai');
+      expect(metadata?.dimensions).toBe(3072);
+      expect(metadata?.displayName).toBe('OpenAI text-embedding-3-large');
+    });
+
+    it('should return null for unknown model', () => {
+      const provider = new OpenAIEmbeddingProvider({
+        modelId: 'text-embedding-3-small',
+        apiKey: 'test-api-key',
+        targetDimensions: 1536,
+      });
+
+      const metadata = provider.getMetadata('unknown-model');
+      expect(metadata).toBeNull();
+    });
+  });
+
   it('captures total token usage from successful responses', async () => {
     const mockPayload = {
       data: [

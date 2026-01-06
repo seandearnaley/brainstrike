@@ -14,6 +14,8 @@ type IOptimizedFileTreeProps = {
   loadingPaths?: Set<string> | undefined;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
+  /** Cancel loading for a directory (called on collapse) */
+  cancelChildLoading?: ((path: string) => void) | undefined;
 };
 
 /**
@@ -33,11 +35,41 @@ type IOptimizedFileTreeProps = {
  * @param {string} folderId - The identifier for the current folder context, used for selection and expansion state.
  */
 const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
-  ({ fileTree, loadingFiles, onRender, folderId, loadingPaths, onLoadChildren }) => {
+  ({
+    fileTree,
+    loadingFiles,
+    onRender,
+    folderId,
+    loadingPaths,
+    onLoadChildren,
+    cancelChildLoading,
+  }) => {
     const store = useFileExplorerStoreContext();
     const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
     const toggleDirectoryExpansion = store((s) => s.toggleDirectoryExpansion);
     const toggleSelectedFile = store((s) => s.toggleSelectedFile);
+
+    /**
+     * Wrapped toggle that cancels streaming loads on collapse.
+     * When a directory is currently loading and the user collapses it,
+     * we abort the streaming operation to avoid wasted work.
+     */
+    const handleToggleDirectoryExpansion = useCallback(
+      (path: string) => {
+        // Check if we're collapsing (path is currently expanded) and loading
+        const isExpanded = expandedDirectoryPaths.has(path);
+        const isLoading = loadingPaths?.has(path);
+
+        if (isExpanded && isLoading && cancelChildLoading) {
+          // Cancel the in-flight streaming load before collapsing
+          cancelChildLoading(path);
+        }
+
+        // Proceed with the toggle
+        toggleDirectoryExpansion(path);
+      },
+      [expandedDirectoryPaths, loadingPaths, cancelChildLoading, toggleDirectoryExpansion]
+    );
 
     // Immediate file selection for better responsiveness
     const handleToggleFileSelection = useCallback(
@@ -109,7 +141,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             key={node.path}
             node={node}
             onLoadChildren={onLoadChildren}
-            onToggleDirectoryExpansion={toggleDirectoryExpansion}
+            onToggleDirectoryExpansion={handleToggleDirectoryExpansion}
             onToggleFileSelection={handleToggleFileSelection}
             style={{
               position: 'absolute',
@@ -127,7 +159,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       range.start,
       range.end,
       expandedDirectoryPaths,
-      toggleDirectoryExpansion,
+      handleToggleDirectoryExpansion,
       handleToggleFileSelection,
       loadingFiles,
       folderId,
@@ -183,6 +215,9 @@ const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps)
     return false;
   }
   if (prevProps.onLoadChildren !== nextProps.onLoadChildren) {
+    return false;
+  }
+  if (prevProps.cancelChildLoading !== nextProps.cancelChildLoading) {
     return false;
   }
   return true;

@@ -106,4 +106,66 @@ describe('TokenCacheContext', () => {
     expect(store.set).toBeDefined();
     expect(store.get).toBeDefined();
   });
+
+  describe('two-tier readiness semantics (BST-150)', () => {
+    it('is operational but not persisted when db is null', async () => {
+      const { result } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      });
+
+      // Wait for worker + hasher to initialize (isOperational)
+      await vi.waitFor(() => expect(result.current.isOperational).toBe(true));
+
+      // Without DB, persistence is not available
+      expect(result.current.isPersisted).toBe(false);
+      expect(result.current.persistenceMode).toBe('memory');
+      // isReady (deprecated) equals isPersisted
+      expect(result.current.isReady).toBe(false);
+    });
+
+    it('is both operational and persisted when db is provided', async () => {
+      const db = { query: vi.fn() } as any;
+      const { result } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={db}>{children}</TokenCacheProvider>,
+      });
+
+      // Wait for full initialization
+      await vi.waitFor(() => expect(result.current.isPersisted).toBe(true));
+
+      expect(result.current.isOperational).toBe(true);
+      expect(result.current.isPersisted).toBe(true);
+      expect(result.current.persistenceMode).toBe('persistent');
+      expect(result.current.isReady).toBe(true);
+    });
+
+    it('enables token counting when operational (even without persistence)', async () => {
+      const { result } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      });
+
+      // Wait for operational state
+      await vi.waitFor(() => expect(result.current.isOperational).toBe(true));
+
+      // Token counting should work via mocked useTokenCache
+      const count = result.current.getTokenCount('folder', '/file.ts');
+      expect(count).toBe(100); // From mock
+    });
+
+    it('exposes persistenceMode correctly', async () => {
+      // Test memory mode (no DB)
+      const { result: resultNoDb } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      });
+      await vi.waitFor(() => expect(resultNoDb.current.isOperational).toBe(true));
+      expect(resultNoDb.current.persistenceMode).toBe('memory');
+
+      // Test persistent mode (with DB)
+      const db = { query: vi.fn() } as any;
+      const { result: resultWithDb } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={db}>{children}</TokenCacheProvider>,
+      });
+      await vi.waitFor(() => expect(resultWithDb.current.isPersisted).toBe(true));
+      expect(resultWithDb.current.persistenceMode).toBe('persistent');
+    });
+  });
 });

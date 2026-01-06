@@ -17,6 +17,7 @@
 - 🔄 **Queue Monitoring** - Background task queue with progress tracking
 - ⚙️ **Worker Controls** - Start/stop embedding workers
 - 📈 **Performance Metrics** - Throughput, latency, and coverage statistics
+- 🧰 **Queue Diagnostics** - Status popover + diagnostics panel for health checks
 - 🎯 **Active Set Management** - Embedding set selection and switching
 - 🔍 **Vector Preferences** - Device and model configuration helpers
 - 🎨 **Status UI** - Pre-built components for status display
@@ -162,6 +163,10 @@ function WorkerControls() {
   );
 }
 ```
+
+Notes:
+- Worker controls are hidden in Electron renderer; desktop auto-starts the worker.
+- Web uses Start/Stop/Reset controls; backfill will auto-start if needed.
 
 ## Services
 
@@ -353,3 +358,17 @@ try {
 ## License
 
 ISC © BrainStrike
+## Queue Diagnostics
+
+```typescript
+import { QueueDiagnosticsPanel, QueueStatusPopover } from '@brainstrike/vector-management';
+
+function QueueDebug() {
+  return (
+    <>
+      <QueueStatusPopover />
+      <QueueDiagnosticsPanel />
+    </>
+  );
+}
+```

@@ -197,8 +197,17 @@ export function EmbeddingQueueProvider({
       resume() {
         base.resume();
       },
+      async cancel() {
+        await base.cancel();
+      },
       async drain() {
         await base.drain();
+      },
+      get isPaused() {
+        return base.isPaused;
+      },
+      get isProcessing() {
+        return base.isProcessing;
       },
     };
 
@@ -305,4 +314,13 @@ export function useEmbeddingQueue(): EmbeddingQueueContextValue {
     throw new Error('useEmbeddingQueue must be used within an EmbeddingQueueProvider');
   }
   return context;
+}
+
+/**
+ * Safe variant of useEmbeddingQueue that returns null instead of throwing
+ * when called outside of EmbeddingQueueProvider. Useful for components that
+ * can optionally use the embedding queue when available.
+ */
+export function useEmbeddingQueueSafe(): EmbeddingQueueContextValue | null {
+  return useContext(EmbeddingQueueContext);
 }

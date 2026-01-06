@@ -1,0 +1,428 @@
+import { describe, expect, it } from 'vitest';
+import type { ExplicitRule, MaterializedSelection, SelectionRuleSet } from '../schema';
+import { createEmptyMaterializedSelection, createEmptyRuleSet } from '../schema';
+import {
+  cloneMaterializedSelectionThroughSerialization,
+  cloneRuleSetThroughSerialization,
+  deserializeMaterializedSelection,
+  deserializeRuleSet,
+  safeDeserializeMaterializedSelection,
+  safeDeserializeRuleSet,
+  serializeMaterializedSelection,
+  serializeRuleSet,
+  validateAndNormalizeRuleSet,
+} from '../serialization';
+
+describe('serialization', () => {
+  const sampleRule: ExplicitRule = {
+    id: 'rule-1',
+    type: 'explicit',
+    paths: ['src/index.ts', 'src/utils.ts'],
+    createdAt: '2026-01-02T00:00:00.000Z',
+    label: 'Main files',
+    enabled: true,
+  };
+
+  const sampleRuleSet: SelectionRuleSet = {
+    version: 1,
+    folderId: 'folder-123',
+    rules: [sampleRule],
+    metadata: {
+      createdAt: '2026-01-02T00:00:00.000Z',
+      updatedAt: '2026-01-02T00:00:00.000Z',
+      description: 'Test rule set',
+    },
+  };
+
+  const sampleMaterializedSelection: MaterializedSelection = {
+    paths: new Set(['src/index.ts', 'src/utils.ts', 'src/helpers.ts']),
+    appliedRules: ['rule-1', 'rule-2'],
+    capped: false,
+    originalCount: 3,
+    warnings: [
+      {
+        code: 'pattern-no-match',
+        message: 'Pattern **/*.test.ts matched no files',
+        ruleId: 'rule-3',
+      },
+    ],
+    materializedAt: '2026-01-02T12:00:00.000Z',
+  };
+
+  describe('serializeRuleSet / deserializeRuleSet', () => {
+    it('should serialize rule set to JSON string', () => {
+      const json = serializeRuleSet(sampleRuleSet);
+
+      expect(typeof json).toBe('string');
+      expect(() => JSON.parse(json)).not.toThrow();
+    });
+
+    it('should deserialize valid JSON back to rule set', () => {
+      const json = serializeRuleSet(sampleRuleSet);
+      const deserialized = deserializeRuleSet(json);
+
+      expect(deserialized).toEqual(sampleRuleSet);
+    });
+
+    it('should throw for invalid JSON syntax', () => {
+      expect(() => deserializeRuleSet('not json')).toThrow('Failed to parse JSON');
+    });
+
+    it('should throw for invalid rule set structure', () => {
+      const invalidJson = JSON.stringify({ version: 2 });
+      expect(() => deserializeRuleSet(invalidJson)).toThrow();
+    });
+
+    it('should throw for rule set with invalid rules', () => {
+      const invalidRuleSet = {
+        ...sampleRuleSet,
+        rules: [{ type: 'invalid' }],
+      };
+      const json = JSON.stringify(invalidRuleSet);
+      expect(() => deserializeRuleSet(json)).toThrow();
+    });
+  });
+
+  describe('safeDeserializeRuleSet', () => {
+    it('should return deserialized rule set for valid input', () => {
+      const json = serializeRuleSet(sampleRuleSet);
+      const result = safeDeserializeRuleSet(json, 'fallback-folder');
+
+      expect(result).toEqual(sampleRuleSet);
+    });
+
+    it('should return empty rule set for invalid JSON', () => {
+      const result = safeDeserializeRuleSet('invalid json', 'fallback-folder');
+
+      expect(result.version).toBe(1);
+      expect(result.folderId).toBe('fallback-folder');
+      expect(result.rules).toEqual([]);
+    });
+
+    it('should return empty rule set for invalid structure', () => {
+      const result = safeDeserializeRuleSet('{"version": 999}', 'fallback-folder');
+
+      expect(result.folderId).toBe('fallback-folder');
+      expect(result.rules).toEqual([]);
+    });
+  });
+
+  describe('serializeMaterializedSelection / deserializeMaterializedSelection', () => {
+    it('should serialize materialized selection to JSON string', () => {
+      const json = serializeMaterializedSelection(sampleMaterializedSelection);
+
+      expect(typeof json).toBe('string');
+      const parsed = JSON.parse(json);
+      // paths should be array, not Set
+      expect(Array.isArray(parsed.paths)).toBe(true);
+    });
+
+    it('should convert Set to array during serialization', () => {
+      const json = serializeMaterializedSelection(sampleMaterializedSelection);
+      const parsed = JSON.parse(json);
+
+      expect(parsed.paths).toEqual(['src/index.ts', 'src/utils.ts', 'src/helpers.ts']);
+    });
+
+    it('should deserialize and convert array back to Set', () => {
+      const json = serializeMaterializedSelection(sampleMaterializedSelection);
+      const deserialized = deserializeMaterializedSelection(json);
+
+      expect(deserialized.paths).toBeInstanceOf(Set);
+      expect(deserialized.paths.size).toBe(3);
+      expect(deserialized.paths.has('src/index.ts')).toBe(true);
+    });
+
+    it('should preserve all fields during round-trip', () => {
+      const json = serializeMaterializedSelection(sampleMaterializedSelection);
+      const deserialized = deserializeMaterializedSelection(json);
+
+      expect(deserialized.appliedRules).toEqual(sampleMaterializedSelection.appliedRules);
+      expect(deserialized.capped).toBe(sampleMaterializedSelection.capped);
+      expect(deserialized.originalCount).toBe(sampleMaterializedSelection.originalCount);
+      expect(deserialized.warnings).toEqual(sampleMaterializedSelection.warnings);
+      expect(deserialized.materializedAt).toBe(sampleMaterializedSelection.materializedAt);
+    });
+
+    it('should throw for invalid JSON syntax', () => {
+      expect(() => deserializeMaterializedSelection('not json')).toThrow('Failed to parse JSON');
+    });
+
+    it('should throw for invalid structure', () => {
+      const invalidJson = JSON.stringify({ paths: 'not-an-array' });
+      expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
+        'Invalid materialized selection'
+      );
+    });
+  });
+
+  describe('safeDeserializeMaterializedSelection', () => {
+    it('should return deserialized selection for valid input', () => {
+      const json = serializeMaterializedSelection(sampleMaterializedSelection);
+      const result = safeDeserializeMaterializedSelection(json);
+
+      expect(result.paths.size).toBe(3);
+    });
+
+    it('should return empty selection for invalid JSON', () => {
+      const result = safeDeserializeMaterializedSelection('invalid json');
+
+      expect(result.paths.size).toBe(0);
+      expect(result.appliedRules).toEqual([]);
+      expect(result.capped).toBe(false);
+    });
+
+    it('should return empty selection for invalid structure', () => {
+      const result = safeDeserializeMaterializedSelection('{"invalid": true}');
+
+      expect(result.paths.size).toBe(0);
+    });
+  });
+
+  describe('validateAndNormalizeRuleSet', () => {
+    it('should return success for valid rule set', () => {
+      const result = validateAndNormalizeRuleSet(sampleRuleSet);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data).toEqual(sampleRuleSet);
+      }
+    });
+
+    it('should return errors for invalid rule set', () => {
+      const result = validateAndNormalizeRuleSet({ version: 999 });
+
+      expect(result.success).toBe(false);
+    });
+  });
+
+  describe('Round-trip tests', () => {
+    describe('cloneRuleSetThroughSerialization', () => {
+      it('should create deep clone with identical data', () => {
+        const clone = cloneRuleSetThroughSerialization(sampleRuleSet);
+
+        expect(clone).toEqual(sampleRuleSet);
+        expect(clone).not.toBe(sampleRuleSet);
+        expect(clone.rules).not.toBe(sampleRuleSet.rules);
+        expect(clone.metadata).not.toBe(sampleRuleSet.metadata);
+      });
+
+      it('should handle empty rule set', () => {
+        const empty = createEmptyRuleSet('test-folder');
+        const clone = cloneRuleSetThroughSerialization(empty);
+
+        expect(clone.version).toBe(1);
+        expect(clone.folderId).toBe('test-folder');
+        expect(clone.rules).toEqual([]);
+      });
+
+      it('should preserve all rule types through round-trip', () => {
+        const complexRuleSet: SelectionRuleSet = {
+          version: 1,
+          folderId: 'complex-folder',
+          rules: [
+            {
+              id: 'r1',
+              type: 'explicit',
+              paths: ['a.ts', 'b.ts'],
+              mode: 'include',
+              createdAt: '2026-01-02T00:00:00.000Z',
+            },
+            {
+              id: 'r2',
+              type: 'glob-include',
+              patterns: ['**/*.ts', '**/*.tsx'],
+              basePath: 'src',
+              createdAt: '2026-01-02T00:00:00.000Z',
+            },
+            {
+              id: 'r3',
+              type: 'glob-exclude',
+              patterns: ['**/*.test.ts'],
+              createdAt: '2026-01-02T00:00:00.000Z',
+            },
+            {
+              id: 'r4',
+              type: 'root-include',
+              roots: ['src', 'lib'],
+              maxDepth: 3,
+              createdAt: '2026-01-02T00:00:00.000Z',
+            },
+            {
+              id: 'r5',
+              type: 'root-exclude',
+              roots: ['node_modules'],
+              createdAt: '2026-01-02T00:00:00.000Z',
+            },
+            {
+              id: 'r6',
+              type: 'cap',
+              maxCount: 100,
+              strategy: 'priority',
+              seed: 42,
+              createdAt: '2026-01-02T00:00:00.000Z',
+            },
+          ],
+          metadata: {
+            createdAt: '2026-01-02T00:00:00.000Z',
+            updatedAt: '2026-01-02T00:00:00.000Z',
+            migratedFrom: 'explicit-set',
+            description: 'Complex test',
+          },
+        };
+
+        const clone = cloneRuleSetThroughSerialization(complexRuleSet);
+
+        expect(clone).toEqual(complexRuleSet);
+        expect(clone.rules).toHaveLength(6);
+      });
+    });
+
+    describe('cloneMaterializedSelectionThroughSerialization', () => {
+      it('should create deep clone with Set preserved', () => {
+        const clone = cloneMaterializedSelectionThroughSerialization(sampleMaterializedSelection);
+
+        expect(clone.paths).toBeInstanceOf(Set);
+        expect(clone.paths.size).toBe(sampleMaterializedSelection.paths.size);
+        expect(clone.paths).not.toBe(sampleMaterializedSelection.paths);
+      });
+
+      it('should handle empty selection', () => {
+        const empty = createEmptyMaterializedSelection();
+        const clone = cloneMaterializedSelectionThroughSerialization(empty);
+
+        expect(clone.paths.size).toBe(0);
+        expect(clone.appliedRules).toEqual([]);
+        expect(clone.capped).toBe(false);
+      });
+
+      it('should preserve warning details', () => {
+        const selectionWithWarnings: MaterializedSelection = {
+          paths: new Set(['file.ts']),
+          appliedRules: ['r1'],
+          capped: true,
+          originalCount: 150,
+          warnings: [
+            { code: 'cap-applied', message: 'Cap reduced 150 to 100', ruleId: 'cap-1' },
+            { code: 'root-not-found', message: 'Root /missing not found' },
+          ],
+          materializedAt: '2026-01-02T00:00:00.000Z',
+        };
+
+        const clone = cloneMaterializedSelectionThroughSerialization(selectionWithWarnings);
+
+        expect(clone.warnings).toHaveLength(2);
+        expect(clone.warnings[0]).toEqual(selectionWithWarnings.warnings[0]);
+        expect(clone.warnings[1]).toEqual(selectionWithWarnings.warnings[1]);
+      });
+    });
+
+    describe('serialize → parse → equals pattern', () => {
+      it('should maintain equality after full round-trip for rule set', () => {
+        const json = serializeRuleSet(sampleRuleSet);
+        const parsed = deserializeRuleSet(json);
+        const json2 = serializeRuleSet(parsed);
+        const parsed2 = deserializeRuleSet(json2);
+
+        // Compare parsed objects (JSON property order may differ)
+        expect(parsed).toEqual(sampleRuleSet);
+        expect(parsed2).toEqual(parsed);
+      });
+
+      it('should maintain equality after full round-trip for materialized selection', () => {
+        const json = serializeMaterializedSelection(sampleMaterializedSelection);
+        const parsed = deserializeMaterializedSelection(json);
+        const json2 = serializeMaterializedSelection(parsed);
+        const parsed2 = deserializeMaterializedSelection(json2);
+
+        // Compare parsed objects
+        expect(parsed.paths).toEqual(sampleMaterializedSelection.paths);
+        expect(parsed2.paths).toEqual(parsed.paths);
+      });
+
+      it('should handle multiple consecutive round-trips', () => {
+        let current = sampleRuleSet;
+
+        for (let i = 0; i < 10; i++) {
+          const json = serializeRuleSet(current);
+          current = deserializeRuleSet(json);
+        }
+
+        expect(current).toEqual(sampleRuleSet);
+      });
+    });
+  });
+
+  describe('Edge cases', () => {
+    it('should handle rule set with unicode in paths', () => {
+      const unicodeRuleSet: SelectionRuleSet = {
+        version: 1,
+        folderId: 'folder-café',
+        rules: [
+          {
+            id: 'r1',
+            type: 'explicit',
+            paths: ['日本語/ファイル.ts', 'émoji/🎉.js'],
+            createdAt: '2026-01-02T00:00:00.000Z',
+          },
+        ],
+        metadata: {
+          createdAt: '2026-01-02T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        },
+      };
+
+      const json = serializeRuleSet(unicodeRuleSet);
+      const parsed = deserializeRuleSet(json);
+
+      expect(parsed.rules[0].type).toBe('explicit');
+      if (parsed.rules[0].type === 'explicit') {
+        expect(parsed.rules[0].paths).toContain('日本語/ファイル.ts');
+        expect(parsed.rules[0].paths).toContain('émoji/🎉.js');
+      }
+    });
+
+    it('should handle materialized selection with empty paths', () => {
+      const emptyPaths: MaterializedSelection = {
+        paths: new Set(),
+        appliedRules: [],
+        capped: false,
+        originalCount: 0,
+        warnings: [],
+        materializedAt: '2026-01-02T00:00:00.000Z',
+      };
+
+      const json = serializeMaterializedSelection(emptyPaths);
+      const parsed = deserializeMaterializedSelection(json);
+
+      expect(parsed.paths.size).toBe(0);
+    });
+
+    it('should handle rule set with very long paths', () => {
+      const longPath = `${'a/'.repeat(100)}file.ts`;
+      const ruleSet: SelectionRuleSet = {
+        version: 1,
+        folderId: 'folder',
+        rules: [
+          {
+            id: 'r1',
+            type: 'explicit',
+            paths: [longPath],
+            createdAt: '2026-01-02T00:00:00.000Z',
+          },
+        ],
+        metadata: {
+          createdAt: '2026-01-02T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        },
+      };
+
+      const clone = cloneRuleSetThroughSerialization(ruleSet);
+
+      expect(clone.rules[0].type).toBe('explicit');
+      if (clone.rules[0].type === 'explicit') {
+        expect(clone.rules[0].paths[0]).toBe(longPath);
+      }
+    });
+  });
+});

@@ -5,6 +5,18 @@
  * These provide type-safe database operations using the Drizzle query builder.
  */
 
+export type {
+  BatchLookupRequest,
+  BatchLookupResult,
+  EmbeddingCacheLookupResult,
+  EmbeddingCacheMetrics,
+  EmbeddingCacheStats,
+} from './embedding-cache-repository.js';
+export {
+  DrizzleEmbeddingCacheRepository,
+  MAX_BATCH_SIZE,
+  RECOMMENDED_MAX_CACHE_ENTRIES,
+} from './embedding-cache-repository.js';
 export { DrizzleEmbeddingSetsRepository } from './embedding-sets-repository.js';
 export { DrizzleFileChunkRepository } from './file-chunk-repository.js';
 export { DrizzleFileRecordRepository } from './file-record-repository.js';

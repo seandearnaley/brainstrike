@@ -135,6 +135,19 @@ export type UpdateTreeMessage = {
 };
 
 /**
+ * Request worker to flatten the tree for virtualized rendering.
+ * The worker computes the flattened list based on its current tree state
+ * and the set of expanded paths.
+ */
+export type FlattenTreeMessage = {
+  type: 'flattenTree';
+  payload: {
+    /** Paths that should be considered expanded (from UI state) */
+    expandedPaths: string[];
+  };
+};
+
+/**
  * All possible messages from main thread to worker.
  */
 export type MainToWorkerMessage =
@@ -146,7 +159,8 @@ export type MainToWorkerMessage =
   | ToggleExpandMessage
   | AbortMessage
   | LoadPathsMessage
-  | UpdateTreeMessage;
+  | UpdateTreeMessage
+  | FlattenTreeMessage;
 
 // ============================================================================
 // Messages: Worker -> Main Thread
@@ -230,6 +244,33 @@ export type WorkerLogMessage = {
 };
 
 /**
+ * A node in the flattened list for virtualized rendering.
+ * Contains the node data plus computed depth for indentation.
+ */
+export type FlattenedNode = {
+  /** The node data */
+  node: WorkerFileNode;
+  /** Nesting depth (0 = root level) */
+  depth: number;
+};
+
+/**
+ * Result of flattening the tree.
+ * Sent in response to FlattenTreeMessage.
+ */
+export type FlattenedResultMessage = {
+  type: 'flattenedResult';
+  payload: {
+    /** Flattened list of visible nodes for virtualized rendering */
+    nodes: FlattenedNode[];
+    /** Total count of nodes in the list */
+    count: number;
+    /** Duration of the flatten operation in ms (for perf monitoring) */
+    durationMs: number;
+  };
+};
+
+/**
  * All possible messages from worker to main thread.
  */
 export type WorkerToMainMessage =
@@ -239,7 +280,8 @@ export type WorkerToMainMessage =
   | ProgressMessage
   | CompleteMessage
   | ErrorMessage
-  | WorkerLogMessage;
+  | WorkerLogMessage
+  | FlattenedResultMessage;
 
 // ============================================================================
 // Batch Load Types (for coordinating main thread I/O)

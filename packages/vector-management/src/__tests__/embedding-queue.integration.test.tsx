@@ -63,7 +63,10 @@ function createTestQueue(): QueueAdapter {
     },
     pause() {},
     resume() {},
+    async cancel() {},
     async drain() {},
+    isPaused: false,
+    isProcessing: false,
   };
 
   return adapter;

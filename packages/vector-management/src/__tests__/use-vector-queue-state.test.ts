@@ -89,6 +89,10 @@ function createMockService(overrides: Partial<VectorQueueService> = {}): VectorQ
   return {
     backfill: vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 })),
     validateApiKeyForSet: vi.fn(async () => ({ valid: true as const })),
+    reembedSet: vi.fn(async () => ({
+      clearedCount: 0,
+      queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+    })),
     retryFailed: vi.fn(),
     clearQueue: vi.fn(),
     wipeQueue: vi.fn(),

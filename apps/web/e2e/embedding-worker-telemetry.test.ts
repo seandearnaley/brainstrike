@@ -33,8 +33,13 @@ test.describe('Embedding Worker Telemetry', () => {
     await expect(vectorsPanel.getByRole('img', { name: 'Queue error trend' })).toBeVisible();
     await expect(vectorsPanel.getByRole('img', { name: 'Queue latency trend' })).toBeVisible();
 
-    const queueStatus = page.getByTestId('status-bar-queue');
-    await expect(queueStatus).toBeVisible();
-    await expect(queueStatus.getByRole('button', { name: /retry/i })).toBeVisible();
+    // BST-166: QueueStatusPopover now uses a different testid and doesn't have a retry button
+    // visible in the compact status bar view. The retry functionality is in the popover content.
+    const queueStatusPopover = page.getByTestId('queue-status-popover-trigger');
+    await expect(queueStatusPopover).toBeVisible();
+    // Verify the compact status shows queue metrics (Q, R, F indicators)
+    await expect(queueStatusPopover.getByText('Q')).toBeVisible();
+    await expect(queueStatusPopover.getByText('R')).toBeVisible();
+    await expect(queueStatusPopover.getByText('F')).toBeVisible();
   });
 });

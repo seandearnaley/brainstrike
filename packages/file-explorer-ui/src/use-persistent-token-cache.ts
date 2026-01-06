@@ -108,7 +108,7 @@ export function usePersistentTokenCache({
       const { folderId, path } = decodeFileSelection(compositeKey);
 
       // --- Persistent Cache Path (preferred) ---
-      if (persistentCache?.isReady) {
+      if (persistentCache?.isOperational) {
         // Try to get from hot cache first (no content needed!)
         // Pass undefined for content to check cache only
         const content = fileContents[compositeKey];

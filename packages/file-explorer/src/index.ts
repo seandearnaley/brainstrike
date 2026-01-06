@@ -2,5 +2,6 @@ export * from './actions/directory-expansion-actions';
 export * from './actions/file-selection-actions';
 export * from './actions/filter-actions';
 export * from './actions/folder-state-actions';
+export * from './actions/selection-model-actions';
 export * from './actions/settings-actions';
 export * from './store';

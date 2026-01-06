@@ -36,3 +36,96 @@ export function supportsWorkers(): boolean {
   // Type-only detection keeps us CSP-safe. Any instantiation errors will be caught during adapter creation.
   return typeof window !== 'undefined' && typeof Worker !== 'undefined';
 }
+
+/**
+ * Default timeout for worker initialization (30 seconds).
+ */
+export const DEFAULT_WORKER_READY_TIMEOUT_MS = 30_000;
+
+/**
+ * Options for configuring worker ready waiting behavior.
+ */
+export type WorkerReadyWaiterOptions = {
+  /** Default timeout in ms if none provided to waitForReady (default: 30000) */
+  readonly defaultTimeoutMs?: number;
+  /** Polling interval in ms for checking ready state (default: 50) */
+  readonly pollIntervalMs?: number;
+};
+
+/**
+ * Creates a waitForReady function for a worker client.
+ *
+ * This utility standardizes the async ready-waiting pattern found across
+ * worker port implementations (BST-165).
+ *
+ * @example
+ * ```typescript
+ * let ready = false;
+ * const waitForReady = createWorkerReadyWaiter(() => ready);
+ *
+ * // Later, when worker sends 'ready' message:
+ * ready = true;
+ *
+ * // Caller can wait with timeout:
+ * const isReady = await waitForReady(5000);
+ * ```
+ *
+ * @param isReady - Function that returns current ready state
+ * @param options - Configuration options
+ * @returns Async function that resolves when ready or times out
+ */
+export function createWorkerReadyWaiter(
+  isReady: () => boolean,
+  options: WorkerReadyWaiterOptions = {}
+): (timeoutMs?: number) => Promise<boolean> {
+  const { defaultTimeoutMs = DEFAULT_WORKER_READY_TIMEOUT_MS, pollIntervalMs = 50 } = options;
+
+  return async (timeoutMs?: number): Promise<boolean> => {
+    // Already ready - fast path
+    if (isReady()) {
+      return true;
+    }
+
+    const timeout = timeoutMs ?? defaultTimeoutMs;
+    const deadline = Date.now() + timeout;
+
+    return new Promise<boolean>((resolve) => {
+      const checkReady = () => {
+        if (isReady()) {
+          resolve(true);
+          return;
+        }
+
+        if (Date.now() >= deadline) {
+          resolve(false);
+          return;
+        }
+
+        setTimeout(checkReady, pollIntervalMs);
+      };
+
+      checkReady();
+    });
+  };
+}
+
+/**
+ * Creates a timeout promise that rejects after the specified duration.
+ *
+ * Useful for racing worker operations against deadlines.
+ *
+ * @example
+ * ```typescript
+ * const result = await Promise.race([
+ *   worker.performOperation(),
+ *   createTimeoutPromise(5000, 'Operation timed out'),
+ * ]);
+ * ```
+ */
+export function createTimeoutPromise<T = never>(timeoutMs: number, message: string): Promise<T> {
+  return new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error(message));
+    }, timeoutMs);
+  });
+}

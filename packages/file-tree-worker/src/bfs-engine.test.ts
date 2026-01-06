@@ -429,4 +429,155 @@ describe('BFSEngine', () => {
       }
     });
   });
+
+  describe('flattenTree', () => {
+    it('should flatten an empty tree', () => {
+      engine.setTree([], 'root');
+
+      engine.flattenTree([]);
+
+      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      expect(resultMsg).toBeDefined();
+      if (resultMsg?.type === 'flattenedResult') {
+        expect(resultMsg.payload.nodes).toEqual([]);
+        expect(resultMsg.payload.count).toBe(0);
+      }
+    });
+
+    it('should flatten a tree with only root-level nodes', () => {
+      const tree = [
+        createFileNode({ name: 'file1.txt', path: '/root/file1.txt' }),
+        createDirectoryNode({ name: 'dir1', path: '/root/dir1', loadState: 'unloaded' }),
+      ];
+      engine.setTree(tree, 'root');
+
+      engine.flattenTree([]);
+
+      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      expect(resultMsg).toBeDefined();
+      if (resultMsg?.type === 'flattenedResult') {
+        expect(resultMsg.payload.nodes).toHaveLength(2);
+        expect(resultMsg.payload.nodes[0]?.depth).toBe(0);
+        expect(resultMsg.payload.nodes[1]?.depth).toBe(0);
+      }
+    });
+
+    it('should include children of expanded and loaded directories', () => {
+      const tree = [
+        createDirectoryNode({
+          name: 'dir1',
+          path: '/root/dir1',
+          loadState: 'loaded',
+          children: [createFileNode({ name: 'child.txt', path: '/root/dir1/child.txt', depth: 2 })],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      engine.flattenTree(['/root/dir1']);
+
+      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      expect(resultMsg).toBeDefined();
+      if (resultMsg?.type === 'flattenedResult') {
+        expect(resultMsg.payload.nodes).toHaveLength(2);
+        expect(resultMsg.payload.nodes[0]?.node.path).toBe('/root/dir1');
+        expect(resultMsg.payload.nodes[0]?.depth).toBe(0);
+        expect(resultMsg.payload.nodes[1]?.node.path).toBe('/root/dir1/child.txt');
+        expect(resultMsg.payload.nodes[1]?.depth).toBe(1);
+      }
+    });
+
+    it('should not include children of collapsed directories', () => {
+      const tree = [
+        createDirectoryNode({
+          name: 'dir1',
+          path: '/root/dir1',
+          loadState: 'loaded',
+          children: [createFileNode({ name: 'child.txt', path: '/root/dir1/child.txt', depth: 2 })],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      // Not expanded - pass empty array
+      engine.flattenTree([]);
+
+      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      expect(resultMsg).toBeDefined();
+      if (resultMsg?.type === 'flattenedResult') {
+        // Only parent, no children
+        expect(resultMsg.payload.nodes).toHaveLength(1);
+        expect(resultMsg.payload.nodes[0]?.node.path).toBe('/root/dir1');
+      }
+    });
+
+    it('should not include children of expanded but unloaded directories', () => {
+      const tree = [
+        createDirectoryNode({
+          name: 'dir1',
+          path: '/root/dir1',
+          loadState: 'unloaded', // Not loaded yet
+          children: undefined,
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      engine.flattenTree(['/root/dir1']); // Expanded but not loaded
+
+      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      expect(resultMsg).toBeDefined();
+      if (resultMsg?.type === 'flattenedResult') {
+        // Only parent, no children (not loaded)
+        expect(resultMsg.payload.nodes).toHaveLength(1);
+      }
+    });
+
+    it('should include duration in result', () => {
+      engine.setTree([createFileNode()], 'root');
+
+      engine.flattenTree([]);
+
+      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      expect(resultMsg).toBeDefined();
+      if (resultMsg?.type === 'flattenedResult') {
+        expect(typeof resultMsg.payload.durationMs).toBe('number');
+        expect(resultMsg.payload.durationMs).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    it('should handle deeply nested expanded directories', () => {
+      const tree = [
+        createDirectoryNode({
+          name: 'level1',
+          path: '/root/level1',
+          loadState: 'loaded',
+          children: [
+            createDirectoryNode({
+              name: 'level2',
+              path: '/root/level1/level2',
+              depth: 2,
+              loadState: 'loaded',
+              children: [
+                createFileNode({
+                  name: 'deep.txt',
+                  path: '/root/level1/level2/deep.txt',
+                  depth: 3,
+                }),
+              ],
+            }),
+          ],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      engine.flattenTree(['/root/level1', '/root/level1/level2']);
+
+      const resultMsg = messages.find((m) => m.type === 'flattenedResult');
+      expect(resultMsg).toBeDefined();
+      if (resultMsg?.type === 'flattenedResult') {
+        expect(resultMsg.payload.nodes).toHaveLength(3);
+        expect(resultMsg.payload.nodes[0]?.depth).toBe(0);
+        expect(resultMsg.payload.nodes[1]?.depth).toBe(1);
+        expect(resultMsg.payload.nodes[2]?.depth).toBe(2);
+      }
+    });
+  });
 });

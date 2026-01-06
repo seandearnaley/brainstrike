@@ -403,4 +403,368 @@ describe('ElectronFileSystemAdapter', () => {
 
     expect(() => stop()).not.toThrow();
   });
+
+  describe('metadata caching (BST-146)', () => {
+    it('should create adapter without cache by default', () => {
+      const uncachedAdapter = new ElectronFileSystemAdapter();
+      expect(uncachedAdapter.getCacheStats()).toBeNull();
+    });
+
+    it('should create adapter with cache when cache: true', () => {
+      const cachedAdapter = new ElectronFileSystemAdapter({ cache: true });
+      const stats = cachedAdapter.getCacheStats();
+      expect(stats).not.toBeNull();
+      expect(stats?.size).toBe(0);
+      expect(stats?.maxEntries).toBe(10_000); // default
+    });
+
+    it('should create adapter with custom cache config', () => {
+      const cachedAdapter = new ElectronFileSystemAdapter({
+        cache: { maxEntries: 500, ttlMs: 5000 },
+      });
+      const stats = cachedAdapter.getCacheStats();
+      expect(stats).not.toBeNull();
+      expect(stats?.maxEntries).toBe(500);
+    });
+
+    it('should cache file metadata on readDirectory with includeMetadata: true', async () => {
+      const { dialog } = await import('electron');
+      vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+        canceled: false,
+        filePaths: [tempDir],
+      });
+
+      const cachedAdapter = new ElectronFileSystemAdapter({ cache: true });
+
+      // Create a file
+      fs.writeFileSync(path.join(tempDir, 'cached.txt'), 'cached content');
+
+      const handle = await cachedAdapter.requestDirectoryAccess();
+
+      // Spy on stat to count calls
+      const statSpy = vi.spyOn(fsPromises, 'stat');
+
+      // First read - should call stat
+      await cachedAdapter.readDirectory(handle, { includeMetadata: true });
+      const firstCallCount = statSpy.mock.calls.length;
+      expect(firstCallCount).toBeGreaterThan(0);
+
+      // Second read - should use cache (fewer stat calls for files)
+      await cachedAdapter.readDirectory(handle, { includeMetadata: true });
+      const secondCallCount = statSpy.mock.calls.length;
+
+      // The second read should have fewer new stat calls since cached.txt is cached
+      // Note: directory validation still calls stat, so we check relative increase
+      expect(secondCallCount - firstCallCount).toBeLessThan(firstCallCount);
+    });
+
+    it('should clear cache', async () => {
+      const cachedAdapter = new ElectronFileSystemAdapter({ cache: true });
+      const { dialog } = await import('electron');
+      vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+        canceled: false,
+        filePaths: [tempDir],
+      });
+
+      fs.writeFileSync(path.join(tempDir, 'file.txt'), 'data');
+
+      const handle = await cachedAdapter.requestDirectoryAccess();
+      await cachedAdapter.readDirectory(handle, { includeMetadata: true });
+
+      // Cache should have entries
+      expect(cachedAdapter.getCacheStats()?.size).toBeGreaterThan(0);
+
+      // Clear cache
+      cachedAdapter.clearCache();
+      expect(cachedAdapter.getCacheStats()?.size).toBe(0);
+    });
+
+    it('should invalidate specific cache path', async () => {
+      const cachedAdapter = new ElectronFileSystemAdapter({ cache: true });
+      const { dialog } = await import('electron');
+      vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+        canceled: false,
+        filePaths: [tempDir],
+      });
+
+      fs.writeFileSync(path.join(tempDir, 'a.txt'), 'a');
+      fs.writeFileSync(path.join(tempDir, 'b.txt'), 'b');
+
+      const handle = await cachedAdapter.requestDirectoryAccess();
+      await cachedAdapter.readDirectory(handle, { includeMetadata: true });
+
+      const initialSize = cachedAdapter.getCacheStats()?.size ?? 0;
+
+      // Invalidate one path
+      const invalidated = cachedAdapter.invalidateCachePath(path.join(tempDir, 'a.txt'));
+      expect(invalidated).toBe(true);
+      expect(cachedAdapter.getCacheStats()?.size).toBe(initialSize - 1);
+    });
+
+    it('should invalidate cache directory', async () => {
+      const cachedAdapter = new ElectronFileSystemAdapter({ cache: true });
+      const { dialog } = await import('electron');
+      vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+        canceled: false,
+        filePaths: [tempDir],
+      });
+
+      // Create nested structure
+      const subDir = path.join(tempDir, 'subdir');
+      fs.mkdirSync(subDir);
+      fs.writeFileSync(path.join(subDir, 'nested.txt'), 'nested');
+      fs.writeFileSync(path.join(tempDir, 'root.txt'), 'root');
+
+      const handle = await cachedAdapter.requestDirectoryAccess();
+      await cachedAdapter.readDirectory(handle, { includeMetadata: true });
+
+      const subHandle: DirectoryHandle = {
+        path: subDir,
+        name: 'subdir',
+        kind: 'directory',
+        platform: 'electron',
+      };
+      await cachedAdapter.readDirectory(subHandle, { includeMetadata: true });
+
+      // Invalidate subdir - should remove nested.txt but keep root.txt
+      const count = cachedAdapter.invalidateCacheDirectory(subDir);
+      expect(count).toBeGreaterThan(0);
+    });
+
+    it('should invalidate cache on file watcher changes', async () => {
+      // Reset modules to clear previous chokidar mock from fs.watch fallback test
+      vi.resetModules();
+      vi.doMock('electron', () => ({
+        dialog: { showOpenDialog: vi.fn() },
+      }));
+      vi.doMock('chokidar', () => {
+        const mockWatch = vi.fn();
+        return {
+          default: { watch: mockWatch },
+          watch: mockWatch,
+        };
+      });
+
+      const { dialog } = await import('electron');
+      vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+        canceled: false,
+        filePaths: [tempDir],
+      });
+
+      // Re-import adapter after module reset
+      const { ElectronFileSystemAdapter: FreshAdapter } = await import(
+        '../adapters/electron-adapter'
+      );
+      const cachedAdapter = new FreshAdapter({ cache: true });
+
+      fs.writeFileSync(path.join(tempDir, 'watched.txt'), 'original');
+
+      const handle = await cachedAdapter.requestDirectoryAccess();
+      await cachedAdapter.readDirectory(handle, { includeMetadata: true });
+
+      // Set up watcher with mock chokidar
+      const mockWatcher = {
+        on: vi.fn().mockReturnThis(),
+        close: vi.fn().mockResolvedValue(undefined),
+      };
+
+      const chokidar = await import('chokidar');
+      vi.mocked(chokidar.default.watch).mockReturnValue(
+        mockWatcher as unknown as ReturnType<typeof chokidar.default.watch>
+      );
+
+      const callback = vi.fn();
+      cachedAdapter.watchDirectory(handle as DirectoryHandle, callback);
+
+      // Wait for chokidar initialization
+      await waitForCondition(() => vi.mocked(chokidar.default.watch).mock.calls.length > 0);
+
+      // Simulate file change event
+      const changeCallback = mockWatcher.on.mock.calls.find((call) => call[0] === 'change')?.[1];
+      const filePath = path.join(tempDir, 'watched.txt');
+      if (changeCallback) {
+        changeCallback(filePath);
+      }
+
+      // Callback should have been called
+      expect(callback).toHaveBeenCalled();
+    });
+  });
+
+  describe('readDirectoryStreaming', () => {
+    it('should stream directory entries in batches', async () => {
+      // Create multiple files
+      for (let i = 0; i < 5; i++) {
+        fs.writeFileSync(path.join(tempDir, `file${i}.txt`), `content${i}`);
+      }
+      fs.mkdirSync(path.join(tempDir, 'subdir'));
+
+      const handle: DirectoryHandle = {
+        path: tempDir,
+        name: path.basename(tempDir),
+        kind: 'directory',
+        platform: 'electron',
+      };
+
+      const batches: { nodes: unknown[]; done: boolean; total: number }[] = [];
+      await adapter.readDirectoryStreaming(
+        handle,
+        (nodes, meta) => {
+          batches.push({ nodes: [...nodes], done: meta.done, total: meta.total });
+        },
+        { batchSize: 2 }
+      );
+
+      // Should have multiple batches due to batchSize: 2
+      expect(batches.length).toBeGreaterThan(1);
+
+      // Last batch should have done: true
+      expect(batches.at(-1)?.done).toBe(true);
+
+      // Total count should be 6 (5 files + 1 directory)
+      expect(batches.at(-1)?.total).toBe(6);
+    });
+
+    it('should respect batchSize option', async () => {
+      // Create 10 files
+      for (let i = 0; i < 10; i++) {
+        fs.writeFileSync(path.join(tempDir, `file${i}.txt`), `content${i}`);
+      }
+
+      const handle: DirectoryHandle = {
+        path: tempDir,
+        name: path.basename(tempDir),
+        kind: 'directory',
+        platform: 'electron',
+      };
+
+      const batchSizes: number[] = [];
+      await adapter.readDirectoryStreaming(
+        handle,
+        (nodes) => {
+          batchSizes.push(nodes.length);
+        },
+        { batchSize: 3 }
+      );
+
+      // All batches except possibly the last should have 3 entries
+      const nonFinalBatches = batchSizes.slice(0, -1);
+      for (const size of nonFinalBatches) {
+        expect(size).toBe(3);
+      }
+    });
+
+    it('should include metadata when requested', async () => {
+      fs.writeFileSync(path.join(tempDir, 'file.txt'), 'content');
+
+      const handle: DirectoryHandle = {
+        path: tempDir,
+        name: path.basename(tempDir),
+        kind: 'directory',
+        platform: 'electron',
+      };
+
+      let fileNode: { size?: number; lastModified?: number } | undefined;
+      await adapter.readDirectoryStreaming(
+        handle,
+        (nodes) => {
+          const file = nodes.find((n) => n.name === 'file.txt');
+          if (file) {
+            fileNode = file;
+          }
+        },
+        { includeMetadata: true }
+      );
+
+      expect(fileNode).toBeDefined();
+      expect(fileNode?.size).toBe(7); // 'content' is 7 bytes
+      expect(fileNode?.lastModified).toBeDefined();
+    });
+
+    it('should support AbortSignal cancellation', async () => {
+      // Create many files
+      for (let i = 0; i < 20; i++) {
+        fs.writeFileSync(path.join(tempDir, `file${i}.txt`), `content${i}`);
+      }
+
+      const handle: DirectoryHandle = {
+        path: tempDir,
+        name: path.basename(tempDir),
+        kind: 'directory',
+        platform: 'electron',
+      };
+
+      const controller = new AbortController();
+      let batchCount = 0;
+      let totalSeen = 0;
+
+      await adapter.readDirectoryStreaming(
+        handle,
+        (_nodes, meta) => {
+          batchCount++;
+          totalSeen = meta.total;
+          // Abort after first batch
+          if (batchCount === 1) {
+            controller.abort();
+          }
+        },
+        { batchSize: 5, signal: controller.signal }
+      );
+
+      // Should have stopped early due to abort
+      expect(totalSeen).toBeLessThan(20);
+    });
+
+    it('should handle empty directories', async () => {
+      const handle: DirectoryHandle = {
+        path: tempDir,
+        name: path.basename(tempDir),
+        kind: 'directory',
+        platform: 'electron',
+      };
+
+      const batches: { nodes: unknown[]; done: boolean; total: number }[] = [];
+      await adapter.readDirectoryStreaming(handle, (nodes, meta) => {
+        batches.push({ nodes: [...nodes], done: meta.done, total: meta.total });
+      });
+
+      expect(batches.length).toBe(1);
+      expect(batches[0]?.done).toBe(true);
+      expect(batches[0]?.total).toBe(0);
+      expect(batches[0]?.nodes.length).toBe(0);
+    });
+
+    it('should throw AccessError for non-existent directory', async () => {
+      const handle: DirectoryHandle = {
+        path: '/non/existent/path',
+        name: 'path',
+        kind: 'directory',
+        platform: 'electron',
+      };
+
+      await expect(adapter.readDirectoryStreaming(handle, vi.fn())).rejects.toThrow(AccessError);
+    });
+
+    it('should use default batch size when not specified', async () => {
+      // Create 100 files to test default batch size of 50
+      for (let i = 0; i < 100; i++) {
+        fs.writeFileSync(path.join(tempDir, `file${i}.txt`), `c${i}`);
+      }
+
+      const handle: DirectoryHandle = {
+        path: tempDir,
+        name: path.basename(tempDir),
+        kind: 'directory',
+        platform: 'electron',
+      };
+
+      const batchSizes: number[] = [];
+      await adapter.readDirectoryStreaming(handle, (nodes) => {
+        batchSizes.push(nodes.length);
+      });
+
+      // First batch should be default size (50)
+      expect(batchSizes[0]).toBe(50);
+    });
+  });
 });

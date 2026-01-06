@@ -1,5 +1,11 @@
 import type { IFileNode } from '@brainstrike/types';
-import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '../types';
+import type {
+  DirectoryHandle,
+  DirectoryStreamCallback,
+  FileHandle,
+  FileSystemAdapter,
+  StreamingDirectoryReadOptions,
+} from '../types';
 
 export type MockFileEntry = {
   name: string;
@@ -131,11 +137,21 @@ function sortFileNodes(entries: IFileNode[]): IFileNode[] {
 export class MockFileSystemAdapter implements FileSystemAdapter {
   private mockFileSystem: Record<string, MockFileEntry> = {};
   private selectedDirectory: string | null = null;
+  /** Delay between streaming batches (ms). Set to 0 for instant delivery in tests. */
+  private streamingDelay = 0;
 
   constructor(mockFileSystem?: Record<string, MockFileEntry>) {
     if (mockFileSystem) {
       this.mockFileSystem = mockFileSystem;
     }
+  }
+
+  /**
+   * Set the delay between streaming batches (for testing progressive loading).
+   * @param delayMs - Delay in milliseconds (0 = instant)
+   */
+  setStreamingDelay(delayMs: number): void {
+    this.streamingDelay = delayMs;
   }
 
   /**
@@ -207,6 +223,70 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
 
     const relativePath = this.getRelativePath(path);
     return checkPathExists(this.mockFileSystem, relativePath);
+  }
+
+  /**
+   * Streaming version of readDirectory that delivers results in batches.
+   * Simulates progressive loading for testing purposes.
+   *
+   * @param handle - The directory handle to read
+   * @param onBatch - Callback for each batch of results
+   * @param options - Streaming options (batchSize defaults to 50)
+   */
+  async readDirectoryStreaming(
+    handle: DirectoryHandle,
+    onBatch: DirectoryStreamCallback,
+    options?: StreamingDirectoryReadOptions
+  ): Promise<void> {
+    if (!this.selectedDirectory) {
+      throw new Error('No directory selected');
+    }
+
+    // Check for abort before starting
+    if (options?.signal?.aborted) {
+      throw new Error('Operation was cancelled');
+    }
+
+    const batchSize = options?.batchSize ?? 50;
+    const basePath = this.getRelativePath(handle.path);
+    const currentLevel = navigateToPath(this.mockFileSystem, basePath);
+
+    if (!currentLevel) {
+      onBatch([], { done: true, total: 0 });
+      return;
+    }
+
+    const allEntries: IFileNode[] = [];
+    for (const [name, entry] of Object.entries(currentLevel)) {
+      const fullPath = basePath ? `${handle.path}/${name}` : `${handle.path}/${name}`;
+      const fileNode = createFileNode(name, entry, fullPath, this.selectedDirectory);
+      allEntries.push(fileNode);
+    }
+
+    const sortedEntries = sortFileNodes(allEntries);
+    const total = sortedEntries.length;
+
+    // Deliver in batches
+    for (let i = 0; i < total; i += batchSize) {
+      // Check for abort between batches
+      if (options?.signal?.aborted) {
+        throw new Error('Operation was cancelled');
+      }
+
+      const batch = sortedEntries.slice(i, i + batchSize);
+      const isDone = i + batchSize >= total;
+      onBatch(batch, { done: isDone, total });
+
+      // Small delay to simulate async I/O (can be disabled in tests)
+      if (!isDone && this.streamingDelay > 0) {
+        await new Promise((resolve) => setTimeout(resolve, this.streamingDelay));
+      }
+    }
+
+    // Handle empty directory
+    if (total === 0) {
+      onBatch([], { done: true, total: 0 });
+    }
   }
 
   private getRelativePath(path: string): string {

@@ -53,8 +53,10 @@ export type IndexerDiagnostics = {
   fileHandleMapSize: number;
   /** Whether the background indexer worker is ready */
   workerReady: boolean;
-  /** Whether the token cache is ready */
-  cacheReady: boolean;
+  /** Whether the token cache is operational (counting works) */
+  cacheOperational: boolean;
+  /** Whether the token cache is persisted (DB-backed) */
+  cachePersisted: boolean;
   /** Clear the indexed files tracking (forces re-indexing) */
   clearIndexedCache: () => void;
 };
@@ -310,10 +312,10 @@ export function useBackgroundTokenIndexerIntegration({
     async (compositeKeys: string[]) => {
       const cache = tokenCacheRef.current;
       const indexer = backgroundIndexerRef.current;
-      if (!(cache?.isReady && indexer.isReady)) {
+      if (!(cache?.isOperational && indexer.isReady)) {
         // Use debug level - this is expected during startup before everything initializes
         logger.debug('triggerIndexing blocked - not ready', {
-          tokenCacheReady: cache?.isReady ?? false,
+          tokenCacheOperational: cache?.isOperational ?? false,
           backgroundIndexerReady: indexer.isReady,
           requestedFiles: compositeKeys.length,
         });
@@ -458,7 +460,7 @@ export function useBackgroundTokenIndexerIntegration({
   // Queue newly selected files for indexing when selection changes
   // Uses refs to avoid re-render loops while still accessing latest values
   const backgroundIndexerIsReady = backgroundIndexer.isReady;
-  const tokenCacheIsReady = tokenCache?.isReady ?? false;
+  const tokenCacheIsOperational = tokenCache?.isOperational ?? false;
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
     const cache = tokenCacheRef.current;
@@ -466,7 +468,7 @@ export function useBackgroundTokenIndexerIntegration({
     logger.info('Selection effect triggered', {
       selectedFilesCount: selectedFiles.size,
       isReady: indexer.isReady,
-      tokenCacheReady: cache?.isReady ?? false,
+      tokenCacheOperational: cache?.isOperational ?? false,
       alreadyIndexed: indexedFilesRef.current.size,
       fileHandleMapSize: fileHandleMapRef.current.size,
       isFileImporting,
@@ -528,7 +530,7 @@ export function useBackgroundTokenIndexerIntegration({
     selectedFiles,
     triggerIndexing,
     backgroundIndexerIsReady,
-    tokenCacheIsReady,
+    tokenCacheIsOperational,
     fileHandleMapSize,
     isFileImporting,
   ]);
@@ -551,9 +553,9 @@ export function useBackgroundTokenIndexerIntegration({
   // biome-ignore lint/plugin: Cache hydration from persistent store is intentional side effect
   useEffect(() => {
     const cache = tokenCacheRef.current;
-    if (!cache?.isReady || selectedFiles.size === 0) {
+    if (!cache?.isOperational || selectedFiles.size === 0) {
       logger.debug('Warm cache effect skipped', {
-        cacheReady: cache?.isReady ?? false,
+        cacheOperational: cache?.isOperational ?? false,
         selectedCount: selectedFiles.size,
       });
       return;
@@ -623,7 +625,7 @@ export function useBackgroundTokenIndexerIntegration({
           logger.warn('Failed to hydrate hot cache from store', { folderId, error });
         });
     }
-  }, [selectedFiles, tokenCacheIsReady, isFileImporting]);
+  }, [selectedFiles, tokenCacheIsOperational, isFileImporting]);
 
   // Diagnostic function to force re-indexing by clearing the tracked files
   const clearIndexedCache = useCallback(() => {
@@ -637,14 +639,15 @@ export function useBackgroundTokenIndexerIntegration({
   return {
     isIndexing: backgroundIndexer.isIndexing,
     triggerIndexing,
-    isReady: backgroundIndexer.isReady && (tokenCache?.isReady ?? false),
+    isReady: backgroundIndexer.isReady && (tokenCache?.isOperational ?? false),
     progress: backgroundIndexer.progress,
     diagnostics: {
       indexedCount: indexedFilesRef.current.size,
       inFlightCount: inFlightRef.current.size,
       fileHandleMapSize: fileHandleMapRef.current.size,
       workerReady: backgroundIndexer.isReady,
-      cacheReady: tokenCache?.isReady ?? false,
+      cacheOperational: tokenCache?.isOperational ?? false,
+      cachePersisted: tokenCache?.isPersisted ?? false,
       clearIndexedCache,
     },
   };

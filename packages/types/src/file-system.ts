@@ -150,6 +150,35 @@ export type DirectoryReadOptions = {
   concurrency?: number;
 };
 
+/**
+ * Options for streaming directory enumeration (BST-147).
+ * Extends DirectoryReadOptions with streaming-specific options.
+ */
+export type StreamingDirectoryReadOptions = DirectoryReadOptions & {
+  /**
+   * Number of entries to batch before calling onBatch.
+   * Smaller batches = more responsive UI, larger = fewer re-renders.
+   * Default: 50
+   */
+  batchSize?: number;
+  /**
+   * AbortSignal for cancellation support.
+   * When aborted, streaming stops and no further batches are emitted.
+   */
+  signal?: AbortSignal;
+};
+
+/**
+ * Callback for receiving batches of directory entries during streaming.
+ *
+ * @param nodes - The batch of nodes discovered in this iteration
+ * @param meta - Metadata about the streaming progress
+ */
+export type DirectoryStreamCallback = (
+  nodes: IFileNode[],
+  meta: { done: boolean; total: number }
+) => void;
+
 export type FileSystemChange = {
   type: 'added' | 'removed' | 'modified';
   path: string;
@@ -169,4 +198,33 @@ export type FileSystemAdapter = {
     callback: (changes: FileSystemChange[]) => void
   ): () => void;
   restoreLastFolder?(): Promise<DirectoryHandle | null>;
+  /**
+   * Stream directory contents with batched callbacks (BST-147).
+   *
+   * For large directories, this provides progressive loading by calling
+   * `onBatch` with groups of entries as they're discovered. This keeps
+   * the UI responsive instead of blocking until all entries are read.
+   *
+   * @param handle - Directory to enumerate
+   * @param onBatch - Called with each batch of entries; `meta.done` indicates final batch
+   * @param options - Streaming options including batchSize and AbortSignal
+   * @returns Promise that resolves when streaming completes or rejects on error
+   *
+   * @example
+   * ```ts
+   * await adapter.readDirectoryStreaming?.(
+   *   handle,
+   *   (nodes, { done, total }) => {
+   *     setState(prev => [...prev, ...nodes]);
+   *     if (done) console.log(`Loaded ${total} entries`);
+   *   },
+   *   { batchSize: 50, signal: abortController.signal }
+   * );
+   * ```
+   */
+  readDirectoryStreaming?(
+    handle: DirectoryHandle,
+    onBatch: DirectoryStreamCallback,
+    options?: StreamingDirectoryReadOptions
+  ): Promise<void>;
 };

@@ -226,3 +226,207 @@ export function needsLoading(node: IFileNode): boolean {
 export function isLoading(node: IFileNode): boolean {
   return isLoadingGeneric(node);
 }
+
+// ============================================================================
+// Streaming API (BST-147)
+// ============================================================================
+
+/**
+ * Callback for receiving streamed directory entries.
+ * Receives transformed nodes ready for lazy loading.
+ */
+export type StreamingLoadCallback = (
+  nodes: IFileNode[],
+  meta: { done: boolean; total: number }
+) => void;
+
+/**
+ * Options for streaming directory loads.
+ */
+export type StreamingLoadOptions = LazyLoadOptions & {
+  /** Batch size for streaming (default: 50) */
+  batchSize?: number;
+};
+
+/**
+ * Transform raw nodes from adapter for lazy loading.
+ * Directories get loadState: 'unloaded', files get depth/rootFolderId.
+ */
+function transformNodesForLazyLoading(
+  nodes: IFileNode[],
+  depth: number,
+  rootFolderId: string,
+  parentPath?: string
+): IFileNode[] {
+  return nodes
+    .filter((child) => {
+      const relativePath = parentPath ? `${parentPath}/${child.name}` : child.name;
+      return !fileFilter.shouldIgnorePath(relativePath);
+    })
+    .map((child) => {
+      if (child.type === 'directory') {
+        const { children: _children, ...rest } = child;
+        return {
+          ...rest,
+          depth,
+          rootFolderId,
+          loadState: 'unloaded' as const,
+        };
+      }
+      return {
+        ...child,
+        depth,
+        rootFolderId,
+      };
+    });
+}
+
+/**
+ * Load directory children with streaming support (BST-147).
+ *
+ * If the adapter supports `readDirectoryStreaming`, entries are streamed
+ * in batches via the `onBatch` callback. Otherwise, falls back to
+ * non-streaming `readDirectory`.
+ *
+ * @param adapter - File system adapter
+ * @param parentNode - The directory node to load children for
+ * @param onBatch - Callback for each batch of nodes
+ * @param options - Load options including batchSize
+ */
+export async function loadDirectoryChildrenStreaming(
+  adapter: FileSystemAdapter,
+  parentNode: IFileNode,
+  onBatch: StreamingLoadCallback,
+  options: StreamingLoadOptions = {}
+): Promise<void> {
+  if (parentNode.type !== 'directory') {
+    throw new Error('Cannot load children of non-directory node');
+  }
+
+  const {
+    abortSignal,
+    includeMetadata = false,
+    sortFileNodes = defaultSortFileNodes,
+    batchSize = 50,
+  } = options;
+
+  // Check for cancellation
+  if (abortSignal?.aborted) {
+    throw new DOMException('Operation was cancelled', 'AbortError');
+  }
+
+  const handle = buildDirectoryHandle(parentNode);
+  const depth = parentNode.depth + 1;
+  const rootFolderId = parentNode.rootFolderId;
+
+  // Check if adapter supports streaming
+  if (adapter.readDirectoryStreaming) {
+    let accumulated: IFileNode[] = [];
+
+    await adapter.readDirectoryStreaming(
+      handle,
+      (nodes, meta) => {
+        // Transform nodes for lazy loading
+        const transformed = transformNodesForLazyLoading(
+          nodes,
+          depth,
+          rootFolderId,
+          parentNode.path
+        );
+
+        if (meta.done) {
+          // Final batch: include all accumulated + this batch, sorted
+          accumulated = [...accumulated, ...transformed];
+          const sorted = sortFileNodes(accumulated);
+          onBatch(sorted, { done: true, total: meta.total });
+        } else {
+          // Intermediate batch: accumulate for final sort
+          accumulated = [...accumulated, ...transformed];
+          // Emit intermediate update with current count
+          onBatch(transformed, { done: false, total: meta.total });
+        }
+      },
+      {
+        includeMetadata,
+        batchSize,
+        ...(abortSignal && { signal: abortSignal }),
+      }
+    );
+  } else {
+    // Fallback to non-streaming
+    const children = await loadDirectoryChildren(adapter, parentNode, options);
+    onBatch(children, { done: true, total: children.length });
+  }
+}
+
+/**
+ * Load root directory with streaming support (BST-147).
+ *
+ * If the adapter supports `readDirectoryStreaming`, entries are streamed
+ * in batches via the `onBatch` callback. Otherwise, falls back to
+ * non-streaming `readDirectory`.
+ *
+ * @param adapter - File system adapter
+ * @param rootHandle - Root directory handle
+ * @param onBatch - Callback for each batch of nodes
+ * @param options - Load options including batchSize
+ */
+export async function loadRootDirectoryStreaming(
+  adapter: FileSystemAdapter,
+  rootHandle: DirectoryHandle,
+  onBatch: StreamingLoadCallback,
+  options: StreamingLoadOptions = {}
+): Promise<void> {
+  const {
+    abortSignal,
+    includeMetadata = false,
+    sortFileNodes = defaultSortFileNodes,
+    batchSize = 50,
+  } = options;
+
+  // Check for cancellation
+  if (abortSignal?.aborted) {
+    throw new DOMException('Operation was cancelled', 'AbortError');
+  }
+
+  // Check if adapter supports streaming
+  if (adapter.readDirectoryStreaming) {
+    let accumulated: IFileNode[] = [];
+
+    await adapter.readDirectoryStreaming(
+      rootHandle,
+      (nodes, meta) => {
+        // Transform nodes for lazy loading (depth 0, rootFolderId from handle)
+        const transformed = transformNodesForLazyLoading(nodes, 0, rootHandle.name);
+
+        if (meta.done) {
+          // Final batch: include all accumulated + this batch, sorted
+          accumulated = [...accumulated, ...transformed];
+          const sorted = sortFileNodes(accumulated);
+          onBatch(sorted, { done: true, total: meta.total });
+        } else {
+          // Intermediate batch: accumulate for final sort
+          accumulated = [...accumulated, ...transformed];
+          // Emit intermediate update with current count
+          onBatch(transformed, { done: false, total: meta.total });
+        }
+      },
+      {
+        includeMetadata,
+        batchSize,
+        ...(abortSignal && { signal: abortSignal }),
+      }
+    );
+  } else {
+    // Fallback to non-streaming
+    const children = await loadRootDirectory(adapter, rootHandle, options);
+    onBatch(children, { done: true, total: children.length });
+  }
+}
+
+/**
+ * Check if an adapter supports streaming directory reads.
+ */
+export function supportsStreaming(adapter: FileSystemAdapter): boolean {
+  return typeof adapter.readDirectoryStreaming === 'function';
+}

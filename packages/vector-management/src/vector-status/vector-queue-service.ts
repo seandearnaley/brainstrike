@@ -67,7 +67,7 @@ export type VectorQueueDatabase = {
 export type VectorQueueServiceDependencies = {
   db: VectorQueueDatabase;
   jobQueue: Pick<JobQueue, 'getQueueStats' | 'clear' | 'requeueFailed'>;
-  chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet'>;
+  chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'>;
 };
 
 export type BackfillProgressHandler = (done: number, total: number) => void;
@@ -111,6 +111,16 @@ export async function withTransaction(
  */
 export type ApiKeyValidation = { valid: true } | { valid: false; message: string };
 
+/**
+ * Result of a re-embed operation
+ */
+export type ReembedResult = {
+  /** Number of chunks that had embeddings cleared */
+  clearedCount: number;
+  /** Queue counts after backfill was triggered */
+  queueCounts: QueueCounts;
+};
+
 export type VectorQueueService = {
   refresh(activeSetId: string | null): Promise<VectorQueueSnapshot>;
   /**
@@ -119,6 +129,33 @@ export type VectorQueueService = {
    */
   validateApiKeyForSet(embeddingSetId: string): Promise<ApiKeyValidation>;
   backfill(activeSetId: string, onProgress: BackfillProgressHandler): Promise<QueueCounts>;
+  /**
+   * Re-embed workflow: clears existing embeddings and triggers backfill.
+   * Use this when switching models or when embeddings need to be regenerated.
+   *
+   * ## Atomicity & Recovery
+   *
+   * **Not atomic**: The clear and backfill steps are not transactional.
+   * If backfill fails after clear completes:
+   * 1. Embeddings will be cleared (lost) for this set
+   * 2. Chunks remain intact with `embedding_set_id` preserved
+   * 3. Simply call `backfill(embeddingSetId)` again to retry
+   *
+   * **Recovery steps** if backfill fails mid-way:
+   * - Check `queueCounts.failed` for failed jobs
+   * - Use `retryFailed()` to requeue failed jobs
+   * - Or call `backfill()` directly - it skips already-queued chunks
+   *
+   * **Why not transactional**: Backfill enqueues jobs asynchronously
+   * and embedding generation happens in workers. True atomicity would
+   * require blocking until all embeddings complete, which is impractical
+   * for large sets (thousands of chunks).
+   *
+   * @param embeddingSetId - The embedding set to re-embed
+   * @param onProgress - Progress callback for the backfill phase
+   * @returns Result with cleared count and final queue counts
+   */
+  reembedSet(embeddingSetId: string, onProgress: BackfillProgressHandler): Promise<ReembedResult>;
   retryFailed(limit: number): Promise<void>;
   clearQueue(states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>): Promise<void>;
   wipeQueue(): Promise<void>;
@@ -302,6 +339,25 @@ export function createVectorQueueService(
 
     async wipeQueue() {
       await jobQueue.clear(EMBEDDINGS_QUEUE);
+    },
+
+    async reembedSet(embeddingSetId, onProgress) {
+      logger.info('Re-embed workflow started', { embeddingSetId });
+
+      // Step 1: Clear existing embeddings for this set
+      const clearedCount = await chunkRepository.clearEmbeddingsForSet(embeddingSetId);
+      logger.info('Cleared existing embeddings', { embeddingSetId, clearedCount });
+
+      // Step 2: Trigger backfill to regenerate embeddings
+      const queueCounts = await this.backfill(embeddingSetId, onProgress);
+
+      logger.info('Re-embed workflow complete', {
+        embeddingSetId,
+        clearedCount,
+        queueCounts,
+      });
+
+      return { clearedCount, queueCounts };
     },
   };
 }

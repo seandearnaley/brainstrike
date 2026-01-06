@@ -388,6 +388,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, getDecodedSelection]);
 
+  // biome-ignore lint/plugin: Cache cleanup for decoded selections; no data fetching
   useEffect(() => {
     const cache = decodedSelectionCacheRef.current;
     if (cache.size === 0) {
@@ -820,6 +821,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
           onTokenBudgetChange={onTokenBudgetChange}
           selectedFilesCount={selectedFiles.size}
+          selectedTokensPendingCount={0}
           tokenCounting={tokenCounting}
           tokenUsage={tokenUsage}
           totalFiles={0}
@@ -1048,6 +1050,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
         onTokenBudgetChange={onTokenBudgetChange}
         selectedFilesCount={selectedFiles.size}
+        selectedTokensPendingCount={totalStats.pendingCount}
         tokenCounting={tokenCounting}
         tokenUsage={tokenUsage}
         totalFiles={totalStats.totalFiles}

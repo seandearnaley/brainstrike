@@ -16,18 +16,25 @@ flowchart TB
 
   subgraph Packages
     subgraph DB[packages/db]
-      DBModels[("models: embedding-set, chunks, ...")]
-      DBRepos[["repositories: electron-file-*, embedding-sets-*"]]
-      DBMigs["/migrations: vector-index-helpers, flexible-dimensions/"]
+      DBModels[("tables: file_records, file_chunks, embedding_sets,<br/>job_queue, models/providers, embedding_cache")]
+      DBRepos[["repositories: file-chunk, embedding-sets, embedding-cache"]]
+      DBMigs["/migrations: vector indexes, model registry/"]
       DBWasm["/wasm-loader.ts<br/>PGlite - verify"]
     end
 
     subgraph Embeddings[packages/embeddings]
-      EMBFactory[[factory.ts]]
-      EMBTypes[("types.ts, constants")]
+      EMBFactory[["factory.ts - provider factory"]]
+      EMBTypes[("provider-types.ts, interfaces")]
+      EMBDevice[("device-detection.ts")]
       EMBMath[("embedding-math.ts")]
       EMBWorker[/worker/embedding-worker.ts/]
       EMBCLI[/cli/embed-code.ts/]
+    end
+
+    subgraph QueuePkg[packages/queue]
+      QAdapters[["adapters: browser-workerpool"]]
+      QTypes[("queue types + WorkerClient")]
+      QTelemetry[("telemetry.ts")]
     end
 
     subgraph VectorMgmt[packages/vector-management]
@@ -37,6 +44,14 @@ flowchart TB
     end
 
     FS["packages/file-system & storage<br/>adapters"]
+
+    subgraph Pipeline[packages/pipeline]
+      PStages[("chunking-stage.ts + embedding-stage.ts")]
+      PProgress[("progress-aggregator.ts")]
+      PController[("pipeline-controller.ts")]
+    end
+
+    SR["packages/selection-rules<br/>rules engine + schema"]
 
     subgraph Agent[packages/agent]
       ARuntime[[mastra/agent-runtime.ts]]
@@ -63,8 +78,13 @@ flowchart TB
   DMain <--> DB
 
   Embeddings <--> DB
+  Embeddings --> QueuePkg
+  VectorMgmt --> QueuePkg
+  DQueue --> QueuePkg
   VectorMgmt --> Embeddings
   VectorMgmt --> DB
+  Pipeline -.-> DB
+  Pipeline -.-> Embeddings
 
   Agent --> Providers
   WAPI --> API

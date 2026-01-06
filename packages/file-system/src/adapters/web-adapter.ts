@@ -3,8 +3,10 @@ import { AccessError } from '../errors';
 import type {
   DirectoryHandle,
   DirectoryReadOptions,
+  DirectoryStreamCallback,
   FileHandle,
   FileSystemAdapter,
+  StreamingDirectoryReadOptions,
 } from '../types';
 import {
   isFileSystemDirectoryHandle,
@@ -39,6 +41,69 @@ declare global {
 }
 
 // limiter shared via utils
+
+/**
+ * Create a directory node from a FileSystemDirectoryHandle.
+ * Helper to reduce complexity in readDirectoryStreaming.
+ */
+function createDirectoryNode(
+  name: string,
+  parentPath: string,
+  entryHandle: FileSystemDirectoryHandle,
+  parentHandleName: string
+): IFileNode {
+  return {
+    name,
+    path: `${parentPath}/${name}`,
+    type: 'directory',
+    handle: entryHandle,
+    depth: 0,
+    selectionState: 'unchecked',
+    children: [],
+    rootFolderId: parentHandleName,
+    isVisible: true,
+  };
+}
+
+/**
+ * Create a file node from a FileSystemFileHandle.
+ * Optionally includes metadata (size, lastModified).
+ * Helper to reduce complexity in readDirectoryStreaming.
+ */
+async function createFileNode(
+  name: string,
+  parentPath: string,
+  fileHandle: FileSystemFileHandle,
+  parentHandleName: string,
+  includeMetadata: boolean
+): Promise<IFileNode> {
+  const baseNode: IFileNode = {
+    name,
+    path: `${parentPath}/${name}`,
+    type: 'file',
+    handle: fileHandle,
+    depth: 0,
+    selectionState: 'unchecked',
+    rootFolderId: parentHandleName,
+    isVisible: true,
+  };
+
+  if (!includeMetadata) {
+    return baseNode;
+  }
+
+  try {
+    const file = await fileHandle.getFile();
+    return {
+      ...baseNode,
+      size: file.size,
+      lastModified: file.lastModified,
+    };
+  } catch {
+    // Fallback to basic node if getFile fails
+    return baseNode;
+  }
+}
 
 export class WebFileSystemAdapter implements FileSystemAdapter {
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
@@ -172,4 +237,73 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
 
   // Web API doesn't support file watching
   // watchDirectory not implemented
+
+  /**
+   * Stream directory contents with batched callbacks (BST-147).
+   *
+   * Uses the Web File System Access API's async iterator to stream entries,
+   * calling onBatch with groups of entries as they're discovered.
+   *
+   * @param handle - Directory to enumerate
+   * @param onBatch - Called with each batch of entries; meta.done indicates final batch
+   * @param options - Streaming options including batchSize and AbortSignal
+   */
+  async readDirectoryStreaming(
+    handle: DirectoryHandle,
+    onBatch: DirectoryStreamCallback,
+    options?: StreamingDirectoryReadOptions
+  ): Promise<void> {
+    const dirHandle = handle._internal;
+    if (!isFileSystemDirectoryHandle(dirHandle)) {
+      throw new AccessError('Invalid directory handle', handle.path, 'read');
+    }
+
+    const batchSize = options?.batchSize ?? 50;
+    const signal = options?.signal;
+    const { includeMetadata } = normalizeDirectoryReadOptions(options);
+
+    let batch: IFileNode[] = [];
+    let total = 0;
+
+    for await (const [name, entryHandle] of dirHandle.entries()) {
+      // Check for cancellation
+      if (signal?.aborted) {
+        break;
+      }
+
+      // Create node using extracted helper functions
+      const node =
+        entryHandle.kind === 'directory'
+          ? createDirectoryNode(
+              name,
+              handle.path,
+              entryHandle as FileSystemDirectoryHandle,
+              handle.name
+            )
+          : await createFileNode(
+              name,
+              handle.path,
+              entryHandle as FileSystemFileHandle,
+              handle.name,
+              includeMetadata
+            );
+
+      batch.push(node);
+      total++;
+
+      // Emit batch when full
+      if (batch.length >= batchSize) {
+        onBatch(batch, { done: false, total });
+        batch = [];
+      }
+    }
+
+    // Emit any remaining entries
+    if (batch.length > 0 || total === 0) {
+      onBatch(batch, { done: true, total });
+    } else {
+      // Signal completion with empty batch if last batch was exactly full
+      onBatch([], { done: true, total });
+    }
+  }
 }

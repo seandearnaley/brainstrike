@@ -470,6 +470,33 @@ export class FileChunkRepository {
     };
   }
 
+  /**
+   * Clears all embeddings for a specific embedding set without deleting the chunks.
+   * This enables the re-embed workflow: clear old embeddings, then backfill with new model.
+   *
+   * @param embeddingSetId - The embedding set ID whose embeddings should be cleared
+   * @returns Number of chunks that had their embeddings cleared
+   */
+  async clearEmbeddingsForSet(embeddingSetId: string): Promise<number> {
+    if (!embeddingSetId) {
+      throw new Error('embeddingSetId is required');
+    }
+
+    const result = await this.db.query<{ id: string }>(
+      `UPDATE file_chunks
+       SET embedding = NULL,
+           embedding_updated_at = NULL,
+           embedding_hash = NULL,
+           updated_at = NOW()
+       WHERE embedding_set_id = $1
+         AND embedding IS NOT NULL
+       RETURNING id`,
+      [embeddingSetId]
+    );
+
+    return result.rows.length;
+  }
+
   async clearAll(): Promise<number> {
     const countResult = await this.db.query('SELECT COUNT(*) as count FROM file_chunks');
     const countRow = countResult.rows[0];

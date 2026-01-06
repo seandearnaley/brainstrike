@@ -15,7 +15,10 @@ import FileExplorerSidebar from './file-explorer-sidebar';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
+import { useRuleMaterialization } from './hooks/use-rule-materialization';
 import { RestorationStatus } from './restoration-status';
+import { SelectionModeBadge } from './selection-mode-badge';
+import { SelectionRulesEditor } from './selection-rules-editor';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
@@ -116,6 +119,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isRulesEditorOpen, setIsRulesEditorOpen] = useState(false);
 
   const {
     fileTree,
@@ -136,6 +140,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     clearRootDirectory,
     loadingPaths,
     loadChildren,
+    cancelChildLoading,
     expandAllProgressively,
     cancelExpandAll,
     isExpandingAll,
@@ -189,8 +194,43 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   const stableFileTree = useMemo(() => fileTree || [], [fileTree]);
 
+  // Materialize selection rules against the file tree when in 'rules' mode
+  // Note: useRuleMaterialization already uses the single-selector pattern
+  // (selects entire selectionModel object once), which is safe for React Compiler.
+  useRuleMaterialization({
+    fileTree: stableFileTree,
+    enabled: !isLoading,
+  });
+
+  // Get selection model for rules-based mode token counting and display
+  const selectionModel = store((s) => s.selectionModel);
+
   // Background token indexing - processes selected files off the main thread
-  const selectedFilesSet = useMemo(() => new Set(safeSelectedFilesList), [safeSelectedFilesList]);
+  // IMPORTANT: Convert materializedPaths to composite keys when in rules mode
+  // The indexer expects composite keys (folderId|@|path format), not relative paths
+  const selectedFilesSet = useMemo(() => {
+    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths && currentFolderId) {
+      const compositeKeys = new Set<string>();
+      for (const relativePath of selectionModel.materializedPaths) {
+        compositeKeys.add(encodeFileSelection(currentFolderId, relativePath));
+      }
+      return compositeKeys;
+    }
+    return new Set(safeSelectedFilesList);
+  }, [
+    selectionModel.mode,
+    selectionModel.materializedPaths,
+    currentFolderId,
+    safeSelectedFilesList,
+  ]);
+
+  // Selection count - mode-aware for display purposes
+  const selectedCount = useMemo(() => {
+    if (selectionModel.mode === 'rules' && selectionModel.materializedPaths) {
+      return selectionModel.materializedPaths.size;
+    }
+    return safeSelectedFilesList.length;
+  }, [selectionModel.mode, selectionModel.materializedPaths, safeSelectedFilesList]);
 
   // Electron file reader - reads file content via IPC for the background worker
   // The worker cannot read files directly in Electron due to security restrictions
@@ -389,7 +429,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             onMaxSelectionCountChange={setMaxSelectionCount}
             quickFilter={quickFilter}
             rootDirectoryHandle={rootDirectoryHandle}
-            selectedCount={safeSelectedFilesList.length}
+            selectedCount={selectedCount}
             setQuickFilter={setQuickFilter}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
           />
@@ -426,6 +466,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           <div className="h-full overflow-y-auto">
             <Suspense fallback={<LoadingFallback />}>
               <FileExplorerSidebar
+                cancelChildLoading={cancelChildLoading}
                 currentFolderId={currentFolderId}
                 filterError={filterErrorAsError}
                 isInitialLoad={isInitialLoad}
@@ -443,16 +484,31 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
         {/* Fixed Footer */}
         <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent px-4 py-3">
-          <ActionButtons
-            currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
-            displayedFiles={displayedFileList}
-            encodeFileSelection={encodeFileSelection}
-            maxSelectionCount={maxSelectionCount}
-            onSelectionLimitExceeded={() => {}}
-            selectedFiles={safeSelectedFilesList}
-            setSelectedFiles={safeSetSelectedFilesFromList}
-          />
+          <div className="flex items-center justify-between gap-2">
+            <ActionButtons
+              currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
+              displayedFiles={displayedFileList}
+              encodeFileSelection={encodeFileSelection}
+              maxSelectionCount={maxSelectionCount}
+              onSelectionLimitExceeded={() => {}}
+              selectedFiles={safeSelectedFilesList}
+              setSelectedFiles={safeSetSelectedFilesFromList}
+            />
+            {/* Selection mode toggle */}
+            <SelectionModeBadge
+              onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
+              rulesEditorAvailable={true}
+              show={!!rootDirectoryHandle}
+            />
+          </div>
         </div>
+
+        {/* Selection Rules Editor Dialog */}
+        <SelectionRulesEditor
+          folderId={(rootDirectoryHandle?.name ?? currentFolderId) || ''}
+          isOpen={isRulesEditorOpen}
+          onOpenChange={setIsRulesEditorOpen}
+        />
       </div>
     </FileExplorerErrorBoundary>
   );

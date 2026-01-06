@@ -1006,6 +1006,9 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
+      '@brainstrike/selection-rules':
+        specifier: workspace:*
+        version: link:../selection-rules
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -1259,6 +1262,19 @@ importers:
         specifier: ^4.0.14
         version: 4.0.14(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(@vitest/browser-playwright@4.0.14)(@vitest/ui@4.0.14)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.21.0)
 
+  packages/pipeline:
+    dependencies:
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.14
+        version: 4.0.14(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(@vitest/browser-playwright@4.0.14)(@vitest/ui@4.0.14)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.21.0)
+
   packages/platform-utils:
     devDependencies:
       '@types/node':
@@ -1381,6 +1397,31 @@ importers:
       rimraf:
         specifier: ^6.1.2
         version: 6.1.2
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(@swc/core@1.15.3(@swc/helpers@0.5.17))(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.0.14
+        version: 4.0.14(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@24.10.1)(@vitest/browser-playwright@4.0.14)(@vitest/ui@4.0.14)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@26.1.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.21.0)
+
+  packages/selection-rules:
+    dependencies:
+      minimatch:
+        specifier: ^10.1.1
+        version: 10.1.1
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
+    devDependencies:
+      '@swc/core':
+        specifier: ^1.13.5
+        version: 1.15.3(@swc/helpers@0.5.17)
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.10.1
       tsup:
         specifier: ^8.5.0
         version: 8.5.1(@swc/core@1.15.3(@swc/helpers@0.5.17))(jiti@2.6.1)(postcss@8.5.6)(tsx@4.21.0)(typescript@5.9.3)
@@ -11305,6 +11346,7 @@ packages:
   whatwg-encoding@3.1.1:
     resolution: {integrity: sha512-6qN4hJdMwfYBtE3YBTTHhoeuUrDBPZmbQaxWAqSALV/MeEnR5z1xd8UKud2RAkFoPkmB+hli1TZSnyi84xz1vQ==}
     engines: {node: '>=18'}
+    deprecated: Use @exodus/bytes instead for a more spec-conformant and faster implementation
 
   whatwg-mimetype@3.0.0:
     resolution: {integrity: sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q==}

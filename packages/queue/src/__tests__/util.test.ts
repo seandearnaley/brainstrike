@@ -1,5 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  createTimeoutPromise,
+  createWorkerReadyWaiter,
+  DEFAULT_WORKER_READY_TIMEOUT_MS,
   estimateHardwareConcurrency,
   isAbortError,
   ProgressEmitter,
@@ -267,5 +270,174 @@ describe('supportsWorkers', () => {
     expect(result).toBe(false);
 
     vi.unstubAllGlobals();
+  });
+});
+
+describe('createWorkerReadyWaiter (BST-165)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('should resolve immediately when already ready', async () => {
+    const isReady = () => true;
+    const waitForReady = createWorkerReadyWaiter(isReady);
+
+    const result = await waitForReady(1000);
+    expect(result).toBe(true);
+  });
+
+  it('should resolve true when worker becomes ready within timeout', async () => {
+    let ready = false;
+    const waitForReady = createWorkerReadyWaiter(() => ready);
+
+    const promise = waitForReady(1000);
+
+    // Simulate worker becoming ready after 100ms
+    await vi.advanceTimersByTimeAsync(100);
+    ready = true;
+    await vi.advanceTimersByTimeAsync(50);
+
+    const result = await promise;
+    expect(result).toBe(true);
+  });
+
+  it('should resolve false when timeout expires', async () => {
+    const isReady = () => false;
+    const waitForReady = createWorkerReadyWaiter(isReady);
+
+    const promise = waitForReady(1000);
+    await vi.advanceTimersByTimeAsync(1100);
+
+    const result = await promise;
+    expect(result).toBe(false);
+  });
+
+  it('should use default timeout when none provided', async () => {
+    const isReady = () => false;
+    const waitForReady = createWorkerReadyWaiter(isReady);
+
+    const promise = waitForReady();
+    await vi.advanceTimersByTimeAsync(DEFAULT_WORKER_READY_TIMEOUT_MS + 100);
+
+    const result = await promise;
+    expect(result).toBe(false);
+  });
+
+  it('should respect custom default timeout option', async () => {
+    const isReady = () => false;
+    const waitForReady = createWorkerReadyWaiter(isReady, { defaultTimeoutMs: 500 });
+
+    const promise = waitForReady();
+    await vi.advanceTimersByTimeAsync(600);
+
+    const result = await promise;
+    expect(result).toBe(false);
+  });
+
+  it('should respect custom poll interval option', async () => {
+    let pollCount = 0;
+    const isReady = () => {
+      pollCount++;
+      return pollCount >= 5;
+    };
+    const waitForReady = createWorkerReadyWaiter(isReady, { pollIntervalMs: 10 });
+
+    const promise = waitForReady(1000);
+
+    // After 50ms with 10ms intervals, should have polled ~5 times
+    await vi.advanceTimersByTimeAsync(50);
+
+    const result = await promise;
+    expect(result).toBe(true);
+    expect(pollCount).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('createTimeoutPromise', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    // Ensure all pending timers are flushed to avoid dangling rejections
+    vi.runAllTimers();
+    vi.useRealTimers();
+  });
+
+  it('should reject after specified timeout with message', async () => {
+    const promise = createTimeoutPromise(1000, 'Operation timed out');
+
+    // Attach catch handler immediately to avoid unhandled rejection
+    const capturedError = promise.catch((e) => e);
+
+    await vi.advanceTimersByTimeAsync(1100);
+
+    const error = await capturedError;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe('Operation timed out');
+  });
+
+  it('should not reject before timeout', async () => {
+    const promise = createTimeoutPromise(1000, 'Timeout');
+
+    // Attach catch handler immediately to avoid unhandled rejection
+    let rejected = false;
+    promise.catch(() => {
+      rejected = true;
+    });
+
+    // Advance less than timeout
+    await vi.advanceTimersByTimeAsync(500);
+
+    // Promise should still be pending
+    expect(rejected).toBe(false);
+  });
+
+  it('can be used with Promise.race for operation timeouts', async () => {
+    const slowOperation = new Promise<string>((resolve) => {
+      setTimeout(() => resolve('result'), 2000);
+    });
+    const timeoutPromise = createTimeoutPromise<string>(500, 'Timeout');
+
+    // Attach catch handler to timeout promise to avoid unhandled rejection warning
+    timeoutPromise.catch(() => {});
+
+    const raceResult = Promise.race([slowOperation, timeoutPromise]);
+
+    // Attach catch handler for the race result
+    const capturedError = raceResult.catch((e) => e);
+
+    await vi.advanceTimersByTimeAsync(600);
+
+    const error = await capturedError;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe('Timeout');
+  });
+
+  it('allows operation to succeed before timeout', async () => {
+    const fastOperation = new Promise<string>((resolve) => {
+      setTimeout(() => resolve('success'), 100);
+    });
+    const timeoutPromise = createTimeoutPromise<string>(500, 'Timeout');
+
+    // Attach catch handler to timeout promise to avoid unhandled rejection warning
+    // when the race is won by fastOperation
+    timeoutPromise.catch(() => {});
+
+    const result = Promise.race([fastOperation, timeoutPromise]);
+
+    await vi.advanceTimersByTimeAsync(200);
+
+    await expect(result).resolves.toBe('success');
+  });
+});
+
+describe('DEFAULT_WORKER_READY_TIMEOUT_MS', () => {
+  it('should be 30 seconds', () => {
+    expect(DEFAULT_WORKER_READY_TIMEOUT_MS).toBe(30_000);
   });
 });

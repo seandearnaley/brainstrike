@@ -1,6 +1,6 @@
 # @brainstrike/db
 
-Utilities for working with a local SQLite database powered by PGlite. The package exposes migration helpers and a repository for managing file metadata.
+Utilities for working with a local SQLite database powered by PGlite. The package exposes migration helpers, repositories for file/embedding data, and a durable JobQueue used by the embedding worker.
 
 ## Installation
 
@@ -66,6 +66,36 @@ await repo.create({
   updatedAt: new Date().toISOString(),
 });
 const all = await repo.findAll();
+```
+
+### JobQueue (Durable)
+
+```ts
+import { JobQueue } from '@brainstrike/db';
+
+const queue = new JobQueue(db);
+
+await queue.enqueue({
+  queue: 'embeddings',
+  jobType: 'embed_chunk',
+  payload: {
+    chunkId: 'chunk-123',
+    embeddingSetId: 'set-abc',
+    modelKey: 'openai::text-embedding-3-small',
+  },
+  dedupeKey: 'embed:chunk-123:set-abc:openai::text-embedding-3-small',
+});
+```
+
+### Embedding Cache (Optional)
+
+The `embedding_cache` table supports content-level deduplication. Use the Drizzle repository to read/write cache entries and inject it into `startEmbeddingWorker({ embeddingCache })`.
+
+```ts
+import { DrizzleEmbeddingCacheRepository } from '@brainstrike/db';
+
+const cacheRepo = new DrizzleEmbeddingCacheRepository(db);
+const hit = await cacheRepo.get(contentHash, modelKey);
 ```
 
 ## Migrations and Database Path

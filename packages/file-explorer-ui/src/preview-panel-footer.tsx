@@ -26,6 +26,8 @@ type PreviewPanelFooterProps = {
   tokenUsage: TokenUsageMetrics;
   includeProjectTree: boolean;
   treeLoading?: boolean;
+  /** BST-153: Number of files still being indexed (for "estimating..." state) */
+  selectedTokensPendingCount?: number;
   onTokenBudgetChange?: ((budget: number) => void) | undefined;
   selectedFilesCount: number;
   onIncludeProjectTreeChange?: ((checked: boolean) => void) | undefined;
@@ -43,6 +45,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
       tokenUsage,
       includeProjectTree,
       treeLoading = false,
+      selectedTokensPendingCount = 0,
       onTokenBudgetChange,
       selectedFilesCount,
       onIncludeProjectTreeChange,
@@ -73,6 +76,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
               includeTree={includeProjectTree}
               isOverBudget={tokenUsage.isOverBudget}
               selectedTokens={tokenUsage.selectedTokens}
+              selectedTokensPendingCount={selectedTokensPendingCount}
               tokenCounting={tokenCounting}
               totalFiles={totalFiles}
               treeLoading={treeLoading}

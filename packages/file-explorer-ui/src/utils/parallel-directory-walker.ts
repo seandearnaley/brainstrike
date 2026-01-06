@@ -9,6 +9,7 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { DepthProgress, IFileNode, StreamMeta } from '@brainstrike/types';
 import { fileFilter, isAbortError } from '@brainstrike/utils';
+import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
 import { getFinalPath } from './get-final-path';
 
 /** Default number of concurrent directory reads */
@@ -25,6 +26,21 @@ const DEFAULT_SNAPSHOT_INTERVAL_MS = 100;
 
 /** Initial estimated max depth for progress display */
 const INITIAL_ESTIMATED_MAX_DEPTH = 5;
+
+/**
+ * Time a directory read operation against LIST_DIRECTORY budget.
+ * Returns both the result and timing info for metrics collection.
+ */
+async function timeDirectoryRead<T>(
+  path: string,
+  operation: () => Promise<T>
+): Promise<{ result: T; durationMs: number; exceededBudget: boolean }> {
+  const timer = createTimer();
+  const result = await operation();
+  const durationMs = timer.elapsed();
+  const exceededBudget = checkBudget(`read-dir:${path}`, durationMs, 'listDirectory');
+  return { result, durationMs, exceededBudget };
+}
 
 export type ParallelWalkerOptions = {
   /** Maximum number of concurrent directory reads (default: 10) */
@@ -304,6 +320,7 @@ export async function walkDirectoryParallel(
 
   /**
    * Process a single work item (directory)
+   * Includes timing instrumentation against LIST_DIRECTORY budget.
    */
   async function processWorkItem(item: WorkItem): Promise<void> {
     checkAbort();
@@ -316,7 +333,10 @@ export async function walkDirectoryParallel(
     }
 
     try {
-      const entries = await fileSystemAdapter.readDirectory(handle);
+      // Time the directory read against LIST_DIRECTORY budget (200ms)
+      const { result: entries } = await timeDirectoryRead(handle.path, () =>
+        fileSystemAdapter.readDirectory(handle)
+      );
       checkAbort();
 
       const processedNodes: IFileNode[] = [];

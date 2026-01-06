@@ -9,8 +9,18 @@ import { isDevEnv } from './env-utils';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 
+/**
+ * Detect if we're in a browser-like environment (browser or Web Worker).
+ * Web Workers don't have `window`, but they have `self` with `postMessage`.
+ * Both should use pino's browser mode, not Node.js transports.
+ */
+const isWorkerEnvironment =
+  typeof self !== 'undefined' &&
+  typeof (self as { postMessage?: unknown }).postMessage === 'function' &&
+  typeof window === 'undefined';
+
 const isBrowserEnvironment =
-  typeof window !== 'undefined' && typeof window.document !== 'undefined';
+  (typeof window !== 'undefined' && typeof window.document !== 'undefined') || isWorkerEnvironment;
 
 // biome-ignore lint/style/noEnum: Widely used enum with string values - refactoring would be breaking change
 export enum LogLevel {

@@ -33,13 +33,25 @@ export type {
   FileRecord,
   ImportProgress,
 } from './models/file-record.js';
-export type { Job, JobState, JobType } from './queue/job-queue.js';
+export type {
+  CancelParams,
+  ClaimParams,
+  CompleteParams,
+  EnqueueParams,
+  FailParams,
+  HeartbeatParams,
+  Job,
+  JobState,
+  JobType,
+} from './queue/job-queue.js';
 // Queue
 export { JobQueue } from './queue/job-queue.js';
 export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from './repositories/_shared.js';
 export { FileChunkRepository } from './repositories/file-chunk-repository.js';
 // Repository exports
 export * from './repositories/index.js';
+// Schema types for embedding cache (BST-170)
+export type { EmbeddingCacheEntry, NewEmbeddingCacheEntry } from './schema/index.js';
 export type {
   ChunkingOptions,
   ChunkingResult,

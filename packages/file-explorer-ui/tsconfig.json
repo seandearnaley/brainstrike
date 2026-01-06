@@ -36,6 +36,9 @@
       "path": "../platform-utils"
     },
     {
+      "path": "../selection-rules"
+    },
+    {
       "path": "../ui"
     },
     {

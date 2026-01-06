@@ -22,8 +22,11 @@ import {
   needsLoading as checkNeedsLoading,
   findNodeByPath,
   loadDirectoryChildren,
+  loadDirectoryChildrenStreaming,
   loadRootDirectory,
+  loadRootDirectoryStreaming,
   setNodeLoadState,
+  supportsStreaming,
   updateNodeChildren,
 } from './utils/lazy-tree-loader';
 import { buildHandleMap, rehydrateTree, toWorkerFileNodes } from './utils/worker-node-conversion';
@@ -222,6 +225,8 @@ export type UseLazyFileTreeReturn = {
   needsLoading: (node: IFileNode) => boolean;
   /** Cancel any pending load operations */
   cancelLoading: () => void;
+  /** Cancel loading for a specific directory (e.g., when collapsing) */
+  cancelChildLoading: (path: string) => void;
   /** Force refresh a directory (reload its children) */
   refreshDirectory: (path: string) => Promise<void>;
   /** Refresh the entire tree from root */
@@ -295,7 +300,8 @@ export function useLazyFileTree(
   }, []);
 
   // Abort controller management
-  const { createAbortController, cancelAllLoading, removeChildController } = useAbortControllers();
+  const { createAbortController, cancelAllLoading, cancelChildLoading, removeChildController } =
+    useAbortControllers();
 
   // Worker and handle map management - pass progress handler
   const { portRef, handleMapRef, setRootHandle } = useFileTreeWorker({
@@ -342,27 +348,29 @@ export function useLazyFileTree(
     // Set flag IMMEDIATELY after guard passes - before any other code
     isLoadingRootRef.current = true;
 
+    if (!(rootDirectoryHandle && fileSystemAdapter)) {
+      handleLoadRootNoHandle(setState, initializedRootRef);
+      isLoadingRootRef.current = false;
+      return;
+    }
+
+    const rootPath = rootDirectoryHandle.path;
+
+    // Check if we should skip loading (expand-all in progress or already initialized)
+    const skipCheck = shouldSkipLoadRoot(
+      rootPath,
+      isExpandingAllRef.current,
+      initializedRootRef.current,
+      fileTreeRef.current.length
+    );
+
+    if (skipCheck.skip) {
+      logger.debug(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
+      isLoadingRootRef.current = false;
+      return;
+    }
+
     try {
-      if (!(rootDirectoryHandle && fileSystemAdapter)) {
-        handleLoadRootNoHandle(setState, initializedRootRef);
-        return;
-      }
-
-      const rootPath = rootDirectoryHandle.path;
-
-      // Check if we should skip loading (expand-all in progress or already initialized)
-      const skipCheck = shouldSkipLoadRoot(
-        rootPath,
-        isExpandingAllRef.current,
-        initializedRootRef.current,
-        fileTreeRef.current.length
-      );
-
-      if (skipCheck.skip) {
-        logger.debug(`loadRoot skipped - ${skipCheck.reason}`, { rootPath });
-        return;
-      }
-
       // Log when we're about to reinitialize (this would reset the worker tree!)
       logger.info('loadRoot running - will reinitialize worker', {
         rootPath,
@@ -381,21 +389,53 @@ export function useLazyFileTree(
         loadingPaths: new Set(),
       }));
 
-      const children = await loadRootDirectory(fileSystemAdapter, rootDirectoryHandle, {
-        abortSignal: abortController.signal,
-        sortFileNodes,
-      });
+      // Use streaming when adapter supports it
+      if (supportsStreaming(fileSystemAdapter)) {
+        await loadRootDirectoryStreaming(
+          fileSystemAdapter,
+          rootDirectoryHandle,
+          (children, meta) => {
+            if (abortController.signal.aborted) {
+              return;
+            }
 
-      if (!abortController.signal.aborted) {
-        handleLoadRootSuccess(
-          children,
-          rootPath,
-          handleMapRef,
-          portRef,
-          setState,
-          initializedRootRef,
-          rootDirectoryHandle.name
+            if (meta.done) {
+              // Final batch: complete root load
+              handleLoadRootSuccess(
+                children,
+                rootPath,
+                handleMapRef,
+                portRef,
+                setState,
+                initializedRootRef,
+                rootDirectoryHandle.name
+              );
+            }
+            // Intermediate batches: loading state is already set
+          },
+          {
+            abortSignal: abortController.signal,
+            sortFileNodes,
+          }
         );
+      } else {
+        // Fallback to non-streaming
+        const children = await loadRootDirectory(fileSystemAdapter, rootDirectoryHandle, {
+          abortSignal: abortController.signal,
+          sortFileNodes,
+        });
+
+        if (!abortController.signal.aborted) {
+          handleLoadRootSuccess(
+            children,
+            rootPath,
+            handleMapRef,
+            portRef,
+            setState,
+            initializedRootRef,
+            rootDirectoryHandle.name
+          );
+        }
       }
     } catch (err) {
       handleLoadRootError(err, handleMapRef, initializedRootRef, setState);
@@ -460,7 +500,8 @@ export function useLazyFileTree(
 
   /**
    * Perform the actual directory loading operation.
-   * Extracted to reduce cognitive complexity of loadChildren.
+   * Uses streaming when available for progressive loading with progress updates.
+   * Falls back to non-streaming for adapters that don't support it.
    */
   const performDirectoryLoad = useCallback(
     async (
@@ -470,12 +511,37 @@ export function useLazyFileTree(
       adapter: NonNullable<typeof fileSystemAdapter>
     ): Promise<void> => {
       try {
-        const children = await loadDirectoryChildren(adapter, node, {
-          abortSignal: abortController.signal,
-          sortFileNodes,
-        });
-        if (!abortController.signal.aborted) {
-          handleLoadSuccess(path, children);
+        // Use streaming when adapter supports it
+        if (supportsStreaming(adapter)) {
+          await loadDirectoryChildrenStreaming(
+            adapter,
+            node,
+            (nodes, meta) => {
+              if (abortController.signal.aborted) {
+                return;
+              }
+
+              if (meta.done) {
+                // Final batch: update tree with complete sorted children
+                handleLoadSuccess(path, nodes);
+              }
+              // Intermediate batches: could update progress UI here
+              // For now, the loading state is sufficient indication
+            },
+            {
+              abortSignal: abortController.signal,
+              sortFileNodes,
+            }
+          );
+        } else {
+          // Fallback to non-streaming
+          const children = await loadDirectoryChildren(adapter, node, {
+            abortSignal: abortController.signal,
+            sortFileNodes,
+          });
+          if (!abortController.signal.aborted) {
+            handleLoadSuccess(path, children);
+          }
         }
       } catch (err) {
         if (!isAbortError(err)) {
@@ -535,6 +601,29 @@ export function useLazyFileTree(
       loadingPaths: new Set(),
     }));
   }, [cancelAllLoading]);
+
+  /**
+   * Cancel loading for a specific directory (e.g., when collapsing a folder).
+   * Aborts the streaming/loading operation and resets the node to unloaded state.
+   */
+  const handleCancelChildLoading = useCallback(
+    (path: string) => {
+      // Abort the in-flight request
+      cancelChildLoading(path);
+
+      // Remove from loading paths and reset node to unloaded state
+      setState((s) => {
+        const newLoadingPaths = new Set(s.loadingPaths);
+        newLoadingPaths.delete(path);
+        return {
+          ...s,
+          fileTree: setNodeLoadState(s.fileTree, path, 'unloaded'),
+          loadingPaths: newLoadingPaths,
+        };
+      });
+    },
+    [cancelChildLoading]
+  );
 
   /**
    * Force refresh a specific directory
@@ -754,6 +843,7 @@ export function useLazyFileTree(
     loadChildren,
     needsLoading,
     cancelLoading,
+    cancelChildLoading: handleCancelChildLoading,
     refreshDirectory,
     refreshTree,
     expandAllProgressively,

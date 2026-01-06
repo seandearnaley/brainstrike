@@ -134,6 +134,47 @@ describe('VoyageEmbeddingProvider', () => {
     });
   });
 
+  describe('getMetadata (BST-167)', () => {
+    it('should return unified provider metadata for voyage-3', () => {
+      const provider = new VoyageEmbeddingProvider({
+        modelId: mockModelId,
+        apiKey: mockApiKey,
+      });
+
+      const metadata = provider.getMetadata('voyage-3');
+      expect(metadata).toBeDefined();
+      expect(metadata?.providerId).toBe('voyage');
+      expect(metadata?.modelKey).toBe('voyage-3');
+      expect(metadata?.dimensions).toBe(1024);
+      expect(metadata?.distance).toBe('cosine');
+      expect(metadata?.displayName).toBe('Voyage 3');
+    });
+
+    it('should return metadata for voyage-3-lite with correct dimensions', () => {
+      const provider = new VoyageEmbeddingProvider({
+        modelId: 'voyage-3-lite',
+        apiKey: mockApiKey,
+      });
+
+      const metadata = provider.getMetadata('voyage-3-lite');
+      expect(metadata).toBeDefined();
+      expect(metadata?.providerId).toBe('voyage');
+      expect(metadata?.modelKey).toBe('voyage-3-lite');
+      expect(metadata?.dimensions).toBe(512);
+      expect(metadata?.displayName).toBe('Voyage 3 Lite');
+    });
+
+    it('should return null for unknown model', () => {
+      const provider = new VoyageEmbeddingProvider({
+        modelId: mockModelId,
+        apiKey: mockApiKey,
+      });
+
+      const metadata = provider.getMetadata('unknown-model');
+      expect(metadata).toBeNull();
+    });
+  });
+
   describe('embed', () => {
     it('should successfully generate embeddings', async () => {
       const mockEmbedding = new Array(1024).fill(0).map(() => Math.random());
