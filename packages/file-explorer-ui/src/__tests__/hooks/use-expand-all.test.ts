@@ -42,6 +42,8 @@ function createMockWorkerPort(overrides: Partial<FileTreeWorkerPort> = {}): File
     onTreeSnapshot: vi.fn(() => vi.fn()),
     onError: vi.fn(() => vi.fn()),
     onLog: vi.fn(() => vi.fn()),
+    onFlattenedResult: vi.fn(() => vi.fn()),
+    flattenTree: vi.fn(),
     isReady: vi.fn(() => true),
     terminate: vi.fn(),
     ...overrides,

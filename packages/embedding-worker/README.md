@@ -1,10 +1,10 @@
 # @brainstrike/embedding-worker
 
-Transformers.js worker implementation that powers the Brainstrike embedding queue across browsers and Electron renderers. It loads Hugging Face models inside a dedicated worker, batches text inputs, and streams progress events with explicit device selection.
+Transformers.js worker implementation that powers local embedding tasks across browsers and Electron renderers. It loads Hugging Face models inside a dedicated worker, batches text inputs, and streams progress events with explicit device selection.
 
 ## Why This Package Exists
 
-- **Isolate heavy GPU/WASM inference** – keep UI threads responsive while executing embedding workloads.
+- **Isolate heavy GPU/WASM inference** – keep UI threads responsive while executing local embedding workloads.
 - **Share logic across platforms** – the same worker bundle runs in web and desktop renderer contexts.
 - **Expose deterministic telemetry** – emits progress/error events that the queue uses for HUDs and automated recovery.
 
@@ -12,6 +12,7 @@ Transformers.js worker implementation that powers the Brainstrike embedding queu
 
 - Adaptive batching via `computeInitialBatchSize` tuned for workerpool usage.
 - Explicit device enforcement (`webgpu` or `wasm`) with no automatic fallbacks.
+- Local-only runtime (hosted providers are handled by `@brainstrike/embeddings`).
 - Vector normalization helpers (`l2Normalize`, `truncateVector`, `vectorsFromPipelineOutput`) shared with queue adapters.
 - Progress streaming through `workerpool.workerEmit`, covering initialization, embedding progress, and completion states.
 
@@ -59,4 +60,5 @@ pnpm --filter @brainstrike/embedding-worker run build # clean + tsc + tsup bundl
 
 - Depends on `@huggingface/transformers` with remote models enabled for browser deployments (`env.allowRemoteModels`).
 - Designed to be loaded through bundlers that respect `new URL('./embedding.worker.js', import.meta.url)` semantics (Vite, Rspack, Webpack 5).
-- When running outside browsers (e.g., Node), ensure a compatible worker implementation that supports Web Workers and Transformers.js.
+- Renderer-only: local models require Web Workers. Do not run this in Electron main unless you explicitly accept the risk.
+- JobQueue-based orchestration lives in `@brainstrike/embeddings` (`startEmbeddingWorker`), not in this package.

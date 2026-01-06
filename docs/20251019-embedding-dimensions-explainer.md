@@ -13,10 +13,12 @@ search coverage beyond the local transformers bundle.
   can choose compatible models and diagnose problems quickly.
 
 ## Repository Defaults (Updated 2025-10-21)
-- Local models include:
-  - `jina-embeddings-v2-base-code` (768D) – default code-aware option.
-  - `BAAI/bge-small/base` variants (384D) – lighter, fast inference.
-  - `BAAI/bge-large-en-v1.5` (1024D) – highest local quality, exceeds schema.
+- Local models include (HuggingFace IDs):
+  - `jinaai/jina-embeddings-v2-base-code` (768D) – default code-aware option.
+  - `Xenova/all-MiniLM-L6-v2` (384D) – fastest general English.
+  - `Xenova/bge-small-en-v1.5` (384D) – lighter, fast inference.
+  - `Xenova/bge-base-en-v1.5` (768D) – higher quality English.
+  - `Xenova/bge-large-en-v1.5` (1024D) – highest local quality, exceeds legacy 768D baseline.
 - `file_chunks.embedding` is now declared as the dimensionless `VECTOR` type.
   pgvector no longer rejects inserts when the dimension differs from 768.
 - `embedding_sets` records the canonical dimension per model/set. Repository
@@ -35,8 +37,8 @@ search coverage beyond the local transformers bundle.
 | OpenAI | `text-embedding-3-small` | 1536 | Can downscale to fit tighter budgets. |
 | Google | `gemini-embedding-001` | 3072 | Recommends 768/1536/3072 and exposes `output_dimensionality`; embeddings remain high quality after truncation.<br/>Source: [Gemini API docs, 2025-10-01](https://ai.google.dev/gemini-api/docs/embeddings). |
 | Cohere | `embed-v4` family | 1536 (default) | Caller may choose 256/512/1024/1536 via `output_dimension`.<br/>Source: [Cohere Embed API](https://docs.cohere.com/reference/embed). |
-| BAAI | `bge-large-en-v1.5` | 1024 | Open-source baseline; requires schema update or vector downscaling. |
-| Jina | `embeddings-v2-base-code` | 768 | Fits existing schema with no changes.<br/>Source: [Jina model card](https://jina.ai/models/jina-embeddings-v2-base-code/). |
+| BAAI (Transformers.js) | `Xenova/bge-large-en-v1.5` | 1024 | Open-source baseline; local mirror of BAAI model; exceeds legacy 768D baseline without flexible dims. |
+| Jina (Transformers.js) | `jinaai/jina-embeddings-v2-base-code` | 768 | Fits existing schema with no changes.<br/>Source: [Jina model card](https://jina.ai/models/jina-embeddings-v2-base-code/). |
 
 Providers we care about either (a) already emit ≤768D vectors, or (b) allow us
 to request a 768D variant. Voyage and Gemini can exceed 1536D, which we now

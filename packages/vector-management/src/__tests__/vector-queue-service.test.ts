@@ -47,6 +47,7 @@ describe('vector-queue-service', () => {
         totalChunks: 12,
         chunksWithEmbeddingsForSet: 7,
       })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
     };
 
     const service = createVectorQueueService({
@@ -105,6 +106,7 @@ describe('vector-queue-service', () => {
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
       getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
+      clearEmbeddingsForSet: vi.fn(async () => 0),
     };
 
     const service = createVectorQueueService({
@@ -145,5 +147,108 @@ describe('vector-queue-service', () => {
       { done: 2, total: 2 },
     ]);
     expect(counts).toEqual({ queued: 2, running: 1, failed: 0, succeeded: 5 });
+  });
+
+  it('reembedSet clears embeddings then triggers backfill', async () => {
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 3, running: 0, failed: 0, succeeded: 10 },
+      ]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+    };
+
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'openai::text-embedding-3-small', modelId: null, dimensions: 1536 }],
+          } as { rows: unknown[] };
+        }
+        if (sql.startsWith('SELECT c.id')) {
+          // Return 3 chunks that need re-embedding
+          return {
+            rows: [
+              { id: '1', fileRecordId: '10', contentHash: 'hash1' },
+              { id: '2', fileRecordId: '11', contentHash: 'hash2' },
+              { id: '3', fileRecordId: '12', contentHash: 'hash3' },
+            ],
+          } as { rows: unknown[] };
+        }
+        if (sql.includes('INSERT INTO job_queue')) {
+          return { rows: [{ inserted: 3 }] } as { rows: unknown[] };
+        }
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+
+    const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
+      getCoverageForSet: vi.fn(async () => ({ totalChunks: 5, chunksWithEmbeddingsForSet: 0 })),
+      clearEmbeddingsForSet: vi.fn(async () => 5), // Cleared 5 embeddings
+    };
+
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      chunkRepository,
+    });
+
+    const progressUpdates: Array<{ done: number; total: number }> = [];
+    const result = await service.reembedSet('set-123', (done, total) => {
+      progressUpdates.push({ done, total });
+    });
+
+    // Verify clearEmbeddingsForSet was called with the correct embeddingSetId
+    expect(chunkRepository.clearEmbeddingsForSet).toHaveBeenCalledWith('set-123');
+    expect(chunkRepository.clearEmbeddingsForSet).toHaveBeenCalledTimes(1);
+
+    // Verify result structure
+    expect(result.clearedCount).toBe(5);
+    expect(result.queueCounts).toEqual({ queued: 3, running: 0, failed: 0, succeeded: 10 });
+
+    // Verify progress callbacks were invoked during backfill
+    expect(progressUpdates).toEqual([
+      { done: 0, total: 3 },
+      { done: 3, total: 3 },
+    ]);
+  });
+
+  it('reembedSet returns zero cleared when no embeddings exist', async () => {
+    const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 0, running: 0, failed: 0, succeeded: 0 },
+      ]),
+      clear: vi.fn(),
+      requeueFailed: vi.fn(),
+    };
+
+    const db: VectorQueueDatabase = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::test-model', modelId: 'test-model', dimensions: 384 }],
+          } as { rows: unknown[] };
+        }
+        // No chunks to backfill
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
+    };
+
+    const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
+      getCoverageForSet: vi.fn(async () => ({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 })),
+      clearEmbeddingsForSet: vi.fn(async () => 0), // Nothing to clear
+    };
+
+    const service = createVectorQueueService({
+      db,
+      jobQueue,
+      chunkRepository,
+    });
+
+    const result = await service.reembedSet('empty-set', vi.fn());
+
+    expect(chunkRepository.clearEmbeddingsForSet).toHaveBeenCalledWith('empty-set');
+    expect(result.clearedCount).toBe(0);
+    expect(result.queueCounts).toEqual({ queued: 0, running: 0, failed: 0, succeeded: 0 });
   });
 });

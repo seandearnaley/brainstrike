@@ -4,7 +4,7 @@ This guide helps you choose and configure embedding models in BrainStrike. It co
 
 ## Quick Start
 
-**Default Model**: `jina-code` (768 dimensions)
+**Default Model**: `jinaai/jina-embeddings-v2-base-code` (768 dimensions)
 - Code-aware embeddings supporting 30+ programming languages
 - 8k token context window
 - Runs locally (~300MB download)
@@ -22,21 +22,23 @@ Embedding dimensions determine the size of the vector representation for each te
 
 ## Available Models
 
+Model availability is driven by the DB-backed registry (`providers` + `models` tables) and the fallback registry in `@brainstrike/embeddings`. Enable/disable models in Settings → Embeddings; the Collections dialog uses those enabled models when creating embedding sets.
+
 ### Local Models
 
 Local models run entirely in your browser or desktop app using WebAssembly. No API keys or internet connection required after initial download.
 
 #### Jina AI Models
 
-**jina-code** (Default) ⭐
+**jinaai/jina-embeddings-v2-base-code** (Default) ⭐
 - **Dimensions**: 768
 - **Size**: ~300MB
 - **Context**: 8,192 tokens
 - **Best for**: Code search, multi-language development
 - **Languages**: 30+ programming languages
 
-**jina-v3**
-- **Dimensions**: 1024 (flexible: 256/512/768/1024)
+**jinaai/jina-embeddings-v3** (Experimental)
+- **Dimensions**: 1024 (model-dependent)
 - **Size**: ~570MB
 - **Context**: 8,192 tokens
 - **Best for**: Multilingual text, task-specific embeddings
@@ -44,19 +46,19 @@ Local models run entirely in your browser or desktop app using WebAssembly. No A
 
 #### BGE (BAAI General Embedding) Models
 
-**bge-small-en-v1.5**
+**Xenova/bge-small-en-v1.5**
 - **Dimensions**: 384
 - **Size**: ~67MB
 - **Context**: 512 tokens
 - **Best for**: Fast English text search, resource-constrained environments
 
-**bge-base-en-v1.5**
+**Xenova/bge-base-en-v1.5**
 - **Dimensions**: 768
 - **Size**: ~130MB
 - **Context**: 512 tokens
 - **Best for**: High-quality English embeddings, balanced performance
 
-**bge-large-en-v1.5**
+**Xenova/bge-large-en-v1.5**
 - **Dimensions**: 1024
 - **Size**: ~330MB
 - **Context**: 512 tokens
@@ -64,7 +66,7 @@ Local models run entirely in your browser or desktop app using WebAssembly. No A
 
 #### MiniLM Models
 
-**all-MiniLM-L6-v2**
+**Xenova/all-MiniLM-L6-v2**
 - **Dimensions**: 384
 - **Size**: ~23MB (smallest!)
 - **Context**: 512 tokens
@@ -72,101 +74,77 @@ Local models run entirely in your browser or desktop app using WebAssembly. No A
 
 ### Hosted Models (API Required)
 
+Hosted providers are represented in the registry and provider factory. The embedding worker currently supports **OpenAI** and **Google**. Cohere and Voyage providers exist but are not wired into the worker yet.
+
 Hosted models require API keys and internet connectivity but offer cutting-edge performance.
 
 #### OpenAI
 
 **text-embedding-3-small**
-- **Dimensions**: 1536 (flexible: 256-1536)
-- **Context**: 8,191 tokens
-- **Cost**: $0.02 per 1M tokens
+- **Dimensions**: 1536 (override via `dimensions`)
 - **Best for**: Cost-effective hosted solution
 
 **text-embedding-3-large**
-- **Dimensions**: 3072 (flexible: 256-3072)
-- **Context**: 8,191 tokens
-- **Cost**: $0.13 per 1M tokens
+- **Dimensions**: 3072 (override via `dimensions`)
 - **Best for**: Best-in-class performance for production applications
 
 #### Google
 
-**gemini-embedding-001**
-- **Dimensions**: 3072 (flexible: 128-3072)
-- **Context**: 2,048 tokens
-- **Cost**: $0.15 per 1M tokens
-- **Best for**: Multilingual high-performance search
-- **Note**: Use `output_dimensionality` parameter to customize
+**text-embedding-004**
+- **Dimensions**: 768 (override via `outputDimensionality`)
 
-**text-embedding-004** (Deprecated)
-- **Dimensions**: 768
-- **Deprecated**: January 2026
-- **Use gemini-embedding-001 instead**
+**gemini-embedding-001**
+- **Dimensions**: 3072 (override via `outputDimensionality`)
 
 #### Voyage AI
 
-**voyage-3**
+**voyage-3** (Not wired in worker yet)
 - **Dimensions**: 1024
-- **Context**: 32,000 tokens
-- **Cost**: $0.06 per 1M tokens
 - **Best for**: Long-context multilingual retrieval
 
-**voyage-3-lite**
+**voyage-3-lite** (Not wired in worker yet)
 - **Dimensions**: 512
-- **Context**: 32,000 tokens
-- **Cost**: $0.02 per 1M tokens
 - **Best for**: Budget-conscious long-context applications
 
 #### Cohere
 
-**embed-english-v3.0**
+**embed-english-v3.0** (Not wired in worker yet)
 - **Dimensions**: 1024
-- **Context**: 512 tokens
-- **Cost**: $0.50 per 1M tokens
 - **Best for**: English-optimized with input_type support
 
-**embed-multilingual-v3.0**
+**embed-multilingual-v3.0** (Not wired in worker yet)
 - **Dimensions**: 1024
-- **Context**: 512 tokens
-- **Cost**: $0.50 per 1M tokens
 - **Best for**: Cross-lingual search (100+ languages)
 
 ## Choosing a Model
 
 ### For Code Search
-- **Primary**: `jina-code` (default, code-aware)
-- **Alternative**: `bge-base-en-v1.5` (English codebases)
+- **Primary**: `jinaai/jina-embeddings-v2-base-code` (default, code-aware)
+- **Alternative**: `Xenova/bge-base-en-v1.5` (English codebases)
 
 ### For General Text
-- **Fastest**: `all-MiniLM-L6-v2` (384D, 23MB)
-- **Balanced**: `bge-base-en-v1.5` (768D, quality/speed)
-- **Best Quality**: `bge-large-en-v1.5` (1024D, SOTA)
+- **Fastest**: `Xenova/all-MiniLM-L6-v2` (384D, 23MB)
+- **Balanced**: `Xenova/bge-base-en-v1.5` (768D, quality/speed)
+- **Best Quality**: `Xenova/bge-large-en-v1.5` (1024D, SOTA)
 
 ### For Multilingual Content
-- **Local**: `jina-v3` (89 languages, flexible dimensions)
-- **Hosted**: `gemini-embedding-001` (best quality) or `cohere embed-multilingual-v3.0`
+- **Local**: `jinaai/jina-embeddings-v3` (89 languages, experimental)
+- **Hosted**: `gemini-embedding-001` (requires downscaling to <= 2000) or `cohere embed-multilingual-v3.0` (not wired yet)
 
 ### For Production/Hosted
-- **Cost-effective**: OpenAI `text-embedding-3-small` ($0.02/1M tokens)
-- **Best performance**: OpenAI `text-embedding-3-large` or Google `gemini-embedding-001`
-- **Long context**: Voyage `voyage-3` (32k tokens)
+- **Cost-effective**: OpenAI `text-embedding-3-small`
+- **Best performance**: OpenAI `text-embedding-3-large` or Google `gemini-embedding-001` (downscale dimensions to <= 2000)
+- **Long context**: Voyage `voyage-3` (not wired yet)
 
 ## Flexible Dimensions
 
-Some models support flexible output dimensions:
+BrainStrike stores vectors in a dimensionless `VECTOR` column and validates against `embedding_sets.dimensions`. The worker enforces a max dimension of **2000** (`MAX_EMBEDDING_DIMENSION`), so hosted models with larger defaults must be downscaled in the embedding set configuration.
 
-| Model | Supported Dimensions |
-|-------|---------------------|
-| OpenAI text-embedding-3-small | 256-1536 |
-| OpenAI text-embedding-3-large | 256-3072 |
-| Google gemini-embedding-001 | 128-3072 |
-| Jina v3 | 256, 512, 768, 1024 |
+Supported dimension overrides today:
+- **OpenAI**: `dimensions` parameter (from embedding set)
+- **Google**: `outputDimensionality` parameter (from embedding set)
 
-**When to use lower dimensions:**
-- Reduce storage costs
-- Faster similarity search
-- Resource-constrained environments
-
-**Trade-off**: Lower dimensions may reduce search quality for some queries.
+**Note**: The Collections dialog currently uses the model registry's default dimensions and does not expose per-collection overrides yet.
 
 ## Technical Details
 
@@ -174,21 +152,23 @@ Some models support flexible output dimensions:
 BrainStrike uses a dimensionless `VECTOR` column in PGlite, paired with `embedding_sets` metadata that tracks:
 - Model identifier
 - Vector dimensions
-- Distance metric (cosine, euclidean, etc.)
+- Distance metric (cosine, l2, ip)
 
-This architecture allows multiple models/dimensions within the same database without schema migrations.
+The authoritative model list comes from the DB `providers` and `models` tables (seeded in `migration 015-model-registry`). The fallback registry in `@brainstrike/embeddings` is used for legacy flows and tests.
 
 ### Search Collections
 Each Search Collection is associated with a specific embedding set. When you:
 1. Select a model in the UI
-2. Start backfill
+2. Create a collection
 3. BrainStrike creates or reuses an embedding set with matching `{model_key, dimensions, distance}`
 4. All chunks use that embedding set for consistency
+
+`model_key` uses the `provider::modelId` format for hosted models (e.g. `openai::text-embedding-3-small`). Local models use the raw Hugging Face model ID.
 
 ### Validation
 - **Write**: Repository validates chunk embeddings match the set's dimension before persisting
 - **Search**: Queries verify the query vector matches the collection's dimension before executing
-- **Queue**: Workers validate generated embeddings against `expectedDimension` metadata
+- **Queue**: Workers validate generated embeddings against set dimensions and job payload metadata
 
 ## Migration Notes
 
@@ -199,42 +179,32 @@ If switching models for existing data:
 
 **Do not mix embeddings from different models in the same collection** - search quality will degrade significantly.
 
-## API Configuration
+## Provider Configuration (Worker)
 
-### OpenAI
-```typescript
-// Customize dimensions (256-1536 for small, 256-3072 for large)
-const response = await openai.embeddings.create({
-  model: "text-embedding-3-small",
-  input: "Your text here",
-  dimensions: 768 // Optional: reduce from 1536 default
-});
-```
+Embedding worker provider configs mirror the `EmbeddingProviderConfig` type:
 
-### Google Gemini
 ```typescript
-// Use output_dimensionality for custom dimensions
-const response = await genai.embedContent({
-  model: "gemini-embedding-001",
-  content: "Your text here",
-  outputDimensionality: 768 // Optional: reduce from 3072 default
-});
-```
+// OpenAI (hosted)
+const config = {
+  runtime: "hosted",
+  provider: "openai",
+  modelId: "text-embedding-3-small",
+  dimensions: 768,
+};
 
-### Cohere
-```typescript
-// Specify output_dimension (256/512/1024/1536)
-const response = await cohere.embed({
-  model: "embed-english-v3.0",
-  texts: ["Your text here"],
-  output_dimension: 768 // Optional
-});
+// Google (hosted)
+const config = {
+  runtime: "hosted",
+  provider: "google",
+  modelId: "text-embedding-004",
+  outputDimensionality: 768,
+};
 ```
 
 ## Performance Tips
 
-1. **Start with the default** (`jina-code`) - it's well-tested and works for most use cases
-2. **Use smaller models for development/testing** (`all-MiniLM-L6-v2` at 23MB downloads instantly)
+1. **Start with the default** (`jinaai/jina-embeddings-v2-base-code`) - it's well-tested and works for most use cases
+2. **Use smaller models for development/testing** (`Xenova/all-MiniLM-L6-v2` at 23MB downloads instantly)
 3. **Profile before upgrading** - larger models may not always improve your specific use case
 4. **Consider context window** - if your chunks exceed 512 tokens, use models with larger windows
 5. **Monitor costs** - hosted models charge per token; local models have no recurring costs

@@ -19,9 +19,11 @@ This pack contains a concise set of C4-style views, sequence diagrams, and state
 **Architecture Foundation**
 
 - **Monorepo**: Turborepo-based monorepo with `apps/web`, `apps/desktop`, and `packages/*`
-- **Embeddings & Vector Management**: `packages/embeddings`, `packages/embedding-worker`, `packages/vector-management`, `packages/db` (migrations with embedding sets, flexible dimensions, and vector helpers), `packages/db-explorer`
-- **Workers & Queues**: Renderer-based embedding workers in both web and desktop apps, utilizing `packages/embedding-worker` and PGlite-backed job queues
+- **Embeddings & Vector Management**: `packages/embeddings`, `packages/embedding-worker`, `packages/vector-management`, `packages/db` (embedding sets, job queue, embedding cache, model registry tables), `packages/db-explorer`
+- **Pipeline Orchestration**: `@brainstrike/pipeline` provides chunking/embedding stages, progress aggregation, and schema health checks; not yet wired into the apps
+- **Workers & Queues**: Renderer-based embedding workers in both web and desktop apps, utilizing `packages/embedding-worker` and PGlite-backed `JobQueue`; queue control semantics documented in ADR-0002
 - **Cross-Platform Adapters**: `packages/file-system` and `packages/storage` provide platform-agnostic interfaces for Node.js, Web, and Electron environments
+- **File Explorer Rules**: `@brainstrike/selection-rules` powers selection rule evaluation and validation for file explorer UI
 - **Agent Runtime**: `packages/agent` with Mastra AI integration and MCP tooling support
 - **Build Configuration**: Vite 7 for both web and desktop renderer, with shared Tailwind v4 configuration
 

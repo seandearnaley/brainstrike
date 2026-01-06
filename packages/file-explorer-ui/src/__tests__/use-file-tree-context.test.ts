@@ -167,7 +167,8 @@ describe('useFileTree (lazy loading version)', () => {
       const handle = await mockAdapter.requestDirectoryAccess();
 
       // Mock the adapter to throw a non-Error
-      vi.spyOn(mockAdapter, 'readDirectory').mockRejectedValueOnce('String error');
+      // Note: useLazyFileTree uses readDirectoryStreaming when available
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockRejectedValueOnce('String error');
 
       const TestWrapper = ({ children }: { children: ReactNode }) =>
         FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
@@ -259,7 +260,10 @@ describe('useFileTree (lazy loading version)', () => {
       const handle = await mockAdapter.requestDirectoryAccess();
 
       // First simulate an error
-      vi.spyOn(mockAdapter, 'readDirectory').mockRejectedValueOnce(new Error('Test error'));
+      // Note: useLazyFileTree uses readDirectoryStreaming when available
+      vi.spyOn(mockAdapter, 'readDirectoryStreaming').mockRejectedValueOnce(
+        new Error('Test error')
+      );
 
       const TestWrapper = ({ children }: { children: ReactNode }) =>
         FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
@@ -280,6 +284,38 @@ describe('useFileTree (lazy loading version)', () => {
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
       expect(result.current.error).toBeNull();
+    });
+
+    it('should not block future loads when refreshTree runs without a handle', async () => {
+      const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
+      mockAdapter.setMockFileSystem(mockFS);
+
+      const TestWrapper = ({ children }: { children: ReactNode }) =>
+        FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+
+      type HookProps = { handle: Parameters<typeof useFileTree>[0] };
+
+      const initialProps: HookProps = { handle: null };
+
+      const { result, rerender } = renderHook(({ handle }: HookProps) => useFileTree(handle), {
+        wrapper: TestWrapper,
+        initialProps,
+      });
+
+      await act(async () => {
+        await result.current.refreshTree();
+      });
+
+      const handle = await mockAdapter.requestDirectoryAccess();
+
+      act(() => {
+        rerender({ handle });
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      const names = result.current.fileTree.map((node) => node.name);
+      expect(names).toEqual(['src', 'package.json', 'README.md']);
     });
   });
 

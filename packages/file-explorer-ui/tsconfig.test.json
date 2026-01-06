@@ -4,7 +4,8 @@
     "types": [
       "vitest/globals",
       "node",
-      "@testing-library/jest-dom"
+      "@testing-library/jest-dom",
+      "vite/client"
     ],
     "skipLibCheck": true,
     "strictNullChecks": true

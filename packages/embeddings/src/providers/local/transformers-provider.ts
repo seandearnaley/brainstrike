@@ -1,7 +1,15 @@
 import { SimpleEmbeddingService } from '../../bge-m3-service';
 import type { EmbeddingInput, ILocalEmbeddingProvider } from '../../interfaces/provider';
-import type { EmbeddingOutput, EmbeddingProviderError, Result } from '../../provider-types';
+import type {
+  EmbeddingOutput,
+  EmbeddingProviderError,
+  ProviderMetadata,
+  Result,
+} from '../../provider-types';
 import type { EmbeddingProgress, ModelConfig } from '../../types';
+
+/** Default distance metric for local transformers models */
+const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';
 
 /**
  * Local embedding provider using transformers.js
@@ -151,6 +159,26 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
    */
   getModelInfo(modelId: string): ModelConfig | null {
     return SimpleEmbeddingService.getModelConfig(modelId);
+  }
+
+  /**
+   * Get unified provider metadata for embedding-set creation and validation (BST-167)
+   * Returns metadata about the current provider including dimensions and distance metric
+   */
+  getMetadata(modelId: string): ProviderMetadata | null {
+    const modelConfig = this.getModelInfo(modelId);
+    if (!modelConfig) {
+      return null;
+    }
+
+    return {
+      providerId: 'local',
+      modelKey: modelId,
+      dimensions: modelConfig.dimensions,
+      distance: DEFAULT_DISTANCE_METRIC,
+      displayName: modelConfig.name,
+      ...(modelConfig.contextWindow !== undefined && { contextWindow: modelConfig.contextWindow }),
+    };
   }
 
   /**

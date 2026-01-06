@@ -38,9 +38,11 @@ packages/
   preferences/        # User preferences and settings stores
   db-explorer/        # Database exploration and file import UI
   vector-management/  # Vector/embedding status and queue management
+  pipeline/           # Indexing pipeline orchestration (File → Chunk → Embed → Vector)
   file-explorer/      # Core file explorer state/logic
   file-explorer-ui/   # File explorer UI components
   file-explorer-hooks/# File explorer hooks
+  selection-rules/    # File selection rules engine + schema
   file-system/        # FS abstractions/adapters
   storage/            # Storage abstractions/adapters
   server-config/      # Server config utilities
@@ -60,19 +62,23 @@ See also: [`docs/onboarding.md`](docs/onboarding.md) and [`docs/monorepo-docs.md
 
 ---
 
-## Queue & Worker (2025)
+## Queue & Embedding Platform (2025-2026)
 
-- **Renderer auto-start**: Once the local database is ready, the renderer spins up the embedding worker automatically. Desktop boots it on load and shuts it down when the renderer unmounts (e.g., quitting the app). The web app wires the same provider; Start/Stop/Reset buttons remain in Vector Status for manual restarts or debugging but are no longer required for routine operation.
+- **Renderer auto-start**: Desktop auto-starts the embedding worker once the local database is ready and stops it when the renderer unmounts. The web app starts the worker on demand (Start/Reset in Vector Status, or auto-starts when backfill is invoked).
 - **Manual controls**:
-  - Desktop: no UI toggle; closing the renderer stops the worker. Use CLI tooling if you need to drain or reset outside of app shutdown.
-  - Web: Vector Status exposes Start/Stop/Reset to temporarily pause or recycle the worker in a tab. The worker will relaunch automatically the next time the DB connection is available.
+  - Desktop: no Start/Stop UI toggle; closing the renderer stops the worker.
+  - Web: Vector Status exposes Start/Stop/Reset to control the worker in a tab; backfill can auto-start if the worker is stopped.
 - **CLI**: `pnpm queue stats` (view queue status), `pnpm queue requeue -- --queue embeddings --limit 20` (retry failed jobs), `pnpm queue prune -- --olderThan <ISO> --states succeeded failed` (clean old records).
 - **Configuration**:
-  - `EMBED_CONCURRENCY`: Number of parallel embedding jobs (default varies by device)
-  - `EMBED_LEASE_MS`: Job lock duration in milliseconds
-  - `EMBED_MODEL_KEY`: Which embedding model to use
-- **Queue Semantics**: Jobs persist in PGlite/local database; the queue respects concurrency limits and automatically retries failed embeddings. Progress is dispatched via `brainstrike:queue-progress` events for UI subscribers.
+  - `VITE_EMBED_CONCURRENCY`: Number of parallel embedding jobs (default 1)
+  - `VITE_EMBED_LEASE_MS`: Job lock duration in milliseconds
+  - `VITE_EMBED_MODEL_KEY`: Which embedding model to use (provider::modelId format supported)
+  - `VITE_QUEUE_TELEMETRY_ENDPOINT` (optional): Enable queue telemetry batching
+- **Queue Semantics**: Jobs persist in PGlite/local database via `JobQueue`; the queue respects concurrency limits and automatically retries failed embeddings. Queue adapters expose pause/resume/cancel/drain semantics per ADR-0002. Progress is dispatched via `brainstrike:queue-progress` events for UI subscribers.
+- **Re-embed workflow**: Vector Status can clear embeddings for the active set and requeue jobs (model switching/backfill).
 - **Persistence**: Queue state and job history are stored in the local database (`@brainstrike/db`); survives app restarts.
+- **Pipeline package**: `@brainstrike/pipeline` ships chunking/embedding stages, progress aggregation, controller, and schema health checks. It is currently exercised in tests and not yet wired into the apps.
+- **Embedding cache (opt-in)**: `@brainstrike/db` provides an embedding cache table and repository; `startEmbeddingWorker({ embeddingCache })` can use it for content-level dedupe but it is not wired by default.
 
 Refer to `docs/arch_logs/20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff.md` (Post-Review Deltas) and `docs/arch_logs/20250905-170000-db-embedding-modernization-2025.md` for the phased plan. API shapes: `docs/arch_logs/20250905-000000-db-embedding-modernization/20250905-090000-api-contracts.md`.
 
@@ -132,7 +138,7 @@ UI affordances:
   - Dimension mismatches are caught at query time to prevent silent failures
   - Code search quality: smaller code chunks and model-aware query/doc prompts are enabled
   
-- **Model Configuration**: Set via `EMBED_MODEL_KEY` environment variable or Settings → LLM Provider Keys (where applicable). Model selection affects:
+- **Model Configuration**: Model selection is per embedding set (created via the Collections dialog). Jobs carry an `embeddingSetId`, and the worker resolves dimensions from the set. `VITE_EMBED_MODEL_KEY` / `EMBED_MODEL_KEY` are fallback defaults for worker initialization or tests. Model selection affects:
   - Output dimensions (typically 384, 768, or 1024)
   - Inference speed (smaller models are faster; larger ones more expressive)
   - On-device vs. API-based inference
@@ -149,7 +155,7 @@ UI affordances:
 
 Notes:
 - PGlite + pgvector in WASM benefits from IVFFlat on low-RAM machines; HNSW is best on desktops with more headroom.
-- Vector dimensions are stored per embedding set (`embedding_sets.dimensions`) and validated at runtime. Search queries and chunk writes are scoped by the active set to prevent mixing dimensions. The physical column type may default to `VECTOR(768)`, but the service will guard against mismatches and require using a compatible set for a given model.
+- Vector dimensions are stored per embedding set (`embedding_sets.dimensions`) and validated at runtime. Search queries and chunk writes are scoped by the active set to prevent mixing dimensions. The `file_chunks.embedding` column is dimensionless `VECTOR`, with dimension-specific indexes created via expression casts.
 
 ---
 

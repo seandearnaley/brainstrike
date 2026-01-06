@@ -43,6 +43,8 @@ export type CancellableFileTreeHook = {
   loadingPaths: Set<string>;
   /** Load children of a directory on expand */
   loadChildren: (path: string) => Promise<void>;
+  /** Cancel loading for a specific directory (e.g., on collapse) */
+  cancelChildLoading: (path: string) => void;
   /** Refresh a specific directory */
   refreshDirectory: (path: string) => Promise<void>;
   /** Progressively expand all directories (loads everything) */
@@ -77,6 +79,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     loadingPaths,
     loadChildren,
     cancelLoading,
+    cancelChildLoading,
     refreshDirectory,
     refreshTree,
     expandAllProgressively,
@@ -100,6 +103,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     isCancelling: false, // Lazy loading doesn't have a separate cancelling state
     loadingPaths,
     loadChildren,
+    cancelChildLoading,
     refreshDirectory,
     expandAllProgressively,
     cancelExpandAll,

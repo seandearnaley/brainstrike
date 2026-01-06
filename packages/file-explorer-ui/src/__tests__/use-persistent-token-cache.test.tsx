@@ -61,7 +61,10 @@ describe('usePersistentTokenCache', () => {
   describe('with persistent cache available', () => {
     beforeEach(() => {
       mockContext = {
-        isReady: true,
+        isReady: true, // Deprecated - kept for backwards compatibility
+        isOperational: true, // Worker + hasher ready
+        isPersisted: true, // DB-backed storage available
+        persistenceMode: 'persistent',
         isWorkerReady: true,
         countingMode: 'accurate',
         countTextTokens: vi.fn(async () => 0),

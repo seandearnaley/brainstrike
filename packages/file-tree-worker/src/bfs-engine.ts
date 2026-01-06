@@ -6,6 +6,7 @@
  * processes results, and manages tree state.
  */
 
+import { checkBudget, createTimer } from '@brainstrike/utils/perf-timing';
 import { getPathDepth } from '@brainstrike/utils/tree-operations';
 
 import {
@@ -16,13 +17,48 @@ import {
   getUnloadedDirectories,
   setNodeLoadState,
 } from './tree-operations';
-import type { BatchLoadResult, WorkerFileNode, WorkerToMainMessage } from './types';
+import type { BatchLoadResult, FlattenedNode, WorkerFileNode, WorkerToMainMessage } from './types';
+
+// ============================================================================
+// Performance & Safety Constants
+// ============================================================================
 
 /** Number of directories to load per batch */
 const BATCH_SIZE = 10;
 
 /** Interval for progress snapshots (ms) - increased to reduce main thread overhead */
 const SNAPSHOT_INTERVAL_MS = 1000;
+
+/**
+ * Time a batch load operation and check against budget.
+ * Uses lightweight timer to avoid performance.mark overhead in worker.
+ */
+function timeBatchLoad<T>(
+  batchSize: number,
+  operation: () => Promise<T>,
+  onComplete: (durationMs: number, exceededBudget: boolean) => void
+): Promise<T> {
+  const timer = createTimer();
+  return operation().then((result) => {
+    const durationMs = timer.elapsed();
+    const exceededBudget = checkBudget(`batch-load-${batchSize}`, durationMs, 'expandBatch');
+    onComplete(durationMs, exceededBudget);
+    return result;
+  });
+}
+
+/**
+ * Maximum depth for expand-all operations.
+ * Prevents runaway expansion in deeply nested directory structures.
+ * Typical project structures rarely exceed 15 levels deep.
+ */
+export const MAX_EXPAND_DEPTH = 50;
+
+/**
+ * Maximum total directories to expand.
+ * Prevents memory exhaustion on large codebases.
+ */
+export const MAX_EXPAND_DIRECTORIES = 10_000;
 
 /**
  * Yield to the event loop to prevent blocking.
@@ -252,6 +288,10 @@ export class BFSEngine {
 
   /**
    * Expand all directories using BFS traversal.
+   *
+   * Safety limits:
+   * - MAX_EXPAND_DEPTH: Stops at maximum depth to prevent runaway expansion
+   * - MAX_EXPAND_DIRECTORIES: Limits total directories to prevent memory exhaustion
    */
   async expandAll(): Promise<void> {
     this.resetAbort();
@@ -259,6 +299,9 @@ export class BFSEngine {
     const processed = new Set<string>();
     let totalDiscovered = 0;
     let loadedCount = 0;
+    let maxDepthReached = 0;
+    let hitDepthLimit = false;
+    let hitDirectoryLimit = false;
 
     // Log tree state for debugging
     const treeNodeCount = this.countTreeNodes(this.tree);
@@ -281,7 +324,36 @@ export class BFSEngine {
     let lastSnapshotTime = Date.now();
 
     while (currentWave.size > 0 && !this.aborted) {
-      const toLoad = getUnloadedDirectories(currentWave, processed, this.tree);
+      // Safety check: directory limit
+      if (loadedCount >= MAX_EXPAND_DIRECTORIES) {
+        hitDirectoryLimit = true;
+        this.logInfo(
+          `[expand-all] Reached directory limit (${MAX_EXPAND_DIRECTORIES}), stopping expansion`
+        );
+        break;
+      }
+
+      // Filter out directories that exceed depth limit
+      const toLoadUnfiltered = getUnloadedDirectories(currentWave, processed, this.tree);
+      const toLoad = toLoadUnfiltered.filter((path) => {
+        const depth = getPathDepth(path);
+        if (depth > maxDepthReached) {
+          maxDepthReached = depth;
+        }
+        if (depth > MAX_EXPAND_DEPTH) {
+          hitDepthLimit = true;
+          return false;
+        }
+        return true;
+      });
+
+      if (toLoad.length === 0 && toLoadUnfiltered.length > 0) {
+        // All remaining directories exceeded depth limit
+        this.logInfo(
+          `[expand-all] All remaining directories exceed depth limit (${MAX_EXPAND_DEPTH})`
+        );
+        break;
+      }
 
       // Process batches
       const batchResult = await this.processExpandBatches(
@@ -307,12 +379,25 @@ export class BFSEngine {
       await yieldControl();
     }
 
-    this.logInfo(`[expand-all] Complete. Loaded ${loadedCount} directories`);
+    // Log completion with safety limit info
+    const limitInfo = [];
+    if (hitDepthLimit) {
+      limitInfo.push(`depth limit ${MAX_EXPAND_DEPTH}`);
+    }
+    if (hitDirectoryLimit) {
+      limitInfo.push(`directory limit ${MAX_EXPAND_DIRECTORIES}`);
+    }
+    const limitMsg = limitInfo.length > 0 ? ` (hit ${limitInfo.join(', ')})` : '';
+
+    this.logInfo(
+      `[expand-all] Complete. Loaded ${loadedCount} directories, max depth ${maxDepthReached}${limitMsg}`
+    );
     this.sendComplete(loadedCount);
   }
 
   /**
    * Process directory batches for expand-all operation.
+   * Includes performance timing to detect slow batches.
    */
   private async processExpandBatches(
     toLoad: string[],
@@ -322,12 +407,26 @@ export class BFSEngine {
   ): Promise<{ loadedCount: number; lastSnapshotTime: number }> {
     let currentLoadedCount = loadedCount;
     let currentSnapshotTime = lastSnapshotTime;
+    let slowBatchCount = 0;
 
     for (let i = 0; i < toLoad.length && !this.aborted; i += BATCH_SIZE) {
       const batch = toLoad.slice(i, i + BATCH_SIZE);
 
       this.markBatchAsLoading(batch);
-      const results = await this.requestLoads(batch);
+
+      // Time the batch load operation against expandBatch budget
+      const results = await timeBatchLoad(
+        batch.length,
+        () => this.requestLoads(batch),
+        (durationMs, exceededBudget) => {
+          if (exceededBudget) {
+            slowBatchCount++;
+            this.logDebug(
+              `[expand-all] Slow batch: ${batch.length} dirs in ${Math.round(durationMs)}ms`
+            );
+          }
+        }
+      );
 
       if (this.aborted) {
         break;
@@ -351,6 +450,11 @@ export class BFSEngine {
       await yieldControl();
     }
 
+    // Log summary if there were slow batches
+    if (slowBatchCount > 0) {
+      this.logInfo(`[expand-all] ${slowBatchCount} batch(es) exceeded performance budget`);
+    }
+
     return { loadedCount: currentLoadedCount, lastSnapshotTime: currentSnapshotTime };
   }
 
@@ -371,6 +475,63 @@ export class BFSEngine {
         expandedPaths: [], // Collapsed - no paths expanded
       },
     });
+  }
+
+  /**
+   * Flatten the tree for virtualized rendering.
+   *
+   * Computes a flat list of visible nodes based on the current tree state
+   * and the set of expanded paths. This moves the O(n) flattening operation
+   * off the main thread.
+   *
+   * @param expandedPaths - Set of paths that should be considered expanded
+   */
+  flattenTree(expandedPaths: string[]): void {
+    const timer = createTimer();
+    const expandedSet = new Set(expandedPaths);
+    const result: FlattenedNode[] = [];
+
+    this.flattenNodes(this.tree, 0, expandedSet, result);
+
+    const durationMs = timer.elapsed();
+
+    // Check against flattenTree budget (50ms)
+    checkBudget('worker-flattenTree', durationMs, 'flattenTree');
+
+    this.postMessage({
+      type: 'flattenedResult',
+      payload: {
+        nodes: result,
+        count: result.length,
+        durationMs,
+      },
+    });
+  }
+
+  /**
+   * Recursively flatten nodes into the result array.
+   * Only includes visible nodes and respects expansion state.
+   */
+  private flattenNodes(
+    nodes: WorkerFileNode[],
+    depth: number,
+    expandedSet: Set<string>,
+    result: FlattenedNode[]
+  ): void {
+    for (const node of nodes) {
+      // Add this node to the flattened list
+      result.push({ node, depth });
+
+      // If directory is expanded, loaded, and has children, recurse
+      if (
+        node.type === 'directory' &&
+        expandedSet.has(node.path) &&
+        node.loadState === 'loaded' &&
+        node.children
+      ) {
+        this.flattenNodes(node.children, depth + 1, expandedSet, result);
+      }
+    }
   }
 
   /**

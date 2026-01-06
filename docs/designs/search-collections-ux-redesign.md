@@ -105,7 +105,7 @@ Replace the technical embedding model with a familiar **"Collections"** metaphor
 │ │   💡 Cost: ~$0.02 per 1000 docs                    │  │
 │ │   🌐 Requires internet & API key                   │  │
 │ │                                                    │  │
-│ │ ● Local Model (jina-code)                          │  │
+│ │ ● Local Model (jinaai/jina-embeddings-v2-base-code) │  │
 │ │   🔒 Best for: Privacy, offline use                │  │
 │ │   💡 Cost: Free                                    │  │
 │ │   📱 Runs on your device                           │  │

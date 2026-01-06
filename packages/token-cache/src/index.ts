@@ -23,6 +23,24 @@ export type {
 } from './background-indexer.worker';
 // File Hasher
 export { __resetHasherForTests, FileHasher, fileHasher } from './file-hasher';
+// Telemetry (BST-154)
+export type {
+  IndexedFileTelemetryEvent,
+  IndexerTelemetryEvent,
+  IndexerTelemetryEventType,
+  IndexerTelemetryListener,
+  IndexerTelemetrySnapshot,
+  IndexingBacklogTelemetryEvent,
+  IndexingErrorTelemetryEvent,
+} from './telemetry';
+export {
+  addIndexerTelemetryListener,
+  createIndexerTelemetryAggregator,
+  emitIndexedFile,
+  emitIndexerTelemetry,
+  emitIndexingBacklog,
+  emitIndexingError,
+} from './telemetry';
 // Token Cache Store
 export { TokenCacheStore } from './token-cache-store';
 // Types
@@ -45,9 +63,14 @@ export type {
   UseBackgroundTokenIndexerOptions,
   UseBackgroundTokenIndexerReturn,
 } from './use-background-token-indexer';
-
 // Background Token Indexer (Web Worker based)
 export { useBackgroundTokenIndexer } from './use-background-token-indexer';
+// Telemetry React Hook (BST-154)
+export type {
+  UseIndexerTelemetryOptions,
+  UseIndexerTelemetryReturn,
+} from './use-indexer-telemetry';
+export { useIndexerTelemetry } from './use-indexer-telemetry';
 export type { UseTokenCacheOptions, UseTokenCacheReturn } from './use-token-cache';
 // React Hooks
 export { useTokenCache } from './use-token-cache';

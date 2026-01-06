@@ -9,6 +9,22 @@ export {
 } from './api-key-validation';
 // Export service implementation
 export { SimpleEmbeddingService } from './bge-m3-service';
+// Export device detection utilities (BST-169)
+export type {
+  DeviceCapabilities,
+  DeviceUnavailableGuidance,
+  EmbeddingDeviceType,
+  WebGPUAdapterInfo,
+} from './device-detection';
+export {
+  clearDeviceCapabilitiesCache,
+  detectDeviceCapabilities,
+  formatDeviceCapabilitiesSummary,
+  getCachedDeviceCapabilities,
+  getDeviceUnavailableGuidance,
+  isDeviceAvailable,
+  validateDeviceOrThrow,
+} from './device-detection';
 export {
   calculateCosineSimilarity,
   calculateDotProduct,
@@ -16,6 +32,17 @@ export {
   magnitude,
   normalize,
 } from './embedding-math';
+export type {
+  EmbeddingSetCreateParams,
+  EmbeddingSetValidationError,
+} from './embedding-set-validation';
+// Export embedding set validation utilities (BST-168)
+export {
+  createEmbeddingSetParamsFromMetadata,
+  isProviderCompatibleWithSet,
+  validateEmbeddingDimensions,
+  validateEmbeddingSetParams,
+} from './embedding-set-validation';
 // Export provider abstraction (Phase 2)
 export { EmbeddingProviderFactory } from './factory';
 export type {
@@ -33,6 +60,7 @@ export {
 // Export model registry manager
 export { ModelRegistryManager } from './model-registry';
 export type {
+  DistanceMetric,
   EmbeddingInput,
   EmbeddingOutput,
   EmbeddingProviderConfig,
@@ -41,6 +69,7 @@ export type {
   EmbeddingRuntime,
   HostedProviderType,
   LocalProviderType,
+  ProviderMetadata,
   Result,
 } from './provider-types';
 export { isLocalProviderType, STANDARD_EMBEDDING_DIMENSION } from './provider-types';

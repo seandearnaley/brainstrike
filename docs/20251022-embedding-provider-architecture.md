@@ -1,12 +1,12 @@
 # Embedding Provider Architecture
 
-**Date:** 2025-10-22 (Updated 2025-01-26)
-**Status:** Partially Implemented (Phases 1-4 complete, Phase 5 in progress)
+**Date:** 2025-10-22 (Updated 2026-01-06)
+**Status:** Partially Implemented (Local + hosted OpenAI/Google supported in worker; Cohere/Voyage pending; dual-process split not implemented)
 **Related Issues:** brainstrike-28, brainstrike-30, brainstrike-29, brainstrike-47
 
 ## Overview
 
-Multi-provider embedding model selection supporting both local (transformers.js) and hosted (OpenAI, Google, Cohere, Voyage) models. Mirrors LLM provider selection pattern while maintaining 768D dimension standards.
+Multi-provider embedding model selection supporting both local (transformers.js) and hosted (OpenAI, Google, Cohere, Voyage) models. Mirrors LLM provider selection while supporting flexible dimensions (validated per embedding set, max 2000 in worker).
 
 ## ⚠️ CRITICAL: Renderer-Only Architecture (January 2025)
 
@@ -47,80 +47,83 @@ To support both local and hosted models optimally:
 ## Current State
 
 ### What Works
-- ✅ Provider registry with embedding models (`@brainstrike/agent/providers/registry.ts`)
+- ✅ DB-backed model registry (`providers` + `models` tables) with settings UI
 - ✅ Local embedding via transformers.js (`@brainstrike/embeddings`)
-- ✅ Worker-based embedding queue
-- ✅ 768D dimension enforcement in database
-- ✅ Model metadata with dimension support flags
+- ✅ Worker-based embedding queue (durable JobQueue)
+- ✅ Hosted providers in worker for OpenAI + Google
+- ✅ Per-set dimension validation (max 2000 enforced in worker)
+- ✅ Provider metadata + embedding set validation helpers
 
 ### What's Missing
-- ❌ UI only shows local models (Jina, BGE)
-- ❌ No settings UI for embedding model selection
-- ❌ No preferences store for embedding configuration
-- ❌ Worker can't call hosted APIs (OpenAI, Google)
-- ❌ No runtime abstraction (local vs API backends)
-- ❌ No dimension negotiation for hosted providers
+- ❌ Cohere/Voyage providers exist but are not wired into the worker
+- ❌ Hosted providers still run in renderer (no main-process split)
+- ❌ Collection creation uses registry defaults; no per-collection dimension override UI
+- ❌ Static registry (`model-registry.ts`) vs DB models table still need unification
 
 ## Architecture Design
 
 ### 1. Type System (Discriminated Unions)
 
 ```typescript
-// packages/embeddings/src/types.ts
+// packages/embeddings/src/provider-types.ts
 
-export type EmbeddingProviderType = 'local' | 'openai' | 'google' | 'cohere' | 'voyage';
+export type EmbeddingProviderType =
+  | 'local'
+  | 'transformers'
+  | 'openai'
+  | 'google'
+  | 'cohere'
+  | 'voyage';
+
+export type LocalProviderType = 'local' | 'transformers';
+export type HostedProviderType = Exclude<EmbeddingProviderType, LocalProviderType>;
 
 export type EmbeddingRuntime = 'browser' | 'hosted';
 
-// Discriminated union for provider configs
 export type EmbeddingProviderConfig =
   | {
       runtime: 'browser';
       provider: 'local';
-      modelId: string; // e.g., 'jina-code'
+      modelId: string;
       quantization?: 'q4' | 'q8' | 'fp16';
     }
   | {
       runtime: 'hosted';
       provider: 'openai';
-      modelId: string; // e.g., 'text-embedding-3-small'
-      dimensions: number; // Always 768 for our use case
+      modelId: string;
+      dimensions: number;
     }
   | {
       runtime: 'hosted';
       provider: 'google';
-      modelId: string; // e.g., 'text-embedding-004'
-      outputDimensionality?: number; // Optional, defaults to 768
+      modelId: string;
+      outputDimensionality?: number;
+    }
+  | {
+      runtime: 'hosted';
+      provider: 'cohere';
+      modelId: string;
+      inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
+    }
+  | {
+      runtime: 'hosted';
+      provider: 'voyage';
+      modelId: string;
+      inputType?: 'document' | 'query';
     };
 
-// Result type for error handling
-export type Result<T, E = EmbeddingError> =
+export type Result<T, E = EmbeddingProviderError> =
   | { ok: true; value: T }
   | { ok: false; error: E };
 
-export type EmbeddingError =
-  | {
-      type: 'dimension_mismatch';
-      expected: number;
-      received: number;
-      modelId: string;
-    }
-  | {
-      type: 'api_error';
-      provider: Exclude<EmbeddingProviderType, 'local'>;
-      statusCode: number;
-      message: string;
-    }
-  | {
-      type: 'model_load_failed';
-      provider: 'local';
-      modelId: string;
-      reason: string;
-    }
-  | {
-      type: 'missing_api_key';
-      provider: Exclude<EmbeddingProviderType, 'local'>;
-    };
+export type EmbeddingProviderError =
+  | { type: 'dimension_mismatch'; expected: number; received: number; modelId: string }
+  | { type: 'api_error'; provider: HostedProviderType; statusCode: number; message: string }
+  | { type: 'model_load_failed'; provider: LocalProviderType; modelId: string; reason: string }
+  | { type: 'missing_api_key'; provider: HostedProviderType }
+  | { type: 'network_error'; provider: HostedProviderType; originalError: Error }
+  | { type: 'rate_limit_exceeded'; provider: HostedProviderType; retryAfter?: number }
+  | { type: 'validation_error'; field: string; message: string };
 ```
 
 ### 2. Provider Interface (Strategy Pattern)
@@ -129,7 +132,7 @@ export type EmbeddingError =
 // packages/embeddings/src/interfaces/provider.ts
 
 export interface EmbeddingInput {
-  text: string;
+  text: string | string[];
   modelId: string;
 }
 
@@ -157,10 +160,15 @@ export interface IEmbeddingProvider {
   /**
    * Get model metadata from registry
    */
-  getModelInfo(modelId: string): EmbeddingModelDefinition | null;
+  getModelInfo(modelId: string): ModelConfig | null;
 
   /**
-   * Validate dimensions match expected (768D standard)
+   * Unified provider metadata for embedding-set creation
+   */
+  getMetadata(modelId: string): ProviderMetadata | null;
+
+  /**
+   * Validate dimensions match expected
    */
   validateDimensions(embedding: number[], expectedDimensions: number): Result<void>;
 }
@@ -168,208 +176,23 @@ export interface IEmbeddingProvider {
 
 ### 3. Concrete Providers
 
+Implementations live in `packages/embeddings/src/providers/*`. The worker currently supports OpenAI and Google hosted providers; Cohere and Voyage providers are defined but not wired into the worker yet.
+
 #### Local Provider (Browser)
-```typescript
-// packages/embeddings/src/providers/local/transformers-provider.ts
+ - Implementation: `packages/embeddings/src/providers/local/transformers-provider.ts`
+ - Wraps `SimpleEmbeddingService` + `TransformersBackend`
+ - Supports device override (`webgpu`/`wasm`) and array inputs
+ - Returns `Result` errors instead of throwing
 
-export class TransformersEmbeddingProvider implements IEmbeddingProvider {
-  private service: SimpleEmbeddingService;
-
-  constructor(private modelId: string) {
-    this.service = new SimpleEmbeddingService(modelId);
-  }
-
-  async embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput>> {
-    try {
-      const embedding = await this.service.embed(input.text);
-
-      return {
-        ok: true,
-        value: {
-          embedding,
-          dimensions: embedding.length,
-          modelId: input.modelId,
-          provider: 'local',
-        },
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: {
-          type: 'model_load_failed',
-          provider: 'local',
-          modelId: input.modelId,
-          reason: error.message,
-        },
-      };
-    }
-  }
-
-  async isAvailable(): Promise<boolean> {
-    // Check if transformers.js can load
-    try {
-      await this.service.initialize();
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  // ... other methods
-}
-```
-
-#### OpenAI Provider (Hosted)
-```typescript
-// packages/embeddings/src/providers/openai/openai-provider.ts
-
-export class OpenAIEmbeddingProvider implements IEmbeddingProvider {
-  constructor(
-    private apiKey: string,
-    private dimensions: number = DEFAULT_EMBEDDING_DIMENSION
-  ) {}
-
-  async embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput>> {
-    try {
-      const response = await fetch('https://api.openai.com/v1/embeddings', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: input.modelId,
-          input: input.text,
-          dimensions: this.dimensions, // 768 for our use case
-        }),
-      });
-
-      if (!response.ok) {
-        return {
-          ok: false,
-          error: {
-            type: 'api_error',
-            provider: 'openai',
-            statusCode: response.status,
-            message: await response.text(),
-          },
-        };
-      }
-
-      const data = await response.json();
-      const embedding = data.data[0].embedding;
-
-      return {
-        ok: true,
-        value: {
-          embedding,
-          dimensions: embedding.length,
-          modelId: input.modelId,
-          provider: 'openai',
-          usage: {
-            inputTokens: data.usage.prompt_tokens,
-          },
-        },
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: {
-          type: 'api_error',
-          provider: 'openai',
-          statusCode: 500,
-          message: error.message,
-        },
-      };
-    }
-  }
-
-  // ... other methods
-}
-```
+#### Hosted Providers
+- OpenAI: `packages/embeddings/src/providers/hosted/openai-provider.ts` (configurable dimensions)
+- Google: `packages/embeddings/src/providers/hosted/google-provider.ts` (outputDimensionality)
+- Cohere/Voyage: provider classes exist but are not wired into the worker yet
 
 ### 4. Provider Factory
-
-```typescript
-// packages/embeddings/src/factory.ts
-
-export class EmbeddingProviderFactory {
-  private static instances = new Map<string, IEmbeddingProvider>();
-
-  static async createProvider(
-    config: EmbeddingProviderConfig
-  ): Promise<Result<IEmbeddingProvider>> {
-    const key = `${config.provider}:${config.modelId}`;
-
-    // Return cached instance
-    if (this.instances.has(key)) {
-      return { ok: true, value: this.instances.get(key)! };
-    }
-
-    try {
-      let provider: IEmbeddingProvider;
-
-      switch (config.runtime) {
-        case 'browser': {
-          provider = new TransformersEmbeddingProvider(config.modelId);
-          break;
-        }
-
-        case 'hosted': {
-          if (config.provider === 'openai') {
-            const apiKey = await this.getAPIKey('openai');
-            if (!apiKey) {
-              return {
-                ok: false,
-                error: { type: 'missing_api_key', provider: 'openai' },
-              };
-            }
-            provider = new OpenAIEmbeddingProvider(apiKey, config.dimensions);
-          } else if (config.provider === 'google') {
-            const apiKey = await this.getAPIKey('google');
-            if (!apiKey) {
-              return {
-                ok: false,
-                error: { type: 'missing_api_key', provider: 'google' },
-              };
-            }
-            provider = new GoogleEmbeddingProvider(apiKey, config.outputDimensionality);
-          } else {
-            throw new Error(`Unsupported provider: ${config.provider}`);
-          }
-          break;
-        }
-      }
-
-      this.instances.set(key, provider);
-      return { ok: true, value: provider };
-    } catch (error) {
-      return {
-        ok: false,
-        error: {
-          type: 'model_load_failed',
-          provider: config.provider,
-          modelId: config.modelId,
-          reason: error.message,
-        },
-      };
-    }
-  }
-
-  private static async getAPIKey(provider: string): Promise<string | null> {
-    // In web: read from environment or storage
-    // In desktop: read from secrets IPC
-    if (typeof window !== 'undefined' && 'secrets' in window) {
-      // Electron
-      return window.secrets.get(provider);
-    }
-
-    // Web - check environment
-    const envKey = `${provider.toUpperCase()}_API_KEY`;
-    return import.meta.env[envKey] || null;
-  }
-}
-```
+- Implementation: `packages/embeddings/src/factory.ts`
+- Caches provider instances and resolves API keys via `providers/hosted/api-key-resolver.ts`
+- Creates local or hosted providers from `EmbeddingProviderConfig`
 
 ### 5. Preferences Store
 
@@ -392,169 +215,23 @@ export interface EmbeddingPreferencesData {
 
 ### 6. Settings UI
 
-```typescript
-// apps/web/src/components/settings/embedding-settings.tsx
+- Implementation: `packages/preferences/src/embedding/embedding-settings-section.tsx`
+- Loads the DB-backed model registry (`useModelRegistryStore`)
+- Uses `enabledModelsByProvider` to filter models shown in Collections
+- Model selection happens per-collection, not globally
 
-export function EmbeddingSettings() {
-  const { selectedModel, enabledModels, setSelectedModel, enableModel, disableModel } =
-    useEmbeddingPreferences();
-
-  const providers = listProviders().filter((p) => p.capabilities.embeddings);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Embedding Models</CardTitle>
-        <CardDescription>
-          Configure embedding models for semantic search and vector storage.
-          All models are configured to output 768 dimensions.
-        </CardDescription>
-      </CardHeader>
-
-      <CardContent className="space-y-4">
-        {/* Selected Model */}
-        <div>
-          <Label>Active Model</Label>
-          <Select value={selectedModel || ''} onValueChange={setSelectedModel}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select embedding model" />
-            </SelectTrigger>
-            <SelectContent>
-              {providers.map((provider) => {
-                const embeddingModels = listEmbeddingModels(provider.id);
-                return (
-                  <SelectGroup key={provider.id}>
-                    <SelectLabel>{provider.displayName}</SelectLabel>
-                    {embeddingModels.map((model) => (
-                      <SelectItem
-                        key={`${provider.id}::${model.id}`}
-                        value={`${provider.id}::${model.id}`}
-                      >
-                        {model.label || model.id}
-                        {model.supportsStandardDimension && (
-                          <Badge variant="secondary" className="ml-2">
-                            768D
-                          </Badge>
-                        )}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                );
-              })}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Model Availability */}
-        {providers.map((provider) => (
-          <Collapsible key={provider.id}>
-            <CollapsibleTrigger className="flex items-center justify-between w-full">
-              <span className="font-medium">{provider.displayName}</span>
-              <Badge variant={provider.runtime === 'hosted' ? 'default' : 'secondary'}>
-                {provider.runtime}
-              </Badge>
-            </CollapsibleTrigger>
-
-            <CollapsibleContent className="space-y-2 mt-2">
-              {listEmbeddingModels(provider.id).map((model) => {
-                const compositeKey = `${provider.id}::${model.id}`;
-                const isEnabled = enabledModels[provider.id]?.has(model.id) ?? false;
-
-                return (
-                  <div key={compositeKey} className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">{model.label || model.id}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {model.defaultDimension}D
-                        {model.supportsCustomDimensions && ' (configurable)'}
-                      </p>
-                    </div>
-
-                    <Switch
-                      checked={isEnabled}
-                      onCheckedChange={(checked) => {
-                        if (checked) {
-                          enableModel(provider.id, model.id);
-                        } else {
-                          disableModel(provider.id, model.id);
-                        }
-                      }}
-                    />
-                  </div>
-                );
-              })}
-            </CollapsibleContent>
-          </Collapsible>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
-```
 
 ### 7. Worker Integration
 
-```typescript
-// packages/embeddings/src/worker/embedding-worker.ts
+- Worker entrypoint: `packages/embeddings/src/worker/embedding-worker.ts`
+- Reads model metadata from the DB `models` table; job payloads supply `embeddingSetId` + `modelKey`
+- Embedding sets are created via the Collections dialog; the worker no longer auto-creates sets
+- Hosted providers supported in worker: OpenAI + Google (Cohere/Voyage pending)
 
-// Update worker to use factory pattern
-async function handleEmbedRequest(request: EmbedRequest): Promise<EmbedResponse> {
-  const preferences = getEmbeddingPreferences(); // Read from storage
-  const provider = preferences.getSelectedProvider();
-  const modelId = preferences.getSelectedModelId();
-
-  if (!provider || !modelId) {
-    return {
-      success: false,
-      error: 'No embedding model selected',
-    };
-  }
-
-  const config: EmbeddingProviderConfig = buildConfigFromPreferences(provider, modelId);
-
-  const providerResult = await EmbeddingProviderFactory.createProvider(config);
-
-  if (!providerResult.ok) {
-    return {
-      success: false,
-      error: providerResult.error.type,
-    };
-  }
-
-  const embeddingResult = await providerResult.value.embed({
-    text: request.text,
-    modelId,
-  });
-
-  if (!embeddingResult.ok) {
-    return {
-      success: false,
-      error: embeddingResult.error.type,
-    };
-  }
-
-  // Validate 768D
-  const validation = providerResult.value.validateDimensions(
-    embeddingResult.value.embedding,
-    DEFAULT_EMBEDDING_DIMENSION
-  );
-
-  if (!validation.ok) {
-    return {
-      success: false,
-      error: validation.error.type,
-    };
-  }
-
-  return {
-    success: true,
-    embedding: embeddingResult.value.embedding,
-    dimensions: embeddingResult.value.dimensions,
-  };
-}
-```
 
 ## Phased Implementation
+
+**Note:** The phase checklist below reflects the original 768D rollout plan. The current system supports flexible dimensions via `embedding_sets`; treat 768D references as legacy context.
 
 ### Phase 1: Preferences & Type System
 **PR #1: Embedding preferences foundation**

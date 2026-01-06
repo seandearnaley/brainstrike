@@ -67,7 +67,10 @@ function createDisabledQueueAdapter(): QueueAdapter {
     },
     pause() {},
     resume() {},
+    async cancel() {},
     async drain() {},
+    isPaused: false,
+    isProcessing: false,
   };
 }
 
@@ -119,15 +122,19 @@ function Sparkline({
     return `${x.toFixed(2)},${y.toFixed(2)}`;
   });
 
+  // Generate unique ID for accessibility linking between SVG and title
+  const titleId = `sparkline-${ariaLabel.toLowerCase().replace(/\s+/g, '-')}`;
+
   return (
     <svg
-      aria-label={ariaLabel}
+      aria-labelledby={titleId}
       className={['block', className ?? ''].filter(Boolean).join(' ')}
       height={height}
       role="img"
       viewBox={`0 0 ${width} ${height}`}
       width={width}
     >
+      <title id={titleId}>{ariaLabel}</title>
       <polyline
         fill="none"
         points={points.join(' ')}
@@ -574,14 +581,19 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     } catch {}
   }, [verboseOrtLogs]);
 
-  // Use repository from DbProvider if it has getCoverageForSet
-  // Both DrizzleFileChunkRepository and ElectronFileChunkRepository now have this method
+  // Use repository from DbProvider if it has getCoverageForSet and clearEmbeddingsForSet
+  // Both DrizzleFileChunkRepository and ElectronFileChunkRepository now have these methods
   const coverageRepository = useMemo(() => {
-    if (chunkRepository && 'getCoverageForSet' in chunkRepository) {
+    if (
+      chunkRepository &&
+      'getCoverageForSet' in chunkRepository &&
+      'clearEmbeddingsForSet' in chunkRepository
+    ) {
       return chunkRepository as {
         getCoverageForSet: (
           setId: string
         ) => Promise<{ totalChunks: number; chunksWithEmbeddingsForSet: number }>;
+        clearEmbeddingsForSet: (embeddingSetId: string) => Promise<number>;
       };
     }
     return null;

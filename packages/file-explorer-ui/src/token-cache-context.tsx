@@ -176,11 +176,39 @@ class InMemoryTokenCacheStore {
 type TokenCacheStoreLike = TokenCacheStore | InMemoryTokenCacheStore;
 
 /**
+ * Persistence mode for the token cache
+ * - 'persistent': Full DB-backed storage available
+ * - 'memory': Worker operational but no persistence (DB unavailable)
+ * - 'disabled': Worker not yet ready
+ */
+export type TokenCachePersistenceMode = 'persistent' | 'memory' | 'disabled';
+
+/**
  * Context value type
  */
 export type TokenCacheContextValue = UseTokenCacheReturn & {
-  /** Whether the token cache infrastructure is ready */
+  /**
+   * Whether the token cache infrastructure is fully ready (DB + worker + hasher).
+   * @deprecated Use `isOperational` to check if counting works, or `isPersisted` for full persistence.
+   */
   isReady: boolean;
+  /**
+   * Whether token counting is operational (worker + hasher ready).
+   * When true, token counting works even if persistence is unavailable.
+   */
+  isOperational: boolean;
+  /**
+   * Whether persistence is available (DB-backed storage).
+   * When true, counts are persisted to the database.
+   */
+  isPersisted: boolean;
+  /**
+   * Current persistence mode.
+   * - 'persistent': Full DB-backed storage
+   * - 'memory': Counting works but not persisted
+   * - 'disabled': Worker not ready yet
+   */
+  persistenceMode: TokenCachePersistenceMode;
   /** Whether the token counting worker is ready */
   isWorkerReady: boolean;
   /** Current counting mode */
@@ -302,7 +330,21 @@ export function TokenCacheProvider({
     ...(onTokenResolved ? { onTokenResolved } : {}),
   });
 
-  const isReady = Boolean(db) && workerReady && hasherReady && hasPersistentStore;
+  // Two-tier readiness semantics (BST-150):
+  // - isOperational: Worker + hasher ready (can count tokens, even without DB)
+  // - isPersisted: Operational + DB available (full persistence)
+  const isOperational = workerReady && hasherReady;
+  const isPersisted = isOperational && Boolean(db) && hasPersistentStore;
+
+  // Backwards compatibility: isReady = isPersisted
+  const isReady = isPersisted;
+
+  // Compute persistence mode
+  const persistenceMode: TokenCachePersistenceMode = isPersisted
+    ? 'persistent'
+    : isOperational
+      ? 'memory'
+      : 'disabled';
 
   const countTextTokens = useMemo(() => {
     return async (text: string) => {
@@ -337,9 +379,21 @@ export function TokenCacheProvider({
       workerReady,
       hasherReady,
       hasPersistentStore,
-      isReady,
+      isOperational,
+      isPersisted,
+      persistenceMode,
+      isReady, // deprecated alias
     });
-  }, [db, workerReady, hasherReady, hasPersistentStore, isReady]);
+  }, [
+    db,
+    workerReady,
+    hasherReady,
+    hasPersistentStore,
+    isOperational,
+    isPersisted,
+    persistenceMode,
+    isReady,
+  ]);
 
   const disabledTokenCache = useMemo<UseTokenCacheReturn>(
     () => ({
@@ -359,14 +413,29 @@ export function TokenCacheProvider({
 
   const contextValue = useMemo<TokenCacheContextValue>(
     () => ({
-      ...(isReady ? tokenCache : disabledTokenCache),
-      isReady,
+      // Enable counting when operational (even without persistence)
+      ...(isOperational ? tokenCache : disabledTokenCache),
+      isReady, // Deprecated - use isOperational or isPersisted
+      isOperational,
+      isPersisted,
+      persistenceMode,
       isWorkerReady: workerReady,
       countingMode,
       countTextTokens,
       store,
     }),
-    [tokenCache, disabledTokenCache, isReady, workerReady, countingMode, countTextTokens, store]
+    [
+      tokenCache,
+      disabledTokenCache,
+      isReady,
+      isOperational,
+      isPersisted,
+      persistenceMode,
+      workerReady,
+      countingMode,
+      countTextTokens,
+      store,
+    ]
   );
 
   return <TokenCacheContext.Provider value={contextValue}>{children}</TokenCacheContext.Provider>;

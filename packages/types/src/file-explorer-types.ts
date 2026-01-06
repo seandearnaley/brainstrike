@@ -5,6 +5,77 @@
  * These types handle both runtime state and serialized state for persistence.
  */
 
+// ============================================================================
+// Selection Model Types
+// ============================================================================
+
+/**
+ * Selection mode determines how files are selected.
+ * - 'explicit': Traditional manual file selection (Set of composite keys)
+ * - 'rules': Rule-based selection using SelectionRuleSet
+ */
+export type SelectionMode = 'explicit' | 'rules';
+
+/**
+ * Selection model that supports both explicit and rule-based selection.
+ * This abstraction allows coexistence during migration from explicit to rules.
+ */
+export type SelectionModel = {
+  /** Current selection mode */
+  mode: SelectionMode;
+
+  /**
+   * Explicit selection paths (composite keys: folderId|@|path).
+   * Used when mode is 'explicit' or as the committed result of rules.
+   */
+  explicitPaths: Set<string>;
+
+  /**
+   * Rule set for rule-based selection.
+   * Only used when mode is 'rules'.
+   */
+  ruleSetJson: string | null;
+
+  /**
+   * Cached materialized paths from rules (for display without re-evaluation).
+   * These are relative paths, not composite keys.
+   */
+  materializedPaths: Set<string> | null;
+
+  /**
+   * Timestamp of last materialization (for cache invalidation).
+   */
+  materializedAt: string | null;
+};
+
+/**
+ * Serialized version of SelectionModel for persistence.
+ */
+export type SerializedSelectionModel = {
+  mode: SelectionMode;
+  explicitPaths: string[];
+  ruleSetJson: string | null;
+  materializedPaths: string[] | null;
+  materializedAt: string | null;
+};
+
+/**
+ * Create an empty selection model with explicit mode.
+ */
+export function createEmptySelectionModel(): SelectionModel {
+  return {
+    mode: 'explicit',
+    explicitPaths: new Set(),
+    ruleSetJson: null,
+    materializedPaths: null,
+    materializedAt: null,
+  };
+}
+
+// ============================================================================
+// Serialization Helper Types
+// ============================================================================
+
 // Helper types for serialization
 export type SerializedFolderState = {
   selectedFilePaths: string[];
@@ -44,6 +115,11 @@ export type SerializedState = {
   lastActiveTab: string;
   quickFilter: string;
   devInlineFixtureEnabled: boolean;
+  /**
+   * Selection model for rule-based selection.
+   * Optional for backward compatibility with existing persisted state.
+   */
+  selectionModel?: SerializedSelectionModel;
 };
 
 export type FolderState = {
@@ -91,6 +167,11 @@ export type FileExplorerData = {
   quickFilter: string;
   /** Whether the inline dev fixture should be used instead of native FS access. */
   devInlineFixtureEnabled: boolean;
+  /**
+   * Selection model supporting both explicit paths and rule-based selection.
+   * Enables migration from explicit to rules while maintaining backward compatibility.
+   */
+  selectionModel: SelectionModel;
 };
 
 export type CacheStats = {
@@ -145,6 +226,21 @@ export interface FileExplorerState extends FileExplorerData {
   clearQuickFilter: () => void;
   setDevInlineFixtureEnabled: (value: boolean) => void;
 
+  // Selection model actions (rule-based selection)
+  setSelectionMode: (mode: SelectionMode) => void;
+  setSelectionRules: (ruleSetJson: string) => void;
+  clearSelectionRules: () => void;
+  /**
+   * Commit rule-based selection to explicit paths.
+   * Converts materialized paths to explicit selection and switches to explicit mode.
+   */
+  commitRulesToExplicit: () => void;
+  /**
+   * Update materialized paths cache from rule evaluation.
+   * Called after rules are evaluated against the file tree.
+   */
+  setMaterializedPaths: (paths: Set<string>) => void;
+
   // Ephemeral handle for current root directory. Not serialized.
   rootDirectoryHandle: import('./file-system').DirectoryHandle | null;
   setRootDirectoryHandle: (handle: import('./file-system').DirectoryHandle | null) => void;
@@ -185,4 +281,5 @@ export const DEFAULT_STATE = {
   fileContents: {} as Record<string, string>,
   quickFilter: '',
   devInlineFixtureEnabled: false,
+  selectionModel: createEmptySelectionModel(),
 } as const;

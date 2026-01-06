@@ -1,16 +1,15 @@
 # @brainstrike/embeddings
 
-A comprehensive embedding service package for BrainStrike that provides text and code embeddings using transformers.js. Features a plug-and-play model registry system with browser and Node.js compatibility.
+Embedding providers, worker orchestration, and validation utilities for BrainStrike. Supports local transformers.js models (renderer-only) and hosted providers (OpenAI/Google in the worker today) with a DB-backed model registry and a fallback registry for CLI/tests.
 
 ## Features
 
-- 🧠 **Multi-Model Support**: 5 pre-configured models optimized for different use cases
-- 🔧 **Plug-and-Play**: Add new models via JSON configuration (no TypeScript changes needed)
-- 🌐 **Cross-Platform**: Works in browsers (WebGPU/WASM) and Node.js (CPU)
-- 💻 **Code-Aware**: Default Jina model optimized for 30+ programming languages
-- 🎯 **High Similarity**: Achieves ≥0.6 cosine similarity for code/prompt pairs
-- 📊 **Export Ready**: CLI tool supports JSON, CSV, and PostgreSQL pgvector formats
-- ⚡ **Optimized**: Automatic quantization for browser stability
+- 🧠 **Multi-Provider Support**: Local transformers.js + hosted providers via a unified factory
+- 🗂️ **DB Model Registry**: `providers`/`models` tables are the source of truth; fallback registry for CLI/tests
+- 🧵 **Embedding Worker**: `startEmbeddingWorker()` processes durable JobQueue tasks with retries
+- ⚙️ **Device Detection**: Explicit WebGPU/WASM selection with actionable errors (no silent fallback)
+- ✅ **Validation Helpers**: Embedding set + dimension validation utilities
+- 📊 **CLI Tooling**: Batch embedding CLI for local workflows (legacy registry)
 
 ## Installation
 
@@ -29,15 +28,39 @@ pnpm add @brainstrike/embeddings --filter @brainstrike/desktop
 
 ## Models Available
 
-| Model | Dimensions | Size | Best For | Tags |
-|-------|------------|------|----------|------|
-| **Jina Code (default)** | 768 | ~300MB | Code embeddings (30+ languages) | code, multilingual |
-| all-MiniLM-L6-v2 | 384 | ~23MB | Fast English text | english, fast |
-| BGE-Small-EN-v1.5 | 384 | ~67MB | Balanced English | english, balanced |
-| BGE-Base-EN-v1.5 | 768 | ~130MB | High-quality English | english, high-quality |
-| BGE-Large-EN-v1.5 | 1024 | ~330MB | SOTA English text | english, sota |
+Model availability in the apps is driven by the DB registry (`providers` + `models` tables) and Settings. The table below reflects the fallback registry used by `SimpleEmbeddingService` and the CLI.
+
+| Model Key | Dimensions | Size | Notes |
+|-----------|------------|------|-------|
+| **jinaai/jina-embeddings-v2-base-code** (default) | 768 | ~300MB | code, multilingual |
+| Xenova/jina-embeddings-v2-base-en | 768 | ~130MB | general English |
+| jinaai/jina-embeddings-v3 (experimental) | 1024 | ~570MB | multilingual, experimental |
+| Xenova/all-MiniLM-L6-v2 | 384 | ~23MB | fast English |
+| Xenova/bge-small-en-v1.5 | 384 | ~67MB | balanced English |
+| Xenova/bge-base-en-v1.5 | 768 | ~130MB | high-quality English |
+| Xenova/bge-large-en-v1.5 | 1024 | ~330MB | SOTA English |
 
 ## Quick Start
+
+### Worker Integration (App)
+
+```typescript
+import { startEmbeddingWorker } from '@brainstrike/embeddings';
+import type { IDatabase } from '@brainstrike/db';
+
+const controller = await startEmbeddingWorker({
+  db, // PGlite instance
+  enable: true,
+  device: 'webgpu', // or 'wasm'
+  // Optional fallback model key (jobs should supply embeddingSetId + modelKey)
+  // Use provider::modelId for hosted (e.g., openai::text-embedding-3-small)
+  modelKey: 'jinaai/jina-embeddings-v2-base-code',
+});
+
+// Jobs are enqueued into JobQueue with embeddingSetId + modelKey; the worker
+// resolves model metadata from the DB `models` table and validates dimensions.
+// Pass `embeddingCache` to enable content-level deduplication (optional).
+```
 
 ### Basic Usage
 
@@ -71,15 +94,17 @@ console.log(`Similarity: ${(similarity.similarity * 100).toFixed(1)}%`);
 await service.dispose();
 ```
 
+Note: `SimpleEmbeddingService` uses the fallback registry and is primarily intended for local tooling/tests. The production apps run embeddings via `startEmbeddingWorker()` + JobQueue using DB-backed model metadata.
+
 ### Model Selection
 
 ```typescript
 // List available models
-const models = SimpleEmbeddingService.listModels();
-console.log(Object.keys(models)); // ['jina-code', 'all-MiniLM-L6-v2', ...]
+const models = SimpleEmbeddingService.listModels(); // legacy registry
+console.log(Object.keys(models)); // ['jinaai/jina-embeddings-v2-base-code', ...]
 
 // Initialize with specific model
-await service.initializeWithModel('bge-small-en-v1.5');
+await service.initializeWithModel('Xenova/bge-small-en-v1.5');
 
 // Get model info
 const modelConfig = service.getCurrentModelConfig();
@@ -99,7 +124,7 @@ function EmbeddingComponent() {
   useEffect(() => {
     const initialize = async () => {
       setStatus('initializing');
-      await service.initializeWithModel('jina-code', (progress) => {
+      await service.initializeWithModel('jinaai/jina-embeddings-v2-base-code', (progress) => {
         console.log(`${progress.stage}: ${progress.progress}%`);
       });
       setStatus('ready');
@@ -141,7 +166,7 @@ pnpm --filter @brainstrike/embeddings exec embed-code ./src --output embeddings.
 embed-code ./src --output embeddings.json
 
 # Use specific model
-embed-code ./src --model jina-code --format pgvector --output embeddings.sql
+embed-code ./src --model jinaai/jina-embeddings-v2-base-code --format pgvector --output embeddings.sql
 
 # Custom file patterns
 embed-code ./src --include "**/*.ts,**/*.js" --exclude "**/*.test.*"
@@ -182,7 +207,7 @@ $code$export function debounce(fn: Function, delay: number) {...}$code$,
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--model <key>` | Model from registry | jina-code |
+| `--model <key>` | Model from registry | jinaai/jina-embeddings-v2-base-code |
 | `--format <format>` | Output format: json, csv, pgvector | json |
 | `--output <file>` | Output file path | stdout |
 | `--include <patterns>` | File patterns to include | See supported languages |
@@ -194,27 +219,9 @@ $code$export function debounce(fn: Function, delay: number) {...}$code$,
 
 ## Adding New Models
 
-Simply update `model-registry.json` - no TypeScript changes needed:
+For app usage, add entries to the DB-backed model registry (tables `providers` and `models`, seeded in `migration 015-model-registry`) and enable them in Settings → Embeddings.
 
-```json
-{
-  "default": "jina-code",
-  "models": {
-    "your-new-model": {
-      "id": "Xenova/your-model-id",
-      "name": "Your Model Name",
-      "dimensions": 512,
-      "quantized": true,
-      "description": "Description of your model",
-      "tags": ["custom", "specialized"],
-      "origin": "Custom",
-      "size": "~200MB"
-    }
-  }
-}
-```
-
-The model will automatically appear in the UI and be available via CLI.
+For CLI/tests, update the fallback registry in `packages/embeddings/src/model-registry.ts` or pass a `ModelConfig` directly to `SimpleEmbeddingService.initializeWithModel()`.
 
 ## Supported Languages
 
@@ -360,24 +367,23 @@ const MEMORY_THRESHOLDS = {
 - **Memory Monitoring**: Built-in memory usage tracking and warnings
 
 ### Browser Environment
-- **WebGPU**: Automatically used when available for fastest inference
-- **WASM Fallback**: Used when WebGPU unavailable
+- **WebGPU**: Auto-selected when available for fastest inference
+- **WASM**: Must be selected explicitly when WebGPU is unavailable
 - **Quantization**: Automatic for models ≤768 dimensions
 - **Caching**: Models cached by transformers.js with configurable limits
 - **Memory Pressure**: Automatic model unloading under memory constraints
 
 ### Node.js Environment
-- **CPU Inference**: Optimized for server environments
-- **Memory Management**: Proper cleanup with `dispose()` and configurable thresholds
-- **Chunk Processing**: Configurable chunk sizes for large files
-- **Stream Processing**: Memory-efficient processing of large codebases
+- **Local models**: Not recommended in main/Node contexts (requires Web Workers)
+- **Hosted providers**: Preferred outside the renderer
+- **Override**: Set `EMBED_ALLOW_LOCAL_IN_MAIN=true` if you must run local models in Node
 
 ### Model Selection Guidelines
-- **Jina Code**: Best for code similarity and search
-- **all-MiniLM-L6-v2**: Fastest for general text (English only)
-- **BGE-Small**: Good balance of speed and quality
-- **BGE-Base**: Higher quality, moderate speed
-- **BGE-Large**: Best quality, slower inference
+- **jinaai/jina-embeddings-v2-base-code**: Best for code similarity and search
+- **Xenova/all-MiniLM-L6-v2**: Fastest for general text (English only)
+- **Xenova/bge-small-en-v1.5**: Good balance of speed and quality
+- **Xenova/bge-base-en-v1.5**: Higher quality, moderate speed
+- **Xenova/bge-large-en-v1.5**: Best quality, slower inference
 
 ## Integration Examples
 
@@ -435,15 +441,15 @@ async function findSimilarPatterns(newCode: string, existingCodebase: CodeChunk[
 ### From Previous BGE-M3 Implementation
 
 1. **Update imports** - No changes needed, same API
-2. **Model initialization** - Replace with `initializeWithModel('jina-code')`
-3. **Configuration** - Models now configured via JSON registry
+2. **Model initialization** - Replace with `initializeWithModel('jinaai/jina-embeddings-v2-base-code')`
+3. **Configuration** - Models now configured via DB registry (providers/models) or fallback registry for CLI/tests
 4. **Performance** - Jina Code model is smaller and faster than BGE-M3
 
 ### From External Embedding Services
 
 1. **Replace API calls** with local embedding generation
 2. **Update similarity calculation** to use built-in cosine similarity
-3. **Migrate model configuration** to registry format
+3. **Migrate model configuration** to DB registry (or fallback registry for CLI)
 4. **Update CLI scripts** to use new embed-code tool
 
 ## Troubleshooting
@@ -453,21 +459,21 @@ async function findSimilarPatterns(newCode: string, existingCodebase: CodeChunk[
 #### Model Loading Issues
 **"Model not found in registry"**
 - Check model key spelling and case sensitivity
-- Verify model exists in `model-registry.json`
-- Use `SimpleEmbeddingService.listModels()` to see available models
-- Ensure model registry is properly loaded
+- Verify model exists in the DB `models` table (Settings → Embeddings)
+- Use `SimpleEmbeddingService.listModels()` for fallback registry keys
+- Ensure the model registry store has loaded
 
 **"Failed to fetch model"**
 - Check internet connection for model downloads
 - Models are cached after first download - try clearing browser cache
-- Try a smaller model like `all-MiniLM-L6-v2` for testing
+- Try a smaller model like `Xenova/all-MiniLM-L6-v2` for testing
 - Verify Hugging Face model IDs are correct
 
 **"Unsupported device: wasm"**
-- In Node.js: service automatically falls back to CPU inference
-- In browser: ensure transformers.js is properly loaded
+- Set `device: "wasm"` explicitly when WebGPU is unavailable
+- Ensure transformers.js is properly loaded in the browser
 - Check browser compatibility for WebAssembly support
-- Try disabling WebGPU if causing issues
+- Local models should run in a renderer/browser context; use hosted providers in main/Node
 
 #### Memory & Performance Issues
 **Memory issues in browser**
@@ -512,7 +518,7 @@ async function findSimilarPatterns(newCode: string, existingCodebase: CodeChunk[
 #### Enable Verbose Logging
 ```typescript
 // In code - enable progress callbacks
-await service.initializeWithModel('jina-code', (progress) => {
+await service.initializeWithModel('jinaai/jina-embeddings-v2-base-code', (progress) => {
   console.log(`${progress.stage}: ${progress.message} (${progress.progress}%)`);
 });
 
@@ -563,10 +569,10 @@ VITEST_RUN_INTEGRATION=true npx vitest run
 
 To add new models or features:
 
-1. **Models**: Update `model-registry.json`
+1. **Models**: Update DB registry seeds (`providers`/`models`) or the fallback registry in `packages/embeddings/src/model-registry.ts`
 2. **Tests**: Add test cases in `__tests__/`
 3. **Documentation**: Update this README
-4. **Types**: Extend interfaces in `src/types.ts` if needed
+4. **Types**: Extend interfaces in `src/provider-types.ts` if needed
 
 ## License
 

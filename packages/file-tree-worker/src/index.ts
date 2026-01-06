@@ -59,6 +59,7 @@ export {
 export type {
   BatchLoadResult,
   DirectoryLoadState,
+  FlattenedNode,
   MainToWorkerMessage,
   WorkerFileNode,
   WorkerToMainMessage,

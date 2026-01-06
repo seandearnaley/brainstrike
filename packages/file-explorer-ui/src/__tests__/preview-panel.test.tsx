@@ -75,6 +75,7 @@ describe('PreviewPanel', () => {
     totalStats: {
       totalFiles: 3,
       totalTokens: 1500,
+      pendingCount: 0,
     },
     handleRemoveFile: vi.fn(),
     handleBatchRemove: vi.fn(),
@@ -241,7 +242,7 @@ describe('PreviewPanel', () => {
       const totalTokens = 2000;
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens },
+        totalStats: { totalFiles: 3, totalTokens, pendingCount: 0 },
       });
 
       render(<PreviewPanel {...mockProps} />);
@@ -254,7 +255,7 @@ describe('PreviewPanel', () => {
     it('should display tree tokens in summary when include project tree is enabled', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens: 50_000 },
+        totalStats: { totalFiles: 3, totalTokens: 50_000, pendingCount: 0 },
       });
 
       render(
@@ -273,7 +274,7 @@ describe('PreviewPanel', () => {
     it('should show muted tree indicator when include project tree is disabled', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens: 50_000 },
+        totalStats: { totalFiles: 3, totalTokens: 50_000, pendingCount: 0 },
       });
 
       render(
@@ -292,7 +293,7 @@ describe('PreviewPanel', () => {
     it('should show zero tokens text when selected tokens are zero', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens: 0 },
+        totalStats: { totalFiles: 3, totalTokens: 0, pendingCount: 0 },
       });
 
       render(
@@ -311,7 +312,7 @@ describe('PreviewPanel', () => {
     it('should show over budget status when over budget', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens: 50_000 },
+        totalStats: { totalFiles: 3, totalTokens: 50_000, pendingCount: 0 },
       });
 
       render(
@@ -331,7 +332,7 @@ describe('PreviewPanel', () => {
     it('should surface tree loading state in the summary', () => {
       mockUsePreviewPanelState.mockReturnValue({
         ...mockState,
-        totalStats: { totalFiles: 3, totalTokens: 50_000 },
+        totalStats: { totalFiles: 3, totalTokens: 50_000, pendingCount: 0 },
       });
 
       render(

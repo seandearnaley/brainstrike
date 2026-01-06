@@ -100,7 +100,7 @@ Users reported that ALL local embedding models failed with unhelpful errors like
 | `packages/embeddings/src/worker/embedding-worker.ts` | Main embedding worker - job processing, model initialization |
 | `packages/embeddings/src/provider-types.ts` | Provider type definitions (`LocalProviderType`, `HostedProviderType`) |
 | `packages/embeddings/src/provider-utils.ts` | `isHostedProvider()`, `parseProviderModelKey()` |
-| `packages/embeddings/src/model-registry.ts` | Static registry mapping short keys → HuggingFace IDs |
+| `packages/embeddings/src/model-registry.ts` | Static registry fallback (HuggingFace IDs; legacy short keys are deprecated) |
 | `packages/db/src/migrations/015-model-registry.ts` | Database seed data for models table |
 | `apps/desktop/src/renderer/components/embedding-worker-provider.tsx` | React component that starts the worker |
 | `packages/queue/src/adapters/browser-workerpool.ts` | Workerpool adapter for Web Workers |

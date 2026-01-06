@@ -1,4 +1,5 @@
 import type { EmbeddingSet } from '@brainstrike/db';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import {
   Button,
   Dialog,
@@ -32,6 +33,8 @@ export function DeleteEmbeddingSetDialog({
 }: DeleteEmbeddingSetDialogProps) {
   const { toast } = useToast();
   const [deleting, setDeleting] = useState(false);
+  // Use the functional action to avoid stale closure bugs in async handlers
+  const removeCachedCollection = useVectorStatusUIStore((s) => s.removeCachedCollection);
 
   const handleDelete = async () => {
     if (!(db && embeddingSet)) {
@@ -50,6 +53,11 @@ export function DeleteEmbeddingSetDialog({
 
       // Delete the collection itself
       await db.query('DELETE FROM embedding_sets WHERE id = $1', [embeddingSet.id]);
+
+      // Immediately update the Zustand cache to remove the deleted collection
+      // This ensures UI updates instantly without waiting for live query refresh
+      // Uses functional action to avoid stale closure bugs
+      removeCachedCollection(embeddingSet.id);
 
       // Emit event to notify other components
       if (typeof window !== 'undefined') {

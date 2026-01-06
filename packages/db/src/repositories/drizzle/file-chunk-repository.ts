@@ -22,6 +22,13 @@ import { embeddingSets, fileChunks } from '../../schema/index.js';
 type DrizzleDb = PgliteDatabase;
 
 /**
+ * Maximum supported embedding dimension for pgvector.
+ * This corresponds to pgvector's default max dimension (2^16 - 1).
+ * Common production dimensions: 384 (MiniLM), 768 (BERT), 1536 (OpenAI), 3072 (OpenAI large).
+ */
+export const MAX_EMBEDDING_DIMENSION = 65_535;
+
+/**
  * Validates that all elements in an embedding vector are finite numbers.
  * This is a defense-in-depth measure to prevent malformed data from being
  * interpolated into SQL queries.
@@ -38,7 +45,7 @@ function validateEmbeddingVector(embedding: number[], context: string): void {
 }
 
 /**
- * Validates that a dimension value is a safe positive integer.
+ * Validates that a dimension value is a safe positive integer within pgvector limits.
  * @throws Error if dimension is not a safe positive integer
  */
 function validateDimension(dimension: number, context: string): void {
@@ -46,9 +53,11 @@ function validateDimension(dimension: number, context: string): void {
     typeof dimension !== 'number' ||
     !Number.isInteger(dimension) ||
     dimension <= 0 ||
-    dimension > 65_535 // Reasonable upper bound for embedding dimensions
+    dimension > MAX_EMBEDDING_DIMENSION
   ) {
-    throw new Error(`${context}: Invalid dimension value: ${dimension}`);
+    throw new Error(
+      `${context}: Invalid dimension value: ${dimension} (must be 1-${MAX_EMBEDDING_DIMENSION})`
+    );
   }
 }
 
@@ -442,6 +451,32 @@ export class DrizzleFileChunkRepository {
       totalChunks: totalResult?.count ?? 0,
       chunksWithEmbeddingsForSet: Number(countRow?.['count'] ?? 0),
     };
+  }
+
+  /**
+   * Clears all embeddings for a specific embedding set without deleting the chunks.
+   * This enables the re-embed workflow: clear old embeddings, then backfill with new model.
+   *
+   * @param embeddingSetId - The embedding set ID whose embeddings should be cleared
+   * @returns Number of chunks that had their embeddings cleared
+   */
+  async clearEmbeddingsForSet(embeddingSetId: string): Promise<number> {
+    if (!embeddingSetId) {
+      throw new Error('embeddingSetId is required');
+    }
+
+    const result = await this.db.execute(sql`
+      UPDATE file_chunks
+      SET embedding = NULL,
+          embedding_updated_at = NULL,
+          embedding_hash = NULL,
+          updated_at = NOW()
+      WHERE embedding_set_id = ${embeddingSetId}
+        AND embedding IS NOT NULL
+      RETURNING id
+    `);
+
+    return (result.rows as unknown[]).length;
   }
 
   async clearAll(): Promise<number> {

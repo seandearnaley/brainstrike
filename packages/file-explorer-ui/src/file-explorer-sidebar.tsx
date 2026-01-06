@@ -27,6 +27,8 @@ type FileExplorerSidebarProps = {
   loadingPaths?: Set<string>;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: (path: string) => Promise<void>;
+  /** Cancel loading for a directory (called on collapse) */
+  cancelChildLoading?: (path: string) => void;
 };
 
 const ErrorDisplay = ({
@@ -70,6 +72,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   onTreeRender,
   loadingPaths,
   onLoadChildren,
+  cancelChildLoading,
 }) => {
   // React 19: useDeferredValue keeps showing the old tree while new one renders
   // This prevents "flash" during rapid tree updates (like expand-all)
@@ -85,6 +88,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
         <div className="flex min-h-0 flex-1 flex-col px-3 pt-4">
           {hasContent ? (
             <OptimizedFileTree
+              cancelChildLoading={cancelChildLoading}
               fileTree={deferredTree}
               folderId={(rootDirectoryHandle?.name ?? currentFolderId ?? '') as string}
               loadingFiles={loadingFiles}

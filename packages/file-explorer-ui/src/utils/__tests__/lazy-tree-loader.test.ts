@@ -10,9 +10,12 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   findNodeByPath,
   loadDirectoryChildren,
+  loadDirectoryChildrenStreaming,
   loadRootDirectory,
+  loadRootDirectoryStreaming,
   needsLoading,
   setNodeLoadState,
+  supportsStreaming,
   updateNodeChildren,
 } from '../lazy-tree-loader';
 
@@ -367,6 +370,174 @@ describe('lazy-tree-loader', () => {
       const result = findNodeByPath(tree, '/nonexistent');
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe('supportsStreaming', () => {
+    it('returns true when adapter has readDirectoryStreaming', () => {
+      const adapter = createMockAdapter();
+      adapter.readDirectoryStreaming = vi.fn();
+
+      expect(supportsStreaming(adapter)).toBe(true);
+    });
+
+    it('returns false when adapter lacks readDirectoryStreaming', () => {
+      const adapter = createMockAdapter();
+
+      expect(supportsStreaming(adapter)).toBe(false);
+    });
+  });
+
+  describe('loadDirectoryChildrenStreaming', () => {
+    it('falls back to non-streaming when adapter lacks streaming support', async () => {
+      const mockChildren = [createFileNode({ name: 'file.ts', path: '/root/parent/file.ts' })];
+      const adapter = createMockAdapter(mockChildren);
+      const parentNode = createDirectoryNode({
+        name: 'parent',
+        path: '/root/parent',
+        depth: 0,
+        rootFolderId: 'root',
+      });
+
+      const batches: { nodes: IFileNode[]; done: boolean }[] = [];
+      await loadDirectoryChildrenStreaming(adapter, parentNode, (nodes, meta) => {
+        batches.push({ nodes, done: meta.done });
+      });
+
+      expect(batches).toHaveLength(1);
+      expect(batches[0]!.done).toBe(true);
+      expect(batches[0]!.nodes).toHaveLength(1);
+    });
+
+    it('uses streaming when adapter supports it', async () => {
+      const adapter = createMockAdapter();
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
+        // Simulate batched streaming
+        onBatch([createFileNode({ name: 'file1.ts', path: '/root/parent/file1.ts' })], {
+          done: false,
+          total: 2,
+        });
+        onBatch([createFileNode({ name: 'file2.ts', path: '/root/parent/file2.ts' })], {
+          done: true,
+          total: 2,
+        });
+      });
+
+      const parentNode = createDirectoryNode({
+        name: 'parent',
+        path: '/root/parent',
+        depth: 0,
+        rootFolderId: 'root',
+      });
+
+      const batches: { nodes: IFileNode[]; done: boolean; total: number }[] = [];
+      await loadDirectoryChildrenStreaming(adapter, parentNode, (nodes, meta) => {
+        batches.push({ nodes, done: meta.done, total: meta.total });
+      });
+
+      expect(batches).toHaveLength(2);
+      expect(batches[0]!.done).toBe(false);
+      expect(batches[1]!.done).toBe(true);
+    });
+
+    it('throws for non-directory parent', async () => {
+      const adapter = createMockAdapter();
+      const fileNode = createFileNode();
+
+      await expect(loadDirectoryChildrenStreaming(adapter, fileNode, vi.fn())).rejects.toThrow(
+        'Cannot load children of non-directory node'
+      );
+    });
+
+    it('throws on abort signal', async () => {
+      const adapter = createMockAdapter([]);
+      const parentNode = createDirectoryNode({ path: '/root/parent' });
+      const abortController = new AbortController();
+      abortController.abort();
+
+      await expect(
+        loadDirectoryChildrenStreaming(adapter, parentNode, vi.fn(), {
+          abortSignal: abortController.signal,
+        })
+      ).rejects.toThrow('Operation was cancelled');
+    });
+  });
+
+  describe('loadRootDirectoryStreaming', () => {
+    it('falls back to non-streaming when adapter lacks streaming support', async () => {
+      const mockChildren = [createFileNode({ name: 'file.ts', path: '/root/file.ts' })];
+      const adapter = createMockAdapter(mockChildren);
+      const handle = createDirectoryHandle();
+
+      const batches: { nodes: IFileNode[]; done: boolean }[] = [];
+      await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
+        batches.push({ nodes, done: meta.done });
+      });
+
+      expect(batches).toHaveLength(1);
+      expect(batches[0]!.done).toBe(true);
+      expect(batches[0]!.nodes).toHaveLength(1);
+    });
+
+    it('uses streaming when adapter supports it', async () => {
+      const adapter = createMockAdapter();
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
+        onBatch([createDirectoryNode({ name: 'src', path: '/root/src', children: [] })], {
+          done: false,
+          total: 2,
+        });
+        onBatch([createFileNode({ name: 'README.md', path: '/root/README.md' })], {
+          done: true,
+          total: 2,
+        });
+      });
+
+      const handle = createDirectoryHandle();
+
+      const batches: { nodes: IFileNode[]; done: boolean }[] = [];
+      await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
+        batches.push({ nodes, done: meta.done });
+      });
+
+      expect(batches).toHaveLength(2);
+      // Final batch has sorted accumulated nodes
+      expect(batches[1]!.done).toBe(true);
+    });
+
+    it('sets loadState=unloaded for directories in streamed results', async () => {
+      const adapter = createMockAdapter();
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
+        onBatch([createDirectoryNode({ name: 'src', path: '/root/src', children: [] })], {
+          done: true,
+          total: 1,
+        });
+      });
+
+      const handle = createDirectoryHandle();
+
+      let finalNodes: IFileNode[] = [];
+      await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
+        if (meta.done) {
+          finalNodes = nodes;
+        }
+      });
+
+      const dirNode = finalNodes.find((n) => n.type === 'directory');
+      expect(dirNode?.loadState).toBe('unloaded');
+      expect(dirNode?.children).toBeUndefined();
+    });
+
+    it('throws on abort signal', async () => {
+      const adapter = createMockAdapter([]);
+      const handle = createDirectoryHandle();
+      const abortController = new AbortController();
+      abortController.abort();
+
+      await expect(
+        loadRootDirectoryStreaming(adapter, handle, vi.fn(), {
+          abortSignal: abortController.signal,
+        })
+      ).rejects.toThrow('Operation was cancelled');
     });
   });
 });

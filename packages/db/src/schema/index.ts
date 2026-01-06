@@ -228,6 +228,48 @@ export const fileTokenCache = pgTable(
 );
 
 // ============================================================================
+// EMBEDDING CACHE TABLE (BST-170)
+// ============================================================================
+
+/**
+ * Content-level embedding cache.
+ *
+ * This table caches embeddings keyed by (contentHash, modelKey) to avoid
+ * re-computing embeddings when identical content appears in multiple chunks.
+ *
+ * The cache is model-specific because different models produce different
+ * embeddings for the same content.
+ */
+export const embeddingCache = pgTable(
+  'embedding_cache',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    /** SHA-256 hash of the content */
+    contentHash: text('content_hash').notNull(),
+    /** Composite model key (e.g., "local::all-MiniLM-L6-v2" or "openai::text-embedding-3-small") */
+    modelKey: text('model_key').notNull(),
+    /** The cached embedding vector */
+    embedding: vector('embedding').notNull(),
+    /** Embedding dimension (for validation) */
+    dimensions: integer('dimensions').notNull(),
+    /** When this cache entry was created */
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    /** When this cache entry was last accessed (for LRU eviction) */
+    accessedAt: timestamp('accessed_at', { withTimezone: true }).defaultNow().notNull(),
+    /** Access count for cache analytics */
+    accessCount: integer('access_count').default(1).notNull(),
+  },
+  (table) => [
+    // Unique constraint on (contentHash, modelKey) - the cache key
+    uniqueIndex('idx_embedding_cache_content_model').on(table.contentHash, table.modelKey),
+    // Index for contentHash lookups
+    index('idx_embedding_cache_content_hash').on(table.contentHash),
+    // Index for cache eviction queries (oldest accessed first)
+    index('idx_embedding_cache_accessed_at').on(table.accessedAt),
+  ]
+);
+
+// ============================================================================
 // MODEL REGISTRY TABLE
 // ============================================================================
 
@@ -272,3 +314,6 @@ export type NewFileTokenCacheEntry = typeof fileTokenCache.$inferInsert;
 
 export type ModelRegistryEntry = typeof modelRegistry.$inferSelect;
 export type NewModelRegistryEntry = typeof modelRegistry.$inferInsert;
+
+export type EmbeddingCacheEntry = typeof embeddingCache.$inferSelect;
+export type NewEmbeddingCacheEntry = typeof embeddingCache.$inferInsert;
