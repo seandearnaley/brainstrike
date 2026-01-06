@@ -4,10 +4,15 @@
 export { BaseFileRecordRepository } from './base-repository.js';
 // Drizzle ORM implementations
 export {
+  type BatchLookupRequest,
+  type BatchLookupResult,
+  DrizzleEmbeddingCacheRepository,
   DrizzleEmbeddingSetsRepository,
   DrizzleFileChunkRepository,
   DrizzleFileRecordRepository,
   DrizzleTokenCacheStore,
+  type EmbeddingCacheLookupResult,
+  type EmbeddingCacheStats,
   type TokenCacheEntry,
   type TokenCacheStats,
   type TokenCountingMode,

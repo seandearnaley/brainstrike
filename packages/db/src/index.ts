@@ -50,6 +50,8 @@ export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from './reposito
 export { FileChunkRepository } from './repositories/file-chunk-repository.js';
 // Repository exports
 export * from './repositories/index.js';
+// Schema types for embedding cache (BST-170)
+export type { EmbeddingCacheEntry, NewEmbeddingCacheEntry } from './schema/index.js';
 export type {
   ChunkingOptions,
   ChunkingResult,

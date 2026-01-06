@@ -19,6 +19,12 @@
       "name": "0002_common_gateway",
       "sql": "CREATE UNIQUE INDEX \"idx_file_token_cache_folder_path_unique\" ON \"file_token_cache\" USING btree (\"folder_id\",\"file_path\");",
       "hash": "k9wks9"
+    },
+    {
+      "version": "7",
+      "name": "0003_fluffy_sandman",
+      "sql": "CREATE TABLE \"embedding_cache\" (\n\t\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,\n\t\"content_hash\" text NOT NULL,\n\t\"model_key\" text NOT NULL,\n\t\"embedding\" vector NOT NULL,\n\t\"dimensions\" integer NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"accessed_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"access_count\" integer DEFAULT 1 NOT NULL\n);\n--> statement-breakpoint\nCREATE UNIQUE INDEX \"idx_embedding_cache_content_model\" ON \"embedding_cache\" USING btree (\"content_hash\",\"model_key\");--> statement-breakpoint\nCREATE INDEX \"idx_embedding_cache_content_hash\" ON \"embedding_cache\" USING btree (\"content_hash\");--> statement-breakpoint\nCREATE INDEX \"idx_embedding_cache_accessed_at\" ON \"embedding_cache\" USING btree (\"accessed_at\");",
+      "hash": "abc123"
     }
   ]
 }

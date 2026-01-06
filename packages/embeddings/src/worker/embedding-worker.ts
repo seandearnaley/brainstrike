@@ -14,6 +14,62 @@ import { isLocalProviderType } from '../provider-types';
 import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
 import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
 
+/**
+ * Interface for embedding cache operations.
+ * Allows dependency injection without coupling to the Drizzle implementation.
+ * BST-170: Content-level embedding deduplication.
+ */
+export type EmbeddingCacheInterface = {
+  /**
+   * Get a cached embedding by content hash and model key.
+   * Returns hit: true with the entry if found, or hit: false if not cached.
+   */
+  get(
+    contentHash: string,
+    modelKey: string
+  ): Promise<{ hit: true; entry: CachedEmbedding } | { hit: false; entry: null }>;
+
+  /**
+   * Get multiple cached embeddings in a single query.
+   * Returns a Map keyed by "contentHash:modelKey".
+   */
+  getBatch(
+    requests: ReadonlyArray<{ contentHash: string; modelKey: string }>
+  ): Promise<Map<string, CachedEmbedding>>;
+
+  /**
+   * Store an embedding in the cache.
+   */
+  set(
+    contentHash: string,
+    modelKey: string,
+    embedding: number[],
+    dimensions: number
+  ): Promise<unknown>;
+
+  /**
+   * Store multiple embeddings in the cache atomically.
+   */
+  setBatch(
+    entries: ReadonlyArray<{
+      contentHash: string;
+      modelKey: string;
+      embedding: number[];
+      dimensions: number;
+    }>
+  ): Promise<number>;
+};
+
+/**
+ * Minimal cached embedding entry returned from cache lookups.
+ */
+export type CachedEmbedding = {
+  contentHash: string;
+  modelKey: string;
+  embedding: number[];
+  dimensions: number;
+};
+
 const workerLogger = createLogger('EmbeddingWorker');
 
 /**
@@ -217,6 +273,8 @@ export type EmbeddingWorkerOptions = {
   reinitEveryN?: number; // reinitialize service every N successes (default from env or 200)
   cacheDir?: string; // directory to cache/load models from
   onDownloadProgress?: (modelId: string, progress: number) => void;
+  /** Optional embedding cache for content-level deduplication (BST-170) */
+  embeddingCache?: EmbeddingCacheInterface;
 };
 
 export type EmbeddingWorkerController = {
@@ -1117,27 +1175,139 @@ export async function startEmbeddingWorker(
     payload: EmbedChunkPayload;
   };
 
+  // BST-170: Helper to lookup cache hits
+  async function lookupCacheHits(
+    items: LoadedChunkItem[],
+    modelKey: string
+  ): Promise<Map<string, CachedEmbedding>> {
+    const cache = options.embeddingCache;
+    if (!cache) {
+      return new Map();
+    }
+
+    const requests = items.map((item) => ({
+      contentHash: item.chunk.contentHash,
+      modelKey,
+    }));
+    const hits = await cache.getBatch(requests);
+    workerLogger.debug('Cache lookup complete', {
+      requested: items.length,
+      hits: hits.size,
+      modelKey,
+    });
+    return hits;
+  }
+
+  // BST-170: Helper to filter cache misses
+  function filterCacheMisses(
+    items: LoadedChunkItem[],
+    cacheHits: Map<string, CachedEmbedding>,
+    modelKey: string
+  ): LoadedChunkItem[] {
+    return items.filter((item) => {
+      const cacheKey = `${item.chunk.contentHash}:${modelKey}`;
+      return !cacheHits.has(cacheKey);
+    });
+  }
+
+  // BST-170: Helper to store embeddings to cache (fire-and-forget)
+  function storeToCacheAsync(
+    items: LoadedChunkItem[],
+    embeddings: number[][],
+    modelKey: string,
+    dimensions: number
+  ): void {
+    const cache = options.embeddingCache;
+    if (!cache || embeddings.length === 0) {
+      return;
+    }
+
+    const entries = items
+      .map((item, idx) => {
+        const embedding = embeddings[idx];
+        return embedding
+          ? { contentHash: item.chunk.contentHash, modelKey, embedding, dimensions }
+          : null;
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null);
+
+    cache.setBatch(entries).catch((err) => {
+      workerLogger.warn('Failed to cache embeddings', { error: err });
+    });
+  }
+
+  // BST-170: Helper to reconstruct results combining cache hits and generated
+  function reconstructResults(
+    items: LoadedChunkItem[],
+    cacheHits: Map<string, CachedEmbedding>,
+    generated: number[][],
+    modelKey: string
+  ): number[][] {
+    const results: number[][] = [];
+    let genIdx = 0;
+    for (const item of items) {
+      const cacheKey = `${item.chunk.contentHash}:${modelKey}`;
+      const cached = cacheHits.get(cacheKey);
+      if (cached) {
+        results.push(cached.embedding);
+      } else {
+        const embedding = generated[genIdx++];
+        if (!embedding) {
+          throw new Error(`Missing generated embedding at index ${genIdx - 1}`);
+        }
+        results.push(embedding);
+      }
+    }
+    return results;
+  }
+
   async function generateEmbeddingsForGroup(
     jobModel: ReturnType<typeof resolveJobModel>,
     toProcess: LoadedChunkItem[],
     expectedDimension: number
-  ) {
-    const texts = toProcess.map((item) => item.chunk.content);
+  ): Promise<number[][]> {
+    const modelKey = jobModel.compositeKey;
+
+    // BST-170: Check cache for existing embeddings
+    const cacheHits = await lookupCacheHits(toProcess, modelKey);
+    const cacheMisses = filterCacheMisses(toProcess, cacheHits, modelKey);
+
+    // All items were cache hits
+    if (cacheMisses.length === 0) {
+      return reconstructResults(toProcess, cacheHits, [], modelKey);
+    }
+
+    // Generate embeddings for cache misses only
+    let generatedEmbeddings: number[][];
+    const texts = cacheMisses.map((item) => item.chunk.content);
+
     if (isLocalProviderType(jobModel.provider)) {
       workerLogger.info('generateEmbeddingsForGroup: processing local model', {
         provider: jobModel.provider,
         modelId: jobModel.modelId,
         compositeKey: jobModel.compositeKey,
-        chunkCount: toProcess.length,
+        chunkCount: cacheMisses.length,
+        cacheHits: cacheHits.size,
       });
       await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
       const results = await generateLocalEmbeddings(
-        toProcess.map((item) => item.chunk),
+        cacheMisses.map((item) => item.chunk),
         expectedDimension
       );
-      return results.map((r) => r.embedding);
+      generatedEmbeddings = results.map((r) => r.embedding);
+    } else {
+      generatedEmbeddings = await generateHostedEmbeddings(
+        jobModel.provider,
+        jobModel.modelId,
+        expectedDimension,
+        texts
+      );
     }
-    return generateHostedEmbeddings(jobModel.provider, jobModel.modelId, expectedDimension, texts);
+
+    // BST-170: Store generated embeddings in cache (fire-and-forget)
+    storeToCacheAsync(cacheMisses, generatedEmbeddings, modelKey, expectedDimension);
+
+    return reconstructResults(toProcess, cacheHits, generatedEmbeddings, modelKey);
   }
 
   async function validateBatchDimensions(toProcess: LoadedChunkItem[]) {
