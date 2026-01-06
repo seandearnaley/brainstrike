@@ -16,6 +16,17 @@ export {
   magnitude,
   normalize,
 } from './embedding-math';
+export type {
+  EmbeddingSetCreateParams,
+  EmbeddingSetValidationError,
+} from './embedding-set-validation';
+// Export embedding set validation utilities (BST-168)
+export {
+  createEmbeddingSetParamsFromMetadata,
+  isProviderCompatibleWithSet,
+  validateEmbeddingDimensions,
+  validateEmbeddingSetParams,
+} from './embedding-set-validation';
 // Export provider abstraction (Phase 2)
 export { EmbeddingProviderFactory } from './factory';
 export type {
