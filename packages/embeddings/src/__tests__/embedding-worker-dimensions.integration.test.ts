@@ -1,43 +1,76 @@
 import { type IDatabase, JobQueue, migrate, wasmLoader } from '@brainstrike/db';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EmbeddingProviderFactory } from '../factory';
-import type { IEmbeddingProvider } from '../interfaces/provider';
+import type {
+  EmbeddingConfig,
+  EmbeddingProgress,
+  EmbeddingResult,
+  EmbeddingService,
+  EmbeddingStatus,
+  SimilarityResult,
+} from '../types';
 import { type EmbeddingWorkerController, startEmbeddingWorker } from '../worker/embedding-worker';
 
-// Mock IEmbeddingProvider
-class LargeDimensionProvider {
-  async embed(input: { text: string | string[]; modelId: string }) {
-    const count = Array.isArray(input.text) ? input.text.length : 1;
-    const embeddings = new Array(count).fill(new Array(3072).fill(0.1));
-    return {
-      ok: true,
-      value: {
-        embedding: embeddings[0],
-        embeddings,
-        dimensions: 3072,
-        modelId: input.modelId,
-        provider: 'openai',
-        usage: { inputTokens: 10, totalTokens: 10 },
-      },
-    };
+/**
+ * Mock EmbeddingService that returns 3072-dimensional embeddings
+ * (simulating OpenAI text-embedding-3-large)
+ */
+class LargeDimensionService implements EmbeddingService {
+  initialize(
+    _config?: Partial<EmbeddingConfig>,
+    _onProgress?: (progress: EmbeddingProgress) => void
+  ): Promise<void> {
+    return Promise.resolve();
   }
-  async isAvailable() {
-    return true;
-  }
-  getModelInfo(modelId: string) {
+
+  async generateEmbedding(_text: string): Promise<EmbeddingResult> {
     return {
-      id: modelId,
-      name: 'Large Model',
+      embedding: new Array(3072).fill(0.1),
       dimensions: 3072,
-      quantized: false,
-      description: 'Mock model',
-      tags: [],
+      model: 'text-embedding-3-large',
+      usage: { totalTokens: 10 },
     };
   }
-  validateDimensions() {
-    return { ok: true };
+
+  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+    return texts.map(() => ({
+      embedding: new Array(3072).fill(0.1),
+      dimensions: 3072,
+      model: 'text-embedding-3-large',
+      usage: { totalTokens: 10 },
+    }));
   }
+
+  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
+
+  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
+
+  calculateSimilarity(_embedding1: number[], _embedding2: number[]): SimilarityResult {
+    return { similarity: 0.95, distance: 0.05, method: 'cosine' };
+  }
+
+  getStatus(): EmbeddingStatus {
+    return 'ready';
+  }
+
+  getConfig(): EmbeddingConfig {
+    return { modelId: 'text-embedding-3-large' };
+  }
+
+  async dispose(): Promise<void> {}
 }
+
+// Mock isNodejsMainProcess to allow local model execution in test
+vi.mock('@brainstrike/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+  return {
+    ...actual,
+    isNodejsMainProcess: () => false,
+  };
+});
 
 describe('Embedding Worker Dimensions', () => {
   let db: IDatabase;
@@ -45,32 +78,13 @@ describe('Embedding Worker Dimensions', () => {
   let worker: EmbeddingWorkerController;
 
   beforeEach(async () => {
-    // Mock isNodejsMainProcess to allow local model execution in test
-    vi.mock('@brainstrike/utils', async (importOriginal) => {
-      const actual = await importOriginal<typeof import('@brainstrike/utils')>();
-      return {
-        ...actual,
-        isNodejsMainProcess: () => false,
-      };
-    });
-
     const pglite = await wasmLoader.createPGlite('memory://dim-test');
     await migrate(pglite as unknown as Parameters<typeof migrate>[0]);
     db = pglite as unknown as IDatabase;
     jq = new JobQueue(db);
-
-    // Mock provider factory to return our service
-    // Mock provider factory to return our service
-    vi.spyOn(EmbeddingProviderFactory, 'createProvider').mockResolvedValue({
-      ok: true,
-      value: new LargeDimensionProvider() as unknown as IEmbeddingProvider,
-    });
-
-    // Mock model config to return 3072 dimensions
-    // Note: getModelConfig is likely not used directly by worker, but let's check worker code.
-    // Worker uses resolveJobModel which uses factory methods?
-    // Actually worker uses resolveJobModel which is internal.
-    // Let's remove getModelConfig mock if it doesn't exist or isn't used.
+    // Clean up any existing data
+    await db.query('DELETE FROM job_queue');
+    await db.query('DELETE FROM file_chunks');
   });
 
   afterEach(async () => {
@@ -81,61 +95,55 @@ describe('Embedding Worker Dimensions', () => {
   });
 
   it('should process jobs with 3072 dimensions without error', async () => {
-    // 1. Create embedding set
-    const setRes = await db.query<{ id: string }>(
-      "INSERT INTO embedding_sets (id, name, model_key, model_id, dimensions, distance) VALUES ($1, 'large-set', 'openai:text-embedding-3-large', 'text-embedding-3-large', 3072, 'cosine') RETURNING id",
-      [crypto.randomUUID()]
+    // 1. Create file record
+    const fileId = crypto.randomUUID();
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, created_at, updated_at, content_hash)
+       VALUES ($1, $2, $3, $4, NOW(), NOW(), $5)`,
+      [fileId, 'test.txt', '/tmp/test.txt', 100, 'hash123']
     );
-    const setId = setRes.rows[0]?.id;
-    expect(setId).toBeDefined();
 
-    // 2. Create file record
-    const fileRes = await db.query<{ id: string }>(
-      "INSERT INTO file_records (id, name, path, size, created_at, updated_at) VALUES ($1, 'test.txt', 'test.txt', 100, NOW(), NOW()) RETURNING id",
-      [crypto.randomUUID()]
+    // 2. Create chunk
+    const chunkId = crypto.randomUUID();
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())`,
+      [chunkId, fileId, 0, 'hello world', 'hash123', 10, 'text', 100]
     );
-    const fileId = fileRes.rows[0]?.id;
 
-    // 3. Create chunk
-    const chunkRes = await db.query<{ id: string }>(
-      "INSERT INTO file_chunks (id, file_record_id, content, chunk_index, content_hash, created_at, updated_at) VALUES ($1, $2, 'hello world', 0, 'hash', NOW(), NOW()) RETURNING id",
-      [crypto.randomUUID(), fileId]
+    // 3. Create embedding set with 3072 dimensions
+    const setId = crypto.randomUUID();
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [setId, 'local:large-dim-model', 'large-dim-model', 3072, 'cosine']
     );
-    const chunkId = chunkRes.rows[0]?.id;
 
     // 4. Enqueue job
     await jq.enqueue({
       queue: 'embeddings',
       jobType: 'embed_chunk',
-      payload: {
-        chunkId,
-        embeddingSetId: setId,
-        modelKey: 'openai:text-embedding-3-large',
-      },
+      payload: { chunkId, embeddingSetId: setId },
     });
 
-    // 5. Start worker
+    // 5. Start worker with custom service that returns 3072-dim embeddings
     worker = await startEmbeddingWorker({
       db,
-      queue: 'embeddings',
+      enable: true,
       concurrency: 1,
-      modelKey: 'openai:text-embedding-3-large',
+      service: new LargeDimensionService(),
     });
 
-    // 6. Wait for completion
+    // 6. Wait for processing
     await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    // 7. Verify job success
-    const jobRes = await db.query<{ state: string }>(
-      "SELECT state FROM job_queue WHERE job_type = 'embed_chunk'"
+    // 7. Verify job success - the key test is that 3072 dimensions didn't cause errors
+    const jobRes = await db.query<{ state: string; error: string | null }>(
+      "SELECT state, error FROM job_queue WHERE job_type = 'embed_chunk'"
     );
-    expect(jobRes.rows[0]?.state).toBe('succeeded');
-
-    // 8. Verify embedding dimensions in DB (mock check since we don't have vector extension in pglite memory usually, or maybe we do?)
-    // Actually pglite supports pgvector if configured, but let's check the chunk record
-    // The worker updates file_chunks with embedding_hash, but the actual vector is stored in `embeddings` table usually?
-    // Wait, the worker calls `completeBatch` which inserts into `embeddings` table.
-
-    // Let's check if the worker threw any errors about dimensions.
+    const job = jobRes.rows[0];
+    expect(job).toBeDefined();
+    expect(job?.state).toBe('succeeded');
+    expect(job?.error).toBeNull();
   });
 });
