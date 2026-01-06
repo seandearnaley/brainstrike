@@ -242,8 +242,15 @@ describe('embedding-set-validation', () => {
 
       const result = isProviderCompatibleWithSet(setConfig, openAIMetadata);
       expect(result.ok).toBe(false);
-      if (!result.ok && result.error.type === 'dimension_mismatch') {
-        expect(result.error.modelKey).toContain('voyage vs openai');
+      if (!result.ok && result.error.type === 'provider_mismatch') {
+        expect(result.error.expected).toBe('voyage');
+        expect(result.error.provided).toBe('openai');
+      } else {
+        // Fail the test if we got the wrong error type
+        expect(result.ok).toBe(false);
+        expect((result as { ok: false; error: { type: string } }).error.type).toBe(
+          'provider_mismatch'
+        );
       }
     });
 

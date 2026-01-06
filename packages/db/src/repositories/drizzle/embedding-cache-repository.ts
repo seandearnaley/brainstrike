@@ -8,12 +8,34 @@
  * - get(): Returns cached embedding and updates access time (LRU tracking)
  * - set(): Upserts embedding, resets access time on collision
  * - evictOldest(): Removes entries by accessedAt for LRU eviction
+ *
+ * Batch operation limits:
+ * - getBatch/setBatch: Max 100 entries per call (MAX_BATCH_SIZE)
+ * - Larger batches should be chunked by the caller
+ *
+ * Eviction strategy:
+ * - LRU (Least Recently Used) based on accessedAt timestamp
+ * - No automatic TTL - call evictOldest() manually or via background job
+ * - Recommended eviction threshold: evict when totalEntries > MAX_CACHE_ENTRIES
  */
 
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { and, asc, count, eq, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { type EmbeddingCacheEntry, embeddingCache } from '../../schema/index.js';
+
+/**
+ * Maximum batch size for getBatch/setBatch operations.
+ * Larger batches may create excessively long SQL strings.
+ * Callers should chunk larger requests.
+ */
+export const MAX_BATCH_SIZE = 100;
+
+/**
+ * Recommended maximum cache entries before triggering eviction.
+ * This is a guideline - actual limits depend on available memory.
+ */
+export const RECOMMENDED_MAX_CACHE_ENTRIES = 100_000;
 
 type DrizzleDb = PgliteDatabase;
 
@@ -57,10 +79,41 @@ export type BatchLookupRequest = {
  */
 export type BatchLookupResult = Map<string, EmbeddingCacheEntry>;
 
+/**
+ * Metrics for monitoring fire-and-forget operations
+ */
+export type EmbeddingCacheMetrics = {
+  /** Count of failed access time updates */
+  failedAccessTimeUpdates: number;
+  /** Count of failed batch access time updates */
+  failedBatchAccessTimeUpdates: number;
+};
+
 export class DrizzleEmbeddingCacheRepository {
   private readonly logger = createLogger('DrizzleEmbeddingCacheRepository');
+  /** Metrics for monitoring fire-and-forget operations */
+  private readonly metrics: EmbeddingCacheMetrics = {
+    failedAccessTimeUpdates: 0,
+    failedBatchAccessTimeUpdates: 0,
+  };
 
   constructor(private readonly db: DrizzleDb) {}
+
+  /**
+   * Get metrics for monitoring fire-and-forget operations.
+   * Useful for production monitoring and alerting.
+   */
+  getMetrics(): EmbeddingCacheMetrics {
+    return { ...this.metrics };
+  }
+
+  /**
+   * Reset metrics counters.
+   */
+  resetMetrics(): void {
+    this.metrics.failedAccessTimeUpdates = 0;
+    this.metrics.failedBatchAccessTimeUpdates = 0;
+  }
 
   /**
    * Look up a cached embedding by content hash and model key.
@@ -85,9 +138,11 @@ export class DrizzleEmbeddingCacheRepository {
     // Update access time and increment access count (fire-and-forget)
     // This is done asynchronously to not slow down cache lookups
     this.updateAccessTime(row.id).catch((error) => {
+      this.metrics.failedAccessTimeUpdates++;
       this.logger.warn('Failed to update cache access time', {
         id: row.id,
         error: error instanceof Error ? error.message : String(error),
+        totalFailures: this.metrics.failedAccessTimeUpdates,
       });
     });
 
@@ -98,12 +153,23 @@ export class DrizzleEmbeddingCacheRepository {
    * Batch lookup for multiple content hashes with the same model key.
    * More efficient than individual lookups when processing batches.
    *
+   * Note: For optimal performance, limit batches to MAX_BATCH_SIZE (100) entries.
+   * Larger batches will work but may create long SQL strings.
+   *
    * @param requests - Array of (contentHash, modelKey) pairs to look up
    * @returns Map of "contentHash:modelKey" -> entry for hits only
    */
   async getBatch(requests: BatchLookupRequest[]): Promise<BatchLookupResult> {
     if (requests.length === 0) {
       return new Map();
+    }
+
+    // Warn if batch exceeds recommended size
+    if (requests.length > MAX_BATCH_SIZE) {
+      this.logger.warn('getBatch called with large batch - consider chunking', {
+        batchSize: requests.length,
+        maxRecommended: MAX_BATCH_SIZE,
+      });
     }
 
     // Group by model key for more efficient queries
@@ -143,9 +209,11 @@ export class DrizzleEmbeddingCacheRepository {
     // Batch update access times (fire-and-forget)
     if (idsToUpdate.length > 0) {
       this.batchUpdateAccessTime(idsToUpdate).catch((error) => {
+        this.metrics.failedBatchAccessTimeUpdates++;
         this.logger.warn('Failed to batch update cache access times', {
           count: idsToUpdate.length,
           error: error instanceof Error ? error.message : String(error),
+          totalFailures: this.metrics.failedBatchAccessTimeUpdates,
         });
       });
     }
@@ -219,6 +287,8 @@ export class DrizzleEmbeddingCacheRepository {
    * Batch store multiple embeddings.
    * More efficient than individual inserts for batch operations.
    *
+   * Note: Automatically chunks large batches using MAX_BATCH_SIZE (100).
+   *
    * @param entries - Array of entries to store
    * @returns Number of entries stored/updated
    */
@@ -238,9 +308,8 @@ export class DrizzleEmbeddingCacheRepository {
     let stored = 0;
 
     // Process in chunks to avoid query size limits
-    const chunkSize = 100;
-    for (let i = 0; i < entries.length; i += chunkSize) {
-      const chunk = entries.slice(i, i + chunkSize);
+    for (let i = 0; i < entries.length; i += MAX_BATCH_SIZE) {
+      const chunk = entries.slice(i, i + MAX_BATCH_SIZE);
 
       const values = chunk.map((entry) => {
         // Validate dimensions

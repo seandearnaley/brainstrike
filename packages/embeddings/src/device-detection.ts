@@ -113,8 +113,17 @@ export type DeviceUnavailableGuidance = {
   fallbackDevice: EmbeddingDeviceType | null;
 };
 
+/**
+ * Timeout for WebGPU adapter requests in milliseconds.
+ * Prevents UI hangs if GPU driver is unresponsive.
+ */
+const WEBGPU_ADAPTER_TIMEOUT_MS = 5000;
+
 // Cache detection result for performance (refreshable)
 let cachedCapabilities: DeviceCapabilities | null = null;
+// Promise cache for concurrent detection requests (prevents race conditions)
+// biome-ignore lint/style/useConst: reassigned during detection lifecycle
+let pendingDetection: Promise<DeviceCapabilities> | null = null;
 
 /**
  * Result of WebGPU adapter probing
@@ -126,11 +135,28 @@ type WebGPUProbeResult = {
 };
 
 /**
+ * Creates a timeout promise that rejects after the specified duration.
+ */
+function createTimeoutPromise<T>(ms: number, message: string): Promise<T> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(message)), ms);
+  });
+}
+
+/**
  * Probe WebGPU adapter availability (extracted for complexity reduction).
+ * Includes a timeout to prevent UI hangs from unresponsive GPU drivers.
  */
 async function probeWebGPUAdapter(gpu: Gpu): Promise<WebGPUProbeResult> {
   try {
-    const adapter = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+    // Race adapter request against timeout to prevent UI hangs
+    const adapter = await Promise.race([
+      gpu.requestAdapter({ powerPreference: 'high-performance' }),
+      createTimeoutPromise<GPUAdapter | null>(
+        WEBGPU_ADAPTER_TIMEOUT_MS,
+        `WebGPU adapter request timed out after ${WEBGPU_ADAPTER_TIMEOUT_MS}ms`
+      ),
+    ]);
 
     if (!adapter) {
       return {
@@ -202,10 +228,33 @@ async function probeWebGPUAdapter(gpu: Gpu): Promise<WebGPUProbeResult> {
  * ```
  */
 export async function detectDeviceCapabilities(forceRefresh = false): Promise<DeviceCapabilities> {
+  // Return cached result if available and not forcing refresh
   if (cachedCapabilities && !forceRefresh) {
     return cachedCapabilities;
   }
 
+  // Use promise caching to handle concurrent calls (prevents race conditions)
+  // If detection is already in progress, return the pending promise
+  if (pendingDetection && !forceRefresh) {
+    return pendingDetection;
+  }
+
+  // Create and cache the detection promise
+  pendingDetection = performDeviceDetection();
+
+  try {
+    const result = await pendingDetection;
+    return result;
+  } finally {
+    // Clear pending detection after completion
+    pendingDetection = null;
+  }
+}
+
+/**
+ * Internal function that performs the actual device detection.
+ */
+async function performDeviceDetection(): Promise<DeviceCapabilities> {
   const detectedAt = Date.now();
   const webWorkersAvailable = typeof Worker !== 'undefined';
   const wasmAvailable = typeof WebAssembly !== 'undefined';
@@ -271,6 +320,7 @@ export function getCachedDeviceCapabilities(): DeviceCapabilities | null {
  */
 export function clearDeviceCapabilitiesCache(): void {
   cachedCapabilities = null;
+  pendingDetection = null;
 }
 
 /**

@@ -46,6 +46,11 @@ export type EmbeddingSetValidationError =
       modelKey: string;
     }
   | {
+      type: 'provider_mismatch';
+      expected: string;
+      provided: string;
+    }
+  | {
       type: 'missing_metadata';
       field: 'providerId' | 'modelKey' | 'dimensions' | 'distance';
     };
@@ -238,15 +243,12 @@ export function isProviderCompatibleWithSet(
 ): Result<void, EmbeddingSetValidationError> {
   // Check provider matches
   if (setConfig.modelKey !== providerMetadata.providerId) {
-    // Provider mismatch is reported as dimension mismatch for simplicity
-    // (different providers would have different dimension expectations)
     return {
       ok: false,
       error: {
-        type: 'dimension_mismatch',
-        expected: setConfig.dimensions,
-        provided: providerMetadata.dimensions,
-        modelKey: `${setConfig.modelKey} vs ${providerMetadata.providerId}`,
+        type: 'provider_mismatch',
+        expected: setConfig.modelKey,
+        provided: providerMetadata.providerId,
       },
     };
   }

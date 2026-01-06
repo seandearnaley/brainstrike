@@ -26,7 +26,6 @@
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
-    "@brainstrike/config": "workspace:*",
     "typescript": "^5.9.3",
     "vitest": "^4.0.14"
   },
