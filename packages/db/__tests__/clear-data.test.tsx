@@ -133,8 +133,12 @@ describe('Database clearing functionality', () => {
             .fn<[string], Promise<{ rows: unknown[] } | undefined>>(async () => ({ rows: [] }))
             .mockResolvedValueOnce({ rows: [{ count: '10' }] }) // chunks count
             .mockResolvedValueOnce(undefined) // DELETE chunks
+            .mockResolvedValueOnce(undefined) // DELETE selection_snapshot_files
+            .mockResolvedValueOnce(undefined) // DELETE selection_snapshots
             .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // files count
-            .mockResolvedValueOnce(undefined), // DELETE files
+            .mockResolvedValueOnce(undefined) // DELETE files
+            .mockResolvedValueOnce(undefined) // DELETE embedding_sets
+            .mockResolvedValueOnce(undefined), // DELETE job_queue
         };
         return await callback(mockTx);
       });

@@ -52,13 +52,15 @@ export async function launchElectronApp(
 
   // Retry configuration for CI stability
   // Electron can hang silently in CI due to Xvfb/display timing issues
-  const maxAttempts = process.env['CI'] ? 3 : 1;
+  const maxAttempts = process.env['CI'] ? 3 : 2;
   const firstWindowTimeout = process.env['CI'] ? 30_000 : 60_000;
+  const launchTimeoutMs = process.env['CI'] ? 150_000 : 60_000;
 
   console.log('🚀 Launching Electron app...');
   logEnvironmentDiagnostics(userDataDir);
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
+  console.log('Launch timeout (ms):', launchTimeoutMs);
 
   let lastError: Error | undefined;
 
@@ -66,7 +68,13 @@ export async function launchElectronApp(
     console.log(`🔄 Launch attempt ${attempt}/${maxAttempts}`);
     await killLingeringElectronProcesses();
 
-    const launchOptions = createLaunchOptions(electronPath, mainPath, undefined, userDataDir);
+    const launchOptions = createLaunchOptions(
+      electronPath,
+      mainPath,
+      undefined,
+      userDataDir,
+      launchTimeoutMs
+    );
 
     try {
       return await attemptElectronLaunch(launchOptions, firstWindowTimeout);
@@ -114,7 +122,8 @@ function createLaunchOptions(
   _electronPath: string,
   mainPath: string,
   _debugPort?: number,
-  userDataDir?: string
+  userDataDir?: string,
+  launchTimeoutMs?: number
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
   const baseArgs = [
@@ -179,7 +188,7 @@ function createLaunchOptions(
         : {}),
     },
     // Let Playwright manage the CDP connection - don't override
-    timeout: 150_000, // Increased to 150s for CI stability
+    timeout: launchTimeoutMs ?? 150_000, // Increased to 150s for CI stability
   };
   if (!process.env['CI']) {
     options.recordVideo = {

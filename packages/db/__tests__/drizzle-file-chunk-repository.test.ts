@@ -368,20 +368,21 @@ describe('DrizzleFileChunkRepository', () => {
       });
       expect(allowlisted.map((r) => r.chunk.id)).toEqual(['00000000-0000-0000-0000-000000000020']);
 
+      const snapshotId = '00000000-0000-0000-0000-000000000201';
       await client.query('INSERT INTO selection_snapshots (id, created_at) VALUES ($1, $2)', [
-        'snap-drizzle-1',
+        snapshotId,
         now,
       ]);
       await client.query(
         'INSERT INTO selection_snapshot_files (snapshot_id, file_path) VALUES ($1, $2)',
-        ['snap-drizzle-1', '/src/other.ts']
+        [snapshotId, '/src/other.ts']
       );
 
       const snapshotScoped = await repository.searchSimilar([1.0, 0.0, 0.0], {
         embeddingSetId: testEmbeddingSetId,
         limit: 10,
         threshold: 0,
-        selectionSnapshotId: 'snap-drizzle-1',
+        selectionSnapshotId: snapshotId,
       });
       expect(snapshotScoped.map((r) => r.chunk.id)).toEqual([
         '00000000-0000-0000-0000-000000000021',

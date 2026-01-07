@@ -100,7 +100,7 @@ describe('searchSimilar behavior (pgvector path)', () => {
         tokenCount: 4,
         chunkType: 'text',
         chunkSize: 12,
-        embedding: makeVector(768, [[0, 0.28]]),
+        embedding: makeVector(768, [[1, 0.28]]),
         embeddingSetId: set.id,
         embeddingUpdatedAt: now,
         embeddingHash: 'eh3',
@@ -117,7 +117,7 @@ describe('searchSimilar behavior (pgvector path)', () => {
       threshold: 0,
       embeddingSetId: set.id,
     });
-    expect(scoped.map((r) => r.chunk.id)).toEqual(['c1', 'c2']);
+    expect(scoped.map((r) => r.chunk.id)).toEqual(['c1', 'c2', 'c3']);
 
     // Thresholding: pick only the closer one
     const stricter = await chunkRepo.searchSimilar(query, {
@@ -178,20 +178,21 @@ describe('searchSimilar behavior (pgvector path)', () => {
     });
     expect(allowlisted.map((r) => r.chunk.id)).toEqual(['c1']);
 
+    const snapshotId = '00000000-0000-0000-0000-000000000101';
     await db.query('INSERT INTO selection_snapshots (id, created_at) VALUES ($1, $2)', [
-      'snap-1',
+      snapshotId,
       now,
     ]);
     await db.query(
       'INSERT INTO selection_snapshot_files (snapshot_id, file_path) VALUES ($1, $2)',
-      ['snap-1', '/notes.md']
+      [snapshotId, '/notes.md']
     );
 
     const snapshotScoped = await chunkRepo.searchSimilar(query, {
       limit: 10,
       threshold: 0,
       embeddingSetId: set.id,
-      selectionSnapshotId: 'snap-1',
+      selectionSnapshotId: snapshotId,
     });
     expect(snapshotScoped.map((r) => r.chunk.id)).toEqual(['c2']);
   });
