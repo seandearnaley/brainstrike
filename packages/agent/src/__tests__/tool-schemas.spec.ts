@@ -40,4 +40,13 @@ describe('tool schemas', () => {
     const bad = validateToolInput('filesystem.search', {} as unknown as { query: string });
     expect(bad.ok).toBe(false);
   });
+
+  it('validates retrieval context tool input', () => {
+    const ok = validateToolInput('brainstrike.retrieveContext', {
+      query: 'find embedding worker',
+      limit: 5,
+      threshold: 0.4,
+    });
+    expect(ok.ok).toBe(true);
+  });
 });

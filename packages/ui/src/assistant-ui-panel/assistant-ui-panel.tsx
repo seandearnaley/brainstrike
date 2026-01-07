@@ -82,6 +82,7 @@ export type AssistantUiPanelProps = {
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   disabled?: boolean;
   disabledReason?: string;
+  requestData?: Record<string, unknown>;
 };
 
 declare global {
@@ -97,6 +98,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   pickerProviders,
   selectedProvider,
   selectedModel,
+  requestData,
   onModelChange,
   disabled = false,
   disabledReason,
@@ -144,6 +146,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
     api,
     body: {
       data: {
+        ...(requestData ?? {}),
         provider: selectedProvider,
         model: modelName,
       },

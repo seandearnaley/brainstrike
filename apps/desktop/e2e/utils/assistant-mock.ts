@@ -12,7 +12,7 @@ export type AssistantMockOptions = {
   readonly provider?: string;
   readonly apiKey?: string;
   readonly message?: string;
-  readonly variant?: 'simple' | 'detailed';
+  readonly variant?: 'simple' | 'detailed' | 'tool';
   readonly models?: Record<string, string>;
 };
 
@@ -103,6 +103,56 @@ export async function setupAssistantMock(
                 )
               );
               controller.enqueue(encoder.encode('f:null\n'));
+              controller.enqueue(encoder.encode(`0:"${message}"\n`));
+              controller.enqueue(encoder.encode('e:null\n'));
+              controller.enqueue(
+                encoder.encode(
+                  'd:{"finishReason":"stop","usage":{"promptTokens":5,"completionTokens":8}}\n'
+                )
+              );
+              controller.close();
+              return;
+            }
+
+            if (variant === 'tool') {
+              const messageId = `msg-${Date.now()}`;
+              const sessionId = `sess-${Date.now()}`;
+              const toolCallId = `tool-${Date.now()}`;
+              const toolName = 'brainstrike.retrieveContext';
+              const toolArgs = { query: 'mock retrieval query', limit: 3 };
+              const toolResult = {
+                context: 'File: src/app.ts\nconst answer = 42;',
+                chunks: [
+                  {
+                    id: 'chunk-1',
+                    filePath: 'src/app.ts',
+                    chunkIndex: 0,
+                    tokenCount: 5,
+                  },
+                ],
+              };
+
+              controller.enqueue(
+                encoder.encode(
+                  `2:[{"type":"start","messageId":"${messageId}","sessionId":"${sessionId}"}]\n`
+                )
+              );
+              controller.enqueue(encoder.encode('f:null\n'));
+              controller.enqueue(
+                encoder.encode(`b:{"toolCallId":"${toolCallId}","toolName":"${toolName}"}\n`)
+              );
+              controller.enqueue(
+                encoder.encode(
+                  `9:{"toolCallId":"${toolCallId}","toolName":"${toolName}","args":${JSON.stringify(
+                    toolArgs
+                  )}}\n`
+                )
+              );
+              controller.enqueue(
+                encoder.encode(
+                  `a:{"toolCallId":"${toolCallId}","result":${JSON.stringify(toolResult)}}\n`
+                )
+              );
               controller.enqueue(encoder.encode(`0:"${message}"\n`));
               controller.enqueue(encoder.encode('e:null\n'));
               controller.enqueue(

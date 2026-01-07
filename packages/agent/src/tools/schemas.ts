@@ -53,6 +53,21 @@ const WebDocSummaryInput = z
 
 export type WebDocSummaryInput = z.infer<typeof WebDocSummaryInput>;
 
+export const RetrievalContextInputSchema = z
+  .object({
+    query: z.string().min(1).max(2000),
+    limit: z.number().int().positive().max(100).optional(),
+    threshold: z.number().min(0).max(1).optional(),
+    tokenBudget: z.number().int().positive().max(200_000).optional(),
+    maxChunks: z.number().int().positive().max(100).optional(),
+    embeddingSetId: z.string().min(1).optional(),
+    filePaths: z.array(z.string().min(1)).max(5000).optional(),
+    selectionSnapshotId: z.string().min(1).optional(),
+  })
+  .strict();
+
+export type RetrievalContextInput = z.infer<typeof RetrievalContextInputSchema>;
+
 const schemaMap: Record<string, z.ZodSchema> = {
   'filesystem.list': FilesystemListInput,
   'filesystem.read': FilesystemReadInput,
@@ -60,6 +75,7 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'web.echo': EchoInput,
   'web.searchDocs': WebSearchDocsInput,
   'web.docSummary': WebDocSummaryInput,
+  'brainstrike.retrieveContext': RetrievalContextInputSchema,
 };
 
 function parseWithSchema(

@@ -34,6 +34,7 @@ type AgentStreamFailure = {
 type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 
 import { readRequestBody, streamResponse } from './assistant-server/http';
+import { buildAssistantTools } from './assistant-server/retrieval-tool';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
 import {
@@ -333,7 +334,7 @@ async function initializeAgentStream(
     ...runtimeData,
     mcpEnabled: true,
     mcpConfig,
-    mastraTools: webTools,
+    mastraTools: buildAssistantTools(runtimeData, webTools),
     signal, // ← AbortSignal passed here, used by stream iterator
     apiKey,
   };

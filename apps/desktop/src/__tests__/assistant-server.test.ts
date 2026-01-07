@@ -54,6 +54,10 @@ vi.mock('@brainstrike/agent', () => ({
     ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
 }));
 
+vi.mock('../assistant-server/retrieval-tool', () => ({
+  buildAssistantTools: vi.fn((_runtime: unknown, base: unknown) => base),
+}));
+
 describe('assistant-server', () => {
   let server: { url: string; stop: () => Promise<void> } | undefined;
 

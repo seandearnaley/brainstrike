@@ -8,6 +8,19 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
+vi.mock('@brainstrike/file-explorer-ui', () => {
+  const store = (
+    selector?: (state: { tokenBudget: number; currentFolderId: string | null }) => unknown
+  ) => {
+    const state = { tokenBudget: 100_000, currentFolderId: 'test-folder' };
+    return selector ? selector(state) : state;
+  };
+  return {
+    useSelectionManager: () => ({ effectiveSelection: new Set<string>() }),
+    useFileExplorerStoreContext: () => store,
+  };
+});
+
 // Mock the agent/client exports
 vi.mock('@brainstrike/agent/client', () => {
   const PROVIDER_DEFINITIONS = {

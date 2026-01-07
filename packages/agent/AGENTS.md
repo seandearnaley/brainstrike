@@ -31,6 +31,10 @@ At a high level the package is responsible for:
 - Implementing a small set of **web tools** (`web.echo`, `web.searchDocs` and  
     `web.docSummary`) that run in the browser and use zod to validate inputs.
     
+- Exposing a **retrieval tool** (`brainstrike.retrieveContext`) that fetches
+    semantic matches from the local embedding store, packs them under a token
+    budget, and returns citation-ready metadata for the assistant.
+    
 - Exposing a simple **in‑memory memory store** for development and testing; this  
     can be replaced with a more sophisticated store (e.g. backed by a DB or  
     summarisation service) by swapping the exported `InMemoryMemoryStore`.
@@ -135,6 +139,36 @@ When adding a new tool:
     their purpose, limitations and usage. If the tool proxies to an external  
     service, document rate limits and fallback behaviour.
     
+### `brainstrike.retrieveContext` tool
+
+Purpose: fetch semantically relevant chunks from the active embedding set,
+respect selection constraints, and pack them under a token budget for chat.
+
+Input (zod-validated):
+- `query` (string, required): the user query to embed and retrieve against.
+- `limit` (number, optional): max retrieval candidates before packing.
+- `threshold` (number, optional): similarity threshold (0-1).
+- `tokenBudget` (number, optional): max tokens to pack.
+- `maxChunks` (number, optional): hard cap on packed chunks.
+- `embeddingSetId` (string, optional): override active set (runtime wins).
+- `filePaths` (string[], optional): allowlist (runtime wins).
+- `selectionSnapshotId` (string, optional): snapshot allowlist id.
+
+Behavior/constraints:
+- Requires an active embedding set; errors if missing.
+- Hosted embedding providers only; local models are rejected (renderer-only).
+- Selection constraints are enforced using runtime-provided file paths/snapshot.
+- Creates selection snapshots when the allowlist exceeds inline limits.
+
+Output:
+- `context` (string): concatenated context with file headers.
+- `chunks` (array): packed chunks with `filePath`, `chunkIndex`, `tokenCount`,
+  `score`, and `offsets` when available.
+- `totalTokens`, `budget`, `remainingTokens`, `skipped`.
+
+Errors:
+- Safe, user-facing messages only (no secrets or raw file contents).
+
 
 ### Remote tools via MCP
 
