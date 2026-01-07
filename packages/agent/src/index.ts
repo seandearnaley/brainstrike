@@ -408,3 +408,17 @@ export {
   type ToolRegistry,
   type ToolRegistryEntry,
 } from './stream/tool-registry';
+// Retrieval tool factory (BST-174)
+export {
+  buildToolsWithRetrieval,
+  type ChunkSearchResultInput,
+  createRetrievalTool,
+  type EmbeddingSetInfo,
+  type FileRecordInfo,
+  RETRIEVAL_ERROR_MESSAGES,
+  RETRIEVAL_TOOL_ID,
+  type RetrievalSelectionState,
+  type RetrievalToolDependencies,
+  type RetrievalToolResult,
+  SAFE_ERROR_MESSAGES,
+} from './tools/retrieval-tool';
