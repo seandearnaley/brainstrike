@@ -428,6 +428,46 @@ describe('BFSEngine', () => {
         expect(completeMsg.payload.loadedCount).toBe(1);
       }
     });
+
+    it('should retry not-found paths after parents are loaded (hierarchical restoration)', async () => {
+      // This tests the retry mechanism for paths that don't exist in the tree yet
+      // because their parent directories haven't been loaded.
+      // Start with just the root directory loaded
+      const tree = [createDirectoryNode({ path: '/root/parent', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      // Request loading a nested path that doesn't exist yet (child path before parent loaded)
+      const loadPromise = engine.loadPaths(['/root/parent', '/root/parent/child']);
+
+      // Wait for request to load the parent first (shallowest first by depth sorting)
+      await vi.waitFor(() => {
+        const requestMsg = messages.find((m) => m.type === 'requestLoad');
+        expect(requestMsg).toBeDefined();
+      });
+
+      // Simulate parent loading - it contains the child directory
+      engine.handleLoadResult('/root/parent', [
+        createDirectoryNode({ path: '/root/parent/child', loadState: 'unloaded', depth: 2 }),
+      ]);
+
+      // Wait for the child path to be requested (after retry)
+      await vi.waitFor(() => {
+        const allRequests = messages.filter((m) => m.type === 'requestLoad');
+        expect(allRequests.length).toBeGreaterThanOrEqual(2);
+      });
+
+      // Simulate child loading
+      engine.handleLoadResult('/root/parent/child', []);
+
+      await loadPromise;
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        // Both parent and child should be loaded
+        expect(completeMsg.payload.loadedCount).toBe(2);
+      }
+    });
   });
 
   describe('flattenTree', () => {

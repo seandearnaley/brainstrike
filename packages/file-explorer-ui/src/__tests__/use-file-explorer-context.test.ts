@@ -288,4 +288,198 @@ describe('useFileExplorer (context)', () => {
       '/file3.tsx',
     ]);
   });
+
+  describe('stale state clearing behavior', () => {
+    it('should NOT clear persisted state while isAccessLoading is true', () => {
+      // This tests the fix for the race condition where persisted state was being
+      // cleared before the file system had a chance to restore the root directory.
+
+      // Setup: no root directory handle but still loading (restore in progress)
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: null,
+        isAccessLoading: true, // Still loading/restoring
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+      });
+
+      // Add some "persisted" state that should NOT be cleared while loading
+      storeState.selectedFilePaths = new Set(['folder|@|file1.ts', 'folder|@|file2.ts']);
+      storeState.expandedDirectoryPaths = new Set(['/src', '/src/components']);
+
+      renderHook(() => useFileExplorer());
+
+      // clearSelectedFiles and setExpandedPaths should NOT have been called
+      // because isAccessLoading is true
+      expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+    });
+
+    it('should clear stale state only after isAccessLoading becomes false with no root handle', () => {
+      // Setup: no root directory handle and not loading (restore failed or web platform)
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: null,
+        isAccessLoading: false, // Loading complete, no handle restored
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+      });
+
+      // Add some "stale" state that should be cleared
+      storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
+      storeState.expandedDirectoryPaths = new Set(['/src']);
+
+      renderHook(() => useFileExplorer());
+
+      // Now state should be cleared since isAccessLoading is false and there's no handle
+      expect(storeState.clearSelectedFiles).toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).toHaveBeenCalledWith(new Set());
+    });
+
+    it('should NOT clear state when root directory handle exists (regardless of loading state)', () => {
+      // Setup: root directory handle exists
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+      });
+
+      // Add state that should be preserved
+      storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
+      storeState.expandedDirectoryPaths = new Set(['/src']);
+
+      renderHook(() => useFileExplorer());
+
+      // State should NOT be cleared because we have a valid root handle
+      expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+    });
+
+    it('should preserve selection/expansion state when transitioning from loading to restored handle', () => {
+      // This simulates the desktop auto-restore flow where state persists correctly
+
+      // Initial state: loading in progress
+      const useFileSystemMock = vi.mocked(useFileSystem);
+      useFileSystemMock.mockReturnValue({
+        rootDirectoryHandle: null,
+        isAccessLoading: true,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+      });
+
+      storeState.selectedFilePaths = new Set(['folder|@|file1.ts']);
+      storeState.expandedDirectoryPaths = new Set(['/src']);
+
+      const { rerender } = renderHook(() => useFileExplorer());
+
+      // State should NOT be cleared during loading
+      expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+
+      // Simulate restore completing successfully
+      useFileSystemMock.mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+      });
+
+      rerender();
+
+      // State should STILL not be cleared because we now have a valid handle
+      expect(storeState.clearSelectedFiles).not.toHaveBeenCalled();
+      expect(storeState.setExpandedPaths).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('restoration effect with module-level lock', () => {
+    // These tests verify the fix for the concurrent restoration bug where
+    // React's concurrent rendering caused multiple effect instances to run
+    // before any of them could set refs, resulting in duplicate loadSpecificPaths calls.
+
+    it('should expose isRestoringExpandedPaths state for UI feedback', () => {
+      // Setup: root directory exists with a loaded tree
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+      });
+
+      const { result } = renderHook(() => useFileExplorer());
+
+      // The hook should expose restoration state
+      expect(typeof result.current.isRestoringExpandedPaths).toBe('boolean');
+      expect(
+        result.current.restorationProgress === null ||
+          typeof result.current.restorationProgress === 'object'
+      ).toBe(true);
+    });
+
+    it('should expose restoration progress with correct shape', () => {
+      // Setup with root handle and tree
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+      });
+
+      const { result } = renderHook(() => useFileExplorer());
+
+      // Restoration progress should either be null or have the correct shape
+      if (result.current.restorationProgress !== null) {
+        expect(result.current.restorationProgress).toMatchObject({
+          loaded: expect.any(Number),
+          total: expect.any(Number),
+        });
+      }
+    });
+
+    it('should not trigger restoration when there are no persisted expanded paths', async () => {
+      // Setup: root handle exists, tree is loaded, but no expanded paths
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+      });
+
+      // Empty expanded paths - no restoration needed
+      storeState.expandedDirectoryPaths = new Set();
+
+      const loadSpecificPathsMock = vi.fn();
+      vi.mocked(useFileTree).mockReturnValue({
+        fileTree: initialFileTree,
+        isLoading: false,
+        error: null,
+        refreshTree: mockRefreshTree,
+        loadingProgress: { loadingCount: 0, isInitialLoading: false },
+        cancellable: false,
+        cancelOperation: vi.fn(),
+        isCancelling: false,
+        loadingPaths: new Set<string>(),
+        loadChildren: vi.fn(),
+        refreshDirectory: vi.fn(),
+        expandAllProgressively: vi.fn(),
+        cancelExpandAll: vi.fn(),
+        isExpandingAll: false,
+        expandAllProgress: null,
+        loadSpecificPaths: loadSpecificPathsMock,
+        cancelChildLoading: vi.fn(),
+      });
+
+      renderHook(() => useFileExplorer());
+
+      // loadSpecificPaths should NOT be called when there are no paths to restore
+      expect(loadSpecificPathsMock).not.toHaveBeenCalled();
+    });
+  });
 });

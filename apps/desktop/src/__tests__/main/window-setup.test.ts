@@ -12,6 +12,13 @@ const mockSession = {
 const mockBrowserWindowInstance = {
   loadFile: vi.fn(),
   loadURL: vi.fn(),
+  maximize: vi.fn(),
+  setFullScreen: vi.fn(),
+  isFullScreen: vi.fn(() => false),
+  isMaximized: vi.fn(() => false),
+  getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
+  getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
+  on: vi.fn(),
   webContents: {
     setWindowOpenHandler: vi.fn(),
     on: vi.fn(),
@@ -46,6 +53,9 @@ vi.mock('electron', () => ({
   BrowserWindow: mockBrowserWindow,
   session: mockSession,
   app: mockApp,
+  screen: {
+    getAllDisplays: vi.fn(() => [{ workArea: { x: 0, y: 0, width: 1536, height: 800 } }]),
+  },
   ipcMain: { handle: vi.fn() },
   Menu: {
     setApplicationMenu: vi.fn(),

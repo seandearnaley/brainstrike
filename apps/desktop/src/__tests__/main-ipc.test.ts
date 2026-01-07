@@ -16,11 +16,32 @@ vi.mock('electron', async () => {
   mockInvoke.mockImplementation(async (channel: string, ...args: unknown[]) =>
     (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).__invoke(channel, ...args)
   );
+  const mockBrowserWindowInstance = {
+    once: vi.fn(),
+    on: vi.fn(),
+    show: vi.fn(),
+    loadFile: vi.fn(),
+    loadURL: vi.fn(),
+    maximize: vi.fn(),
+    isFullScreen: vi.fn(() => false),
+    isMaximized: vi.fn(() => false),
+    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
+    getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
+    webContents: {
+      setWindowOpenHandler: vi.fn(),
+      on: vi.fn(),
+      openDevTools: vi.fn(),
+    },
+  };
+  const BrowserWindow = vi.fn();
+  BrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
+    Object.assign(this, mockBrowserWindowInstance);
+  });
   return {
     app,
     ipcMain,
     ipcRenderer,
-    BrowserWindow: vi.fn(),
+    BrowserWindow,
     session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
     Menu: {
       setApplicationMenu: vi.fn(),

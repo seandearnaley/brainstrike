@@ -36,6 +36,7 @@ import type { LoggingSettingsPayload } from './logging-shared';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
+import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const logFilePath = disableFileLogs ? undefined : path.join(app.getPath('logs'), 'brainstrike.log');
@@ -424,13 +425,20 @@ app.whenReady().then(async () => {
     // IPC to provide assistant URL to renderer
     ipcMain.handle('assistant:get-url', () => assistantUrl);
 
+    const createMainWindow = async () => {
+      const storedWindowState = readStoredWindowState(settingsStore);
+      const win = await createWindow({ windowState: storedWindowState });
+      registerWindowStatePersistence(win, settingsStore);
+      return win;
+    };
+
     logger.info('Creating main window...');
-    await createWindow();
+    await createMainWindow();
     logger.info('Main window created successfully');
 
     app.on('activate', async () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        await createWindow();
+        await createMainWindow();
       }
     });
   } catch (error) {

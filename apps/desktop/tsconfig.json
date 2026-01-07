@@ -31,6 +31,45 @@
       ],
       "@brainstrike/queue": [
         "../../packages/queue/src/index.ts"
+      ],
+      "@brainstrike/ui": [
+        "../../packages/ui/src"
+      ],
+      "@brainstrike/types": [
+        "../../packages/types/src"
+      ],
+      "@brainstrike/utils": [
+        "../../packages/utils/src"
+      ],
+      "@brainstrike/db": [
+        "../../packages/db/src"
+      ],
+      "@brainstrike/storage": [
+        "../../packages/storage/src"
+      ],
+      "@brainstrike/file-system": [
+        "../../packages/file-system/src"
+      ],
+      "@brainstrike/file-explorer-ui": [
+        "../../packages/file-explorer-ui/src"
+      ],
+      "@brainstrike/file-explorer-hooks": [
+        "../../packages/file-explorer-hooks/src"
+      ],
+      "@brainstrike/file-import": [
+        "../../packages/file-import/src"
+      ],
+      "@brainstrike/app-shell": [
+        "../../packages/app-shell/src"
+      ],
+      "@brainstrike/preferences": [
+        "../../packages/preferences/src"
+      ],
+      "@brainstrike/embeddings": [
+        "../../packages/embeddings/src"
+      ],
+      "@brainstrike/vector-management": [
+        "../../packages/vector-management/src"
       ]
     },
     "strictNullChecks": true

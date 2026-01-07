@@ -1,11 +1,13 @@
 import { app, BrowserWindow } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWindow } from '../create-window';
+import type { DesktopWindowState } from '../store-schema';
 
 // Hoist mocks for Vitest 4 compatibility
-const { existsSyncMock, MockBrowserWindow } = vi.hoisted(() => ({
+const { existsSyncMock, MockBrowserWindow, screenMock } = vi.hoisted(() => ({
   existsSyncMock: vi.fn(),
   MockBrowserWindow: vi.fn(),
+  screenMock: vi.fn(),
 }));
 vi.mock('node:fs', () => ({
   default: { existsSync: existsSyncMock },
@@ -24,6 +26,9 @@ vi.mock('electron', () => ({
   Menu: {
     setApplicationMenu: vi.fn(),
     buildFromTemplate: vi.fn(),
+  },
+  screen: {
+    getAllDisplays: screenMock,
   },
 }));
 
@@ -45,8 +50,12 @@ describe('createWindow', () => {
       show: vi.fn(),
       loadFile: vi.fn(),
       loadURL: vi.fn(),
+      maximize: vi.fn(),
+      on: vi.fn(),
       webContents: mockWebContents,
     } as any;
+
+    screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1440, height: 900 } }]);
 
     // Use function syntax for Vitest 4 constructor mocks
     MockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
@@ -68,10 +77,11 @@ describe('createWindow', () => {
       await createWindow();
 
       expect(BrowserWindow).toHaveBeenCalledWith({
-        width: 1536,
+        width: 1440,
         height: 800,
         minWidth: 800,
         minHeight: 600,
+        fullscreen: false,
         webPreferences: {
           preload: expect.stringContaining('preload.js'),
           nodeIntegration: false,
@@ -84,6 +94,96 @@ describe('createWindow', () => {
         titleBarStyle: 'default',
         show: false,
       });
+      expect(mockBrowserWindow.maximize).toHaveBeenCalled();
+    });
+
+    it('should apply stored window bounds and maximize preference', async () => {
+      existsSyncMock.mockReturnValue(true);
+
+      const storedState: DesktopWindowState = {
+        bounds: { width: 1024, height: 768, x: 120, y: 80 },
+        isFullScreen: false,
+        isMaximized: true,
+      };
+
+      await createWindow({ windowState: storedState });
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          width: 1024,
+          height: 768,
+          x: 120,
+          y: 80,
+          fullscreen: false,
+        })
+      );
+      expect(mockBrowserWindow.maximize).toHaveBeenCalled();
+    });
+
+    it('should clamp stored window bounds to the visible work area', async () => {
+      existsSyncMock.mockReturnValue(true);
+      screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1200, height: 800 } }]);
+
+      const storedState: DesktopWindowState = {
+        bounds: { width: 1600, height: 900, x: 100, y: 100 },
+        isFullScreen: false,
+        isMaximized: false,
+      };
+
+      await createWindow({ windowState: storedState });
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          width: 1200,
+          height: 800,
+          x: 0,
+          y: 0,
+        })
+      );
+    });
+
+    it('should fall back to default bounds when stored window is off-screen', async () => {
+      existsSyncMock.mockReturnValue(true);
+      screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1200, height: 800 } }]);
+
+      const storedState: DesktopWindowState = {
+        bounds: { width: 900, height: 700, x: 5000, y: 4000 },
+        isFullScreen: false,
+        isMaximized: true,
+      };
+
+      await createWindow({ windowState: storedState });
+
+      const args = vi.mocked(BrowserWindow).mock.calls[0]?.[0] as Record<string, unknown>;
+
+      expect(args).toEqual(
+        expect.objectContaining({
+          width: 1200,
+          height: 800,
+        })
+      );
+      expect('x' in args).toBe(false);
+      expect('y' in args).toBe(false);
+    });
+
+    it('should clamp window size when position is undefined but size exceeds screen', async () => {
+      existsSyncMock.mockReturnValue(true);
+      screenMock.mockReturnValue([{ workArea: { x: 0, y: 0, width: 1200, height: 800 } }]);
+
+      const storedState: DesktopWindowState = {
+        bounds: { width: 3000, height: 2000 },
+        isFullScreen: false,
+        isMaximized: true,
+      };
+
+      await createWindow({ windowState: storedState });
+
+      expect(BrowserWindow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          width: 1200,
+          height: 800,
+        })
+      );
     });
 
     it('should disable sandbox in CI environment for Playwright compatibility', async () => {

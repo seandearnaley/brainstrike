@@ -45,6 +45,51 @@
       "@brainstrike/agent": [
         "packages/agent/dist/index.d.ts"
       ],
+      "@brainstrike/embeddings": [
+        "packages/embeddings/src"
+      ],
+      "@brainstrike/app-shell": [
+        "packages/app-shell/src"
+      ],
+      "@brainstrike/preferences": [
+        "packages/preferences/src"
+      ],
+      "@brainstrike/vector-management": [
+        "packages/vector-management/src"
+      ],
+      "@brainstrike/db-explorer": [
+        "packages/db-explorer/src"
+      ],
+      "@brainstrike/chunking-worker": [
+        "packages/chunking-worker/src"
+      ],
+      "@brainstrike/file-tree-worker": [
+        "packages/file-tree-worker/src"
+      ],
+      "@brainstrike/queue-telemetry-collector": [
+        "packages/queue-telemetry-collector/src"
+      ],
+      "@brainstrike/platform-utils": [
+        "packages/platform-utils/src"
+      ],
+      "@brainstrike/file-import": [
+        "packages/file-import/src"
+      ],
+      "@brainstrike/file-system": [
+        "packages/file-system/src"
+      ],
+      "@brainstrike/server-config": [
+        "packages/server-config/src"
+      ],
+      "@brainstrike/test-utils": [
+        "packages/test-utils/src"
+      ],
+      "@brainstrike/token-cache": [
+        "packages/token-cache/src"
+      ],
+      "@brainstrike/embedding-worker": [
+        "packages/embedding-worker/src"
+      ],
       "@web/*": [
         "apps/web/src/*"
       ],
@@ -101,6 +146,57 @@
     },
     {
       "path": "./packages/db"
+    },
+    {
+      "path": "./packages/agent"
+    },
+    {
+      "path": "./packages/embeddings"
+    },
+    {
+      "path": "./packages/queue"
+    },
+    {
+      "path": "./packages/preferences"
+    },
+    {
+      "path": "./packages/vector-management"
+    },
+    {
+      "path": "./packages/db-explorer"
+    },
+    {
+      "path": "./packages/chunking-worker"
+    },
+    {
+      "path": "./packages/file-tree-worker"
+    },
+    {
+      "path": "./packages/queue-telemetry-collector"
+    },
+    {
+      "path": "./packages/platform-utils"
+    },
+    {
+      "path": "./packages/file-import"
+    },
+    {
+      "path": "./packages/file-system"
+    },
+    {
+      "path": "./packages/server-config"
+    },
+    {
+      "path": "./packages/test-utils"
+    },
+    {
+      "path": "./packages/token-cache"
+    },
+    {
+      "path": "./packages/embedding-worker"
+    },
+    {
+      "path": "./packages/workers"
     },
     {
       "path": "./packages/build-utils"

@@ -29,9 +29,6 @@
       ],
       "@brainstrike/agent/client": [
         "../../packages/agent/dist/client.d.ts"
-      ],
-      "@brainstrike/queue": [
-        "../../packages/queue/src/index.ts"
       ]
     },
     "strictNullChecks": true
