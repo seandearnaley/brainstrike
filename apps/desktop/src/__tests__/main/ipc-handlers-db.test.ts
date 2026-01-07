@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Hoist Electron and db mocks safely
-const { handlers, mockDb, getDatabaseMock } = vi.hoisted(() => {
+const { handlers, mockDb, getDatabaseMock, loggerWarn } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mockDb = { query: vi.fn(), exec: vi.fn(), transaction: vi.fn() };
   const getDatabaseMock = vi.fn(() => mockDb);
-  return { handlers, mockDb, getDatabaseMock };
+  const loggerWarn = vi.fn();
+  return { handlers, mockDb, getDatabaseMock, loggerWarn };
 });
 
 vi.mock('electron', async () => {
@@ -59,6 +60,19 @@ vi.mock('../../db-main', () => ({
   isCorruptionError: vi.fn(() => false),
   handleRuntimeCorruption: vi.fn(),
 }));
+
+vi.mock('@brainstrike/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+  return {
+    ...actual,
+    createLogger: () => ({
+      warn: loggerWarn,
+      info: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    }),
+  };
+});
 
 // Use function syntax for Vitest 4 constructor mocks
 vi.mock('@brainstrike/file-system', () => {
@@ -253,6 +267,70 @@ describe('database IPC handlers', () => {
         message: 'Database clear failed: Query failed',
         deletedFiles: 0,
         deletedChunks: 0,
+      });
+    });
+
+    it('ignores missing relation errors when clearing selection snapshots', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const error = Object.assign(
+          new Error('relation "selection_snapshot_files" does not exist'),
+          { code: '42P01' }
+        );
+        const mockTx = {
+          query: vi
+            .fn()
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+            .mockResolvedValueOnce(undefined) // DELETE chunks
+            .mockRejectedValueOnce(error) // DELETE snapshot files
+            .mockResolvedValueOnce(undefined) // DELETE files
+            .mockResolvedValueOnce(undefined) // DELETE embedding_sets
+            .mockResolvedValueOnce(undefined), // DELETE job_queue
+        };
+        return await callback(mockTx);
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Database cleared successfully',
+        deletedFiles: 0,
+        deletedChunks: 0,
+      });
+      expect(loggerWarn).not.toHaveBeenCalled();
+    });
+
+    it('logs unexpected errors when clearing selection snapshots', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const mockTx = {
+          query: vi
+            .fn()
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
+            .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
+            .mockResolvedValueOnce(undefined) // DELETE chunks
+            .mockRejectedValueOnce(new Error('boom')) // DELETE snapshot files
+            .mockResolvedValueOnce(undefined) // DELETE files
+            .mockResolvedValueOnce(undefined) // DELETE embedding_sets
+            .mockResolvedValueOnce(undefined), // DELETE job_queue
+        };
+        return await callback(mockTx);
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toEqual({
+        success: true,
+        message: 'Database cleared successfully',
+        deletedFiles: 0,
+        deletedChunks: 0,
+      });
+      expect(loggerWarn).toHaveBeenCalledWith('Failed to clear selection snapshots', {
+        error: expect.any(Error),
       });
     });
   });
