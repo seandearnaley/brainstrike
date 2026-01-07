@@ -359,6 +359,34 @@ export {
   type ContextPackerResult,
   type PackedContextChunk,
 } from './context-packer';
+// Evaluation harness (BST-175)
+export {
+  type AggregateMetrics,
+  aggregateMetrics,
+  computeMrr,
+  computePrecisionAtK,
+  computeRecallAtK,
+  createMockDataset,
+  DEFAULT_EVALUATION_CONFIG,
+  type EvaluationConfig,
+  type EvaluationReport,
+  evaluateTestCase,
+  formatReport,
+  formatReportJson,
+  type GoldenDataset,
+  type GoldenTestCase,
+  type HarnessOptions,
+  isRelevant,
+  matchesContentPattern,
+  matchesExpectedPath,
+  meetsThresholds,
+  type QualityThresholds,
+  type RetrievalResult,
+  runEvaluationHarness,
+  type SearchFunction,
+  sampleGoldenDataset,
+  type TestCaseResult,
+} from './evaluation';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';
 export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';
