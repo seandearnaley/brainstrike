@@ -1,3 +1,4 @@
+-- Rollback: drop selection_snapshot_files and selection_snapshots (see 0004_gifted_jetstream_down.sql).
 CREATE TABLE "selection_snapshot_files" (
 	"snapshot_id" uuid NOT NULL,
 	"file_path" text NOT NULL

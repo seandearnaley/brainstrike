@@ -102,6 +102,24 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     return this.fromRow(row as Record<string, unknown>);
   }
 
+  async findByIds(ids: readonly string[]): Promise<FileRecord[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const uniqueIds = Array.from(new Set(ids));
+    const sql = `SELECT * FROM ${this.tableName} WHERE id = ANY($1::uuid[])`;
+    const result = await this.db.query<Record<string, unknown>>(sql, [uniqueIds]);
+
+    if (!Array.isArray(result.rows)) {
+      return [];
+    }
+
+    return result.rows
+      .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+      .map((row) => this.fromRow(row));
+  }
+
   async findByContentHash(contentHash: string): Promise<FileRecord | null> {
     const sql = `SELECT * FROM ${this.tableName} WHERE content_hash = $1`;
     const result = await this.db.query(sql, [contentHash]);

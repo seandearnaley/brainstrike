@@ -29,6 +29,7 @@ export type IFileRecordRepository = {
   create(record: FileRecord): Promise<void>;
   createWithContent(record: FileRecord): Promise<void>;
   findById(id: string): Promise<FileRecord | null>;
+  findByIds(ids: readonly string[]): Promise<FileRecord[]>;
   findByContentHash(contentHash: string): Promise<FileRecord | null>;
   findAll(): Promise<FileRecord[]>;
   findAllWithContent(): Promise<FileRecord[]>;

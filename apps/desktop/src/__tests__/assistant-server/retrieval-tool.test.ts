@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const {
   dbQueryMock,
   embedMock,
-  findByIdMock,
+  findByIdsMock,
   getDatabaseMock,
   getKeyMock,
   loggerError,
@@ -13,7 +13,7 @@ const {
 } = vi.hoisted(() => ({
   dbQueryMock: vi.fn(),
   embedMock: vi.fn(),
-  findByIdMock: vi.fn(),
+  findByIdsMock: vi.fn(),
   getDatabaseMock: vi.fn(),
   getKeyMock: vi.fn(),
   loggerError: vi.fn(),
@@ -73,8 +73,8 @@ vi.mock('@brainstrike/db', () => ({
     }
   },
   FileRecordRepository: class {
-    findById(id: string) {
-      return findByIdMock(id);
+    findByIds(ids: readonly string[]) {
+      return findByIdsMock(ids);
     }
   },
 }));
@@ -129,17 +129,24 @@ vi.mock('../../secrets', () => ({
 import { createRetrievalTool } from '../../assistant-server/retrieval-tool';
 
 describe('retrieval-tool', () => {
+  const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
+
   beforeEach(() => {
     vi.clearAllMocks();
     getKeyMock.mockResolvedValue('test-api-key');
     resolveHostedProviderApiKeyMock.mockResolvedValue('fallback-api-key');
     embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25] } });
-    findByIdMock.mockResolvedValue({
-      id: 'file-1',
-      name: 'file.ts',
-      path: '/repo/file.ts',
-      tokenCount: 42,
-    });
+    findByIdsMock.mockResolvedValue([
+      {
+        id: 'file-1',
+        name: 'file.ts',
+        path: '/repo/file.ts',
+        tokenCount: 42,
+        size: 123,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
     searchSimilarMock.mockResolvedValue([
       {
         chunk: {
@@ -170,7 +177,7 @@ describe('retrieval-tool', () => {
         };
       }
       if (sql.includes('INSERT INTO selection_snapshots')) {
-        return { rows: [{ id: 'snapshot-1' }] };
+        return { rows: [{ id: snapshotId }] };
       }
       return { rows: [] };
     });
@@ -227,14 +234,54 @@ describe('retrieval-tool', () => {
       },
     });
 
-    expect(result.selectionSnapshotId).toBe('snapshot-1');
+    expect(result.selectionSnapshotId).toBe(snapshotId);
     expect(searchSimilarMock).toHaveBeenCalledWith([0.25], {
       limit: 20,
       threshold: 0.3,
       embeddingSetId: 'set-1',
-      selectionSnapshotId: 'snapshot-1',
+      selectionSnapshotId: snapshotId,
     });
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('openai');
+  });
+
+  it('rejects invalid selection snapshot ids', async () => {
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({
+        context: {
+          query: 'hello',
+          embeddingSetId: 'set-1',
+          selectionSnapshotId: 'not-a-uuid',
+        },
+      })
+    ).rejects.toThrow('Selection snapshot reference is invalid.');
+  });
+
+  it('rejects oversized selection file path lists', async () => {
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const filePaths = Array.from({ length: 5001 }, (_, index) => `file-${index}.ts`);
+
+    await expect(
+      tool.execute({
+        context: {
+          query: 'hello',
+          embeddingSetId: 'set-1',
+          filePaths,
+        },
+      })
+    ).rejects.toThrow('Selection exceeds retrieval limits.');
+  });
+
+  it('surfaces safe errors when embedding set lookup fails', async () => {
+    dbQueryMock.mockRejectedValueOnce(new Error('db exploded'));
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({
+        context: { query: 'hello', embeddingSetId: 'set-1' },
+      })
+    ).rejects.toThrow('Unable to load embedding set metadata.');
   });
 
   it('surfaces safe errors for missing embedding set', async () => {

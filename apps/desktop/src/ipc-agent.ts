@@ -74,8 +74,8 @@ async function runAgentChat(
     runtime: {
       ...(runtime ?? {}),
       provider,
-      mcpConfig: config.config,
       apiKey,
+      ...(config.config ? { mcpConfig: config.config } : {}),
     },
     tools: agentModule.webTools,
   });

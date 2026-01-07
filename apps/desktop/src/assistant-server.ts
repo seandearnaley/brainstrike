@@ -1,4 +1,11 @@
 import http from 'node:http';
+import type {
+  AgentMessage,
+  AssistantUiMessageStrict,
+  McpConfig,
+  RuntimeData,
+  StreamChunk,
+} from '@brainstrike/agent';
 import {
   assistantDataStreamSessions,
   convertAssistantUiMessages,
@@ -10,12 +17,7 @@ import {
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils';
 
-type AgentModule = typeof import('@brainstrike/agent');
-type AgentMessage = AgentModule['AgentMessage'];
-type AssistantUiMessage = AgentModule['AssistantUiMessageStrict'];
-type RuntimeData = AgentModule['RuntimeData'];
-type StreamChunk = AgentModule['StreamChunk'];
-type McpConfig = AgentModule['McpConfig'];
+type AssistantUiMessage = AssistantUiMessageStrict;
 
 type AssistantRoute = 'status' | 'assistant' | 'not-found';
 type AssistantRequestPayload = {
@@ -333,10 +335,10 @@ async function initializeAgentStream(
   const runtime: RuntimeData = {
     ...runtimeData,
     mcpEnabled: true,
-    mcpConfig,
     mastraTools: buildAssistantTools(runtimeData, webTools),
     signal, // ← AbortSignal passed here, used by stream iterator
-    apiKey,
+    ...(mcpConfig ? { mcpConfig } : {}),
+    ...(apiKey ? { apiKey } : {}),
   };
 
   try {

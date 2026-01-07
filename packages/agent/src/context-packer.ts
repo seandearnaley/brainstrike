@@ -85,6 +85,15 @@ function resolveTokenCount(
   return normalizedEstimate ?? 0;
 }
 
+function assertValidChunk(chunk: ContextPackerChunk): void {
+  if (typeof chunk.id !== 'string' || chunk.id.trim().length === 0) {
+    throw new Error('ContextPacker: chunk id must be a non-empty string.');
+  }
+  if (typeof chunk.content !== 'string') {
+    throw new Error('ContextPacker: chunk content must be a string.');
+  }
+}
+
 function shouldSkipForBudget(
   tokenCount: number,
   totalTokens: number,
@@ -133,6 +142,10 @@ function buildPackedChunk(
 
 /**
  * Pack candidate context chunks into a token budget while preserving order and metadata.
+ *
+ * @example
+ * const packer = new ContextPacker({ budgetTokens: 4000 });
+ * const result = packer.pack(chunks);
  */
 export class ContextPacker {
   private readonly budgetTokens: number;
@@ -140,8 +153,18 @@ export class ContextPacker {
   private readonly estimateTokens: (content: string) => number;
 
   constructor(options: ContextPackerOptions) {
-    const budgetTokens = Math.max(0, Math.floor(options.budgetTokens));
-    this.budgetTokens = budgetTokens;
+    if (!Number.isFinite(options.budgetTokens) || options.budgetTokens < 0) {
+      throw new Error(
+        `ContextPacker: budgetTokens must be a finite non-negative number, got ${options.budgetTokens}`
+      );
+    }
+    const budgetTokens = Math.floor(options.budgetTokens);
+    if (!Number.isSafeInteger(budgetTokens)) {
+      throw new Error(
+        `ContextPacker: budgetTokens exceeds safe integer range (${Number.MAX_SAFE_INTEGER})`
+      );
+    }
+    this.budgetTokens = Math.max(0, budgetTokens);
     this.maxChunks = options.maxChunks;
     this.estimateTokens = options.estimateTokens ?? countTokensHeuristic;
   }
@@ -156,6 +179,7 @@ export class ContextPacker {
     const maxChunks = this.maxChunks ?? Number.POSITIVE_INFINITY;
 
     for (const chunk of chunks) {
+      assertValidChunk(chunk);
       if (packed.length >= maxChunks) {
         skipped += 1;
         continue;

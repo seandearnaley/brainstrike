@@ -1,4 +1,12 @@
+import type {
+  ContextPackerChunk,
+  ContextPackerResult,
+  PackedContextChunk,
+  RetrievalContextInput,
+  RuntimeData,
+} from '@brainstrike/agent';
 import { ContextPacker, RetrievalContextInputSchema } from '@brainstrike/agent';
+import type { ChunkSearchResult } from '@brainstrike/db';
 import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
 import {
   CohereEmbeddingProvider,
@@ -15,13 +23,6 @@ import type { PGlite } from '@electric-sql/pglite';
 import { getDatabase } from '../db-main';
 import { getSecretsService } from '../secrets';
 
-type AgentModule = typeof import('@brainstrike/agent');
-type ContextPackerChunk = AgentModule['ContextPackerChunk'];
-type ContextPackerResult = AgentModule['ContextPackerResult'];
-type PackedContextChunk = AgentModule['PackedContextChunk'];
-type RetrievalContextInput = AgentModule['RetrievalContextInput'];
-type RuntimeData = AgentModule['RuntimeData'];
-
 const logger = createLogger('AssistantRetrievalTool');
 
 const TOOL_ID = 'brainstrike.retrieveContext' as const;
@@ -29,15 +30,20 @@ const DEFAULT_LIMIT = 20;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;
 const MAX_INLINE_FILE_PATHS = 500;
+const MAX_SNAPSHOT_FILE_PATHS = 5000;
 const SNAPSHOT_TTL_MS = 1000 * 60 * 60; // 1 hour
-const FILE_RECORD_BATCH_SIZE = 50;
+const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ERROR_MESSAGES = {
   missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
   invalidEmbeddingSet: 'Active embedding set metadata is unavailable.',
+  embeddingSetLookupFailed: 'Unable to load embedding set metadata.',
   unsupportedProvider:
     'Local embedding models are not available in the assistant. Choose a hosted embedding set.',
   missingApiKey: 'No API key configured for the embedding provider.',
+  invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
+  invalidSelectionFilePaths: 'Selection file paths are invalid.',
+  selectionTooLarge: 'Selection exceeds retrieval limits.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
 } as const;
@@ -45,8 +51,12 @@ const ERROR_MESSAGES = {
 const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.missingEmbeddingSet,
   ERROR_MESSAGES.invalidEmbeddingSet,
+  ERROR_MESSAGES.embeddingSetLookupFailed,
   ERROR_MESSAGES.unsupportedProvider,
   ERROR_MESSAGES.missingApiKey,
+  ERROR_MESSAGES.invalidSelectionSnapshot,
+  ERROR_MESSAGES.invalidSelectionFilePaths,
+  ERROR_MESSAGES.selectionTooLarge,
 ]);
 
 type EmbeddingSetRow = {
@@ -55,6 +65,12 @@ type EmbeddingSetRow = {
   dimensions: number;
   distance: string | null;
 };
+
+type HostedEmbeddingProvider =
+  | OpenAIEmbeddingProvider
+  | GoogleEmbeddingProvider
+  | CohereEmbeddingProvider
+  | VoyageEmbeddingProvider;
 
 type FileRecordRow = {
   id: string;
@@ -110,20 +126,50 @@ function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] 
   return unique.size > 0 ? Array.from(unique) : undefined;
 }
 
+function isValidUuid(value: string): boolean {
+  return UUID_V4_REGEX.test(value);
+}
+
+function assertValidSelectionSnapshotId(selectionSnapshotId: string): void {
+  if (!isValidUuid(selectionSnapshotId)) {
+    throw new Error(ERROR_MESSAGES.invalidSelectionSnapshot);
+  }
+}
+
+function assertValidSelectionFilePaths(filePaths: readonly string[]): void {
+  if (filePaths.length === 0) {
+    throw new Error(ERROR_MESSAGES.invalidSelectionFilePaths);
+  }
+  if (filePaths.length > MAX_SNAPSHOT_FILE_PATHS) {
+    throw new Error(ERROR_MESSAGES.selectionTooLarge);
+  }
+  for (const path of filePaths) {
+    if (typeof path !== 'string' || path.trim().length === 0) {
+      throw new Error(ERROR_MESSAGES.invalidSelectionFilePaths);
+    }
+  }
+}
+
 type QueryResult<T> = { rows: T[] };
 
-async function resolveEmbeddingSet(db: PGlite, embeddingSetId: string) {
-  const result = (await db.query(
-    `SELECT
-      model_key AS "modelKey",
-      model_id AS "modelId",
-      dimensions,
-      distance
-     FROM embedding_sets
-     WHERE id = $1
-     LIMIT 1`,
-    [embeddingSetId]
-  )) as QueryResult<EmbeddingSetRow>;
+async function resolveEmbeddingSet(db: PGlite, embeddingSetId: string): Promise<EmbeddingSetRow> {
+  let result: QueryResult<EmbeddingSetRow>;
+  try {
+    result = (await db.query(
+      `SELECT
+        model_key AS "modelKey",
+        model_id AS "modelId",
+        dimensions,
+        distance
+       FROM embedding_sets
+       WHERE id = $1
+       LIMIT 1`,
+      [embeddingSetId]
+    )) as QueryResult<EmbeddingSetRow>;
+  } catch (error) {
+    logger.error('Failed to load embedding set metadata', { embeddingSetId, error });
+    throw new Error(ERROR_MESSAGES.embeddingSetLookupFailed);
+  }
   const row = result.rows[0];
   if (!(row?.modelKey && row.modelId && row.dimensions)) {
     throw new Error(ERROR_MESSAGES.invalidEmbeddingSet);
@@ -146,7 +192,7 @@ function createHostedProvider(
   modelId: string,
   dimensions: number,
   apiKey: string
-) {
+): HostedEmbeddingProvider {
   switch (provider) {
     case 'openai':
       return new OpenAIEmbeddingProvider({ modelId, targetDimensions: dimensions, apiKey });
@@ -162,6 +208,7 @@ function createHostedProvider(
 }
 
 async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[]): Promise<string> {
+  assertValidSelectionFilePaths(filePaths);
   await db.query(
     `DELETE FROM selection_snapshots
      WHERE expires_at IS NOT NULL
@@ -178,6 +225,7 @@ async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[])
   if (!snapshotId) {
     throw new Error(ERROR_MESSAGES.retrievalFailed);
   }
+  assertValidSelectionSnapshotId(snapshotId);
   await db.query(
     `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
      SELECT $1, UNNEST($2::text[])`,
@@ -248,12 +296,10 @@ function toContextChunks(
 ): ContextPackerChunk[] {
   return results.map((result) => {
     const fileInfo = fileMap.get(result.chunk.fileRecordId);
-    return {
+    const chunk: ContextPackerChunk = {
       id: result.chunk.id,
       content: result.chunk.content,
-      tokenCount: result.chunk.tokenCount ?? undefined,
-      filePath: fileInfo?.path,
-      fileName: fileInfo?.name,
+      tokenCount: result.chunk.tokenCount ?? null,
       chunkIndex: result.chunk.chunkIndex,
       score: result.similarity,
       metadata: {
@@ -263,7 +309,14 @@ function toContextChunks(
         rank: result.rank,
         fileTokenCount: fileInfo?.tokenCount ?? undefined,
       },
-    } satisfies ContextPackerChunk;
+    };
+    if (fileInfo?.path !== undefined) {
+      chunk.filePath = fileInfo.path;
+    }
+    if (fileInfo?.name !== undefined) {
+      chunk.fileName = fileInfo.name;
+    }
+    return chunk;
   });
 }
 
@@ -272,24 +325,18 @@ async function buildFileRecordMap(
   ids: readonly string[]
 ): Promise<Map<string, FileRecordRow>> {
   const map = new Map<string, FileRecordRow>();
-  for (let start = 0; start < ids.length; start += FILE_RECORD_BATCH_SIZE) {
-    const batch = ids.slice(start, start + FILE_RECORD_BATCH_SIZE);
-    const entries = await Promise.all(
-      batch.map(async (id) => {
-        const record = await repository.findById(id);
-        return [id, record] as const;
-      })
-    );
-    for (const [id, record] of entries) {
-      if (record) {
-        map.set(id, {
-          id: record.id,
-          name: record.name,
-          path: record.path,
-          tokenCount: record.tokenCount ?? null,
-        });
-      }
-    }
+  if (ids.length === 0) {
+    return map;
+  }
+  const uniqueIds = Array.from(new Set(ids));
+  const records = await repository.findByIds(uniqueIds);
+  for (const record of records) {
+    map.set(record.id, {
+      id: record.id,
+      name: record.name,
+      path: record.path,
+      tokenCount: record.tokenCount ?? null,
+    });
   }
   return map;
 }
@@ -355,6 +402,13 @@ async function resolveSelectionState(
   let selectionSnapshotId = selection.snapshotId;
   let filePaths = selection.filePaths;
 
+  if (selectionSnapshotId) {
+    assertValidSelectionSnapshotId(selectionSnapshotId);
+  }
+  if (filePaths) {
+    assertValidSelectionFilePaths(filePaths);
+  }
+
   if (!selectionSnapshotId && filePaths && filePaths.length > MAX_INLINE_FILE_PATHS) {
     selectionSnapshotId = await createSelectionSnapshot(db, filePaths);
     filePaths = undefined;
@@ -376,7 +430,7 @@ async function searchForChunks(
   embeddingSetId: string,
   input: RetrievalContextInput,
   selection: RetrievalSelectionState
-) {
+): Promise<ChunkSearchResult[]> {
   const chunkRepository = new FileChunkRepository(db);
   const limit = input.limit ?? DEFAULT_LIMIT;
   const threshold = input.threshold ?? DEFAULT_THRESHOLD;
@@ -415,11 +469,12 @@ async function packRetrievedContext(
   const fileMap = await buildFileRecordMap(recordRepository, fileIds);
   const chunkInputs = toContextChunks(searchResults, fileMap);
 
-  const packer = new ContextPacker({
+  const packerOptions = {
     budgetTokens: resolveTokenBudget(runtimeData, input.tokenBudget),
-    maxChunks: input.maxChunks,
     estimateTokens: countTokensHeuristic,
-  });
+    ...(input.maxChunks !== undefined ? { maxChunks: input.maxChunks } : {}),
+  };
+  const packer = new ContextPacker(packerOptions);
   const packed = packer.pack(chunkInputs);
   const contextText = formatContext(packed.chunks);
 
@@ -461,7 +516,7 @@ async function runRetrieval(
     remainingTokens: packed.remainingTokens,
     skipped: packed.skipped,
     context: contextText,
-    chunks: packed.chunks,
+    chunks: [...packed.chunks],
     ...(selectionState.selectionSnapshotId
       ? { selectionSnapshotId: selectionState.selectionSnapshotId }
       : {}),

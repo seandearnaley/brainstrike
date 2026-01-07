@@ -1,3 +1,4 @@
+import { countTokensHeuristic } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
@@ -14,11 +15,6 @@ type RankedResult = {
 };
 
 const NOW = new Date(0).toISOString();
-
-function estimateTokenCount(content: string): number {
-  const tokens = content.split(/\s+/).filter(Boolean);
-  return Math.max(tokens.length, 1);
-}
 
 function buildTopFilePaths(
   results: Array<{ chunk: { fileRecordId: string }; similarity: number }>,
@@ -92,7 +88,7 @@ describe('retrieval regression harness', () => {
           chunkIndex: index,
           content: chunk.content,
           contentHash: `hash-${chunk.id}`,
-          tokenCount: estimateTokenCount(chunk.content),
+          tokenCount: countTokensHeuristic(chunk.content),
           chunkType: 'text',
           chunkSize: chunk.content.length,
           embedding: chunk.embedding,
