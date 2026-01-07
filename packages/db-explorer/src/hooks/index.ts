@@ -1,5 +1,11 @@
 export { useAvailableModels, useAvailableProviders } from './use-available-models';
 export { useCollectionDialogs } from './use-collection-dialogs';
+export {
+  type PackedSearchResult,
+  packSearchResults,
+  type UseContextPackerOptions,
+  useContextPacker,
+} from './use-context-packer';
 export { useDatabaseErrorBoundary } from './use-database-error-boundary';
 export { useDocumentCount, useIndexedChunkCount } from './use-document-count';
 export { type EmbeddingSetRow, useEmbeddingSetsData } from './use-embedding-sets-data';
