@@ -16,6 +16,7 @@ import { migration014DimensionHnswIndexes } from './014-dimension-hnsw-indexes.j
 import { migration015ModelRegistry } from './015-model-registry.js';
 import { migration016TokenCache } from './016-token-cache.js';
 import { migration017AddAllowDuplicatesColumn } from './017-add-allow-duplicates-column.js';
+import { migration018SelectionSnapshots } from './018-selection-snapshots.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -38,6 +39,7 @@ export const migrations: Migration[] = [
   migration015ModelRegistry,
   migration016TokenCache,
   migration017AddAllowDuplicatesColumn,
+  migration018SelectionSnapshots,
 ];
 
 // Export base migrations (without chunks table) for test environments

@@ -385,6 +385,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       const deletedChunks = chunksRow?.count || 0;
       await tx.query('DELETE FROM file_chunks');
 
+      try {
+        await tx.query('DELETE FROM selection_snapshot_files');
+        await tx.query('DELETE FROM selection_snapshots');
+      } catch (error) {
+        logger.warn('[DbProvider] Failed to clear selection snapshots:', error);
+      }
+
       // Then clear files
       const filesResult = await tx.query('SELECT COUNT(*) as count FROM file_records');
       const filesRow = filesResult.rows[0] as { count: string | number } | undefined;
@@ -448,6 +455,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await tx.query('DELETE FROM embedding_sets');
     } catch (err) {
       logger.warn('Failed to clear embedding_sets during reset:', err);
+    }
+    try {
+      await tx.query('DELETE FROM selection_snapshot_files');
+      await tx.query('DELETE FROM selection_snapshots');
+    } catch (err) {
+      logger.warn('Failed to clear selection snapshots during reset:', err);
     }
     try {
       await tx.query('DELETE FROM file_chunks');

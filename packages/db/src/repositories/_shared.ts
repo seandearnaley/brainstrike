@@ -11,6 +11,12 @@ export type Queryable = {
 };
 
 /**
+ * Maximum number of file path filters allowed inline for similarity search.
+ * Larger selections should use a snapshot table to avoid huge IN clauses.
+ */
+export const MAX_INLINE_FILE_PATHS = 500;
+
+/**
  * Maximum number of embedding dimension entries to cache.
  * Prevents unbounded memory growth in long-running processes.
  */

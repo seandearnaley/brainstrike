@@ -58,4 +58,8 @@ export type ChunkSearchOptions = {
   fileRecordId?: string;
   chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
   embeddingSetId?: string;
+  /** Optional allowlist of file paths to scope results (relative to project root). */
+  filePaths?: readonly string[];
+  /** Optional snapshot id referencing a persisted selection allowlist. */
+  selectionSnapshotId?: string;
 };

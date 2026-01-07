@@ -325,6 +325,68 @@ describe('DrizzleFileChunkRepository', () => {
       expect(results[0]?.chunk.id).toBe('00000000-0000-0000-0000-000000000010');
       expect(results[0]?.similarity).toBeGreaterThan(results[1]?.similarity ?? 0);
     });
+
+    it('should scope results by file path allowlist and selection snapshot', async () => {
+      const now = new Date().toISOString();
+      const secondFileRecordId = '00000000-0000-0000-0000-000000000002';
+      await fileRecordRepository.create({
+        id: secondFileRecordId,
+        name: 'other.ts',
+        path: '/src/other.ts',
+        size: 2048,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await repository.insert({
+        id: '00000000-0000-0000-0000-000000000020',
+        fileRecordId: testFileRecordId,
+        chunkIndex: 0,
+        content: 'alpha chunk',
+        embedding: [0.9, 0.1, 0.0],
+        embeddingSetId: testEmbeddingSetId,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      await repository.insert({
+        id: '00000000-0000-0000-0000-000000000021',
+        fileRecordId: secondFileRecordId,
+        chunkIndex: 0,
+        content: 'beta chunk',
+        embedding: [0.8, 0.2, 0.0],
+        embeddingSetId: testEmbeddingSetId,
+        createdAt: now,
+        updatedAt: now,
+      });
+
+      const allowlisted = await repository.searchSimilar([1.0, 0.0, 0.0], {
+        embeddingSetId: testEmbeddingSetId,
+        limit: 10,
+        threshold: 0,
+        filePaths: ['/src/test.ts'],
+      });
+      expect(allowlisted.map((r) => r.chunk.id)).toEqual(['00000000-0000-0000-0000-000000000020']);
+
+      await client.query('INSERT INTO selection_snapshots (id, created_at) VALUES ($1, $2)', [
+        'snap-drizzle-1',
+        now,
+      ]);
+      await client.query(
+        'INSERT INTO selection_snapshot_files (snapshot_id, file_path) VALUES ($1, $2)',
+        ['snap-drizzle-1', '/src/other.ts']
+      );
+
+      const snapshotScoped = await repository.searchSimilar([1.0, 0.0, 0.0], {
+        embeddingSetId: testEmbeddingSetId,
+        limit: 10,
+        threshold: 0,
+        selectionSnapshotId: 'snap-drizzle-1',
+      });
+      expect(snapshotScoped.map((r) => r.chunk.id)).toEqual([
+        '00000000-0000-0000-0000-000000000021',
+      ]);
+    });
   });
 
   describe('getStats', () => {

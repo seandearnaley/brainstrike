@@ -10,6 +10,7 @@ import {
   appendColumnIfDefined,
   batchArray,
   createUpdateBuilder,
+  MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
   type UpdateBuilder,
@@ -294,13 +295,30 @@ export class ElectronFileChunkRepository {
     queryEmbedding: number[],
     options: ChunkSearchOptions = {}
   ): Promise<ChunkSearchResult[]> {
-    const { limit = 10, threshold = 0.5, fileRecordId, chunkType, embeddingSetId } = options;
+    const {
+      limit = 10,
+      threshold = 0.5,
+      fileRecordId,
+      chunkType,
+      embeddingSetId,
+      filePaths,
+      selectionSnapshotId,
+    } = options;
 
     if (!embeddingSetId) {
       throw new Error(
         'searchSimilar SQL path requires embeddingSetId to avoid dimension mismatches'
       );
     }
+
+    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
+      throw new Error(
+        `searchSimilar filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
+          'Use selectionSnapshotId for large selections.'
+      );
+    }
+    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     const vectorParam = `[${queryEmbedding.join(',')}]`;
     const params: unknown[] = [vectorParam];
@@ -315,6 +333,13 @@ export class ElectronFileChunkRepository {
       'file_record_id'
     );
     paramIndex = this.appendFilterClause(whereParts, params, paramIndex, chunkType, 'chunk_type');
+    paramIndex = this.appendSelectionFilters(
+      whereParts,
+      params,
+      paramIndex,
+      normalizedFilePaths,
+      normalizedSnapshotId
+    );
     whereParts.push(`embedding_set_id = $${paramIndex}`);
     params.push(embeddingSetId);
     paramIndex += 1;
@@ -523,6 +548,44 @@ export class ElectronFileChunkRepository {
     whereParts.push(`${column} = $${paramIndex}`);
     params.push(value);
     return paramIndex + 1;
+  }
+
+  private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {
+    if (!filePaths || filePaths.length === 0) {
+      return;
+    }
+    const trimmed = filePaths.map((path) => path.trim()).filter((path) => path.length > 0);
+    if (trimmed.length === 0) {
+      return;
+    }
+    return Array.from(new Set(trimmed));
+  }
+
+  private appendSelectionFilters(
+    whereParts: string[],
+    params: unknown[],
+    paramIndex: number,
+    filePaths: readonly string[] | undefined,
+    selectionSnapshotId: string | undefined
+  ): number {
+    let nextIndex = paramIndex;
+    if (selectionSnapshotId) {
+      whereParts.push(
+        `EXISTS (\n          SELECT 1\n          FROM selection_snapshot_files ssf\n          JOIN file_records fr ON fr.path = ssf.file_path\n          WHERE ssf.snapshot_id = $${nextIndex}\n            AND fr.id = file_chunks.file_record_id\n        )`
+      );
+      params.push(selectionSnapshotId);
+      nextIndex += 1;
+    }
+
+    if (filePaths && filePaths.length > 0) {
+      whereParts.push(
+        `file_record_id IN (\n          SELECT id FROM file_records\n          WHERE path = ANY($${nextIndex}::text[])\n        )`
+      );
+      params.push(filePaths);
+      nextIndex += 1;
+    }
+
+    return nextIndex;
   }
 
   private async resolveDistanceConfig(

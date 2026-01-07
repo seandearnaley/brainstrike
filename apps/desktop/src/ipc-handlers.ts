@@ -464,6 +464,10 @@ export function registerIpcHandlers(
 
           // Clear chunks first due to foreign key constraints
           await tx.query('DELETE FROM file_chunks');
+          try {
+            await tx.query('DELETE FROM selection_snapshot_files');
+            await tx.query('DELETE FROM selection_snapshots');
+          } catch {}
           await tx.query('DELETE FROM file_records');
           // Clear embedding sets and any queued jobs
           try {

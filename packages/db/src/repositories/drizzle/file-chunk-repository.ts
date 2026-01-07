@@ -8,7 +8,7 @@
  * since pgvector operators aren't natively supported by the query builder.
  */
 
-import { count, eq, sql } from 'drizzle-orm';
+import { count, eq, inArray, sql } from 'drizzle-orm';
 import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import type {
   ChunkSearchOptions,
@@ -17,7 +17,13 @@ import type {
   FileChunkInsert,
   FileChunkUpdate,
 } from '../../models/file-chunk.js';
-import { embeddingSets, fileChunks } from '../../schema/index.js';
+import {
+  embeddingSets,
+  fileChunks,
+  fileRecords,
+  selectionSnapshotFiles,
+} from '../../schema/index.js';
+import { MAX_INLINE_FILE_PATHS } from '../_shared.js';
 
 type DrizzleDb = PgliteDatabase;
 
@@ -292,7 +298,15 @@ export class DrizzleFileChunkRepository {
     queryEmbedding: number[],
     options: ChunkSearchOptions = {}
   ): Promise<ChunkSearchResult[]> {
-    const { limit = 10, threshold = 0.5, fileRecordId, chunkType, embeddingSetId } = options;
+    const {
+      limit = 10,
+      threshold = 0.5,
+      fileRecordId,
+      chunkType,
+      embeddingSetId,
+      filePaths,
+      selectionSnapshotId,
+    } = options;
 
     // Validate limit to prevent memory exhaustion from excessive requests
     if (limit > MAX_USER_LIMIT) {
@@ -305,6 +319,15 @@ export class DrizzleFileChunkRepository {
     if (!embeddingSetId) {
       throw new Error('searchSimilar requires embeddingSetId to avoid dimension mismatches');
     }
+
+    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
+      throw new Error(
+        `searchSimilar filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
+          'Use selectionSnapshotId for large selections.'
+      );
+    }
+    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     // Get embedding set config
     const [setRow] = await this.db
@@ -361,6 +384,27 @@ export class DrizzleFileChunkRepository {
     if (chunkType) {
       baseQuery = sql`${baseQuery} AND chunk_type = ${chunkType}`;
     }
+    if (normalizedSnapshotId) {
+      baseQuery = sql`${baseQuery} AND EXISTS (
+        SELECT 1
+        FROM ${selectionSnapshotFiles}
+        JOIN ${fileRecords} ON ${fileRecords.path} = ${selectionSnapshotFiles.filePath}
+        WHERE ${selectionSnapshotFiles.snapshotId} = ${normalizedSnapshotId}
+          AND ${fileRecords.id} = ${fileChunks.fileRecordId}
+      )`;
+    }
+
+    if (normalizedFilePaths && normalizedFilePaths.length > 0) {
+      const rows = await this.db
+        .select({ id: fileRecords.id })
+        .from(fileRecords)
+        .where(inArray(fileRecords.path, normalizedFilePaths));
+      const fileRecordIds = rows.map((row) => row.id).filter(Boolean);
+      if (fileRecordIds.length === 0) {
+        return [];
+      }
+      baseQuery = sql`${baseQuery} AND ${inArray(fileChunks.fileRecordId, fileRecordIds)}`;
+    }
 
     baseQuery = sql`${baseQuery}
       ORDER BY ${sql.raw(orderExpr.replace(/\$1/g, `'${vectorLiteral}'`))}
@@ -379,6 +423,17 @@ export class DrizzleFileChunkRepository {
     return mapped
       .filter((r) => Number.isFinite(r.similarity) && r.similarity >= threshold)
       .slice(0, limit);
+  }
+
+  private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {
+    if (!filePaths || filePaths.length === 0) {
+      return;
+    }
+    const trimmed = filePaths.map((path) => path.trim()).filter((path) => path.length > 0);
+    if (trimmed.length === 0) {
+      return;
+    }
+    return Array.from(new Set(trimmed));
   }
 
   async getStats(): Promise<{
