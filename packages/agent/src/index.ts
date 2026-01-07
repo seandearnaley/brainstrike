@@ -340,6 +340,13 @@ export async function toAiSdkStyleStream(
 
   return streamMastraAgent(messages, options);
 }
+export {
+  ContextPacker,
+  type ContextPackerChunk,
+  type ContextPackerOptions,
+  type ContextPackerResult,
+  type PackedContextChunk,
+} from './context-packer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';
 export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';
