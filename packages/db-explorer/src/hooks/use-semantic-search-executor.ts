@@ -287,12 +287,18 @@ export function useSemanticSearchExecutor({
       const { embedding } = await embedder.embedQuery(query);
       logger.info('Query embedding generated', { embeddingLength: embedding.length });
 
-      // Search for similar chunks
-      logger.info('Searching for similar chunks...');
+      // Search for similar chunks with optional retrieval filters (BST-172)
+      logger.info('Searching for similar chunks...', {
+        hasFilePaths: Boolean(config.filePaths?.length),
+        hasSnapshotId: Boolean(config.selectionSnapshotId),
+      });
       const searchResults = await chunkRepository.searchSimilar(embedding, {
         limit: config.resultLimit,
         threshold: config.threshold,
         embeddingSetId,
+        // Pass through retrieval filters if provided
+        ...(config.filePaths?.length ? { filePaths: config.filePaths } : {}),
+        ...(config.selectionSnapshotId ? { selectionSnapshotId: config.selectionSnapshotId } : {}),
       });
       logger.info('Search completed', { resultCount: searchResults.length });
 

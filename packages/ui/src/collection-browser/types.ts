@@ -217,6 +217,18 @@ export type SearchConfig = {
   resultLimit: number;
   /** Distance metric for similarity calculation */
   distanceMetric: DistanceMetric;
+  /**
+   * Optional allowlist of file paths to scope search results.
+   * When provided, only chunks from files matching these paths are returned.
+   * Use for selection-based search (e.g., "search within selected files").
+   */
+  filePaths?: readonly string[];
+  /**
+   * Optional snapshot ID referencing a persisted selection allowlist.
+   * Use when file path list exceeds inline limits (~500 paths).
+   * Takes precedence over filePaths if both are provided.
+   */
+  selectionSnapshotId?: string;
 };
 
 /**
