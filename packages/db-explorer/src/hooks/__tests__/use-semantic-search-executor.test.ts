@@ -349,7 +349,9 @@ describe('useSemanticSearchExecutor', () => {
       );
     });
 
-    it('passes both filePaths and selectionSnapshotId when both provided', async () => {
+    it('prefers selectionSnapshotId over filePaths when both provided (BST-175)', async () => {
+      // When selectionSnapshotId is present, filePaths should be dropped to avoid
+      // MAX_INLINE_FILE_PATHS (500) limit - the snapshot already contains the selection
       const chunk = createMockChunk('chunk-1', 'file-1');
       const chunkRepo = createMockChunkRepository([chunk]);
       const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
@@ -369,12 +371,19 @@ describe('useSemanticSearchExecutor', () => {
         'set-1'
       );
 
+      // Should only pass selectionSnapshotId, not filePaths
       expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
         expect.any(Array),
         expect.objectContaining({
-          filePaths,
           selectionSnapshotId,
           embeddingSetId: 'set-1',
+        })
+      );
+      // Verify filePaths was NOT passed
+      expect(chunkRepo.searchSimilar).not.toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({
+          filePaths: expect.anything(),
         })
       );
     });

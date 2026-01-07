@@ -23,6 +23,9 @@ const DEFAULT_LIMIT = 20;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;
 
+/** Estimated characters per token for heuristic token counting */
+const CHARS_PER_TOKEN_ESTIMATE = 4;
+
 /**
  * Safe error messages that can be shown to users without leaking internal details.
  */
@@ -164,10 +167,35 @@ export type RetrievalToolDependencies = {
 };
 
 /**
- * Default token estimation heuristic (4 chars per token).
+ * Default token estimation heuristic based on average chars per token.
  */
 function defaultEstimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
+}
+
+/**
+ * Type guard to check if running in a Node.js-like environment.
+ * Uses proper type narrowing instead of type assertions.
+ */
+function isNodeEnvironment(): boolean {
+  // Check for Node.js process global with env property
+  return (
+    typeof process !== 'undefined' &&
+    process !== null &&
+    typeof process.env === 'object' &&
+    process.env !== null
+  );
+}
+
+/**
+ * Type guard to check if running in development mode.
+ * Safe for both Node.js and browser environments.
+ */
+function isDevelopmentMode(): boolean {
+  if (!isNodeEnvironment()) {
+    return false;
+  }
+  return process.env['NODE_ENV'] === 'development';
 }
 
 /**
@@ -297,13 +325,8 @@ function handleRetrievalError(error: unknown, logger?: RetrievalToolDependencies
     throw new Error(message);
   }
   logger?.error('Retrieval tool failed', { error });
-  // Check for development mode via process.env (type assertion avoids naming lint)
-  type ProcessEnv = { process?: { env?: Record<string, string | undefined> } };
-  const isDev =
-    typeof globalThis !== 'undefined' &&
-    'process' in globalThis &&
-    (globalThis as ProcessEnv).process?.env?.['NODE_ENV'] === 'development';
-  if (isDev) {
+  // Expose stack trace in development mode for debugging
+  if (isDevelopmentMode()) {
     const debugMessage =
       error instanceof Error ? (error.stack ?? error.message) : String(error ?? 'Unknown error');
     throw new Error(`${RETRIEVAL_ERROR_MESSAGES.retrievalFailed} [Debug: ${debugMessage}]`);
