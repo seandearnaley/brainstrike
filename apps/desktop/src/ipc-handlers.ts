@@ -102,6 +102,18 @@ async function handleLiveQueryRefreshError(
   };
 }
 
+function isMissingRelationError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+  const code = (error as { code?: string }).code;
+  if (code === '42P01') {
+    return true;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('relation') && message.includes('does not exist');
+}
+
 type LiveQueryPayload = {
   query: string;
   params?: readonly unknown[];
@@ -467,7 +479,11 @@ export function registerIpcHandlers(
           try {
             await tx.query('DELETE FROM selection_snapshot_files');
             await tx.query('DELETE FROM selection_snapshots');
-          } catch {}
+          } catch (error) {
+            if (!isMissingRelationError(error)) {
+              logger.warn('Failed to clear selection snapshots', { error });
+            }
+          }
           await tx.query('DELETE FROM file_records');
           // Clear embedding sets and any queued jobs
           try {

@@ -39,6 +39,9 @@ export type ContextPackerResult = {
   skipped: number;
 };
 
+/**
+ * Options for configuring how context is packed into the budget.
+ */
 export type ContextPackerOptions = {
   budgetTokens: number;
   maxChunks?: number;
@@ -128,6 +131,9 @@ function buildPackedChunk(
   return packed;
 }
 
+/**
+ * Pack candidate context chunks into a token budget while preserving order and metadata.
+ */
 export class ContextPacker {
   private readonly budgetTokens: number;
   private readonly maxChunks: number | undefined;
@@ -140,6 +146,9 @@ export class ContextPacker {
     this.estimateTokens = options.estimateTokens ?? countTokensHeuristic;
   }
 
+  /**
+   * Select chunks that fit within the configured budget and max chunk limit.
+   */
   pack(chunks: readonly ContextPackerChunk[]): ContextPackerResult {
     const packed: PackedContextChunk[] = [];
     let totalTokens = 0;

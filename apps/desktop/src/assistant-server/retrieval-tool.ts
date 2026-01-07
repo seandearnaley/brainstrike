@@ -30,6 +30,7 @@ const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;
 const MAX_INLINE_FILE_PATHS = 500;
 const SNAPSHOT_TTL_MS = 1000 * 60 * 60; // 1 hour
+const FILE_RECORD_BATCH_SIZE = 50;
 
 const ERROR_MESSAGES = {
   missingEmbeddingSet: 'Select an active embedding set to enable retrieval.',
@@ -161,6 +162,11 @@ function createHostedProvider(
 }
 
 async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[]): Promise<string> {
+  await db.query(
+    `DELETE FROM selection_snapshots
+     WHERE expires_at IS NOT NULL
+       AND expires_at <= NOW()`
+  );
   const expiresAt = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
   const snapshotResult = (await db.query(
     `INSERT INTO selection_snapshots (expires_at)
@@ -265,21 +271,24 @@ async function buildFileRecordMap(
   repository: FileRecordRepository,
   ids: readonly string[]
 ): Promise<Map<string, FileRecordRow>> {
-  const entries = await Promise.all(
-    ids.map(async (id) => {
-      const record = await repository.findById(id);
-      return [id, record] as const;
-    })
-  );
   const map = new Map<string, FileRecordRow>();
-  for (const [id, record] of entries) {
-    if (record) {
-      map.set(id, {
-        id: record.id,
-        name: record.name,
-        path: record.path,
-        tokenCount: record.tokenCount ?? null,
-      });
+  for (let start = 0; start < ids.length; start += FILE_RECORD_BATCH_SIZE) {
+    const batch = ids.slice(start, start + FILE_RECORD_BATCH_SIZE);
+    const entries = await Promise.all(
+      batch.map(async (id) => {
+        const record = await repository.findById(id);
+        return [id, record] as const;
+      })
+    );
+    for (const [id, record] of entries) {
+      if (record) {
+        map.set(id, {
+          id: record.id,
+          name: record.name,
+          path: record.path,
+          tokenCount: record.tokenCount ?? null,
+        });
+      }
     }
   }
   return map;

@@ -570,7 +570,7 @@ export class FileChunkRepository {
     let nextIndex = paramIndex;
     if (selectionSnapshotId) {
       whereParts.push(
-        `EXISTS (\n          SELECT 1\n          FROM selection_snapshot_files ssf\n          JOIN file_records fr ON fr.path = ssf.file_path\n          WHERE ssf.snapshot_id = $${nextIndex}\n            AND fr.id = file_chunks.file_record_id\n        )`
+        `EXISTS (\n          SELECT 1\n          FROM selection_snapshot_files ssf\n          JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id\n          JOIN file_records fr ON fr.path = ssf.file_path\n          WHERE ssf.snapshot_id = $${nextIndex}\n            AND (ss.expires_at IS NULL OR ss.expires_at > NOW())\n            AND fr.id = file_chunks.file_record_id\n        )`
       );
       params.push(selectionSnapshotId);
       nextIndex += 1;

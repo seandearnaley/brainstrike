@@ -52,7 +52,7 @@ export async function launchElectronApp(
 
   // Retry configuration for CI stability
   // Electron can hang silently in CI due to Xvfb/display timing issues
-  const maxAttempts = process.env['CI'] ? 3 : 2;
+  const maxAttempts = process.env['CI'] ? 3 : 1;
   const firstWindowTimeout = process.env['CI'] ? 30_000 : 60_000;
   const launchTimeoutMs = process.env['CI'] ? 150_000 : 60_000;
 

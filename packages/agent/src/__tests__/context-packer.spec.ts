@@ -1,3 +1,4 @@
+import { countTokensHeuristic } from '@brainstrike/utils';
 import { describe, expect, it } from 'vitest';
 import { ContextPacker, type ContextPackerChunk } from '../context-packer';
 
@@ -20,11 +21,12 @@ describe('ContextPacker', () => {
 
   it('falls back to heuristic token estimates when missing', () => {
     const packer = new ContextPacker({ budgetTokens: 10 });
-    const chunks: ContextPackerChunk[] = [{ id: 'a', content: '12345678' }];
+    const content = '12345678';
+    const chunks: ContextPackerChunk[] = [{ id: 'a', content }];
 
     const result = packer.pack(chunks);
 
-    expect(result.chunks[0]?.tokenCount).toBe(2);
+    expect(result.chunks[0]?.tokenCount).toBe(countTokensHeuristic(content));
   });
 
   it('preserves citation metadata and assigns ranks', () => {
