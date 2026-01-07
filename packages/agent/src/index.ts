@@ -251,6 +251,16 @@ export type RuntimeData = {
   provider?: 'openai' | 'anthropic' | 'google' | 'openrouter' | string;
   /** Model name to use. Uses provider-specific default if not specified. */
   model?: string;
+  /** Active embedding set ID for retrieval tools. */
+  embeddingSetId?: string;
+  /** Optional selection file paths (relative to project root). */
+  selectionFilePaths?: readonly string[];
+  /** Optional selection snapshot id to scope retrieval. */
+  selectionSnapshotId?: string;
+  /** Optional folder id for selection/token cache resolution. */
+  selectionFolderId?: string;
+  /** Optional token budget override for context packing. */
+  tokenBudget?: number;
   mcpEnabled?: boolean;
   signal?: AbortSignal;
   // Optional tool dispatcher provided by host (desktop main via IPC)
@@ -314,6 +324,8 @@ export {
   type FilesystemListInput,
   type FilesystemReadInput,
   type FilesystemSearchInput,
+  type RetrievalContextInput,
+  RetrievalContextInputSchema,
   validateToolInput,
   type WebDocSummaryInput,
   type WebSearchDocsInput,
@@ -340,6 +352,13 @@ export async function toAiSdkStyleStream(
 
   return streamMastraAgent(messages, options);
 }
+export {
+  ContextPacker,
+  type ContextPackerChunk,
+  type ContextPackerOptions,
+  type ContextPackerResult,
+  type PackedContextChunk,
+} from './context-packer';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';
 export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';

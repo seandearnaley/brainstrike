@@ -126,6 +126,35 @@ export const fileChunks = pgTable(
 );
 
 // ============================================================================
+// SELECTION SNAPSHOTS TABLES
+// ============================================================================
+
+export const selectionSnapshots = pgTable(
+  'selection_snapshots',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+  },
+  (table) => [index('idx_selection_snapshots_created_at').on(table.createdAt)]
+);
+
+export const selectionSnapshotFiles = pgTable(
+  'selection_snapshot_files',
+  {
+    snapshotId: uuid('snapshot_id')
+      .notNull()
+      .references(() => selectionSnapshots.id, { onDelete: 'cascade' }),
+    filePath: text('file_path').notNull(),
+  },
+  (table) => [
+    index('idx_selection_snapshot_files_snapshot_id').on(table.snapshotId),
+    index('idx_selection_snapshot_files_file_path').on(table.filePath),
+    uniqueIndex('idx_selection_snapshot_files_unique').on(table.snapshotId, table.filePath),
+  ]
+);
+
+// ============================================================================
 // EMBEDDING SETS TABLE
 // ============================================================================
 
@@ -299,6 +328,12 @@ export type NewFileRecord = typeof fileRecords.$inferInsert;
 
 export type FileChunk = typeof fileChunks.$inferSelect;
 export type NewFileChunk = typeof fileChunks.$inferInsert;
+
+export type SelectionSnapshot = typeof selectionSnapshots.$inferSelect;
+export type NewSelectionSnapshot = typeof selectionSnapshots.$inferInsert;
+
+export type SelectionSnapshotFile = typeof selectionSnapshotFiles.$inferSelect;
+export type NewSelectionSnapshotFile = typeof selectionSnapshotFiles.$inferInsert;
 
 export type EmbeddingSet = typeof embeddingSets.$inferSelect;
 export type NewEmbeddingSet = typeof embeddingSets.$inferInsert;

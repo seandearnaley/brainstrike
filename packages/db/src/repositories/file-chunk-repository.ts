@@ -11,6 +11,7 @@ import {
   appendColumnIfDefined,
   batchArray,
   createUpdateBuilder,
+  MAX_INLINE_FILE_PATHS,
   parseEmbeddingLoose,
   type Queryable,
   type UpdateBuilder,
@@ -296,7 +297,15 @@ export class FileChunkRepository {
     queryEmbedding: number[],
     options: ChunkSearchOptions = {}
   ): Promise<ChunkSearchResult[]> {
-    const { limit = 10, threshold = 0.5, fileRecordId, chunkType, embeddingSetId } = options;
+    const {
+      limit = 10,
+      threshold = 0.5,
+      fileRecordId,
+      chunkType,
+      embeddingSetId,
+      filePaths,
+      selectionSnapshotId,
+    } = options;
 
     // Enforce set scoping to avoid dimension mismatch hazards with pgvector
     if (!embeddingSetId) {
@@ -304,6 +313,15 @@ export class FileChunkRepository {
         'searchSimilar SQL path requires embeddingSetId to avoid dimension mismatches'
       );
     }
+
+    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
+      throw new Error(
+        `searchSimilar filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
+          'Use selectionSnapshotId for large selections.'
+      );
+    }
+    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
 
     // Resolve distance config and get dimension for index matching
     const { similarityExpr, orderExpr, dimension } = await this.resolveDistanceConfig(
@@ -330,6 +348,13 @@ export class FileChunkRepository {
       'file_record_id'
     );
     paramIndex = this.appendFilterClause(whereParts, params, paramIndex, chunkType, 'chunk_type');
+    paramIndex = this.appendSelectionFilters(
+      whereParts,
+      params,
+      paramIndex,
+      normalizedFilePaths,
+      normalizedSnapshotId
+    );
     whereParts.push(`embedding_set_id = $${paramIndex}`);
     params.push(embeddingSetId);
     paramIndex += 1;
@@ -344,7 +369,10 @@ export class FileChunkRepository {
       const rawEf = Number(envObj?.['HNSW_EF_SEARCH'] ?? '0');
       // Clamp to a reasonable range to avoid pathological settings
       const ef = Number.isFinite(rawEf) ? Math.max(1, Math.min(Math.floor(rawEf), 2000)) : 60;
-      await this.db.query(`SET LOCAL hnsw.ef_search = ${ef}`);
+      if (!Number.isSafeInteger(ef)) {
+        throw new Error('Invalid HNSW ef_search value');
+      }
+      await this.db.query('SET LOCAL hnsw.ef_search = $1', [ef]);
     } catch {
       // ignored: tuning is best-effort
     }
@@ -357,7 +385,10 @@ export class FileChunkRepository {
       const rawProbes = Number(envObj?.['IVFFLAT_PROBES'] ?? '0');
       if (Number.isFinite(rawProbes) && rawProbes > 0) {
         const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10_000));
-        await this.db.query(`SET LOCAL ivfflat.probes = ${probes}`);
+        if (!Number.isSafeInteger(probes)) {
+          throw new Error('Invalid IVFFLAT probes value');
+        }
+        await this.db.query('SET LOCAL ivfflat.probes = $1', [probes]);
       }
     } catch {
       // ignored: tuning is best-effort
@@ -522,6 +553,44 @@ export class FileChunkRepository {
     whereParts.push(`${column} = $${paramIndex}`);
     params.push(value);
     return paramIndex + 1;
+  }
+
+  private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {
+    if (!filePaths || filePaths.length === 0) {
+      return;
+    }
+    const trimmed = filePaths.map((path) => path.trim()).filter((path) => path.length > 0);
+    if (trimmed.length === 0) {
+      return;
+    }
+    return Array.from(new Set(trimmed));
+  }
+
+  private appendSelectionFilters(
+    whereParts: string[],
+    params: unknown[],
+    paramIndex: number,
+    filePaths: readonly string[] | undefined,
+    selectionSnapshotId: string | undefined
+  ): number {
+    let nextIndex = paramIndex;
+    if (selectionSnapshotId) {
+      whereParts.push(
+        `EXISTS (\n          SELECT 1\n          FROM selection_snapshot_files ssf\n          JOIN selection_snapshots ss ON ss.id = ssf.snapshot_id\n          JOIN file_records fr ON fr.path = ssf.file_path\n          WHERE ssf.snapshot_id = $${nextIndex}\n            AND (ss.expires_at IS NULL OR ss.expires_at > NOW())\n            AND fr.id = file_chunks.file_record_id\n        )`
+      );
+      params.push(selectionSnapshotId);
+      nextIndex += 1;
+    }
+
+    if (filePaths && filePaths.length > 0) {
+      whereParts.push(
+        `file_record_id IN (\n          SELECT id FROM file_records\n          WHERE path = ANY($${nextIndex}::text[])\n        )`
+      );
+      params.push(filePaths);
+      nextIndex += 1;
+    }
+
+    return nextIndex;
   }
 
   private async resolveDistanceConfig(

@@ -8,13 +8,15 @@ import {
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
 } from '@brainstrike/agent/client';
-import { useAssistantPreferencesStore } from '@brainstrike/preferences';
+import { useFileExplorerStoreContext, useSelectionManager } from '@brainstrike/file-explorer-ui';
+import { useAssistantPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import {
   AssistantUiPanel,
   type ModelPickerModel,
   type ModelPickerProvider,
   type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
+import { decodeFileSelection } from '@brainstrike/utils';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 export type AssistantUiPanelWrapperProps = {
@@ -45,6 +47,56 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   } = useAssistantPreferencesStore();
 
   const selectedProvider = getSelectedProvider();
+  const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
+  const store = useFileExplorerStoreContext();
+  const [tokenBudget, currentFolderId] = store((s) => [s.tokenBudget, s.currentFolderId] as const);
+  const handleSelectionLimitExceeded = useCallback(() => {}, []);
+  const { effectiveSelection } = useSelectionManager({
+    onSelectionLimitExceeded: handleSelectionLimitExceeded,
+  });
+
+  const selectionData = useMemo(() => {
+    const filePaths = new Set<string>();
+    const folderIds = new Set<string>();
+    for (const compositeKey of effectiveSelection) {
+      try {
+        const decoded = decodeFileSelection(compositeKey);
+        filePaths.add(decoded.path);
+        folderIds.add(decoded.folderId);
+      } catch {
+        // Ignore invalid selection keys
+      }
+    }
+
+    const resolvedFolderId =
+      folderIds.size === 1
+        ? Array.from(folderIds)[0]
+        : folderIds.size === 0
+          ? (currentFolderId ?? undefined)
+          : undefined;
+
+    return {
+      filePaths: Array.from(filePaths),
+      folderId: resolvedFolderId,
+    };
+  }, [effectiveSelection, currentFolderId]);
+
+  const requestData = useMemo(() => {
+    const data: Record<string, unknown> = {};
+    if (activeEmbeddingSetId) {
+      data['embeddingSetId'] = activeEmbeddingSetId;
+    }
+    if (selectionData.filePaths.length > 0) {
+      data['selectionFilePaths'] = selectionData.filePaths;
+    }
+    if (selectionData.folderId) {
+      data['selectionFolderId'] = selectionData.folderId;
+    }
+    if (typeof tokenBudget === 'number') {
+      data['tokenBudget'] = tokenBudget;
+    }
+    return data;
+  }, [activeEmbeddingSetId, selectionData, tokenBudget]);
 
   const providerHasEnabledModels = useCallback(
     (provider: SupportedProvider) => (enabledModelsByProvider[provider] ?? []).length > 0,
@@ -277,6 +329,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       providerGroups={providerGroups}
+      requestData={requestData}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}
       disabled={!isProviderReady}

@@ -1,0 +1,370 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const {
+  dbQueryMock,
+  embedMock,
+  findByIdsMock,
+  getDatabaseMock,
+  getKeyMock,
+  loggerError,
+  loggerWarn,
+  resolveHostedProviderApiKeyMock,
+  searchSimilarMock,
+} = vi.hoisted(() => ({
+  dbQueryMock: vi.fn(),
+  embedMock: vi.fn(),
+  findByIdsMock: vi.fn(),
+  getDatabaseMock: vi.fn(),
+  getKeyMock: vi.fn(),
+  loggerError: vi.fn(),
+  loggerWarn: vi.fn(),
+  resolveHostedProviderApiKeyMock: vi.fn(),
+  searchSimilarMock: vi.fn(),
+}));
+
+vi.mock('@brainstrike/agent', () => {
+  class MockContextPacker {
+    private readonly budgetTokens: number;
+
+    constructor(options: { budgetTokens: number }) {
+      this.budgetTokens = options.budgetTokens;
+    }
+
+    pack(
+      chunks: Array<{
+        content: string;
+        fileName?: string;
+        filePath?: string;
+        chunkIndex?: number;
+      }>
+    ) {
+      const totalTokens = chunks.length;
+      return {
+        totalTokens,
+        budget: this.budgetTokens,
+        remainingTokens: Math.max(this.budgetTokens - totalTokens, 0),
+        skipped: 0,
+        chunks,
+      };
+    }
+  }
+
+  return {
+    ContextPacker: MockContextPacker,
+    RetrievalContextInputSchema: {
+      parse: (input: unknown) => input,
+    },
+  };
+});
+
+vi.mock('@brainstrike/db', () => ({
+  FileChunkRepository: class {
+    searchSimilar(
+      embedding: number[],
+      options: {
+        limit: number;
+        threshold: number;
+        embeddingSetId: string;
+        filePaths?: string[];
+        selectionSnapshotId?: string;
+      }
+    ) {
+      return searchSimilarMock(embedding, options);
+    }
+  },
+  FileRecordRepository: class {
+    findByIds(ids: readonly string[]) {
+      return findByIdsMock(ids);
+    }
+  },
+}));
+
+vi.mock('@brainstrike/embeddings', () => ({
+  CohereEmbeddingProvider: class {
+    embed() {
+      return embedMock();
+    }
+  },
+  GoogleEmbeddingProvider: class {
+    embed() {
+      return embedMock();
+    }
+  },
+  OpenAIEmbeddingProvider: class {
+    embed() {
+      return embedMock();
+    }
+  },
+  VoyageEmbeddingProvider: class {
+    embed() {
+      return embedMock();
+    }
+  },
+  isHostedProvider: (provider: string) =>
+    ['openai', 'google', 'cohere', 'voyage'].includes(provider),
+  parseProviderModelKey: (modelKey: string) => ({ provider: modelKey.split(':')[0] }),
+  resolveHostedProviderApiKey: resolveHostedProviderApiKeyMock,
+}));
+
+vi.mock('@brainstrike/utils', () => ({
+  countTokensHeuristic: (value: string) => value.length,
+  createLogger: () => ({
+    warn: loggerWarn,
+    error: loggerError,
+    info: vi.fn(),
+    debug: vi.fn(),
+  }),
+}));
+
+vi.mock('../../db-main', () => ({
+  getDatabase: getDatabaseMock,
+}));
+
+vi.mock('../../secrets', () => ({
+  getSecretsService: () => ({
+    getKey: getKeyMock,
+  }),
+}));
+
+import { createRetrievalTool } from '../../assistant-server/retrieval-tool';
+
+describe('retrieval-tool', () => {
+  const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getKeyMock.mockResolvedValue('test-api-key');
+    resolveHostedProviderApiKeyMock.mockResolvedValue('fallback-api-key');
+    embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25, 0.5] } });
+    findByIdsMock.mockResolvedValue([
+      {
+        id: 'file-1',
+        name: 'file.ts',
+        path: '/repo/file.ts',
+        tokenCount: 42,
+        size: 123,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
+    searchSimilarMock.mockResolvedValue([
+      {
+        chunk: {
+          id: 'chunk-1',
+          content: 'Hello world',
+          tokenCount: 4,
+          chunkIndex: 0,
+          chunkType: 'code',
+          fileRecordId: 'file-1',
+          embeddingSetId: 'set-1',
+        },
+        similarity: 0.9,
+        rank: 1,
+      },
+    ]);
+
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'openai:text-embedding-3-small',
+              modelId: 'text-embedding-3-small',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      if (sql.includes('INSERT INTO selection_snapshots')) {
+        return { rows: [{ id: snapshotId }] };
+      }
+      return { rows: [] };
+    });
+
+    getDatabaseMock.mockResolvedValue({ query: dbQueryMock });
+  });
+
+  it('retrieves and packs context with inline file paths', async () => {
+    const tool = createRetrievalTool({
+      embeddingSetId: 'set-1',
+      tokenBudget: 10,
+      selectionFilePaths: ['/repo/file.ts'],
+    });
+
+    const result = await tool.execute({
+      context: {
+        query: '  Hello  ',
+        embeddingSetId: 'set-1',
+        filePaths: ['/repo/file.ts'],
+      },
+    });
+
+    expect(result.query).toBe('Hello');
+    expect(result.embeddingSetId).toBe('set-1');
+    expect(result.limit).toBe(20);
+    expect(result.threshold).toBe(0.3);
+    expect(result.totalTokens).toBe(1);
+    expect(result.context).toContain('Source 1: /repo/file.ts (chunk 0)');
+    expect(result.context).toContain('Hello world');
+    expect(result.selectionSnapshotId).toBeUndefined();
+
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'set-1',
+      filePaths: ['/repo/file.ts'],
+    });
+    expect(loggerWarn).not.toHaveBeenCalledWith('Embedding dimension mismatch', expect.anything());
+  });
+
+  it('creates a selection snapshot when file paths exceed limit', async () => {
+    getKeyMock.mockResolvedValue(undefined);
+    const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
+
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const result = await tool.execute({
+      context: {
+        query: 'query',
+        embeddingSetId: 'set-1',
+        filePaths,
+      },
+    });
+
+    expect(result.selectionSnapshotId).toBe(snapshotId);
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
+      limit: 20,
+      threshold: 0.3,
+      embeddingSetId: 'set-1',
+      selectionSnapshotId: snapshotId,
+    });
+    expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('openai');
+  });
+
+  it('rejects when embedding dimensions do not match active set', async () => {
+    embedMock.mockResolvedValueOnce({ ok: true, value: { embedding: [0.25] } });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({
+        context: { query: 'hello', embeddingSetId: 'set-1' },
+      })
+    ).rejects.toThrow('Embedding dimensions do not match the active set.');
+
+    expect(loggerWarn).toHaveBeenCalledWith('Embedding dimension mismatch', {
+      expected: 2,
+      actual: 1,
+    });
+  });
+
+  it('returns empty context when no chunks are found', async () => {
+    searchSimilarMock.mockResolvedValueOnce([]);
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    const result = await tool.execute({
+      context: { query: 'hello', embeddingSetId: 'set-1' },
+    });
+
+    expect(result.context).toBe('');
+    expect(result.chunks).toEqual([]);
+    expect(result.totalTokens).toBe(0);
+  });
+
+  it('continues when snapshot cleanup fails', async () => {
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('DELETE FROM selection_snapshots')) {
+        throw new Error('cleanup failed');
+      }
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'openai:text-embedding-3-small',
+              modelId: 'text-embedding-3-small',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      if (sql.includes('INSERT INTO selection_snapshots')) {
+        return { rows: [{ id: snapshotId }] };
+      }
+      return { rows: [] };
+    });
+
+    const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    const result = await tool.execute({
+      context: {
+        query: 'query',
+        embeddingSetId: 'set-1',
+        filePaths,
+      },
+    });
+
+    expect(result.selectionSnapshotId).toBe(snapshotId);
+  });
+
+  it('rejects invalid selection snapshot ids', async () => {
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({
+        context: {
+          query: 'hello',
+          embeddingSetId: 'set-1',
+          selectionSnapshotId: 'not-a-uuid',
+        },
+      })
+    ).rejects.toThrow('Selection snapshot reference is invalid.');
+  });
+
+  it('rejects oversized selection file path lists', async () => {
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const filePaths = Array.from({ length: 5001 }, (_, index) => `file-${index}.ts`);
+
+    await expect(
+      tool.execute({
+        context: {
+          query: 'hello',
+          embeddingSetId: 'set-1',
+          filePaths,
+        },
+      })
+    ).rejects.toThrow('Selection exceeds retrieval limits.');
+  });
+
+  it('surfaces safe errors when embedding set lookup fails', async () => {
+    dbQueryMock.mockRejectedValueOnce(new Error('db exploded'));
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({
+        context: { query: 'hello', embeddingSetId: 'set-1' },
+      })
+    ).rejects.toThrow('Unable to load embedding set metadata.');
+  });
+
+  it('surfaces safe errors for missing embedding set', async () => {
+    const tool = createRetrievalTool(undefined);
+
+    await expect(
+      tool.execute({
+        context: { query: 'hello' },
+      })
+    ).rejects.toThrow('Select an active embedding set to enable retrieval.');
+  });
+
+  it('sanitizes unexpected retrieval errors', async () => {
+    embedMock.mockResolvedValueOnce({ ok: false, error: 'bad' });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({
+        context: { query: 'hello', embeddingSetId: 'set-1' },
+      })
+    ).rejects.toThrow('Unable to retrieve context right now. Try again.');
+  });
+});

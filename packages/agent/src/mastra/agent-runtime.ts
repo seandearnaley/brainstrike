@@ -188,9 +188,9 @@ export async function createMastraAgentRuntime(
     instructions:
       instructions ??
       `You are a helpful assistant for the Brainstrike IDE.
+When the user asks about the current project or codebase, call the brainstrike.retrieveContext tool with their query and use the returned context chunks.
 When the user asks to search documentation, call the web.searchDocs tool to find relevant entries.
 When the user requests a documentation summary, call the web.docSummary tool with the matching doc id.
-For echo requests, use the web.echo tool.
 Provide concise answers after using tools.`,
     model: languageModel,
     tools: combinedTools,
