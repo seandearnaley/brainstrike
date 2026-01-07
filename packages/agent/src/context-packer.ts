@@ -178,7 +178,7 @@ export class ContextPacker {
     let skipped = 0;
     const maxChunks = this.maxChunks ?? Number.POSITIVE_INFINITY;
 
-    for (const chunk of chunks) {
+    for (const [index, chunk] of chunks.entries()) {
       assertValidChunk(chunk);
       if (packed.length >= maxChunks) {
         skipped += 1;
@@ -188,6 +188,13 @@ export class ContextPacker {
       const tokenCount = resolveTokenCount(chunk, this.estimateTokens);
       if (shouldSkipForBudget(tokenCount, totalTokens, this.budgetTokens)) {
         skipped += 1;
+        if (this.budgetTokens > 0 && totalTokens >= this.budgetTokens) {
+          const remaining = chunks.length - index - 1;
+          if (remaining > 0) {
+            skipped += remaining;
+          }
+          break;
+        }
         continue;
       }
 

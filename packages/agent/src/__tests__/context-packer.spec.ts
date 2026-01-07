@@ -112,6 +112,35 @@ describe('ContextPacker', () => {
     expect(result.skipped).toBe(1);
   });
 
+  it('skips chunks that exceed the budget while allowing later fits', () => {
+    const packer = new ContextPacker({ budgetTokens: 5 });
+    const chunks: ContextPackerChunk[] = [
+      { id: 'a', content: 'oversize', tokenCount: 10 },
+      { id: 'b', content: 'fits', tokenCount: 3 },
+    ];
+
+    const result = packer.pack(chunks);
+
+    expect(result.chunks.map((chunk) => chunk.id)).toEqual(['b']);
+    expect(result.totalTokens).toBe(3);
+    expect(result.skipped).toBe(1);
+  });
+
+  it('skips all chunks when the budget is too small for any content', () => {
+    const packer = new ContextPacker({ budgetTokens: 1 });
+    const chunks: ContextPackerChunk[] = [
+      { id: 'a', content: 'alpha', tokenCount: 2 },
+      { id: 'b', content: 'bravo', tokenCount: 3 },
+    ];
+
+    const result = packer.pack(chunks);
+
+    expect(result.chunks).toHaveLength(0);
+    expect(result.totalTokens).toBe(0);
+    expect(result.remainingTokens).toBe(1);
+    expect(result.skipped).toBe(2);
+  });
+
   it.each([
     ['negative', -1],
     ['NaN', Number.NaN],

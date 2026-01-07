@@ -2,14 +2,8 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { setupAssistantMock } from './utils/assistant-mock';
 import { ensureToolsPanelVisible } from './utils/layout-helpers';
+import { E2E_TIMEOUTS } from './utils/timeouts';
 
-const TAB_VISIBILITY_TIMEOUT_MS = 5000;
-const CARD_VISIBILITY_TIMEOUT_MS = 5000;
-const INPUT_VISIBILITY_TIMEOUT_MS = 5000;
-const LOADING_INDICATOR_TIMEOUT_MS = 20_000;
-const CHAT_PANEL_TIMEOUT_MS = 25_000;
-const MESSAGE_VISIBILITY_TIMEOUT_MS = 10_000;
-const TOOL_VISIBILITY_TIMEOUT_MS = 15_000;
 const PROMPT_TEXT = 'Find relevant context';
 
 async function openAssistantChat(window: Page): Promise<void> {
@@ -17,28 +11,28 @@ async function openAssistantChat(window: Page): Promise<void> {
   await expect(rightPanel).toBeVisible();
 
   const assistantTab = window.getByRole('tab', { name: /assistant/i }).first();
-  await expect(assistantTab).toBeVisible({ timeout: TAB_VISIBILITY_TIMEOUT_MS });
+  await expect(assistantTab).toBeVisible({ timeout: E2E_TIMEOUTS.tabVisibility });
   await assistantTab.click();
 
   const assistantChatCard = window.getByTestId('assistant-chat-card');
-  await expect(assistantChatCard).toBeVisible({ timeout: CARD_VISIBILITY_TIMEOUT_MS });
+  await expect(assistantChatCard).toBeVisible({ timeout: E2E_TIMEOUTS.cardVisibility });
 
   const loadingIndicator = window.getByText(/Loading assistant/i);
   if (await loadingIndicator.isVisible().catch(() => false)) {
     await loadingIndicator
-      .waitFor({ state: 'hidden', timeout: LOADING_INDICATOR_TIMEOUT_MS })
+      .waitFor({ state: 'hidden', timeout: E2E_TIMEOUTS.loadingIndicator })
       .catch(() => {
         console.warn('⚠️ Assistant UI chunk still loading after timeout');
       });
   }
 
   const chatPanel = window.getByTestId('chat-panel');
-  await expect(chatPanel).toBeVisible({ timeout: CHAT_PANEL_TIMEOUT_MS });
+  await expect(chatPanel).toBeVisible({ timeout: E2E_TIMEOUTS.chatPanel });
 }
 
 async function sendPrompt(window: Page, prompt: string): Promise<void> {
   const input = window.locator('#assistant-input');
-  await expect(input).toBeVisible({ timeout: INPUT_VISIBILITY_TIMEOUT_MS });
+  await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
   await input.fill(prompt);
 
   const sendBtn = window.getByRole('button', { name: 'Send' });
@@ -46,7 +40,7 @@ async function sendPrompt(window: Page, prompt: string): Promise<void> {
   await sendBtn.click();
 
   await expect(window.getByText(prompt).first()).toBeVisible({
-    timeout: MESSAGE_VISIBILITY_TIMEOUT_MS,
+    timeout: E2E_TIMEOUTS.messageVisibility,
   });
 }
 
@@ -57,13 +51,13 @@ test.describe('Assistant retrieval (desktop)', () => {
     await sendPrompt(window, PROMPT_TEXT);
 
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
-      timeout: TOOL_VISIBILITY_TIMEOUT_MS,
+      timeout: E2E_TIMEOUTS.toolVisibility,
     });
     await expect(window.getByText('brainstrike.retrieveContext').first()).toBeVisible({
-      timeout: TOOL_VISIBILITY_TIMEOUT_MS,
+      timeout: E2E_TIMEOUTS.toolVisibility,
     });
     await expect(window.getByText('Retrieved answer.').first()).toBeVisible({
-      timeout: TOOL_VISIBILITY_TIMEOUT_MS,
+      timeout: E2E_TIMEOUTS.toolVisibility,
     });
   });
 
@@ -74,13 +68,13 @@ test.describe('Assistant retrieval (desktop)', () => {
     await sendPrompt(window, PROMPT_TEXT);
 
     await expect(window.getByTestId('tool-fallback').first()).toBeVisible({
-      timeout: TOOL_VISIBILITY_TIMEOUT_MS,
+      timeout: E2E_TIMEOUTS.toolVisibility,
     });
     await expect(window.getByText('brainstrike.retrieveContext').first()).toBeVisible({
-      timeout: TOOL_VISIBILITY_TIMEOUT_MS,
+      timeout: E2E_TIMEOUTS.toolVisibility,
     });
     await expect(window.getByText(errorMessage).first()).toBeVisible({
-      timeout: TOOL_VISIBILITY_TIMEOUT_MS,
+      timeout: E2E_TIMEOUTS.toolVisibility,
     });
   });
 
@@ -91,7 +85,7 @@ test.describe('Assistant retrieval (desktop)', () => {
     await sendPrompt(window, PROMPT_TEXT);
 
     await expect(window.getByText(errorMessage).first()).toBeVisible({
-      timeout: TOOL_VISIBILITY_TIMEOUT_MS,
+      timeout: E2E_TIMEOUTS.toolVisibility,
     });
   });
 });

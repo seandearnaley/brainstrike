@@ -29,8 +29,11 @@ const TOOL_ID = 'brainstrike.retrieveContext' as const;
 const DEFAULT_LIMIT = 20;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;
+/** Maximum file paths to pass inline before switching to snapshot storage. */
 const MAX_INLINE_FILE_PATHS = 500;
+/** Absolute cap on file paths to prevent oversized snapshot payloads. */
 const MAX_SNAPSHOT_FILE_PATHS = 5000;
+/** Snapshot time-to-live (ms). Expired snapshots are best-effort cleaned up. */
 const SNAPSHOT_TTL_MS = 1000 * 60 * 60; // 1 hour
 const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -44,6 +47,7 @@ const ERROR_MESSAGES = {
   invalidSelectionSnapshot: 'Selection snapshot reference is invalid.',
   invalidSelectionFilePaths: 'Selection file paths are invalid.',
   selectionTooLarge: 'Selection exceeds retrieval limits.',
+  embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
   embeddingFailed: 'Unable to generate query embeddings for retrieval.',
   retrievalFailed: 'Unable to retrieve context right now. Try again.',
 } as const;
@@ -57,6 +61,7 @@ const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.invalidSelectionSnapshot,
   ERROR_MESSAGES.invalidSelectionFilePaths,
   ERROR_MESSAGES.selectionTooLarge,
+  ERROR_MESSAGES.embeddingDimensionMismatch,
 ]);
 
 type EmbeddingSetRow = {
@@ -209,11 +214,14 @@ function createHostedProvider(
 
 async function createSelectionSnapshot(db: PGlite, filePaths: readonly string[]): Promise<string> {
   assertValidSelectionFilePaths(filePaths);
-  await db.query(
-    `DELETE FROM selection_snapshots
-     WHERE expires_at IS NOT NULL
-       AND expires_at <= NOW()`
-  );
+  // Best-effort cleanup to avoid blocking snapshot creation on purge failures.
+  void db
+    .query(
+      `DELETE FROM selection_snapshots
+       WHERE expires_at IS NOT NULL
+         AND expires_at <= NOW()`
+    )
+    .catch(() => {});
   const expiresAt = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
   const snapshotResult = (await db.query(
     `INSERT INTO selection_snapshots (expires_at)
@@ -296,6 +304,12 @@ function toContextChunks(
 ): ContextPackerChunk[] {
   return results.map((result) => {
     const fileInfo = fileMap.get(result.chunk.fileRecordId);
+    if (!fileInfo) {
+      logger.warn('File record missing for retrieved chunk', {
+        chunkId: result.chunk.id,
+        fileRecordId: result.chunk.fileRecordId,
+      });
+    }
     const chunk: ContextPackerChunk = {
       id: result.chunk.id,
       content: result.chunk.content,
@@ -379,14 +393,12 @@ function normalizeQuery(query: string): string {
   return normalized;
 }
 
-function logEmbeddingDimensionMismatch(expected: number, actual: number): void {
+function assertEmbeddingDimensions(expected: number, actual: number): void {
   if (expected === actual) {
     return;
   }
-  logger.warn('Embedding dimension mismatch', {
-    expected,
-    actual,
-  });
+  logger.warn('Embedding dimension mismatch', { expected, actual });
+  throw new Error(ERROR_MESSAGES.embeddingDimensionMismatch);
 }
 
 async function resolveSelectionState(
@@ -500,7 +512,7 @@ async function runRetrieval(
     embeddingSet.dimensions,
     query
   );
-  logEmbeddingDimensionMismatch(embeddingSet.dimensions, embedding.length);
+  assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
 
   const selectionState = await resolveSelectionState(db, runtimeData, input);
   const searchResults = await searchForChunks(db, embedding, embeddingSetId, input, selectionState);
@@ -529,6 +541,11 @@ function handleRetrievalError(error: unknown): never {
     throw new Error(message);
   }
   logger.error('Retrieval tool failed', { error });
+  if (process.env['NODE_ENV'] === 'development') {
+    const debugMessage =
+      error instanceof Error ? (error.stack ?? error.message) : String(error ?? 'Unknown error');
+    throw new Error(`${ERROR_MESSAGES.retrievalFailed} [Debug: ${debugMessage}]`);
+  }
   throw new Error(ERROR_MESSAGES.retrievalFailed);
 }
 

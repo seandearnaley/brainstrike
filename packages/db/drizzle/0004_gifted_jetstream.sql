@@ -1,4 +1,6 @@
 -- Rollback: drop selection_snapshot_files and selection_snapshots (see 0004_gifted_jetstream_down.sql).
+-- Selection snapshots expire via expires_at and are cleaned up opportunistically
+-- during new snapshot creation in the retrieval tool.
 CREATE TABLE "selection_snapshot_files" (
 	"snapshot_id" uuid NOT NULL,
 	"file_path" text NOT NULL

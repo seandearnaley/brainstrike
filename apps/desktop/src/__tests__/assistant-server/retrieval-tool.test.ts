@@ -135,7 +135,7 @@ describe('retrieval-tool', () => {
     vi.clearAllMocks();
     getKeyMock.mockResolvedValue('test-api-key');
     resolveHostedProviderApiKeyMock.mockResolvedValue('fallback-api-key');
-    embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25] } });
+    embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25, 0.5] } });
     findByIdsMock.mockResolvedValue([
       {
         id: 'file-1',
@@ -209,16 +209,13 @@ describe('retrieval-tool', () => {
     expect(result.context).toContain('Hello world');
     expect(result.selectionSnapshotId).toBeUndefined();
 
-    expect(searchSimilarMock).toHaveBeenCalledWith([0.25], {
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
       limit: 20,
       threshold: 0.3,
       embeddingSetId: 'set-1',
       filePaths: ['/repo/file.ts'],
     });
-    expect(loggerWarn).toHaveBeenCalledWith('Embedding dimension mismatch', {
-      expected: 2,
-      actual: 1,
-    });
+    expect(loggerWarn).not.toHaveBeenCalledWith('Embedding dimension mismatch', expect.anything());
   });
 
   it('creates a selection snapshot when file paths exceed limit', async () => {
@@ -235,13 +232,79 @@ describe('retrieval-tool', () => {
     });
 
     expect(result.selectionSnapshotId).toBe(snapshotId);
-    expect(searchSimilarMock).toHaveBeenCalledWith([0.25], {
+    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
       limit: 20,
       threshold: 0.3,
       embeddingSetId: 'set-1',
       selectionSnapshotId: snapshotId,
     });
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('openai');
+  });
+
+  it('rejects when embedding dimensions do not match active set', async () => {
+    embedMock.mockResolvedValueOnce({ ok: true, value: { embedding: [0.25] } });
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    await expect(
+      tool.execute({
+        context: { query: 'hello', embeddingSetId: 'set-1' },
+      })
+    ).rejects.toThrow('Embedding dimensions do not match the active set.');
+
+    expect(loggerWarn).toHaveBeenCalledWith('Embedding dimension mismatch', {
+      expected: 2,
+      actual: 1,
+    });
+  });
+
+  it('returns empty context when no chunks are found', async () => {
+    searchSimilarMock.mockResolvedValueOnce([]);
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    const result = await tool.execute({
+      context: { query: 'hello', embeddingSetId: 'set-1' },
+    });
+
+    expect(result.context).toBe('');
+    expect(result.chunks).toEqual([]);
+    expect(result.totalTokens).toBe(0);
+  });
+
+  it('continues when snapshot cleanup fails', async () => {
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('DELETE FROM selection_snapshots')) {
+        throw new Error('cleanup failed');
+      }
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'openai:text-embedding-3-small',
+              modelId: 'text-embedding-3-small',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      if (sql.includes('INSERT INTO selection_snapshots')) {
+        return { rows: [{ id: snapshotId }] };
+      }
+      return { rows: [] };
+    });
+
+    const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+
+    const result = await tool.execute({
+      context: {
+        query: 'query',
+        embeddingSetId: 'set-1',
+        filePaths,
+      },
+    });
+
+    expect(result.selectionSnapshotId).toBe(snapshotId);
   });
 
   it('rejects invalid selection snapshot ids', async () => {

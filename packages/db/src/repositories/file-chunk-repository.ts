@@ -369,7 +369,10 @@ export class FileChunkRepository {
       const rawEf = Number(envObj?.['HNSW_EF_SEARCH'] ?? '0');
       // Clamp to a reasonable range to avoid pathological settings
       const ef = Number.isFinite(rawEf) ? Math.max(1, Math.min(Math.floor(rawEf), 2000)) : 60;
-      await this.db.query(`SET LOCAL hnsw.ef_search = ${ef}`);
+      if (!Number.isSafeInteger(ef)) {
+        throw new Error('Invalid HNSW ef_search value');
+      }
+      await this.db.query('SET LOCAL hnsw.ef_search = $1', [ef]);
     } catch {
       // ignored: tuning is best-effort
     }
@@ -382,7 +385,10 @@ export class FileChunkRepository {
       const rawProbes = Number(envObj?.['IVFFLAT_PROBES'] ?? '0');
       if (Number.isFinite(rawProbes) && rawProbes > 0) {
         const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10_000));
-        await this.db.query(`SET LOCAL ivfflat.probes = ${probes}`);
+        if (!Number.isSafeInteger(probes)) {
+          throw new Error('Invalid IVFFLAT probes value');
+        }
+        await this.db.query('SET LOCAL ivfflat.probes = $1', [probes]);
       }
     } catch {
       // ignored: tuning is best-effort
