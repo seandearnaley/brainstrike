@@ -4,11 +4,12 @@ import type { Migration } from './migration-runner';
  * Migration 020: Add local LLM models for browser-based inference
  *
  * Adds support for running LLMs locally using transformers.js and ONNX:
- * - LiquidAI/LFM2.5-1.2B-Instruct-ONNX: Hybrid model for on-device deployment
- * - onnx-community/Qwen3-4B-Instruct-2507-ONNX: Tool-calling capable model
  * - onnx-community/functiongemma-270m-it-ONNX: Function calling specialist (270M params)
+ * - LiquidAI/LFM2.5-1.2B-Instruct-ONNX: Hybrid model for on-device deployment
+ * - onnx-community/Qwen3-0.6B-ONNX: Fast, efficient Qwen3 model (600M params)
+ * - onnx-community/Qwen3-1.7B-ONNX: More capable Qwen3 model (1.7B params)
  *
- * These models support tool/function calling via chat templates.
+ * All models have proper ONNX files (model_q4.onnx, model_fp16.onnx) for transformers.js.
  */
 export const migration020LocalLlmModels: Migration = {
   version: 20,
@@ -40,14 +41,25 @@ export const migration020LocalLlmModels: Migration = {
         false
       ),
       (
-        'onnx-community/Qwen3-4B-Instruct-2507-ONNX',
+        'onnx-community/Qwen3-0.6B-ONNX',
         'transformers',
-        'Qwen3 4B Instruct',
-        'Powerful tool-calling model',
-        '["Function calling", "Reasoning", "High-end desktop"]',
-        '{"type":"llm","streaming":false,"toolCalling":true,"contextWindow":32768}',
-        '{"size":"~4GB","architecture":"Qwen3","quantization":"q4/q8"}',
+        'Qwen3 0.6B',
+        'Fast and efficient for general tasks',
+        '["General tasks", "Quick responses", "Low memory"]',
+        '{"type":"llm","streaming":false,"toolCalling":false,"contextWindow":32768}',
+        '{"size":"~600MB (q4)","architecture":"Qwen3","quantization":"q4/fp16"}',
         12,
+        false
+      ),
+      (
+        'onnx-community/Qwen3-1.7B-ONNX',
+        'transformers',
+        'Qwen3 1.7B',
+        'More capable for complex reasoning',
+        '["Complex tasks", "Better reasoning", "Desktop"]',
+        '{"type":"llm","streaming":false,"toolCalling":false,"contextWindow":32768}',
+        '{"size":"~1.7GB (q4)","architecture":"Qwen3","quantization":"q4/fp16"}',
+        13,
         false
       )
     ON CONFLICT (id) DO UPDATE SET
@@ -62,7 +74,8 @@ export const migration020LocalLlmModels: Migration = {
     DELETE FROM models WHERE id IN (
       'onnx-community/functiongemma-270m-it-ONNX',
       'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
-      'onnx-community/Qwen3-4B-Instruct-2507-ONNX'
+      'onnx-community/Qwen3-0.6B-ONNX',
+      'onnx-community/Qwen3-1.7B-ONNX'
     );
   `,
 };
