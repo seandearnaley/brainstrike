@@ -245,6 +245,10 @@ export function CollectionBrowserView({
     searchConfigThreshold,
     searchConfigLimit,
     searchConfigDistanceMetric,
+    // Hybrid search state from store
+    searchConfigRetrievalMode,
+    searchConfigVectorWeight,
+    searchConfigFtsWeight,
     searchConfigExpanded,
     isFilterVisible,
     setSearchMode,
@@ -252,6 +256,10 @@ export function CollectionBrowserView({
     setSearchConfigThreshold,
     setSearchConfigLimit,
     setSearchConfigDistanceMetric,
+    // Hybrid search setters
+    setSearchConfigRetrievalMode,
+    setSearchConfigVectorWeight,
+    setSearchConfigFtsWeight,
     setSearchConfigExpanded,
     setIsFilterVisible,
   } = useCollectionBrowserStore();
@@ -377,18 +385,45 @@ export function CollectionBrowserView({
       threshold: searchConfigThreshold,
       resultLimit: searchConfigLimit,
       distanceMetric: searchConfigDistanceMetric,
+      retrievalMode: searchConfigRetrievalMode,
+      vectorWeight: searchConfigVectorWeight,
+      ftsWeight: searchConfigFtsWeight,
     }),
-    [searchConfigThreshold, searchConfigLimit, searchConfigDistanceMetric]
+    [
+      searchConfigThreshold,
+      searchConfigLimit,
+      searchConfigDistanceMetric,
+      searchConfigRetrievalMode,
+      searchConfigVectorWeight,
+      searchConfigFtsWeight,
+    ]
   );
 
-  // Handle search config changes
+  // Handle search config changes (persists all settings including hybrid mode)
   const handleSearchConfigChange = useCallback(
     (config: SearchConfig) => {
       setSearchConfigThreshold(config.threshold);
       setSearchConfigLimit(config.resultLimit);
       setSearchConfigDistanceMetric(config.distanceMetric);
+      // Persist hybrid search settings when provided
+      if (config.retrievalMode !== undefined) {
+        setSearchConfigRetrievalMode(config.retrievalMode);
+      }
+      if (config.vectorWeight !== undefined) {
+        setSearchConfigVectorWeight(config.vectorWeight);
+      }
+      if (config.ftsWeight !== undefined) {
+        setSearchConfigFtsWeight(config.ftsWeight);
+      }
     },
-    [setSearchConfigThreshold, setSearchConfigLimit, setSearchConfigDistanceMetric]
+    [
+      setSearchConfigThreshold,
+      setSearchConfigLimit,
+      setSearchConfigDistanceMetric,
+      setSearchConfigRetrievalMode,
+      setSearchConfigVectorWeight,
+      setSearchConfigFtsWeight,
+    ]
   );
 
   // Handle search mode change

@@ -7,10 +7,12 @@
  */
 
 import type {
+  ChunkSearchResult,
   DrizzleFileChunkRepository,
   DrizzleFileRecordRepository,
   ElectronFileChunkRepository,
   ElectronFileRecordRepository,
+  HybridSearchResult,
 } from '@brainstrike/db';
 import { createHybridSearchService, normalizeRRFScores, usePGliteDatabase } from '@brainstrike/db';
 import {
@@ -33,6 +35,11 @@ import {
 } from '../utils/embedding-models';
 
 const logger = createLogger('SemanticSearchExecutor');
+
+/** Default weight for vector search in hybrid mode */
+const DEFAULT_VECTOR_WEIGHT = 1.0;
+/** Default weight for FTS in hybrid mode */
+const DEFAULT_FTS_WEIGHT = 1.0;
 
 type SearchEmbedder = {
   embedQuery: (text: string) => Promise<{ embedding: number[] }>;
@@ -126,18 +133,9 @@ function buildRetrievalFilterOptions(config: SearchConfig): RetrievalFilterOptio
   return {};
 }
 
-type ChunkSearchResult = {
-  chunk: {
-    id: string;
-    content: string;
-    fileRecordId: string;
-    embeddingSetId?: string;
-  };
-  similarity: number;
-};
-
 /**
  * Transform chunk search results to SemanticSearchResult format.
+ * Uses ChunkSearchResult from @brainstrike/db which provides full FileChunk objects.
  */
 function transformToSearchResults(
   searchResults: ChunkSearchResult[],
@@ -166,44 +164,41 @@ function transformToSearchResults(
 }
 
 /**
- * Hybrid search result type (imported from @brainstrike/db)
- */
-type HybridResult = {
-  chunk: {
-    id: string;
-    content: string;
-    fileRecordId: string;
-    embeddingSetId?: string;
-  };
-  rrfScore: number;
-  sourceCount: number;
-  vectorSimilarity?: number;
-  ftsRank?: number;
-  headline?: string;
-};
-
-/**
  * Build a map of file records for enriching search results with file metadata.
  * Extracts unique file IDs and fetches their records in parallel.
+ * Uses Promise.allSettled for graceful degradation - partial results are returned
+ * even if some file lookups fail.
  */
 async function buildFileRecordsMap(
   fileIds: string[],
   fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
 ): Promise<Map<string, { name: string; path: string }>> {
   const uniqueFileIds = Array.from(new Set(fileIds));
-  const fileEntries = await Promise.all(
+  const results = await Promise.allSettled(
     uniqueFileIds.map(async (fileId) => {
       const record = await fileRepository.findById(fileId);
-      return [fileId, record] as const;
+      return { fileId, record };
     })
   );
 
   const fileRecordsMap = new Map<string, { name: string; path: string }>();
-  for (const [fileId, record] of fileEntries) {
-    const info = record
-      ? { name: record.name, path: record.path }
-      : { name: 'Unknown file', path: '(unavailable)' };
-    fileRecordsMap.set(fileId, info);
+  for (const [index, result] of results.entries()) {
+    const fileId = uniqueFileIds[index];
+    // Skip if fileId is undefined (should never happen in practice)
+    if (!fileId) {
+      continue;
+    }
+    if (result.status === 'fulfilled') {
+      const record = result.value.record;
+      const info = record
+        ? { name: record.name, path: record.path }
+        : { name: 'Unknown file', path: '(unavailable)' };
+      fileRecordsMap.set(fileId, info);
+    } else {
+      // Log failed lookups but continue with partial results
+      logger.warn('Failed to fetch file record', { fileId, error: result.reason });
+      fileRecordsMap.set(fileId, { name: 'Error loading', path: '(error)' });
+    }
   }
 
   return fileRecordsMap;
@@ -212,9 +207,10 @@ async function buildFileRecordsMap(
 /**
  * Transform hybrid search results to SemanticSearchResult format.
  * Uses the RRF score as the similarity score (already 0-1 after normalization).
+ * Uses HybridSearchResult from @brainstrike/db which provides full FileChunk objects.
  */
 function transformHybridResults(
-  hybridResults: HybridResult[],
+  hybridResults: HybridSearchResult[],
   fileRecordsMap: Map<string, { name: string; path: string }>
 ): SemanticSearchResult[] {
   return hybridResults.map((result) => {
@@ -267,8 +263,8 @@ async function executeHybridSearch(
   fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
 ): Promise<SemanticSearchResult[]> {
   logger.info('Using hybrid search (vector + FTS with RRF fusion)', {
-    vectorWeight: config.vectorWeight ?? 1.0,
-    ftsWeight: config.ftsWeight ?? 1.0,
+    vectorWeight: config.vectorWeight ?? DEFAULT_VECTOR_WEIGHT,
+    ftsWeight: config.ftsWeight ?? DEFAULT_FTS_WEIGHT,
   });
 
   const hybridService = createHybridSearchService(chunkRepository);
@@ -276,8 +272,8 @@ async function executeHybridSearch(
     limit: config.resultLimit,
     vectorThreshold: config.threshold,
     embeddingSetId,
-    vectorWeight: config.vectorWeight ?? 1.0,
-    ftsWeight: config.ftsWeight ?? 1.0,
+    vectorWeight: config.vectorWeight ?? DEFAULT_VECTOR_WEIGHT,
+    ftsWeight: config.ftsWeight ?? DEFAULT_FTS_WEIGHT,
     ...filterOptions,
   });
 
