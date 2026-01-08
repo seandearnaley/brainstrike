@@ -1486,6 +1486,9 @@ importers:
         specifier: workspace:*
         version: link:../types
     devDependencies:
+      '@playwright/test':
+        specifier: ^1.52.0
+        version: 1.57.0
       '@stryker-mutator/api':
         specifier: ^9.4.0
         version: 9.4.0

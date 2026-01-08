@@ -1,5 +1,9 @@
 import os from 'node:os';
 import path from 'node:path';
+import {
+  createFailureCollector,
+  type FailureArtifactCollector,
+} from '@brainstrike/test-utils/playwright';
 import type { Page, TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
@@ -103,6 +107,8 @@ type ElectronTestFixtures = {
   electronApp: ElectronAppContext;
   window: Page;
   homePage: HomePage;
+  /** Failure artifact collector - automatically captures diagnostics on test failure */
+  failureCollector: FailureArtifactCollector;
 };
 
 type ElectronWorkerFixtures = {
@@ -142,6 +148,17 @@ export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
 
     const page = await electron.ensureWindow({ preserveState });
     await use(page);
+  },
+
+  // BST-180: Failure artifact collector for enhanced test diagnostics
+  failureCollector: async ({ window }, use, testInfo: TestInfo) => {
+    const collector = createFailureCollector(window);
+
+    await use(collector);
+
+    // After test completes, attach diagnostics if the test failed
+    await collector.attachDiagnosticsOnFailure(testInfo);
+    collector.detach();
   },
 
   homePage: async ({ window }, use) => {
