@@ -1,3 +1,4 @@
+import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
 import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
@@ -73,6 +74,7 @@ export default function SettingsPageContent() {
         icon: Layers,
         render: () => <McpIntegrationsCategory />,
       },
+      createSystemDiagnosticsSettingsCategory(),
       createFactoryResetSettingsCategory(),
     ],
     []
