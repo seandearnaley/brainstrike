@@ -280,7 +280,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
     return this._backend.downloadModel(modelId, {
       ...(options?.cacheDir ? { cacheDir: options.cacheDir } : {}),
       onProgress: (p) => {
-        if (options?.onProgress && p.status === 'downloading' && p.loaded && p.total) {
+        // transformers.js uses 'progress' status (not 'downloading') for progress updates
+        if (options?.onProgress && p.status === 'progress' && p.loaded && p.total) {
           const progressPercent = Math.round((p.loaded / p.total) * 100);
           options.onProgress({
             stage: 'downloading',

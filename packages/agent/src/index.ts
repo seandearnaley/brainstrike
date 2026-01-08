@@ -403,6 +403,20 @@ export {
   ToolRegistry as McpToolRegistry,
   toolRegistry as mcpToolRegistry,
 } from './mcp/tool-registry';
+export type {
+  LocalLlmConfig,
+  LocalLlmGenerationOptions,
+  LocalLlmGenerationResult,
+  LocalLlmMessage,
+  LocalLlmModelCapabilities,
+  LocalLlmModelParameters,
+  LocalLlmProgressCallback,
+  LocalLlmProviderStatus,
+  LocalLlmToolCall,
+  LocalLlmToolDefinition,
+} from './providers/local';
+// Local LLM backend for browser-based inference with transformers.js
+export { LocalLlmBackend } from './providers/local';
 // Provider models and utilities (no Mastra dependencies - safe for client-side)
 export {
   getProviderDefaultModel,

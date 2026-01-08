@@ -466,4 +466,78 @@ export class LocalLlmBackend {
     }
     return 'wasm';
   }
+
+  /**
+   * Download an LLM model to cache without initializing for inference.
+   * Uses AutoModelForCausalLM and AutoTokenizer from transformers.js.
+   */
+  static async downloadModel(
+    modelId: string,
+    options?: {
+      cacheDir?: string;
+      onProgress?: (progress: {
+        stage: 'downloading' | 'ready';
+        progress: number;
+        message: string;
+        file?: string;
+      }) => void;
+    }
+  ): Promise<void> {
+    const transformers = await getTransformersModule();
+
+    // Set cache dir if provided
+    if (options?.cacheDir) {
+      const transformersEnv = transformers as unknown as {
+        env?: { cacheDir?: string; allowLocalModels?: boolean };
+      };
+      if (transformersEnv.env) {
+        transformersEnv.env.cacheDir = options.cacheDir;
+        transformersEnv.env.allowLocalModels = false;
+      }
+    }
+
+    type DownloadProgressData = {
+      stage: 'downloading' | 'ready';
+      progress: number;
+      message: string;
+      file?: string;
+    };
+
+    const progressCallback = (progress: ProgressInfo) => {
+      // transformers.js uses 'progress' status for download progress
+      if (progress.status === 'progress' && progress.total) {
+        const pct = Math.round(((progress.loaded ?? 0) / progress.total) * 100);
+        const progressData: DownloadProgressData = {
+          stage: 'downloading',
+          progress: pct,
+          message: `Downloading ${progress.file ?? 'model'}... ${pct}%`,
+        };
+        if (progress.file !== undefined) {
+          progressData.file = progress.file;
+        }
+        options?.onProgress?.(progressData);
+      }
+    };
+
+    // Download both tokenizer and model files
+    logger.info('Downloading LLM model', { modelId });
+
+    await Promise.all([
+      transformers.AutoTokenizer.from_pretrained(modelId),
+      transformers.AutoModelForCausalLM.from_pretrained(modelId, {
+        device: 'wasm', // Use WASM for download - less memory, just caching files
+        dtype: 'fp16',
+        // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
+        progress_callback: progressCallback,
+      }),
+    ]);
+
+    options?.onProgress?.({
+      stage: 'ready',
+      progress: 100,
+      message: 'Model downloaded',
+    });
+
+    logger.info('LLM model download complete', { modelId });
+  }
 }
