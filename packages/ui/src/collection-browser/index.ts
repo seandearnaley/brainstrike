@@ -37,6 +37,7 @@ export type {
   FilterBarProps,
   FilterChipProps,
   NodeTypeConfig,
+  RetrievalMode,
   SearchConfig,
   SearchConfigPanelProps,
   SearchMode,

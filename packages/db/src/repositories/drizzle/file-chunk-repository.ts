@@ -425,6 +425,146 @@ export class DrizzleFileChunkRepository {
       .slice(0, limit);
   }
 
+  /**
+   * Full-text search on file chunks using PostgreSQL's tsvector/tsquery.
+   *
+   * Uses the pre-computed `content_tsvector` column with GIN index for fast
+   * keyword-based search. Supports multiple query modes:
+   * - 'plain': Simple AND of all words
+   * - 'websearch': Google-like syntax (OR, quotes, -negation)
+   * - 'phrase': Exact phrase matching
+   *
+   * @param query - Search query string
+   * @param options - Search options (limit, filters, query mode, etc.)
+   * @returns Array of matching chunks sorted by relevance
+   */
+  async fullTextSearch(
+    query: string,
+    options: import('../../models/file-chunk.js').FTSSearchOptions = {}
+  ): Promise<import('../../models/file-chunk.js').FTSSearchResult[]> {
+    const {
+      limit = 10,
+      threshold = 0,
+      fileRecordId,
+      chunkType,
+      filePaths,
+      selectionSnapshotId,
+      queryMode = 'websearch',
+      language = 'english',
+      rankNormalization = 0,
+    } = options;
+
+    // Validate query
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return [];
+    }
+
+    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
+      throw new Error(
+        `fullTextSearch filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
+          'Use selectionSnapshotId for large selections.'
+      );
+    }
+    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+
+    // Build tsquery using the appropriate function based on query mode
+    const tsqueryFunc = this.getTsqueryFunction(queryMode);
+
+    // Build WHERE clause dynamically
+    let baseQuery = sql`
+      SELECT
+        id, file_record_id, chunk_index, content, content_hash,
+        token_count, chunk_type, chunk_size, embedding::text AS embedding,
+        embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
+        ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) as fts_rank,
+        ts_headline(${language}::regconfig, content, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}),
+          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,
+        ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery}), ${rankNormalization}) DESC) as position
+      FROM file_chunks
+      WHERE content_tsvector IS NOT NULL
+        AND content_tsvector @@ ${sql.raw(tsqueryFunc)}(${language}::regconfig, ${trimmedQuery})
+    `;
+
+    if (fileRecordId) {
+      baseQuery = sql`${baseQuery} AND file_record_id = ${fileRecordId}`;
+    }
+    if (chunkType) {
+      baseQuery = sql`${baseQuery} AND chunk_type = ${chunkType}`;
+    }
+    if (normalizedSnapshotId) {
+      baseQuery = sql`${baseQuery} AND EXISTS (
+        SELECT 1
+        FROM ${selectionSnapshotFiles}
+        JOIN ${fileRecords} ON ${fileRecords.path} = ${selectionSnapshotFiles.filePath}
+        WHERE ${selectionSnapshotFiles.snapshotId} = ${normalizedSnapshotId}
+          AND ${fileRecords.id} = ${fileChunks.fileRecordId}
+      )`;
+    }
+    if (normalizedFilePaths && normalizedFilePaths.length > 0) {
+      const rows = await this.db
+        .select({ id: fileRecords.id })
+        .from(fileRecords)
+        .where(inArray(fileRecords.path, normalizedFilePaths));
+      const fileRecordIds = rows.map((row) => row.id).filter(Boolean);
+      if (fileRecordIds.length === 0) {
+        return [];
+      }
+      baseQuery = sql`${baseQuery} AND ${inArray(fileChunks.fileRecordId, fileRecordIds)}`;
+    }
+
+    baseQuery = sql`${baseQuery}
+      ORDER BY fts_rank DESC
+      LIMIT ${limit}
+    `;
+
+    const result = await this.db.execute(baseQuery);
+    return this.mapFTSResults(result.rows as Record<string, unknown>[], threshold);
+  }
+
+  /**
+   * Map raw FTS query results to FTSSearchResult objects
+   */
+  private mapFTSResults(
+    rows: Record<string, unknown>[],
+    threshold: number
+  ): import('../../models/file-chunk.js').FTSSearchResult[] {
+    const results: import('../../models/file-chunk.js').FTSSearchResult[] = [];
+    for (const row of rows) {
+      const rank = Number(row['fts_rank']);
+      // Apply threshold filter
+      if (threshold > 0 && rank < threshold) {
+        continue;
+      }
+      const ftsResult: import('../../models/file-chunk.js').FTSSearchResult = {
+        chunk: this.fromRawRow(row),
+        rank,
+        position: Number(row['position']),
+      };
+      if (row['headline']) {
+        ftsResult.headline = String(row['headline']);
+      }
+      results.push(ftsResult);
+    }
+    return results;
+  }
+
+  /**
+   * Get the PostgreSQL tsquery function for the given query mode
+   */
+  private getTsqueryFunction(mode: import('../../models/file-chunk.js').FTSQueryMode): string {
+    switch (mode) {
+      case 'plain':
+        return 'plainto_tsquery';
+      case 'phrase':
+        return 'phraseto_tsquery';
+      default:
+        // 'websearch' is the default query mode
+        return 'websearch_to_tsquery';
+    }
+  }
+
   private normalizeFilePaths(filePaths?: readonly string[]): string[] | undefined {
     if (!filePaths || filePaths.length === 0) {
       return;

@@ -74,6 +74,7 @@ describe('Drizzle + PGlite Spike', () => {
         "embedding_set_id" uuid,
         "embedding_updated_at" timestamp with time zone,
         "embedding_hash" text,
+        "content_tsvector" tsvector,
         "created_at" timestamp with time zone DEFAULT now() NOT NULL,
         "updated_at" timestamp with time zone DEFAULT now() NOT NULL
       )

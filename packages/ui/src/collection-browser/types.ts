@@ -208,6 +208,13 @@ export type SearchMode = 'quick' | 'semantic';
 export type DistanceMetric = 'cosine' | 'l2' | 'ip';
 
 /**
+ * Retrieval mode for semantic search
+ * - 'vector': Vector similarity search only (default, fastest)
+ * - 'hybrid': Combines vector search with full-text search using RRF fusion
+ */
+export type RetrievalMode = 'vector' | 'hybrid';
+
+/**
  * Configuration for semantic search
  */
 export type SearchConfig = {
@@ -229,6 +236,24 @@ export type SearchConfig = {
    * Takes precedence over filePaths if both are provided.
    */
   selectionSnapshotId?: string;
+
+  // === Hybrid Search Options (BST-294) ===
+  /**
+   * Retrieval mode for search (default: 'vector')
+   * - 'vector': Vector similarity search only (fastest)
+   * - 'hybrid': Combines vector + full-text search with RRF fusion
+   */
+  retrievalMode?: RetrievalMode;
+  /**
+   * Weight for vector search results in hybrid mode (default: 1.0)
+   * Higher values favor semantic similarity matches.
+   */
+  vectorWeight?: number;
+  /**
+   * Weight for full-text search results in hybrid mode (default: 1.0)
+   * Higher values favor keyword/exact matches.
+   */
+  ftsWeight?: number;
 };
 
 /**
@@ -250,7 +275,7 @@ export type SemanticSearchResult = {
   chunkId: string;
   /** File record ID this chunk belongs to */
   fileRecordId: string;
-  /** Similarity score (0.0-1.0) */
+  /** Similarity score (0.0-1.0) - For hybrid search, this is the normalized RRF score */
   similarity: number;
   /** Chunk content for preview */
   content: string;
@@ -260,6 +285,16 @@ export type SemanticSearchResult = {
   filePath: string;
   /** Embedding set ID this chunk belongs to */
   embeddingSetId?: string;
+
+  // === Hybrid Search Metadata (BST-294) ===
+  /** Vector similarity score from vector search (if available) */
+  vectorSimilarity?: number;
+  /** Full-text search rank score (if available) */
+  ftsRank?: number;
+  /** Headline snippet with highlighted matches from FTS */
+  headline?: string;
+  /** Number of search sources that found this result (1-2 for hybrid) */
+  sourceCount?: number;
 };
 
 /**

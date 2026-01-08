@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-01-07T08:18:48.658Z",
+  "generatedAt": "2026-01-08T11:51:14.830Z",
   "migrations": [
     {
       "version": "7",
@@ -29,8 +29,14 @@
     {
       "version": "7",
       "name": "0004_gifted_jetstream",
-      "sql": "-- Rollback: drop selection_snapshot_files and selection_snapshots (see 0004_gifted_jetstream_down.sql).\nCREATE TABLE \"selection_snapshot_files\" (\n\t\"snapshot_id\" uuid NOT NULL,\n\t\"file_path\" text NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE \"selection_snapshots\" (\n\t\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"expires_at\" timestamp with time zone\n);\n--> statement-breakpoint\nALTER TABLE \"selection_snapshot_files\" ADD CONSTRAINT \"selection_snapshot_files_snapshot_id_selection_snapshots_id_fk\" FOREIGN KEY (\"snapshot_id\") REFERENCES \"public\".\"selection_snapshots\"(\"id\") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint\nCREATE INDEX \"idx_selection_snapshot_files_snapshot_id\" ON \"selection_snapshot_files\" USING btree (\"snapshot_id\");--> statement-breakpoint\nCREATE INDEX \"idx_selection_snapshot_files_file_path\" ON \"selection_snapshot_files\" USING btree (\"file_path\");--> statement-breakpoint\nCREATE UNIQUE INDEX \"idx_selection_snapshot_files_unique\" ON \"selection_snapshot_files\" USING btree (\"snapshot_id\",\"file_path\");--> statement-breakpoint\nCREATE INDEX \"idx_selection_snapshots_created_at\" ON \"selection_snapshots\" USING btree (\"created_at\");\n",
-      "hash": "65cdd60dbef3a42a3eba8c04c45c1962e8cd30bf791db20be6e631c1cff4ed1a"
+      "sql": "-- Rollback: drop selection_snapshot_files and selection_snapshots (see 0004_gifted_jetstream_down.sql).\n-- Selection snapshots expire via expires_at and are cleaned up opportunistically\n-- during new snapshot creation in the retrieval tool.\nCREATE TABLE \"selection_snapshot_files\" (\n\t\"snapshot_id\" uuid NOT NULL,\n\t\"file_path\" text NOT NULL\n);\n--> statement-breakpoint\nCREATE TABLE \"selection_snapshots\" (\n\t\"id\" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,\n\t\"created_at\" timestamp with time zone DEFAULT now() NOT NULL,\n\t\"expires_at\" timestamp with time zone\n);\n--> statement-breakpoint\nALTER TABLE \"selection_snapshot_files\" ADD CONSTRAINT \"selection_snapshot_files_snapshot_id_selection_snapshots_id_fk\" FOREIGN KEY (\"snapshot_id\") REFERENCES \"public\".\"selection_snapshots\"(\"id\") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint\nCREATE INDEX \"idx_selection_snapshot_files_snapshot_id\" ON \"selection_snapshot_files\" USING btree (\"snapshot_id\");--> statement-breakpoint\nCREATE INDEX \"idx_selection_snapshot_files_file_path\" ON \"selection_snapshot_files\" USING btree (\"file_path\");--> statement-breakpoint\nCREATE UNIQUE INDEX \"idx_selection_snapshot_files_unique\" ON \"selection_snapshot_files\" USING btree (\"snapshot_id\",\"file_path\");--> statement-breakpoint\nCREATE INDEX \"idx_selection_snapshots_created_at\" ON \"selection_snapshots\" USING btree (\"created_at\");\n",
+      "hash": "315cb9f8f65195f3c390cf2adbcb5743c626fe0ccb254587dd5d1667a3c38b28"
+    },
+    {
+      "version": "7",
+      "name": "0005_lazy_ghost_rider",
+      "sql": "ALTER TABLE \"file_chunks\" ADD COLUMN \"content_tsvector\" \"tsvector\";",
+      "hash": "07574ea96715252d94e666f70dc031b25baa259a61cb201b668785c7c21f56eb"
     }
   ]
 }

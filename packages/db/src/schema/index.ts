@@ -18,6 +18,33 @@ import {
 } from 'drizzle-orm/pg-core';
 
 /**
+ * Custom type for PostgreSQL tsvector (full-text search)
+ *
+ * The tsvector column is managed by a database trigger that auto-updates
+ * when content changes. This type provides read-only access for queries.
+ *
+ * Usage in queries:
+ * - WHERE content_tsvector @@ to_tsquery('english', 'search & terms')
+ * - ts_rank(content_tsvector, query) for ranking
+ */
+const tsvector = customType<{
+  data: string;
+  driverData: string;
+}>({
+  dataType() {
+    return 'tsvector';
+  },
+  toDriver(value: string): string {
+    // tsvector is auto-managed by trigger, rarely set from application
+    return value;
+  },
+  fromDriver(value: string): string {
+    // Return raw tsvector string representation
+    return value;
+  },
+});
+
+/**
  * Custom type for pgvector - flexible dimensions
  *
  * Includes validation in toDriver to prevent invalid vector values
@@ -115,6 +142,9 @@ export const fileChunks = pgTable(
       withTimezone: true,
     }),
     embeddingHash: text('embedding_hash'),
+    // Full-text search tsvector - auto-updated by database trigger
+    // GIN-indexed for fast ts_query lookups
+    contentTsvector: tsvector('content_tsvector'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
@@ -122,6 +152,8 @@ export const fileChunks = pgTable(
     index('idx_file_chunks_file_record_id').on(table.fileRecordId),
     index('idx_file_chunks_embedding_set_id').on(table.embeddingSetId),
     index('idx_file_chunks_content_hash').on(table.contentHash),
+    // Note: GIN index on content_tsvector is created via migration, not Drizzle
+    // because Drizzle doesn't support GIN index type directly
   ]
 );
 

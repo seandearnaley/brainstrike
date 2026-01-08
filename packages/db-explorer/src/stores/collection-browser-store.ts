@@ -43,6 +43,12 @@ type CollectionBrowserData = {
   searchConfigLimit: number;
   /** Semantic search distance metric */
   searchConfigDistanceMetric: DistanceMetric;
+  /** Hybrid search retrieval mode (vector-only or hybrid) */
+  searchConfigRetrievalMode: 'vector' | 'hybrid';
+  /** Hybrid search vector weight (0-2) */
+  searchConfigVectorWeight: number;
+  /** Hybrid search FTS weight (0-2) */
+  searchConfigFtsWeight: number;
   /** Whether the search config panel is expanded */
   searchConfigExpanded: boolean;
   /** Whether the filter bar is visible */
@@ -90,6 +96,12 @@ type CollectionBrowserActions = {
   setSearchConfigLimit: (limit: number) => void;
   /** Set semantic search distance metric */
   setSearchConfigDistanceMetric: (metric: DistanceMetric) => void;
+  /** Set hybrid search retrieval mode */
+  setSearchConfigRetrievalMode: (mode: 'vector' | 'hybrid') => void;
+  /** Set hybrid search vector weight */
+  setSearchConfigVectorWeight: (weight: number) => void;
+  /** Set hybrid search FTS weight */
+  setSearchConfigFtsWeight: (weight: number) => void;
   /** Set search config panel expanded state */
   setSearchConfigExpanded: (expanded: boolean) => void;
   /** Set filter bar visibility */
@@ -120,6 +132,10 @@ const DEFAULT_STATE: CollectionBrowserData = {
   searchConfigThreshold: 0.5,
   searchConfigLimit: 20,
   searchConfigDistanceMetric: 'cosine',
+  // Hybrid search defaults
+  searchConfigRetrievalMode: 'vector',
+  searchConfigVectorWeight: 1.0,
+  searchConfigFtsWeight: 1.0,
   searchConfigExpanded: false,
   isFilterVisible: false,
 };
@@ -223,6 +239,12 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setSearchConfigDistanceMetric: (metric) => set({ searchConfigDistanceMetric: metric }),
 
+      setSearchConfigRetrievalMode: (mode) => set({ searchConfigRetrievalMode: mode }),
+
+      setSearchConfigVectorWeight: (weight) => set({ searchConfigVectorWeight: weight }),
+
+      setSearchConfigFtsWeight: (weight) => set({ searchConfigFtsWeight: weight }),
+
       setSearchConfigExpanded: (expanded) => set({ searchConfigExpanded: expanded }),
 
       setIsFilterVisible: (visible) => set({ isFilterVisible: visible }),
@@ -249,6 +271,10 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigThreshold: s.searchConfigThreshold,
         searchConfigLimit: s.searchConfigLimit,
         searchConfigDistanceMetric: s.searchConfigDistanceMetric,
+        // Hybrid search state
+        searchConfigRetrievalMode: s.searchConfigRetrievalMode,
+        searchConfigVectorWeight: s.searchConfigVectorWeight,
+        searchConfigFtsWeight: s.searchConfigFtsWeight,
         searchConfigExpanded: s.searchConfigExpanded,
         isFilterVisible: s.isFilterVisible,
       }),
@@ -280,6 +306,9 @@ export const collectionBrowserSelectors = {
     threshold: s.searchConfigThreshold,
     resultLimit: s.searchConfigLimit,
     distanceMetric: s.searchConfigDistanceMetric,
+    retrievalMode: s.searchConfigRetrievalMode,
+    vectorWeight: s.searchConfigVectorWeight,
+    ftsWeight: s.searchConfigFtsWeight,
   }),
   searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
   isFilterVisible: (s: CollectionBrowserStore) => s.isFilterVisible,

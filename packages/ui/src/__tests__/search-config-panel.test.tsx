@@ -29,14 +29,14 @@ describe('SearchConfigPanel', () => {
   it('shows chevron down when collapsed', () => {
     render(<SearchConfigPanel {...createProps({ isExpanded: false })} />);
 
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('button', { name: /advanced options/i });
     expect(button).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('shows chevron up when expanded', () => {
     render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('button', { name: /advanced options/i });
     expect(button).toHaveAttribute('aria-expanded', 'true');
   });
 
@@ -44,7 +44,7 @@ describe('SearchConfigPanel', () => {
     const onExpandedChange = vi.fn();
     render(<SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: false })} />);
 
-    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: /advanced options/i }));
 
     expect(onExpandedChange).toHaveBeenCalledWith(true);
   });
@@ -53,7 +53,7 @@ describe('SearchConfigPanel', () => {
     const onExpandedChange = vi.fn();
     render(<SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: true })} />);
 
-    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(screen.getByRole('button', { name: /advanced options/i }));
 
     expect(onExpandedChange).toHaveBeenCalledWith(false);
   });
@@ -179,7 +179,116 @@ describe('SearchConfigPanel', () => {
   it('has correct aria controls on toggle button', () => {
     render(<SearchConfigPanel {...createProps()} />);
 
-    const button = screen.getByRole('button');
+    const button = screen.getByRole('button', { name: /advanced options/i });
     expect(button).toHaveAttribute('aria-controls', 'search-config-content');
+  });
+
+  // === Hybrid Search Tests (BST-294) ===
+
+  it('shows retrieval mode toggle when expanded', () => {
+    render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+
+    expect(screen.getByText('Retrieval Mode')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /vector/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /hybrid/i })).toBeInTheDocument();
+  });
+
+  it('defaults to vector mode', () => {
+    render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+
+    const vectorButton = screen.getByRole('button', { name: /vector/i });
+    expect(vectorButton).toHaveClass('bg-primary');
+  });
+
+  it('calls onConfigChange when switching to hybrid mode', () => {
+    const onConfigChange = vi.fn();
+    render(<SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /hybrid/i }));
+
+    expect(onConfigChange).toHaveBeenCalledWith(
+      expect.objectContaining({ retrievalMode: 'hybrid' })
+    );
+  });
+
+  it('shows weight sliders only in hybrid mode', () => {
+    const { rerender } = render(
+      <SearchConfigPanel
+        {...createProps({
+          isExpanded: true,
+          config: { ...createDefaultConfig(), retrievalMode: 'vector' },
+        })}
+      />
+    );
+
+    // Vector mode: no weight sliders
+    expect(screen.queryByText('Result Weighting')).not.toBeInTheDocument();
+
+    // Hybrid mode: show weight sliders
+    rerender(
+      <SearchConfigPanel
+        {...createProps({
+          isExpanded: true,
+          config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
+        })}
+      />
+    );
+
+    expect(screen.getByText('Result Weighting')).toBeInTheDocument();
+    expect(screen.getByText('Semantic')).toBeInTheDocument();
+    expect(screen.getByText('Keyword')).toBeInTheDocument();
+  });
+
+  it('displays default weight values in hybrid mode', () => {
+    render(
+      <SearchConfigPanel
+        {...createProps({
+          isExpanded: true,
+          config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
+        })}
+      />
+    );
+
+    // Default weights are 1.0
+    const weightValues = screen.getAllByText('1.0');
+    expect(weightValues.length).toBe(2); // vector and FTS weights
+  });
+
+  it('calls onConfigChange when vector weight changes', () => {
+    const onConfigChange = vi.fn();
+    render(
+      <SearchConfigPanel
+        {...createProps({
+          onConfigChange,
+          isExpanded: true,
+          config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
+        })}
+      />
+    );
+
+    // Use aria-label to find the specific slider
+    const vectorWeightSlider = screen.getByLabelText('Vector search weight');
+    fireEvent.change(vectorWeightSlider, { target: { value: '1.5' } });
+
+    expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ vectorWeight: 1.5 }));
+  });
+
+  it('calls onConfigChange when FTS weight changes', () => {
+    const onConfigChange = vi.fn();
+    render(
+      <SearchConfigPanel
+        {...createProps({
+          onConfigChange,
+          isExpanded: true,
+          config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
+        })}
+      />
+    );
+
+    // Use aria-label to find the specific slider
+    const ftsWeightSlider = screen.getByLabelText('Full-text search weight');
+    fireEvent.change(ftsWeightSlider, { target: { value: '0.8' } });
+
+    expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ ftsWeight: 0.8 }));
   });
 });
