@@ -229,7 +229,9 @@ export class LocalLlmBackend {
 
       // Determine device
       this.selectedDevice = this.determineDevice(config.device);
-      const dtype = this.selectedDevice === 'webgpu' ? 'fp16' : 'q4';
+      // Use fp16 for both WebGPU and WASM - q4 dtype mapping is unreliable
+      // (transformers.js looks for model_quantized.onnx instead of model_q4.onnx)
+      const dtype = 'fp16';
 
       // Create progress callback
       const progressCallback = (progress: ProgressInfo) => {
