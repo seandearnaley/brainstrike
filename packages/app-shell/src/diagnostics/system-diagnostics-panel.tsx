@@ -10,6 +10,7 @@
  * without navigating to multiple places.
  */
 
+import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui';
 import {
   databaseStatusSelectors,
   type SettingsCategory,
@@ -278,10 +279,28 @@ export function SystemDiagnosticsPanel({
 }
 
 /**
+ * Connected version of SystemDiagnosticsPanel that automatically
+ * reads token cache state from context when available.
+ */
+function ConnectedSystemDiagnosticsPanel(): ReactElement {
+  const tokenCache = useOptionalTokenCacheContext();
+
+  return (
+    <SystemDiagnosticsPanel
+      persistenceMode={tokenCache?.persistenceMode}
+      showQueueRefresh
+      tokenCacheOperational={tokenCache?.isOperational}
+      tokenCachePersisted={tokenCache?.isPersisted}
+    />
+  );
+}
+
+/**
  * Factory function to create a System Diagnostics settings category.
  *
- * Note: Token cache props must be passed from the consuming component
- * that has access to TokenCacheContext.
+ * The returned category uses ConnectedSystemDiagnosticsPanel which
+ * automatically reads token cache state from TokenCacheContext when
+ * rendered inside a TokenCacheProvider.
  */
 export function createSystemDiagnosticsSettingsCategory(): SettingsCategory {
   return {
@@ -290,6 +309,6 @@ export function createSystemDiagnosticsSettingsCategory(): SettingsCategory {
     description: 'Monitor database, queue, and worker health in real-time.',
     keywords: ['diagnostics', 'health', 'status', 'database', 'queue', 'worker', 'monitoring'],
     icon: Activity,
-    render: () => <SystemDiagnosticsPanel />,
+    render: () => <ConnectedSystemDiagnosticsPanel />,
   };
 }

@@ -23,6 +23,12 @@ vi.mock('@brainstrike/vector-management', () => ({
   ),
 }));
 
+// Mock the optional token cache context hook
+const mockUseOptionalTokenCacheContext = vi.fn();
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  useOptionalTokenCacheContext: () => mockUseOptionalTokenCacheContext(),
+}));
+
 describe('SystemDiagnosticsPanel', () => {
   beforeEach(() => {
     __resetDatabaseStatusStoreForTests();
@@ -189,10 +195,12 @@ describe('SystemDiagnosticsPanel', () => {
 describe('createSystemDiagnosticsSettingsCategory', () => {
   beforeEach(() => {
     __resetDatabaseStatusStoreForTests();
+    mockUseOptionalTokenCacheContext.mockReturnValue(null);
   });
 
   afterEach(() => {
     __resetDatabaseStatusStoreForTests();
+    vi.clearAllMocks();
   });
 
   it('returns a valid settings category', () => {
@@ -213,5 +221,49 @@ describe('createSystemDiagnosticsSettingsCategory', () => {
     render(category.render());
 
     expect(screen.getByText('System Diagnostics')).toBeInTheDocument();
+  });
+
+  it('reads token cache state from context when available', () => {
+    // Mock the context to return operational token cache
+    mockUseOptionalTokenCacheContext.mockReturnValue({
+      isOperational: true,
+      isPersisted: true,
+      persistenceMode: 'persistent',
+    });
+
+    const category = createSystemDiagnosticsSettingsCategory();
+    render(category.render());
+
+    // Verify the panel shows the correct status from context
+    expect(screen.getByText('Fully Operational')).toBeInTheDocument();
+    expect(screen.getByText('Token counts are saved to database')).toBeInTheDocument();
+  });
+
+  it('shows default state when context is not available', () => {
+    // Mock the context to return null (no provider)
+    mockUseOptionalTokenCacheContext.mockReturnValue(null);
+
+    const category = createSystemDiagnosticsSettingsCategory();
+    render(category.render());
+
+    // Verify the panel shows default "Not Ready" state
+    expect(screen.getByText('Not Ready')).toBeInTheDocument();
+    expect(screen.getByText('Token counting worker is not running')).toBeInTheDocument();
+  });
+
+  it('shows memory-only state when operational but not persisted', () => {
+    mockUseOptionalTokenCacheContext.mockReturnValue({
+      isOperational: true,
+      isPersisted: false,
+      persistenceMode: 'memory',
+    });
+
+    const category = createSystemDiagnosticsSettingsCategory();
+    render(category.render());
+
+    expect(screen.getByText('Memory Only')).toBeInTheDocument();
+    expect(
+      screen.getByText('Token counts are in-memory only (no persistence)')
+    ).toBeInTheDocument();
   });
 });
