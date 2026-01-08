@@ -4,6 +4,21 @@
  * Safe to import in browser/renderer contexts.
  */
 
+export type {
+  LocalLlmConfig,
+  LocalLlmGenerationOptions,
+  LocalLlmGenerationResult,
+  LocalLlmMessage,
+  LocalLlmModelCapabilities,
+  LocalLlmModelParameters,
+  LocalLlmProgressCallback,
+  LocalLlmProviderStatus,
+  LocalLlmToolCall,
+  LocalLlmToolDefinition,
+} from './providers/local';
+
+// Local LLM backend for browser-based inference with transformers.js
+export { LocalLlmBackend } from './providers/local';
 export {
   getProviderDefaultModel,
   getProviderDefinition,

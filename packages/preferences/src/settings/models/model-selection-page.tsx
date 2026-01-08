@@ -58,8 +58,8 @@ async function downloadLlmModel(
   model: DbModel,
   { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
 ): Promise<void> {
-  // Dynamic import to avoid bundling @brainstrike/agent in embeddings-only contexts
-  const { LocalLlmBackend } = await import('@brainstrike/agent');
+  // Dynamic import from client entry to avoid server-only Mastra dependencies
+  const { LocalLlmBackend } = await import('@brainstrike/agent/client');
 
   setDownloading(model.id, true);
   setDownloadProgress(model.id, 0);
