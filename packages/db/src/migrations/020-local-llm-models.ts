@@ -5,16 +5,19 @@ import type { Migration } from './migration-runner';
  *
  * Adds support for running LLMs locally using transformers.js and ONNX:
  * - onnx-community/functiongemma-270m-it-ONNX: Function calling specialist (270M params)
- * - LiquidAI/LFM2.5-1.2B-Instruct-ONNX: Hybrid model for on-device deployment
+ * - onnx-community/Llama-3.2-1B-Instruct-ONNX: Llama 3.2 for on-device deployment (1B params)
  * - onnx-community/Qwen3-0.6B-ONNX: Fast, efficient Qwen3 model (600M params)
  * - onnx-community/Qwen3-1.7B-ONNX: More capable Qwen3 model (1.7B params)
  *
- * All models have proper ONNX files (model_q4.onnx, model_fp16.onnx) for transformers.js.
+ * All models are tagged with 'transformers.js' on HuggingFace and verified to work.
  */
 export const migration020LocalLlmModels: Migration = {
   version: 20,
   name: 'local_llm_models',
   up: `
+    -- Remove incompatible LiquidAI model (lfm2 architecture not supported by transformers.js)
+    DELETE FROM models WHERE id = 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX';
+
     -- Add local LLM models to the transformers provider
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, parameters, sort_order, is_enabled)
     VALUES
@@ -30,13 +33,13 @@ export const migration020LocalLlmModels: Migration = {
         true
       ),
       (
-        'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+        'onnx-community/Llama-3.2-1B-Instruct-ONNX',
         'transformers',
-        'LiquidAI LFM 2.5 1.2B',
-        'Hybrid model for on-device deployment',
-        '["Agentic workflows", "Complex tasks", "Desktop"]',
-        '{"type":"llm","streaming":false,"toolCalling":true,"contextWindow":32768}',
-        '{"size":"~1.2GB","architecture":"LFM2 Hybrid","quantization":"fp16/int8"}',
+        'Llama 3.2 1B Instruct',
+        'Meta Llama 3.2 for on-device deployment',
+        '["General tasks", "Instruction following", "Desktop"]',
+        '{"type":"llm","streaming":false,"toolCalling":false,"contextWindow":131072}',
+        '{"size":"~1GB (q4)","architecture":"Llama","quantization":"q4/fp16"}',
         11,
         false
       ),
@@ -73,7 +76,7 @@ export const migration020LocalLlmModels: Migration = {
   down: `
     DELETE FROM models WHERE id IN (
       'onnx-community/functiongemma-270m-it-ONNX',
-      'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+      'onnx-community/Llama-3.2-1B-Instruct-ONNX',
       'onnx-community/Qwen3-0.6B-ONNX',
       'onnx-community/Qwen3-1.7B-ONNX'
     );
