@@ -106,6 +106,64 @@ async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbe
   };
 }
 
+type RetrievalFilterOptions = {
+  filePaths?: string[];
+  selectionSnapshotId?: string;
+};
+
+/**
+ * Build retrieval filter options, preferring selectionSnapshotId over filePaths
+ * to avoid MAX_INLINE_FILE_PATHS (500) limit.
+ */
+function buildRetrievalFilterOptions(config: SearchConfig): RetrievalFilterOptions {
+  if (config.selectionSnapshotId) {
+    return { selectionSnapshotId: config.selectionSnapshotId };
+  }
+  if (config.filePaths?.length) {
+    return { filePaths: [...config.filePaths] };
+  }
+  return {};
+}
+
+type ChunkSearchResult = {
+  chunk: {
+    id: string;
+    content: string;
+    fileRecordId: string;
+    embeddingSetId?: string;
+  };
+  similarity: number;
+};
+
+/**
+ * Transform chunk search results to SemanticSearchResult format.
+ */
+function transformToSearchResults(
+  searchResults: ChunkSearchResult[],
+  fileRecordsMap: Map<string, { name: string; path: string }>
+): SemanticSearchResult[] {
+  return searchResults.map((result) => {
+    const fileInfo = fileRecordsMap.get(result.chunk.fileRecordId) ?? {
+      name: 'Unknown',
+      path: '',
+    };
+
+    const searchResult: SemanticSearchResult = {
+      nodeId: `chunk-${result.chunk.id}`,
+      chunkId: result.chunk.id,
+      fileRecordId: result.chunk.fileRecordId,
+      similarity: result.similarity,
+      content: result.chunk.content,
+      fileName: fileInfo.name,
+      filePath: fileInfo.path,
+    };
+    if (result.chunk.embeddingSetId) {
+      searchResult.embeddingSetId = result.chunk.embeddingSetId;
+    }
+    return searchResult;
+  });
+}
+
 /**
  * Creates a search executor for semantic search in the collection browser
  */
@@ -117,6 +175,8 @@ export function useSemanticSearchExecutor({
   const { models } = useModelRegistryStore();
   const embedderRef = useRef<SearchEmbedder | null>(null);
   const currentModelKeyRef = useRef<string | null>(null);
+  // Track in-flight initialization to prevent race conditions (BST-175 fix)
+  const initializingPromiseRef = useRef<Promise<SearchEmbedder> | null>(null);
 
   useEnsureModelRegistry({ db });
 
@@ -126,7 +186,13 @@ export function useSemanticSearchExecutor({
       embedderRef.current = null;
       currentModelKeyRef.current = null;
       if (embedder?.dispose) {
-        void embedder.dispose();
+        // Wrap disposal in try-catch to prevent unhandled rejections
+        // and log errors for debugging resource cleanup issues
+        Promise.resolve(embedder.dispose()).catch((error: unknown) => {
+          logger.error('Failed to dispose embedder during cleanup', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       }
     };
     return cleanup;
@@ -200,7 +266,9 @@ export function useSemanticSearchExecutor({
   );
 
   /**
-   * Ensure embedder is ready for the given model
+   * Ensure embedder is ready for the given model.
+   * Uses promise caching to prevent race conditions when multiple concurrent
+   * calls attempt to initialize the embedder simultaneously.
    */
   const ensureEmbedderReady = useCallback(
     async ({ modelKey, dimensions, modelConfig }: EffectiveModelInfo): Promise<SearchEmbedder> => {
@@ -212,34 +280,57 @@ export function useSemanticSearchExecutor({
         return embedderRef.current;
       }
 
-      // Dispose previous embedder if exists
-      if (embedderRef.current?.dispose) {
-        logger.info('Disposing previous embedder');
-        await embedderRef.current.dispose();
+      // If there's an in-flight initialization for the same model, wait for it
+      // This prevents race conditions where multiple concurrent calls both create embedders
+      if (initializingPromiseRef.current && currentModelKeyRef.current === modelKey) {
+        logger.info('Waiting for in-flight embedder initialization');
+        return initializingPromiseRef.current;
       }
 
-      // Detect provider type
-      const parsed = parseProviderModelKey(modelKey);
-      const isHosted = parsed ? isHostedProvider(parsed.provider) : false;
-      logger.info('Provider detection', { isHosted });
-
-      // Create appropriate embedder
-      let embedder: SearchEmbedder;
-      if (parsed && isHostedProvider(parsed.provider)) {
-        logger.info('Creating hosted provider', { provider: parsed.provider });
-        const providerConfig = createHostedConfig(parsed.provider, parsed.modelId, dimensions);
-        embedder = await createHostedEmbedder(providerConfig, parsed.modelId);
-      } else {
-        if (!modelConfig) {
-          throw new Error('No local embedding model configured. Enable one in Settings > Models.');
+      // Create the initialization promise
+      const initPromise = (async (): Promise<SearchEmbedder> => {
+        // Dispose previous embedder if exists
+        if (embedderRef.current?.dispose) {
+          logger.info('Disposing previous embedder');
+          await embedderRef.current.dispose();
         }
-        embedder = await createLocalEmbedder(modelConfig);
-      }
 
-      // Cache and return
-      embedderRef.current = embedder;
-      currentModelKeyRef.current = modelKey;
-      return embedder;
+        // Detect provider type
+        const parsed = parseProviderModelKey(modelKey);
+        const isHosted = parsed ? isHostedProvider(parsed.provider) : false;
+        logger.info('Provider detection', { isHosted });
+
+        // Create appropriate embedder
+        let embedder: SearchEmbedder;
+        if (parsed && isHostedProvider(parsed.provider)) {
+          logger.info('Creating hosted provider', { provider: parsed.provider });
+          const providerConfig = createHostedConfig(parsed.provider, parsed.modelId, dimensions);
+          embedder = await createHostedEmbedder(providerConfig, parsed.modelId);
+        } else {
+          if (!modelConfig) {
+            throw new Error(
+              'No local embedding model configured. Enable one in Settings > Models.'
+            );
+          }
+          embedder = await createLocalEmbedder(modelConfig);
+        }
+
+        // Cache the result
+        embedderRef.current = embedder;
+        currentModelKeyRef.current = modelKey;
+        return embedder;
+      })();
+
+      // Store the promise so concurrent calls can wait for it
+      initializingPromiseRef.current = initPromise;
+
+      try {
+        const embedder = await initPromise;
+        return embedder;
+      } finally {
+        // Clear the in-flight promise when done (success or error)
+        initializingPromiseRef.current = null;
+      }
     },
     [createHostedConfig]
   );
@@ -287,12 +378,24 @@ export function useSemanticSearchExecutor({
       const { embedding } = await embedder.embedQuery(query);
       logger.info('Query embedding generated', { embeddingLength: embedding.length });
 
+      // Build retrieval filter options (BST-172, BST-175)
+      const filterOptions = buildRetrievalFilterOptions(config);
+      logger.info('Searching for similar chunks...', {
+        hasFilePaths: Boolean(config.filePaths?.length),
+        hasSnapshotId: Boolean(config.selectionSnapshotId),
+        filterMode: filterOptions.selectionSnapshotId
+          ? 'snapshot'
+          : filterOptions.filePaths
+            ? 'filePaths'
+            : 'none',
+      });
+
       // Search for similar chunks
-      logger.info('Searching for similar chunks...');
       const searchResults = await chunkRepository.searchSimilar(embedding, {
         limit: config.resultLimit,
         threshold: config.threshold,
         embeddingSetId,
+        ...filterOptions,
       });
       logger.info('Search completed', { resultCount: searchResults.length });
 
@@ -306,36 +409,14 @@ export function useSemanticSearchExecutor({
       );
       const fileRecordsMap = new Map<string, { name: string; path: string }>();
       for (const [fileId, record] of fileEntries) {
-        if (record) {
-          fileRecordsMap.set(fileId, { name: record.name, path: record.path });
-        } else {
-          fileRecordsMap.set(fileId, { name: 'Unknown file', path: '(unavailable)' });
-        }
+        const info = record
+          ? { name: record.name, path: record.path }
+          : { name: 'Unknown file', path: '(unavailable)' };
+        fileRecordsMap.set(fileId, info);
       }
 
       // Transform to SemanticSearchResult format
-      const results: SemanticSearchResult[] = searchResults.map((result) => {
-        const fileInfo = fileRecordsMap.get(result.chunk.fileRecordId) ?? {
-          name: 'Unknown',
-          path: '',
-        };
-
-        const searchResult: SemanticSearchResult = {
-          nodeId: `chunk-${result.chunk.id}`,
-          chunkId: result.chunk.id,
-          fileRecordId: result.chunk.fileRecordId,
-          similarity: result.similarity,
-          content: result.chunk.content,
-          fileName: fileInfo.name,
-          filePath: fileInfo.path,
-        };
-        if (result.chunk.embeddingSetId) {
-          searchResult.embeddingSetId = result.chunk.embeddingSetId;
-        }
-        return searchResult;
-      });
-
-      return results;
+      return transformToSearchResults(searchResults, fileRecordsMap);
     },
     [chunkRepository, fileRepository, getModelInfo, ensureEmbedderReady]
   );

@@ -30,6 +30,12 @@ export * from './types';
 export { useDatabaseDemoData } from './use-database-demo-data';
 export { useImportFlow } from './use-import-flow';
 export { usePendingChunks } from './use-pending-chunks';
+export {
+  formatPackedContext,
+  type TokenCountLookup,
+  toContextPackerChunk,
+  toContextPackerChunks,
+} from './utils/context-packer-utils';
 export { normalizeEmbeddingSets } from './utils/embedding-set-normalizer';
 export * from './utils/format';
 export * from './vector-preferences';

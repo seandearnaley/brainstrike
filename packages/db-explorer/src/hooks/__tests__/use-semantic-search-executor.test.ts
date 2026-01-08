@@ -299,4 +299,134 @@ describe('useSemanticSearchExecutor', () => {
       })
     );
   });
+
+  describe('retrieval filters (BST-172)', () => {
+    it('passes filePaths filter to repository when provided', async () => {
+      const chunk = createMockChunk('chunk-1', 'file-1');
+      const chunkRepo = createMockChunkRepository([chunk]);
+      const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+      const { result } = renderHook(() =>
+        useSemanticSearchExecutor({
+          chunkRepository: chunkRepo,
+          fileRepository: fileRepo,
+        })
+      );
+
+      const filePaths = ['/path/to/file1.ts', '/path/to/file2.ts'];
+      await result.current!('test query', createSearchConfig({ filePaths }), 'set-1');
+
+      expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({
+          filePaths,
+          embeddingSetId: 'set-1',
+        })
+      );
+    });
+
+    it('passes selectionSnapshotId filter to repository when provided', async () => {
+      const chunk = createMockChunk('chunk-1', 'file-1');
+      const chunkRepo = createMockChunkRepository([chunk]);
+      const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+      const { result } = renderHook(() =>
+        useSemanticSearchExecutor({
+          chunkRepository: chunkRepo,
+          fileRepository: fileRepo,
+        })
+      );
+
+      const selectionSnapshotId = 'snapshot-uuid-123';
+      await result.current!('test query', createSearchConfig({ selectionSnapshotId }), 'set-1');
+
+      expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({
+          selectionSnapshotId,
+          embeddingSetId: 'set-1',
+        })
+      );
+    });
+
+    it('prefers selectionSnapshotId over filePaths when both provided (BST-175)', async () => {
+      // When selectionSnapshotId is present, filePaths should be dropped to avoid
+      // MAX_INLINE_FILE_PATHS (500) limit - the snapshot already contains the selection
+      const chunk = createMockChunk('chunk-1', 'file-1');
+      const chunkRepo = createMockChunkRepository([chunk]);
+      const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+      const { result } = renderHook(() =>
+        useSemanticSearchExecutor({
+          chunkRepository: chunkRepo,
+          fileRepository: fileRepo,
+        })
+      );
+
+      const filePaths = ['/path/to/file.ts'];
+      const selectionSnapshotId = 'snapshot-uuid-456';
+      await result.current!(
+        'test query',
+        createSearchConfig({ filePaths, selectionSnapshotId }),
+        'set-1'
+      );
+
+      // Should only pass selectionSnapshotId, not filePaths
+      expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({
+          selectionSnapshotId,
+          embeddingSetId: 'set-1',
+        })
+      );
+      // Verify filePaths was NOT passed
+      expect(chunkRepo.searchSimilar).not.toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.objectContaining({
+          filePaths: expect.anything(),
+        })
+      );
+    });
+
+    it('does not pass filePaths when array is empty', async () => {
+      const chunk = createMockChunk('chunk-1', 'file-1');
+      const chunkRepo = createMockChunkRepository([chunk]);
+      const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+      const { result } = renderHook(() =>
+        useSemanticSearchExecutor({
+          chunkRepository: chunkRepo,
+          fileRepository: fileRepo,
+        })
+      );
+
+      await result.current!('test query', createSearchConfig({ filePaths: [] }), 'set-1');
+
+      const mockCalls = (chunkRepo.searchSimilar as ReturnType<typeof vi.fn>).mock.calls;
+      expect(mockCalls.length).toBeGreaterThan(0);
+      const callArgs = mockCalls[0]?.[1] as Record<string, unknown>;
+      expect(callArgs).not.toHaveProperty('filePaths');
+    });
+
+    it('does not pass selectionSnapshotId when undefined', async () => {
+      const chunk = createMockChunk('chunk-1', 'file-1');
+      const chunkRepo = createMockChunkRepository([chunk]);
+      const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
+
+      const { result } = renderHook(() =>
+        useSemanticSearchExecutor({
+          chunkRepository: chunkRepo,
+          fileRepository: fileRepo,
+        })
+      );
+
+      // Use default config without selectionSnapshotId
+      await result.current!('test query', createSearchConfig(), 'set-1');
+
+      const mockCalls = (chunkRepo.searchSimilar as ReturnType<typeof vi.fn>).mock.calls;
+      expect(mockCalls.length).toBeGreaterThan(0);
+      const callArgs = mockCalls[0]?.[1] as Record<string, unknown>;
+      expect(callArgs).not.toHaveProperty('selectionSnapshotId');
+    });
+  });
 });
