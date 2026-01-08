@@ -85,6 +85,7 @@ This plan implements serverless sync using **Neon Auth** (Better Auth-based auth
 
 **Sources:**
 - https://neon.com/docs/data-api/get-started
+- https://neon.com/docs/data-api/access-control
 
 ### PGlite Sync Limitations
 - Current sync plugin is **pull-only** (alpha)
