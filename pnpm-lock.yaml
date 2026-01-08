@@ -451,6 +451,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
+      '@huggingface/transformers':
+        specifier: ^3.8.0
+        version: 3.8.0
       '@mastra/core':
         specifier: ^0.24.6
         version: 0.24.6(encoding@0.1.13)(openapi-types@12.1.3)(react@19.2.0)(zod@3.25.76)
