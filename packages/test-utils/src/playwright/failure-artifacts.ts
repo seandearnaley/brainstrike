@@ -64,12 +64,32 @@ export type FailureDiagnostics = {
 };
 
 /**
+ * Type-safe console message type mapping
+ */
+const CONSOLE_TYPE_MAP: Record<string, ConsoleLogEntry['type']> = {
+  error: 'error',
+  warning: 'warning',
+  info: 'info',
+  debug: 'debug',
+};
+
+/**
  * Collector that accumulates diagnostics during test execution
  */
 export class FailureArtifactCollector {
   private consoleLogs: ConsoleLogEntry[] = [];
   private networkRequests: NetworkRequestEntry[] = [];
   private isAttached = false;
+
+  // Store listener references for proper cleanup (prevents memory leaks)
+  private consoleListener?: ((msg: import('@playwright/test').ConsoleMessage) => void) | undefined;
+  private pageErrorListener?: ((error: Error) => void) | undefined;
+  private requestFinishedListener?:
+    | ((request: import('@playwright/test').Request) => void)
+    | undefined;
+  private requestFailedListener?:
+    | ((request: import('@playwright/test').Request) => void)
+    | undefined;
 
   constructor(private readonly page: Page) {}
 
@@ -84,19 +104,10 @@ export class FailureArtifactCollector {
     this.consoleLogs = [];
     this.networkRequests = [];
 
-    // Collect console messages
-    this.page.on('console', (msg) => {
+    // Define console listener with type-safe mapping
+    this.consoleListener = (msg) => {
       const msgType = msg.type();
-      let type: ConsoleLogEntry['type'] = 'log';
-      if (msgType === 'error') {
-        type = 'error';
-      } else if (msgType === 'warning') {
-        type = 'warning';
-      } else if (msgType === 'info') {
-        type = 'info';
-      } else if (msgType === 'debug') {
-        type = 'debug';
-      }
+      const type = CONSOLE_TYPE_MAP[msgType] ?? 'log';
 
       this.consoleLogs.push({
         type,
@@ -104,30 +115,46 @@ export class FailureArtifactCollector {
         timestamp: Date.now(),
         location: msg.location()?.url,
       });
-    });
+    };
+    this.page.on('console', this.consoleListener);
 
-    // Collect page errors
-    this.page.on('pageerror', (error) => {
+    // Define page error listener
+    this.pageErrorListener = (error) => {
       this.consoleLogs.push({
         type: 'error',
         text: `Page Error: ${error.message}`,
         timestamp: Date.now(),
       });
-    });
+    };
+    this.page.on('pageerror', this.pageErrorListener);
 
-    // Collect network requests
-    this.page.on('requestfinished', async (request) => {
-      const response = await request.response();
-      this.networkRequests.push({
+    // Define request finished listener (synchronous push, async status update)
+    // This fixes the race condition where async handlers complete after test ends
+    this.requestFinishedListener = (request) => {
+      const entry: NetworkRequestEntry = {
         url: request.url(),
         method: request.method(),
-        status: response?.status() ?? null,
+        status: null, // Will be updated asynchronously
         timing: request.timing().responseEnd,
         failed: false,
-      });
-    });
+      };
+      this.networkRequests.push(entry);
 
-    this.page.on('requestfailed', (request) => {
+      // Update status asynchronously without blocking
+      request
+        .response()
+        .then((response) => {
+          entry.status = response?.status() ?? null;
+        })
+        .catch(() => {
+          // Response unavailable - mark as potentially failed
+          entry.failed = true;
+        });
+    };
+    this.page.on('requestfinished', this.requestFinishedListener);
+
+    // Define request failed listener
+    this.requestFailedListener = (request) => {
       this.networkRequests.push({
         url: request.url(),
         method: request.method(),
@@ -136,16 +163,39 @@ export class FailureArtifactCollector {
         failed: true,
         failureReason: request.failure()?.errorText,
       });
-    });
+    };
+    this.page.on('requestfailed', this.requestFailedListener);
 
     this.isAttached = true;
   }
 
   /**
-   * Stop collecting and clean up listeners
+   * Stop collecting and clean up listeners.
+   * Explicitly removes all event listeners to prevent memory leaks.
    */
   detach(): void {
-    // Playwright automatically removes listeners when page closes
+    if (!this.isAttached) {
+      return;
+    }
+
+    // Remove all registered listeners to prevent memory leaks
+    if (this.consoleListener) {
+      this.page.off('console', this.consoleListener);
+      this.consoleListener = undefined;
+    }
+    if (this.pageErrorListener) {
+      this.page.off('pageerror', this.pageErrorListener);
+      this.pageErrorListener = undefined;
+    }
+    if (this.requestFinishedListener) {
+      this.page.off('requestfinished', this.requestFinishedListener);
+      this.requestFinishedListener = undefined;
+    }
+    if (this.requestFailedListener) {
+      this.page.off('requestfailed', this.requestFailedListener);
+      this.requestFailedListener = undefined;
+    }
+
     this.isAttached = false;
   }
 
@@ -186,11 +236,12 @@ export class FailureArtifactCollector {
     }
 
     try {
-      // page.url() is synchronous, no Promise.all needed for it
+      // Extract synchronous values before Promise.all (no need for Promise.resolve wrapper)
       const url = this.page.url();
-      const [title, viewportSize, localStorage] = await Promise.all([
+      const viewportSize = this.page.viewportSize();
+
+      const [title, localStorage] = await Promise.all([
         this.page.title(),
-        Promise.resolve(this.page.viewportSize()),
         this.page.evaluate(() => {
           const storage: Record<string, string> = {};
           for (let i = 0; i < window.localStorage.length; i++) {
