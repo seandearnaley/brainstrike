@@ -26,6 +26,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./playwright": {
+      "types": "./src/playwright/failure-artifacts.ts",
+      "import": "./src/playwright/failure-artifacts.ts",
+      "require": "./src/playwright/failure-artifacts.ts"
     }
   },
   "sideEffects": false,
@@ -47,7 +52,16 @@
   "dependencies": {
     "@brainstrike/types": "workspace:*"
   },
+  "peerDependencies": {
+    "@playwright/test": ">=1.40.0"
+  },
+  "peerDependenciesMeta": {
+    "@playwright/test": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@playwright/test": "^1.52.0",
     "@stryker-mutator/api": "^9.4.0",
     "@stryker-mutator/core": "^9.4.0",
     "@stryker-mutator/typescript-checker": "^9.4.0",

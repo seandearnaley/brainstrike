@@ -186,10 +186,11 @@ export class FailureArtifactCollector {
     }
 
     try {
-      const [url, title, viewportSize, localStorage] = await Promise.all([
-        Promise.resolve(this.page.url()),
+      // page.url() is synchronous, no Promise.all needed for it
+      const url = this.page.url();
+      const [title, viewportSize, localStorage] = await Promise.all([
         this.page.title(),
-        this.page.viewportSize(),
+        Promise.resolve(this.page.viewportSize()),
         this.page.evaluate(() => {
           const storage: Record<string, string> = {};
           for (let i = 0; i < window.localStorage.length; i++) {
@@ -210,6 +211,7 @@ export class FailureArtifactCollector {
         timestamp: Date.now(),
       };
     } catch (error) {
+      // biome-ignore lint/suspicious/noConsole: Intentional for E2E diagnostic logging
       console.warn('Failed to capture app state:', error);
       return null;
     }
@@ -226,6 +228,7 @@ export class FailureArtifactCollector {
     try {
       return await this.page.content();
     } catch (error) {
+      // biome-ignore lint/suspicious/noConsole: Intentional for E2E diagnostic logging
       console.warn('Failed to capture DOM snapshot:', error);
       return;
     }

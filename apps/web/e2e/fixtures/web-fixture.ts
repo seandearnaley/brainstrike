@@ -6,9 +6,12 @@
  * to automatically capture failure artifacts.
  */
 
+import {
+  createFailureCollector,
+  type FailureArtifactCollector,
+} from '@brainstrike/test-utils/playwright';
 import type { TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
-import { createFailureCollector, type FailureArtifactCollector } from '../utils/failure-artifacts';
 
 type WebTestFixtures = {
   /** Failure artifact collector - automatically captures diagnostics on test failure */

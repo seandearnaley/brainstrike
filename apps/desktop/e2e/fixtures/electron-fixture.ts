@@ -1,5 +1,9 @@
 import os from 'node:os';
 import path from 'node:path';
+import {
+  createFailureCollector,
+  type FailureArtifactCollector,
+} from '@brainstrike/test-utils/playwright';
 import type { Page, TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
@@ -10,7 +14,6 @@ import {
   resetAppState,
   waitForAppReady,
 } from '../utils/electron-helpers';
-import { createFailureCollector, type FailureArtifactCollector } from '../utils/failure-artifacts';
 import { resetToAppHome } from '../utils/test-reset';
 
 type ElectronHarnessOptions = {
