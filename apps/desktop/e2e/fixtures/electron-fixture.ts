@@ -10,6 +10,7 @@ import {
   resetAppState,
   waitForAppReady,
 } from '../utils/electron-helpers';
+import { createFailureCollector, type FailureArtifactCollector } from '../utils/failure-artifacts';
 import { resetToAppHome } from '../utils/test-reset';
 
 type ElectronHarnessOptions = {
@@ -103,6 +104,8 @@ type ElectronTestFixtures = {
   electronApp: ElectronAppContext;
   window: Page;
   homePage: HomePage;
+  /** Failure artifact collector - automatically captures diagnostics on test failure */
+  failureCollector: FailureArtifactCollector;
 };
 
 type ElectronWorkerFixtures = {
@@ -142,6 +145,17 @@ export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
 
     const page = await electron.ensureWindow({ preserveState });
     await use(page);
+  },
+
+  // BST-180: Failure artifact collector for enhanced test diagnostics
+  failureCollector: async ({ window }, use, testInfo: TestInfo) => {
+    const collector = createFailureCollector(window);
+
+    await use(collector);
+
+    // After test completes, attach diagnostics if the test failed
+    await collector.attachDiagnosticsOnFailure(testInfo);
+    collector.detach();
   },
 
   homePage: async ({ window }, use) => {
