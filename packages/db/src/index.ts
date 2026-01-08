@@ -26,6 +26,10 @@ export type {
   FileChunk,
   FileChunkInsert,
   FileChunkUpdate,
+  // Full-text search types (BST-292)
+  FTSQueryMode,
+  FTSSearchOptions,
+  FTSSearchResult,
 } from './models/file-chunk.js';
 export type {
   FileImportRequest,
@@ -52,6 +56,8 @@ export { FileChunkRepository } from './repositories/file-chunk-repository.js';
 export * from './repositories/index.js';
 // Schema types for embedding cache (BST-170)
 export type { EmbeddingCacheEntry, NewEmbeddingCacheEntry } from './schema/index.js';
+// Search utilities (RRF fusion for hybrid search)
+export * from './search/index.js';
 export type {
   ChunkingOptions,
   ChunkingResult,

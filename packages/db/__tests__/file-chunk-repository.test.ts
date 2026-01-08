@@ -857,4 +857,210 @@ describe('FileChunkRepository', () => {
       });
     });
   });
+
+  describe('fullTextSearch', () => {
+    beforeEach(async () => {
+      // Insert chunks with content that will be indexed for full-text search
+      const chunks: FileChunkInsert[] = [
+        {
+          id: 'fts-chunk1',
+          fileRecordId: 'file1',
+          chunkIndex: 0,
+          content:
+            'Authentication middleware handles user login and session management. The JWT tokens are validated here.',
+          contentHash: 'fts-hash1',
+          tokenCount: 15,
+          chunkType: 'text',
+          chunkSize: 100,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: 'fts-chunk2',
+          fileRecordId: 'file1',
+          chunkIndex: 1,
+          content: 'The database connection pool manages PostgreSQL connections efficiently.',
+          contentHash: 'fts-hash2',
+          tokenCount: 10,
+          chunkType: 'code',
+          chunkSize: 100,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: 'fts-chunk3',
+          fileRecordId: 'file2',
+          chunkIndex: 0,
+          content: 'Error handling in authentication flow includes retry logic and rate limiting.',
+          contentHash: 'fts-hash3',
+          tokenCount: 12,
+          chunkType: 'text',
+          chunkSize: 100,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: 'fts-chunk4',
+          fileRecordId: 'file2',
+          chunkIndex: 1,
+          content: 'User profile management includes avatar uploads and settings storage.',
+          contentHash: 'fts-hash4',
+          tokenCount: 10,
+          chunkType: 'sentence',
+          chunkSize: 100,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
+      await repository.insertMany(chunks);
+
+      // Manually populate tsvector column (trigger should handle this on insert,
+      // but let's ensure it's set for testing purposes)
+      await db.query(`
+        UPDATE file_chunks
+        SET content_tsvector = to_tsvector('english', content)
+        WHERE content_tsvector IS NULL
+      `);
+    });
+
+    it('should find chunks matching search query', async () => {
+      const results = await repository.fullTextSearch('authentication');
+
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.some((r) => r.chunk.id === 'fts-chunk1')).toBe(true);
+      expect(results.some((r) => r.chunk.id === 'fts-chunk3')).toBe(true);
+    });
+
+    it('should return results sorted by relevance', async () => {
+      const results = await repository.fullTextSearch('authentication login');
+
+      expect(results.length).toBeGreaterThan(0);
+      // Results should be sorted by rank descending
+      for (let i = 1; i < results.length; i++) {
+        const prev = results[i - 1];
+        const curr = results[i];
+        if (prev && curr) {
+          expect(prev.rank).toBeGreaterThanOrEqual(curr.rank);
+        }
+      }
+    });
+
+    it('should respect limit option', async () => {
+      const results = await repository.fullTextSearch('authentication', { limit: 1 });
+
+      expect(results.length).toBe(1);
+    });
+
+    it('should return empty array for empty query', async () => {
+      const results = await repository.fullTextSearch('');
+
+      expect(results).toEqual([]);
+    });
+
+    it('should return empty array for whitespace-only query', async () => {
+      const results = await repository.fullTextSearch('   ');
+
+      expect(results).toEqual([]);
+    });
+
+    it('should filter by fileRecordId', async () => {
+      const results = await repository.fullTextSearch('authentication', {
+        fileRecordId: 'file1',
+      });
+
+      expect(results.length).toBe(1);
+      expect(results[0]?.chunk.fileRecordId).toBe('file1');
+    });
+
+    it('should filter by chunkType', async () => {
+      const results = await repository.fullTextSearch('connection', {
+        chunkType: 'code',
+      });
+
+      expect(results.length).toBe(1);
+      expect(results[0]?.chunk.chunkType).toBe('code');
+    });
+
+    it('should include headline with highlighted terms', async () => {
+      const results = await repository.fullTextSearch('authentication');
+
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0]?.headline).toBeDefined();
+      expect(results[0]?.headline).toContain('<mark>');
+    });
+
+    it('should include position in results', async () => {
+      const results = await repository.fullTextSearch('authentication');
+
+      expect(results.length).toBeGreaterThan(0);
+      for (let i = 0; i < results.length; i++) {
+        expect(results[i]?.position).toBe(i + 1);
+      }
+    });
+
+    describe('query modes', () => {
+      it('should support plain query mode (AND semantics)', async () => {
+        // 'plain' mode uses AND between words
+        const results = await repository.fullTextSearch('authentication middleware', {
+          queryMode: 'plain',
+        });
+
+        // Should match chunk1 which has both words
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results.some((r) => r.chunk.id === 'fts-chunk1')).toBe(true);
+      });
+
+      it('should support websearch query mode with OR', async () => {
+        // 'websearch' mode supports OR operator
+        const results = await repository.fullTextSearch('avatar OR login', {
+          queryMode: 'websearch',
+        });
+
+        // Should match both chunk1 (login) and chunk4 (avatar)
+        expect(results.length).toBeGreaterThanOrEqual(2);
+        expect(results.some((r) => r.chunk.id === 'fts-chunk1')).toBe(true);
+        expect(results.some((r) => r.chunk.id === 'fts-chunk4')).toBe(true);
+      });
+
+      it('should support phrase query mode (exact phrase)', async () => {
+        const results = await repository.fullTextSearch('user login', {
+          queryMode: 'phrase',
+        });
+
+        // Phrase search should match chunk1 which has "user login" near each other
+        expect(results.length).toBeGreaterThanOrEqual(1);
+        expect(results.some((r) => r.chunk.id === 'fts-chunk1')).toBe(true);
+      });
+    });
+
+    it('should return results even when threshold is 0', async () => {
+      const results = await repository.fullTextSearch('database', { threshold: 0 });
+
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.some((r) => r.chunk.id === 'fts-chunk2')).toBe(true);
+    });
+
+    it('should filter results by threshold when set', async () => {
+      const allResults = await repository.fullTextSearch('connection', { threshold: 0 });
+      const filteredResults = await repository.fullTextSearch('connection', { threshold: 0.5 });
+
+      // With a high threshold, we might get fewer results
+      expect(filteredResults.length).toBeLessThanOrEqual(allResults.length);
+    });
+
+    it('should handle queries with no matches', async () => {
+      const results = await repository.fullTextSearch('xyznonexistentterm123');
+
+      expect(results).toEqual([]);
+    });
+
+    it('should throw error when filePaths exceeds limit', async () => {
+      const tooManyPaths = Array.from({ length: 1001 }, (_, i) => `/path/to/file${i}.txt`);
+
+      await expect(repository.fullTextSearch('test', { filePaths: tooManyPaths })).rejects.toThrow(
+        /filePaths limit exceeded/
+      );
+    });
+  });
 });

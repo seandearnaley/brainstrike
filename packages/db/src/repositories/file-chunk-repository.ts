@@ -5,6 +5,9 @@ import type {
   FileChunk,
   FileChunkInsert,
   FileChunkUpdate,
+  FTSQueryMode,
+  FTSSearchOptions,
+  FTSSearchResult,
 } from '../models/file-chunk';
 import {
   appendColumn,
@@ -422,6 +425,145 @@ export class FileChunkRepository {
       (r) => Number.isFinite(r.similarity) && r.similarity >= threshold
     );
     return filtered.slice(0, limit);
+  }
+
+  /**
+   * Full-text search on file chunks using PostgreSQL's tsvector/tsquery.
+   *
+   * Uses the pre-computed `content_tsvector` column with GIN index for fast
+   * keyword-based search. Supports multiple query modes:
+   * - 'plain': Simple AND of all words
+   * - 'websearch': Google-like syntax (OR, quotes, -negation)
+   * - 'phrase': Exact phrase matching
+   *
+   * @param query - Search query string
+   * @param options - Search options (limit, filters, query mode, etc.)
+   * @returns Array of matching chunks sorted by relevance
+   *
+   * @example
+   * ```typescript
+   * // Simple keyword search
+   * const results = await repo.fullTextSearch('authentication error');
+   *
+   * // Websearch with OR and negation
+   * const results = await repo.fullTextSearch('login OR signup -deprecated', {
+   *   queryMode: 'websearch',
+   *   limit: 20,
+   * });
+   *
+   * // Exact phrase match
+   * const results = await repo.fullTextSearch('user authentication flow', {
+   *   queryMode: 'phrase',
+   * });
+   * ```
+   */
+  async fullTextSearch(query: string, options: FTSSearchOptions = {}): Promise<FTSSearchResult[]> {
+    const {
+      limit = 10,
+      threshold = 0,
+      fileRecordId,
+      chunkType,
+      filePaths,
+      selectionSnapshotId,
+      queryMode = 'websearch',
+      language = 'english',
+      rankNormalization = 0,
+    } = options;
+
+    // Validate query
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return [];
+    }
+
+    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
+      throw new Error(
+        `fullTextSearch filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
+          'Use selectionSnapshotId for large selections.'
+      );
+    }
+    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+
+    // Build tsquery using the appropriate function based on query mode
+    const tsqueryFunc = this.getTsqueryFunction(queryMode);
+    const params: unknown[] = [language, trimmedQuery];
+    let paramIndex = 3;
+
+    // Build WHERE clause
+    const whereParts = [
+      'content_tsvector IS NOT NULL',
+      `content_tsvector @@ ${tsqueryFunc}($1::regconfig, $2)`,
+    ];
+
+    paramIndex = this.appendFilterClause(
+      whereParts,
+      params,
+      paramIndex,
+      fileRecordId,
+      'file_record_id'
+    );
+    paramIndex = this.appendFilterClause(whereParts, params, paramIndex, chunkType, 'chunk_type');
+    paramIndex = this.appendSelectionFilters(
+      whereParts,
+      params,
+      paramIndex,
+      normalizedFilePaths,
+      normalizedSnapshotId
+    );
+
+    // Execute search query with ts_rank for relevance scoring
+    const result = await this.db.query(
+      `SELECT
+        id, file_record_id, chunk_index, content, content_hash,
+        token_count, chunk_type, chunk_size, embedding::text AS embedding,
+        embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
+        ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) as fts_rank,
+        ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
+          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,
+        ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) DESC) as position
+      FROM file_chunks
+      WHERE ${whereParts.join(' AND ')}
+      ORDER BY fts_rank DESC
+      LIMIT $${paramIndex}`,
+      [...params, limit]
+    );
+
+    // Map results to FTSSearchResult
+    const results: FTSSearchResult[] = [];
+    for (const row of result.rows) {
+      const ftsRow = row as FileChunkRow & { fts_rank: string; headline: string; position: string };
+      const rank = Number.parseFloat(ftsRow.fts_rank);
+
+      // Apply threshold filter
+      if (threshold > 0 && rank < threshold) {
+        continue;
+      }
+
+      results.push({
+        chunk: this.mapRowToChunk(ftsRow),
+        rank,
+        position: Number.parseInt(ftsRow.position, 10),
+        headline: ftsRow.headline,
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Get the PostgreSQL tsquery function for the given query mode
+   */
+  private getTsqueryFunction(mode: FTSQueryMode): string {
+    switch (mode) {
+      case 'plain':
+        return 'plainto_tsquery';
+      case 'phrase':
+        return 'phraseto_tsquery';
+      default:
+        // 'websearch' is the default query mode
+        return 'websearch_to_tsquery';
+    }
   }
 
   async findAll(): Promise<FileChunk[]> {
