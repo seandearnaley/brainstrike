@@ -1,3 +1,4 @@
+import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
 import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
@@ -51,6 +52,7 @@ export default function SettingsPageContent() {
         icon: FileCog,
         render: () => <LoggingSettingsSection logSource={logSource} runtime="browser" />,
       },
+      createSystemDiagnosticsSettingsCategory(),
       createFactoryResetSettingsCategory(),
     ],
     [logSource]

@@ -1,0 +1,295 @@
+/**
+ * System Diagnostics Panel (BST-181)
+ *
+ * Unified diagnostics view that aggregates:
+ * - Database connection status
+ * - Queue health metrics (durable + ephemeral)
+ * - Worker health status
+ *
+ * Provides a centralized location for monitoring system health
+ * without navigating to multiple places.
+ */
+
+import {
+  databaseStatusSelectors,
+  type SettingsCategory,
+  useDatabaseStatusStore,
+} from '@brainstrike/preferences';
+import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
+import { QueueDiagnosticsPanel } from '@brainstrike/vector-management';
+import { Activity, CheckCircle2, Database, RefreshCw, Server, XCircle } from 'lucide-react';
+import type { ReactElement } from 'react';
+import { useCallback, useState } from 'react';
+
+type StatusVariant = 'success' | 'warning' | 'error' | 'loading';
+
+type StatusBadgeProps = {
+  readonly status: StatusVariant;
+  readonly label: string;
+};
+
+function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
+  const variantMap: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
+    success: 'default',
+    warning: 'secondary',
+    error: 'destructive',
+    loading: 'secondary',
+  };
+
+  return (
+    <Badge className="h-5 px-2 text-[10px]" variant={variantMap[status]}>
+      {label}
+    </Badge>
+  );
+}
+
+type DiagnosticCardProps = {
+  readonly title: string;
+  readonly description?: string;
+  readonly icon: ReactElement;
+  readonly status: StatusVariant;
+  readonly statusLabel: string;
+  readonly children?: ReactElement;
+};
+
+function DiagnosticCard({
+  title,
+  description,
+  icon,
+  status,
+  statusLabel,
+  children,
+}: DiagnosticCardProps): ReactElement {
+  return (
+    <Card>
+      <CardHeader className="border-b px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {icon}
+            <div>
+              <CardTitle className="text-sm">{title}</CardTitle>
+              {description && (
+                <CardDescription className="text-[10px]">{description}</CardDescription>
+              )}
+            </div>
+          </div>
+          <StatusBadge label={statusLabel} status={status} />
+        </div>
+      </CardHeader>
+      {children && <CardContent className="p-4">{children}</CardContent>}
+    </Card>
+  );
+}
+
+/**
+ * Database status section showing connection state and location.
+ */
+function DatabaseStatusSection(): ReactElement {
+  const connected = useDatabaseStatusStore(databaseStatusSelectors.isConnected);
+  const loading = useDatabaseStatusStore(databaseStatusSelectors.isLoading);
+  const location = useDatabaseStatusStore(databaseStatusSelectors.location);
+  const testResult = useDatabaseStatusStore(databaseStatusSelectors.testResult);
+
+  const getStatus = (): { variant: StatusVariant; label: string } => {
+    if (loading) {
+      return { variant: 'loading', label: 'Connecting...' };
+    }
+    if (connected) {
+      return { variant: 'success', label: 'Connected' };
+    }
+    return { variant: 'error', label: 'Disconnected' };
+  };
+
+  const { variant, label } = getStatus();
+  const displayLocation =
+    location === 'Main Process' ? 'IPC (Main Process)' : (location ?? 'Unknown');
+
+  return (
+    <DiagnosticCard
+      description="PGlite database connection"
+      icon={<Database className="h-4 w-4 text-primary" />}
+      status={variant}
+      statusLabel={label}
+      title="Database"
+    >
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Location</span>
+          <span className="font-medium">{displayLocation}</span>
+        </div>
+        {testResult && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Test Result</span>
+            <span className="font-mono text-[10px]">{testResult}</span>
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 pt-1">
+          {connected ? (
+            <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+          ) : (
+            <XCircle className="h-3.5 w-3.5 text-destructive" />
+          )}
+          <span className="text-[10px] text-muted-foreground">
+            {connected ? 'Database is operational' : 'Database connection failed'}
+          </span>
+        </div>
+      </div>
+    </DiagnosticCard>
+  );
+}
+
+/**
+ * Worker health section with status indicators.
+ */
+type WorkerStatusSectionProps = {
+  readonly tokenCacheOperational?: boolean | undefined;
+  readonly tokenCachePersisted?: boolean | undefined;
+  readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
+};
+
+function WorkerStatusSection({
+  tokenCacheOperational = false,
+  tokenCachePersisted = false,
+  persistenceMode = 'disabled',
+}: WorkerStatusSectionProps): ReactElement {
+  const getStatus = (): { variant: StatusVariant; label: string } => {
+    if (!tokenCacheOperational) {
+      return { variant: 'error', label: 'Not Ready' };
+    }
+    if (tokenCachePersisted) {
+      return { variant: 'success', label: 'Fully Operational' };
+    }
+    return { variant: 'warning', label: 'Memory Only' };
+  };
+
+  const { variant, label } = getStatus();
+
+  const modeDescriptions: Record<string, string> = {
+    persistent: 'Token counts are saved to database',
+    memory: 'Token counts are in-memory only (no persistence)',
+    disabled: 'Token counting worker is not running',
+  };
+
+  return (
+    <DiagnosticCard
+      description="Token counting and indexing worker"
+      icon={<Server className="h-4 w-4 text-primary" />}
+      status={variant}
+      statusLabel={label}
+      title="Token Cache Worker"
+    >
+      <div className="space-y-2 text-xs">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Operational</span>
+          <span className="font-medium">{tokenCacheOperational ? 'Yes' : 'No'}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Persisted</span>
+          <span className="font-medium">{tokenCachePersisted ? 'Yes' : 'No'}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Mode</span>
+          <Badge className="h-4 px-1.5 text-[9px]" variant="secondary">
+            {persistenceMode}
+          </Badge>
+        </div>
+        <div className="pt-1 text-[10px] text-muted-foreground">
+          {modeDescriptions[persistenceMode]}
+        </div>
+      </div>
+    </DiagnosticCard>
+  );
+}
+
+export type SystemDiagnosticsPanelProps = {
+  /** Token cache operational status (from TokenCacheContext) */
+  readonly tokenCacheOperational?: boolean | undefined;
+  /** Token cache persistence status (from TokenCacheContext) */
+  readonly tokenCachePersisted?: boolean | undefined;
+  /** Token cache persistence mode (from TokenCacheContext) */
+  readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
+  /** Show refresh button for queue metrics */
+  readonly showQueueRefresh?: boolean | undefined;
+};
+
+/**
+ * Unified system diagnostics panel.
+ *
+ * Displays database status, queue health, and worker status
+ * in a single consolidated view for easy monitoring.
+ */
+export function SystemDiagnosticsPanel({
+  tokenCacheOperational,
+  tokenCachePersisted,
+  persistenceMode,
+  showQueueRefresh = true,
+}: SystemDiagnosticsPanelProps): ReactElement {
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefreshAll = useCallback(() => {
+    setIsRefreshing(true);
+    setRefreshKey((k) => k + 1);
+    // Brief timeout to show refresh animation
+    setTimeout(() => setIsRefreshing(false), 500);
+  }, []);
+
+  return (
+    <div className="space-y-6">
+      {/* Header with refresh button */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Activity className="h-5 w-5 text-primary" />
+          <div>
+            <h3 className="font-semibold text-lg">System Diagnostics</h3>
+            <p className="text-muted-foreground text-xs">
+              Real-time health monitoring for database, queues, and workers
+            </p>
+          </div>
+        </div>
+        <button
+          aria-label="Refresh all diagnostics"
+          className="flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+          disabled={isRefreshing}
+          onClick={handleRefreshAll}
+          type="button"
+        >
+          <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+          Refresh All
+        </button>
+      </div>
+
+      {/* Diagnostic sections grid */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <DatabaseStatusSection />
+        <WorkerStatusSection
+          persistenceMode={persistenceMode}
+          tokenCacheOperational={tokenCacheOperational}
+          tokenCachePersisted={tokenCachePersisted}
+        />
+      </div>
+
+      {/* Queue diagnostics - full width */}
+      <div key={refreshKey}>
+        <QueueDiagnosticsPanel showRefresh={showQueueRefresh} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Factory function to create a System Diagnostics settings category.
+ *
+ * Note: Token cache props must be passed from the consuming component
+ * that has access to TokenCacheContext.
+ */
+export function createSystemDiagnosticsSettingsCategory(): SettingsCategory {
+  return {
+    id: 'system-diagnostics',
+    title: 'System Diagnostics',
+    description: 'Monitor database, queue, and worker health in real-time.',
+    keywords: ['diagnostics', 'health', 'status', 'database', 'queue', 'worker', 'monitoring'],
+    icon: Activity,
+    render: () => <SystemDiagnosticsPanel />,
+  };
+}
