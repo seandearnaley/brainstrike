@@ -7,6 +7,7 @@ export {
   createHybridSearchService,
   type HybridSearchMetadata,
   type HybridSearchOptions,
+  type HybridSearchRepository,
   type HybridSearchResponse,
   type HybridSearchResult,
   HybridSearchService,

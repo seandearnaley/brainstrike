@@ -15,8 +15,22 @@ import type {
   FTSSearchOptions,
   FTSSearchResult,
 } from '../models/file-chunk.js';
-import type { FileChunkRepository } from '../repositories/file-chunk-repository.js';
 import { createRankedList, type FusedResult, fuseRankedLists, type RRFOptions } from './rrf.js';
+
+/**
+ * Minimal interface for repositories that support hybrid search.
+ * Defines only the methods required by HybridSearchService, allowing
+ * any repository implementation (Drizzle, Electron, PGlite) to be used.
+ */
+export type HybridSearchRepository = {
+  /** Vector similarity search */
+  searchSimilar(
+    queryEmbedding: number[],
+    options: ChunkSearchOptions
+  ): Promise<ChunkSearchResult[]>;
+  /** Full-text keyword search */
+  fullTextSearch(query: string, options: FTSSearchOptions): Promise<FTSSearchResult[]>;
+};
 
 /**
  * Options for hybrid search
@@ -118,7 +132,7 @@ export type HybridSearchResponse = {
  * Service for performing hybrid search combining vector and full-text search
  */
 export class HybridSearchService {
-  constructor(private readonly chunkRepository: FileChunkRepository) {}
+  constructor(private readonly chunkRepository: HybridSearchRepository) {}
 
   /**
    * Perform hybrid search combining vector similarity and full-text search
@@ -362,7 +376,7 @@ export class HybridSearchService {
  * Create a HybridSearchService instance
  */
 export function createHybridSearchService(
-  chunkRepository: FileChunkRepository
+  chunkRepository: HybridSearchRepository
 ): HybridSearchService {
   return new HybridSearchService(chunkRepository);
 }

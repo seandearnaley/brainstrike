@@ -3,6 +3,7 @@
  *
  * Creates a search executor function for the SemanticSearchProvider
  * that performs vector similarity search using the chunk repository.
+ * Supports both vector-only and hybrid (vector + FTS) retrieval modes.
  */
 
 import type {
@@ -11,7 +12,7 @@ import type {
   ElectronFileChunkRepository,
   ElectronFileRecordRepository,
 } from '@brainstrike/db';
-import { usePGliteDatabase } from '@brainstrike/db';
+import { createHybridSearchService, normalizeRRFScores, usePGliteDatabase } from '@brainstrike/db';
 import {
   type EmbeddingProviderConfig,
   EmbeddingProviderFactory,
@@ -162,6 +163,194 @@ function transformToSearchResults(
     }
     return searchResult;
   });
+}
+
+/**
+ * Hybrid search result type (imported from @brainstrike/db)
+ */
+type HybridResult = {
+  chunk: {
+    id: string;
+    content: string;
+    fileRecordId: string;
+    embeddingSetId?: string;
+  };
+  rrfScore: number;
+  sourceCount: number;
+  vectorSimilarity?: number;
+  ftsRank?: number;
+  headline?: string;
+};
+
+/**
+ * Build a map of file records for enriching search results with file metadata.
+ * Extracts unique file IDs and fetches their records in parallel.
+ */
+async function buildFileRecordsMap(
+  fileIds: string[],
+  fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
+): Promise<Map<string, { name: string; path: string }>> {
+  const uniqueFileIds = Array.from(new Set(fileIds));
+  const fileEntries = await Promise.all(
+    uniqueFileIds.map(async (fileId) => {
+      const record = await fileRepository.findById(fileId);
+      return [fileId, record] as const;
+    })
+  );
+
+  const fileRecordsMap = new Map<string, { name: string; path: string }>();
+  for (const [fileId, record] of fileEntries) {
+    const info = record
+      ? { name: record.name, path: record.path }
+      : { name: 'Unknown file', path: '(unavailable)' };
+    fileRecordsMap.set(fileId, info);
+  }
+
+  return fileRecordsMap;
+}
+
+/**
+ * Transform hybrid search results to SemanticSearchResult format.
+ * Uses the RRF score as the similarity score (already 0-1 after normalization).
+ */
+function transformHybridResults(
+  hybridResults: HybridResult[],
+  fileRecordsMap: Map<string, { name: string; path: string }>
+): SemanticSearchResult[] {
+  return hybridResults.map((result) => {
+    const fileInfo = fileRecordsMap.get(result.chunk.fileRecordId) ?? {
+      name: 'Unknown',
+      path: '',
+    };
+
+    const searchResult: SemanticSearchResult = {
+      nodeId: `chunk-${result.chunk.id}`,
+      chunkId: result.chunk.id,
+      fileRecordId: result.chunk.fileRecordId,
+      // Use RRF score as similarity (already normalized 0-1)
+      similarity: result.rrfScore,
+      content: result.chunk.content,
+      fileName: fileInfo.name,
+      filePath: fileInfo.path,
+      // Include hybrid metadata
+      sourceCount: result.sourceCount,
+    };
+
+    // Add optional fields if present
+    if (result.chunk.embeddingSetId) {
+      searchResult.embeddingSetId = result.chunk.embeddingSetId;
+    }
+    if (result.vectorSimilarity !== undefined) {
+      searchResult.vectorSimilarity = result.vectorSimilarity;
+    }
+    if (result.ftsRank !== undefined) {
+      searchResult.ftsRank = result.ftsRank;
+    }
+    if (result.headline) {
+      searchResult.headline = result.headline;
+    }
+
+    return searchResult;
+  });
+}
+
+/**
+ * Execute hybrid search combining vector and FTS with RRF fusion.
+ */
+async function executeHybridSearch(
+  query: string,
+  embedding: number[],
+  config: SearchConfig,
+  embeddingSetId: string,
+  filterOptions: RetrievalFilterOptions,
+  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository,
+  fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
+): Promise<SemanticSearchResult[]> {
+  logger.info('Using hybrid search (vector + FTS with RRF fusion)', {
+    vectorWeight: config.vectorWeight ?? 1.0,
+    ftsWeight: config.ftsWeight ?? 1.0,
+  });
+
+  const hybridService = createHybridSearchService(chunkRepository);
+  const hybridResponse = await hybridService.search(query, embedding, {
+    limit: config.resultLimit,
+    vectorThreshold: config.threshold,
+    embeddingSetId,
+    vectorWeight: config.vectorWeight ?? 1.0,
+    ftsWeight: config.ftsWeight ?? 1.0,
+    ...filterOptions,
+  });
+
+  logger.info('Hybrid search completed', {
+    resultCount: hybridResponse.results.length,
+    vectorResultCount: hybridResponse.metadata.vectorResultCount,
+    ftsResultCount: hybridResponse.metadata.ftsResultCount,
+    totalMs: hybridResponse.metadata.totalMs,
+  });
+
+  // Normalize RRF scores to 0-1 range for consistency with vector similarity
+  const normalizedResults = normalizeRRFScores(
+    hybridResponse.results.map((r) => ({
+      id: r.chunk.id,
+      rrfScore: r.rrfScore,
+      sourceCount: r.sourceCount,
+      contributions: [],
+    }))
+  );
+
+  // Map normalized scores back to results
+  const scoreMap = new Map(normalizedResults.map((r) => [r.id, r.rrfScore]));
+  const resultsWithNormalizedScores = hybridResponse.results.map((r) => ({
+    ...r,
+    rrfScore: scoreMap.get(r.chunk.id) ?? r.rrfScore,
+  }));
+
+  // Build file records map and transform to SemanticSearchResult format
+  const fileRecordsMap = await buildFileRecordsMap(
+    hybridResponse.results.map((r) => r.chunk.fileRecordId),
+    fileRepository
+  );
+  return transformHybridResults(resultsWithNormalizedScores, fileRecordsMap);
+}
+
+/**
+ * Execute vector-only similarity search.
+ */
+async function executeVectorSearch(
+  embedding: number[],
+  config: SearchConfig,
+  embeddingSetId: string,
+  filterOptions: RetrievalFilterOptions,
+  chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository,
+  fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository
+): Promise<SemanticSearchResult[]> {
+  const searchResults = await chunkRepository.searchSimilar(embedding, {
+    limit: config.resultLimit,
+    threshold: config.threshold,
+    embeddingSetId,
+    ...filterOptions,
+  });
+  logger.info('Vector search completed', { resultCount: searchResults.length });
+
+  // Build file records map and transform to SemanticSearchResult format
+  const fileRecordsMap = await buildFileRecordsMap(
+    searchResults.map((r) => r.chunk.fileRecordId),
+    fileRepository
+  );
+  return transformToSearchResults(searchResults, fileRecordsMap);
+}
+
+/**
+ * Get the filter mode label for logging.
+ */
+function getFilterModeLabel(filterOptions: RetrievalFilterOptions): string {
+  if (filterOptions.selectionSnapshotId) {
+    return 'snapshot';
+  }
+  if (filterOptions.filePaths) {
+    return 'filePaths';
+  }
+  return 'none';
 }
 
 /**
@@ -380,43 +569,37 @@ export function useSemanticSearchExecutor({
 
       // Build retrieval filter options (BST-172, BST-175)
       const filterOptions = buildRetrievalFilterOptions(config);
+      const retrievalMode = config.retrievalMode ?? 'vector';
+
       logger.info('Searching for similar chunks...', {
+        retrievalMode,
         hasFilePaths: Boolean(config.filePaths?.length),
         hasSnapshotId: Boolean(config.selectionSnapshotId),
-        filterMode: filterOptions.selectionSnapshotId
-          ? 'snapshot'
-          : filterOptions.filePaths
-            ? 'filePaths'
-            : 'none',
+        filterMode: getFilterModeLabel(filterOptions),
       });
 
-      // Search for similar chunks
-      const searchResults = await chunkRepository.searchSimilar(embedding, {
-        limit: config.resultLimit,
-        threshold: config.threshold,
-        embeddingSetId,
-        ...filterOptions,
-      });
-      logger.info('Search completed', { resultCount: searchResults.length });
-
-      // Build a map of file records for enrichment
-      const fileIds = Array.from(new Set(searchResults.map((r) => r.chunk.fileRecordId)));
-      const fileEntries = await Promise.all(
-        fileIds.map(async (fileId) => {
-          const record = await fileRepository.findById(fileId);
-          return [fileId, record] as const;
-        })
-      );
-      const fileRecordsMap = new Map<string, { name: string; path: string }>();
-      for (const [fileId, record] of fileEntries) {
-        const info = record
-          ? { name: record.name, path: record.path }
-          : { name: 'Unknown file', path: '(unavailable)' };
-        fileRecordsMap.set(fileId, info);
+      // Perform search based on retrieval mode
+      if (retrievalMode === 'hybrid') {
+        return executeHybridSearch(
+          query,
+          embedding,
+          config,
+          embeddingSetId,
+          filterOptions,
+          chunkRepository,
+          fileRepository
+        );
       }
 
-      // Transform to SemanticSearchResult format
-      return transformToSearchResults(searchResults, fileRecordsMap);
+      // Vector-only search (default)
+      return executeVectorSearch(
+        embedding,
+        config,
+        embeddingSetId,
+        filterOptions,
+        chunkRepository,
+        fileRepository
+      );
     },
     [chunkRepository, fileRepository, getModelInfo, ensureEmbedderReady]
   );

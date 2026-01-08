@@ -401,6 +401,134 @@ export class ElectronFileChunkRepository {
     }));
   }
 
+  /**
+   * Full-text search on file chunks using PostgreSQL's tsvector/tsquery.
+   *
+   * Uses the pre-computed `content_tsvector` column with GIN index for fast
+   * keyword-based search. Supports multiple query modes:
+   * - 'plain': Simple AND of all words
+   * - 'websearch': Google-like syntax (OR, quotes, -negation)
+   * - 'phrase': Exact phrase matching
+   *
+   * @param query - Search query string
+   * @param options - Search options (limit, filters, query mode, etc.)
+   * @returns Array of matching chunks sorted by relevance
+   */
+  async fullTextSearch(
+    query: string,
+    options: import('../models/file-chunk').FTSSearchOptions = {}
+  ): Promise<import('../models/file-chunk').FTSSearchResult[]> {
+    const {
+      limit = 10,
+      threshold = 0,
+      fileRecordId,
+      chunkType,
+      filePaths,
+      selectionSnapshotId,
+      queryMode = 'websearch',
+      language = 'english',
+      rankNormalization = 0,
+    } = options;
+
+    // Validate query
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return [];
+    }
+
+    const normalizedFilePaths = this.normalizeFilePaths(filePaths);
+    if (normalizedFilePaths && normalizedFilePaths.length > MAX_INLINE_FILE_PATHS) {
+      throw new Error(
+        `fullTextSearch filePaths limit exceeded (${normalizedFilePaths.length} > ${MAX_INLINE_FILE_PATHS}). ` +
+          'Use selectionSnapshotId for large selections.'
+      );
+    }
+    const normalizedSnapshotId = selectionSnapshotId?.trim() || undefined;
+
+    // Build tsquery using the appropriate function based on query mode
+    const tsqueryFunc = this.getTsqueryFunction(queryMode);
+    const params: unknown[] = [language, trimmedQuery];
+    let paramIndex = 3;
+
+    // Build WHERE clause
+    const whereParts = [
+      'content_tsvector IS NOT NULL',
+      `content_tsvector @@ ${tsqueryFunc}($1::regconfig, $2)`,
+    ];
+
+    paramIndex = this.appendFilterClause(
+      whereParts,
+      params,
+      paramIndex,
+      fileRecordId,
+      'file_record_id'
+    );
+    paramIndex = this.appendFilterClause(whereParts, params, paramIndex, chunkType, 'chunk_type');
+    paramIndex = this.appendSelectionFilters(
+      whereParts,
+      params,
+      paramIndex,
+      normalizedFilePaths,
+      normalizedSnapshotId
+    );
+
+    // Execute search query with ts_rank for relevance scoring
+    const result = await this.db.query(
+      `SELECT
+        id, file_record_id, chunk_index, content, content_hash,
+        token_count, chunk_type, chunk_size, embedding::text AS embedding,
+        embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at,
+        ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) as fts_rank,
+        ts_headline($1::regconfig, content, ${tsqueryFunc}($1::regconfig, $2),
+          'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') as headline,
+        ROW_NUMBER() OVER (ORDER BY ts_rank(content_tsvector, ${tsqueryFunc}($1::regconfig, $2), ${rankNormalization}) DESC) as position
+      FROM file_chunks
+      WHERE ${whereParts.join(' AND ')}
+      ORDER BY fts_rank DESC
+      LIMIT $${paramIndex}`,
+      [...params, limit]
+    );
+
+    // Map results to FTSSearchResult
+    const results: import('../models/file-chunk').FTSSearchResult[] = [];
+    for (const row of result.rows) {
+      const ftsRow = row as FileChunkRow & { fts_rank: string; headline: string; position: string };
+      const rank = Number.parseFloat(ftsRow.fts_rank);
+
+      // Apply threshold filter
+      if (threshold > 0 && rank < threshold) {
+        continue;
+      }
+
+      const ftsResult: import('../models/file-chunk').FTSSearchResult = {
+        chunk: this.mapRowToChunk(ftsRow),
+        rank,
+        position: Number.parseInt(ftsRow.position, 10),
+      };
+      if (ftsRow.headline) {
+        ftsResult.headline = ftsRow.headline;
+      }
+      results.push(ftsResult);
+    }
+
+    return results;
+  }
+
+  /**
+   * Get the PostgreSQL tsquery function for the given query mode
+   */
+  private getTsqueryFunction(mode: import('../models/file-chunk').FTSQueryMode): string {
+    switch (mode) {
+      case 'plain':
+        return 'plainto_tsquery';
+      case 'phrase':
+        return 'phraseto_tsquery';
+      default:
+        // 'websearch' is the default query mode
+        return 'websearch_to_tsquery';
+    }
+  }
+
   async findAll(): Promise<FileChunk[]> {
     const result = await this.db.query(
       'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at FROM file_chunks ORDER BY created_at DESC'
