@@ -20,7 +20,10 @@ import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from
 import { QueueDiagnosticsPanel } from '@brainstrike/vector-management';
 import { Activity, CheckCircle2, Database, RefreshCw, Server, XCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+/** Animation duration in ms for refresh button visual feedback */
+const REFRESH_ANIMATION_DURATION_MS = 500;
 
 type StatusVariant = 'success' | 'warning' | 'error' | 'loading';
 
@@ -227,12 +230,30 @@ export function SystemDiagnosticsPanel({
 }: SystemDiagnosticsPanelProps): ReactElement {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup timeout on unmount to prevent memory leaks
+  useEffect(() => {
+    const ref = refreshTimeoutRef;
+    return () => {
+      if (ref.current) {
+        clearTimeout(ref.current);
+      }
+    };
+  }, []);
 
   const handleRefreshAll = useCallback(() => {
     setIsRefreshing(true);
     setRefreshKey((k) => k + 1);
+    // Clear any existing timeout before setting a new one
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
     // Brief timeout to show refresh animation
-    setTimeout(() => setIsRefreshing(false), 500);
+    refreshTimeoutRef.current = setTimeout(
+      () => setIsRefreshing(false),
+      REFRESH_ANIMATION_DURATION_MS
+    );
   }, []);
 
   return (
