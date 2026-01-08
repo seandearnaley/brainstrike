@@ -129,7 +129,7 @@ function DatabaseStatusSection(): ReactElement {
         )}
         <div className="flex items-center gap-1.5 pt-1">
           {connected ? (
-            <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 dark:text-emerald-400" />
           ) : (
             <XCircle className="h-3.5 w-3.5 text-destructive" />
           )}
@@ -168,7 +168,7 @@ function WorkerStatusSection({
 
   const { variant, label } = getStatus();
 
-  const modeDescriptions: Record<string, string> = {
+  const modeDescriptions: Record<'persistent' | 'memory' | 'disabled', string> = {
     persistent: 'Token counts are saved to database',
     memory: 'Token counts are in-memory only (no persistence)',
     disabled: 'Token counting worker is not running',
