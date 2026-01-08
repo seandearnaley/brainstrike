@@ -114,6 +114,71 @@ async function getTransformersModule(): Promise<TransformersModule> {
 }
 
 /**
+ * Download a file from HuggingFace Hub with streaming to avoid memory issues.
+ * Uses TransformStream for progress tracking without buffering the entire file.
+ * Stores directly in browser Cache API which transformers.js uses internally.
+ *
+ * Based on HuggingFace transformers.js GitHub issue #1041.
+ */
+async function downloadFileToCache(
+  modelId: string,
+  filePath: string,
+  onProgress?: (loaded: number, total: number) => void
+): Promise<void> {
+  const url = `https://huggingface.co/${modelId}/resolve/main/${filePath}`;
+
+  // Check if already cached
+  const cache = await caches.open('transformers-cache');
+  const cachedResponse = await cache.match(url);
+  if (cachedResponse) {
+    logger.debug('File already cached', { modelId, filePath });
+    onProgress?.(1, 1); // Report as complete
+    return;
+  }
+
+  // Fetch with streaming
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: Failed to fetch ${filePath}`);
+  }
+
+  const contentLength = response.headers.get('content-length');
+  const total = contentLength ? Number.parseInt(contentLength, 10) : 0;
+
+  if (!response.body) {
+    throw new Error('Response body is null');
+  }
+
+  // Create a TransformStream for progress tracking without buffering
+  // This pipes chunks through and reports progress without collecting in memory
+  let loaded = 0;
+  const progressTransform = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      loaded += chunk.length;
+      if (total > 0) {
+        onProgress?.(loaded, total);
+      }
+      controller.enqueue(chunk);
+    },
+  });
+
+  // Pipe through progress transform - this streams directly to cache
+  const transformedStream = response.body.pipeThrough(progressTransform);
+
+  // Store in cache with streaming response - no buffering required
+  const cacheResponse = new Response(transformedStream, {
+    headers: {
+      'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
+      'Content-Length': String(total),
+    },
+  });
+
+  await cache.put(url, cacheResponse);
+
+  logger.debug('File downloaded and cached', { modelId, filePath, size: loaded });
+}
+
+/**
  * Parse FunctionGemma format: <start_function_call>call:name{args}<end_function_call>
  */
 function parseGemmaFormat(output: string): LocalLlmToolCall | null {
@@ -469,7 +534,8 @@ export class LocalLlmBackend {
 
   /**
    * Download an LLM model to cache without initializing for inference.
-   * Uses AutoModelForCausalLM and AutoTokenizer from transformers.js.
+   * Uses fetch streaming + Cache API to download files without loading into memory.
+   * Based on HuggingFace transformers.js GitHub issue #1041.
    */
   static async downloadModel(
     modelId: string,
@@ -483,18 +549,23 @@ export class LocalLlmBackend {
       }) => void;
     }
   ): Promise<void> {
-    const transformers = await getTransformersModule();
+    // Note: cacheDir option is ignored for browser Cache API storage
+    // The Cache API uses the HuggingFace CDN URL as the cache key
 
-    // Set cache dir if provided
-    if (options?.cacheDir) {
-      const transformersEnv = transformers as unknown as {
-        env?: { cacheDir?: string; allowLocalModels?: boolean };
-      };
-      if (transformersEnv.env) {
-        transformersEnv.env.cacheDir = options.cacheDir;
-        transformersEnv.env.allowLocalModels = false;
-      }
-    }
+    logger.info('Downloading LLM model files to cache', { modelId });
+
+    // Files needed for LLM inference - download each individually to cache
+    // This avoids loading them into memory (unlike from_pretrained)
+    const tokenizerFiles = ['tokenizer.json', 'tokenizer_config.json'];
+
+    const configFiles = ['config.json', 'generation_config.json', 'chat_template.jinja'];
+
+    // ONNX model files - use q4 (4-bit quantized) for smaller download size
+    // q4 = 1.22GB vs fp16 = 2.36GB - more memory efficient for browser download
+    const modelFiles = ['onnx/model_q4.onnx', 'onnx/model_q4.onnx_data'];
+
+    const allFiles = [...tokenizerFiles, ...configFiles, ...modelFiles];
+    let completedFiles = 0;
 
     type DownloadProgressData = {
       stage: 'downloading' | 'ready';
@@ -503,34 +574,55 @@ export class LocalLlmBackend {
       file?: string;
     };
 
-    const progressCallback = (progress: ProgressInfo) => {
-      // transformers.js uses 'progress' status for download progress
-      if (progress.status === 'progress' && progress.total) {
-        const pct = Math.round(((progress.loaded ?? 0) / progress.total) * 100);
-        const progressData: DownloadProgressData = {
-          stage: 'downloading',
-          progress: pct,
-          message: `Downloading ${progress.file ?? 'model'}... ${pct}%`,
-        };
-        if (progress.file !== undefined) {
-          progressData.file = progress.file;
-        }
-        options?.onProgress?.(progressData);
-      }
+    const updateProgress = (filename: string, fileProgress?: number) => {
+      // If we have file-level progress, use it; otherwise use completed file count
+      const overallProgress =
+        fileProgress !== undefined
+          ? Math.round(((completedFiles + fileProgress / 100) / allFiles.length) * 100)
+          : Math.round((completedFiles / allFiles.length) * 100);
+
+      const progressData: DownloadProgressData = {
+        stage: 'downloading',
+        progress: overallProgress,
+        message: `Downloading ${filename}...`,
+        file: filename,
+      };
+      options?.onProgress?.(progressData);
     };
 
-    // Download both tokenizer and model files
-    logger.info('Downloading LLM model', { modelId });
+    // Download files sequentially to avoid memory pressure
+    for (const filename of allFiles) {
+      updateProgress(filename, 0);
 
-    await Promise.all([
-      transformers.AutoTokenizer.from_pretrained(modelId),
-      transformers.AutoModelForCausalLM.from_pretrained(modelId, {
-        device: 'wasm', // Use WASM for download - less memory, just caching files
-        dtype: 'fp16',
-        // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
-        progress_callback: progressCallback,
-      }),
-    ]);
+      try {
+        // Create per-file progress callback
+        const fileProgressCallback = (loaded: number, total: number) => {
+          if (total > 0) {
+            const pct = Math.round((loaded / total) * 100);
+            updateProgress(filename, pct);
+          }
+        };
+
+        // Download file to cache using streaming fetch
+        await downloadFileToCache(modelId, filename, fileProgressCallback);
+
+        completedFiles++;
+        logger.debug('Downloaded file', { modelId, filename });
+      } catch (error) {
+        // Some files are optional (e.g., onnx_data for smaller models, config files)
+        const isOptional =
+          filename.endsWith('_data') ||
+          filename === 'generation_config.json' ||
+          filename === 'chat_template.jinja';
+        if (isOptional) {
+          logger.debug('Optional file not found, skipping', { modelId, filename });
+          completedFiles++;
+        } else {
+          logger.error('Failed to download required file', { modelId, filename, error });
+          throw error;
+        }
+      }
+    }
 
     options?.onProgress?.({
       stage: 'ready',
