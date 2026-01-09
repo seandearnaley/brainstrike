@@ -39,6 +39,15 @@ export function resolveRuntimeConfiguration(
     ? { ...runtimeData, provider: normalizedProvider }
     : { provider: normalizedProvider };
 
+  // Local provider runs entirely client-side and doesn't need an API key
+  if (normalizedProvider === 'local') {
+    return {
+      provider: normalizedProvider,
+      runtime: sanitizedRuntime,
+      apiKey: '',
+    };
+  }
+
   const apiKey = resolveProviderApiKey(normalizedProvider, sanitizedRuntime);
   if (!apiKey) {
     logger.warn('mastra agent missing api key', {

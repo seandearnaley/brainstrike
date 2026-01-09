@@ -7,7 +7,10 @@ import type { Migration } from './migration-runner';
  * - onnx-community/functiongemma-270m-it-ONNX: Function calling specialist (270M params)
  * - LiquidAI/LFM2.5-1.2B-Instruct-ONNX: LiquidAI LFM2.5 hybrid model for edge deployment (1.2B params)
  * - onnx-community/Qwen3-0.6B-ONNX: Fast, efficient Qwen3 model (600M params)
- * - onnx-community/Qwen3-1.7B-ONNX: More capable Qwen3 model (1.7B params)
+ *
+ * NOTE: Qwen3-1.7B-ONNX removed due to WebGPU buffer size issues causing crashes.
+ * The model's large embedding layer exceeds browser WebGPU limits.
+ * See: https://github.com/huggingface/transformers.js/issues/1469
  *
  * All models are tagged with 'transformers.js' on HuggingFace and verified to work.
  */
@@ -15,6 +18,9 @@ export const migration020LocalLlmModels: Migration = {
   version: 20,
   name: 'local_llm_models',
   up: `
+    -- Remove Qwen3-1.7B if it exists (crashes due to WebGPU buffer limits)
+    DELETE FROM models WHERE id = 'onnx-community/Qwen3-1.7B-ONNX';
+
     -- Add local LLM models to the transformers provider
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, parameters, sort_order, is_enabled)
     VALUES
@@ -50,17 +56,6 @@ export const migration020LocalLlmModels: Migration = {
         '{"size":"~600MB (q4)","architecture":"Qwen3","quantization":"q4/fp16"}',
         12,
         false
-      ),
-      (
-        'onnx-community/Qwen3-1.7B-ONNX',
-        'transformers',
-        'Qwen3 1.7B',
-        'More capable for complex reasoning',
-        '["Complex tasks", "Better reasoning", "Desktop"]',
-        '{"type":"llm","streaming":false,"toolCalling":false,"contextWindow":32768}',
-        '{"size":"~1.7GB (q4)","architecture":"Qwen3","quantization":"q4/fp16"}',
-        13,
-        false
       )
     ON CONFLICT (id) DO UPDATE SET
       name = EXCLUDED.name,
@@ -74,8 +69,7 @@ export const migration020LocalLlmModels: Migration = {
     DELETE FROM models WHERE id IN (
       'onnx-community/functiongemma-270m-it-ONNX',
       'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
-      'onnx-community/Qwen3-0.6B-ONNX',
-      'onnx-community/Qwen3-1.7B-ONNX'
+      'onnx-community/Qwen3-0.6B-ONNX'
     );
   `,
 };

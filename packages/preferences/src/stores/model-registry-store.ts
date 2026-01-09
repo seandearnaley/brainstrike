@@ -87,6 +87,40 @@ type FileSystemAccess = {
   exists: (path: string) => Promise<boolean>;
 };
 
+/**
+ * Get the ONNX model file to check for in cache based on model type.
+ * This matches the dtype logic in LocalLlmBackend.downloadModel().
+ * Qwen models use q4f16, others use q4.
+ */
+function getModelCacheFile(modelId: string): string {
+  if (modelId.includes('Qwen')) {
+    return 'onnx/model_q4f16.onnx';
+  }
+  return 'onnx/model_q4.onnx';
+}
+
+/**
+ * Check if an LLM model exists in the browser Cache API.
+ * This matches how LocalLlmBackend.downloadModel() stores files.
+ */
+async function checkLlmModelInCache(modelId: string): Promise<boolean> {
+  if (typeof caches === 'undefined') {
+    return false;
+  }
+
+  try {
+    const cache = await caches.open('transformers-cache');
+    // Check for the main ONNX model file - model-specific based on dtype
+    const modelFile = getModelCacheFile(modelId);
+    const modelUrl = `https://huggingface.co/${modelId}/resolve/main/${modelFile}`;
+    const cached = await cache.match(modelUrl);
+    return cached !== undefined;
+  } catch (err) {
+    logger.debug('Failed to check Cache API for model', { modelId, err });
+    return false;
+  }
+}
+
 function parseDbModel(row: RawModel): DbModel {
   return {
     id: row.id,
@@ -113,17 +147,34 @@ function isLocalModel(model: DbModel): boolean {
 
 async function resolveDownloadedFlag(
   model: DbModel,
-  fileSystem: FileSystemAccess,
-  modelCacheDir: string,
+  fileSystem: FileSystemAccess | undefined,
+  modelCacheDir: string | null,
   currentDownloadedModels: Record<string, boolean>
 ): Promise<boolean> {
-  try {
-    const modelPath = `${modelCacheDir}/${model.id}`;
-    return await fileSystem.exists(modelPath);
-  } catch (err) {
-    logger.warn(`Failed to check existence for model ${model.id}`, err);
+  // For LLM models, check the browser Cache API where LocalLlmBackend stores them
+  if (model.capabilities.type === 'llm') {
+    const inCache = await checkLlmModelInCache(model.id);
+    if (inCache) {
+      return true;
+    }
+    // Fall back to localStorage if Cache API check fails or returns false
+    // (Cache might have been cleared by browser)
     return Boolean(currentDownloadedModels[model.id]);
   }
+
+  // For embedding models, check filesystem if available
+  if (fileSystem && modelCacheDir) {
+    try {
+      const modelPath = `${modelCacheDir}/${model.id}`;
+      return await fileSystem.exists(modelPath);
+    } catch (err) {
+      logger.warn(`Failed to check existence for model ${model.id}`, err);
+      return Boolean(currentDownloadedModels[model.id]);
+    }
+  }
+
+  // Fall back to localStorage value
+  return Boolean(currentDownloadedModels[model.id]);
 }
 
 async function checkDownloadedModels(
@@ -138,10 +189,6 @@ async function checkDownloadedModels(
   ).electronAPI;
 
   const fileSystem = electronAPI?.fileSystem;
-
-  if (!(fileSystem && modelCacheDir)) {
-    return currentDownloadedModels;
-  }
 
   const newDownloadedModels: Record<string, boolean> = {};
 

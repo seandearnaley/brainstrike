@@ -16,6 +16,7 @@ const FALLBACK_PROVIDERS: readonly SupportedProvider[] = [
   'openrouter',
   'cohere',
   'voyage',
+  'local',
 ];
 
 const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
@@ -32,6 +33,7 @@ const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
   openrouter: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
   cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
   voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+  local: [], // Local provider runs in-browser, no API key needed
 };
 
 function tryRequireAgentClient(path: string): AgentClientModule | null {

@@ -105,15 +105,18 @@ async function handleAssistantPost(
   }
 
   const runtimeData = data ? { ...data, provider } : { provider };
-  const apiKey = await resolveProviderApiKey(provider);
+
+  // Local provider runs entirely client-side and doesn't need an API key
+  const isLocalProvider = provider === 'local';
+  const apiKey = isLocalProvider ? '' : await resolveProviderApiKey(provider);
 
   logger.info('Assistant request received', {
     messageCount: messages.length,
     provider,
-    hasApiKey: Boolean(apiKey),
+    hasApiKey: Boolean(apiKey) || isLocalProvider,
   });
 
-  if (!apiKey) {
+  if (!(apiKey || isLocalProvider)) {
     respondJson(res, 400, {
       error: 'missing_api_key',
       message: `No API key configured for provider "${provider}".`,
@@ -215,6 +218,10 @@ async function resolveProviderApiKey(provider: string): Promise<string | undefin
 
 async function collectAvailableProviders(): Promise<string[]> {
   const providers = new Set(await listConfiguredProviders());
+
+  // Local provider is always available (runs in-browser, no API key needed)
+  providers.add('local');
+
   try {
     const legacy = await readOpenAIApiKey();
     if (legacy) {

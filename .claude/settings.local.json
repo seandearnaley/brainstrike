@@ -231,7 +231,17 @@
       "Bash(mkdir:*)",
       "mcp__plugin_atlassian_atlassian__getJiraIssue",
       "mcp__plugin_codanna-cc_codanna-cc__search_symbols",
-      "Bash(VITEST_RUN_INTEGRATION=true pnpm --filter @brainstrike/embeddings test:*)"
+      "Bash(VITEST_RUN_INTEGRATION=true pnpm --filter @brainstrike/embeddings test:*)",
+      "mcp__hf-mcp-server__model_search",
+      "mcp__hf-mcp-server__hub_repo_details",
+      "mcp__hf-mcp-server__hf_doc_search",
+      "mcp__hf-mcp-server__hf_doc_fetch",
+      "mcp__mastra__mastraDocs",
+      "Bash(npm info:*)",
+      "WebFetch(domain:ai-sdk.dev)",
+      "WebFetch(domain:mastra.ai)",
+      "mcp__assistant-ui__assistantUIDocs",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ],
     "deny": [],
     "ask": []

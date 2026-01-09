@@ -47,6 +47,7 @@
     "@assistant-ui/react-data-stream": "^0.11.10",
     "@assistant-ui/react-markdown": "^0.11.6",
     "@assistant-ui/styles": "^0.2.10",
+    "@brainstrike/agent": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/utils": "workspace:*",

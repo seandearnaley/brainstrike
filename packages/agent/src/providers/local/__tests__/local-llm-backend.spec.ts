@@ -4,12 +4,7 @@ import type { LocalLlmConfig, LocalLlmGenerationOptions, LocalLlmMessage } from 
 
 // Mock the transformers module
 vi.mock('@huggingface/transformers', () => ({
-  AutoModelForCausalLM: {
-    from_pretrained: vi.fn(),
-  },
-  AutoTokenizer: {
-    from_pretrained: vi.fn(),
-  },
+  pipeline: vi.fn(),
 }));
 
 describe('LocalLlmBackend', () => {
@@ -62,27 +57,12 @@ describe('LocalLlmBackend', () => {
       );
     });
 
-    it('throws AbortError when signal is aborted', async () => {
-      // Setup mock model and tokenizer
-      const mockTokenizer = {
-        apply_chat_template: vi.fn().mockReturnValue({
-          input_ids: { dims: [1, 5], data: [], slice: vi.fn() },
-          attention_mask: { dims: [1, 5], data: [] },
-        }),
-        decode: vi.fn().mockReturnValue('test output'),
-      };
-
-      const mockModel = {
-        generate: vi.fn().mockResolvedValue([]),
-        dispose: vi.fn(),
-      };
-
-      // Access private properties to set mocks (for testing only)
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-      (backend as any).model = mockModel;
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-      (backend as any).tokenizer = mockTokenizer;
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
+    it('throws AbortError when signal is aborted before generation', async () => {
+      // Setup mock pipeline
+      const mockPipeline = vi.fn().mockResolvedValue([{ generated_text: 'test' }]);
+      (backend as any).pipeline = mockPipeline;
+      (backend as any).modelId = 'test-model';
+      (backend as any).selectedDevice = 'wasm';
       (backend as any).status = { state: 'ready', device: 'wasm' };
 
       const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
@@ -100,15 +80,10 @@ describe('LocalLlmBackend', () => {
   describe('dispose', () => {
     it('resets state after dispose', async () => {
       // Set some state
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-      (backend as any).model = { dispose: vi.fn() };
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-      (backend as any).tokenizer = {};
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
+      const mockPipeline = { dispose: vi.fn() };
+      (backend as any).pipeline = mockPipeline;
       (backend as any).modelId = 'test-model';
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
       (backend as any).selectedDevice = 'wasm';
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
       (backend as any).status = { state: 'ready', device: 'wasm' };
 
       await backend.dispose();
@@ -119,21 +94,19 @@ describe('LocalLlmBackend', () => {
     });
 
     it('handles dispose errors gracefully', async () => {
-      const mockModel = {
+      const mockPipeline = {
         dispose: vi.fn().mockRejectedValue(new Error('Dispose failed')),
       };
 
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-      (backend as any).model = mockModel;
+      (backend as any).pipeline = mockPipeline;
 
       // Should not throw
       await expect(backend.dispose()).resolves.toBeUndefined();
       expect(backend.getStatus()).toEqual({ state: 'uninitialized' });
     });
 
-    it('handles model without dispose method', async () => {
-      // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-      (backend as any).model = {}; // No dispose method
+    it('handles pipeline without dispose method', async () => {
+      (backend as any).pipeline = {}; // No dispose method
 
       // Should not throw
       await expect(backend.dispose()).resolves.toBeUndefined();
@@ -141,31 +114,81 @@ describe('LocalLlmBackend', () => {
   });
 });
 
-describe('parseFunctionCall formats', () => {
+describe('pipeline-based generation', () => {
   let backend: LocalLlmBackend;
 
   beforeEach(() => {
     backend = new LocalLlmBackend();
+  });
 
-    // Setup mock model and tokenizer
-    const mockTokenizer = {
-      apply_chat_template: vi.fn().mockReturnValue({
-        input_ids: { dims: [1, 5], data: [], slice: vi.fn().mockReturnValue([]) },
-        attention_mask: { dims: [1, 5], data: [] },
-      }),
-      decode: vi.fn(),
-    };
+  afterEach(async () => {
+    await backend.dispose();
+  });
 
-    const mockModel = {
-      generate: vi.fn().mockResolvedValue([]),
-      dispose: vi.fn(),
-    };
+  it('generates text from pipeline output', async () => {
+    const mockPipeline = vi
+      .fn()
+      .mockResolvedValue([{ generated_text: 'Hello! How can I help you today?' }]);
 
-    // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-    (backend as any).model = mockModel;
-    // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-    (backend as any).tokenizer = mockTokenizer;
-    // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
+    (backend as any).pipeline = mockPipeline;
+    (backend as any).modelId = 'test-model';
+    (backend as any).selectedDevice = 'wasm';
+    (backend as any).status = { state: 'ready', device: 'wasm' };
+
+    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
+    const result = await backend.generate(messages);
+
+    expect(result.text).toBe('Hello! How can I help you today?');
+    expect(result.finishReason).toBe('stop');
+    expect(result.usage).toBeDefined();
+  });
+
+  it('handles array response format from pipeline', async () => {
+    const mockPipeline = vi.fn().mockResolvedValue([
+      {
+        generated_text: [
+          { role: 'user', content: 'Hello' },
+          { role: 'assistant', content: 'Hi there!' },
+        ],
+      },
+    ]);
+
+    (backend as any).pipeline = mockPipeline;
+    (backend as any).modelId = 'test-model';
+    (backend as any).selectedDevice = 'wasm';
+    (backend as any).status = { state: 'ready', device: 'wasm' };
+
+    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
+    const result = await backend.generate(messages);
+
+    expect(result.text).toBe('Hi there!');
+    expect(result.finishReason).toBe('stop');
+  });
+
+  it('returns usage statistics', async () => {
+    const mockPipeline = vi.fn().mockResolvedValue([{ generated_text: 'test output' }]);
+
+    (backend as any).pipeline = mockPipeline;
+    (backend as any).modelId = 'test-model';
+    (backend as any).selectedDevice = 'wasm';
+    (backend as any).status = { state: 'ready', device: 'wasm' };
+
+    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
+    const result = await backend.generate(messages);
+
+    expect(result.usage).toBeDefined();
+    expect(typeof result.usage.promptTokens).toBe('number');
+    expect(typeof result.usage.completionTokens).toBe('number');
+  });
+});
+
+describe('tool call parsing', () => {
+  let backend: LocalLlmBackend;
+
+  beforeEach(() => {
+    backend = new LocalLlmBackend();
+    (backend as any).modelId = 'test-model';
+    (backend as any).selectedDevice = 'wasm';
     (backend as any).status = { state: 'ready', device: 'wasm' };
   });
 
@@ -174,11 +197,12 @@ describe('parseFunctionCall formats', () => {
   });
 
   it('parses FunctionGemma format tool calls', async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-    const tokenizer = (backend as any).tokenizer;
-    tokenizer.decode
-      .mockReturnValueOnce('<start_function_call>call:search{query:test search}<end_function_call>')
-      .mockReturnValueOnce('');
+    const mockPipeline = vi.fn().mockResolvedValue([
+      {
+        generated_text: '<start_function_call>call:search{query:test search}<end_function_call>',
+      },
+    ]);
+    (backend as any).pipeline = mockPipeline;
 
     const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search for test' }];
     const result = await backend.generate(messages);
@@ -194,11 +218,12 @@ describe('parseFunctionCall formats', () => {
   });
 
   it('parses Qwen format tool calls', async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-    const tokenizer = (backend as any).tokenizer;
-    tokenizer.decode
-      .mockReturnValueOnce('<tool_call>{"name":"search","arguments":{"query":"test"}}</tool_call>')
-      .mockReturnValueOnce('');
+    const mockPipeline = vi
+      .fn()
+      .mockResolvedValue([
+        { generated_text: '<tool_call>{"name":"search","arguments":{"query":"test"}}</tool_call>' },
+      ]);
+    (backend as any).pipeline = mockPipeline;
 
     const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search for test' }];
     const result = await backend.generate(messages);
@@ -211,14 +236,16 @@ describe('parseFunctionCall formats', () => {
         arguments: '{"query":"test"}',
       },
     });
+    expect(result.finishReason).toBe('tool_calls');
   });
 
   it('parses generic JSON format tool calls', async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-    const tokenizer = (backend as any).tokenizer;
-    tokenizer.decode
-      .mockReturnValueOnce('{"name": "search", "arguments": {"query": "test"}}')
-      .mockReturnValueOnce('');
+    const mockPipeline = vi
+      .fn()
+      .mockResolvedValue([
+        { generated_text: '{"name": "search", "arguments": {"query": "test"}}' },
+      ]);
+    (backend as any).pipeline = mockPipeline;
 
     const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search for test' }];
     const result = await backend.generate(messages);
@@ -230,21 +257,79 @@ describe('parseFunctionCall formats', () => {
         name: 'search',
       },
     });
+    expect(result.finishReason).toBe('tool_calls');
+  });
+
+  it('parses LFM2.5 Pythonic format with string arguments', async () => {
+    const mockPipeline = vi
+      .fn()
+      .mockResolvedValue([
+        { generated_text: '<|tool_call_start|>[get_weather(location="Paris")]<|tool_call_end|>' },
+      ]);
+    (backend as any).pipeline = mockPipeline;
+
+    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Weather in Paris?' }];
+    const result = await backend.generate(messages);
+
+    expect(result.toolCalls).toBeDefined();
+    expect(result.toolCalls?.[0]).toMatchObject({
+      type: 'function',
+      function: {
+        name: 'get_weather',
+      },
+    });
+    expect(result.finishReason).toBe('tool_calls');
+  });
+
+  it('parses LFM2.5 format with multiple kwargs', async () => {
+    const mockPipeline = vi.fn().mockResolvedValue([
+      {
+        generated_text: '<|tool_call_start|>[search(query="AI news", limit=10)]<|tool_call_end|>',
+      },
+    ]);
+    (backend as any).pipeline = mockPipeline;
+
+    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search AI' }];
+    const result = await backend.generate(messages);
+
+    expect(result.toolCalls).toBeDefined();
+    expect(result.toolCalls?.[0]?.function.name).toBe('search');
+    // Arguments should be serialized JSON
+    const args = JSON.parse(result.toolCalls?.[0]?.function.arguments ?? '{}');
+    expect(args.query).toBe('AI news');
+    expect(args.limit).toBe(10);
+  });
+
+  it('parses LFM2.5 format with boolean arguments', async () => {
+    const mockPipeline = vi
+      .fn()
+      .mockResolvedValue([
+        { generated_text: '<|tool_call_start|>[toggle(enabled=true)]<|tool_call_end|>' },
+      ]);
+    (backend as any).pipeline = mockPipeline;
+
+    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Enable' }];
+    const result = await backend.generate(messages);
+
+    expect(result.toolCalls).toBeDefined();
+    const args = JSON.parse(result.toolCalls?.[0]?.function.arguments ?? '{}');
+    expect(args.enabled).toBe(true);
   });
 
   it('returns no tool calls for plain text output', async () => {
-    // biome-ignore lint/suspicious/noExplicitAny: Test-only access to private properties
-    const tokenizer = (backend as any).tokenizer;
-    tokenizer.decode
-      .mockReturnValueOnce('This is a plain text response without any tool calls')
-      .mockReturnValueOnce('This is a plain text response');
+    const mockPipeline = vi
+      .fn()
+      .mockResolvedValue([
+        { generated_text: 'This is a plain text response without any tool calls' },
+      ]);
+    (backend as any).pipeline = mockPipeline;
 
     const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
     const result = await backend.generate(messages);
 
     expect(result.toolCalls).toBeUndefined();
     expect(result.finishReason).toBe('stop');
-    expect(result.text).toBe('This is a plain text response');
+    expect(result.text).toBe('This is a plain text response without any tool calls');
   });
 });
 
@@ -266,5 +351,139 @@ describe('initialize error handling', () => {
     };
 
     await expect(backend.initialize(config)).rejects.toThrow('WebGPU requested but not available');
+  });
+});
+
+describe('WebGPU info retrieval', () => {
+  it('returns null when navigator.gpu is not available', async () => {
+    const info = await LocalLlmBackend.getWebGpuInfo();
+    // In Node.js environment, WebGPU is not available
+    expect(info).toBe(null);
+  });
+});
+
+describe('generation with tools', () => {
+  let backend: LocalLlmBackend;
+
+  beforeEach(() => {
+    backend = new LocalLlmBackend();
+
+    const mockPipeline = vi
+      .fn()
+      .mockResolvedValue([{ generated_text: 'I will help you with that.' }]);
+
+    (backend as any).pipeline = mockPipeline;
+    (backend as any).modelId = 'test-model';
+    (backend as any).selectedDevice = 'wasm';
+    (backend as any).status = { state: 'ready', device: 'wasm' };
+  });
+
+  afterEach(async () => {
+    await backend.dispose();
+  });
+
+  it('includes tool definitions when provided', async () => {
+    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search for something' }];
+    const tools = [
+      {
+        type: 'function' as const,
+        function: {
+          name: 'search',
+          description: 'Search for information',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string' },
+            },
+            required: ['query'],
+          },
+        },
+      },
+    ];
+
+    const result = await backend.generate(messages, { tools });
+
+    expect(result.text).toBeDefined();
+    expect(result.finishReason).toBe('stop');
+    expect(result.usage.promptTokens).toBeGreaterThanOrEqual(0);
+    expect(result.usage.completionTokens).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('edge cases in tool call parsing', () => {
+  let backend: LocalLlmBackend;
+
+  beforeEach(() => {
+    backend = new LocalLlmBackend();
+    (backend as any).modelId = 'test-model';
+    (backend as any).selectedDevice = 'wasm';
+    (backend as any).status = { state: 'ready', device: 'wasm' };
+  });
+
+  afterEach(async () => {
+    await backend.dispose();
+  });
+
+  it('handles malformed JSON gracefully', async () => {
+    const mockPipeline = vi
+      .fn()
+      .mockResolvedValue([{ generated_text: '{"name": "search", "arguments": {invalid json}' }]);
+    (backend as any).pipeline = mockPipeline;
+
+    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Search' }];
+    const result = await backend.generate(messages);
+
+    // Should return text, not parse as tool call due to invalid JSON
+    expect(result.text).toBeDefined();
+    expect(result.finishReason).toBe('stop');
+  });
+
+  it('handles empty response', async () => {
+    const mockPipeline = vi.fn().mockResolvedValue([{ generated_text: '' }]);
+    (backend as any).pipeline = mockPipeline;
+
+    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
+    const result = await backend.generate(messages);
+
+    expect(result.text).toBe('');
+    expect(result.finishReason).toBe('stop');
+  });
+
+  it('handles response with only whitespace', async () => {
+    const mockPipeline = vi.fn().mockResolvedValue([{ generated_text: '   \n\n   ' }]);
+    (backend as any).pipeline = mockPipeline;
+
+    const messages: LocalLlmMessage[] = [{ role: 'user', content: 'Hello' }];
+    const result = await backend.generate(messages);
+
+    expect(result.text).toBeDefined();
+    expect(result.finishReason).toBe('stop');
+  });
+});
+
+describe('concurrent operations', () => {
+  it('handles multiple backend instances independently', async () => {
+    const backend1 = new LocalLlmBackend();
+    const backend2 = new LocalLlmBackend();
+
+    expect(backend1.getStatus().state).toBe('uninitialized');
+    expect(backend2.getStatus().state).toBe('uninitialized');
+
+    // Both should be independent
+    (backend1 as any).status = { state: 'ready', device: 'wasm' };
+
+    expect(backend1.getStatus().state).toBe('ready');
+    expect(backend2.getStatus().state).toBe('uninitialized');
+
+    await backend1.dispose();
+    await backend2.dispose();
+  });
+});
+
+describe('model configuration', () => {
+  it('backend instantiation succeeds', () => {
+    const backend = new LocalLlmBackend();
+    expect(backend).toBeDefined();
+    expect(backend.getStatus().state).toBe('uninitialized');
   });
 });

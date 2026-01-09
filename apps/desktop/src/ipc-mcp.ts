@@ -239,11 +239,12 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
   }
 }
 
-type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter';
+type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'local';
 
 async function resolveDiscoveryCredentials(): Promise<
   { provider: ProviderId; apiKey: string } | undefined
 > {
+  // First, try to find hosted provider credentials
   try {
     const secrets = getSecretsService();
     const providers = await secrets.listProviders();
@@ -266,7 +267,10 @@ async function resolveDiscoveryCredentials(): Promise<
     return { provider: 'openai', apiKey: envKey };
   }
 
-  return;
+  // Fall back to local provider - runs entirely in-browser via Transformers.js
+  // No API key needed for local inference
+  logger.info('No hosted provider credentials found, using local provider');
+  return { provider: 'local', apiKey: '' };
 }
 
 async function saveToolPreferencesIfNeeded(): Promise<void> {

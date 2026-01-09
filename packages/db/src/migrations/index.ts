@@ -19,6 +19,7 @@ import { migration017AddAllowDuplicatesColumn } from './017-add-allow-duplicates
 import { migration018SelectionSnapshots } from './018-selection-snapshots.js';
 import { migration019FtsTsvectorColumn } from './019-fts-tsvector-column.js';
 import { migration020LocalLlmModels } from './020-local-llm-models.js';
+import { migration021RenameTransformersToLocal } from './021-rename-transformers-to-local.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -44,6 +45,7 @@ export const migrations: Migration[] = [
   migration018SelectionSnapshots,
   migration019FtsTsvectorColumn,
   migration020LocalLlmModels,
+  migration021RenameTransformersToLocal,
 ];
 
 // Export base migrations (without chunks table) for test environments

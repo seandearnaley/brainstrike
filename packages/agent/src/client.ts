@@ -29,6 +29,7 @@ export {
   isValidModelForProvider,
   listEmbeddingModels,
   listProviders,
+  PROVIDER_DEFAULT_ENABLED_MODELS,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_MODELS,

@@ -8,8 +8,14 @@ import {
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
 } from '@brainstrike/agent/client';
+import { usePGliteDatabase } from '@brainstrike/db';
 import { useFileExplorerStoreContext, useSelectionManager } from '@brainstrike/file-explorer-ui';
-import { useAssistantPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import {
+  useAssistantPreferencesStore,
+  useEnsureModelRegistry,
+  useModelRegistryStore,
+  useVectorStatusUIStore,
+} from '@brainstrike/preferences';
 import {
   AssistantUiPanel,
   type ModelPickerModel,
@@ -31,6 +37,10 @@ const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   browser: 'Browser',
 };
 
+// Providers whose models are managed via the DB (model-registry-store)
+// instead of localStorage (assistant-preferences-store)
+const DB_MANAGED_PROVIDERS = new Set<SupportedProvider>(['local']);
+
 export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ initialProviders }) => {
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
     () => initialProviders ?? []
@@ -44,7 +54,25 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     getAvailableProviders,
     getSelectedModel,
     getSelectedProvider,
+    getEnabledModels,
   } = useAssistantPreferencesStore();
+
+  // Load model registry from DB for local provider models
+  useEnsureModelRegistry();
+  const registryModels = useModelRegistryStore((state) => state.models);
+  const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
+  const db = usePGliteDatabase();
+
+  // Create a set of DB-enabled model IDs for quick lookup
+  const dbEnabledModelIds = useMemo(() => {
+    const enabledIds = new Set<string>();
+    for (const model of registryModels) {
+      if (model.isEnabled && model.capabilities.type === 'llm') {
+        enabledIds.add(model.id);
+      }
+    }
+    return enabledIds;
+  }, [registryModels]);
 
   const selectedProvider = getSelectedProvider();
   const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
@@ -98,14 +126,40 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     return data;
   }, [activeEmbeddingSetId, selectionData, tokenBudget]);
 
+  // Check if a model is enabled, using DB for local providers, localStorage for others
+  const isModelEnabled = useCallback(
+    (providerId: SupportedProvider, modelId: string): boolean => {
+      if (DB_MANAGED_PROVIDERS.has(providerId)) {
+        return dbEnabledModelIds.has(modelId);
+      }
+      return getEnabledModels(providerId).includes(modelId);
+    },
+    [dbEnabledModelIds, getEnabledModels]
+  );
+
   const providerHasEnabledModels = useCallback(
-    (provider: SupportedProvider) => (enabledModelsByProvider[provider] ?? []).length > 0,
-    [enabledModelsByProvider]
+    (provider: SupportedProvider) => {
+      if (DB_MANAGED_PROVIDERS.has(provider)) {
+        // For DB-managed providers, check the registry
+        const modelDefinitions = getProviderModelDefinitions(provider).filter(
+          (model) => model.type === 'llm'
+        );
+        return modelDefinitions.some((model) => dbEnabledModelIds.has(model.id));
+      }
+      return getEnabledModels(provider).length > 0;
+    },
+    [dbEnabledModelIds, getEnabledModels]
   );
 
   const selectModelForProvider = useCallback(
     (provider: SupportedProvider) => {
-      const enabledModels = enabledModelsByProvider[provider] ?? [];
+      const modelDefinitions = getProviderModelDefinitions(provider).filter(
+        (model) => model.type === 'llm'
+      );
+      const enabledModels = modelDefinitions
+        .filter((model) => isModelEnabled(provider, model.id))
+        .map((model) => model.id);
+
       if (enabledModels.length === 0) {
         return;
       }
@@ -115,7 +169,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         defaultModel && enabledModels.includes(defaultModel) ? defaultModel : enabledModels[0];
       setModel(`${provider}::${modelToSelect}`);
     },
-    [enabledModelsByProvider, setModel]
+    [isModelEnabled, setModel]
   );
 
   useEffect(() => {
@@ -176,6 +230,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   }, [
     configuredProviders,
     enabledModelsByProvider,
+    dbEnabledModelIds,
     getSelectedProvider,
     clearModel,
     providerHasEnabledModels,
@@ -197,9 +252,17 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       if (!isSupportedProvider(providerId)) {
         return;
       }
+
+      // For DB-managed providers (e.g., 'local'), update the database
+      if (DB_MANAGED_PROVIDERS.has(providerId) && db) {
+        void toggleModelInDb(db, modelId, enabled);
+        return;
+      }
+
+      // For localStorage-managed providers, use the preferences store
       setModelEnabled(providerId, modelId, enabled);
     },
-    [setModelEnabled]
+    [db, toggleModelInDb, setModelEnabled]
   );
 
   const providerGroups = useMemo<ProviderGroupConfig[]>(() => {
@@ -217,7 +280,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     for (const providerId of configuredProviders) {
       const definition = getProviderDefinition(providerId);
       const runtime = definition.runtime;
-      const enabledModels = enabledModelsByProvider[providerId] ?? [];
       const modelDefinitions = getProviderModelDefinitions(providerId).filter(
         (model): model is ProviderModelDefinition & { type: 'llm' } => model.type === 'llm'
       );
@@ -226,7 +288,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         id: model.id,
         label: model.label ?? model.id,
         type: 'llm' as const,
-        enabled: enabledModels.includes(model.id),
+        enabled: isModelEnabled(providerId, model.id),
         default: Boolean(model.default),
         supportsStreaming: Boolean(model.supportsStreaming),
       }));
@@ -253,7 +315,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       .filter((group): group is ProviderGroupConfig =>
         Boolean(group && group.providers.length > 0)
       );
-  }, [configuredProviders, enabledModelsByProvider]);
+  }, [configuredProviders, isModelEnabled]);
 
   // Transform provider groups to ModelPicker-compatible format
   const pickerProviders = useMemo<ModelPickerProvider[]>(() => {
@@ -272,14 +334,13 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     const models: ModelPickerModel[] = [];
 
     for (const providerId of configuredProviders) {
-      const enabledModels = enabledModelsByProvider[providerId] ?? [];
       const modelDefinitions = getProviderModelDefinitions(providerId).filter(
         (model): model is ProviderModelDefinition & { type: 'llm' } => model.type === 'llm'
       );
 
       for (const model of modelDefinitions) {
-        // Only include enabled models
-        if (!enabledModels.includes(model.id)) {
+        // Check enabled status using the unified helper
+        if (!isModelEnabled(providerId, model.id)) {
           continue;
         }
 
@@ -297,7 +358,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     }
 
     return models;
-  }, [configuredProviders, enabledModelsByProvider]);
+  }, [configuredProviders, isModelEnabled]);
 
   const isProviderReady = Boolean(
     selectedProvider && currentModel && configuredProviders.includes(selectedProvider)
@@ -313,8 +374,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     if (!configuredProviders.includes(selectedProvider)) {
       return 'The selected provider is no longer configured.';
     }
-    const enabled = enabledModelsByProvider[selectedProvider] ?? [];
-    if (enabled.length === 0) {
+    if (!providerHasEnabledModels(selectedProvider)) {
       const definition = getProviderDefinition(selectedProvider);
       return `Enable at least one model for ${definition.displayName} to continue.`;
     }
@@ -322,7 +382,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       return 'Select a model for the chosen provider to continue.';
     }
     return;
-  }, [configuredProviders, selectedProvider, enabledModelsByProvider, currentModel]);
+  }, [configuredProviders, selectedProvider, providerHasEnabledModels, currentModel]);
 
   return (
     <AssistantUiPanel
