@@ -12,21 +12,33 @@ import type {
 
 // Singleton backend instance - persists across renders to avoid reloading model
 let backendInstance: LocalLlmBackendType | null = null;
+let backendInstancePromise: Promise<LocalLlmBackendType> | null = null;
 let currentModelId: string | null = null;
 
 /**
  * Get or create the LocalLlmBackend singleton.
+ * Uses promise-based caching to prevent race conditions when called concurrently.
  * Dynamically imports to avoid loading transformers.js until needed.
  */
 async function getBackend(): Promise<LocalLlmBackendType> {
+  // Fast path: already initialized
   if (backendInstance) {
     return backendInstance;
   }
 
-  // Dynamic import to avoid bundling transformers.js in non-local builds
-  const { LocalLlmBackend } = await import('@brainstrike/agent/client');
-  backendInstance = new LocalLlmBackend();
-  return backendInstance;
+  // Race condition protection: use promise-based cache
+  // If initialization is in progress, wait for it instead of creating another instance
+  if (!backendInstancePromise) {
+    backendInstancePromise = (async () => {
+      // Dynamic import to avoid bundling transformers.js in non-local builds
+      const { LocalLlmBackend } = await import('@brainstrike/agent/client');
+      const instance = new LocalLlmBackend();
+      backendInstance = instance;
+      return instance;
+    })();
+  }
+
+  return backendInstancePromise;
 }
 
 /**
@@ -186,6 +198,7 @@ export async function disposeLocalBackend(): Promise<void> {
   if (backendInstance) {
     await backendInstance.dispose();
     backendInstance = null;
+    backendInstancePromise = null;
     currentModelId = null;
   }
 }

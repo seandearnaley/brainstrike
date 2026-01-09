@@ -101,13 +101,64 @@ async function getTransformersModule(): Promise<TransformersModule> {
     return transformersModule;
   }
   if (!transformersModulePromise) {
-    // Cast through unknown because transformers.js types are more general than our specific subset
-    transformersModulePromise = import('@huggingface/transformers').then(
-      (mod) => mod as unknown as TransformersModule
-    );
+    transformersModulePromise = import('@huggingface/transformers').then((mod) => {
+      // Runtime validation to ensure module structure matches our expectations
+      if (
+        !mod ||
+        typeof mod !== 'object' ||
+        typeof mod.pipeline !== 'function' ||
+        !mod.AutoTokenizer ||
+        typeof mod.AutoTokenizer.from_pretrained !== 'function'
+      ) {
+        throw new Error(
+          'Invalid transformers.js module structure: expected pipeline function and AutoTokenizer.from_pretrained'
+        );
+      }
+      return mod as unknown as TransformersModule;
+    });
   }
   transformersModule = await transformersModulePromise;
   return transformersModule;
+}
+
+/**
+ * Open the browser Cache API with user-friendly error handling.
+ * Throws descriptive errors for SecurityError (permission denied).
+ */
+async function openModelCache(): Promise<Cache> {
+  try {
+    return await caches.open('transformers-cache');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof DOMException && error.name === 'SecurityError') {
+      throw new Error(
+        `Cache access denied: Storage permissions may be blocked. Please enable storage access in browser settings. (${message})`
+      );
+    }
+    throw new Error(`Failed to open model cache: ${message}`);
+  }
+}
+
+/**
+ * Store a response in cache with user-friendly quota error handling.
+ */
+async function storeInCache(
+  cache: Cache,
+  url: string,
+  response: Response,
+  filePath: string
+): Promise<void> {
+  try {
+    await cache.put(url, response);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+      throw new Error(
+        `Storage quota exceeded while caching model file. Free up browser storage or clear site data. File: ${filePath}`
+      );
+    }
+    throw new Error(`Failed to cache model file ${filePath}: ${message}`);
+  }
 }
 
 /**
@@ -123,14 +174,22 @@ async function downloadFileToCache(
   onProgress?: (loaded: number, total: number) => void
 ): Promise<void> {
   const url = `https://huggingface.co/${modelId}/resolve/main/${filePath}`;
+  const cache = await openModelCache();
 
-  // Check if already cached
-  const cache = await caches.open('transformers-cache');
-  const cachedResponse = await cache.match(url);
-  if (cachedResponse) {
-    logger.debug('File already cached', { modelId, filePath });
-    onProgress?.(1, 1); // Report as complete
-    return;
+  // Check if already cached (non-fatal on error - proceed with download)
+  try {
+    const cachedResponse = await cache.match(url);
+    if (cachedResponse) {
+      logger.debug('File already cached', { modelId, filePath });
+      onProgress?.(1, 1);
+      return;
+    }
+  } catch (matchError) {
+    logger.debug('Cache match failed, will re-download', {
+      modelId,
+      filePath,
+      error: matchError instanceof Error ? matchError.message : String(matchError),
+    });
   }
 
   // Fetch with streaming
@@ -147,7 +206,6 @@ async function downloadFileToCache(
   }
 
   // Create a TransformStream for progress tracking without buffering
-  // This pipes chunks through and reports progress without collecting in memory
   let loaded = 0;
   const progressTransform = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
@@ -159,10 +217,8 @@ async function downloadFileToCache(
     },
   });
 
-  // Pipe through progress transform - this streams directly to cache
+  // Pipe through progress transform and create cache response
   const transformedStream = response.body.pipeThrough(progressTransform);
-
-  // Store in cache with streaming response - no buffering required
   const cacheResponse = new Response(transformedStream, {
     headers: {
       'Content-Type': response.headers.get('content-type') ?? 'application/octet-stream',
@@ -170,8 +226,7 @@ async function downloadFileToCache(
     },
   });
 
-  await cache.put(url, cacheResponse);
-
+  await storeInCache(cache, url, cacheResponse, filePath);
   logger.debug('File downloaded and cached', { modelId, filePath, size: loaded });
 }
 
@@ -179,6 +234,12 @@ async function downloadFileToCache(
  * Parse FunctionGemma format: <start_function_call>call:name{args}<end_function_call>
  */
 function parseGemmaFormat(output: string): LocalLlmToolCall | null {
+  // ReDoS protection: reject excessively long outputs
+  if (output.length > MAX_OUTPUT_LENGTH) {
+    logger.warn('Tool call output exceeds max length', { length: output.length, parser: 'gemma' });
+    return null;
+  }
+
   const match = output.match(/<start_function_call>call:(\w+)\{([^}]*)\}<end_function_call>/);
   if (!match) {
     return null;
@@ -205,6 +266,12 @@ function parseGemmaFormat(output: string): LocalLlmToolCall | null {
  * Parse Qwen format: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
  */
 function parseQwenFormat(output: string): LocalLlmToolCall | null {
+  // ReDoS protection: reject excessively long outputs
+  if (output.length > MAX_OUTPUT_LENGTH) {
+    logger.warn('Tool call output exceeds max length', { length: output.length, parser: 'qwen' });
+    return null;
+  }
+
   const match = output.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
   if (!match) {
     return null;
@@ -235,6 +302,15 @@ function parseQwenFormat(output: string): LocalLlmToolCall | null {
  * Parse generic JSON format: {"name": "...", "arguments": {...}}
  */
 function parseGenericJsonFormat(output: string): LocalLlmToolCall | null {
+  // ReDoS protection: reject excessively long outputs
+  if (output.length > MAX_OUTPUT_LENGTH) {
+    logger.warn('Tool call output exceeds max length', {
+      length: output.length,
+      parser: 'genericJson',
+    });
+    return null;
+  }
+
   const match = output.match(/\{"name":\s*"(\w+)",\s*"arguments":\s*(\{[^}]+\})\}/);
   if (!match) {
     return null;
@@ -258,6 +334,12 @@ function parseGenericJsonFormat(output: string): LocalLlmToolCall | null {
  */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Parses multiple argument formats (strings, numbers, booleans)
 function parseLfmFormat(output: string): LocalLlmToolCall | null {
+  // ReDoS protection: reject excessively long outputs
+  if (output.length > MAX_OUTPUT_LENGTH) {
+    logger.warn('Tool call output exceeds max length', { length: output.length, parser: 'lfm' });
+    return null;
+  }
+
   const match = output.match(/<\|tool_call_start\|>\s*\[(\w+)\(([^)]*)\)\]\s*<\|tool_call_end\|>/);
   if (!match) {
     return null;
@@ -323,6 +405,39 @@ function parseFunctionCall(output: string): LocalLlmToolCall | null {
  * MultiplicativeBinaryOperator (array slicing with *), causing template errors.
  */
 const MODELS_REQUIRING_MANUAL_FORMATTING = new Set(['onnx-community/functiongemma-270m-it-ONNX']);
+
+/**
+ * Maximum output length for tool call parsing (100KB).
+ * Prevents ReDoS attacks from unbounded regex matching on large inputs.
+ */
+const MAX_OUTPUT_LENGTH = 100_000;
+
+/**
+ * Wrap a promise with abort signal handling.
+ * If the signal is aborted during execution, rejects with AbortError.
+ * Note: This doesn't cancel the underlying operation, but allows early rejection.
+ */
+function withAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return promise;
+  }
+
+  // Check if already aborted
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('Generation aborted', 'AbortError'));
+  }
+
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      signal.addEventListener(
+        'abort',
+        () => reject(new DOMException('Generation aborted', 'AbortError')),
+        { once: true }
+      );
+    }),
+  ]);
+}
 
 /**
  * Model-specific dtype requirements.
@@ -592,6 +707,9 @@ export class LocalLlmBackend {
       message: `Loading ${config.modelId}...`,
     });
 
+    // Temporary pipeline reference for cleanup on failure
+    let tempPipeline: TextGenerationPipeline | null = null;
+
     try {
       const transformers = await getTransformersModule();
 
@@ -658,7 +776,7 @@ export class LocalLlmBackend {
       // This avoids issues with custom tokenizer classes like "TokenizersBackend"
       logger.info('Loading local LLM', { modelId: config.modelId, device: this.selectedDevice });
 
-      this.pipeline = await transformers.pipeline('text-generation', config.modelId, {
+      tempPipeline = await transformers.pipeline('text-generation', config.modelId, {
         device: this.selectedDevice,
         dtype,
         // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
@@ -678,6 +796,8 @@ export class LocalLlmBackend {
         this.tokenizer = null;
       }
 
+      // Only assign after successful initialization to prevent leaks
+      this.pipeline = tempPipeline;
       this.modelId = config.modelId;
 
       this.status = { state: 'ready', device: this.selectedDevice };
@@ -692,6 +812,18 @@ export class LocalLlmBackend {
         device: this.selectedDevice,
       });
     } catch (error) {
+      // Clean up temp pipeline if initialization failed
+      if (tempPipeline?.dispose) {
+        try {
+          await tempPipeline.dispose();
+          logger.debug('Disposed temp pipeline after initialization failure');
+        } catch (disposeError) {
+          logger.debug('Error disposing temp pipeline', {
+            error: disposeError instanceof Error ? disposeError.message : String(disposeError),
+          });
+        }
+      }
+
       const message = error instanceof Error ? error.message : String(error);
       const errorName = error instanceof Error ? error.name : 'UnknownError';
       const stack = error instanceof Error ? error.stack : undefined;
@@ -850,7 +982,8 @@ export class LocalLlmBackend {
     if (requiresManualPromptFormatting(this.modelId)) {
       logger.debug('Using manual prompt formatting for model', { modelId: this.modelId });
       promptText = this.formatMessagesAsPrompt(messagesWithTools);
-      output = await this.pipeline(promptText, generateOptions);
+      // Wrap pipeline call with abort signal handling
+      output = await withAbortSignal(this.pipeline(promptText, generateOptions), options.signal);
     } else {
       // Convert messages to chat format expected by pipeline
       const chatMessages: ChatMessage[] = messagesWithTools.map((msg) => ({
@@ -859,7 +992,8 @@ export class LocalLlmBackend {
       }));
       // For token counting, concatenate all message contents
       promptText = messagesWithTools.map((m) => m.content).join('\n');
-      output = await this.pipeline(chatMessages, generateOptions);
+      // Wrap pipeline call with abort signal handling
+      output = await withAbortSignal(this.pipeline(chatMessages, generateOptions), options.signal);
     }
 
     // Extract generated text from output
@@ -1029,14 +1163,33 @@ export class LocalLlmBackend {
         return null;
       }
 
+      // Validate adapter properties exist (older WebGPU implementations may not have them)
       const info = adapter.info;
       const limits = adapter.limits;
 
+      if (!(info && limits)) {
+        logger.warn('WebGPU adapter missing info or limits', {
+          hasInfo: Boolean(info),
+          hasLimits: Boolean(limits),
+        });
+        return null;
+      }
+
+      // Validate required properties exist
+      if (
+        typeof info.vendor !== 'string' ||
+        typeof limits.maxBufferSize !== 'number' ||
+        typeof limits.maxStorageBufferBindingSize !== 'number'
+      ) {
+        logger.warn('WebGPU adapter info/limits have unexpected types');
+        return null;
+      }
+
       return {
         vendor: info.vendor,
-        architecture: info.architecture,
-        device: info.device,
-        description: info.description,
+        architecture: info.architecture ?? 'unknown',
+        device: info.device ?? 'unknown',
+        description: info.description ?? '',
         maxBufferSize: limits.maxBufferSize,
         maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
       };

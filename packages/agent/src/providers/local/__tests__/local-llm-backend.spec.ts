@@ -5,6 +5,9 @@ import type { LocalLlmConfig, LocalLlmGenerationOptions, LocalLlmMessage } from 
 // Mock the transformers module
 vi.mock('@huggingface/transformers', () => ({
   pipeline: vi.fn(),
+  AutoTokenizer: {
+    from_pretrained: vi.fn(),
+  },
 }));
 
 describe('LocalLlmBackend', () => {
