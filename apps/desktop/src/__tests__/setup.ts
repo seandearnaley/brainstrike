@@ -123,6 +123,16 @@ const mockProviderModels = Object.fromEntries(
   ])
 ) as Record<MockProviderId, string[]>;
 
+// Only include models with default: true in the enabled defaults
+const mockProviderDefaultEnabledModels = Object.fromEntries(
+  mockProviderDefinitions.map((definition) => [
+    definition.id,
+    definition.models
+      .filter((model) => model.type === 'llm' && model.default)
+      .map((model) => model.id),
+  ])
+) as Record<MockProviderId, string[]>;
+
 const mockEmbeddingModels = Object.fromEntries(
   mockProviderDefinitions.map((definition) => [
     definition.id,
@@ -186,6 +196,7 @@ vi.mock('@brainstrike/agent/client', () => ({
   listProviders: () => mockProviderDefinitions.map((definition) => cloneDefinition(definition)),
   providerEnvKeys: (provider: string) => ensureDefinition(provider).envKeys ?? [],
   PROVIDER_DEFAULT_MODELS: mockProviderDefaults,
+  PROVIDER_DEFAULT_ENABLED_MODELS: mockProviderDefaultEnabledModels,
   PROVIDER_MODELS: mockProviderModels,
   PROVIDER_DISPLAY_NAMES: mockProviderDisplayNames,
   getProviderDefaultModel: (provider: string) => mockProviderDefaults[provider as MockProviderId],

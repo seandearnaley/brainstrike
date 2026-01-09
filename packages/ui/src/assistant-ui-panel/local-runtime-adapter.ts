@@ -130,11 +130,18 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
         // Add tool calls if present
         if (result.toolCalls && result.toolCalls.length > 0) {
           for (const toolCall of result.toolCalls) {
+            let parsedArgs: object = {};
+            try {
+              parsedArgs = JSON.parse(toolCall.function.arguments) as object;
+            } catch {
+              // Malformed arguments - fall back to empty object
+              // The argsText field still contains the raw arguments for debugging
+            }
             contentParts.push({
               type: 'tool-call',
               toolCallId: toolCall.id,
               toolName: toolCall.function.name,
-              args: JSON.parse(toolCall.function.arguments) as object,
+              args: parsedArgs,
               argsText: toolCall.function.arguments,
             });
           }

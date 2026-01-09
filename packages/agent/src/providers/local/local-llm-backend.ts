@@ -71,8 +71,25 @@ type PipelineFunction = (
   }
 ) => Promise<TextGenerationPipeline>;
 
+// Tokenizer type for token counting
+type Tokenizer = {
+  encode: (text: string) => { length: number };
+};
+
+// AutoTokenizer factory type
+type AutoTokenizerFactory = {
+  // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
+  from_pretrained: (
+    modelId: string,
+    // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
+    options?: { progress_callback?: (progress: ProgressInfo) => void }
+  ) => Promise<Tokenizer>;
+};
+
 type TransformersModule = {
   pipeline: PipelineFunction;
+  // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
+  AutoTokenizer: AutoTokenizerFactory;
 };
 
 // Module-level cache for transformers.js
@@ -178,7 +195,7 @@ function parseGemmaFormat(output: string): LocalLlmToolCall | null {
     }
   }
   return {
-    id: `call_${Date.now()}`,
+    id: `call_${crypto.randomUUID()}`,
     type: 'function',
     function: { name: name ?? '', arguments: JSON.stringify(args) },
   };
@@ -204,7 +221,7 @@ function parseQwenFormat(output: string): LocalLlmToolCall | null {
       arguments: Record<string, unknown>;
     };
     return {
-      id: `call_${Date.now()}`,
+      id: `call_${crypto.randomUUID()}`,
       type: 'function',
       function: { name: parsed.name, arguments: JSON.stringify(parsed.arguments) },
     };
@@ -225,7 +242,7 @@ function parseGenericJsonFormat(output: string): LocalLlmToolCall | null {
 
   const [, name, argsJson] = match;
   return {
-    id: `call_${Date.now()}`,
+    id: `call_${crypto.randomUUID()}`,
     type: 'function',
     function: { name: name ?? '', arguments: argsJson ?? '{}' },
   };
@@ -279,7 +296,7 @@ function parseLfmFormat(output: string): LocalLlmToolCall | null {
   }
 
   return {
-    id: `call_${Date.now()}`,
+    id: `call_${crypto.randomUUID()}`,
     type: 'function',
     function: { name: funcName ?? '', arguments: JSON.stringify(args) },
   };
@@ -549,6 +566,7 @@ function requiresManualPromptFormatting(modelId: string): boolean {
  */
 export class LocalLlmBackend {
   private pipeline: TextGenerationPipeline | null = null;
+  private tokenizer: Tokenizer | null = null;
   private modelId: string | null = null;
   private selectedDevice: 'webgpu' | 'wasm' | null = null;
   private status: LocalLlmProviderStatus = { state: 'uninitialized' };
@@ -646,6 +664,19 @@ export class LocalLlmBackend {
         // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
         progress_callback: progressCallback,
       });
+
+      // Load tokenizer for token counting (pipeline doesn't expose token counts)
+      try {
+        this.tokenizer = await transformers.AutoTokenizer.from_pretrained(config.modelId);
+        logger.debug('Tokenizer loaded for token counting', { modelId: config.modelId });
+      } catch (tokenizerError) {
+        // Tokenizer loading is optional - token counts will be 0 if it fails
+        logger.debug('Tokenizer not available, token counts will be estimates', {
+          modelId: config.modelId,
+          error: tokenizerError instanceof Error ? tokenizerError.message : String(tokenizerError),
+        });
+        this.tokenizer = null;
+      }
 
       this.modelId = config.modelId;
 
@@ -812,19 +843,22 @@ export class LocalLlmBackend {
     }
 
     let output: TextGenerationOutput[];
+    let promptText = '';
 
     // Models with unsupported Jinja templates need manual prompt formatting.
     // This is determined upfront based on the model ID, not via runtime fallback.
     if (requiresManualPromptFormatting(this.modelId)) {
       logger.debug('Using manual prompt formatting for model', { modelId: this.modelId });
-      const rawPrompt = this.formatMessagesAsPrompt(messagesWithTools);
-      output = await this.pipeline(rawPrompt, generateOptions);
+      promptText = this.formatMessagesAsPrompt(messagesWithTools);
+      output = await this.pipeline(promptText, generateOptions);
     } else {
       // Convert messages to chat format expected by pipeline
       const chatMessages: ChatMessage[] = messagesWithTools.map((msg) => ({
         role: msg.role,
         content: msg.content,
       }));
+      // For token counting, concatenate all message contents
+      promptText = messagesWithTools.map((m) => m.content).join('\n');
       output = await this.pipeline(chatMessages, generateOptions);
     }
 
@@ -849,14 +883,28 @@ export class LocalLlmBackend {
     // Parse for tool calls
     const toolCall = parseFunctionCall(generatedText);
 
-    // Build result - pipeline doesn't expose token counts directly
+    // Count tokens using tokenizer if available
+    let promptTokens = 0;
+    let completionTokens = 0;
+    if (this.tokenizer) {
+      try {
+        promptTokens = this.tokenizer.encode(promptText).length;
+        completionTokens = this.tokenizer.encode(generatedText).length;
+      } catch (tokenError) {
+        logger.debug('Token counting failed, using 0', {
+          error: tokenError instanceof Error ? tokenError.message : String(tokenError),
+        });
+      }
+    }
+
+    // Build result
     const result: LocalLlmGenerationResult = {
       text: generatedText,
       finishReason: toolCall ? 'tool_calls' : 'stop',
       usage: {
-        promptTokens: 0, // Pipeline doesn't expose this
-        completionTokens: 0, // Pipeline doesn't expose this
-        totalTokens: 0,
+        promptTokens,
+        completionTokens,
+        totalTokens: promptTokens + completionTokens,
       },
     };
 
@@ -900,6 +948,7 @@ export class LocalLlmBackend {
       }
     }
     this.pipeline = null;
+    this.tokenizer = null;
     this.modelId = null;
     this.selectedDevice = null;
     this.status = { state: 'uninitialized' };

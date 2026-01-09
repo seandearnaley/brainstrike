@@ -50,13 +50,15 @@ describe('assistant-preferences-store', () => {
   it('allows overriding models per provider', () => {
     const snapshot = useAssistantPreferencesStore.getState();
 
-    const compositeKey = 'anthropic::claude-3-5-sonnet-latest';
+    // Use a model that is enabled by default (has default: true in registry)
+    const defaultModel = PROVIDER_DEFAULT_MODELS.anthropic!;
+    const compositeKey = `anthropic::${defaultModel}`;
     snapshot.setModel(compositeKey);
 
     const updated = useAssistantPreferencesStore.getState();
     expect(updated.getSelectedModel()).toBe(compositeKey);
     expect(updated.getSelectedProvider()).toBe('anthropic');
-    expect(updated.modelsByProvider.anthropic).toBe('claude-3-5-sonnet-latest');
+    expect(updated.modelsByProvider.anthropic).toBe(defaultModel);
   });
 
   it('clears selection when the current model is disabled', () => {
@@ -95,9 +97,15 @@ describe('assistant-preferences-store', () => {
   it('ignores setModel calls for disabled models', () => {
     const store = useAssistantPreferencesStore.getState();
 
-    const [firstModel, secondModel] = store.getEnabledModels('google');
+    // Get first enabled model
+    const [firstModel] = store.getEnabledModels('google');
     expect(firstModel).toBeDefined();
+
+    // Enable a second model for testing (from the full provider models list)
+    const allGoogleModels = PROVIDER_MODELS.google as string[];
+    const secondModel = allGoogleModels.find((m) => m !== firstModel);
     expect(secondModel).toBeDefined();
+    store.setModelEnabled('google', secondModel!, true);
 
     // Set second model first
     const validComposite = `google::${secondModel}`;
@@ -126,11 +134,12 @@ describe('assistant-preferences-store', () => {
     };
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
-    const expected: SupportedProvider[] = ['openai', 'google'];
+    // 'local' is always included because it doesn't require API keys
+    const expected: SupportedProvider[] = ['openai', 'google', 'local'];
     expect(providers).toEqual(expected);
   });
 
-  it('returns empty providers when secrets API fails', async () => {
+  it('returns only no-key providers when secrets API fails', async () => {
     const secretTarget = window as Window & { secrets?: unknown };
     secretTarget.secrets = {
       list: vi.fn().mockRejectedValue(new Error('not allowed')),
@@ -142,7 +151,8 @@ describe('assistant-preferences-store', () => {
     };
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
-    expect(providers).toEqual([]);
+    // 'local' doesn't require API keys, so it's still available when secrets API fails
+    expect(providers).toEqual(['local']);
   });
 
   it('updates model with composite key', () => {
@@ -152,8 +162,9 @@ describe('assistant-preferences-store', () => {
     expect(store.selectedModel).toBeNull();
     expect(store.getSelectedModel()).toBeNull();
 
-    // Select anthropic with a specific model using composite key
-    const compositeKey = 'anthropic::claude-3-5-sonnet-latest';
+    // Select anthropic with the default model using composite key
+    const defaultModel = PROVIDER_DEFAULT_MODELS.anthropic!;
+    const compositeKey = `anthropic::${defaultModel}`;
     store.setModel(compositeKey);
 
     const updated = useAssistantPreferencesStore.getState();
@@ -161,7 +172,7 @@ describe('assistant-preferences-store', () => {
     // Model should be selected with composite key
     expect(updated.selectedModel).toBe(compositeKey);
     expect(updated.getSelectedProvider()).toBe('anthropic');
-    expect(updated.modelsByProvider.anthropic).toBe('claude-3-5-sonnet-latest');
+    expect(updated.modelsByProvider.anthropic).toBe(defaultModel);
     expect(updated.getSelectedModel()).toBe(compositeKey);
   });
 
@@ -244,9 +255,8 @@ describe('assistant-preferences-store', () => {
 
     expect(snapshot.state?.selectedModel).toBe(compositeKey);
     expect(snapshot.state?.modelsByProvider.openrouter).toBe('gpt-4o-mini');
-    expect(snapshot.state?.enabledModelsByProvider.openrouter).toEqual(
-      expect.arrayContaining(PROVIDER_MODELS.openrouter as string[])
-    );
+    // Only models with default: true are enabled by default, not all PROVIDER_MODELS
+    expect(snapshot.state?.enabledModelsByProvider.openrouter).toContain('gpt-4o-mini');
 
     persistApi.clearStorage?.();
     const afterClear = storage.getItem(options.name)!;

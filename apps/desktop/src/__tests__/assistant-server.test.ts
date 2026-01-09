@@ -131,7 +131,8 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data).toEqual({ enabled: true, providers: ['openai'] });
+      // 'local' provider is always available (no API key required)
+      expect(data).toEqual({ enabled: true, providers: ['openai', 'local'] });
     }, 10_000);
 
     it('should handle status route with missing API key', async () => {
@@ -145,7 +146,8 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data).toEqual({ enabled: false, reason: 'no_providers_configured', providers: [] });
+      // 'local' provider is always available (no API key required)
+      expect(data).toEqual({ enabled: true, providers: ['local'] });
     }, 10_000);
 
     it('should handle status route errors', async () => {

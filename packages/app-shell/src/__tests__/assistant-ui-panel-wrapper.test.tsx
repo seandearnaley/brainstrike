@@ -93,6 +93,19 @@ vi.mock('@brainstrike/agent/client', () => {
     {} as Record<keyof typeof PROVIDER_DEFINITIONS, string>
   );
 
+  // Models that are enabled by default (only those with default: true)
+  const PROVIDER_DEFAULT_ENABLED_MODELS = SUPPORTED_PROVIDERS.reduce(
+    (acc, provider) => {
+      const models = PROVIDER_DEFINITIONS[provider].models;
+      const defaultModels = models
+        .filter((model) => 'default' in model && model.default)
+        .map((model) => model.id);
+      acc[provider] = defaultModels;
+      return acc;
+    },
+    {} as Record<keyof typeof PROVIDER_DEFINITIONS, string[]>
+  );
+
   return {
     getProviderDefaultModel: (provider: string) =>
       PROVIDER_DEFAULT_MODELS[provider as keyof typeof PROVIDER_DEFINITIONS],
@@ -110,6 +123,7 @@ vi.mock('@brainstrike/agent/client', () => {
       SUPPORTED_PROVIDERS.includes(provider as keyof typeof PROVIDER_DEFINITIONS),
     supportsStandardEmbeddingDimension: (provider: string) => provider !== 'openrouter',
     listProviders: () => SUPPORTED_PROVIDERS.map((provider) => PROVIDER_DEFINITIONS[provider]),
+    PROVIDER_DEFAULT_ENABLED_MODELS,
     PROVIDER_DEFAULT_MODELS,
     PROVIDER_MODELS,
   };
@@ -310,6 +324,10 @@ describe('AssistantUiPanelWrapper', () => {
   test('allows changing model for selected provider', async () => {
     const user = userEvent.setup();
 
+    // Enable an additional model for testing model switching
+    const store = useAssistantPreferencesStore.getState();
+    store.setModelEnabled('openai', 'gpt-4o', true);
+
     await renderAssistantPanel(['openai'], () =>
       waitFor(
         () => {
@@ -407,11 +425,10 @@ describe('AssistantUiPanelWrapper', () => {
       )
     );
 
-    // Check OpenAI models are available
+    // Check OpenAI default model is available (only models with default: true are enabled)
     const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
     const options = Array.from(modelSelect.options).map((o) => o.value);
-    expect(options).toContain('gpt-4o');
-    expect(options).toContain('gpt-4o-mini');
+    expect(options).toContain('gpt-4o-mini'); // default model for openai
 
     // Switch to Google
     const user = userEvent.setup();
@@ -424,13 +441,16 @@ describe('AssistantUiPanelWrapper', () => {
 
       const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
       const options = Array.from(modelSelect.options).map((o) => o.value);
-      expect(options).toContain('gemini-2.5-flash');
-      expect(options).toContain('gemini-2.0-pro');
-      expect(options).not.toContain('gpt-4o');
+      expect(options).toContain('gemini-2.5-flash'); // default model for google
+      expect(options).not.toContain('gpt-4o'); // openai model shouldn't be here
     });
   });
 
   test('persists provider and model selections in store', async () => {
+    // Enable an additional model for testing model switching
+    const store = useAssistantPreferencesStore.getState();
+    store.setModelEnabled('anthropic', 'claude-3-5-sonnet-latest', true);
+
     await renderAssistantPanel(['openai', 'anthropic'], () =>
       waitFor(() => {
         const state = useAssistantPreferencesStore.getState();
@@ -449,7 +469,7 @@ describe('AssistantUiPanelWrapper', () => {
       expect(state.modelsByProvider.anthropic).toBe('claude-3-5-haiku-latest');
     });
 
-    // Change model
+    // Change model (to the model we enabled above)
     await user.selectOptions(screen.getByTestId('model-select'), 'claude-3-5-sonnet-latest');
 
     await waitFor(() => {
