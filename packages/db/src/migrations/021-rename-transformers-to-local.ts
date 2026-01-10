@@ -14,8 +14,9 @@ export const migration021RenameTransformersToLocal: Migration = {
   name: 'rename_transformers_to_local',
   up: `
     -- Step 1: Insert new 'local' provider (copy from 'transformers' if it exists)
-    INSERT INTO providers (id, name, created_at, updated_at)
-    SELECT 'local', 'Local (Browser)', created_at, NOW()
+    -- IMPORTANT: Copy is_enabled and sort_order to preserve provider settings
+    INSERT INTO providers (id, name, is_enabled, sort_order, created_at, updated_at)
+    SELECT 'local', 'Local (Browser)', is_enabled, sort_order, created_at, NOW()
     FROM providers WHERE id = 'transformers'
     ON CONFLICT (id) DO NOTHING;
 

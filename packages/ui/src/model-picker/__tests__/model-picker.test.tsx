@@ -302,4 +302,103 @@ describe('ModelPicker', () => {
       expect(screen.getByText('2')).toBeInTheDocument();
     });
   });
+
+  describe('local embedding models (BST-299 regression)', () => {
+    // Test data that mimics what ManageEmbeddingSetsDialog produces
+    const localEmbeddingModels: ModelPickerModel[] = [
+      {
+        id: 'Xenova/all-MiniLM-L6-v2',
+        name: 'all-MiniLM-L6-v2',
+        providerId: 'local',
+        capabilities: { type: 'embedding', defaultDimension: 384 },
+      },
+      {
+        id: 'Xenova/bge-small-en-v1.5',
+        name: 'BGE Small',
+        providerId: 'local',
+        capabilities: { type: 'embedding', defaultDimension: 384 },
+      },
+      {
+        id: 'openai::text-embedding-3-small',
+        name: 'Text Embedding 3 Small',
+        providerId: 'openai',
+        capabilities: { type: 'embedding', defaultDimension: 1536 },
+      },
+    ];
+
+    const localProviders: ModelPickerProvider[] = [
+      { id: 'local', name: 'Local' },
+      { id: 'openai', name: 'OpenAI' },
+    ];
+
+    it('shows local embedding models in dropdown when modelType is embedding', () => {
+      render(
+        <ModelPicker
+          models={localEmbeddingModels}
+          modelType="embedding"
+          providers={localProviders}
+        />
+      );
+      fireEvent.click(screen.getByRole('combobox'));
+
+      // Both local models should be visible
+      expect(screen.getByText('all-MiniLM-L6-v2')).toBeInTheDocument();
+      expect(screen.getByText('BGE Small')).toBeInTheDocument();
+      // OpenAI model should also be visible
+      expect(screen.getByText('Text Embedding 3 Small')).toBeInTheDocument();
+    });
+
+    it('shows Local provider group header when local embedding models exist', () => {
+      render(
+        <ModelPicker
+          models={localEmbeddingModels}
+          modelType="embedding"
+          providers={localProviders}
+        />
+      );
+      fireEvent.click(screen.getByRole('combobox'));
+
+      // Both provider groups should be visible
+      expect(screen.getByText('Local')).toBeInTheDocument();
+      expect(screen.getByText('OpenAI')).toBeInTheDocument();
+    });
+
+    it('correctly selects and displays a local embedding model', () => {
+      const onChange = vi.fn();
+      render(
+        <ModelPicker
+          models={localEmbeddingModels}
+          modelType="embedding"
+          onChange={onChange}
+          providers={localProviders}
+          value="Xenova/all-MiniLM-L6-v2"
+        />
+      );
+
+      // Trigger should show the selected local model
+      expect(screen.getByText('all-MiniLM-L6-v2')).toBeInTheDocument();
+
+      // Open dropdown and verify models are visible
+      fireEvent.click(screen.getByRole('combobox'));
+
+      // All embedding models should be visible
+      expect(screen.getByText('BGE Small')).toBeInTheDocument();
+      expect(screen.getByText('Text Embedding 3 Small')).toBeInTheDocument();
+    });
+
+    it('does not filter out local models when filtering by embedding type', () => {
+      render(
+        <ModelPicker
+          models={localEmbeddingModels}
+          modelType="embedding"
+          providers={localProviders}
+        />
+      );
+      fireEvent.click(screen.getByRole('combobox'));
+
+      // Count how many models are visible (should be 3)
+      const localModels = screen.getAllByText(/MiniLM|BGE Small|Text Embedding/);
+      expect(localModels).toHaveLength(3);
+    });
+  });
 });

@@ -29,12 +29,12 @@ export function ModelPickerContent({
 }: ModelPickerContentProps) {
   const groupedModels = React.useMemo(() => {
     const groups: Record<string, ModelPickerModel[]> = {};
-    models.forEach((model) => {
+    for (const model of models) {
       if (!groups[model.providerId]) {
         groups[model.providerId] = [];
       }
       groups[model.providerId]?.push(model);
-    });
+    }
     return groups;
   }, [models]);
 
