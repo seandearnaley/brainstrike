@@ -146,9 +146,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       if (DB_MANAGED_PROVIDERS.has(provider)) {
         // For DB-managed providers, check the registry
         const modelDefinitions = getProviderModelDefinitions(provider).filter(
-          (model) => model.type === 'llm'
+          (model: ProviderModelDefinition) => model.type === 'llm'
         );
-        return modelDefinitions.some((model) => dbEnabledModelIds.has(model.id));
+        return modelDefinitions.some((model: ProviderModelDefinition) =>
+          dbEnabledModelIds.has(model.id)
+        );
       }
       return getEnabledModels(provider).length > 0;
     },
@@ -158,11 +160,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const selectModelForProvider = useCallback(
     (provider: SupportedProvider) => {
       const modelDefinitions = getProviderModelDefinitions(provider).filter(
-        (model) => model.type === 'llm'
+        (model: ProviderModelDefinition) => model.type === 'llm'
       );
       const enabledModels = modelDefinitions
-        .filter((model) => isModelEnabled(provider, model.id))
-        .map((model) => model.id);
+        .filter((model: ProviderModelDefinition) => isModelEnabled(provider, model.id))
+        .map((model: ProviderModelDefinition) => model.id);
 
       if (enabledModels.length === 0) {
         return;
@@ -286,10 +288,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       const definition = getProviderDefinition(providerId);
       const runtime = definition.runtime;
       const modelDefinitions = getProviderModelDefinitions(providerId).filter(
-        (model): model is ProviderModelDefinition & { type: 'llm' } => model.type === 'llm'
+        (model: ProviderModelDefinition): model is ProviderModelDefinition & { type: 'llm' } =>
+          model.type === 'llm'
       );
 
-      const models = modelDefinitions.map((model) => ({
+      const models = modelDefinitions.map((model: ProviderModelDefinition & { type: 'llm' }) => ({
         id: model.id,
         label: model.label ?? model.id,
         type: 'llm' as const,
@@ -340,7 +343,8 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
     for (const providerId of configuredProviders) {
       const modelDefinitions = getProviderModelDefinitions(providerId).filter(
-        (model): model is ProviderModelDefinition & { type: 'llm' } => model.type === 'llm'
+        (model: ProviderModelDefinition): model is ProviderModelDefinition & { type: 'llm' } =>
+          model.type === 'llm'
       );
 
       for (const model of modelDefinitions) {

@@ -1,4 +1,4 @@
-import { listProviders } from '@brainstrike/agent/client';
+import { listProviders, type ProviderDefinition } from '@brainstrike/agent/client';
 import {
   Button,
   Card,
@@ -17,6 +17,8 @@ import {
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useSecretsStore } from '../../stores/secrets-store';
 
+type ProviderOption = { id: string; name: string };
+
 /**
  * Settings section for managing LLM provider API keys.
  * Uses the Electron `window.secrets` API for secure storage.
@@ -28,8 +30,8 @@ export function ApiKeysSettings() {
   const notifySecretsChanged = useSecretsStore((state) => state.notifySecretsChanged);
   const providerDefinitions = useMemo(() => listProviders(), []);
   const providerOptions = useMemo(
-    () =>
-      providerDefinitions.map((definition) => ({
+    (): ProviderOption[] =>
+      providerDefinitions.map((definition: ProviderDefinition) => ({
         id: definition.id,
         name: definition.displayName,
       })),
