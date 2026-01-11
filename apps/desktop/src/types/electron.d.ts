@@ -1,7 +1,8 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import type { PanelPersistenceState } from '@brainstrike/ui';
-import type { LogRecord, LoggingPreferences } from '@brainstrike/utils';
+import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+
 import type { LoggingSettingsPayload } from '../logging-shared';
 
 interface QueryResult {

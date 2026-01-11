@@ -166,10 +166,10 @@
       "path": "./packages/db-explorer"
     },
     {
-      "path": "./packages/chunking-worker"
+      "path": "./packages/chunking-worker/tsconfig.references.json"
     },
     {
-      "path": "./packages/file-tree-worker"
+      "path": "./packages/file-tree-worker/tsconfig.references.json"
     },
     {
       "path": "./packages/queue-telemetry-collector"
@@ -187,10 +187,10 @@
       "path": "./packages/server-config"
     },
     {
-      "path": "./packages/test-utils"
+      "path": "./packages/test-utils/tsconfig.references.json"
     },
     {
-      "path": "./packages/token-cache"
+      "path": "./packages/token-cache/tsconfig.references.json"
     },
     {
       "path": "./packages/embedding-worker"
