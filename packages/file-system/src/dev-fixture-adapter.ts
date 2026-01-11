@@ -296,7 +296,12 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   const decorated = adapter as T & FixtureControls;
   decorated.requestDirectoryAccess = requestDirectoryAccess;
   decorated.readDirectory = readDirectory;
-  decorated.readDirectoryStreaming = readDirectoryStreaming;
+  // Don't change the adapter's streaming capability when the fixture is inactive.
+  // If the underlying adapter doesn't support streaming (e.g. Electron),
+  // advertising a streaming method here would cause callers to route into it and fail.
+  if (originalReadDirectoryStreaming) {
+    decorated.readDirectoryStreaming = readDirectoryStreaming;
+  }
   decorated.readFile = readFile;
   decorated.exists = exists;
   if (adapter.restoreLastFolder) {
