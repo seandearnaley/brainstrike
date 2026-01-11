@@ -1,10 +1,10 @@
 import type { ReactElement } from 'react';
 import { AssistantUiPanelWrapper } from './assistant-ui-panel-wrapper';
-import { useAssistantAvailability } from './hooks/use-assistant-availability';
+import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
 import { McpBanner } from './mcp-banner';
 
 export function AssistantTab(): ReactElement {
-  const status = useAssistantAvailability();
+  const status = useAssistantAvailabilityWithLocal();
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-testid="assistant-chat-card">

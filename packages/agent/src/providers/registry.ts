@@ -77,7 +77,14 @@ export type ProviderDefinition = {
   envKeys?: readonly string[];
 };
 
-export type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'cohere' | 'voyage';
+export type ProviderId =
+  | 'openai'
+  | 'anthropic'
+  | 'google'
+  | 'openrouter'
+  | 'cohere'
+  | 'voyage'
+  | 'local';
 
 const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
   {
@@ -260,6 +267,41 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         availableDimensions: [512],
         supportsStandardDimension: false,
       },
+    ],
+  },
+  {
+    id: 'local',
+    displayName: 'Local (Browser)',
+    runtime: 'browser',
+    capabilities: {
+      llm: true,
+      embeddings: false,
+      streaming: false, // transformers.js generate() is not streaming
+    },
+    models: [
+      {
+        // LFM2.5 is a general-purpose chat model - good default
+        id: 'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+        label: 'LFM2.5 1.2B',
+        type: 'llm',
+        default: true,
+        supportsStreaming: false,
+      },
+      {
+        // FunctionGemma is for function/tool calling only, NOT general chat
+        id: 'onnx-community/functiongemma-270m-it-ONNX',
+        label: 'FunctionGemma 270M (Tool Calling)',
+        type: 'llm',
+        supportsStreaming: false,
+      },
+      {
+        id: 'onnx-community/Qwen3-0.6B-ONNX',
+        label: 'Qwen3 0.6B',
+        type: 'llm',
+        supportsStreaming: false,
+      },
+      // NOTE: Qwen3-1.7B removed - crashes due to WebGPU buffer size limits
+      // See: https://github.com/huggingface/transformers.js/issues/1469
     ],
   },
 ];

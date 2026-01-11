@@ -5,7 +5,7 @@
  * for token-budget-aware packing.
  */
 
-import type { ContextPackerChunk } from '@brainstrike/agent';
+import type { ContextPackerChunk } from '@brainstrike/agent/client';
 import type { SemanticSearchResult } from '@brainstrike/ui';
 
 /**

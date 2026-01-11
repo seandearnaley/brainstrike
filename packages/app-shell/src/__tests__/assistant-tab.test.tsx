@@ -1,10 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantTab } from '../assistant-tab';
-import { useAssistantAvailability } from '../hooks/use-assistant-availability';
 
-vi.mock('../hooks/use-assistant-availability', () => ({
-  useAssistantAvailability: vi.fn(),
+vi.mock('../hooks/use-assistant-availability-with-local', () => ({
+  useAssistantAvailabilityWithLocal: vi.fn(),
 }));
 
 vi.mock('../assistant-ui-panel-wrapper', () => ({
@@ -15,15 +14,18 @@ vi.mock('../mcp-banner', () => ({
   McpBanner: () => <div>MCP banner</div>,
 }));
 
-const useAssistantAvailabilityMock = vi.mocked(useAssistantAvailability);
+// Import after mock to get the mocked version
+import { useAssistantAvailabilityWithLocal } from '../hooks/use-assistant-availability-with-local';
+
+const useAssistantAvailabilityWithLocalMock = vi.mocked(useAssistantAvailabilityWithLocal);
 
 describe('AssistantTab', () => {
   beforeEach(() => {
-    useAssistantAvailabilityMock.mockReset();
+    useAssistantAvailabilityWithLocalMock.mockReset();
   });
 
   it('shows loading indicator while fetching status', () => {
-    useAssistantAvailabilityMock.mockReturnValue({ state: 'loading' });
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({ state: 'loading' });
 
     render(<AssistantTab />);
 
@@ -31,7 +33,10 @@ describe('AssistantTab', () => {
   });
 
   it('renders disabled callout with optional reason', () => {
-    useAssistantAvailabilityMock.mockReturnValue({ state: 'disabled', reason: 'no_provider' });
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      state: 'disabled',
+      reason: 'no_provider',
+    });
 
     render(<AssistantTab />);
 
@@ -40,7 +45,7 @@ describe('AssistantTab', () => {
   });
 
   it('renders error callout when status fetch fails', () => {
-    useAssistantAvailabilityMock.mockReturnValue({ state: 'error', message: 'boom' });
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({ state: 'error', message: 'boom' });
 
     render(<AssistantTab />);
 
@@ -49,7 +54,7 @@ describe('AssistantTab', () => {
   });
 
   it('shows assistant UI when enabled', async () => {
-    useAssistantAvailabilityMock.mockReturnValue({ state: 'enabled' });
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({ state: 'enabled' });
 
     render(<AssistantTab />);
 

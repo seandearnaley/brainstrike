@@ -24,23 +24,6 @@ vi.mock('../bge-m3-service', () => {
     private modelId = 'mock-model';
     private dimensions = 384;
 
-    static getDefaultModelKey(): string {
-      return 'jinaai/jina-embeddings-v2-base-code';
-    }
-
-    // Legacy static API surface retained for compatibility with callers
-    static listModels(): Record<string, ModelConfig> {
-      return {};
-    }
-
-    static getModelConfig(_key: string): ModelConfig | null {
-      return null;
-    }
-
-    static getRegistry() {
-      return { default: MockSimpleEmbeddingService.getDefaultModelKey(), models: {} };
-    }
-
     async initializeWithModel(
       modelKeyOrConfig?: string | ModelConfig,
       _onProgress?: (progress: EmbeddingProgress) => void
@@ -146,7 +129,9 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
     await db.close();
   });
 
-  it('initializes using the default HuggingFace model ID from the database', async () => {
+  it('initializes using the fallback model ID when no model key is specified', async () => {
+    // Worker defaults to FALLBACK_MODEL_CONFIG.id ('Xenova/all-MiniLM-L6-v2')
+    // which must exist in the database
     const controller = await startEmbeddingWorker({
       db: db as unknown as IDatabase,
       concurrency: 1,
@@ -154,8 +139,8 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
 
     await new Promise((r) => setTimeout(r, 50));
     expect(mockState.initializedWith[0]).toEqual({
-      id: 'jinaai/jina-embeddings-v2-base-code',
-      dimensions: 768,
+      id: 'Xenova/all-MiniLM-L6-v2',
+      dimensions: 384,
     });
 
     await controller.stop();
@@ -261,9 +246,8 @@ describe('embedding-worker model resolution (HuggingFace IDs)', () => {
 
     expect(chunk?.embedding_set_id).toBe(embeddingSetId);
     expect(chunk?.embedding_hash).toBeTruthy();
-    expect(mockState.initializedWith.map((m) => m.id)).toContain(
-      'jinaai/jina-embeddings-v2-base-code'
-    );
+    // The worker initializes with the default fallback model first,
+    // then switches to the job's requested model
     expect(mockState.initializedWith.map((m) => m.id)).toContain('Xenova/all-MiniLM-L6-v2');
 
     await controller.stop();

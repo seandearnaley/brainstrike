@@ -1,7 +1,9 @@
 import {
   getProviderDefaultModel,
+  PROVIDER_DEFAULT_ENABLED_MODELS,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
+  providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/agent/client';
 import { createSafeStorageAdapter } from '@brainstrike/utils';
@@ -42,8 +44,10 @@ function cloneModelList(models: readonly string[] | undefined): string[] {
   return Array.isArray(models) ? [...models] : [];
 }
 
+// Use PROVIDER_DEFAULT_ENABLED_MODELS (only models with default: true)
+// instead of PROVIDER_MODELS (all models) for initial defaults
 const DEFAULT_ENABLED_MODELS = SUPPORTED_PROVIDERS.reduce((acc, provider) => {
-  acc[provider] = cloneModelList(PROVIDER_MODELS[provider]);
+  acc[provider] = cloneModelList(PROVIDER_DEFAULT_ENABLED_MODELS[provider]);
   return acc;
 }, {} as EnabledModelsMap);
 
@@ -247,15 +251,8 @@ export const useAssistantPreferencesStore = create<Store>()(
             return state;
           }
 
-          const enabledModels = ensureEnabledModels(
-            state.enabledModelsByProvider,
-            provider as SupportedProvider
-          );
-          if (!enabledModels.includes(model)) {
-            return state;
-          }
-
           // Single atomic update: selectedModel composite key + remember preference
+          // The UI layer validates model enabled state against the database before calling setModel
           return {
             selectedModel: compositeKey,
             modelsByProvider: { ...state.modelsByProvider, [provider]: model },
@@ -328,19 +325,31 @@ export const useAssistantPreferencesStore = create<Store>()(
           const w = window as Window & {
             secrets?: { list?: () => Promise<string[]> };
           };
+
+          // Providers that don't require API keys (e.g., local browser-based models)
+          // are always available
+          const noKeyProviders = SUPPORTED_PROVIDERS.filter((p) => providerEnvKeys(p).length === 0);
+
           if (typeof window === 'undefined' || !w.secrets?.list) {
-            return [];
+            // In non-browser environments, only return providers that don't need keys
+            return noKeyProviders;
           }
 
           const savedProviders = await w.secrets.list();
           if (!Array.isArray(savedProviders)) {
-            return [];
+            return noKeyProviders;
           }
 
-          const supportedProviders: SupportedProvider[] = SUPPORTED_PROVIDERS;
-          return supportedProviders.filter((p) => savedProviders.includes(p));
+          // Include providers with saved API keys + providers that don't need keys
+          const providersWithKeys = SUPPORTED_PROVIDERS.filter((p) => savedProviders.includes(p));
+          const combined = new Set([...providersWithKeys, ...noKeyProviders]);
+
+          // Return in original order for consistency
+          return SUPPORTED_PROVIDERS.filter((p) => combined.has(p));
         } catch {
-          return [];
+          // On error, still return providers that don't need keys
+          const noKeyProviders = SUPPORTED_PROVIDERS.filter((p) => providerEnvKeys(p).length === 0);
+          return noKeyProviders;
         }
       },
     }),

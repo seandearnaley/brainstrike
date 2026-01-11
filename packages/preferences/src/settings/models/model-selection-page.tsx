@@ -54,7 +54,53 @@ function updateProgress(
   }
 }
 
-async function downloadModel(
+async function downloadLlmModel(
+  model: DbModel,
+  { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
+): Promise<void> {
+  // Dynamic import from client entry to avoid server-only Mastra dependencies
+  const { LocalLlmBackend } = await import('@brainstrike/agent/client');
+
+  setDownloading(model.id, true);
+  setDownloadProgress(model.id, 0);
+
+  try {
+    toast({
+      title: 'Download Started',
+      description: `Starting download for ${model.name}...`,
+    });
+
+    const downloadOptions: {
+      cacheDir?: string;
+      onProgress: (progress: { progress: number }) => void;
+    } = {
+      onProgress: (progress) => {
+        setDownloadProgress(model.id, progress.progress);
+      },
+    };
+    if (modelCacheDir) {
+      downloadOptions.cacheDir = modelCacheDir;
+    }
+    await LocalLlmBackend.downloadModel(model.id, downloadOptions);
+
+    setDownloadProgress(model.id, 100);
+    toast({
+      title: 'Download Complete',
+      description: `${model.name} downloaded successfully!`,
+    });
+  } catch (err) {
+    logger.error('Failed to download LLM model', err);
+    toast({
+      title: 'Download Failed',
+      description: `Failed to download ${model.name}: ${(err as Error).message}`,
+      variant: 'destructive',
+    });
+  } finally {
+    setDownloading(model.id, false);
+  }
+}
+
+async function downloadEmbeddingModel(
   model: DbModel,
   { modelCacheDir, setDownloadProgress, setDownloading, toast }: DownloadDeps
 ): Promise<void> {
@@ -92,7 +138,7 @@ async function downloadModel(
       description: `${model.name} downloaded successfully!`,
     });
   } catch (err) {
-    logger.error('Failed to download model', err);
+    logger.error('Failed to download embedding model', err);
     toast({
       title: 'Download Failed',
       description: `Failed to download ${model.name}: ${(err as Error).message}`,
@@ -101,6 +147,14 @@ async function downloadModel(
   } finally {
     setDownloading(model.id, false);
   }
+}
+
+async function downloadModel(model: DbModel, deps: DownloadDeps): Promise<void> {
+  // Route to appropriate downloader based on model type
+  if (model.capabilities.type === 'llm') {
+    return downloadLlmModel(model, deps);
+  }
+  return downloadEmbeddingModel(model, deps);
 }
 
 export function ModelSelectionPage() {

@@ -3,6 +3,7 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
+import { createLocalLanguageModel } from './local';
 import { PROVIDER_DEFAULT_MODELS, type SupportedProvider } from './types';
 
 /**
@@ -44,6 +45,11 @@ export function createProvider(
         ...(apiKey ? { apiKey } : {}),
       });
       return openrouterProvider(modelName);
+    }
+
+    case 'local': {
+      // Local models use Transformers.js running in-browser via WebGPU/WASM
+      return createLocalLanguageModel(modelName) as MastraModelConfig;
     }
 
     default:

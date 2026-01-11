@@ -60,6 +60,24 @@ export const PROVIDER_DEFAULT_MODELS: Record<SupportedProvider, string> =
     {} as Record<SupportedProvider, string>
   );
 
+/**
+ * Models that should be enabled by default (those with `default: true` in registry).
+ * Used by assistant-preferences-store for initial state.
+ * Unlike PROVIDER_MODELS which lists ALL models, this only includes default ones.
+ */
+export const PROVIDER_DEFAULT_ENABLED_MODELS: Record<SupportedProvider, readonly string[]> =
+  SUPPORTED_PROVIDERS.reduce(
+    (acc, providerId) => {
+      // Only include models with default: true flag
+      const defaultModels = listProviderLlmModels(providerId)
+        .filter((model) => model.default)
+        .map((model) => model.id);
+      acc[providerId] = defaultModels;
+      return acc;
+    },
+    {} as Record<SupportedProvider, readonly string[]>
+  );
+
 export function isSupportedProvider(provider: string | undefined): provider is SupportedProvider {
   if (!provider) {
     return false;

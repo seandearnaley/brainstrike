@@ -1,7 +1,5 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { calculateCosineSimilarity } from './embedding-math';
-// ModelRegistryManager is used for legacy static methods - prefer database lookup
-import { ModelRegistryManager } from './model-registry';
 import { TransformersBackend } from './transformers-backend';
 import type {
   EmbeddingConfig,
@@ -42,31 +40,31 @@ export class SimpleEmbeddingService implements EmbeddingService {
   }
 
   /**
-   * Initialize with a model configuration or key.
-   * Prefer passing ModelConfig from database. String keys use legacy static registry.
-   * @param modelKeyOrConfig - ModelConfig object (preferred) or string key (legacy/deprecated)
+   * Initialize with a model configuration from the database or model ID string.
+   * @param modelConfigOrId - ModelConfig object from database, or model ID string for backward compatibility
    */
   async initializeWithModel(
-    modelKeyOrConfig?: string | ModelConfig,
+    modelConfigOrId: ModelConfig | string,
     onProgress?: (progress: EmbeddingProgress) => void,
     deviceOverride?: 'webgpu' | 'wasm',
     cacheDir?: string
   ): Promise<void> {
-    let modelConfig: ModelConfig | null = null;
-    let resolvedKey: string | undefined;
-
-    if (typeof modelKeyOrConfig === 'object') {
-      // Preferred path: ModelConfig from database
-      modelConfig = modelKeyOrConfig;
-    } else {
-      // Legacy path: lookup from static registry (deprecated)
-      resolvedKey = modelKeyOrConfig || ModelRegistryManager.getDefaultModelKey();
-      modelConfig = ModelRegistryManager.getModel(resolvedKey);
+    if (!modelConfigOrId) {
+      throw new Error('ModelConfig or model ID is required');
     }
 
-    if (!modelConfig) {
-      throw new Error(`Model '${resolvedKey}' not found in registry`);
-    }
+    // Support both ModelConfig object and legacy string modelId
+    const modelConfig: ModelConfig =
+      typeof modelConfigOrId === 'string'
+        ? {
+            id: modelConfigOrId,
+            name: modelConfigOrId,
+            dimensions: DEFAULT_EMBEDDING_DIMENSION,
+            quantized: false,
+            description: 'Dynamically created config from model ID',
+            tags: ['local'],
+          }
+        : modelConfigOrId;
 
     // Determine if quantization should be used (768D or smaller models benefit from quantization)
     const shouldQuantize = modelConfig.dimensions <= 768 && !modelConfig.quantized;
@@ -80,8 +78,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
 
     this._backend.setTargetDimensions(modelConfig.dimensions);
 
-    this._currentModelKey =
-      typeof modelKeyOrConfig === 'string' ? modelKeyOrConfig : modelConfig.id;
+    this._currentModelKey = modelConfig.id;
     this._currentModelConfig = modelConfig;
 
     return this.initialize({ ...config, modelConfig }, onProgress);
@@ -210,58 +207,11 @@ export class SimpleEmbeddingService implements EmbeddingService {
     return this._currentModelConfig;
   }
 
-  /**
-   * Instance proxy: get the default model key from registry
-   */
-  getDefaultModelKey(): string {
-    return SimpleEmbeddingService.getDefaultModelKey();
-  }
-
-  /**
-   * Static method to get the default model key.
-   * @deprecated Use database lookup for model configuration.
-   */
-  static getDefaultModelKey(): string {
-    return ModelRegistryManager.getDefaultModelKey();
-  }
-
-  /**
-   * Instance proxy: get the model registry
-   * @deprecated Use database lookup for model configuration.
-   */
-  getRegistry() {
-    return SimpleEmbeddingService.getRegistry();
-  }
-
-  /**
-   * Static method to get the model registry.
-   * @deprecated Use database lookup for model configuration.
-   */
-  static getRegistry() {
-    return ModelRegistryManager.getRegistry();
-  }
-
   async dispose(): Promise<void> {
     await this._backend.dispose();
     this._status = 'idle';
     this._currentModelKey = null;
     this._currentModelConfig = null;
-  }
-
-  /**
-   * Static method to get a specific model configuration.
-   * @deprecated Use database lookup for model configuration.
-   */
-  static getModelConfig(key: string): ModelConfig | null {
-    return ModelRegistryManager.getModel(key);
-  }
-
-  /**
-   * Static method to list all available models from registry.
-   * @deprecated Use database lookup for model list.
-   */
-  static listModels(): Record<string, ModelConfig> {
-    return ModelRegistryManager.listModels();
   }
 
   /**
@@ -280,7 +230,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
     return this._backend.downloadModel(modelId, {
       ...(options?.cacheDir ? { cacheDir: options.cacheDir } : {}),
       onProgress: (p) => {
-        if (options?.onProgress && p.status === 'downloading' && p.loaded && p.total) {
+        // transformers.js uses 'progress' status (not 'downloading') for progress updates
+        if (options?.onProgress && p.status === 'progress' && p.loaded && p.total) {
           const progressPercent = Math.round((p.loaded / p.total) * 100);
           options.onProgress({
             stage: 'downloading',

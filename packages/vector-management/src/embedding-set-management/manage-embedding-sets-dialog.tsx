@@ -1,11 +1,6 @@
 import type { EmbeddingSet, IEmbeddingSetsRepository } from '@brainstrike/db';
-import {
-  type EmbeddingProviderType,
-  ModelRegistryManager,
-  parseProviderModelKey,
-  STANDARD_EMBEDDING_DIMENSION,
-} from '@brainstrike/embeddings';
-import { useEmbeddingPreferencesStore } from '@brainstrike/preferences';
+import { type EmbeddingProviderType, parseProviderModelKey } from '@brainstrike/embeddings';
+import { type DbModel, useModelRegistryStore } from '@brainstrike/preferences';
 import {
   Badge,
   Button,
@@ -84,41 +79,27 @@ function formatProviderLabel(modelKey: string): string {
   return parsed.provider.charAt(0).toUpperCase() + parsed.provider.slice(1);
 }
 
-// Helper function to create a model object from registry config
-function createModelFromConfig(
-  provider: EmbeddingProviderType,
-  modelId: string,
-  modelRegistry: Record<string, unknown>
-): ModelPickerModel {
-  const modelKey = provider === 'local' ? modelId : `${provider}::${modelId}`;
-  const modelConfig = modelRegistry[modelKey] as
-    | {
-        dimensions?: number;
-        description?: string;
-        tags?: string[];
-        pricePer1MTokens?: number;
-        origin?: string;
-      }
-    | undefined;
+/**
+ * Convert a database model to ModelPickerModel format.
+ * Single source of truth: database models table.
+ */
+function dbModelToPickerModel(dbModel: DbModel): ModelPickerModel {
+  const providerId = dbModel.providerId as EmbeddingProviderType;
+  // For local models, the modelKey IS the model ID (HuggingFace format)
+  // For hosted models, use provider::modelId format
+  const isLocal = providerId === 'local' || providerId === 'transformers';
+  const modelKey = isLocal ? dbModel.id : `${providerId}::${dbModel.id}`;
 
-  const dimensions = modelConfig?.dimensions ?? STANDARD_EMBEDDING_DIMENSION;
-
-  const model: ModelPickerModel = {
+  return {
     id: modelKey,
-    providerId: provider,
-    name: modelId,
-    description: modelConfig?.description ?? null,
+    providerId: isLocal ? 'local' : providerId,
+    name: dbModel.name ?? dbModel.id,
+    description: dbModel.description ?? dbModel.tagline ?? null,
     capabilities: {
       type: 'embedding',
-      defaultDimension: dimensions,
+      defaultDimension: dbModel.capabilities.defaultDimension ?? 768,
     },
   };
-
-  if (modelConfig?.pricePer1MTokens !== undefined) {
-    model.pricePer1MTokensInput = modelConfig.pricePer1MTokens;
-  }
-
-  return model;
 }
 
 const logger = createLogger('ManageEmbeddingSetsDialog');
@@ -137,8 +118,17 @@ export function ManageEmbeddingSetsDialog({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedSet, setSelectedSet] = useState<EmbeddingSetWithStats | null>(null);
 
-  // Get enabled models from preferences
-  const { enabledModelsByProvider } = useEmbeddingPreferencesStore();
+  // Get all models from database - single source of truth
+  const dbModels = useModelRegistryStore((state) => state.models);
+  const ensureRegistry = useModelRegistryStore((state) => state.ensureRegistry);
+
+  // Load models from database when dialog opens
+  // biome-ignore lint/plugin: Load registry when dialog opens - ensureRegistry is stable from zustand
+  useEffect(() => {
+    if (open && db) {
+      void ensureRegistry(db);
+    }
+  }, [open, db, ensureRegistry]);
 
   const loadSets = useCallback(async () => {
     if (!db) {
@@ -219,24 +209,14 @@ export function ManageEmbeddingSetsDialog({
     }
   };
 
-  // Get available models from preferences and model registry
+  // Build available models from database
+  // Single source of truth: database models table (is_enabled column)
   const availableModels = useMemo(() => {
-    const models: ModelPickerModel[] = [];
-
-    const modelRegistry = ModelRegistryManager.listModels();
-
-    // Iterate through each provider's enabled models
-    (Object.keys(enabledModelsByProvider) as EmbeddingProviderType[]).forEach((provider) => {
-      const enabledModels = enabledModelsByProvider[provider] ?? [];
-
-      enabledModels.forEach((modelId) => {
-        const model = createModelFromConfig(provider, modelId, modelRegistry);
-        models.push(model);
-      });
-    });
-
-    return models;
-  }, [enabledModelsByProvider]);
+    const embeddingModels = dbModels.filter((m) => m.capabilities.type === 'embedding');
+    const enabledModels = embeddingModels.filter((m) => m.isEnabled);
+    const pickerModels = enabledModels.map(dbModelToPickerModel);
+    return pickerModels;
+  }, [dbModels]);
 
   const providers = useMemo((): ModelPickerProvider[] => {
     const uniqueProviders = Array.from(new Set(availableModels.map((m) => m.providerId)));

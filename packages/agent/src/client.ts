@@ -4,6 +4,35 @@
  * Safe to import in browser/renderer contexts.
  */
 
+// Context packer utilities (browser-safe, no Mastra dependencies)
+export {
+  ContextPacker,
+  type ContextPackerChunk,
+  type ContextPackerOptions,
+  type ContextPackerResult,
+  type PackedContextChunk,
+} from './context-packer';
+export type {
+  LocalLlmConfig,
+  LocalLlmGenerationOptions,
+  LocalLlmGenerationResult,
+  LocalLlmMessage,
+  LocalLlmModelCapabilities,
+  LocalLlmModelParameters,
+  LocalLlmProgressCallback,
+  LocalLlmProviderStatus,
+  LocalLlmToolCall,
+  LocalLlmToolDefinition,
+} from './providers/local';
+// Local LLM backend for browser-based inference with transformers.js
+export {
+  addAllowedModels,
+  getAllowedModels,
+  isModelAllowed,
+  LocalLlmBackend,
+  setModelChecksums,
+  verifyModelIntegrity,
+} from './providers/local';
 export {
   getProviderDefaultModel,
   getProviderDefinition,
@@ -14,6 +43,7 @@ export {
   isValidModelForProvider,
   listEmbeddingModels,
   listProviders,
+  PROVIDER_DEFAULT_ENABLED_MODELS,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_MODELS,

@@ -13,6 +13,7 @@ import type {
 import { isLocalProviderType } from '../provider-types';
 import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
 import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
+import { FALLBACK_MODEL_CONFIG } from '../types';
 
 /**
  * Interface for embedding cache operations.
@@ -394,7 +395,7 @@ function resolveWorkerModel(fromOptions?: string): {
     }
   })();
 
-  const candidate = fromOptions || envValue || SimpleEmbeddingService.getDefaultModelKey();
+  const candidate = fromOptions || envValue || FALLBACK_MODEL_CONFIG.id;
   const parsed = parseProviderModelKey(candidate);
 
   if (parsed) {

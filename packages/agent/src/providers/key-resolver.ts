@@ -14,6 +14,7 @@ const PROVIDER_ENV_VARS: Record<SupportedProvider, string[]> = {
   openrouter: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
   cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
   voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+  local: [], // Local provider runs client-side, no API key needed
 };
 
 /**

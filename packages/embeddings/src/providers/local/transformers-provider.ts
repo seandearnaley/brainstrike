@@ -11,6 +11,9 @@ import type { EmbeddingProgress, ModelConfig } from '../../types';
 /** Default distance metric for local transformers models */
 const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';
 
+/** Default dimensions when only model ID is provided (for backward compatibility) */
+const DEFAULT_DIMENSIONS = 768;
+
 /**
  * Local embedding provider using transformers.js
  * Wraps the existing SimpleEmbeddingService with the new provider interface
@@ -22,21 +25,34 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
   readonly provider = 'local' as const;
 
   private readonly service: SimpleEmbeddingService;
-  private readonly modelKey: string;
+  private readonly modelConfig: ModelConfig;
   private expectedDimensions: number | null = null;
 
   /**
    * Create a new local embedding provider
    *
-   * @param modelKey - Model key from registry (e.g., 'jina-code', 'bge-base-en-v1.5')
+   * @param modelConfigOrId - Model configuration from database, or model ID string for backward compatibility
    * @param deviceOverride - Optional device override ('webgpu' | 'wasm')
    */
   constructor(
-    modelKey: string,
+    modelConfigOrId: ModelConfig | string,
     private readonly deviceOverride?: 'webgpu' | 'wasm'
   ) {
     this.service = new SimpleEmbeddingService();
-    this.modelKey = modelKey;
+    // Support both ModelConfig object and legacy string modelId
+    if (typeof modelConfigOrId === 'string') {
+      // Create minimal config from model ID (for backward compatibility with factory tests)
+      this.modelConfig = {
+        id: modelConfigOrId,
+        name: modelConfigOrId,
+        dimensions: DEFAULT_DIMENSIONS,
+        quantized: false,
+        description: 'Dynamically created config from model ID',
+        tags: ['local'],
+      };
+    } else {
+      this.modelConfig = modelConfigOrId;
+    }
   }
 
   /**
@@ -58,18 +74,19 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
           }
         : undefined;
 
-      // Uses string key - initializeWithModel will lookup from registry
-      await this.service.initializeWithModel(this.modelKey, progressAdapter, this.deviceOverride);
+      // Initialize with model config from database
+      await this.service.initializeWithModel(
+        this.modelConfig,
+        progressAdapter,
+        this.deviceOverride
+      );
 
       // Store expected dimensions from model config for validation
-      const modelInfo = this.getModelInfo(this.modelKey);
-      if (modelInfo) {
-        this.expectedDimensions = modelInfo.dimensions;
-      }
+      this.expectedDimensions = this.modelConfig.dimensions;
     } catch (error) {
       // Re-throw initialization errors - this is a setup phase
       throw new Error(
-        `Failed to initialize local provider with model ${this.modelKey}: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to initialize local provider with model ${this.modelConfig.id}: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
@@ -155,10 +172,11 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
   }
 
   /**
-   * Get model metadata from registry
+   * Get model configuration by ID
+   * Returns the model config if it matches the loaded model, null otherwise
    */
   getModelInfo(modelId: string): ModelConfig | null {
-    return SimpleEmbeddingService.getModelConfig(modelId);
+    return modelId === this.modelConfig.id ? this.modelConfig : null;
   }
 
   /**
@@ -166,18 +184,18 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
    * Returns metadata about the current provider including dimensions and distance metric
    */
   getMetadata(modelId: string): ProviderMetadata | null {
-    const modelConfig = this.getModelInfo(modelId);
-    if (!modelConfig) {
+    if (modelId !== this.modelConfig.id) {
       return null;
     }
-
     return {
       providerId: 'local',
-      modelKey: modelId,
-      dimensions: modelConfig.dimensions,
+      modelKey: this.modelConfig.id,
+      dimensions: this.modelConfig.dimensions,
       distance: DEFAULT_DISTANCE_METRIC,
-      displayName: modelConfig.name,
-      ...(modelConfig.contextWindow !== undefined && { contextWindow: modelConfig.contextWindow }),
+      displayName: this.modelConfig.name,
+      ...(this.modelConfig.contextWindow !== undefined && {
+        contextWindow: this.modelConfig.contextWindow,
+      }),
     };
   }
 
@@ -197,7 +215,7 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
           type: 'dimension_mismatch',
           expected: expectedDimensions,
           received: actualDimensions,
-          modelId: this.modelKey,
+          modelId: this.modelConfig.id,
         },
       };
     }
@@ -236,6 +254,13 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
    */
   getCurrentModelKey(): string | null {
     return this.service.getCurrentModelKey();
+  }
+
+  /**
+   * Get the model configuration
+   */
+  getModelConfig(): ModelConfig {
+    return this.modelConfig;
   }
 
   /**

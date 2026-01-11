@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ModelRegistryManager } from '../model-registry';
-import type { EmbeddingConfig, EmbeddingProgress } from '../types';
+import type { EmbeddingConfig, EmbeddingProgress, ModelConfig } from '../types';
 
 const setTargetDimensionsMock = vi.fn<(dim: number | null) => void>();
 const generateEmbeddingMock =
@@ -43,6 +42,40 @@ vi.mock('../transformers-backend', () => ({
   },
 }));
 
+// Test model configurations
+const BGE_BASE_MODEL: ModelConfig = {
+  id: 'Xenova/bge-base-en-v1.5',
+  name: 'BGE Base',
+  dimensions: 768,
+  quantized: false,
+  description: 'test model',
+  tags: ['test'],
+  origin: 'hf',
+  size: 'small',
+};
+
+const BGE_M3_MODEL: ModelConfig = {
+  id: 'Xenova/bge-m3',
+  name: 'BGE M3',
+  dimensions: 1024,
+  quantized: false,
+  description: 'test model',
+  tags: ['test'],
+  origin: 'hf',
+  size: 'large',
+};
+
+const JINA_CODE_MODEL: ModelConfig = {
+  id: 'jinaai/jina-embeddings-v2-base-code',
+  name: 'Jina Code',
+  dimensions: 768,
+  quantized: false,
+  description: 'test model',
+  tags: ['code'],
+  origin: 'hf',
+  size: 'medium',
+};
+
 describe('SimpleEmbeddingService lifecycle', () => {
   beforeEach(() => {
     backendInitialized = false;
@@ -63,17 +96,13 @@ describe('SimpleEmbeddingService lifecycle', () => {
     vi.restoreAllMocks();
   });
 
-  it('throws when initializeWithModel receives an unknown key', async () => {
+  it('throws when initializeWithModel receives no config', async () => {
     const svcModule = await import('../bge-m3-service');
     const svc = new svcModule.SimpleEmbeddingService();
-    const getModelSpy = vi
-      .spyOn(ModelRegistryManager, 'getModel')
-      .mockReturnValueOnce(undefined as never);
 
-    await expect(svc.initializeWithModel('unknown-model')).rejects.toThrow(
-      "Model 'unknown-model' not found in registry"
+    await expect(svc.initializeWithModel(null as unknown as ModelConfig)).rejects.toThrow(
+      'ModelConfig or model ID is required'
     );
-    getModelSpy.mockRestore();
   });
 
   it('returns early when already initializing', async () => {
@@ -126,32 +155,10 @@ describe('SimpleEmbeddingService lifecycle', () => {
     // BGE-base and other non-M3 BGE models require query/passage prefixes
     // BGE-M3 specifically does NOT need prefixes per official BAAI docs:
     // https://huggingface.co/BAAI/bge-m3/discussions/35
-    const modelConfig = {
-      id: 'Xenova/bge-base-en-v1.5',
-      name: 'BGE Base',
-      dimensions: 768,
-      quantized: false,
-      description: 'test model',
-      tags: ['test'],
-      origin: 'hf',
-      size: 'small',
-    };
-
-    const defaultModelSpy = vi
-      .spyOn(ModelRegistryManager, 'getDefaultModel')
-      .mockReturnValue(modelConfig);
-    const defaultKeySpy = vi
-      .spyOn(ModelRegistryManager, 'getDefaultModelKey')
-      .mockReturnValue('bge-base');
-    const getModelSpy = vi.spyOn(ModelRegistryManager, 'getModel').mockReturnValue(modelConfig);
-    const shouldQuantizeSpy = vi
-      .spyOn(ModelRegistryManager, 'shouldQuantize')
-      .mockReturnValue(false);
-
     const svcModule = await import('../bge-m3-service');
     const svc = new svcModule.SimpleEmbeddingService();
 
-    await svc.initializeWithModel('bge-base');
+    await svc.initializeWithModel(BGE_BASE_MODEL);
     const result = await svc.generateQueryEmbedding('where is the library?');
 
     expect(generateEmbeddingMock).toHaveBeenCalled();
@@ -159,42 +166,15 @@ describe('SimpleEmbeddingService lifecycle', () => {
     expect(prompt.startsWith('query: ')).toBe(true);
     expect(modelId).toBeDefined();
     expect(result.embedding).toHaveLength(2);
-
-    defaultModelSpy.mockRestore();
-    defaultKeySpy.mockRestore();
-    getModelSpy.mockRestore();
-    shouldQuantizeSpy.mockRestore();
   });
 
   it('does not prefix query embeddings for BGE-M3', async () => {
     // BGE-M3 specifically does NOT need prefixes per official BAAI docs:
     // https://huggingface.co/BAAI/bge-m3/discussions/35
-    const modelConfig = {
-      id: 'Xenova/bge-m3',
-      name: 'BGE M3',
-      dimensions: 1024,
-      quantized: false,
-      description: 'test model',
-      tags: ['test'],
-      origin: 'hf',
-      size: 'large',
-    };
-
-    const defaultModelSpy = vi
-      .spyOn(ModelRegistryManager, 'getDefaultModel')
-      .mockReturnValue(modelConfig);
-    const defaultKeySpy = vi
-      .spyOn(ModelRegistryManager, 'getDefaultModelKey')
-      .mockReturnValue('bge-m3');
-    const getModelSpy = vi.spyOn(ModelRegistryManager, 'getModel').mockReturnValue(modelConfig);
-    const shouldQuantizeSpy = vi
-      .spyOn(ModelRegistryManager, 'shouldQuantize')
-      .mockReturnValue(false);
-
     const svcModule = await import('../bge-m3-service');
     const svc = new svcModule.SimpleEmbeddingService();
 
-    await svc.initializeWithModel('bge-m3');
+    await svc.initializeWithModel(BGE_M3_MODEL);
     const result = await svc.generateQueryEmbedding('where is the library?');
 
     expect(generateEmbeddingMock).toHaveBeenCalled();
@@ -204,10 +184,65 @@ describe('SimpleEmbeddingService lifecycle', () => {
     expect(prompt.startsWith('query: ')).toBe(false);
     expect(modelId).toBeDefined();
     expect(result.embedding).toHaveLength(2);
+  });
 
-    defaultModelSpy.mockRestore();
-    defaultKeySpy.mockRestore();
-    getModelSpy.mockRestore();
-    shouldQuantizeSpy.mockRestore();
+  it('applies Jina code retrieval prompt for document embeddings', async () => {
+    const svcModule = await import('../bge-m3-service');
+    const svc = new svcModule.SimpleEmbeddingService();
+
+    await svc.initializeWithModel(JINA_CODE_MODEL);
+    await svc.generateDocEmbedding('function test() {}');
+
+    expect(generateEmbeddingMock).toHaveBeenCalled();
+    const [prompt] = generateEmbeddingMock.mock.calls.at(-1)!;
+    expect(prompt).toContain('Represent the following code snippet');
+  });
+
+  it('applies Jina code retrieval prompt for query embeddings', async () => {
+    const svcModule = await import('../bge-m3-service');
+    const svc = new svcModule.SimpleEmbeddingService();
+
+    await svc.initializeWithModel(JINA_CODE_MODEL);
+    await svc.generateQueryEmbedding('how to sort an array');
+
+    expect(generateEmbeddingMock).toHaveBeenCalled();
+    const [prompt] = generateEmbeddingMock.mock.calls.at(-1)!;
+    expect(prompt).toContain('Represent the programming question');
+  });
+
+  it('sets target dimensions when initializing with model config', async () => {
+    const svcModule = await import('../bge-m3-service');
+    const svc = new svcModule.SimpleEmbeddingService();
+
+    await svc.initializeWithModel(BGE_M3_MODEL);
+
+    expect(setTargetDimensionsMock).toHaveBeenCalledWith(BGE_M3_MODEL.dimensions);
+  });
+
+  it('stores and returns current model config after initialization', async () => {
+    const svcModule = await import('../bge-m3-service');
+    const svc = new svcModule.SimpleEmbeddingService();
+
+    expect(svc.getCurrentModelConfig()).toBeNull();
+    expect(svc.getCurrentModelKey()).toBeNull();
+
+    await svc.initializeWithModel(BGE_BASE_MODEL);
+
+    expect(svc.getCurrentModelConfig()).toEqual(BGE_BASE_MODEL);
+    expect(svc.getCurrentModelKey()).toBe(BGE_BASE_MODEL.id);
+  });
+
+  it('clears model config after disposal', async () => {
+    const svcModule = await import('../bge-m3-service');
+    const svc = new svcModule.SimpleEmbeddingService();
+
+    await svc.initializeWithModel(BGE_BASE_MODEL);
+    expect(svc.getCurrentModelConfig()).toEqual(BGE_BASE_MODEL);
+
+    await svc.dispose();
+
+    expect(svc.getCurrentModelConfig()).toBeNull();
+    expect(svc.getCurrentModelKey()).toBeNull();
+    expect(svc.getStatus()).toBe('idle');
   });
 });

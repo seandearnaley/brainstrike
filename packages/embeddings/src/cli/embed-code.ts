@@ -4,8 +4,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { glob } from 'glob';
 import { SimpleEmbeddingService } from '../bge-m3-service';
-import { ModelRegistryManager } from '../model-registry';
-import type { EmbeddingProgress, EmbeddingResult } from '../types';
+import type { EmbeddingProgress, EmbeddingResult, ModelConfig } from '../types';
+import { FALLBACK_MODEL_CONFIG } from '../types';
 
 /**
  * Code file patterns to include in embedding
@@ -79,8 +79,8 @@ const DEFAULT_EXCLUDE_PATTERNS = [
 type EmbedCodeConfig = {
   /** Root directory to scan for code files */
   rootDir: string;
-  /** Model key from registry to use for embeddings */
-  modelKey?: string;
+  /** Model configuration to use for embeddings */
+  modelConfig: ModelConfig;
   /** Custom file patterns to include */
   include?: string[];
   /** Custom patterns to exclude */
@@ -147,16 +147,11 @@ export class CodeEmbeddingCLI {
    * Initialize the embedding service with the specified model
    */
   async initialize(): Promise<void> {
-    const modelKey = this.config.modelKey || ModelRegistryManager.getDefaultModelKey();
-    const model = ModelRegistryManager.getModel(modelKey);
+    const modelConfig = this.config.modelConfig;
 
-    if (!model) {
-      throw new Error(`Model '${modelKey}' not found in registry`);
-    }
+    this.log(`Initializing embedding service with model: ${modelConfig.name}`);
 
-    this.log(`Initializing embedding service with model: ${model.name}`);
-
-    await this.service.initializeWithModel(model, (progress: EmbeddingProgress) => {
+    await this.service.initializeWithModel(modelConfig, (progress: EmbeddingProgress) => {
       if (this.config.verbose) {
         this.log(`${progress.stage}: ${progress.message} (${progress.progress?.toFixed(1)}%)`);
       }
@@ -465,11 +460,12 @@ function requireArgValue(_argName: string, value: string | undefined): string {
 /**
  * Parse a single command line option
  */
-function parseOption(config: EmbedCodeConfig, arg: string, nextArg: string | undefined): boolean {
+function parseOption(
+  config: Partial<EmbedCodeConfig>,
+  arg: string,
+  nextArg: string | undefined
+): boolean {
   switch (arg) {
-    case '--model':
-      config.modelKey = requireArgValue(arg, nextArg);
-      return true;
     case '--include':
       config.include = requireArgValue(arg, nextArg).split(',');
       return true;
@@ -521,7 +517,7 @@ function parseArguments(args: string[]): EmbedCodeConfig | null {
     process.exit(1);
   }
 
-  const config: EmbedCodeConfig = {
+  const config: Partial<EmbedCodeConfig> = {
     rootDir,
     format: 'json',
   };
@@ -540,7 +536,14 @@ function parseArguments(args: string[]): EmbedCodeConfig | null {
     }
   }
 
-  return config;
+  // CLI always uses FALLBACK_MODEL_CONFIG since it runs standalone without database access
+  // rootDir is guaranteed to exist from validation above
+  return {
+    ...config,
+    rootDir,
+    format: config.format || 'json',
+    modelConfig: FALLBACK_MODEL_CONFIG,
+  };
 }
 
 /**

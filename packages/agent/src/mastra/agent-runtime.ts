@@ -33,6 +33,8 @@ export type MastraAgentRuntime = {
   mcpClient?: MCPClient;
   dispose: () => Promise<void>;
   toolNameMap: Map<string, string>;
+  /** True if the language model declares AI SDK V1 */
+  usesLegacyModel: boolean;
 };
 
 const logger = createLogger('MastraAgent');
@@ -183,6 +185,18 @@ export async function createMastraAgentRuntime(
   const modelName = model ?? getDefaultModel(normalizedProvider);
   const languageModel = instantiateLanguageModel(normalizedProvider, apiKey, modelName);
 
+  // Detect if model is AI SDK V1 (may require streamLegacy instead of stream)
+  // V1 models have specificationVersion === 'v1', V2 models don't have this property
+  const modelSpec = languageModel as unknown as { specificationVersion?: string };
+  const usesLegacyModel = modelSpec.specificationVersion === 'v1';
+
+  if (usesLegacyModel) {
+    logger.info('legacy V1 model detected', {
+      provider: normalizedProvider,
+      model: modelName,
+    });
+  }
+
   const agent = new Agent({
     name: 'Brainstrike Assistant',
     instructions:
@@ -202,6 +216,7 @@ Provide concise answers after using tools.`,
       await mcpClient?.disconnect();
     },
     toolNameMap,
+    usesLegacyModel,
     ...(mcpClient ? { mcpClient } : {}),
   };
 }
@@ -359,6 +374,7 @@ type StreamIterationParams = {
   runtimeData?: RuntimeData;
   messages: AgentMessage[];
   sanitizedNameMap?: Map<string, string>;
+  useLegacyStream: boolean;
 };
 
 type StreamGeneratorParams = {
@@ -366,6 +382,28 @@ type StreamGeneratorParams = {
   runtimeData?: RuntimeData;
   stream: NodeReadableStream<unknown> | ReadableStream<unknown>;
   sanitizedNameMap?: Map<string, string>;
+};
+
+type StreamResultLike = {
+  fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
+};
+
+const hasStreamLegacy = (
+  agent: Agent
+): agent is Agent & {
+  streamLegacy: (
+    input: Parameters<Agent['stream']>[0],
+    options?: Parameters<Agent['stream']>[1]
+  ) => Promise<unknown>;
+} => typeof (agent as { streamLegacy?: unknown }).streamLegacy === 'function';
+
+const resolveFullStream = (
+  result: unknown
+): NodeReadableStream<unknown> | ReadableStream<unknown> | undefined => {
+  if (!result || typeof result !== 'object') {
+    return;
+  }
+  return (result as StreamResultLike).fullStream;
 };
 
 async function* streamChunksFromMastra({
@@ -402,24 +440,42 @@ async function createStreamIteratorFromRuntime({
   runtimeData,
   messages,
   sanitizedNameMap,
+  useLegacyStream,
 }: StreamIterationParams): Promise<StreamIterator> {
   const mastraMessages = convertMessagesToMastra(messages);
 
   try {
     const streamInput = mastraMessages as unknown as Parameters<typeof runtime.agent.stream>[0];
-    const streamOptions = runtimeData?.signal ? { abortSignal: runtimeData.signal } : undefined;
-    const result = await runtime.agent.stream(streamInput, streamOptions);
-    logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
 
-    const stream = result.fullStream;
-    if (!stream) {
+    // Use streamLegacy for AI SDK V1 models, stream for V2+ models
+    const streamOptions = runtimeData?.signal ? { abortSignal: runtimeData.signal } : undefined;
+    let streamResult: unknown;
+
+    if (useLegacyStream && hasStreamLegacy(runtime.agent)) {
+      logger.info('using streamLegacy for V1 model', { code: 'mastra_agent_stream_legacy_start' });
+      streamResult = await runtime.agent.streamLegacy(streamInput, streamOptions);
+      logger.info('mastra legacy stream started', { code: 'mastra_agent_stream_legacy_started' });
+    } else {
+      if (useLegacyStream) {
+        logger.warn('streamLegacy unavailable; falling back to stream()', {
+          code: 'mastra_agent_stream_legacy_unavailable',
+        });
+      }
+      const result = await runtime.agent.stream(streamInput, streamOptions);
+      logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
+      streamResult = result;
+    }
+
+    const fullStream = resolveFullStream(streamResult);
+    if (!fullStream) {
       throw createMastraAgentError('mastra_agent_stream_failure', {
         detail: 'empty_stream',
       });
     }
+
     return streamChunksFromMastra({
       runtime,
-      stream,
+      stream: fullStream,
       ...(runtimeData ? { runtimeData } : {}),
       ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
     });
@@ -462,6 +518,7 @@ export async function streamMastraAgent(
   return createStreamIteratorFromRuntime({
     runtime,
     messages,
+    useLegacyStream: runtime.usesLegacyModel,
     ...(runtimeData ? { runtimeData } : {}),
     ...(sanitizedNameMap ? { sanitizedNameMap } : {}),
   });
