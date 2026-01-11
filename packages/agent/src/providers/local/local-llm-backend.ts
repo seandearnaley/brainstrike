@@ -109,14 +109,22 @@ function isTransformersModule(mod: unknown): mod is TransformersModule {
     return false;
   }
 
-  // Validate AutoTokenizer factory exists with from_pretrained method
+  // Validate AutoTokenizer class exists with from_pretrained static method
+  // AutoTokenizer is a class (typeof === 'function' in JS), not an object
   const autoTokenizer = candidate['AutoTokenizer'];
-  if (!autoTokenizer || typeof autoTokenizer !== 'object') {
+  if (typeof autoTokenizer !== 'function') {
     return false;
   }
 
-  const tokenizerObj = autoTokenizer as Record<string, unknown>;
-  if (typeof tokenizerObj['from_pretrained'] !== 'function') {
+  // Check for static from_pretrained method on the class
+  // Use 'in' operator which works with any object-like value including functions
+  if (!('from_pretrained' in autoTokenizer)) {
+    return false;
+  }
+  // Validate it's actually a function
+  // biome-ignore lint/style/useNamingConvention: Matches transformers.js API (snake_case)
+  const fromPretrained = (autoTokenizer as { from_pretrained: unknown }).from_pretrained;
+  if (typeof fromPretrained !== 'function') {
     return false;
   }
 

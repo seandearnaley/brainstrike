@@ -3,12 +3,17 @@ import { LocalLlmBackend } from '../local-llm-backend';
 import type { LocalLlmConfig, LocalLlmGenerationOptions, LocalLlmMessage } from '../types';
 
 // Mock the transformers module
-vi.mock('@huggingface/transformers', () => ({
-  pipeline: vi.fn(),
-  AutoTokenizer: {
-    from_pretrained: vi.fn(),
-  },
-}));
+// AutoTokenizer must be a function (class) since the validation checks typeof === 'function'
+vi.mock('@huggingface/transformers', () => {
+  // Create a mock class with static from_pretrained method
+  const MockAutoTokenizer = (() => {}) as unknown as { from_pretrained: ReturnType<typeof vi.fn> };
+  MockAutoTokenizer.from_pretrained = vi.fn();
+
+  return {
+    pipeline: vi.fn(),
+    AutoTokenizer: MockAutoTokenizer,
+  };
+});
 
 /**
  * Create a mock tokenizer for tests.
