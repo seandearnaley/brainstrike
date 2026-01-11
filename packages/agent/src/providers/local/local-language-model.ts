@@ -248,8 +248,8 @@ export class LocalLanguageModel implements LanguageModelV1 {
       })
     );
 
-    // Build the result object with optional properties only when defined
-    const generateResult: Awaited<ReturnType<LanguageModelV1['doGenerate']>> = {
+    // Build base result object with required properties
+    const baseResult = {
       finishReason: mapFinishReason(result.finishReason),
       usage: {
         promptTokens: result.usage.promptTokens,
@@ -266,16 +266,13 @@ export class LocalLanguageModel implements LanguageModelV1 {
       },
     };
 
-    // Only add optional properties if they have values
-    if (result.text) {
-      generateResult.text = result.text;
-    }
-
-    if (toolCalls && toolCalls.length > 0) {
-      generateResult.toolCalls = toolCalls;
-    }
-
-    return generateResult;
+    // Construct result with optional properties using type-safe spread pattern
+    // This satisfies exactOptionalPropertyTypes by only including defined values
+    return {
+      ...baseResult,
+      ...(result.text ? { text: result.text } : {}),
+      ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
+    } as Awaited<ReturnType<LanguageModelV1['doGenerate']>>;
   }
 
   doStream(
@@ -284,11 +281,28 @@ export class LocalLanguageModel implements LanguageModelV1 {
     return this.executeStream(options);
   }
 
+  /**
+   * Execute streaming generation.
+   *
+   * **LIMITATION**: This is NOT true token-by-token streaming.
+   * The full response is generated first, then emitted as a single text-delta.
+   * This means:
+   * - Users will experience full generation latency upfront
+   * - No incremental text updates during generation
+   * - Memory usage reflects the complete response
+   *
+   * This limitation exists because:
+   * 1. transformers.js doesn't expose token-by-token streaming callbacks
+   * 2. The ONNX runtime generates the full sequence before returning
+   *
+   * True streaming will be implemented when transformers.js adds support.
+   * For now, consider using doGenerate() directly for non-streaming use cases.
+   */
   private async executeStream(
     options: LanguageModelV1CallOptions
   ): Promise<Awaited<ReturnType<LanguageModelV1['doStream']>>> {
-    // For now, we simulate streaming by doing a full generation and streaming the result
-    // The LocalLlmBackend doesn't support true streaming yet
+    // SIMULATED STREAMING: Full generation first, then stream from memory
+    // See method JSDoc for details on this limitation
     const result = await this.executeGenerate(options);
 
     const parts: LanguageModelV1StreamPart[] = [];

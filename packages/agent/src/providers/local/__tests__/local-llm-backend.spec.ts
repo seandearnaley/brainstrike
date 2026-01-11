@@ -368,7 +368,8 @@ describe('initialize error handling', () => {
 
   it('throws error when WebGPU is requested but unavailable', async () => {
     const config: LocalLlmConfig = {
-      modelId: 'test/model',
+      // Use an allowed model ID to test WebGPU availability check
+      modelId: 'onnx-community/Qwen3-0.6B-ONNX',
       device: 'webgpu',
     };
 
@@ -389,6 +390,16 @@ describe('initialize error handling', () => {
   it('throws error for model ID with path traversal', async () => {
     const config: LocalLlmConfig = {
       modelId: '../malicious/path',
+      device: 'wasm',
+    };
+
+    await expect(backend.initialize(config)).rejects.toThrow('Invalid model ID format');
+  });
+
+  it('throws error for model ID not in allowlist', async () => {
+    const config: LocalLlmConfig = {
+      // Valid format but not in the approved allowlist
+      modelId: 'some-org/unapproved-model',
       device: 'wasm',
     };
 

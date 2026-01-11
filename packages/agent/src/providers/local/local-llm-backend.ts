@@ -92,30 +92,66 @@ type TransformersModule = {
   AutoTokenizer: AutoTokenizerFactory;
 };
 
+/**
+ * Type guard for validating dynamically imported TransformersModule.
+ * Ensures the module has the required structure before use.
+ * Uses bracket notation for index signature properties (TS4111 compliance).
+ */
+function isTransformersModule(mod: unknown): mod is TransformersModule {
+  if (!mod || typeof mod !== 'object') {
+    return false;
+  }
+
+  const candidate = mod as Record<string, unknown>;
+
+  // Validate pipeline function exists (bracket notation for index signature)
+  if (typeof candidate['pipeline'] !== 'function') {
+    return false;
+  }
+
+  // Validate AutoTokenizer factory exists with from_pretrained method
+  const autoTokenizer = candidate['AutoTokenizer'];
+  if (!autoTokenizer || typeof autoTokenizer !== 'object') {
+    return false;
+  }
+
+  const tokenizerObj = autoTokenizer as Record<string, unknown>;
+  if (typeof tokenizerObj['from_pretrained'] !== 'function') {
+    return false;
+  }
+
+  return true;
+}
+
 // Module-level cache for transformers.js
 let transformersModule: TransformersModule | null = null;
 let transformersModulePromise: Promise<TransformersModule> | null = null;
+
+/**
+ * Helper function to load and validate the transformers module.
+ * Separated to avoid complex union types in promise chains.
+ */
+async function loadTransformersModule(): Promise<TransformersModule> {
+  const mod: unknown = await import('@huggingface/transformers');
+
+  // Runtime validation using type guard
+  if (!isTransformersModule(mod)) {
+    throw new Error(
+      'Invalid transformers.js module structure: expected pipeline function and AutoTokenizer.from_pretrained. ' +
+        'The @huggingface/transformers package may be incompatible or not properly installed.'
+    );
+  }
+
+  // After type guard validation, mod is confirmed as TransformersModule
+  return mod;
+}
 
 async function getTransformersModule(): Promise<TransformersModule> {
   if (transformersModule) {
     return transformersModule;
   }
   if (!transformersModulePromise) {
-    transformersModulePromise = import('@huggingface/transformers').then((mod) => {
-      // Runtime validation to ensure module structure matches our expectations
-      if (
-        !mod ||
-        typeof mod !== 'object' ||
-        typeof mod.pipeline !== 'function' ||
-        !mod.AutoTokenizer ||
-        typeof mod.AutoTokenizer.from_pretrained !== 'function'
-      ) {
-        throw new Error(
-          'Invalid transformers.js module structure: expected pipeline function and AutoTokenizer.from_pretrained'
-        );
-      }
-      return mod as unknown as TransformersModule;
-    });
+    transformersModulePromise = loadTransformersModule();
   }
   transformersModule = await transformersModulePromise;
   return transformersModule;
@@ -239,14 +275,25 @@ async function downloadFileToCache(
 }
 
 /**
+ * Check output length for ReDoS protection.
+ * Throws descriptive error if output exceeds maximum length.
+ */
+function validateOutputLength(output: string, parser: string): void {
+  if (output.length > MAX_OUTPUT_LENGTH) {
+    throw new Error(
+      `Tool call output exceeds maximum length (${output.length} > ${MAX_OUTPUT_LENGTH} bytes). ` +
+        `Parser: ${parser}. This limit prevents ReDoS attacks. ` +
+        'If this is a legitimate use case, consider chunking the output.'
+    );
+  }
+}
+
+/**
  * Parse FunctionGemma format: <start_function_call>call:name{args}<end_function_call>
  */
 function parseGemmaFormat(output: string): LocalLlmToolCall | null {
-  // ReDoS protection: reject excessively long outputs
-  if (output.length > MAX_OUTPUT_LENGTH) {
-    logger.warn('Tool call output exceeds max length', { length: output.length, parser: 'gemma' });
-    return null;
-  }
+  // ReDoS protection: validate output length
+  validateOutputLength(output, 'gemma');
 
   const match = output.match(/<start_function_call>call:(\w+)\{([^}]*)\}<end_function_call>/);
   if (!match) {
@@ -274,11 +321,8 @@ function parseGemmaFormat(output: string): LocalLlmToolCall | null {
  * Parse Qwen format: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
  */
 function parseQwenFormat(output: string): LocalLlmToolCall | null {
-  // ReDoS protection: reject excessively long outputs
-  if (output.length > MAX_OUTPUT_LENGTH) {
-    logger.warn('Tool call output exceeds max length', { length: output.length, parser: 'qwen' });
-    return null;
-  }
+  // ReDoS protection: validate output length
+  validateOutputLength(output, 'qwen');
 
   const match = output.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
   if (!match) {
@@ -310,14 +354,8 @@ function parseQwenFormat(output: string): LocalLlmToolCall | null {
  * Parse generic JSON format: {"name": "...", "arguments": {...}}
  */
 function parseGenericJsonFormat(output: string): LocalLlmToolCall | null {
-  // ReDoS protection: reject excessively long outputs
-  if (output.length > MAX_OUTPUT_LENGTH) {
-    logger.warn('Tool call output exceeds max length', {
-      length: output.length,
-      parser: 'genericJson',
-    });
-    return null;
-  }
+  // ReDoS protection: validate output length
+  validateOutputLength(output, 'genericJson');
 
   const match = output.match(/\{"name":\s*"(\w+)",\s*"arguments":\s*(\{[^}]+\})\}/);
   if (!match) {
@@ -342,11 +380,8 @@ function parseGenericJsonFormat(output: string): LocalLlmToolCall | null {
  */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Parses multiple argument formats (strings, numbers, booleans)
 function parseLfmFormat(output: string): LocalLlmToolCall | null {
-  // ReDoS protection: reject excessively long outputs
-  if (output.length > MAX_OUTPUT_LENGTH) {
-    logger.warn('Tool call output exceeds max length', { length: output.length, parser: 'lfm' });
-    return null;
-  }
+  // ReDoS protection: validate output length
+  validateOutputLength(output, 'lfm');
 
   const match = output.match(/<\|tool_call_start\|>\s*\[(\w+)\(([^)]*)\)\]\s*<\|tool_call_end\|>/);
   if (!match) {
@@ -415,11 +450,16 @@ function parseFunctionCall(output: string): LocalLlmToolCall | null {
 const MODELS_REQUIRING_MANUAL_FORMATTING = new Set(['onnx-community/functiongemma-270m-it-ONNX']);
 
 /**
- * Maximum output length for tool call parsing (10KB).
+ * Maximum output length for tool call parsing (100KB).
  * Prevents ReDoS attacks from unbounded regex matching on large inputs.
- * Reduced from 100KB to 10KB as defense-in-depth measure.
+ * Set to 100KB to support legitimate use cases like code generation.
  */
-const MAX_OUTPUT_LENGTH = 10_000;
+const MAX_OUTPUT_LENGTH = 100_000;
+
+/**
+ * Maximum model ID length to prevent excessively long inputs.
+ */
+const MAX_MODEL_ID_LENGTH = 100;
 
 /**
  * Multiplier for estimating total GPU memory usage including runtime overhead.
@@ -431,16 +471,104 @@ const MAX_OUTPUT_LENGTH = 10_000;
 const WEBGPU_MEMORY_OVERHEAD_MULTIPLIER = 1.5;
 
 /**
- * Validate HuggingFace model ID format to prevent path traversal and SSRF attacks.
- * Model IDs must be in "owner/model-name" format with alphanumeric characters,
- * hyphens, underscores, and periods only.
+ * Allowlist of approved models that can be loaded.
+ * This provides defense-in-depth against:
+ * - Downloading malicious models from compromised repos
+ * - DoS attacks via extremely large model downloads
+ * - Exploiting vulnerabilities in specific ONNX parsers
+ */
+const ALLOWED_MODELS: Set<string> = new Set([
+  'onnx-community/functiongemma-270m-it-ONNX',
+  'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+  'onnx-community/Qwen3-0.6B-ONNX',
+  'onnx-community/Qwen3-1.7B-ONNX',
+]);
+
+/**
+ * Validate HuggingFace model ID format and check against allowlist.
+ * Provides multi-layer validation:
+ * 1. Length limit to prevent excessively long inputs
+ * 2. Format validation (owner/model-name pattern)
+ * 3. Path traversal prevention
+ * 4. Allowlist verification
  */
 function isValidModelId(modelId: string): boolean {
+  // Length check first (prevents ReDoS on long inputs)
+  if (modelId.length > MAX_MODEL_ID_LENGTH) {
+    logger.warn('Model ID exceeds maximum length', { length: modelId.length });
+    return false;
+  }
+
   // HuggingFace model IDs are "owner/repo-name" format
   // Allow alphanumeric, hyphens, underscores, periods (common in version strings)
   const modelIdPattern = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
-  return modelIdPattern.test(modelId) && !modelId.includes('..');
+  if (!modelIdPattern.test(modelId)) {
+    return false;
+  }
+
+  // Path traversal prevention
+  if (modelId.includes('..') || modelId.includes('./') || modelId.includes('//')) {
+    logger.warn('Model ID contains path traversal pattern', { modelId });
+    return false;
+  }
+
+  // Allowlist check - only approved models can be loaded
+  if (!ALLOWED_MODELS.has(modelId)) {
+    logger.warn('Attempted to load unapproved model', { modelId });
+    return false;
+  }
+
+  return true;
 }
+
+/**
+ * Check if storage quota is sufficient for model download.
+ * Throws descriptive error if insufficient space.
+ */
+async function checkStorageQuota(estimatedSize: number): Promise<void> {
+  // Storage API may not be available in all browsers
+  if (typeof navigator === 'undefined') {
+    return; // Skip check in non-browser environments
+  }
+
+  if (!('storage' in navigator) || typeof navigator.storage?.estimate !== 'function') {
+    logger.debug('Storage API not available, skipping quota check');
+    return;
+  }
+
+  try {
+    const estimate = await navigator.storage.estimate();
+    const available = (estimate.quota ?? 0) - (estimate.usage ?? 0);
+
+    if (available < estimatedSize) {
+      throw new Error(
+        `Insufficient storage: need ${Math.round(estimatedSize / (1024 * 1024))}MB, ` +
+          `have ${Math.round(available / (1024 * 1024))}MB available. ` +
+          'Try clearing browser cache or freeing disk space.'
+      );
+    }
+
+    logger.debug('Storage quota check passed', {
+      estimatedSizeMB: Math.round(estimatedSize / (1024 * 1024)),
+      availableMB: Math.round(available / (1024 * 1024)),
+    });
+  } catch (error) {
+    // Re-throw our own errors, log and continue for API errors
+    if (error instanceof Error && error.message.includes('Insufficient storage')) {
+      throw error;
+    }
+    logger.debug('Storage estimate failed, proceeding with download', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Track number of active aborted operations for resource monitoring.
+ * Helps identify when abort signals are being triggered frequently
+ * while background GPU/WASM work continues.
+ */
+let activeAbortedOperations = 0;
 
 /**
  * Wrap a promise with abort signal handling.
@@ -462,15 +590,34 @@ function withAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<
     return Promise.reject(new DOMException('Generation aborted', 'AbortError'));
   }
 
+  // Track this operation for cleanup when promise resolves
+  const operationId = crypto.randomUUID();
+  let wasAborted = false;
+
+  // When the underlying promise completes, decrement counter if aborted
+  // void: Intentionally not awaiting - cleanup happens asynchronously in background
+  void promise.finally(() => {
+    if (wasAborted) {
+      activeAbortedOperations = Math.max(0, activeAbortedOperations - 1);
+      logger.debug('Aborted background operation completed', {
+        operationId,
+        remainingAbortedOps: activeAbortedOperations,
+      });
+    }
+  });
+
   return Promise.race([
     promise,
     new Promise<never>((_, reject) => {
       signal.addEventListener(
         'abort',
         () => {
+          wasAborted = true;
+          activeAbortedOperations++;
           logger.warn(
             'Generation aborted but inference continues in background ' +
-              '(transformers.js limitation - GPU/WASM work cannot be cancelled)'
+              '(transformers.js limitation - GPU/WASM work cannot be cancelled)',
+            { operationId, activeAbortedOps: activeAbortedOperations }
           );
           reject(new DOMException('Generation aborted', 'AbortError'));
         },
@@ -1305,14 +1452,22 @@ export class LocalLlmBackend {
     if (!isValidModelId(modelId)) {
       throw new Error(
         `Invalid model ID format: "${modelId}". Expected format: "owner/model-name" ` +
-          '(alphanumeric, hyphens, underscores, and periods only).'
+          '(alphanumeric, hyphens, underscores, and periods only). ' +
+          'Only pre-approved models can be loaded for security.'
       );
     }
+
+    // Check storage quota before downloading (prevents failed downloads)
+    const estimatedSize = getEstimatedModelSize(modelId);
+    await checkStorageQuota(estimatedSize);
 
     // Note: cacheDir option is ignored for browser Cache API storage
     // The Cache API uses the HuggingFace CDN URL as the cache key
 
-    logger.info('Downloading LLM model files to cache', { modelId });
+    logger.info('Downloading LLM model files to cache', {
+      modelId,
+      estimatedSizeMB: Math.round(estimatedSize / (1024 * 1024)),
+    });
 
     // Files needed for LLM inference - download each individually to cache
     // This avoids loading them into memory (unlike from_pretrained)
