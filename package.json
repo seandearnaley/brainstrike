@@ -55,7 +55,7 @@
     "type-check": "turbo run type-check --summarize --log-order=grouped --cache-dir=.turbo",
     "vercel:build": "pnpm build:web",
     "vercel:dev": "pnpm dev --filter @brainstrike/web",
-    "prepare": "lefthook install"
+    "prepare": "node scripts/postinstall.js"
   },
   "keywords": [],
   "author": "",
