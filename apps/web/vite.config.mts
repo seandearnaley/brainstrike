@@ -148,7 +148,9 @@ export default defineConfig({
         __dirname,
         '../../packages/file-explorer-ui/src'
       ),
-      '@brainstrike/agent': path.resolve(__dirname, '../../packages/agent/src'),
+      // NOTE: Do NOT alias @brainstrike/agent to source - server-side routes need the
+      // full package which has Node.js dependencies. Only the /client subpath is browser-safe.
+      // '@brainstrike/agent': path.resolve(__dirname, '../../packages/agent/src'),
       // NOTE: @brainstrike/token-cache must resolve via package exports (dist) so the
       // worker subpath `@brainstrike/token-cache/worker` points to the built worker.
       // Do not alias to src or the worker entry will be missing.
