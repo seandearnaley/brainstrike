@@ -3,7 +3,14 @@
  */
 
 export { createLocalLanguageModel, LocalLanguageModel } from './local-language-model';
-export { LocalLlmBackend } from './local-llm-backend';
+export {
+  addAllowedModels,
+  getAllowedModels,
+  isModelAllowed,
+  LocalLlmBackend,
+  setModelChecksums,
+  verifyModelIntegrity,
+} from './local-llm-backend';
 export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,

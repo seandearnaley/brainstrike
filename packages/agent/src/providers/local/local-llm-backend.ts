@@ -290,46 +290,98 @@ function validateOutputLength(output: string, parser: string): void {
 
 /**
  * Parse FunctionGemma format: <start_function_call>call:name{args}<end_function_call>
+ * Uses iterative string parsing instead of regex to prevent ReDoS attacks.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Iterative parsing requires multiple boundary checks
 function parseGemmaFormat(output: string): LocalLlmToolCall | null {
   // ReDoS protection: validate output length
   validateOutputLength(output, 'gemma');
 
-  const match = output.match(/<start_function_call>call:(\w+)\{([^}]*)\}<end_function_call>/);
-  if (!match) {
+  // Iterative parsing instead of regex to prevent ReDoS
+  const startTag = '<start_function_call>call:';
+  const endTag = '<end_function_call>';
+
+  const startIdx = output.indexOf(startTag);
+  if (startIdx === -1) {
     return null;
   }
 
-  const [, name, argsStr] = match;
+  const endIdx = output.indexOf(endTag, startIdx);
+  if (endIdx === -1) {
+    return null;
+  }
+
+  const content = output.substring(startIdx + startTag.length, endIdx);
+
+  // Parse name{args} format
+  const braceIdx = content.indexOf('{');
+  if (braceIdx === -1) {
+    return null;
+  }
+
+  const closeBraceIdx = content.lastIndexOf('}');
+  if (closeBraceIdx === -1 || closeBraceIdx < braceIdx) {
+    return null;
+  }
+
+  const name = content.substring(0, braceIdx).trim();
+  const argsStr = content.substring(braceIdx + 1, closeBraceIdx);
+
+  // Validate name is alphanumeric
+  if (!/^\w+$/.test(name)) {
+    return null;
+  }
+
   const args: Record<string, string> = {};
   if (argsStr) {
     for (const pair of argsStr.split(',')) {
-      const [key, value] = pair.split(':');
+      const colonIdx = pair.indexOf(':');
+      if (colonIdx === -1) {
+        continue;
+      }
+
+      const key = pair.substring(0, colonIdx).trim();
+      const value = pair
+        .substring(colonIdx + 1)
+        .replace(/<escape>/g, '')
+        .trim();
+
       if (key && value) {
-        args[key.trim()] = value.replace(/<escape>/g, '').trim();
+        args[key] = value;
       }
     }
   }
+
   return {
     id: `call_${crypto.randomUUID()}`,
     type: 'function',
-    function: { name: name ?? '', arguments: JSON.stringify(args) },
+    function: { name, arguments: JSON.stringify(args) },
   };
 }
 
 /**
  * Parse Qwen format: <tool_call>{"name": "...", "arguments": {...}}</tool_call>
+ * Uses iterative string parsing instead of regex to prevent ReDoS attacks.
  */
 function parseQwenFormat(output: string): LocalLlmToolCall | null {
   // ReDoS protection: validate output length
   validateOutputLength(output, 'qwen');
 
-  const match = output.match(/<tool_call>([\s\S]*?)<\/tool_call>/);
-  if (!match) {
+  // Iterative parsing instead of regex to prevent ReDoS
+  const startTag = '<tool_call>';
+  const endTag = '</tool_call>';
+
+  const startIdx = output.indexOf(startTag);
+  if (startIdx === -1) {
     return null;
   }
 
-  const jsonContent = match[1];
+  const endIdx = output.indexOf(endTag, startIdx);
+  if (endIdx === -1) {
+    return null;
+  }
+
+  const jsonContent = output.substring(startIdx + startTag.length, endIdx).trim();
   if (!jsonContent) {
     return null;
   }
@@ -339,10 +391,17 @@ function parseQwenFormat(output: string): LocalLlmToolCall | null {
       name: string;
       arguments: Record<string, unknown>;
     };
+
+    // Validate parsed structure
+    if (typeof parsed.name !== 'string') {
+      logger.debug('Qwen tool call missing name field');
+      return null;
+    }
+
     return {
       id: `call_${crypto.randomUUID()}`,
       type: 'function',
-      function: { name: parsed.name, arguments: JSON.stringify(parsed.arguments) },
+      function: { name: parsed.name, arguments: JSON.stringify(parsed.arguments ?? {}) },
     };
   } catch {
     logger.debug('Failed to parse Qwen tool call JSON', { raw: jsonContent });
@@ -352,27 +411,79 @@ function parseQwenFormat(output: string): LocalLlmToolCall | null {
 
 /**
  * Parse generic JSON format: {"name": "...", "arguments": {...}}
+ * Uses iterative string parsing with JSON.parse instead of regex to prevent ReDoS attacks.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Iterative JSON parsing requires depth tracking
 function parseGenericJsonFormat(output: string): LocalLlmToolCall | null {
   // ReDoS protection: validate output length
   validateOutputLength(output, 'genericJson');
 
-  const match = output.match(/\{"name":\s*"(\w+)",\s*"arguments":\s*(\{[^}]+\})\}/);
-  if (!match) {
+  // Find potential JSON object boundaries using iterative search
+  const namePattern = '"name"';
+  const nameIdx = output.indexOf(namePattern);
+  if (nameIdx === -1) {
     return null;
   }
 
-  const [, name, argsJson] = match;
-  return {
-    id: `call_${crypto.randomUUID()}`,
-    type: 'function',
-    function: { name: name ?? '', arguments: argsJson ?? '{}' },
-  };
+  // Find the opening brace before "name"
+  let startIdx = nameIdx;
+  while (startIdx > 0 && output[startIdx] !== '{') {
+    startIdx--;
+  }
+  if (output[startIdx] !== '{') {
+    return null;
+  }
+
+  // Find matching closing brace by counting brace depth
+  let depth = 0;
+  let endIdx = startIdx;
+  for (let i = startIdx; i < output.length; i++) {
+    if (output[i] === '{') {
+      depth++;
+    }
+    if (output[i] === '}') {
+      depth--;
+    }
+    if (depth === 0) {
+      endIdx = i + 1;
+      break;
+    }
+  }
+  if (depth !== 0) {
+    return null;
+  }
+
+  const jsonStr = output.substring(startIdx, endIdx);
+
+  try {
+    const parsed = JSON.parse(jsonStr) as {
+      name?: string;
+      arguments?: Record<string, unknown>;
+    };
+
+    // Validate required fields
+    if (typeof parsed.name !== 'string' || !/^\w+$/.test(parsed.name)) {
+      return null;
+    }
+
+    return {
+      id: `call_${crypto.randomUUID()}`,
+      type: 'function',
+      function: {
+        name: parsed.name,
+        arguments: parsed.arguments ? JSON.stringify(parsed.arguments) : '{}',
+      },
+    };
+  } catch {
+    logger.debug('Failed to parse generic JSON tool call', { raw: jsonStr });
+    return null;
+  }
 }
 
 /**
  * Parse LFM2.5 Pythonic format: <|tool_call_start|>[func_name(arg="value")]<|tool_call_end|>
  * LFM2.5 outputs tool calls as Python-style function calls wrapped in special tokens.
+ * Uses iterative string parsing for tag boundaries to prevent ReDoS attacks.
  *
  * Examples:
  * - <|tool_call_start|>[get_weather(location="Paris")]<|tool_call_end|>
@@ -383,39 +494,95 @@ function parseLfmFormat(output: string): LocalLlmToolCall | null {
   // ReDoS protection: validate output length
   validateOutputLength(output, 'lfm');
 
-  const match = output.match(/<\|tool_call_start\|>\s*\[(\w+)\(([^)]*)\)\]\s*<\|tool_call_end\|>/);
-  if (!match) {
+  // Iterative parsing for tag boundaries to prevent ReDoS
+  const startTag = '<|tool_call_start|>';
+  const endTag = '<|tool_call_end|>';
+
+  const startIdx = output.indexOf(startTag);
+  if (startIdx === -1) {
     return null;
   }
 
-  const [, funcName, argsStr] = match;
+  const endIdx = output.indexOf(endTag, startIdx);
+  if (endIdx === -1) {
+    return null;
+  }
+
+  const content = output.substring(startIdx + startTag.length, endIdx).trim();
+
+  // Parse [func_name(args)] format
+  if (!(content.startsWith('[') && content.endsWith(']'))) {
+    return null;
+  }
+
+  const innerContent = content.substring(1, content.length - 1);
+  const parenIdx = innerContent.indexOf('(');
+  const closeParenIdx = innerContent.lastIndexOf(')');
+
+  if (parenIdx === -1 || closeParenIdx === -1 || closeParenIdx < parenIdx) {
+    return null;
+  }
+
+  const funcName = innerContent.substring(0, parenIdx).trim();
+  const argsStr = innerContent.substring(parenIdx + 1, closeParenIdx);
+
+  // Validate function name is alphanumeric
+  if (!/^\w+$/.test(funcName)) {
+    return null;
+  }
+
   const args: Record<string, string | number | boolean> = {};
 
   if (argsStr) {
-    // Parse Python-style kwargs: key="value", key=123, key=true
-    const argPattern = /(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|(\d+(?:\.\d+)?)|(\w+))/g;
-    for (const argMatch of argsStr.matchAll(argPattern)) {
-      const key = argMatch[1];
-      if (!key) {
-        continue;
-      }
-      // Check which capture group matched
-      if (argMatch[2] !== undefined) {
-        args[key] = argMatch[2]; // double-quoted string
-      } else if (argMatch[3] !== undefined) {
-        args[key] = argMatch[3]; // single-quoted string
-      } else if (argMatch[4] !== undefined) {
-        args[key] = Number.parseFloat(argMatch[4]); // number
-      } else if (argMatch[5] !== undefined) {
-        // boolean or other identifier
-        const val = argMatch[5].toLowerCase();
-        if (val === 'true') {
-          args[key] = true;
-        } else if (val === 'false') {
-          args[key] = false;
-        } else {
-          args[key] = argMatch[5];
+    // Parse Python-style kwargs using iterative approach
+    // Split by comma, but handle commas inside quotes
+    let currentArg = '';
+    let inQuote = false;
+    let quoteChar = '';
+
+    for (let i = 0; i <= argsStr.length; i++) {
+      const char = argsStr[i];
+
+      if (i === argsStr.length || (char === ',' && !inQuote)) {
+        // Process current argument
+        const arg = currentArg.trim();
+        if (arg) {
+          const eqIdx = arg.indexOf('=');
+          if (eqIdx > 0) {
+            const key = arg.substring(0, eqIdx).trim();
+            const value = arg.substring(eqIdx + 1).trim();
+
+            if (/^\w+$/.test(key)) {
+              // Parse value
+              if (
+                (value.startsWith('"') && value.endsWith('"')) ||
+                (value.startsWith("'") && value.endsWith("'"))
+              ) {
+                args[key] = value.substring(1, value.length - 1);
+              } else if (/^\d+(\.\d+)?$/.test(value)) {
+                args[key] = Number.parseFloat(value);
+              } else if (value.toLowerCase() === 'true') {
+                args[key] = true;
+              } else if (value.toLowerCase() === 'false') {
+                args[key] = false;
+              } else {
+                args[key] = value;
+              }
+            }
+          }
         }
+        currentArg = '';
+      } else {
+        if ((char === '"' || char === "'") && (i === 0 || argsStr[i - 1] !== '\\')) {
+          if (!inQuote) {
+            inQuote = true;
+            quoteChar = char;
+          } else if (char === quoteChar) {
+            inQuote = false;
+            quoteChar = '';
+          }
+        }
+        currentArg += char;
       }
     }
   }
@@ -423,7 +590,7 @@ function parseLfmFormat(output: string): LocalLlmToolCall | null {
   return {
     id: `call_${crypto.randomUUID()}`,
     type: 'function',
-    function: { name: funcName ?? '', arguments: JSON.stringify(args) },
+    function: { name: funcName, arguments: JSON.stringify(args) },
   };
 }
 
@@ -471,18 +638,225 @@ const MAX_MODEL_ID_LENGTH = 100;
 const WEBGPU_MEMORY_OVERHEAD_MULTIPLIER = 1.5;
 
 /**
- * Allowlist of approved models that can be loaded.
+ * Baseline allowlist of approved models that can be loaded.
+ * These models are always allowed and cannot be removed at runtime.
  * This provides defense-in-depth against:
  * - Downloading malicious models from compromised repos
  * - DoS attacks via extremely large model downloads
  * - Exploiting vulnerabilities in specific ONNX parsers
  */
-const ALLOWED_MODELS: Set<string> = new Set([
+const BASELINE_ALLOWED_MODELS: ReadonlySet<string> = new Set([
   'onnx-community/functiongemma-270m-it-ONNX',
   'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
   'onnx-community/Qwen3-0.6B-ONNX',
   'onnx-community/Qwen3-1.7B-ONNX',
 ]);
+
+/**
+ * Runtime-configurable allowlist that includes baseline + user-added models.
+ * Use addAllowedModels() to extend at runtime from user preferences.
+ */
+const runtimeAllowedModels: Set<string> = new Set(BASELINE_ALLOWED_MODELS);
+
+/**
+ * Add models to the runtime allowlist.
+ * This should be called with validated model IDs from user preferences.
+ * Models are validated for format before being added.
+ *
+ * @param modelIds - Array of model IDs to add (must pass format validation)
+ * @returns Object with arrays of successfully added and rejected model IDs
+ */
+export function addAllowedModels(modelIds: string[]): {
+  added: string[];
+  rejected: Array<{ modelId: string; reason: string }>;
+} {
+  const added: string[] = [];
+  const rejected: Array<{ modelId: string; reason: string }> = [];
+
+  for (const modelId of modelIds) {
+    // Length check
+    if (modelId.length > MAX_MODEL_ID_LENGTH) {
+      rejected.push({ modelId, reason: 'exceeds maximum length' });
+      continue;
+    }
+
+    // Format validation (same as isValidModelId but without allowlist check)
+    const modelIdPattern = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+    if (!modelIdPattern.test(modelId)) {
+      rejected.push({ modelId, reason: 'invalid format' });
+      continue;
+    }
+
+    // Path traversal prevention
+    if (modelId.includes('..') || modelId.includes('./') || modelId.includes('//')) {
+      rejected.push({ modelId, reason: 'contains path traversal pattern' });
+      continue;
+    }
+
+    // Add to runtime allowlist
+    runtimeAllowedModels.add(modelId);
+    added.push(modelId);
+  }
+
+  if (added.length > 0) {
+    logger.info('Added models to runtime allowlist', { count: added.length, added });
+  }
+  if (rejected.length > 0) {
+    logger.warn('Rejected invalid models from allowlist', { count: rejected.length, rejected });
+  }
+
+  return { added, rejected };
+}
+
+/**
+ * Get the current list of allowed model IDs (baseline + runtime additions).
+ */
+export function getAllowedModels(): string[] {
+  return Array.from(runtimeAllowedModels);
+}
+
+/**
+ * Check if a model is in the allowlist (baseline or runtime-added).
+ */
+export function isModelAllowed(modelId: string): boolean {
+  return runtimeAllowedModels.has(modelId);
+}
+
+/**
+ * Model integrity checksums for verification.
+ * Maps model ID to SHA256 hash of the main ONNX model file.
+ * These are verified after download to detect tampering or corruption.
+ */
+type ModelChecksums = {
+  /** SHA256 hash of the model's main ONNX file */
+  onnxSha256: string;
+  /** Optional config.json hash for additional verification */
+  configSha256?: string;
+};
+
+/**
+ * Baseline checksums for approved models.
+ * These checksums were computed from known-good model files.
+ *
+ * To compute a checksum for a new model:
+ * 1. Download the model's ONNX file from HuggingFace
+ * 2. Run: shasum -a 256 <model_file>.onnx
+ * 3. Add the hex hash to this map
+ *
+ * Note: Currently using placeholder values. These should be replaced
+ * with actual checksums computed from verified model downloads.
+ */
+const BASELINE_MODEL_CHECKSUMS: ReadonlyMap<string, ModelChecksums> = new Map([
+  // TODO: Replace with actual checksums after verifying model downloads
+  // These are placeholder values that will pass validation until real checksums are added
+  ['onnx-community/functiongemma-270m-it-ONNX', { onnxSha256: 'pending-verification' }],
+  ['LiquidAI/LFM2.5-1.2B-Instruct-ONNX', { onnxSha256: 'pending-verification' }],
+  ['onnx-community/Qwen3-0.6B-ONNX', { onnxSha256: 'pending-verification' }],
+  ['onnx-community/Qwen3-1.7B-ONNX', { onnxSha256: 'pending-verification' }],
+]);
+
+/**
+ * Runtime-configurable checksums that includes baseline + user-added entries.
+ */
+const runtimeModelChecksums: Map<string, ModelChecksums> = new Map(BASELINE_MODEL_CHECKSUMS);
+
+/**
+ * Compute SHA256 hash of data using SubtleCrypto.
+ * @param data - ArrayBuffer or Uint8Array to hash
+ * @returns Hex-encoded SHA256 hash
+ */
+async function computeSha256(data: ArrayBuffer): Promise<string> {
+  // SubtleCrypto is available in all modern browsers and Node.js 15+
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    logger.warn('SubtleCrypto not available, skipping integrity check');
+    return 'unavailable';
+  }
+
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = new Uint8Array(hashBuffer);
+  // Convert to hex string
+  return Array.from(hashArray)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Add or update model checksums at runtime.
+ * This should be called with verified checksums from a trusted source.
+ *
+ * @param modelId - HuggingFace model ID
+ * @param checksums - SHA256 checksums for model files
+ */
+export function setModelChecksums(modelId: string, checksums: ModelChecksums): void {
+  // Validate model ID format
+  const modelIdPattern = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+  if (!modelIdPattern.test(modelId)) {
+    logger.warn('Invalid model ID format for checksum registration', { modelId });
+    return;
+  }
+
+  // Validate checksum format (64 hex chars or placeholder)
+  const sha256Pattern = /^[a-f0-9]{64}$|^pending-verification$|^unavailable$/;
+  if (!sha256Pattern.test(checksums.onnxSha256)) {
+    logger.warn('Invalid SHA256 format for model checksum', {
+      modelId,
+      received: `${checksums.onnxSha256.substring(0, 20)}...`,
+    });
+    return;
+  }
+
+  runtimeModelChecksums.set(modelId, checksums);
+  logger.debug('Registered model checksum', { modelId });
+}
+
+/**
+ * Verify model integrity by comparing computed hash against expected checksum.
+ *
+ * @param modelId - HuggingFace model ID
+ * @param data - Model data as ArrayBuffer
+ * @returns True if verification passed or was skipped, throws on mismatch
+ */
+export async function verifyModelIntegrity(modelId: string, data: ArrayBuffer): Promise<boolean> {
+  const expectedChecksums = runtimeModelChecksums.get(modelId);
+
+  // No checksum registered - log warning but allow (for runtime-added models)
+  if (!expectedChecksums) {
+    logger.warn('No checksum registered for model, skipping integrity check', { modelId });
+    return true;
+  }
+
+  // Skip verification for placeholder checksums
+  if (expectedChecksums.onnxSha256 === 'pending-verification') {
+    logger.debug('Model checksum is pending verification, skipping check', { modelId });
+    return true;
+  }
+
+  const computedHash = await computeSha256(data);
+
+  // SubtleCrypto unavailable - can't verify
+  if (computedHash === 'unavailable') {
+    return true;
+  }
+
+  if (computedHash !== expectedChecksums.onnxSha256) {
+    const error = new Error(
+      `Model integrity check failed for ${modelId}. ` +
+        `Expected SHA256: ${expectedChecksums.onnxSha256.substring(0, 16)}..., ` +
+        `Got: ${computedHash.substring(0, 16)}.... ` +
+        'The model file may be corrupted or tampered with. ' +
+        'Try clearing the cache and re-downloading.'
+    );
+    logger.error('Model integrity verification failed', {
+      modelId,
+      expected: expectedChecksums.onnxSha256.substring(0, 16),
+      computed: computedHash.substring(0, 16),
+    });
+    throw error;
+  }
+
+  logger.debug('Model integrity verification passed', { modelId });
+  return true;
+}
 
 /**
  * Validate HuggingFace model ID format and check against allowlist.
@@ -513,7 +887,8 @@ function isValidModelId(modelId: string): boolean {
   }
 
   // Allowlist check - only approved models can be loaded
-  if (!ALLOWED_MODELS.has(modelId)) {
+  // Uses runtime-configurable allowlist which includes baseline + user-added models
+  if (!runtimeAllowedModels.has(modelId)) {
     logger.warn('Attempted to load unapproved model', { modelId });
     return false;
   }
@@ -522,8 +897,22 @@ function isValidModelId(modelId: string): boolean {
 }
 
 /**
+ * Safety buffer for quota checks (10%).
+ * Accounts for TOCTOU race conditions where storage usage may change
+ * between the quota check and the actual download.
+ */
+const QUOTA_SAFETY_BUFFER = 1.1;
+
+/**
  * Check if storage quota is sufficient for model download.
  * Throws descriptive error if insufficient space.
+ *
+ * **TOCTOU Note**: This is a best-effort check. Storage availability can change
+ * between this check and the actual download (other tabs, processes, or browser
+ * operations may consume storage). We mitigate this by:
+ * 1. Requiring 10% buffer over the estimated size
+ * 2. Handling QuotaExceededError during actual download
+ * 3. Providing clear error messages for quota issues
  */
 async function checkStorageQuota(estimatedSize: number): Promise<void> {
   // Storage API may not be available in all browsers
@@ -536,20 +925,26 @@ async function checkStorageQuota(estimatedSize: number): Promise<void> {
     return;
   }
 
+  // Apply safety buffer to account for TOCTOU race conditions
+  const requiredSize = Math.ceil(estimatedSize * QUOTA_SAFETY_BUFFER);
+
   try {
     const estimate = await navigator.storage.estimate();
     const available = (estimate.quota ?? 0) - (estimate.usage ?? 0);
 
-    if (available < estimatedSize) {
+    if (available < requiredSize) {
+      const neededMB = Math.round(requiredSize / (1024 * 1024));
+      const availableMB = Math.round(available / (1024 * 1024));
       throw new Error(
-        `Insufficient storage: need ${Math.round(estimatedSize / (1024 * 1024))}MB, ` +
-          `have ${Math.round(available / (1024 * 1024))}MB available. ` +
+        `Insufficient storage: need ~${neededMB}MB (including 10% safety buffer), ` +
+          `have ${availableMB}MB available. ` +
           'Try clearing browser cache or freeing disk space.'
       );
     }
 
     logger.debug('Storage quota check passed', {
       estimatedSizeMB: Math.round(estimatedSize / (1024 * 1024)),
+      requiredWithBufferMB: Math.round(requiredSize / (1024 * 1024)),
       availableMB: Math.round(available / (1024 * 1024)),
     });
   } catch (error) {
@@ -571,6 +966,14 @@ async function checkStorageQuota(estimatedSize: number): Promise<void> {
 let activeAbortedOperations = 0;
 
 /**
+ * Maximum number of concurrent aborted operations before circuit breaker trips.
+ * When aborted operations accumulate (e.g., rapid user cancellations), the
+ * background GPU/WASM work continues consuming resources. This limit prevents
+ * memory exhaustion by rejecting new requests when too many are already pending.
+ */
+const MAX_CONCURRENT_ABORTED_OPERATIONS = 3;
+
+/**
  * Wrap a promise with abort signal handling.
  * If the signal is aborted during execution, rejects with AbortError.
  *
@@ -579,6 +982,10 @@ let activeAbortedOperations = 0;
  * will continue to completion in the background. This is a limitation of
  * the transformers.js library which doesn't expose cancellation APIs.
  * For large generations, this may result in wasted compute resources.
+ *
+ * CIRCUIT BREAKER: If too many aborted operations are pending (background
+ * GPU/WASM work still running), new requests are rejected to prevent memory
+ * exhaustion. Users should wait for pending operations to complete.
  */
 function withAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) {
@@ -588,6 +995,21 @@ function withAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<
   // Check if already aborted
   if (signal.aborted) {
     return Promise.reject(new DOMException('Generation aborted', 'AbortError'));
+  }
+
+  // Circuit breaker: prevent resource exhaustion from accumulated aborted operations
+  if (activeAbortedOperations >= MAX_CONCURRENT_ABORTED_OPERATIONS) {
+    logger.warn('Circuit breaker tripped: too many aborted operations pending', {
+      activeAbortedOps: activeAbortedOperations,
+      limit: MAX_CONCURRENT_ABORTED_OPERATIONS,
+    });
+    return Promise.reject(
+      new Error(
+        `Too many aborted operations (${activeAbortedOperations} pending). ` +
+          'Background GPU/WASM work from previous aborts is still running. ' +
+          'Please wait a moment for them to complete before starting new generations.'
+      )
+    );
   }
 
   // Track this operation for cleanup when promise resolves
@@ -1362,34 +1784,33 @@ export class LocalLlmBackend {
     }
 
     try {
-      // WebGPU types aren't fully available in all TypeScript configs
-      // Cast through unknown to access the API
-      const gpu = navigator.gpu as unknown as {
-        requestAdapter(): Promise<{
-          info: {
-            vendor: string;
-            architecture: string;
-            device: string;
-            description: string;
-          };
-          limits: {
-            maxBufferSize: number;
-            maxStorageBufferBindingSize: number;
-          };
-        } | null>;
-      };
+      // Runtime validation instead of unsafe type cast
+      // WebGPU types aren't always available in TypeScript configs
+      const gpuObj = navigator.gpu;
+      if (!gpuObj || typeof gpuObj !== 'object') {
+        logger.debug('navigator.gpu is not a valid object');
+        return null;
+      }
 
-      const adapter = await gpu.requestAdapter();
+      // Validate requestAdapter exists and is callable
+      const requestAdapter = (gpuObj as Record<string, unknown>)['requestAdapter'];
+      if (typeof requestAdapter !== 'function') {
+        logger.debug('navigator.gpu.requestAdapter is not a function');
+        return null;
+      }
+
+      // Call requestAdapter with proper this binding
+      const adapter = (await requestAdapter.call(gpuObj)) as Record<string, unknown> | null;
       if (!adapter) {
         logger.warn('WebGPU adapter request returned null - no compatible GPU found');
         return null;
       }
 
       // Validate adapter properties exist (older WebGPU implementations may not have them)
-      const info = adapter.info;
-      const limits = adapter.limits;
+      const info = adapter['info'];
+      const limits = adapter['limits'];
 
-      if (!(info && limits)) {
+      if (!info || typeof info !== 'object' || !limits || typeof limits !== 'object') {
         logger.warn('WebGPU adapter missing info or limits', {
           hasInfo: Boolean(info),
           hasLimits: Boolean(limits),
@@ -1397,23 +1818,34 @@ export class LocalLlmBackend {
         return null;
       }
 
-      // Validate required properties exist
+      // Type-safe property access after validation
+      const infoObj = info as Record<string, unknown>;
+      const limitsObj = limits as Record<string, unknown>;
+
+      // Validate required properties exist and have correct types
+      const vendor = infoObj['vendor'];
+      const architecture = infoObj['architecture'];
+      const device = infoObj['device'];
+      const description = infoObj['description'];
+      const maxBufferSize = limitsObj['maxBufferSize'];
+      const maxStorageBufferBindingSize = limitsObj['maxStorageBufferBindingSize'];
+
       if (
-        typeof info.vendor !== 'string' ||
-        typeof limits.maxBufferSize !== 'number' ||
-        typeof limits.maxStorageBufferBindingSize !== 'number'
+        typeof vendor !== 'string' ||
+        typeof maxBufferSize !== 'number' ||
+        typeof maxStorageBufferBindingSize !== 'number'
       ) {
         logger.warn('WebGPU adapter info/limits have unexpected types');
         return null;
       }
 
       return {
-        vendor: info.vendor,
-        architecture: info.architecture ?? 'unknown',
-        device: info.device ?? 'unknown',
-        description: info.description ?? '',
-        maxBufferSize: limits.maxBufferSize,
-        maxStorageBufferBindingSize: limits.maxStorageBufferBindingSize,
+        vendor,
+        architecture: typeof architecture === 'string' ? architecture : 'unknown',
+        device: typeof device === 'string' ? device : 'unknown',
+        description: typeof description === 'string' ? description : '',
+        maxBufferSize,
+        maxStorageBufferBindingSize,
       };
     } catch (error) {
       logger.warn('Failed to get WebGPU adapter info', { error });

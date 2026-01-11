@@ -18,7 +18,14 @@ export type {
 } from './providers/local';
 
 // Local LLM backend for browser-based inference with transformers.js
-export { LocalLlmBackend } from './providers/local';
+export {
+  addAllowedModels,
+  getAllowedModels,
+  isModelAllowed,
+  LocalLlmBackend,
+  setModelChecksums,
+  verifyModelIntegrity,
+} from './providers/local';
 export {
   getProviderDefaultModel,
   getProviderDefinition,

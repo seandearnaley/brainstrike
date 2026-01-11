@@ -248,8 +248,11 @@ export class LocalLanguageModel implements LanguageModelV1 {
       })
     );
 
-    // Build base result object with required properties
-    const baseResult = {
+    // Type alias for readability
+    type GenerateResult = Awaited<ReturnType<LanguageModelV1['doGenerate']>>;
+
+    // Build result object with required properties first
+    const finalResult: GenerateResult = {
       finishReason: mapFinishReason(result.finishReason),
       usage: {
         promptTokens: result.usage.promptTokens,
@@ -266,13 +269,17 @@ export class LocalLanguageModel implements LanguageModelV1 {
       },
     };
 
-    // Construct result with optional properties using type-safe spread pattern
-    // This satisfies exactOptionalPropertyTypes by only including defined values
-    return {
-      ...baseResult,
-      ...(result.text ? { text: result.text } : {}),
-      ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
-    } as Awaited<ReturnType<LanguageModelV1['doGenerate']>>;
+    // Add optional properties only when they have values
+    // This satisfies exactOptionalPropertyTypes without unsafe type assertions
+    if (result.text) {
+      finalResult.text = result.text;
+    }
+
+    if (toolCalls && toolCalls.length > 0) {
+      finalResult.toolCalls = toolCalls;
+    }
+
+    return finalResult;
   }
 
   doStream(

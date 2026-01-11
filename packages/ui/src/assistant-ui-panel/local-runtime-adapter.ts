@@ -18,26 +18,66 @@ type JsonValue = null | string | number | boolean | JsonObject | JsonArray;
 type JsonObject = { readonly [key: string]: JsonValue };
 type JsonArray = readonly JsonValue[];
 
+/**
+ * Type guard to validate that a parsed JSON value is a valid JsonObject.
+ * Prevents prototype pollution and ensures the value is a plain object.
+ */
+function isJsonObject(value: unknown): value is JsonObject {
+  // Must be a non-null object
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  // Must not be an array or null (typeof null === 'object')
+  if (Array.isArray(value) || value === null) {
+    return false;
+  }
+
+  // Prototype pollution prevention: only accept plain objects
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    return false;
+  }
+
+  return true;
+}
+
 // Singleton backend instance - persists across renders to avoid reloading model
 let backendInstance: LocalLlmBackendType | null = null;
 let backendInstancePromise: Promise<LocalLlmBackendType> | null = null;
 let currentModelId: string | null = null;
-// Track disposal requests to prevent race conditions during initialization
-// Using object pattern since the property must be mutable across async operations
-const disposalState = { requested: false };
+// Track disposal lifecycle to prevent race conditions
+// - requested: disposal has been requested (blocks new inits from returning soon-to-be-disposed instances)
+// - inProgress: disposal is actively running (prevents new init while cleanup happens)
+// - promise: Promise that resolves when disposal completes, allowing callers to wait
+const disposalState: {
+  requested: boolean;
+  inProgress: boolean;
+  promise: Promise<void> | null;
+} = { requested: false, inProgress: false, promise: null };
 
 /**
  * Get or create the LocalLlmBackend singleton.
  * Uses promise-based caching to prevent race conditions when called concurrently.
  * Dynamically imports to avoid loading transformers.js until needed.
  *
- * Handles edge case where disposeLocalBackend() is called during initialization:
- * - Sets disposalRequested flag before clearing promise
- * - Promise checks flag and disposes instance if disposal was requested
+ * Handles edge cases:
+ * - disposeLocalBackend() called during initialization: checks flag and disposes new instance
+ * - getBackend() called during disposal: waits for disposal to complete first
  */
 async function getBackend(): Promise<LocalLlmBackendType> {
-  // Fast path: already initialized and not disposed
-  if (backendInstance && !disposalState.requested) {
+  // If disposal is in progress, wait for it to complete before creating new instance
+  // This prevents returning an instance that's about to be disposed
+  if (disposalState.inProgress && disposalState.promise) {
+    try {
+      await disposalState.promise;
+    } catch {
+      // Disposal failed - that's ok, we'll create a fresh instance
+    }
+  }
+
+  // Fast path: already initialized and not in disposal process
+  if (backendInstance && !disposalState.requested && !disposalState.inProgress) {
     return backendInstance;
   }
 
@@ -45,19 +85,27 @@ async function getBackend(): Promise<LocalLlmBackendType> {
   // If initialization is in progress, wait for it instead of creating another instance
   if (!backendInstancePromise) {
     backendInstancePromise = (async () => {
-      // Dynamic import to avoid bundling transformers.js in non-local builds
-      const { LocalLlmBackend } = await import('@brainstrike/agent/client');
-      const instance = new LocalLlmBackend();
+      try {
+        // Dynamic import to avoid bundling transformers.js in non-local builds
+        const { LocalLlmBackend } = await import('@brainstrike/agent/client');
+        const instance = new LocalLlmBackend();
 
-      // Check if disposal was requested while we were initializing
-      if (disposalState.requested) {
-        // Disposal was requested - clean up the instance we just created
-        await instance.dispose();
-        throw new Error('Backend initialization cancelled: disposal was requested');
+        // Check if disposal was requested while we were initializing
+        if (disposalState.requested) {
+          // Disposal was requested - clean up the instance we just created
+          await instance.dispose();
+          // Clear the promise so future getBackend() calls create a fresh instance
+          backendInstancePromise = null;
+          throw new Error('Backend initialization cancelled: disposal was requested');
+        }
+
+        backendInstance = instance;
+        return instance;
+      } catch (error) {
+        // Clear stale promise on any initialization failure to allow retry
+        backendInstancePromise = null;
+        throw error;
       }
-
-      backendInstance = instance;
-      return instance;
     })();
   }
 
@@ -167,9 +215,16 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           for (const toolCall of result.toolCalls) {
             let parsedArgs: JsonObject = {};
             try {
-              parsedArgs = JSON.parse(toolCall.function.arguments) as JsonObject;
+              const parsed: unknown = JSON.parse(toolCall.function.arguments);
+              // Validate the parsed value is a plain object to prevent prototype pollution
+              if (isJsonObject(parsed)) {
+                parsedArgs = parsed;
+              } else {
+                // Parsed successfully but wasn't an object (e.g., array, primitive)
+                // Fall back to empty object for safety
+              }
             } catch {
-              // Malformed arguments - fall back to empty object
+              // Malformed JSON - fall back to empty object
               // The argsText field still contains the raw arguments for debugging
             }
             contentParts.push({
@@ -214,33 +269,52 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
  * Dispose the backend and free resources.
  * Call this when the local provider is no longer needed.
  *
- * Handles race condition: if initialization is in progress, sets flag
- * so the initializing promise will dispose the instance when complete.
+ * Handles race conditions:
+ * - If initialization is in progress, waits and disposes the new instance
+ * - If getBackend() is called during disposal, it waits for disposal to complete
  */
 export async function disposeLocalBackend(): Promise<void> {
-  // Signal disposal request - this prevents race conditions if
-  // initialization is in progress (the promise will check this flag)
-  disposalState.requested = true;
-
-  // Wait for any pending initialization to complete before disposing
-  if (backendInstancePromise) {
-    try {
-      await backendInstancePromise;
-    } catch {
-      // Initialization may have failed or been cancelled - that's ok
+  // Prevent re-entry if disposal is already in progress
+  if (disposalState.inProgress) {
+    // Wait for existing disposal to complete
+    if (disposalState.promise) {
+      return disposalState.promise;
     }
+    return;
   }
 
-  // Now safely dispose the instance
-  if (backendInstance) {
-    await backendInstance.dispose();
-  }
+  // Signal disposal is starting
+  disposalState.requested = true;
+  disposalState.inProgress = true;
 
-  // Reset all state
-  backendInstance = null;
-  backendInstancePromise = null;
-  currentModelId = null;
-  disposalState.requested = false; // Reset for potential re-initialization
+  // Create a promise that callers can wait on
+  disposalState.promise = (async () => {
+    try {
+      // Wait for any pending initialization to complete before disposing
+      if (backendInstancePromise) {
+        try {
+          await backendInstancePromise;
+        } catch {
+          // Initialization may have failed or been cancelled - that's ok
+        }
+      }
+
+      // Now safely dispose the instance
+      if (backendInstance) {
+        await backendInstance.dispose();
+      }
+    } finally {
+      // Reset all state - must happen even if disposal fails
+      backendInstance = null;
+      backendInstancePromise = null;
+      currentModelId = null;
+      disposalState.requested = false;
+      disposalState.inProgress = false;
+      disposalState.promise = null;
+    }
+  })();
+
+  return disposalState.promise;
 }
 
 /**
