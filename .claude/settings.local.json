@@ -241,7 +241,8 @@
       "WebFetch(domain:ai-sdk.dev)",
       "WebFetch(domain:mastra.ai)",
       "mcp__assistant-ui__assistantUIDocs",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(node scripts/postinstall.js:*)"
     ],
     "deny": [],
     "ask": []

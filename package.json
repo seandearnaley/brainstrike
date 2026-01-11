@@ -83,7 +83,7 @@
     "nyc": "^17.1.0",
     "playwright": "^1.57.0",
     "tsup": "^8.5.0",
-    "turbo": "2.7.2",
+    "turbo": "2.7.3",
     "typescript": "^5.9.3",
     "ultracite": "7.0.11",
     "vercel": "^48.12.0",
