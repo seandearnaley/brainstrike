@@ -53,7 +53,7 @@ function parseToolResultMessage(content: unknown): LocalLlmMessage[] {
       role: 'tool',
       content: typeof part.result === 'string' ? part.result : JSON.stringify(part.result),
     };
-    if (part.toolCallId !== undefined) {
+    if (typeof part.toolCallId === 'string') {
       toolMsg.toolCallId = part.toolCallId;
     }
     results.push(toolMsg);

@@ -22,6 +22,7 @@ import { migration020LocalLlmModels } from './020-local-llm-models.js';
 import { migration021RenameTransformersToLocal } from './021-rename-transformers-to-local.js';
 import { migration022EnableDefaultEmbeddingModels } from './022-enable-default-embedding-models.js';
 import { migration023FixLocalProviderEnabled } from './023-fix-local-provider-enabled.js';
+import { migration024FixLlmToolCalling } from './024-fix-llm-tool-calling.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -50,6 +51,7 @@ export const migrations: Migration[] = [
   migration021RenameTransformersToLocal,
   migration022EnableDefaultEmbeddingModels,
   migration023FixLocalProviderEnabled,
+  migration024FixLlmToolCalling,
 ];
 
 // Export base migrations (without chunks table) for test environments

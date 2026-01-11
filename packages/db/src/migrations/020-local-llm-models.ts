@@ -40,8 +40,8 @@ export const migration020LocalLlmModels: Migration = {
         'transformers',
         'LFM2.5 1.2B Instruct',
         'LiquidAI hybrid model for edge deployment',
-        '["General tasks", "Instruction following", "Edge/Mobile"]',
-        '{"type":"llm","streaming":false,"toolCalling":false,"contextWindow":32768}',
+        '["General tasks", "Instruction following", "Edge/Mobile", "Tool calling"]',
+        '{"type":"llm","streaming":false,"toolCalling":true,"contextWindow":32768}',
         '{"size":"~1.2GB (q4)","architecture":"LFM2","quantization":"q4/fp16"}',
         11,
         false
@@ -51,8 +51,8 @@ export const migration020LocalLlmModels: Migration = {
         'transformers',
         'Qwen3 0.6B',
         'Fast and efficient for general tasks',
-        '["General tasks", "Quick responses", "Low memory"]',
-        '{"type":"llm","streaming":false,"toolCalling":false,"contextWindow":32768}',
+        '["General tasks", "Quick responses", "Low memory", "Tool calling"]',
+        '{"type":"llm","streaming":false,"toolCalling":true,"contextWindow":32768}',
         '{"size":"~600MB (q4)","architecture":"Qwen3","quantization":"q4/fp16"}',
         12,
         false

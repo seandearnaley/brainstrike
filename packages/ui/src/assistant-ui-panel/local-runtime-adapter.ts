@@ -10,6 +10,14 @@ import type {
   LocalLlmMessage,
 } from '@brainstrike/agent/client';
 
+/**
+ * JSON types compatible with assistant-ui's ReadonlyJSONObject.
+ * Defined locally since assistant-stream is a transitive dependency.
+ */
+type JsonValue = null | string | number | boolean | JsonObject | JsonArray;
+type JsonObject = { readonly [key: string]: JsonValue };
+type JsonArray = readonly JsonValue[];
+
 // Singleton backend instance - persists across renders to avoid reloading model
 let backendInstance: LocalLlmBackendType | null = null;
 let backendInstancePromise: Promise<LocalLlmBackendType> | null = null;
@@ -129,7 +137,7 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
               type: 'tool-call';
               toolCallId: string;
               toolName: string;
-              args: object;
+              args: JsonObject;
               argsText: string;
             }
         > = [];
@@ -142,9 +150,9 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
         // Add tool calls if present
         if (result.toolCalls && result.toolCalls.length > 0) {
           for (const toolCall of result.toolCalls) {
-            let parsedArgs: object = {};
+            let parsedArgs: JsonObject = {};
             try {
-              parsedArgs = JSON.parse(toolCall.function.arguments) as object;
+              parsedArgs = JSON.parse(toolCall.function.arguments) as JsonObject;
             } catch {
               // Malformed arguments - fall back to empty object
               // The argsText field still contains the raw arguments for debugging
@@ -159,11 +167,8 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
           }
         }
 
-        // Yield with type assertion - contentParts satisfies assistant-ui's structure
-        // JSON.parse returns valid JSON which is compatible with ReadonlyJSONObject
-        yield { content: contentParts } as Parameters<ChatModelAdapter['run']> extends [infer _Opts]
-          ? never
-          : { content: typeof contentParts };
+        // Yield the response - contentParts uses Record<string, unknown> for JSON compatibility
+        yield { content: contentParts };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
 
