@@ -40,13 +40,6 @@ const STORE_VERSION = 2;
 
 const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_DEFAULT_MODELS) as SupportedProvider[];
 
-/**
- * Providers whose enabled models are managed via the database (model-registry-store)
- * rather than localStorage. For these providers, we skip the enabled check in setModel
- * since the UI layer (assistant-ui-panel-wrapper) handles validation against the DB.
- */
-const DB_MANAGED_PROVIDERS = new Set<SupportedProvider>(['local']);
-
 function cloneModelList(models: readonly string[] | undefined): string[] {
   return Array.isArray(models) ? [...models] : [];
 }
@@ -258,18 +251,8 @@ export const useAssistantPreferencesStore = create<Store>()(
             return state;
           }
 
-          const typedProvider = provider as SupportedProvider;
-
-          // For DB-managed providers (e.g., 'local'), skip the enabled check here.
-          // The UI layer validates against the model-registry-store (DB) before calling setModel.
-          if (!DB_MANAGED_PROVIDERS.has(typedProvider)) {
-            const enabledModels = ensureEnabledModels(state.enabledModelsByProvider, typedProvider);
-            if (!enabledModels.includes(model)) {
-              return state;
-            }
-          }
-
           // Single atomic update: selectedModel composite key + remember preference
+          // The UI layer validates model enabled state against the database before calling setModel
           return {
             selectedModel: compositeKey,
             modelsByProvider: { ...state.modelsByProvider, [provider]: model },

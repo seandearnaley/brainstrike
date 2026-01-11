@@ -38,25 +38,13 @@ const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   browser: 'Browser',
 };
 
-// Providers whose models are managed via the DB (model-registry-store)
-// instead of localStorage (assistant-preferences-store)
-const DB_MANAGED_PROVIDERS = new Set<SupportedProvider>(['local']);
-
 export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ initialProviders }) => {
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
     () => initialProviders ?? []
   );
 
-  const {
-    enabledModelsByProvider,
-    setModel,
-    clearModel,
-    setModelEnabled,
-    getAvailableProviders,
-    getSelectedModel,
-    getSelectedProvider,
-    getEnabledModels,
-  } = useAssistantPreferencesStore();
+  const { setModel, clearModel, getAvailableProviders, getSelectedModel, getSelectedProvider } =
+    useAssistantPreferencesStore();
 
   // Subscribe to secrets changes to re-check available providers when API keys change
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
@@ -130,31 +118,22 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     return data;
   }, [activeEmbeddingSetId, selectionData, tokenBudget]);
 
-  // Check if a model is enabled, using DB for local providers, localStorage for others
+  // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
-    (providerId: SupportedProvider, modelId: string): boolean => {
-      if (DB_MANAGED_PROVIDERS.has(providerId)) {
-        return dbEnabledModelIds.has(modelId);
-      }
-      return getEnabledModels(providerId).includes(modelId);
-    },
-    [dbEnabledModelIds, getEnabledModels]
+    (_providerId: SupportedProvider, modelId: string): boolean => dbEnabledModelIds.has(modelId),
+    [dbEnabledModelIds]
   );
 
   const providerHasEnabledModels = useCallback(
     (provider: SupportedProvider) => {
-      if (DB_MANAGED_PROVIDERS.has(provider)) {
-        // For DB-managed providers, check the registry
-        const modelDefinitions = getProviderModelDefinitions(provider).filter(
-          (model: ProviderModelDefinition) => model.type === 'llm'
-        );
-        return modelDefinitions.some((model: ProviderModelDefinition) =>
-          dbEnabledModelIds.has(model.id)
-        );
-      }
-      return getEnabledModels(provider).length > 0;
+      const modelDefinitions = getProviderModelDefinitions(provider).filter(
+        (model: ProviderModelDefinition) => model.type === 'llm'
+      );
+      return modelDefinitions.some((model: ProviderModelDefinition) =>
+        dbEnabledModelIds.has(model.id)
+      );
     },
-    [dbEnabledModelIds, getEnabledModels]
+    [dbEnabledModelIds]
   );
 
   const selectModelForProvider = useCallback(
@@ -236,7 +215,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     }
   }, [
     configuredProviders,
-    enabledModelsByProvider,
     dbEnabledModelIds,
     getSelectedProvider,
     clearModel,
@@ -260,16 +238,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         return;
       }
 
-      // For DB-managed providers (e.g., 'local'), update the database
-      if (DB_MANAGED_PROVIDERS.has(providerId) && db) {
+      // Always use database as the source of truth for model enabled state
+      if (db) {
         void toggleModelInDb(db, modelId, enabled);
-        return;
       }
-
-      // For localStorage-managed providers, use the preferences store
-      setModelEnabled(providerId, modelId, enabled);
     },
-    [db, toggleModelInDb, setModelEnabled]
+    [db, toggleModelInDb]
   );
 
   const providerGroups = useMemo<ProviderGroupConfig[]>(() => {

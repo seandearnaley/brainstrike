@@ -94,7 +94,7 @@ describe('assistant-preferences-store', () => {
     expect(after.getEnabledModels('openai')).toEqual([]);
   });
 
-  it('ignores setModel calls for disabled models', () => {
+  it('setModel accepts any model since validation happens at UI layer against DB', () => {
     const store = useAssistantPreferencesStore.getState();
 
     // Get first enabled model
@@ -112,14 +112,17 @@ describe('assistant-preferences-store', () => {
     store.setModel(validComposite);
     expect(store.getSelectedModel()).toBe(validComposite);
 
-    // Disable first model and try to set it
+    // Disable first model in localStorage (but setModel doesn't check this anymore)
     store.setModelEnabled('google', firstModel!, false);
-    const invalidComposite = `google::${firstModel}`;
-    store.setModel(invalidComposite);
 
-    // Should still be the valid one
+    // setModel now accepts any model - validation happens at UI layer against DB
+    const anotherComposite = `google::${firstModel}`;
+    store.setModel(anotherComposite);
+
+    // Model is set because setModel no longer validates against localStorage
+    // The UI layer (assistant-ui-panel-wrapper) validates against the database
     const updated = useAssistantPreferencesStore.getState();
-    expect(updated.getSelectedModel()).toBe(validComposite);
+    expect(updated.getSelectedModel()).toBe(anotherComposite);
   });
 
   it('resolves available providers from secrets API', async () => {
