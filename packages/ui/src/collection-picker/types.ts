@@ -4,7 +4,7 @@
  * This type is compatible with CollectionWithDocCount from @brainstrike/vector-management
  * to allow easy integration without type mapping.
  */
-export type CollectionPickerCollection = {
+export interface CollectionPickerCollection {
   /** Unique collection identifier */
   id: string;
   /** Full model key (e.g., "openai::text-embedding-3-small") */
@@ -31,12 +31,12 @@ export type CollectionPickerCollection = {
   chunkCount: number;
   /** Number of embeddings generated */
   embeddingCount: number;
-};
+}
 
 /**
  * Props for the CollectionPicker component.
  */
-export type CollectionPickerProps = {
+export interface CollectionPickerProps {
   /** List of collections to display */
   collections: CollectionPickerCollection[];
 
@@ -72,12 +72,12 @@ export type CollectionPickerProps = {
 
   /** Additional className */
   className?: string;
-};
+}
 
 /**
  * Props for the CollectionPickerItem component.
  */
-export type CollectionPickerItemProps = {
+export interface CollectionPickerItemProps {
   /** Collection data */
   collection: CollectionPickerCollection;
 
@@ -98,12 +98,12 @@ export type CollectionPickerItemProps = {
 
   /** Callback when delete button is clicked */
   onDelete: (collection: CollectionPickerCollection) => void;
-};
+}
 
 /**
  * Props for the CollectionPickerHeader component.
  */
-export type CollectionPickerHeaderProps = {
+export interface CollectionPickerHeaderProps {
   /** Header label text */
   label: string;
 
@@ -112,12 +112,12 @@ export type CollectionPickerHeaderProps = {
 
   /** Whether to show the label (default: true) */
   showLabel?: boolean;
-};
+}
 
 /**
  * Props for the CollectionPickerEmpty component.
  */
-export type CollectionPickerEmptyProps = {
+export interface CollectionPickerEmptyProps {
   /** Callback when create button is clicked */
   onCreate: () => void;
-};
+}

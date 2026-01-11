@@ -14,13 +14,13 @@ import {
 import { createLogger } from '@brainstrike/utils';
 import { useEffect, useState } from 'react';
 
-type RenameEmbeddingSetDialogProps = {
+interface RenameEmbeddingSetDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   repository: IEmbeddingSetsRepository | null;
   embeddingSet: EmbeddingSet | null;
   onSetRenamed?: (setId: string) => void;
-};
+}
 
 // Helper to build metadata object with only non-empty fields
 function buildMetadata(formData: {

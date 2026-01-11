@@ -9,11 +9,11 @@ import type { FileContents } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useState } from 'react';
 
-type UseFileLoadingManagerProps = {
+interface UseFileLoadingManagerProps {
   selectedFilePaths: Set<string>;
   fileContents: FileContents;
   loadFileContent: (path: string) => Promise<void>;
-};
+}
 
 export const useFileLoadingManager = ({
   selectedFilePaths,

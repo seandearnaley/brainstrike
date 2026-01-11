@@ -4,7 +4,7 @@ import { ScrollArea } from '../../scroll-area';
 import type { Category, Prompt, PromptFilter } from '../types';
 import { PromptCard } from './prompt-card';
 
-type PromptListProps = {
+interface PromptListProps {
   prompts: Prompt[];
   categories: Category[];
   filter: PromptFilter;
@@ -12,7 +12,7 @@ type PromptListProps = {
   onDelete: (id: string) => void;
   onToggleFavorite: (id: string) => void;
   onCopy: (content: string) => void;
-};
+}
 
 export function PromptList({
   prompts,

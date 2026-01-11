@@ -1,7 +1,7 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { generateReport, generateReportFromAdapter } from '@brainstrike/utils';
 
-export type ReportGenerationRequest = {
+export interface ReportGenerationRequest {
   selectedFiles: Set<string>;
   fileContents: Record<string, string>;
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle;
@@ -10,16 +10,16 @@ export type ReportGenerationRequest = {
   useRegex: boolean;
   includeProjectTree: boolean;
   folderSummaryThreshold: number;
-};
+}
 
-export type ProgressEvent = {
+export interface ProgressEvent {
   loaded: number;
   total: number;
-};
+}
 
-export type ReportGenerationWorkerOptions = {
+export interface ReportGenerationWorkerOptions {
   fileSystemAdapter?: FileSystemAdapter;
-};
+}
 
 export function createReportGenerationWorker({
   fileSystemAdapter,

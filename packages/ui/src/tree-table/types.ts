@@ -11,7 +11,7 @@ import type * as React from 'react';
  * Represents a node in the tree structure.
  * Generic type T allows custom data payloads for different use cases.
  */
-export type TreeNode<T = unknown> = {
+export interface TreeNode<T = unknown> {
   /** Unique identifier for this node */
   id: string;
   /** Type discriminator for different node kinds (e.g., 'file', 'chunk', 'vector') */
@@ -28,13 +28,13 @@ export type TreeNode<T = unknown> = {
   childCount?: number;
   /** Whether children are currently being loaded */
   isLoading?: boolean;
-};
+}
 
 /**
  * A flattened representation of a tree node for rendering.
  * Includes visual state information (expanded, selected, highlighted).
  */
-export type FlattenedRow<T = unknown> = {
+export interface FlattenedRow<T = unknown> {
   /** The tree node data */
   node: TreeNode<T>;
   /** Index in the flattened array */
@@ -47,13 +47,13 @@ export type FlattenedRow<T = unknown> = {
   isHighlighted: boolean;
   /** Whether this node matches current filters */
   matchesFilter: boolean;
-};
+}
 
 /**
  * Column definition for TreeTable.
  * Each column defines how to render header and cells.
  */
-export type TreeTableColumn<T> = {
+export interface TreeTableColumn<T> {
   /** Unique column identifier */
   id: string;
   /** Header content (string or React element) */
@@ -74,12 +74,12 @@ export type TreeTableColumn<T> = {
   sortable?: boolean;
   /** Accessor function for sorting */
   accessorFn?: (node: TreeNode<T>) => unknown;
-};
+}
 
 /**
  * Props passed to cell renderer functions.
  */
-export type TreeTableCellProps<T> = {
+export interface TreeTableCellProps<T> {
   /** The tree node being rendered */
   node: TreeNode<T>;
   /** Depth level for indentation */
@@ -92,7 +92,7 @@ export type TreeTableCellProps<T> = {
   isHighlighted: boolean;
   /** Row index in the flattened array */
   rowIndex: number;
-};
+}
 
 /**
  * Row height configuration.
@@ -114,17 +114,17 @@ export type SortDirection = 'asc' | 'desc' | null;
 /**
  * Sort state for the tree table.
  */
-export type SortState = {
+export interface SortState {
   /** Currently sorted column ID */
   columnId: string | null;
   /** Sort direction */
   direction: SortDirection;
-};
+}
 
 /**
  * Main props for the TreeTable component.
  */
-export type TreeTableProps<T> = {
+export interface TreeTableProps<T> {
   /** Tree nodes to display (can be nested via hasChildren) */
   nodes: TreeNode<T>[];
   /** Column definitions */
@@ -195,12 +195,12 @@ export type TreeTableProps<T> = {
   onRowDoubleClick?: (nodeId: string, node: TreeNode<T>) => void;
   /** Callback when a row is right-clicked (context menu) */
   onRowContextMenu?: (nodeId: string, node: TreeNode<T>, event: React.MouseEvent) => void;
-};
+}
 
 /**
  * Props for the TreeTableRow component.
  */
-export type TreeTableRowProps<T> = {
+export interface TreeTableRowProps<T> {
   /** Flattened row data */
   row: FlattenedRow<T>;
   /** Column definitions */
@@ -223,22 +223,22 @@ export type TreeTableRowProps<T> = {
   measureRef?: (node: HTMLTableRowElement | null) => void;
   /** Virtual index for @tanstack/react-virtual measureElement */
   virtualIndex?: number;
-};
+}
 
 /**
  * Keyboard navigation state.
  */
-export type KeyboardNavigationState = {
+export interface KeyboardNavigationState {
   /** Currently focused node ID */
   focusedId: string | null;
   /** Whether keyboard navigation is active */
   isActive: boolean;
-};
+}
 
 /**
  * Keyboard navigation actions.
  */
-export type KeyboardNavigationActions = {
+export interface KeyboardNavigationActions {
   /** Move focus up */
   moveUp: () => void;
   /** Move focus down */
@@ -255,24 +255,24 @@ export type KeyboardNavigationActions = {
   setFocus: (nodeId: string | null) => void;
   /** Reset keyboard navigation */
   reset: () => void;
-};
+}
 
 /**
  * Result of the useTreeKeyboard hook.
  */
-export type UseTreeKeyboardResult = {
+export interface UseTreeKeyboardResult {
   /** Current navigation state */
   state: KeyboardNavigationState;
   /** Navigation actions */
   actions: KeyboardNavigationActions;
   /** Event handler for keydown events */
   onKeyDown: (event: React.KeyboardEvent) => void;
-};
+}
 
 /**
  * Options for tree flattening utilities.
  */
-export type FlattenOptions = {
+export interface FlattenOptions {
   /** Set of expanded node IDs */
   expandedIds: Set<string>;
   /** Selected node ID (single selection) */
@@ -283,16 +283,16 @@ export type FlattenOptions = {
   highlightedIds?: Set<string>;
   /** Filter function to determine which nodes match current filters */
   filterFn?: (node: TreeNode<unknown>) => boolean;
-};
+}
 
 /**
  * Result of tree flattening.
  */
-export type FlattenResult<T> = {
+export interface FlattenResult<T> {
   /** Flattened rows in display order */
   rows: FlattenedRow<T>[];
   /** Map of node ID to row index for quick lookup */
   indexMap: Map<string, number>;
   /** Total count of visible rows */
   visibleCount: number;
-};
+}

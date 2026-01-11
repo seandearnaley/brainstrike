@@ -12,7 +12,7 @@ import {
 } from './stores/tools-panel-store';
 import { VectorsTab } from './vectors-tab';
 
-type ToolsPanelProps = {
+interface ToolsPanelProps {
   /**
    * CRITICAL: The app-specific embedding queue from RootLayoutContent.
    *
@@ -22,7 +22,7 @@ type ToolsPanelProps = {
    * management and import operations will fail.
    */
   embeddingQueue?: QueueAdapter | null;
-};
+}
 
 /**
  * Tools panel containing Assistant, Embeddings, Vectors, and Database tabs.

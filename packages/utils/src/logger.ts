@@ -61,30 +61,30 @@ const METHOD_BY_LEVEL: Partial<Record<LogLevel, LogMethodName>> = {
   [LogLevel.FATAL]: 'fatal',
 };
 
-export type ConsoleTransportConfig = {
+export interface ConsoleTransportConfig {
   enabled?: boolean;
   level?: LogLevel;
   destination?: number | string;
   target?: string;
   options?: Record<string, unknown>;
-};
+}
 
-export type FileTransportConfig = {
+export interface FileTransportConfig {
   enabled?: boolean;
   destination: string;
   level?: LogLevel;
   mkdir?: boolean;
   append?: boolean;
   options?: Record<string, unknown>;
-};
+}
 
-export type CustomTransportConfig = {
+export interface CustomTransportConfig {
   target: string;
   level?: LogLevel;
   options?: Record<string, unknown>;
-};
+}
 
-export type LoggerConfig = {
+export interface LoggerConfig {
   level?: LogLevel;
   enableInProduction?: boolean;
   prefix?: string;
@@ -96,37 +96,37 @@ export type LoggerConfig = {
   customTransports?: readonly CustomTransportConfig[];
   browser?: BrowserLoggerOptions;
   redactPaths?: readonly string[];
-};
+}
 
-export type LogRecord = {
+export interface LogRecord {
   level: LogLevel;
   scope?: string;
   message?: string;
   timestamp: number;
   args: readonly unknown[];
   bindings: Record<string, unknown>;
-};
+}
 
 export type LogListener = (record: LogRecord) => void;
 
-type NormalizedConsoleConfig = {
+interface NormalizedConsoleConfig {
   enabled: boolean;
   level?: LogLevel;
   destination?: number | string;
   target?: string;
   options: Record<string, unknown>;
-};
+}
 
-type NormalizedFileConfig = {
+interface NormalizedFileConfig {
   enabled: boolean;
   destination: string;
   level?: LogLevel;
   mkdir: boolean;
   append: boolean;
   options: Record<string, unknown>;
-};
+}
 
-type InternalLoggerConfig = {
+interface InternalLoggerConfig {
   explicitLevel?: LogLevel;
   enableInProduction: boolean;
   prefix?: string;
@@ -138,7 +138,7 @@ type InternalLoggerConfig = {
   customTransports: readonly CustomTransportConfig[];
   browser?: BrowserLoggerOptions;
   redactPaths?: readonly string[];
-};
+}
 
 let internalConfig: InternalLoggerConfig = createDefaultConfig();
 let rootLogger: PinoLogger | undefined;
@@ -616,14 +616,14 @@ export function fatal(...args: unknown[]): void {
   logInternal(LogLevel.FATAL, undefined, args);
 }
 
-export type ScopedLogger = {
+export interface ScopedLogger {
   trace: (...args: unknown[]) => void;
   debug: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
   fatal: (...args: unknown[]) => void;
-};
+}
 
 const loggerCache = new Map<string, ScopedLogger>();
 

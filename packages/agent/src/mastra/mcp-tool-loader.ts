@@ -10,13 +10,13 @@ const logger = createLogger('MastraAgentMcpTools');
 
 const DEFAULT_MCP_TIMEOUT_MS = 5000;
 
-export type CollectCombinedToolsOptions = {
+export interface CollectCombinedToolsOptions {
   sanitizedLocalTools: ToolsInput | undefined;
   mcpClient: MCPClient | undefined;
   mcpConfig: McpConfig | undefined;
   toolNameMap: Map<string, string>;
   timeoutOverrideMs: number | undefined;
-};
+}
 
 type McpServerConfig = NonNullable<McpConfig['servers']>[number];
 

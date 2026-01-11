@@ -3,7 +3,7 @@
  * Used by both desktop and web Playwright configurations
  */
 
-export type EnvironmentConfig = {
+export interface EnvironmentConfig {
   isCodex: boolean;
   isGitHubActions: boolean;
   isCI: boolean;
@@ -12,7 +12,7 @@ export type EnvironmentConfig = {
   retries: number;
   headless: boolean;
   fullyParallel: boolean;
-};
+}
 
 /**
  * Detect the current environment based on environment variables

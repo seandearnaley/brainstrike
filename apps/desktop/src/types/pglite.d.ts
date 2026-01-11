@@ -5,13 +5,13 @@ declare module '@electric-sql/pglite/nodefs' {
 }
 
 declare module '@electric-sql/pglite' {
-  export type PGliteOptions = {
+  export interface PGliteOptions {
     dataDir?: string;
     // biome-ignore lint/suspicious/noExplicitAny: FileSystem interface varies by implementation
     fs?: any;
     // biome-ignore lint/suspicious/noExplicitAny: Extensions interface varies by implementation
     extensions?: any;
-  };
+  }
 
   export class PGlite {
     constructor(options?: PGliteOptions | string);

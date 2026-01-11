@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import { cn } from './lib/utils';
 
-export type LoadingFallbackProps = {
+export interface LoadingFallbackProps {
   /** The message to display while loading */
   message?: ReactNode;
-};
+}
 
 /**
  * A centered loading placeholder with pulse animation.

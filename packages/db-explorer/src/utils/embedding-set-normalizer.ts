@@ -2,23 +2,23 @@ import type { EmbeddingProviderType } from '@brainstrike/embeddings';
 import { canonicalizeProviderModelKey, formatProviderModelKey } from '@brainstrike/embeddings';
 import { createLogger } from '@brainstrike/utils';
 
-type SqlClient = {
+interface SqlClient {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
-};
+}
 
-type EmbeddingSetRow = {
+interface EmbeddingSetRow {
   id: string;
   modelKey: string;
   modelId: string;
   dimensions: number;
   distance: string;
   createdAt: string;
-};
+}
 
-type ChunkCountRow = {
+interface ChunkCountRow {
   embeddingSetId: string;
   count: number;
-};
+}
 
 type NormalizedRow = EmbeddingSetRow & {
   canonicalKey: string;

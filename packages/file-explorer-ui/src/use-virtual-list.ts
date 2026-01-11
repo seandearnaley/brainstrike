@@ -1,22 +1,22 @@
 import type { RefObject } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
 
-export type VirtualRange = {
+export interface VirtualRange {
   start: number;
   end: number;
-};
+}
 
-export type UseVirtualListOptions = {
+export interface UseVirtualListOptions {
   /** Number of rows to render above/below visible area (default: 5) */
   overscan?: number;
-};
+}
 
-export type UseVirtualListReturn = {
+export interface UseVirtualListReturn {
   containerRef: RefObject<HTMLDivElement | null>;
   range: VirtualRange;
   offset: number;
   totalHeight: number;
-};
+}
 
 /**
  * Virtual list hook for efficiently rendering large lists.

@@ -2,10 +2,10 @@ import type { IFileNode } from '@brainstrike/types';
 import { stableHash } from './hash-utils';
 import { createLogger } from './logger';
 
-type ExperimentalFileSystemFeatures = {
+interface ExperimentalFileSystemFeatures {
   isSameEntry(other: FileSystemHandle): Promise<boolean>;
   getParent(): Promise<FileSystemHandle | null>;
-};
+}
 
 // Custom error types for file system operations
 export class BrainStrikeError extends Error {

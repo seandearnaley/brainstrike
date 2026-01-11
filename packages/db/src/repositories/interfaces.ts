@@ -4,7 +4,7 @@ import type { FileImportRequest, FileImportResult, FileRecord } from '../models/
 /**
  * Common interface for all embedding sets repositories
  */
-export type IEmbeddingSetsRepository = {
+export interface IEmbeddingSetsRepository {
   getOrCreateSet(
     modelKey: string,
     modelId: string,
@@ -20,12 +20,12 @@ export type IEmbeddingSetsRepository = {
   ): Promise<EmbeddingSet | null>;
   findAll(): Promise<EmbeddingSet[]>;
   delete(id: string): Promise<boolean>;
-};
+}
 
 /**
  * Common interface for all file record repositories
  */
-export type IFileRecordRepository = {
+export interface IFileRecordRepository {
   create(record: FileRecord): Promise<void>;
   createWithContent(record: FileRecord): Promise<void>;
   findById(id: string): Promise<FileRecord | null>;
@@ -48,13 +48,13 @@ export type IFileRecordRepository = {
     onProgress?: (completed: number, total: number, current?: string) => void
   ): Promise<FileImportResult[]>;
   clearAll?(): Promise<number>;
-};
+}
 
 /**
  * Minimal database query interface that both PGlite and Electron API implement
  * This is a subset of PGlite's full interface to support both implementations
  */
-export type IDatabase = {
+export interface IDatabase {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
   transaction?<T>(fn: (tx: IDatabase) => Promise<T>): Promise<T>;
-};
+}

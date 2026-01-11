@@ -13,30 +13,30 @@ const PROGRESS_BATCH_SIZE = 25;
 // Default batch size for incremental directory loading
 const DEFAULT_BATCH_SIZE = 100;
 
-export type LoadingProgressState = {
+export interface LoadingProgressState {
   loaded: number;
   total: number;
   currentPath?: string;
   phase: 'counting' | 'loading';
-};
+}
 
-export type UseFileTreeOptions = {
+export interface UseFileTreeOptions {
   batchSize?: number;
-};
+}
 
-type ProcessingStats = {
+interface ProcessingStats {
   successCount: number;
   failCount: number;
-};
+}
 
-type StackItem = {
+interface StackItem {
   handle: DirectoryHandle;
   parent: IFileNode[];
   isRoot: boolean;
   path: string;
-};
+}
 
-type ProcessingContext = {
+interface ProcessingContext {
   rootFolderId: string;
   batchSize: number;
   fileSystemAdapter: ReturnType<typeof useAdapters>['fileSystemAdapter'];
@@ -56,7 +56,7 @@ type ProcessingContext = {
   setFileTree: (nodes: IFileNode[]) => void;
   sortFileNodes: (nodes: IFileNode[]) => IFileNode[];
   rootNodesRef: React.MutableRefObject<IFileNode[]>;
-};
+}
 
 export function useFileTree(
   rootDirectoryHandle: DirectoryHandle | null,

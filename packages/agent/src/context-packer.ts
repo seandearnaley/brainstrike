@@ -1,11 +1,11 @@
 import { countTokensHeuristic } from '@brainstrike/utils';
 
-type OffsetRange = {
+interface OffsetRange {
   start?: number;
   end?: number;
-};
+}
 
-export type ContextPackerChunk = {
+export interface ContextPackerChunk {
   id: string;
   content: string;
   tokenCount?: number | null;
@@ -16,9 +16,9 @@ export type ContextPackerChunk = {
   endOffset?: number;
   score?: number;
   metadata?: Record<string, unknown>;
-};
+}
 
-export type PackedContextChunk = {
+export interface PackedContextChunk {
   id: string;
   content: string;
   tokenCount: number;
@@ -29,24 +29,24 @@ export type PackedContextChunk = {
   score?: number;
   metadata?: Record<string, unknown>;
   rank: number;
-};
+}
 
-export type ContextPackerResult = {
+export interface ContextPackerResult {
   chunks: readonly PackedContextChunk[];
   totalTokens: number;
   budget: number;
   remainingTokens: number;
   skipped: number;
-};
+}
 
 /**
  * Options for configuring how context is packed into the budget.
  */
-export type ContextPackerOptions = {
+export interface ContextPackerOptions {
   budgetTokens: number;
   maxChunks?: number;
   estimateTokens?: (content: string) => number;
-};
+}
 
 function normalizeTokenCount(value: number | null | undefined): number | undefined {
   if (typeof value !== 'number' || !Number.isFinite(value)) {

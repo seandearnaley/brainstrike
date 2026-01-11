@@ -10,11 +10,11 @@ import {
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useState } from 'react';
 
-type Loaded = {
+interface Loaded {
   path: string;
   exists: boolean;
   servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
-};
+}
 
 async function fetchMcpConfig(): Promise<{ status: Loaded | null; error: string | null }> {
   try {

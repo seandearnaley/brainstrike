@@ -18,10 +18,10 @@ vi.mock('../use-file-explorer-context', () => ({
 
 // Avoid global module mocks; will spy on specific exports instead
 
-type MockTab = {
+interface MockTab {
   id: string;
   path: string;
-};
+}
 
 // Mock the TabbedFileEditor component
 vi.mock('../tabbed-file-editor', () => ({

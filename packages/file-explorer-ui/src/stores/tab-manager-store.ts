@@ -1,21 +1,21 @@
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type FileTabState = {
+export interface FileTabState {
   id: string;
   path: string;
   compositeKey: string;
   content: string | null;
   isLoading: boolean;
   error?: string | undefined;
-};
+}
 
-type TabManagerData = {
+interface TabManagerData {
   tabs: FileTabState[];
   activeTabId: string | null;
-};
+}
 
-type TabManagerActions = {
+interface TabManagerActions {
   openTab: (path: string, tabId: string, compositeKey: string) => void;
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
@@ -23,12 +23,19 @@ type TabManagerActions = {
   setTabLoading: (tabId: string, isLoading: boolean) => void;
   setTabError: (tabId: string, error: string) => void;
   clearTabs: () => void;
-};
+}
 
 export type TabManagerStore = TabManagerData & TabManagerActions;
 
-type PersistedTab = { id: string; path: string; compositeKey: string };
-type PersistedState = { tabs: PersistedTab[]; activeTabId: string | null };
+interface PersistedTab {
+  id: string;
+  path: string;
+  compositeKey: string;
+}
+interface PersistedState {
+  tabs: PersistedTab[];
+  activeTabId: string | null;
+}
 
 const STORE_NAME = 'tab-manager.v1' as const;
 

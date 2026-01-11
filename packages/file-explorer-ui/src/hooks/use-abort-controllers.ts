@@ -9,7 +9,7 @@
 
 import { useCallback, useRef } from 'react';
 
-export type UseAbortControllersReturn = {
+export interface UseAbortControllersReturn {
   /** Abort controller for root loading operation */
   rootAbortControllerRef: React.RefObject<AbortController | null>;
   /** Abort controllers for child directory loading operations */
@@ -24,7 +24,7 @@ export type UseAbortControllersReturn = {
   cancelAllLoading: () => void;
   /** Remove a child abort controller after completion */
   removeChildController: (path: string) => void;
-};
+}
 
 /**
  * Hook for managing abort controllers for file tree operations.

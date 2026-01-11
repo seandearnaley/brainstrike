@@ -7,12 +7,12 @@ async function reloadAndWait(page: import('@playwright/test').Page): Promise<voi
   await waitForAppLoad(page);
 }
 
-type PersistedPanelLayout = {
+interface PersistedPanelLayout {
   state?: {
     showRightPanel?: boolean;
     showConsole?: boolean;
   };
-};
+}
 
 async function getPersistedLayout(page: import('@playwright/test').Page) {
   return page.evaluate(() => {

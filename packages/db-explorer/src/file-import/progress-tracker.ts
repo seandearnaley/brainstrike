@@ -1,6 +1,9 @@
 import type { ImportProgress } from '@brainstrike/db';
 
-type ProgressError = { file: string; error: string };
+interface ProgressError {
+  file: string;
+  error: string;
+}
 
 type ProgressListener = (progress: ImportProgress) => void;
 

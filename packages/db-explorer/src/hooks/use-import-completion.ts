@@ -1,14 +1,14 @@
 import type { useToast } from '@brainstrike/ui';
 import type { EnhancedImportResult } from '../types';
 
-type ImportCounts = {
+interface ImportCounts {
   newFiles: number;
   existedButProcessed: number;
   failed: number;
   processingErrors: number;
   totalChunks: number;
   totalEmbeddings: number;
-};
+}
 
 function countImportOutcomes(results: EnhancedImportResult[]): ImportCounts {
   return {

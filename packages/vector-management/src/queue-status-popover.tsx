@@ -20,10 +20,10 @@ import { useCallback, useState } from 'react';
 import { QueueDiagnosticsPanel } from './queue-diagnostics-panel';
 import { useQueueHealthMetrics } from './use-queue-health-metrics';
 
-type StatusIndicatorIconProps = {
+interface StatusIndicatorIconProps {
   readonly hasErrors: boolean;
   readonly isActive: boolean;
-};
+}
 
 function StatusIndicatorIcon({ hasErrors, isActive }: StatusIndicatorIconProps): ReactElement {
   if (hasErrors) {
@@ -35,11 +35,11 @@ function StatusIndicatorIcon({ hasErrors, isActive }: StatusIndicatorIconProps):
   return <CheckCircle2 className="h-3 w-3 text-green-500" />;
 }
 
-type MetricBadgeProps = {
+interface MetricBadgeProps {
   readonly label: string;
   readonly value: number;
   readonly variant?: 'default' | 'error' | 'active';
-};
+}
 
 function MetricBadge({ label, value, variant = 'default' }: MetricBadgeProps): ReactElement {
   const colorClass =
@@ -57,14 +57,14 @@ function MetricBadge({ label, value, variant = 'default' }: MetricBadgeProps): R
   );
 }
 
-type CompactStatusProps = {
+interface CompactStatusProps {
   readonly totalQueued: number;
   readonly totalRunning: number;
   readonly totalFailed: number;
   readonly hasErrors: boolean;
   readonly isActive: boolean;
   readonly isOpen: boolean;
-};
+}
 
 function CompactStatus({
   totalQueued,
@@ -93,10 +93,10 @@ function CompactStatus({
   );
 }
 
-type PopoverHeaderProps = {
+interface PopoverHeaderProps {
   readonly hasErrors: boolean;
   readonly isActive: boolean;
-};
+}
 
 function PopoverHeader({ hasErrors, isActive }: PopoverHeaderProps): ReactElement {
   const statusText = hasErrors
@@ -132,12 +132,12 @@ function LoadingState(): ReactElement {
   );
 }
 
-type QueueStatusPopoverProps = {
+interface QueueStatusPopoverProps {
   /** Custom CSS class for the trigger */
   readonly className?: string;
   /** Tooltip content for the trigger */
   readonly tooltipContent?: ReactNode;
-};
+}
 
 /**
  * Expandable queue status component for the status bar.

@@ -9,28 +9,28 @@ import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('worker-storage');
 
-export type WorkerMessage = {
+export interface WorkerMessage {
   id: string;
   type: 'save' | 'load' | 'remove';
   key?: string | undefined;
   value?: unknown;
-};
+}
 
-export type WorkerResponse = {
+export interface WorkerResponse {
   id: string;
   type: 'success' | 'error';
   result?: unknown;
   error?: string;
-};
+}
 
-export type StorageRequest = {
+export interface StorageRequest {
   id: string;
   type: 'storage_request';
   operation: 'setItem' | 'getItem' | 'removeItem';
   key: string;
   value?: string;
   opId?: number;
-};
+}
 
 export class WorkerStorage {
   private worker: Worker | null = null;

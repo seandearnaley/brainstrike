@@ -20,19 +20,19 @@ import { createLogger } from '@brainstrike/utils';
 type AssistantUiMessage = AssistantUiMessageStrict;
 
 type AssistantRoute = 'status' | 'assistant' | 'not-found';
-type AssistantRequestPayload = {
+interface AssistantRequestPayload {
   rawMessages: AssistantUiMessage[];
   data: RuntimeData | undefined;
-};
-type AgentStreamSuccess = {
+}
+interface AgentStreamSuccess {
   ok: true;
   stream: AsyncIterable<StreamChunk>;
-};
-type AgentStreamFailure = {
+}
+interface AgentStreamFailure {
   ok: false;
   status: number;
   payload: { error: string; message: string };
-};
+}
 type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 
 import { readRequestBody, streamResponse } from './assistant-server/http';

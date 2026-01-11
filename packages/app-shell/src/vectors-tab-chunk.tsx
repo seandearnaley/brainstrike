@@ -2,7 +2,7 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { VectorStatusWithDialog } from '@brainstrike/vector-management';
 import type React from 'react';
 
-type VectorsTabProps = {
+interface VectorsTabProps {
   /**
    * CRITICAL: The embedding queue from the app layer.
    *
@@ -22,7 +22,7 @@ type VectorsTabProps = {
    * - Database operations will use wrong queue instance
    */
   embeddingQueue?: QueueAdapter | null;
-};
+}
 
 /**
  * Vectors tab chunk component showing vector status and embedding management controls.

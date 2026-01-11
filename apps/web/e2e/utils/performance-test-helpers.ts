@@ -5,13 +5,13 @@ import { promises as fs } from 'node:fs';
 import { resolve } from 'node:path';
 import type { Page } from '@playwright/test';
 
-export type PerformanceMetric = {
+export interface PerformanceMetric {
   name: string;
   value: number;
   threshold: number;
   unit: string;
   timestamp: number;
-};
+}
 
 /**
  * Records a performance metric with logging

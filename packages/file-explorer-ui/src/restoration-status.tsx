@@ -12,14 +12,14 @@ import { useMemo } from 'react';
 
 import type { RestorationProgress } from './use-file-explorer-context';
 
-export type RestorationStatusProps = {
+export interface RestorationStatusProps {
   /** Whether restoration is in progress */
   isRestoring: boolean;
   /** Restoration progress information */
   progress: RestorationProgress | null;
   /** Additional CSS classes */
   className?: string | undefined;
-};
+}
 
 /**
  * Format path for display by showing only the last 2 parts
@@ -68,7 +68,7 @@ export const RestorationStatus: React.FC<RestorationStatusProps> = React.memo(
         {/* Icon with animation */}
         <div className="relative shrink-0">
           <FolderOpen className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-          <Loader2 className="-right-1 -bottom-1 absolute h-3 w-3 animate-spin text-amber-600 dark:text-amber-400" />
+          <Loader2 className="absolute -right-1 -bottom-1 h-3 w-3 animate-spin text-amber-600 dark:text-amber-400" />
         </div>
 
         {/* Progress bar and text */}

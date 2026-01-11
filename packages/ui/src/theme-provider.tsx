@@ -4,17 +4,17 @@ import * as React from 'react';
 
 type Theme = 'dark' | 'light' | 'system';
 
-type ThemeProviderProps = {
+interface ThemeProviderProps {
   children: React.ReactNode;
   defaultTheme?: Theme;
   storageKey?: string;
   storageAdapter?: StorageAdapter;
-};
+}
 
-type ThemeProviderState = {
+interface ThemeProviderState {
   theme: Theme;
   setTheme: (theme: Theme) => void;
-};
+}
 
 const ThemeProviderContext = React.createContext<ThemeProviderState | undefined>(undefined);
 

@@ -4,16 +4,16 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
 
-type SecretsApi = {
+interface SecretsApi {
   list: () => Promise<string[]>;
   listStored: () => Promise<string[]>;
   saveKey: (provider: string, key: string) => Promise<{ ok?: boolean; error?: string } | undefined>;
   getKey: (provider: string) => Promise<string | null>;
   deleteKey: (provider: string) => Promise<void>;
   clearAll?: () => Promise<{ success: boolean; message?: string }>;
-};
+}
 
-type McpApi = {
+interface McpApi {
   getConfig: () => Promise<{ path: string; exists: boolean; servers: never[] }>;
   selectPath: () => Promise<string | null>;
   setPath: (path: string | null) => Promise<{ success: boolean; path: string }>;
@@ -29,7 +29,7 @@ type McpApi = {
   enableServerTools: (serverName: string) => Promise<void>;
   disableServerTools: (serverName: string) => Promise<void>;
   resetTools: () => Promise<void>;
-};
+}
 
 const getWindowWithExtensions = () =>
   window as typeof window & { secrets?: SecretsApi; mcp?: McpApi };

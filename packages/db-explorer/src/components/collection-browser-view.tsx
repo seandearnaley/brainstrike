@@ -38,7 +38,7 @@ import {
 import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
-export type CollectionBrowserViewProps = {
+export interface CollectionBrowserViewProps {
   /** File records */
   records: FileRecord[];
   /** File chunks */
@@ -55,7 +55,7 @@ export type CollectionBrowserViewProps = {
   onFileSelect?: (fileId: string, file: FileRecord) => void;
   /** Called when a chunk is selected */
   onChunkSelect?: (chunkId: string, chunk: FileChunk) => void;
-};
+}
 
 /**
  * Transform database data into CollectionTreeInput format

@@ -51,12 +51,12 @@ export const useToastManager = () => {
       action?: ToastActionElement;
     }) => {
       // Define local type for toast options, consistent with useToast's expectations
-      type ResolvedToastOptions = {
+      interface ResolvedToastOptions {
         title: string;
         description: string;
         variant?: 'default' | 'destructive';
         action?: ToastActionElement;
-      };
+      }
 
       const toastOptions: ResolvedToastOptions = {
         title,

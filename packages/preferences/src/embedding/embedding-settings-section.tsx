@@ -30,7 +30,7 @@ import { useModelRegistryStore } from '../stores/model-registry-store';
 
 type HostedEmbeddingProviderId = HostedProviderType;
 
-type ModelPreset = {
+interface ModelPreset {
   readonly id: string;
   readonly name: string;
   readonly description: string;
@@ -38,7 +38,7 @@ type ModelPreset = {
   readonly modelId: string;
   readonly badge: string;
   readonly icon: '🎯' | '💰' | '🌍';
-};
+}
 
 const MODEL_PRESETS: readonly ModelPreset[] = [
   {
@@ -70,11 +70,11 @@ const MODEL_PRESETS: readonly ModelPreset[] = [
   },
 ] as const;
 
-type CodeChunkRow = {
+interface CodeChunkRow {
   key: keyof typeof CHUNKING_CONFIG.codeLanguageDefaults;
   label: string;
   extensions: string;
-};
+}
 
 const CODE_CHUNK_ROWS: readonly CodeChunkRow[] = [
   { key: 'typescript', label: 'TypeScript', extensions: 'ts, tsx, mts, cts' },
@@ -91,7 +91,7 @@ const CODE_CHUNK_ROWS: readonly CodeChunkRow[] = [
   { key: 'kotlin', label: 'Kotlin', extensions: 'kt, kts' },
 ] as const;
 
-type NormalizedEmbeddingModel = {
+interface NormalizedEmbeddingModel {
   readonly id: string;
   readonly label: string;
   readonly description?: string;
@@ -100,15 +100,15 @@ type NormalizedEmbeddingModel = {
   readonly supportsCustomDimensions: boolean;
   readonly availableDimensions?: readonly number[];
   readonly isDefault: boolean;
-};
+}
 
-type NormalizedEmbeddingProvider = {
+interface NormalizedEmbeddingProvider {
   readonly id: EmbeddingProviderType;
   readonly displayName: string;
   readonly runtime: 'browser' | 'hosted';
   readonly models: readonly NormalizedEmbeddingModel[];
   readonly pending?: boolean;
-};
+}
 
 const HOSTED_PROVIDER_METADATA: Record<
   HostedEmbeddingProviderId,
@@ -293,7 +293,7 @@ function filterVisibleModels(
   });
 }
 
-type ProviderSectionContext = {
+interface ProviderSectionContext {
   provider: NormalizedEmbeddingProvider;
   enabledModelsByProvider: EnabledModelsByProvider;
   normalizedSearch: string;
@@ -303,7 +303,7 @@ type ProviderSectionContext = {
     models: readonly string[],
     enabled: boolean
   ) => void;
-};
+}
 
 function renderProviderSection({
   provider,
@@ -487,7 +487,7 @@ export function EmbeddingSettings() {
                 placeholder="Search embedding models"
                 value={searchTerm}
               />
-              <SearchIcon className="-translate-y-1/2 absolute top-1/2 left-2.5 h-4 w-4 text-muted-foreground" />
+              <SearchIcon className="absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
           </div>
 
@@ -573,12 +573,12 @@ export function EmbeddingSettings() {
   );
 }
 
-type EmbeddingModelRowProps = {
+interface EmbeddingModelRowProps {
   providerId: EmbeddingProviderType;
   model: NormalizedEmbeddingModel;
   enabled: boolean;
   onToggle: (enabled: boolean) => void;
-};
+}
 
 function EmbeddingModelRow({ providerId, model, enabled, onToggle }: EmbeddingModelRowProps) {
   const handleChange = (checked: boolean) => {
@@ -616,9 +616,9 @@ function EmbeddingModelRow({ providerId, model, enabled, onToggle }: EmbeddingMo
   );
 }
 
-type PendingProviderSectionProps = {
+interface PendingProviderSectionProps {
   provider: NormalizedEmbeddingProvider;
-};
+}
 
 function LocalPendingSection({ provider }: PendingProviderSectionProps) {
   return (
@@ -662,9 +662,9 @@ function PendingProviderSection({ provider }: PendingProviderSectionProps) {
   );
 }
 
-type EmptyProviderSectionProps = {
+interface EmptyProviderSectionProps {
   provider: NormalizedEmbeddingProvider;
-};
+}
 
 function LocalEmptySection({ provider }: EmptyProviderSectionProps) {
   return (

@@ -64,9 +64,9 @@ import { useDatabaseDemoData } from './use-database-demo-data';
 import type { UseImportFlowResult } from './use-import-flow';
 import { useImportFlow } from './use-import-flow';
 
-type DatabaseDemoPanelProps = {
+interface DatabaseDemoPanelProps {
   embeddingQueue?: QueueAdapter | null;
-};
+}
 
 const logger = createLogger('DatabaseDemoPanel');
 

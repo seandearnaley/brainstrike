@@ -2,14 +2,14 @@ import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-type DatabaseDemoData = {
+interface DatabaseDemoData {
   showSettings: boolean;
   expandedFileIds: string[];
   searchQuery: string;
   searchThreshold: number;
-};
+}
 
-type DatabaseDemoActions = {
+interface DatabaseDemoActions {
   setShowSettings: (v: boolean) => void;
   addExpanded: (id: string) => void;
   removeExpanded: (id: string) => void;
@@ -17,7 +17,7 @@ type DatabaseDemoActions = {
   clearExpanded: () => void;
   setSearchQuery: (q: string) => void;
   setSearchThreshold: (t: number) => void;
-};
+}
 
 export type DatabaseDemoStore = DatabaseDemoData & DatabaseDemoActions;
 

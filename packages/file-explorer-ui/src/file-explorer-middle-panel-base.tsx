@@ -12,9 +12,9 @@ import { useSelectionManager } from './use-selection-manager-context';
 import { useTokenCounting } from './use-token-counting';
 import { buildFileNodeCache } from './utils/file-node-cache';
 
-type FileExplorerMiddlePanelBaseProps = {
+interface FileExplorerMiddlePanelBaseProps {
   estimateTokenCost?: (tokens: number) => number;
-};
+}
 
 export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBaseProps> = ({
   estimateTokenCost,

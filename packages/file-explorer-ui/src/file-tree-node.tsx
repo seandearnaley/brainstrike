@@ -14,14 +14,14 @@ import NodeCheckbox from './node-checkbox';
 import NodeIcon from './node-icon';
 import { useFileTreeNodeSelection } from './use-file-tree-node-selection';
 
-type IFileTreeNodeProps = {
+interface IFileTreeNodeProps {
   node: IFileNode;
   isExpanded: boolean;
   onToggleDirectoryExpansion: (path: string) => void;
   onToggleFileSelection: (path: string) => void;
   isLoading: boolean;
   folderId: string;
-};
+}
 
 /**
  * FileTreeNode is a recursive component that renders a single node in the file explorer tree.

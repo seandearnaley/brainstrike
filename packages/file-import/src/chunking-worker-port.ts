@@ -25,7 +25,7 @@ const logger = createLogger('ChunkingWorkerPort');
 /**
  * Callbacks for batch processing events.
  */
-export type ChunkingBatchCallbacks = {
+export interface ChunkingBatchCallbacks {
   onProgress?: (
     fileRecordId: string,
     chunksCreated: number,
@@ -34,12 +34,12 @@ export type ChunkingBatchCallbacks = {
   ) => void;
   onFileComplete?: (fileRecordId: string, result: ChunkResult) => void;
   onFileError?: (fileRecordId: string, error: string) => void;
-};
+}
 
 /**
  * Port interface for interacting with the chunking worker.
  */
-export type ChunkingWorkerPort = {
+export interface ChunkingWorkerPort {
   /**
    * Chunk a single file.
    */
@@ -74,7 +74,7 @@ export type ChunkingWorkerPort = {
    * Terminate the worker and clean up resources.
    */
   terminate(): void;
-};
+}
 
 /**
  * Convert PortableChunk[] to FileChunkInsert[] for database insertion.

@@ -9,7 +9,7 @@ const logger = createLogger('useFileCollectionStatus');
  * Database row returned by file status query
  * Uses snake_case to match database column naming
  */
-type FileStatusRow = {
+interface FileStatusRow {
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   file_id: string;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
@@ -24,7 +24,7 @@ type FileStatusRow = {
   other_collections: string | number;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   last_indexed: string | null;
-};
+}
 
 /**
  * Type guard to validate database row has required fields

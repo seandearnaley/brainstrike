@@ -6,7 +6,7 @@ import { ModelPickerItem } from './model-picker-item';
 import { ModelPickerSearch } from './model-picker-search';
 import type { ModelPickerModel, ModelPickerProvider } from './types';
 
-type ModelPickerContentProps = {
+interface ModelPickerContentProps {
   models: ModelPickerModel[];
   providers: ModelPickerProvider[];
   selectedValues: string[];
@@ -15,7 +15,7 @@ type ModelPickerContentProps = {
   searchable?: boolean;
   searchQuery: string;
   onSearchChange: (value: string) => void;
-};
+}
 
 export function ModelPickerContent({
   models,

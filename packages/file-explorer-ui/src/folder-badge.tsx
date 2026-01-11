@@ -3,10 +3,10 @@ import { getFolderColor } from '@brainstrike/utils';
 import { Folder } from 'lucide-react';
 import * as React from 'react';
 
-type FolderBadgeProps = {
+interface FolderBadgeProps {
   folderId: string;
   className?: string;
-};
+}
 
 export const FolderBadge = React.memo(({ folderId, className }: FolderBadgeProps) => {
   const colors = getFolderColor(folderId);

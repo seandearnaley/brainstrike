@@ -20,7 +20,7 @@ export type SelectionMode = 'explicit' | 'rules';
  * Selection model that supports both explicit and rule-based selection.
  * This abstraction allows coexistence during migration from explicit to rules.
  */
-export type SelectionModel = {
+export interface SelectionModel {
   /** Current selection mode */
   mode: SelectionMode;
 
@@ -46,18 +46,18 @@ export type SelectionModel = {
    * Timestamp of last materialization (for cache invalidation).
    */
   materializedAt: string | null;
-};
+}
 
 /**
  * Serialized version of SelectionModel for persistence.
  */
-export type SerializedSelectionModel = {
+export interface SerializedSelectionModel {
   mode: SelectionMode;
   explicitPaths: string[];
   ruleSetJson: string | null;
   materializedPaths: string[] | null;
   materializedAt: string | null;
-};
+}
 
 /**
  * Create an empty selection model with explicit mode.
@@ -77,7 +77,7 @@ export function createEmptySelectionModel(): SelectionModel {
 // ============================================================================
 
 // Helper types for serialization
-export type SerializedFolderState = {
+export interface SerializedFolderState {
   selectedFilePaths: string[];
   expandedDirectoryPaths: string[];
   includeFilters: string[];
@@ -93,9 +93,9 @@ export type SerializedFolderState = {
   maxSelectionCount: number;
   lastActiveTab: string;
   lastAccessed: number;
-};
+}
 
-export type SerializedState = {
+export interface SerializedState {
   currentFolderId: string | null;
   folderStates: Record<string, SerializedFolderState>;
   folderAccessOrder: string[];
@@ -120,9 +120,9 @@ export type SerializedState = {
    * Optional for backward compatibility with existing persisted state.
    */
   selectionModel?: SerializedSelectionModel;
-};
+}
 
-export type FolderState = {
+export interface FolderState {
   selectedFilePaths: Set<string>;
   expandedDirectoryPaths: Set<string>;
   includeFilters: string[];
@@ -138,10 +138,10 @@ export type FolderState = {
   maxSelectionCount: number;
   lastActiveTab: string;
   lastAccessed: number;
-};
+}
 
 // Data types
-export type FileExplorerData = {
+export interface FileExplorerData {
   currentFolderId: string | null;
   folderStates: Record<string, FolderState>;
   folderAccessOrder: string[];
@@ -172,14 +172,14 @@ export type FileExplorerData = {
    * Enables migration from explicit to rules while maintaining backward compatibility.
    */
   selectionModel: SelectionModel;
-};
+}
 
-export type CacheStats = {
+export interface CacheStats {
   totalSize: number;
   entryCount: number;
   hitRate: number;
   evictionCount: number;
-};
+}
 
 // Store interface extends data with actions
 export interface FileExplorerState extends FileExplorerData {

@@ -46,14 +46,14 @@
  * Database interface required for health checking.
  * Minimal subset of PGlite interface.
  */
-export type HealthCheckDb = {
+export interface HealthCheckDb {
   query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
-};
+}
 
 /**
  * Result of checking a single table's health.
  */
-export type TableHealthResult = {
+export interface TableHealthResult {
   /** Table name */
   table: string;
   /** Whether the table exists */
@@ -62,12 +62,12 @@ export type TableHealthResult = {
   rowCount?: number;
   /** Any issues detected */
   issues: string[];
-};
+}
 
 /**
  * Overall pipeline schema health summary.
  */
-export type SchemaHealthSummary = {
+export interface SchemaHealthSummary {
   /** Whether the schema is healthy overall */
   healthy: boolean;
   /** Timestamp of the health check */
@@ -78,12 +78,12 @@ export type SchemaHealthSummary = {
   issues: string[];
   /** Corruption metrics */
   corruption: CorruptionMetrics;
-};
+}
 
 /**
  * Metrics about potential corruption.
  */
-export type CorruptionMetrics = {
+export interface CorruptionMetrics {
   /** Chunks without valid file_record references */
   orphanedChunks: number;
   /** Jobs stuck in 'running' state past lease expiry */
@@ -92,24 +92,24 @@ export type CorruptionMetrics = {
   invalidEmbeddingSetRefs: number;
   /** Jobs with invalid or unparseable payloads */
   invalidJobPayloads: number;
-};
+}
 
 /**
  * Result of a recovery operation.
  */
-export type RecoveryResult = {
+export interface RecoveryResult {
   /** Whether recovery succeeded */
   success: boolean;
   /** Number of items recovered/cleaned */
   recoveredCount: number;
   /** Error message if recovery failed */
   error?: string;
-};
+}
 
 /**
  * Schema health checker interface.
  */
-export type SchemaHealthChecker = {
+export interface SchemaHealthChecker {
   /**
    * Check if all required pipeline tables exist.
    */
@@ -162,7 +162,7 @@ export type SchemaHealthChecker = {
    * @returns Recovery result with counts
    */
   clearForReindex(): Promise<RecoveryResult>;
-};
+}
 
 // =============================================================================
 // CONSTANTS

@@ -20,14 +20,14 @@ import { useLazyFileTree } from './use-lazy-file-tree';
  * Simplified loading progress state for lazy loading.
  * Since we no longer do full tree scans, progress is much simpler.
  */
-export type LoadingProgressState = {
+export interface LoadingProgressState {
   /** Number of directories currently loading */
   loadingCount: number;
   /** Whether initial root load is in progress */
   isInitialLoading: boolean;
-};
+}
 
-export type CancellableFileTreeHook = {
+export interface CancellableFileTreeHook {
   fileTree: IFileNode[];
   isLoading: boolean;
   error: Error | null;
@@ -62,7 +62,7 @@ export type CancellableFileTreeHook = {
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void
   ) => Promise<void>;
-};
+}
 
 /**
  * File tree hook with lazy loading.

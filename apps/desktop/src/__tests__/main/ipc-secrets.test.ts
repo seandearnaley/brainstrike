@@ -8,13 +8,13 @@ vi.mock('electron', () => ({
   },
 }));
 
-type SecretsServiceMock = {
+interface SecretsServiceMock {
   saveKey: ReturnType<typeof vi.fn>;
   getKey: ReturnType<typeof vi.fn>;
   deleteKey: ReturnType<typeof vi.fn>;
   listProviders: ReturnType<typeof vi.fn>;
   clearAll: ReturnType<typeof vi.fn>;
-};
+}
 
 const ORIGINAL_NODE_ENV = process.env['NODE_ENV'];
 const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];

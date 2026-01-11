@@ -7,13 +7,13 @@ import type {
   StreamingDirectoryReadOptions,
 } from '../types';
 
-export type MockFileEntry = {
+export interface MockFileEntry {
   name: string;
   type: 'file' | 'directory';
   content?: string;
   size?: number;
   children?: Record<string, MockFileEntry>;
-};
+}
 
 // Navigation helper functions
 function navigateToPath(

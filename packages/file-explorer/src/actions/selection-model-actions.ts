@@ -11,13 +11,13 @@ import type { StoreApi, UseBoundStore } from 'zustand';
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
 
-export type SelectionModelActions = {
+export interface SelectionModelActions {
   setSelectionMode: (mode: SelectionMode) => void;
   setSelectionRules: (ruleSetJson: string) => void;
   clearSelectionRules: () => void;
   commitRulesToExplicit: () => void;
   setMaterializedPaths: (paths: Set<string>) => void;
-};
+}
 
 export const createSelectionModelActions = (
   set: SetState<FileExplorerState>,

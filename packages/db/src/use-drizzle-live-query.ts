@@ -11,23 +11,23 @@
 import { useCallback, useMemo, useState } from 'react';
 import { type LiveQueryHookResult, usePGliteLiveQuery } from './use-live-query.js';
 
-type DrizzleLiveQueryOptions = {
+interface DrizzleLiveQueryOptions {
   /** Enable or disable the query */
   readonly enabled?: boolean;
   /** Offset for pagination */
   readonly offset?: number;
   /** Limit for pagination */
   readonly limit?: number;
-};
+}
 
 /**
  * Minimal interface for Drizzle query objects.
  * Uses structural typing to accept any object with a toSQL() method,
  * avoiding the need for complex Drizzle generic types.
  */
-type DrizzleQueryLike = {
+interface DrizzleQueryLike {
   toSQL(): { sql: string; params: unknown[] };
-};
+}
 
 /**
  * Extracts SQL and params from a Drizzle query using toSQL()

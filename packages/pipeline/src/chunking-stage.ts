@@ -49,20 +49,20 @@ import type {
  * Portable chunk from the chunking worker.
  * This mirrors @brainstrike/chunking-worker's PortableChunk type.
  */
-export type PortableChunk = {
+export interface PortableChunk {
   chunkIndex: number;
   content: string;
   contentHash: string;
   tokenCount: number;
   chunkType: 'text' | 'code' | 'sentence' | 'recursive';
   chunkSize: number;
-};
+}
 
 /**
  * Result from chunking a single file via the worker.
  * This mirrors @brainstrike/chunking-worker's ChunkResult type.
  */
-export type WorkerChunkResult = {
+export interface WorkerChunkResult {
   type: 'result';
   id: string;
   fileRecordId: string;
@@ -71,18 +71,18 @@ export type WorkerChunkResult = {
   totalTokens: number;
   skipped: boolean;
   skipReason?: string;
-};
+}
 
 /**
  * Options passed to the chunking worker.
  */
-export type ChunkingRequestOptions = {
+export interface ChunkingRequestOptions {
   strategy: ChunkingStrategy;
   forceStrategy?: boolean;
   ignoreFileTypeRecommendations?: boolean;
   maxTokens?: number;
   overlap?: number;
-};
+}
 
 /**
  * Abstract interface for the chunking worker port.
@@ -90,7 +90,7 @@ export type ChunkingRequestOptions = {
  * This allows the pipeline to work with any worker port implementation
  * that conforms to this interface, enabling testing and flexibility.
  */
-export type ChunkingWorkerPortLike = {
+export interface ChunkingWorkerPortLike {
   /**
    * Chunk a single file.
    */
@@ -134,7 +134,7 @@ export type ChunkingWorkerPortLike = {
    * Terminate the worker.
    */
   terminate(): void;
-};
+}
 
 // =============================================================================
 // CHUNKING STAGE TYPES
@@ -143,7 +143,7 @@ export type ChunkingWorkerPortLike = {
 /**
  * Configuration for creating a chunking stage.
  */
-export type ChunkingStageConfig = {
+export interface ChunkingStageConfig {
   /** Worker port for off-thread chunking */
   workerPort: ChunkingWorkerPortLike;
   /** Default chunking strategy if not specified per-file */
@@ -154,7 +154,7 @@ export type ChunkingStageConfig = {
   defaultOverlap?: number;
   /** Timeout for worker readiness (ms) */
   workerReadyTimeoutMs?: number;
-};
+}
 
 /**
  * Progress callback for chunking operations.
@@ -164,7 +164,7 @@ export type ChunkingProgressCallback = (progress: ChunkingStageProgress) => void
 /**
  * Progress state during chunking.
  */
-export type ChunkingStageProgress = {
+export interface ChunkingStageProgress {
   /** Total files to chunk */
   totalFiles: number;
   /** Files completed (success or failure) */
@@ -177,12 +177,12 @@ export type ChunkingStageProgress = {
   currentFile?: string;
   /** Elapsed time in milliseconds */
   elapsedMs: number;
-};
+}
 
 /**
  * Input for batch chunking.
  */
-export type ChunkingBatchInput = {
+export interface ChunkingBatchInput {
   /** Files to chunk */
   files: ChunkingInput[];
   /** Progress callback */
@@ -191,12 +191,12 @@ export type ChunkingBatchInput = {
   signal?: AbortSignal;
   /** Continue processing on individual file errors */
   continueOnError?: boolean;
-};
+}
 
 /**
  * Result from batch chunking.
  */
-export type ChunkingBatchResult = {
+export interface ChunkingBatchResult {
   /** Results for each file */
   results: ChunkingOutput[];
   /** Total files processed */
@@ -211,12 +211,12 @@ export type ChunkingBatchResult = {
   totalTokens: number;
   /** Processing duration in ms */
   durationMs: number;
-};
+}
 
 /**
  * The chunking stage interface.
  */
-export type ChunkingStage = {
+export interface ChunkingStage {
   /**
    * Chunk a single file.
    */
@@ -241,7 +241,7 @@ export type ChunkingStage = {
    * Terminate the worker.
    */
   terminate(): void;
-};
+}
 
 // =============================================================================
 // CONVERSION UTILITIES
@@ -385,12 +385,12 @@ export function createChunkingStage(config: ChunkingStageConfig): ChunkingStage 
   // Batch Processing Helpers (extracted to reduce cognitive complexity)
   // ---------------------------------------------------------------------------
 
-  type BatchState = {
+  interface BatchState {
     results: ChunkingOutput[];
     totalChunks: number;
     totalTokens: number;
     failedCount: number;
-  };
+  }
 
   function createBatchState(): BatchState {
     return {

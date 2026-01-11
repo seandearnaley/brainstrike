@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import { cn } from './lib/utils';
 
-export type ErrorFallbackProps = {
+export interface ErrorFallbackProps {
   /** The error message or component to display */
   message?: ReactNode;
-};
+}
 
 /**
  * A simple error message display with red text styling.

@@ -17,12 +17,12 @@ import type { TokenCountingMode } from './types';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
-export type WorkerLog = {
+export interface WorkerLog {
   type: 'log';
   level: LogLevel;
   message: string;
   data?: Record<string, unknown> | undefined;
-};
+}
 
 function formatError(error: unknown): {
   message: string;
@@ -68,7 +68,7 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
 }
 
 // Message types for worker communication
-export type IndexerRequest = {
+export interface IndexerRequest {
   type: 'index';
   id: string;
   compositeKey: string;
@@ -82,14 +82,14 @@ export type IndexerRequest = {
   fileHandle?: FileSystemFileHandle;
   cachedHash: string | undefined; // If provided, skip if hash matches
   mode: TokenCountingMode;
-};
+}
 
-export type IndexerBatchRequest = {
+export interface IndexerBatchRequest {
   type: 'index-batch';
   requests: Omit<IndexerRequest, 'type'>[];
-};
+}
 
-export type IndexerResult = {
+export interface IndexerResult {
   type: 'result';
   id: string;
   compositeKey: string;
@@ -102,29 +102,29 @@ export type IndexerResult = {
   skipped: boolean; // True if hash matched and counting was skipped
   /** Time taken to process this file (ms) */
   elapsedMs: number;
-};
+}
 
-export type IndexerProgress = {
+export interface IndexerProgress {
   type: 'progress';
   completed: number;
   total: number;
   currentId: string;
-};
+}
 
-export type IndexerError = {
+export interface IndexerError {
   type: 'error';
   id: string;
   compositeKey: string;
   error: string;
-};
+}
 
 export type WorkerMessage = IndexerRequest | IndexerBatchRequest;
 export type WorkerResponse = IndexerResult | IndexerProgress | IndexerError | WorkerLog;
 
 // Lazy-loaded modules
-type XXHashModule = {
+interface XXHashModule {
   h64: (input: string) => bigint;
-};
+}
 
 let hasherInstance: XXHashModule | null = null;
 let tokenUtilsPromise: Promise<{

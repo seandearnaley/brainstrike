@@ -6,7 +6,10 @@ import {
   resolveDataStreamSession,
 } from '../stream/data-stream';
 
-type Encoded = { code: string; value: unknown };
+interface Encoded {
+  code: string;
+  value: unknown;
+}
 
 function assertDefined<T>(value: T | undefined, message: string): T {
   if (value === undefined) {
@@ -711,4 +714,7 @@ describe('AssistantDataStreamSession', () => {
   });
 });
 
-type Usage = { promptTokens: number; completionTokens: number };
+interface Usage {
+  promptTokens: number;
+  completionTokens: number;
+}

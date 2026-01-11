@@ -6,14 +6,14 @@ declare module '*.png?url' {
   export default src;
 }
 
-type ImportMetaEnv = {
+interface ImportMetaEnv {
   readonly VITE_APP_TITLE: string;
   readonly VITE_APP_VERSION?: string;
   readonly VITE_QUEUE_TELEMETRY_ENDPOINT?: string;
   readonly VITE_QUEUE_TELEMETRY_API_KEY?: string;
   readonly MODE: string;
-};
+}
 
-type ImportMeta = {
+interface ImportMeta {
   readonly env: ImportMetaEnv;
-};
+}

@@ -11,36 +11,35 @@ const logger = createLogger('device-detection');
 
 // WebGPU types for environments where @webgpu/types is not available
 // These are minimal type definitions for the APIs we use
-type GPURequestAdapterOptions = {
+interface GPURequestAdapterOptions {
   powerPreference?: 'low-power' | 'high-performance';
-};
+}
 
-type GPUAdapterInfo = {
+interface GPUAdapterInfo {
   vendor: string;
   architecture: string;
   description: string;
-};
+}
 
-type GPUSupportedLimits = {
+interface GPUSupportedLimits {
   maxBufferSize: number;
   maxComputeWorkgroupsPerDimension: number;
   maxStorageBufferBindingSize: number;
-};
+}
 
-type GPUAdapter = {
+interface GPUAdapter {
   features: Set<string>;
   limits: GPUSupportedLimits;
   isFallbackAdapter: boolean;
   requestAdapterInfo: () => Promise<GPUAdapterInfo>;
-};
+}
 
-type Gpu = {
+interface Gpu {
   requestAdapter: (options?: GPURequestAdapterOptions) => Promise<GPUAdapter | null>;
-};
+}
 
 // Augment Navigator type for WebGPU
 declare global {
-  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface declaration merging is required for global type augmentation
   interface Navigator {
     gpu?: Gpu;
   }
@@ -54,7 +53,7 @@ export type EmbeddingDeviceType = 'webgpu' | 'wasm';
 /**
  * Detailed WebGPU adapter information
  */
-export type WebGPUAdapterInfo = {
+export interface WebGPUAdapterInfo {
   /** Vendor string (e.g., 'intel', 'nvidia', 'amd', 'apple') */
   vendor: string;
   /** Architecture string (e.g., 'gen-12lp', 'ampere') */
@@ -71,12 +70,12 @@ export type WebGPUAdapterInfo = {
     maxComputeWorkgroupsPerDimension: number;
     maxStorageBufferBindingSize: number;
   };
-};
+}
 
 /**
  * Result of device capability detection
  */
-export type DeviceCapabilities = {
+export interface DeviceCapabilities {
   /** Whether WebGPU API is present in the browser */
   webgpuApiPresent: boolean;
   /** Whether WebGPU adapter was successfully obtained */
@@ -95,12 +94,12 @@ export type DeviceCapabilities = {
   recommendationReason: string;
   /** Detection timestamp */
   detectedAt: number;
-};
+}
 
 /**
  * Guidance for users when a device is unavailable
  */
-export type DeviceUnavailableGuidance = {
+export interface DeviceUnavailableGuidance {
   /** The device that failed */
   device: EmbeddingDeviceType;
   /** Human-readable error title */
@@ -111,7 +110,7 @@ export type DeviceUnavailableGuidance = {
   suggestions: string[];
   /** Alternative device to try */
   fallbackDevice: EmbeddingDeviceType | null;
-};
+}
 
 /**
  * Timeout for WebGPU adapter requests in milliseconds.
@@ -127,11 +126,11 @@ let pendingDetection: Promise<DeviceCapabilities> | null = null;
 /**
  * Result of WebGPU adapter probing
  */
-type WebGPUProbeResult = {
+interface WebGPUProbeResult {
   adapterAvailable: boolean;
   adapterInfo: WebGPUAdapterInfo | null;
   unavailableReason: string | null;
-};
+}
 
 /**
  * Creates a timeout promise that rejects after the specified duration.

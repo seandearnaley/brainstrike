@@ -2,12 +2,12 @@ import { Button, Progress } from '@brainstrike/ui';
 import { CheckCircle, FileText, Layers, X } from 'lucide-react';
 import type { EnhancedImportProgress } from '../types';
 
-type ImportProgressBarProps = {
+interface ImportProgressBarProps {
   progress: EnhancedImportProgress;
   onClose?: () => void;
   onCancel?: () => void;
   isCancelling?: boolean;
-};
+}
 
 /**
  * ImportProgressBar - Compact inline progress display for import operations.

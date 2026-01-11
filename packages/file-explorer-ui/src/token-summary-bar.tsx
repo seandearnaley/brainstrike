@@ -3,14 +3,14 @@ import { CheckCircle2, Files, Layers, type LucideIcon, TreePine } from 'lucide-r
 import { memo, type ReactNode } from 'react';
 import type { TokenCountingState } from './use-token-counting';
 
-type StatItemProps = {
+interface StatItemProps {
   icon: LucideIcon;
   iconColor?: string;
   label: string;
   value: string | number;
   tooltip?: ReactNode;
   muted?: boolean;
-};
+}
 
 const StatItem = memo<StatItemProps>(function StatItem({
   icon: Icon,
@@ -46,9 +46,9 @@ const StatItem = memo<StatItemProps>(function StatItem({
   );
 });
 
-type TokenStatusBadgeProps = {
+interface TokenStatusBadgeProps {
   tokenCounting: TokenCountingState;
-};
+}
 
 const TokenStatusBadge = memo<TokenStatusBadgeProps>(function TokenStatusBadge({ tokenCounting }) {
   const isAccurate = tokenCounting.mode === 'accurate';
@@ -82,10 +82,10 @@ const TokenStatusBadge = memo<TokenStatusBadgeProps>(function TokenStatusBadge({
   );
 });
 
-type BudgetStatusProps = {
+interface BudgetStatusProps {
   remaining: number;
   isOverBudget: boolean;
-};
+}
 
 const BudgetStatus = memo<BudgetStatusProps>(function BudgetStatus({ remaining, isOverBudget }) {
   return (
@@ -102,7 +102,7 @@ const BudgetStatus = memo<BudgetStatusProps>(function BudgetStatus({ remaining, 
   );
 });
 
-type TokenSummaryBarProps = {
+interface TokenSummaryBarProps {
   totalFiles: number;
   selectedTokens: number;
   treeTokens: number;
@@ -113,7 +113,7 @@ type TokenSummaryBarProps = {
   budget: number;
   isOverBudget: boolean;
   tokenCounting: TokenCountingState;
-};
+}
 
 /**
  * TokenSummaryBar - A compact horizontal bar showing token statistics.

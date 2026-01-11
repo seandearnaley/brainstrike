@@ -75,10 +75,10 @@ const formatInitializationError = (error: unknown, modelName: string): string =>
   return error.message;
 };
 
-type ModelInfoProps = {
+interface ModelInfoProps {
   modelConfig: ModelConfig | undefined;
   isDefault: boolean;
-};
+}
 
 const ModelInfo = ({ modelConfig, isDefault }: ModelInfoProps) => {
   if (!modelConfig) {
@@ -118,7 +118,7 @@ const ModelInfo = ({ modelConfig, isDefault }: ModelInfoProps) => {
   );
 };
 
-type SimilarityInterfaceProps = {
+interface SimilarityInterfaceProps {
   status: EmbeddingStatus;
   text1: string;
   text2: string;
@@ -128,7 +128,7 @@ type SimilarityInterfaceProps = {
   onText2Change: (value: string) => void;
   onCalculate: () => void;
   onDispose: () => void;
-};
+}
 
 const SimilarityInterface = ({
   status,

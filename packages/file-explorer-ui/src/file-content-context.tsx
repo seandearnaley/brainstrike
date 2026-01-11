@@ -2,19 +2,19 @@ import type { IFileNode } from '@brainstrike/types';
 import { createContext, useContext, useMemo } from 'react';
 import { useSharedFileContentLoading } from './use-shared-file-content-loading';
 
-type FileContentContextType = {
+interface FileContentContextType {
   fileContents: { [compositeKey: string]: string };
   isLoading: boolean;
   error: Error | null;
   handleFileContentLoading: (compositeKeys: string[]) => Promise<void>;
-};
+}
 
 const FileContentContext = createContext<FileContentContextType | null>(null);
 
-export type FileContentProviderProps = {
+export interface FileContentProviderProps {
   fileTree: IFileNode[];
   children: React.ReactNode;
-};
+}
 
 export function FileContentProvider({ fileTree, children }: FileContentProviderProps) {
   const fileContentState = useSharedFileContentLoading(fileTree);

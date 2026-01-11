@@ -2,11 +2,11 @@ import React, { type ComponentType, type ReactElement, type ReactNode } from 're
 import { cn } from './lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from './tooltip';
 
-export type NavigationItem = {
+export interface NavigationItem {
   name: string;
   icon: ComponentType<{ className?: string }>;
   path: string;
-};
+}
 
 export interface NavigationSidebarProps extends React.HTMLAttributes<HTMLElement> {
   items: NavigationItem[];
@@ -37,7 +37,7 @@ const getNavItemStyles = (isActive: boolean): string =>
     isActive && [
       'bg-accent text-accent-foreground',
       // Left border indicator for vertical tab effect
-      'before:-translate-y-1/2 before:absolute before:top-1/2 before:left-0',
+      'before:absolute before:top-1/2 before:left-0 before:-translate-y-1/2',
       'before:h-6 before:w-1 before:rounded-r-full before:bg-sidebar-primary',
       'shadow-md',
     ]

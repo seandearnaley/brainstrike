@@ -13,10 +13,10 @@ import { memo } from 'react';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { COLUMN_CONFIGS } from './preview-column-visibility';
 
-type ColumnVisibilityControlsProps = {
+interface ColumnVisibilityControlsProps {
   columnVisibility: ColumnVisibility;
   onColumnVisibilityChange: (visibility: ColumnVisibility) => void;
-};
+}
 
 export const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
   function ColumnVisibilityControlsComponent({ columnVisibility, onColumnVisibilityChange }) {

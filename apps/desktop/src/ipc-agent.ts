@@ -9,18 +9,18 @@ import { readOpenAIApiKey } from './openai-api-key';
 import { readProviderSecretKey, resolveProviderEnvKey } from './provider-api-key';
 
 // Minimal local types to avoid cross-project TS coupling during type-check
-type AgentMessage = {
+interface AgentMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   parts: Array<{ type: 'text'; text: string }>;
-};
-type RuntimeData = {
+}
+interface RuntimeData {
   projectId?: string;
   provider?: string;
   model?: string;
   mcpEnabled?: boolean;
   mcpConfig?: McpConfig;
-};
+}
 type StreamChunk =
   | { type: 'text-delta'; value: string }
   | {

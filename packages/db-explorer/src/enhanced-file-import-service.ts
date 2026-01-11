@@ -42,7 +42,7 @@ import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-prefe
 const logger = createLogger('AppShell:EnhancedFileImport');
 
 // Extended progress interface for chunking and embedding
-type EnhancedFileImportOptions = {
+interface EnhancedFileImportOptions {
   onProgress?: (progress: EnhancedImportProgress) => void;
   onComplete?: (results: EnhancedImportResult[]) => void;
   onError?: (error: Error) => void;
@@ -55,9 +55,9 @@ type EnhancedFileImportOptions = {
   chunkTokenLimit?: number;
   embeddingQueue?: QueueAdapter | null;
   resolveTargetEmbeddingSetId?: () => string | null;
-};
+}
 
-type EnhancedFileImportServiceReturn = {
+interface EnhancedFileImportServiceReturn {
   importFiles: (
     selectedFilePaths: Set<string>,
     fileTree: IFileNode[],
@@ -68,7 +68,7 @@ type EnhancedFileImportServiceReturn = {
   progress: EnhancedImportProgress | null;
   chunkRepository: ReturnType<typeof useFileChunkRepository>;
   cancelImport: () => void;
-};
+}
 
 type EnhancedImportParams = Parameters<typeof runEnhancedImport<IFileNode>>[0];
 type EmbeddingConfig = NonNullable<EnhancedImportParams['embedding']>;
@@ -183,7 +183,7 @@ function createProgressHandlers(
   return handlers;
 }
 
-type ImportFlowDeps = {
+interface ImportFlowDeps {
   controller: AbortController;
   selectedFilePaths: Set<string>;
   fileTree: IFileNode[];
@@ -197,7 +197,7 @@ type ImportFlowDeps = {
   sqlPort: SqlExecutorPort | null;
   setProgress: Dispatch<SetStateAction<EnhancedImportProgress | null>>;
   activeSetIdRef: { current: string | null };
-};
+}
 
 async function runImportFlow({
   controller,

@@ -17,7 +17,7 @@ import {
 import { mapMastraToolEvent } from './tool-event-mapper';
 import { sanitizeTools } from './tool-sanitizer';
 
-export type MastraAgentRuntimeOptions = {
+export interface MastraAgentRuntimeOptions {
   instructions?: string;
   model?: string;
   runtime?: RuntimeData;
@@ -26,16 +26,16 @@ export type MastraAgentRuntimeOptions = {
   // Optional timeout (ms) for initial MCP tool discovery
   mcpTimeoutMs?: number;
   resolved?: ResolvedRuntimeConfiguration;
-};
+}
 
-export type MastraAgentRuntime = {
+export interface MastraAgentRuntime {
   agent: Agent;
   mcpClient?: MCPClient;
   dispose: () => Promise<void>;
   toolNameMap: Map<string, string>;
   /** True if the language model declares AI SDK V1 */
   usesLegacyModel: boolean;
-};
+}
 
 const logger = createLogger('MastraAgent');
 
@@ -221,11 +221,11 @@ Provide concise answers after using tools.`,
   };
 }
 
-type UsageLike = {
+interface UsageLike {
   promptTokens?: number;
   completionTokens?: number;
   inputTokens?: number;
-};
+}
 
 function makeFinishChunk(part: unknown): StreamChunk {
   const usageCandidates: Array<UsageLike | undefined> = [
@@ -264,10 +264,10 @@ function readTripwireReason(part: unknown): string | undefined {
   return candidate.tripwireReason ?? candidate.payload?.tripwireReason;
 }
 
-type ProcessStreamPartResult = {
+interface ProcessStreamPartResult {
   chunks: StreamChunk[];
   finished: boolean;
-};
+}
 
 function processMastraStreamPart(
   part: unknown,
@@ -336,10 +336,10 @@ function processMastraStreamPart(
   }
 }
 
-type RuntimeInitializationResult = {
+interface RuntimeInitializationResult {
   runtime: MastraAgentRuntime;
   sanitizedNameMap?: Map<string, string>;
-};
+}
 
 async function initializeMastraRuntime(
   options: MastraAgentRuntimeOptions,
@@ -369,24 +369,24 @@ async function initializeMastraRuntime(
   }
 }
 
-type StreamIterationParams = {
+interface StreamIterationParams {
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   messages: AgentMessage[];
   sanitizedNameMap?: Map<string, string>;
   useLegacyStream: boolean;
-};
+}
 
-type StreamGeneratorParams = {
+interface StreamGeneratorParams {
   runtime: MastraAgentRuntime;
   runtimeData?: RuntimeData;
   stream: NodeReadableStream<unknown> | ReadableStream<unknown>;
   sanitizedNameMap?: Map<string, string>;
-};
+}
 
-type StreamResultLike = {
+interface StreamResultLike {
   fullStream?: NodeReadableStream<unknown> | ReadableStream<unknown>;
-};
+}
 
 const hasStreamLegacy = (
   agent: Agent

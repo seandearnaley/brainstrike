@@ -45,23 +45,23 @@ import type { ChunkId, ChunkOutput, EmbeddingSetId, FileId, JobId, JobState } fr
  * Minimal job returned from enqueue operations.
  * This mirrors the essential fields from @brainstrike/db JobQueue.
  */
-export type EnqueuedJob = {
+export interface EnqueuedJob {
   id: JobId;
   queue: string;
   jobType: 'embed_chunk';
   state: JobState;
   dedupeKey: string | null;
-};
+}
 
 /**
  * Parameters for enqueuing a single job.
  */
-export type EnqueueJobParams = {
+export interface EnqueueJobParams {
   queue: string;
   jobType: 'embed_chunk';
   payload: unknown;
   dedupeKey?: string;
-};
+}
 
 /**
  * Abstract interface for the job queue.
@@ -69,7 +69,7 @@ export type EnqueueJobParams = {
  * This allows the pipeline to work with any job queue implementation
  * that conforms to this interface, enabling testing and flexibility.
  */
-export type JobQueueLike = {
+export interface JobQueueLike {
   /**
    * Enqueue a single job.
    * Should be idempotent based on dedupeKey.
@@ -81,7 +81,7 @@ export type JobQueueLike = {
    * If not provided, falls back to individual enqueue calls.
    */
   enqueueBatch?(params: EnqueueJobParams[]): Promise<EnqueuedJob[]>;
-};
+}
 
 // =============================================================================
 // EMBEDDING STAGE TYPES
@@ -90,7 +90,7 @@ export type JobQueueLike = {
 /**
  * Configuration for creating an embedding stage.
  */
-export type EmbeddingStageConfig = {
+export interface EmbeddingStageConfig {
   /** Job queue for enqueuing embedding jobs */
   jobQueue: JobQueueLike;
   /** Queue name for embedding jobs */
@@ -99,12 +99,12 @@ export type EmbeddingStageConfig = {
   defaultModelKey?: string;
   /** Expected embedding dimension (for validation/metadata) */
   expectedDimension?: number;
-};
+}
 
 /**
  * Input for enqueuing chunks from a single file.
  */
-export type EnqueueChunksInput = {
+export interface EnqueueChunksInput {
   /** Source file record ID */
   fileId: FileId;
   /** Target embedding set */
@@ -117,12 +117,12 @@ export type EnqueueChunksInput = {
   expectedDimension?: number;
   /** Pre-generated chunk IDs (if chunks are already persisted) */
   chunkIds?: ChunkId[];
-};
+}
 
 /**
  * Output from enqueuing chunks.
  */
-export type EnqueueChunksOutput = {
+export interface EnqueueChunksOutput {
   /** Source file record ID */
   fileId: FileId;
   /** Number of jobs enqueued */
@@ -137,7 +137,7 @@ export type EnqueueChunksOutput = {
   skipped: boolean;
   /** Reason for skipping, if applicable */
   skipReason?: string;
-};
+}
 
 /**
  * Progress callback for embedding enqueue operations.
@@ -147,7 +147,7 @@ export type EmbeddingEnqueueProgressCallback = (progress: EmbeddingEnqueueProgre
 /**
  * Progress state during embedding enqueue.
  */
-export type EmbeddingEnqueueProgress = {
+export interface EmbeddingEnqueueProgress {
   /** Total files to process */
   totalFiles: number;
   /** Files completed (success or failure) */
@@ -162,12 +162,12 @@ export type EmbeddingEnqueueProgress = {
   currentFile?: string;
   /** Elapsed time in milliseconds */
   elapsedMs: number;
-};
+}
 
 /**
  * Input for batch embedding enqueue.
  */
-export type EmbeddingBatchInput = {
+export interface EmbeddingBatchInput {
   /** Files with their chunks to enqueue */
   files: EnqueueChunksInput[];
   /** Progress callback */
@@ -176,12 +176,12 @@ export type EmbeddingBatchInput = {
   signal?: AbortSignal;
   /** Continue processing on individual file errors */
   continueOnError?: boolean;
-};
+}
 
 /**
  * Result from batch embedding enqueue.
  */
-export type EmbeddingBatchResult = {
+export interface EmbeddingBatchResult {
   /** Results for each file */
   results: EnqueueChunksOutput[];
   /** Total files processed */
@@ -196,12 +196,12 @@ export type EmbeddingBatchResult = {
   totalJobsDeduped: number;
   /** Processing duration in ms */
   durationMs: number;
-};
+}
 
 /**
  * The embedding stage interface.
  */
-export type EmbeddingStage = {
+export interface EmbeddingStage {
   /**
    * Enqueue embedding jobs for chunks from a single file.
    */
@@ -211,7 +211,7 @@ export type EmbeddingStage = {
    * Enqueue embedding jobs for chunks from multiple files.
    */
   enqueueBatch(input: EmbeddingBatchInput): Promise<EmbeddingBatchResult>;
-};
+}
 
 // =============================================================================
 // JOB PAYLOAD TYPE
@@ -221,7 +221,7 @@ export type EmbeddingStage = {
  * Embedding job payload for the queue.
  * Contains all data needed to embed a chunk independently.
  */
-type EmbedJobPayloadInternal = {
+interface EmbedJobPayloadInternal {
   chunkId: string;
   fileRecordId: string;
   embeddingSetId: string;
@@ -229,7 +229,7 @@ type EmbedJobPayloadInternal = {
   expectedDimension: number;
   contentHash: string;
   chunkIndex: number;
-};
+}
 
 // =============================================================================
 // EMBEDDING STAGE FACTORY
@@ -432,12 +432,12 @@ export function createEmbeddingStage(config: EmbeddingStageConfig): EmbeddingSta
   // Batch Processing Helpers
   // ---------------------------------------------------------------------------
 
-  type BatchState = {
+  interface BatchState {
     results: EnqueueChunksOutput[];
     totalJobsEnqueued: number;
     totalJobsDeduped: number;
     failedCount: number;
-  };
+  }
 
   function createBatchState(): BatchState {
     return {

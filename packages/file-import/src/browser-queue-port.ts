@@ -6,7 +6,7 @@ import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import type { EmbeddingJobQueuePort } from './enhanced-import';
 
-type ChunkRepository = {
+interface ChunkRepository {
   update: (chunk: {
     id: string;
     embedding?: number[];
@@ -15,36 +15,36 @@ type ChunkRepository = {
     embeddingHash?: string;
     updatedAt: string;
   }) => Promise<FileChunk | null>;
-};
+}
 
-type BrowserQueuePortOptions = {
+interface BrowserQueuePortOptions {
   queue: QueueAdapter;
   chunkRepository: ChunkRepository | null;
   deviceHint: EmbeddingDeviceHint;
   dispatchDrainEvent?: (embeddingSetId: string | null) => void;
   dispatchProgressEvent?: (detail: QueueProgressEventDetail) => void;
-};
+}
 
 const logger = createLogger('FileImport:BrowserQueuePort');
 const HASHER = 'sha256';
 
-type ProgressTrackerState = {
+interface ProgressTrackerState {
   totalQueued: number;
   processed: number;
   failed: number;
   lastError: string | null;
-};
+}
 
 type ProgressTrackerDispatch = (detail: QueueProgressEventDetail) => void;
 
-type QueueProgressArgs = {
+interface QueueProgressArgs {
   chunkId: string;
   model: string;
   embeddingSetId: string | null;
   pending: number;
   elapsedMs?: number;
   errorMessage?: string;
-};
+}
 
 function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
   const state: ProgressTrackerState = {
@@ -104,7 +104,7 @@ function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
   };
 }
 
-export type QueueProgressEventDetail = {
+export interface QueueProgressEventDetail {
   readonly queue: 'embeddings';
   readonly chunkId: string;
   readonly status: 'queued' | 'completed' | 'error';
@@ -117,7 +117,7 @@ export type QueueProgressEventDetail = {
   readonly lastError: string | null;
   readonly elapsedMs?: number;
   readonly errorMessage?: string;
-};
+}
 
 export function createBrowserEmbeddingQueuePort({
   queue,
@@ -181,7 +181,7 @@ export function createBrowserEmbeddingQueuePort({
   };
 }
 
-type ScheduleChunkArgs = {
+interface ScheduleChunkArgs {
   chunk: FileChunk;
   model: string;
   targetEmbeddingSetId: string | null;
@@ -189,16 +189,16 @@ type ScheduleChunkArgs = {
   targetDimension?: number;
   dimensionParameter?: ProviderDimensionParameter;
   provider?: EmbeddingProviderType;
-};
+}
 
-type SchedulerDependencies = {
+interface SchedulerDependencies {
   queue: QueueAdapter;
   chunkRepository: ChunkRepository | null;
   deviceHint: EmbeddingDeviceHint;
   pendingChunks: Set<string>;
   dispatchDrainEvent: (embeddingSetId: string | null) => void;
   progressTracker: ReturnType<typeof createQueueProgressTracker>;
-};
+}
 
 function createChunkScheduler({
   queue,
@@ -251,7 +251,7 @@ function createChunkScheduler({
   };
 }
 
-type ChunkTaskContext = {
+interface ChunkTaskContext {
   queue: QueueAdapter;
   chunk: FileChunk;
   model: string;
@@ -264,7 +264,7 @@ type ChunkTaskContext = {
   progressTracker: ReturnType<typeof createQueueProgressTracker>;
   pendingChunks: Set<string>;
   emitDrain: (embeddingSetId: string | null) => void;
-};
+}
 
 async function runChunkTask(context: ChunkTaskContext): Promise<void> {
   const {
@@ -334,14 +334,14 @@ async function runChunkTask(context: ChunkTaskContext): Promise<void> {
   }
 }
 
-type ScheduleBatchContext = {
+interface ScheduleBatchContext {
   model: string;
   repository: ChunkRepository;
   targetEmbeddingSetId: string | null;
   targetDimension: number;
   dimensionParameter: ProviderDimensionParameter | null;
   provider: EmbeddingProviderType | null;
-};
+}
 
 function scheduleChunksBatch(
   schedule: (args: ScheduleChunkArgs) => Promise<void>,
@@ -416,13 +416,13 @@ async function produceEmbedding(
   return Array.from(vector);
 }
 
-type PersistArgs = {
+interface PersistArgs {
   repository: ChunkRepository;
   chunk: FileChunk;
   model: string;
   embedding: number[];
   targetEmbeddingSetId: string | null;
-};
+}
 
 async function persistEmbedding({
   repository,
@@ -448,17 +448,17 @@ async function persistEmbedding({
   });
 }
 
-type LogSuccessArgs = {
+interface LogSuccessArgs {
   chunk: FileChunk;
   model: string;
   startedAt: number;
-};
+}
 
-type LogFailureArgs = {
+interface LogFailureArgs {
   chunk: FileChunk;
   model: string;
   error: unknown;
-};
+}
 
 function logSuccess({ chunk, model, startedAt }: LogSuccessArgs) {
   const elapsed =

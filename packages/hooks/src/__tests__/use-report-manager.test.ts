@@ -19,11 +19,11 @@ describe('useReportManager', () => {
   const mockDismiss = vi.fn();
 
   // Define the toast props type
-  type ToastProps = {
+  interface ToastProps {
     title: string;
     description: string;
     variant?: 'default' | 'destructive';
-  };
+  }
 
   // Helper function to match the interface expected by the hook
   function showToast(props: ToastProps) {

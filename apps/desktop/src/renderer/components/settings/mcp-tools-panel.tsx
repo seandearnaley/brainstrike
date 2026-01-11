@@ -13,25 +13,25 @@ import {
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useState } from 'react';
 
-type McpTool = {
+interface McpTool {
   id: string;
   serverName: string;
   description?: string;
   inputSchema?: unknown;
   enabled: boolean;
   discoveredAt: number;
-};
+}
 
-type McpToolsByServer = {
+interface McpToolsByServer {
   [serverName: string]: McpTool[];
-};
+}
 
-type ToolStats = {
+interface ToolStats {
   total: number;
   enabled: number;
   disabled: number;
   servers: number;
-};
+}
 
 export function McpToolsPanel() {
   const [tools, setTools] = useState<McpToolsByServer>({});

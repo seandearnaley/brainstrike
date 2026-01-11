@@ -17,7 +17,10 @@ import {
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { useSecretsStore } from '../../stores/secrets-store';
 
-type ProviderOption = { id: string; name: string };
+interface ProviderOption {
+  id: string;
+  name: string;
+}
 
 /**
  * Settings section for managing LLM provider API keys.

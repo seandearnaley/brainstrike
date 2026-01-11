@@ -3,9 +3,9 @@ import { Button, Label, useToast } from '@brainstrike/ui';
 import { useCallback, useState } from 'react';
 import { clearPersistentUiState } from './factory-reset-helpers';
 
-export type FactoryResetPanelProps = {
+export interface FactoryResetPanelProps {
   doFactoryReset?: (() => Promise<void>) | null;
-};
+}
 
 export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelProps) {
   const { toast } = useToast();

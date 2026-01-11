@@ -37,7 +37,7 @@ import { EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
 /**
  * Props for the NodeInspector component
  */
-export type NodeInspectorProps = {
+export interface NodeInspectorProps {
   /** The type of the selected node */
   nodeType: string | null;
   /** The data of the selected node */
@@ -54,7 +54,7 @@ export type NodeInspectorProps = {
   isCollapsed?: boolean;
   /** Called when collapse state should change */
   onCollapseChange?: (collapsed: boolean) => void;
-};
+}
 
 /**
  * Format file size for display

@@ -8,15 +8,15 @@ const DEFAULT_MAX_BODY_BYTES = 256_000;
 const DEFAULT_MAX_STORED_BATCHES = 100;
 const WAIT_FOR_BATCH_TIMEOUT_MS = 5000;
 
-export type QueueTelemetryBatch = {
+export interface QueueTelemetryBatch {
   readonly runtime: QueueTelemetryRuntime;
   readonly sentAt: Date;
   readonly receivedAt: Date;
   readonly events: readonly QueueTelemetryEvent[];
   readonly metadata: Readonly<Record<string, unknown>> | null;
-};
+}
 
-export type QueueTelemetryCollectorOptions = {
+export interface QueueTelemetryCollectorOptions {
   readonly host?: string;
   readonly port?: number;
   readonly path?: string;
@@ -24,9 +24,9 @@ export type QueueTelemetryCollectorOptions = {
   readonly maxBodyBytes?: number;
   readonly maxStoredBatches?: number;
   readonly onBatch?: (batch: QueueTelemetryBatch) => Promise<void> | void;
-};
+}
 
-export type QueueTelemetryCollector = {
+export interface QueueTelemetryCollector {
   start(): Promise<void>;
   stop(): Promise<void>;
   isRunning(): boolean;
@@ -34,7 +34,7 @@ export type QueueTelemetryCollector = {
   listBatches(): readonly QueueTelemetryBatch[];
   clearBatches(): void;
   nextBatch(options?: { readonly timeoutMs?: number }): Promise<QueueTelemetryBatch>;
-};
+}
 
 type BatchListener = (batch: QueueTelemetryBatch) => void;
 
@@ -154,7 +154,10 @@ export function createQueueTelemetryCollector(
     return new URL(requestUrl, `http://${host}`).pathname.replace(/\/+$/, '') || '/';
   };
 
-  type ValidationError = { status: number; message: string };
+  interface ValidationError {
+    status: number;
+    message: string;
+  }
 
   const isValidationError = (value: unknown): value is ValidationError =>
     typeof value === 'object' &&

@@ -32,19 +32,19 @@ function createMockChunkingWorkerPort(overrides?: Partial<ChunkingWorkerPort>): 
 }
 
 // Use Partial<FileRecord> for test mocks since we don't need all required fields
-type MockRepository = {
+interface MockRepository {
   findById: Mock<(id: string) => Promise<Partial<FileRecord> | null>>;
   update: Mock<(data: Record<string, unknown>) => Promise<void>>;
-};
+}
 
-type MockChunkRepository = {
+interface MockChunkRepository {
   insertMany: Mock<(chunks: unknown[]) => Promise<unknown[]>>;
-};
+}
 
-type MockChunkingService = {
+interface MockChunkingService {
   chunkContent: Mock;
   chunkContentStream: Mock;
-};
+}
 
 // Type for progress update callback
 type ProgressUpdater = (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null;

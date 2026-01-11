@@ -5,7 +5,7 @@ import {
 } from '@brainstrike/workers/report-generation-worker';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
-type UseReportGenerationProps = {
+interface UseReportGenerationProps {
   selectedFiles: Set<string>;
   fileContents: { [path: string]: string };
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | undefined;
@@ -27,7 +27,7 @@ type UseReportGenerationProps = {
    * If not provided, the static fileContents prop is used.
    */
   getFileContents?: () => { [path: string]: string };
-};
+}
 
 export function useReportGeneration({
   selectedFiles,

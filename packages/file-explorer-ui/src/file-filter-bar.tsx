@@ -2,11 +2,11 @@ import { Button, Input, Popover, PopoverContent, PopoverTrigger } from '@brainst
 import { Info, X } from 'lucide-react';
 import * as React from 'react';
 
-type FileFilterBarProps = {
+interface FileFilterBarProps {
   value: string;
   onChange: (value: string) => void;
   onClear: () => void;
-};
+}
 
 export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
   ({ value, onChange, onClear }) => (
@@ -23,7 +23,7 @@ export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
         {value && (
           <Button
             aria-label="clear"
-            className="-translate-y-1/2 absolute top-1/2 right-2 h-6 w-6 hover:bg-transparent"
+            className="absolute top-1/2 right-2 h-6 w-6 -translate-y-1/2 hover:bg-transparent"
             onClick={onClear}
             size="icon"
             variant="ghost"

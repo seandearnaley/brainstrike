@@ -9,13 +9,13 @@ import type {
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateReport, generateReportFromAdapter } from '../report-generator';
 
-type MockFileEntry = {
+interface MockFileEntry {
   name: string;
   type: 'file' | 'directory';
   content?: string;
   size?: number;
   children?: Record<string, MockFileEntry>;
-};
+}
 
 class MockFileSystemAdapter implements FileSystemAdapter {
   private readonly rootName = 'mock-root';

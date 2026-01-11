@@ -54,7 +54,7 @@ export type CapStrategy =
 // ============================================================================
 
 /** Base rule structure shared by all rule types */
-export type SelectionRuleBase = {
+export interface SelectionRuleBase {
   /** Unique identifier for the rule (UUID recommended) */
   id: string;
 
@@ -75,7 +75,7 @@ export type SelectionRuleBase = {
    * Default: 0. Rules with same priority use creation order.
    */
   priority?: number;
-};
+}
 
 // ============================================================================
 // Concrete Rule Types
@@ -222,7 +222,7 @@ export type SelectionRule =
 // ============================================================================
 
 /** Metadata about a rule set */
-export type SelectionRuleSetMetadata = {
+export interface SelectionRuleSetMetadata {
   /** ISO 8601 creation timestamp */
   createdAt: string;
 
@@ -237,7 +237,7 @@ export type SelectionRuleSetMetadata = {
 
   /** Optional description of the rule set */
   description?: string;
-};
+}
 
 /**
  * Complete rule set for a folder context.
@@ -245,7 +245,7 @@ export type SelectionRuleSetMetadata = {
  * Each workspace folder has one SelectionRuleSet.
  * Rules are evaluated in type precedence order, then by priority within type.
  */
-export type SelectionRuleSet = {
+export interface SelectionRuleSet {
   /** Schema version for migrations */
   version: SelectionRulesSchemaVersion;
 
@@ -260,14 +260,14 @@ export type SelectionRuleSet = {
 
   /** Rule set metadata */
   metadata: SelectionRuleSetMetadata;
-};
+}
 
 // ============================================================================
 // Materialization Result
 // ============================================================================
 
 /** Warning generated during materialization */
-export type MaterializationWarning = {
+export interface MaterializationWarning {
   /** Warning code for programmatic handling */
   code: 'pattern-no-match' | 'root-not-found' | 'cap-applied' | 'rule-disabled';
 
@@ -276,14 +276,14 @@ export type MaterializationWarning = {
 
   /** ID of the rule that generated the warning */
   ruleId?: string;
-};
+}
 
 /**
  * Result of materializing a rule set against a file tree.
  *
  * This is the "contract" downstream consumers receive.
  */
-export type MaterializedSelection = {
+export interface MaterializedSelection {
   /**
    * Final set of selected file paths.
    * Paths are relative to folderId, NOT composite keys.
@@ -304,7 +304,7 @@ export type MaterializedSelection = {
 
   /** Timestamp of materialization (for caching) */
   materializedAt: string;
-};
+}
 
 // ============================================================================
 // Type Guards

@@ -3,21 +3,21 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type Key = string; // compositeKey (folderId:path)
 
-export type CursorSelection = {
+export interface CursorSelection {
   cursor: number; // caret index in content
   selectionStart: number;
   selectionEnd: number;
-};
+}
 
-type EditorCursorData = {
+interface EditorCursorData {
   selections: Record<Key, CursorSelection | undefined>;
-};
+}
 
-type EditorCursorActions = {
+interface EditorCursorActions {
   setSelection: (key: Key, sel: CursorSelection) => void;
   getSelection: (key: Key) => CursorSelection | undefined;
   clear: (key?: Key) => void;
-};
+}
 
 export type EditorCursorStore = EditorCursorData & EditorCursorActions;
 

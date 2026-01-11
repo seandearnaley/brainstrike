@@ -27,10 +27,10 @@ const REFRESH_ANIMATION_DURATION_MS = 500;
 
 type StatusVariant = 'success' | 'warning' | 'error' | 'loading';
 
-type StatusBadgeProps = {
+interface StatusBadgeProps {
   readonly status: StatusVariant;
   readonly label: string;
-};
+}
 
 function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
   const variantMap: Record<StatusVariant, 'default' | 'secondary' | 'destructive'> = {
@@ -47,14 +47,14 @@ function StatusBadge({ status, label }: StatusBadgeProps): ReactElement {
   );
 }
 
-type DiagnosticCardProps = {
+interface DiagnosticCardProps {
   readonly title: string;
   readonly description?: string;
   readonly icon: ReactElement;
   readonly status: StatusVariant;
   readonly statusLabel: string;
   readonly children?: ReactElement;
-};
+}
 
 function DiagnosticCard({
   title,
@@ -145,11 +145,11 @@ function DatabaseStatusSection(): ReactElement {
 /**
  * Worker health section with status indicators.
  */
-type WorkerStatusSectionProps = {
+interface WorkerStatusSectionProps {
   readonly tokenCacheOperational?: boolean | undefined;
   readonly tokenCachePersisted?: boolean | undefined;
   readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
-};
+}
 
 function WorkerStatusSection({
   tokenCacheOperational = false,
@@ -205,7 +205,7 @@ function WorkerStatusSection({
   );
 }
 
-export type SystemDiagnosticsPanelProps = {
+export interface SystemDiagnosticsPanelProps {
   /** Token cache operational status (from TokenCacheContext) */
   readonly tokenCacheOperational?: boolean | undefined;
   /** Token cache persistence status (from TokenCacheContext) */
@@ -214,7 +214,7 @@ export type SystemDiagnosticsPanelProps = {
   readonly persistenceMode?: 'persistent' | 'memory' | 'disabled' | undefined;
   /** Show refresh button for queue metrics */
   readonly showQueueRefresh?: boolean | undefined;
-};
+}
 
 /**
  * Unified system diagnostics panel.

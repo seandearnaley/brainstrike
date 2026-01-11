@@ -2,7 +2,7 @@ import { type FileTabState, useTabManagerStore } from '../stores/tab-manager-sto
 
 export type FileTab = FileTabState;
 
-export type UseTabManagerReturn = {
+export interface UseTabManagerReturn {
   tabs: FileTab[];
   activeTabId: string | null;
   openTab: (path: string, tabId: string, compositeKey: string) => void;
@@ -12,7 +12,7 @@ export type UseTabManagerReturn = {
   setTabLoading: (tabId: string, isLoading: boolean) => void;
   setTabError: (tabId: string, error: string) => void;
   clearTabs: () => void;
-};
+}
 
 export function useTabManager(): UseTabManagerReturn {
   const store = useTabManagerStore;

@@ -2,27 +2,34 @@ import type { IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import type { FixtureDefinition, FixtureTree } from './dev-fixture-types';
 import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture';
-import type { DirectoryHandle, DirectoryReadOptions, FileHandle, FileSystemAdapter } from './types';
+import type {
+  DirectoryHandle,
+  DirectoryReadOptions,
+  DirectoryStreamCallback,
+  FileHandle,
+  FileSystemAdapter,
+  StreamingDirectoryReadOptions,
+} from './types';
 
 const logger = createLogger('FixtureAdapter');
 
-type FixtureState = {
+interface FixtureState {
   rootHandle: DirectoryHandle;
   directories: Map<string, IFileNode[]>;
   fileContents: Map<string, { content: string; size: number; lastModified: number }>;
-};
+}
 
-export type FixtureAdapterOptions = {
+export interface FixtureAdapterOptions {
   platform: DirectoryHandle['platform'];
   defaultFixture?: FixtureDefinition;
-};
+}
 
-export type FixtureControls = {
+export interface FixtureControls {
   loadInlineFixture: (fixture?: FixtureDefinition) => Promise<DirectoryHandle>;
   clearInlineFixture: () => Promise<void>;
   isInlineFixtureActive: () => boolean;
   canLoadInlineFixture: boolean;
-};
+}
 
 export type FixtureCapableFileSystemAdapter = FileSystemAdapter & FixtureControls;
 
@@ -57,6 +64,37 @@ function cloneNodes(nodes: IFileNode[]): IFileNode[] {
     }
     return clone;
   });
+}
+
+function streamNodesInBatches(
+  nodes: IFileNode[],
+  onBatch: DirectoryStreamCallback,
+  options?: StreamingDirectoryReadOptions
+): void {
+  const batchSize = options?.batchSize ?? 50;
+  const signal = options?.signal;
+
+  let batch: IFileNode[] = [];
+  let total = 0;
+
+  for (const node of nodes) {
+    if (signal?.aborted) {
+      break;
+    }
+    batch.push(node);
+    total++;
+    if (batch.length >= batchSize) {
+      onBatch(batch, { done: false, total });
+      batch = [];
+    }
+  }
+
+  // Emit completion signal (match Web adapter semantics)
+  if (batch.length > 0 || total === 0) {
+    onBatch(batch, { done: true, total });
+  } else {
+    onBatch([], { done: true, total });
+  }
 }
 
 function buildFixtureState(
@@ -158,6 +196,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   const originalReadFile = adapter.readFile.bind(adapter);
   const originalExists = adapter.exists.bind(adapter);
   const originalRestoreLastFolder = adapter.restoreLastFolder?.bind(adapter);
+  const originalReadDirectoryStreaming = adapter.readDirectoryStreaming?.bind(adapter);
 
   async function requestDirectoryAccess(): Promise<DirectoryHandle> {
     if (fixtureState) {
@@ -207,6 +246,28 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     return originalExists(path);
   }
 
+  async function readDirectoryStreaming(
+    handle: DirectoryHandle,
+    onBatch: DirectoryStreamCallback,
+    optionsArg?: StreamingDirectoryReadOptions
+  ): Promise<void> {
+    if (fixtureState) {
+      streamNodesInBatches(
+        cloneNodes(fixtureState.directories.get(handle.path) ?? []),
+        onBatch,
+        optionsArg
+      );
+      return;
+    }
+
+    if (originalReadDirectoryStreaming) {
+      return originalReadDirectoryStreaming(handle, onBatch, optionsArg);
+    }
+
+    // Should only be called when streaming is supported; fail loudly if invoked otherwise.
+    throw new Error('Streaming directory reads are not supported by this adapter');
+  }
+
   async function restoreLastFolder(): Promise<DirectoryHandle | null> {
     if (fixtureState) {
       return fixtureState.rootHandle;
@@ -235,6 +296,12 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   const decorated = adapter as T & FixtureControls;
   decorated.requestDirectoryAccess = requestDirectoryAccess;
   decorated.readDirectory = readDirectory;
+  // Don't change the adapter's streaming capability when the fixture is inactive.
+  // If the underlying adapter doesn't support streaming (e.g. Electron),
+  // advertising a streaming method here would cause callers to route into it and fail.
+  if (originalReadDirectoryStreaming) {
+    decorated.readDirectoryStreaming = readDirectoryStreaming;
+  }
   decorated.readFile = readFile;
   decorated.exists = exists;
   if (adapter.restoreLastFolder) {

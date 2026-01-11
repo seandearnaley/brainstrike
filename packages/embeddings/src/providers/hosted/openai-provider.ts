@@ -13,7 +13,7 @@ const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';
 
 type FetchLike = typeof fetch;
 
-type OpenAIEmbeddingResponse = {
+interface OpenAIEmbeddingResponse {
   data?: Array<{
     embedding?: number[];
     index?: number;
@@ -25,7 +25,7 @@ type OpenAIEmbeddingResponse = {
     total_tokens?: number;
   };
   error?: { message?: string };
-};
+}
 
 const OPENAI_MODELS: Record<string, ModelConfig> = {
   'text-embedding-3-small': {
@@ -50,13 +50,13 @@ const OPENAI_MODELS: Record<string, ModelConfig> = {
   },
 };
 
-export type OpenAIEmbeddingProviderOptions = {
+export interface OpenAIEmbeddingProviderOptions {
   readonly modelId: string;
   readonly targetDimensions: number;
   readonly apiKey?: string;
   readonly fetch?: FetchLike;
   readonly endpoint?: string;
-};
+}
 
 export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   readonly runtime = 'hosted' as const;

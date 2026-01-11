@@ -4,7 +4,7 @@
  * @see https://developer.mozilla.org/en-US/docs/Web/API/Scheduler
  */
 
-type Scheduler = {
+interface Scheduler {
   /**
    * Yields control to the main thread, allowing the browser to run other tasks.
    * Returns a promise that resolves when it's the task's turn to run again.
@@ -19,9 +19,9 @@ type Scheduler = {
    * @see https://developer.mozilla.org/en-US/docs/Web/API/Scheduler/postTask
    */
   postTask?<T>(callback: () => T | Promise<T>, options?: SchedulerPostTaskOptions): Promise<T>;
-};
+}
 
-type SchedulerPostTaskOptions = {
+interface SchedulerPostTaskOptions {
   /**
    * The priority of the task.
    * - 'user-blocking': High priority, should complete quickly
@@ -39,6 +39,6 @@ type SchedulerPostTaskOptions = {
    * Delay in milliseconds before the task runs.
    */
   delay?: number;
-};
+}
 
 declare const scheduler: Scheduler | undefined;

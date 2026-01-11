@@ -51,7 +51,7 @@ import type {
  * Result from processing a single file.
  * Returned by the processFile callback.
  */
-export type FileProcessResult = {
+export interface FileProcessResult {
   /** Whether the file was successfully processed */
   success: boolean;
   /** Assigned file ID (if import created a new record) */
@@ -64,7 +64,7 @@ export type FileProcessResult = {
   jobsEnqueued: number;
   /** Error message if processing failed */
   error?: string;
-};
+}
 
 /**
  * Callback to process a single file's content.
@@ -83,7 +83,7 @@ export type StreamingProgressCallback = (progress: StreamingProgress) => void;
 /**
  * Progress state during streaming import.
  */
-export type StreamingProgress = {
+export interface StreamingProgress {
   /** Total files to process */
   total: number;
   /** Files completed (success or failure) */
@@ -98,12 +98,12 @@ export type StreamingProgress = {
   percentage: number;
   /** Elapsed time in milliseconds */
   elapsedMs: number;
-};
+}
 
 /**
  * Input to the streaming import orchestrator.
  */
-export type StreamingImportInput = {
+export interface StreamingImportInput {
   /** Composite keys of files to process (folderId:path format) */
   compositeKeys: string[];
   /** Content reader for lazy loading */
@@ -116,7 +116,7 @@ export type StreamingImportInput = {
   onProgress?: StreamingProgressCallback;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
-};
+}
 
 // =============================================================================
 // DEFAULT OPTIONS

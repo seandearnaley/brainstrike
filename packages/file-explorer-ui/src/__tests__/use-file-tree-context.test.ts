@@ -293,7 +293,9 @@ describe('useFileTree (lazy loading version)', () => {
       const TestWrapper = ({ children }: { children: ReactNode }) =>
         FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
 
-      type HookProps = { handle: Parameters<typeof useFileTree>[0] };
+      interface HookProps {
+        handle: Parameters<typeof useFileTree>[0];
+      }
 
       const initialProps: HookProps = { handle: null };
 

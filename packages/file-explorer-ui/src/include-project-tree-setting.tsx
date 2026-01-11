@@ -1,10 +1,10 @@
 import { Label, Switch } from '@brainstrike/ui';
 import type React from 'react';
 
-type IncludeProjectTreeSettingProps = {
+interface IncludeProjectTreeSettingProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
-};
+}
 
 const IncludeProjectTreeSetting: React.FC<IncludeProjectTreeSettingProps> = ({
   checked,

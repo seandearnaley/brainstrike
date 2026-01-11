@@ -3,13 +3,13 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { useCallback, useState } from 'react';
 
-type UseFileExplorerToastsParams = {
+interface UseFileExplorerToastsParams {
   rootDirectoryHandle: DirectoryHandle | null;
   refreshFileExplorer: () => Promise<void>;
   handleRootDirectorySelect: () => Promise<DirectoryHandle | null>;
   isFileSystemAccessSupported: () => { supported: boolean; reason: string };
   cancelOperation: () => void;
-};
+}
 
 export function useFileExplorerToasts({
   rootDirectoryHandle,

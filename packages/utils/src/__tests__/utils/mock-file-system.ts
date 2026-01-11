@@ -88,22 +88,22 @@ export function createCircularHandles(): [MockFileSystemHandle, MockFileSystemHa
 }
 
 // Type for mock file handle
-type MockFile = {
+interface MockFile {
   text: Mock<() => Promise<string>>;
   size: number;
   lastModified: number;
   arrayBuffer: Mock<() => Promise<ArrayBuffer>>;
   type: string;
-};
+}
 
-type MockFileHandleType = {
+interface MockFileHandleType {
   getFile: Mock<() => Promise<MockFile>>;
   kind: 'file';
   name: string;
   isSameEntry: Mock<(other: FileSystemHandle) => Promise<boolean>>;
   queryPermission: Mock<() => Promise<'granted'>>;
   requestPermission: Mock<() => Promise<'granted'>>;
-};
+}
 
 // Common mock implementations
 export const mockFileHandle: MockFileHandleType = {

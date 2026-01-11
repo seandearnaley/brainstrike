@@ -4,13 +4,13 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 export type ToolsPanelTab = 'assistant' | 'embeddings' | 'vectors' | 'database';
 
-type ToolsPanelData = {
+interface ToolsPanelData {
   activeTab: ToolsPanelTab;
-};
+}
 
-type ToolsPanelActions = {
+interface ToolsPanelActions {
   setActiveTab: (tab: ToolsPanelTab) => void;
-};
+}
 
 export type ToolsPanelStore = ToolsPanelData & ToolsPanelActions;
 

@@ -19,7 +19,7 @@ export type TokenCountingMode = 'accurate' | 'heuristic';
 /**
  * Token cache entry type (matches the original TokenCacheStore types)
  */
-export type TokenCacheEntry = {
+export interface TokenCacheEntry {
   folderId: string;
   filePath: string;
   contentHash: string;
@@ -30,17 +30,17 @@ export type TokenCacheEntry = {
   modelEncoding: string | null;
   createdAt: string;
   updatedAt: string;
-};
+}
 
 /**
  * Token cache statistics
  */
-export type TokenCacheStats = {
+export interface TokenCacheStats {
   entryCount: number;
   totalTokens: number;
   accurateCount: number;
   heuristicCount: number;
-};
+}
 
 /**
  * DrizzleTokenCacheStore provides persistent storage for token counts using Drizzle ORM.

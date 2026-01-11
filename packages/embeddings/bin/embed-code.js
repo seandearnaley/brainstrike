@@ -29,22 +29,17 @@ async function main() {
     await import(url);
     return;
   }
-  console.error(
-    '[embed-code] Build artifacts not found. Please run "pnpm -w -C packages/embeddings build" or "pnpm -w build" first.'
-  );
   process.exit(1);
 }
 
 function requireOrExit(fn) {
   try {
     fn();
-  } catch (err) {
-    console.error('[embed-code] Failed to load CLI:', err);
+  } catch (_err) {
     process.exit(1);
   }
 }
 
-main().catch((err) => {
-  console.error('[embed-code] Unexpected error:', err);
+main().catch((_err) => {
   process.exit(1);
 });

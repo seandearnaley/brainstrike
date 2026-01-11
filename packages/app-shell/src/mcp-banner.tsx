@@ -1,10 +1,10 @@
 import { Badge } from '@brainstrike/ui';
 import { useEffect, useState } from 'react';
 
-type McpStatus = {
+interface McpStatus {
   exists: boolean;
   servers: Array<{ name: string; transport: 'stdio' | 'sse' }>;
-};
+}
 
 export function McpBanner() {
   const [status, setStatus] = useState<McpStatus | null>(null);

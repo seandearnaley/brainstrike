@@ -8,7 +8,7 @@ const logger = createLogger('ChunkingService');
 
 export type ChunkingStrategy = 'sentence' | 'token' | 'recursive';
 
-export type ChunkingOptions = {
+export interface ChunkingOptions {
   strategy: ChunkingStrategy;
   maxTokens?: number;
   overlap?: number;
@@ -29,16 +29,16 @@ export type ChunkingOptions = {
   onStrategyResolved?: (strategy: ChunkingStrategy) => void;
   // Skip file-type recommendations and only enforce global safety caps when true
   ignoreFileTypeRecommendations?: boolean;
-};
+}
 
-export type ChunkingResult = {
+export interface ChunkingResult {
   chunks: FileChunkInsert[];
   totalTokens: number;
   avgTokensPerChunk: number;
   strategyUsed: ChunkingStrategy;
   skipped?: boolean;
   skipReason?: string;
-};
+}
 
 // File patterns that should be skipped or handled differently (path or name)
 const SKIP_CHUNKING_PATTERNS = [
@@ -242,7 +242,10 @@ export class ChunkingService {
       ? normalize(requestedOverlap, CHUNKING_CONFIG.defaultOverlap, 0)
       : Number.POSITIVE_INFINITY;
 
-    type ChunkAdjustment = { maxTokens: number; overlap: number };
+    interface ChunkAdjustment {
+      maxTokens: number;
+      overlap: number;
+    }
     const apply = (state: ChunkAdjustment, cap: Partial<ChunkAdjustment>) => {
       const next: ChunkAdjustment = { ...state };
       if (typeof cap.maxTokens === 'number') {
@@ -543,7 +546,10 @@ export class ChunkingService {
     // Detect structured data files that need special splitting (JSON, XML, YAML, etc.)
     const isStructuredData = /\.(json|xml|yaml|yml|csv|tsv)$/.test(name);
 
-    type ChunkGroup = { pieces: string[]; type: FileChunkInsert['chunkType'] };
+    interface ChunkGroup {
+      pieces: string[];
+      type: FileChunkInsert['chunkType'];
+    }
 
     const chunkTokens = async (): Promise<ChunkGroup[]> => {
       // Note: We use RecursiveCharacterTextSplitter instead of TokenTextSplitter because
@@ -975,7 +981,10 @@ function splitByBlankLines(text: string): string[] {
 }
 
 function splitMarkdownIntoBlocks(content: string) {
-  type Block = { text: string; meta: { isFence?: boolean; heading?: string } };
+  interface Block {
+    text: string;
+    meta: { isFence?: boolean; heading?: string };
+  }
   const blocks: Block[] = [];
   const lines = content.split(/\r?\n/);
   let i = 0;

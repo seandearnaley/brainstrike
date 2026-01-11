@@ -32,7 +32,12 @@ import { describe, expect, it } from 'vitest';
  * Flattens a tree (mirrors FileTree.flattenTree logic)
  * Used to measure performance outside React context.
  */
-type TreeNode = { path: string; type: string; children?: TreeNode[]; isVisible?: boolean };
+interface TreeNode {
+  path: string;
+  type: string;
+  children?: TreeNode[];
+  isVisible?: boolean;
+}
 
 function flattenTree(
   nodes: TreeNode[],

@@ -2,7 +2,7 @@ import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileCollectionStatus } from '../use-file-collection-status';
 
-type MockRow = {
+interface MockRow {
   file_id: string;
   file_name: string;
   file_path: string;
@@ -10,7 +10,7 @@ type MockRow = {
   total_chunks: string;
   other_collections: string;
   last_indexed: string | null;
-};
+}
 
 const mockLiveQueryState = {
   rows: [] as MockRow[],

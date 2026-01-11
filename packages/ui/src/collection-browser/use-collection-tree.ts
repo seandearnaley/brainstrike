@@ -22,7 +22,7 @@ import { EMBEDDING_STATUS_CONFIG } from './types';
 /**
  * Input data for building the collection tree
  */
-export type CollectionTreeInput = {
+export interface CollectionTreeInput {
   /** File records */
   files: Array<{
     id: string;
@@ -45,7 +45,7 @@ export type CollectionTreeInput = {
   }>;
   /** Pending chunk IDs (being embedded) */
   pendingChunkIds?: Set<string>;
-};
+}
 
 /**
  * Sort key for hierarchical sorting.
@@ -65,17 +65,17 @@ export type CollectionSortDirection = 'asc' | 'desc';
 /**
  * Sort state for the collection tree
  */
-export type CollectionSortState = {
+export interface CollectionSortState {
   /** Sort key */
   key: CollectionSortKey;
   /** Sort direction */
   direction: CollectionSortDirection;
-};
+}
 
 /**
  * Options for the useCollectionTree hook
  */
-export type UseCollectionTreeOptions = {
+export interface UseCollectionTreeOptions {
   /** Input data */
   data: CollectionTreeInput;
   /** Current filter state */
@@ -88,12 +88,12 @@ export type UseCollectionTreeOptions = {
   semanticResults?: SemanticSearchResult[];
   /** Whether to filter tree to only show semantic results (default: true when results present) */
   filterToSemanticResults?: boolean;
-};
+}
 
 /**
  * Result from the useCollectionTree hook
  */
-export type UseCollectionTreeResult = {
+export interface UseCollectionTreeResult {
   /** Flattened nodes for rendering (respects expansion state) */
   nodes: TreeNode<BrowserNodeData>[];
   /** Root nodes (top-level collections) */
@@ -114,7 +114,7 @@ export type UseCollectionTreeResult = {
   semanticMatchIds: Set<string>;
   /** Node IDs that should be auto-expanded to reveal semantic search matches */
   semanticExpandIds: Set<string>;
-};
+}
 
 /**
  * Determine embedding status for a file based on its chunks
@@ -352,10 +352,10 @@ function matchesSearch(node: TreeNode<BrowserNodeData>, searchQuery: string): bo
 /**
  * Build tree context for accumulating nodes
  */
-type TreeBuildContext = {
+interface TreeBuildContext {
   all: TreeNode<BrowserNodeData>[];
   children: Map<string, TreeNode<BrowserNodeData>[]>;
-};
+}
 
 /**
  * Create an embedding node from a chunk
@@ -492,10 +492,10 @@ function matchesEmbeddingStatus(
 /**
  * Filter context for recursive node filtering
  */
-type FilterContext = {
+interface FilterContext {
   filters: CollectionBrowserFilters;
   childrenMap: Map<string, TreeNode<BrowserNodeData>[]>;
-};
+}
 
 /**
  * Check if node passes type filter, considering children visibility

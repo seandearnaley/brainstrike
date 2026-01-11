@@ -6,12 +6,12 @@ const API_KEY_ENV_VARS = [
 
 type ApiKeyEnvVar = (typeof API_KEY_ENV_VARS)[number];
 
-export type AssistantProviderConfig = {
+export interface AssistantProviderConfig {
   apiKey?: string;
   enabled: boolean;
   disabledReason?: 'missing_api_key';
   source?: ApiKeyEnvVar;
-};
+}
 
 function readEnvVar(name: ApiKeyEnvVar): string | undefined {
   const raw = process.env[name];

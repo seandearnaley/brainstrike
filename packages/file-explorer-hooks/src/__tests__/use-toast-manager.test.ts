@@ -9,17 +9,17 @@ import { useToastManager } from '../use-toast-manager';
 
 // Logger mock type for test purposes - uses generic Mock for variadic logging functions
 type LogFn = Mock<(...args: unknown[]) => void>;
-type MockLogger = {
+interface MockLogger {
   error: LogFn;
   warn: LogFn;
   info: LogFn;
   debug: LogFn;
   trace: LogFn;
   fatal: LogFn;
-};
+}
 
 // Toast result mock type for test purposes
-type MockToastResult = {
+interface MockToastResult {
   toast: Mock<
     (props: Record<string, unknown>) => {
       id: string;
@@ -29,7 +29,7 @@ type MockToastResult = {
   >;
   dismiss: Mock<(toastId?: string) => void>;
   toasts: [];
-};
+}
 
 const mockLogger = vi.hoisted<MockLogger>(() => ({
   error: vi.fn(),

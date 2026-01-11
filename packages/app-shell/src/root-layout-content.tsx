@@ -24,7 +24,7 @@ function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   return <FileTreeProvider rootDirectoryHandle={rootDirectoryHandle}>{children}</FileTreeProvider>;
 }
 
-export type RootLayoutContentProps = {
+export interface RootLayoutContentProps {
   readonly homePageContent: ReactNode;
   readonly settingsPageContent: ReactNode;
   readonly promptsPageContent?: ReactNode;
@@ -55,7 +55,7 @@ export type RootLayoutContentProps = {
    * - Vector search operations
    */
   readonly embeddingQueue?: QueueAdapter | null;
-};
+}
 
 export function RootLayoutContent({
   homePageContent,

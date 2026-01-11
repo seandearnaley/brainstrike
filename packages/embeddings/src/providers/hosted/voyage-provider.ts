@@ -12,7 +12,7 @@ const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';
 
 type FetchLike = typeof fetch;
 
-type VoyageEmbeddingResponse = {
+interface VoyageEmbeddingResponse {
   data?: Array<{
     object?: string;
     embedding?: number[];
@@ -25,7 +25,7 @@ type VoyageEmbeddingResponse = {
     total_tokens?: number;
   };
   error?: { message?: string };
-};
+}
 
 const VOYAGE_MODELS: Record<string, ModelConfig> = {
   'voyage-3': {
@@ -50,13 +50,13 @@ const VOYAGE_MODELS: Record<string, ModelConfig> = {
   },
 };
 
-export type VoyageEmbeddingProviderOptions = {
+export interface VoyageEmbeddingProviderOptions {
   readonly modelId: string;
   readonly inputType?: 'document' | 'query';
   readonly apiKey?: string;
   readonly fetch?: FetchLike;
   readonly endpoint?: string;
-};
+}
 
 export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
   readonly runtime = 'hosted' as const;

@@ -12,13 +12,13 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type EnabledModelsMap = Record<SupportedProvider, string[]>;
 
-type AssistantPreferencesData = {
+interface AssistantPreferencesData {
   selectedModel: string | null; // Composite key: "provider::model"
   modelsByProvider: Record<SupportedProvider, string>;
   enabledModelsByProvider: EnabledModelsMap;
-};
+}
 
-type AssistantPreferencesActions = {
+interface AssistantPreferencesActions {
   setModel: (compositeKey: string) => void;
   clearModel: () => void;
   setModelEnabled: (provider: SupportedProvider, model: string, enabled: boolean) => void;
@@ -31,7 +31,7 @@ type AssistantPreferencesActions = {
   getSelectedProvider: () => SupportedProvider | null;
   getEnabledModels: (provider: SupportedProvider) => string[];
   getAvailableProviders: () => Promise<SupportedProvider[]>;
-};
+}
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
@@ -194,12 +194,12 @@ function disableModelForProvider(
   return updates;
 }
 
-type AccumulatedState = {
+interface AccumulatedState {
   modelsByProvider: Record<SupportedProvider, string>;
   enabledModelsByProvider: EnabledModelsMap;
   selectedModel: string | null;
   hasChanges: boolean;
-};
+}
 
 function processModelUpdate(
   accumulated: AccumulatedState,

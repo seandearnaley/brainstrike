@@ -3,13 +3,13 @@
 
 declare global {
   namespace NodeJS {
-    type ProcessEnv = {
+    interface ProcessEnv {
       CI?: string;
       NODE_ENV?: string;
       [key: string]: string | undefined;
-    };
+    }
   }
-  type Window = {
+  interface Window {
     agent?: {
       chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
     };
@@ -29,7 +29,7 @@ declare global {
       watch?: () => Promise<{ watching: boolean }>;
       unwatch?: () => Promise<{ watching: false }>;
     };
-  };
+  }
 }
 
 export {};

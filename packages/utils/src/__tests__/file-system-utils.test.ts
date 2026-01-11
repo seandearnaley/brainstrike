@@ -1,18 +1,18 @@
 import { readFullFileTree } from '../file-system-utils';
 
 // --- Mocking Strategy ---
-type MockFileHandle = {
+interface MockFileHandle {
   kind: 'file';
   name: string;
   // Define other methods like getFile, createWritable if they were ever accessed by readFullFileTree
-};
+}
 
-type MockDirectoryHandle = {
+interface MockDirectoryHandle {
   kind: 'directory';
   name: string;
   entries: () => AsyncIterableIterator<[string, MockFileHandle | MockDirectoryHandle]>;
   // Define other methods if necessary
-};
+}
 
 const mockFile = (name: string): MockFileHandle => ({
   kind: 'file',

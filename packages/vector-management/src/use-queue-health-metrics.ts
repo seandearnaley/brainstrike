@@ -37,14 +37,14 @@ const logger = createLogger('useQueueHealthMetrics');
 const EMBEDDING_QUEUE_NAME = 'embeddings';
 const DEFAULT_POLL_INTERVAL_MS = 2000;
 
-export type UseQueueHealthMetricsOptions = {
+export interface UseQueueHealthMetricsOptions {
   /** Polling interval in ms (default: 2000) */
   readonly pollIntervalMs?: number;
   /** Whether to enable polling (default: true in browser, false in test) */
   readonly enablePolling?: boolean;
-};
+}
 
-export type UseQueueHealthMetricsReturn = {
+export interface UseQueueHealthMetricsReturn {
   /** Consolidated health metrics */
   readonly metrics: QueueHealthMetrics;
   /** Whether initial data is still loading */
@@ -53,7 +53,7 @@ export type UseQueueHealthMetricsReturn = {
   readonly refresh: () => Promise<void>;
   /** Last error encountered, if any */
   readonly error: string | null;
-};
+}
 
 /**
  * Initial empty metrics state.

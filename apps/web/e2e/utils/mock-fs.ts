@@ -1,12 +1,12 @@
 import type { Page } from '@playwright/test';
 
-export type FileTree = {
+export interface FileTree {
   [key: string]: FileTree | null | string;
-};
+}
 
-type Options = {
+interface Options {
   clipboard?: boolean;
-};
+}
 
 export async function mockBrowserApis(
   page: Page,
@@ -21,7 +21,9 @@ export async function mockBrowserApis(
         | { kind: 'file'; name: string; _content: string }
         | { kind: 'directory'; name: string; _entries: Record<string, FsNode> };
 
-      type FsInput = { [key: string]: FsInput | null | string };
+      interface FsInput {
+        [key: string]: FsInput | null | string;
+      }
 
       function buildFs(name: string, obj: FsInput | null | string): FsNode {
         if (obj && typeof obj === 'object') {

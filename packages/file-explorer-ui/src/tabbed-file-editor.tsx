@@ -17,7 +17,7 @@ import { useHotkeys } from 'react-hotkeys-hook';
 import type { FileTab } from './hooks/use-tab-manager';
 import { useEditorViewStateStore } from './stores/editor-view-state-store';
 
-export type TabStripAction = {
+export interface TabStripAction {
   id: string;
   label: string;
   icon?: React.ReactNode;
@@ -25,9 +25,9 @@ export type TabStripAction = {
   enabled?: boolean;
   visible?: boolean;
   onSelect: () => void;
-};
+}
 
-type TabbedFileEditorProps = {
+interface TabbedFileEditorProps {
   tabs: FileTab[];
   activeTabId: string | null;
   fileContents: { [compositeKey: string]: string };
@@ -37,7 +37,7 @@ type TabbedFileEditorProps = {
   onLoadFileContent: (compositeKey: string) => void;
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
   tabStripActions?: TabStripAction[];
-};
+}
 
 function buildContentNode(opts: {
   isLoading: boolean;
@@ -94,9 +94,9 @@ function buildContentNode(opts: {
   );
 }
 
-type TabStripOverflowMenuProps = {
+interface TabStripOverflowMenuProps {
   actions: TabStripAction[];
-};
+}
 
 function TabStripOverflowMenu({ actions }: TabStripOverflowMenuProps) {
   const visibleActions = actions.filter((action) => action.visible !== false);

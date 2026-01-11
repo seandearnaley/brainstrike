@@ -2,13 +2,13 @@ import { Button, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from
 import { RefreshCw, Zap } from 'lucide-react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
 
-type FileActionButtonsProps = {
+interface FileActionButtonsProps {
   status: FileCollectionStatus;
   /** Handler for making file searchable - if undefined, button is disabled */
   onMakeSearchable?: ((fileId: string) => void) | undefined;
   /** Handler for re-indexing file - if undefined, button is disabled */
   onReindex?: ((fileId: string) => void) | undefined;
-};
+}
 
 /**
  * Action buttons for file collection operations

@@ -4,9 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { useGroupSelection } from '../hooks/use-group-selection';
 import type { GroupedData } from '../utils/grouping-configs';
 
-type Item = {
+interface Item {
   id: string;
-};
+}
 
 const itemA: Item = { id: 'a' };
 const itemB: Item = { id: 'b' };

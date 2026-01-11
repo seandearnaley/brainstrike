@@ -32,14 +32,14 @@ const LOG_LEVEL_OPTIONS: LogLevel[] = [
   LogLevel.SILENT,
 ];
 
-type FileCapabilities = {
+interface FileCapabilities {
   fileLoggingSupported: boolean;
   canSelectDestination: boolean;
   reason?: string | null;
   defaultDestination?: string | null;
-};
+}
 
-export type LoggingSettingsSectionProps = {
+export interface LoggingSettingsSectionProps {
   runtime: 'browser' | 'electron-renderer';
   fileCapabilities?: FileCapabilities;
   busy?: boolean;
@@ -50,7 +50,7 @@ export type LoggingSettingsSectionProps = {
   onOpenLogDestination?: (target: string | null) => Promise<boolean>;
   onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
   logSource?: LogSourceAdapter;
-};
+}
 
 export type { LogSourceAdapter };
 

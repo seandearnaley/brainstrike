@@ -8,10 +8,10 @@
  * are validated before being used in SQL strings.
  */
 
-type HnswParams = {
+interface HnswParams {
   m: number;
   ef: number;
-};
+}
 
 /**
  * Maximum allowed dimension for HNSW indexes.
@@ -76,10 +76,10 @@ function validateHnswParamsForSql(params: HnswParams, context: string): void {
   }
 }
 
-type DimensionIndexDb = {
+interface DimensionIndexDb {
   exec(sql: string, params?: unknown): Promise<unknown>;
   query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
-};
+}
 
 /**
  * Read HNSW tuning parameters from environment variables.

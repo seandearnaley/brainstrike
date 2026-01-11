@@ -29,15 +29,15 @@ const COLOR_COMBINATIONS = [
   },
 ];
 
-export type ColorScheme = {
+export interface ColorScheme {
   bg: string;
   text: string;
-};
+}
 
-export type FolderColors = {
+export interface FolderColors {
   light: ColorScheme;
   dark: ColorScheme;
-};
+}
 
 /**
  * Gets a consistent, accessible color combination for a folder.

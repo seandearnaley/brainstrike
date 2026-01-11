@@ -4,9 +4,9 @@ import { useVectorQueueState } from '../vector-status/use-vector-queue-state';
 import type { VectorQueueService } from '../vector-status/vector-queue-service';
 import { patchMockQueueMetrics, resetMockQueueMetrics } from './setup-mock-queue';
 
-type LiveQueryShape = {
+interface LiveQueryShape {
   rows: unknown[];
-};
+}
 
 const liveQueryState: Record<
   'queueCounts' | 'throughput' | 'lastError' | 'latency' | 'coverage',

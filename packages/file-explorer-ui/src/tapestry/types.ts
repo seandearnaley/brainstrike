@@ -1,18 +1,18 @@
-export type LineData = {
+export interface LineData {
   indent: number;
   width: number;
   isEmpty: boolean;
-};
+}
 
-export type TapestryRange = {
+export interface TapestryRange {
   id: string;
   startLine: number;
   endLine: number;
   isActive: boolean;
   color: string;
-};
+}
 
-export type FileTapestry = {
+export interface FileTapestry {
   id: string;
   compositeKey: string;
   rootFolderId: string;
@@ -27,14 +27,14 @@ export type FileTapestry = {
   content: string[]; // Actual text content for preview
   contentStatus: 'ready' | 'loading' | 'idle';
   selections: TapestryRange[];
-};
+}
 
 export type InteractionMode = 'IDLE' | 'CREATING' | 'RESIZING_TOP' | 'RESIZING_BOTTOM' | 'MOVING';
 
-export type DragState = {
+export interface DragState {
   mode: InteractionMode;
   fileId: string | null;
   rangeId: string | null;
   startY: number;
   initialRange: TapestryRange | null;
-};
+}

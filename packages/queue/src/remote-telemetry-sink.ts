@@ -5,7 +5,7 @@ const logger = createLogger('EmbeddingQueueTelemetrySink');
 
 export type QueueTelemetryRuntime = 'browser' | 'electron-renderer' | 'electron-main';
 
-export type QueueTelemetrySinkOptions = {
+export interface QueueTelemetrySinkOptions {
   readonly endpoint: string;
   readonly apiKey?: string;
   readonly headers?: Record<string, string>;
@@ -21,12 +21,12 @@ export type QueueTelemetrySinkOptions = {
    * Defaults to 3.
    */
   readonly maxConsecutiveFailures?: number;
-};
+}
 
-export type QueueTelemetrySink = {
+export interface QueueTelemetrySink {
   flush(): Promise<void>;
   dispose(): Promise<void>;
-};
+}
 
 function resolveDefaultRuntime(): QueueTelemetryRuntime {
   if (typeof window === 'undefined') {

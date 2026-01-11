@@ -5,28 +5,28 @@ import type { TokenCountingState } from './use-token-counting';
 /** Debounce delay for token version updates (ms) */
 const TOKEN_VERSION_DEBOUNCE_MS = 100;
 
-export type FileItem = {
+export interface FileItem {
   compositeKey: string;
   folderId: string;
   path: string;
   size?: number;
   tokens?: number;
   type: 'file';
-};
+}
 
-export type FolderHeaderItem = {
+export interface FolderHeaderItem {
   folderId: string;
   type: 'folder-header';
   fileCount: number;
   totalTokens: number;
-};
+}
 
 export type ListItem = FileItem | FolderHeaderItem;
 
-type SortConfig = {
+interface SortConfig {
   key: string;
   direction: 'asc' | 'desc';
-};
+}
 
 export function formatTokenCount(tokens: number): string {
   if (tokens < 1000) {
@@ -38,7 +38,7 @@ export function formatTokenCount(tokens: number): string {
   return `${(tokens / 1_000_000).toFixed(1)}M`;
 }
 
-export type UsePreviewPanelStateProps = {
+export interface UsePreviewPanelStateProps {
   selectedFiles: Set<string>;
   fileContents: Record<string, string>;
   loadingFiles: Set<string>;
@@ -56,7 +56,7 @@ export type UsePreviewPanelStateProps = {
       onUndo: (key: string, snapshot: Set<string>) => void;
     }
   ) => void;
-};
+}
 
 // Helper function to get file size from metadata (no content loading required)
 function getFileSizeFromMetadata(

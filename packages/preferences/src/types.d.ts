@@ -1,7 +1,6 @@
 export {};
 
 declare global {
-  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     secrets?: {
       saveKey: (

@@ -1,14 +1,14 @@
 import { ArrowDown, ArrowUp } from 'lucide-react';
 import { memo } from 'react';
 
-type SortableTableHeaderProps<T> = {
+interface SortableTableHeaderProps<T> {
   field: T;
   title: string;
   sortField?: T;
   sortDirection?: 'asc' | 'desc';
   onSort: (field: T) => void;
   className?: string;
-};
+}
 
 function SortableTableHeaderComponent<T extends string | number | symbol>({
   field,

@@ -130,12 +130,12 @@ function TreeTableRowInner<T>(
  * TreeTableCell renders a single cell, with special handling for the first column
  * which includes indentation and the expand/collapse toggle.
  */
-type TreeTableCellProps<T> = {
+interface TreeTableCellProps<T> {
   row: FlattenedRow<T>;
   column: TreeTableColumn<T>;
   columnIndex: number;
   onExpandClick: (event: React.MouseEvent) => void;
-};
+}
 
 function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTableCellProps<T>) {
   const { node, isExpanded, isSelected, isHighlighted, index } = row;
@@ -197,7 +197,6 @@ function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTable
  * Memoized TreeTableRow to prevent unnecessary re-renders.
  * Only re-renders when the row's visual state changes.
  */
-// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for memo + ref pattern
 export const TreeTableRow = React.memo(React.forwardRef(TreeTableRowInner)) as <T>(
   props: TreeTableRowProps<T> & { ref?: React.Ref<HTMLTableRowElement> }
 ) => React.ReactElement;

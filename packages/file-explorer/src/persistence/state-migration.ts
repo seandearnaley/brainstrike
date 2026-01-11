@@ -1,7 +1,10 @@
 import type { SerializedState } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 
-type ZustandPersistWrapper<T> = { state?: T; version?: number };
+interface ZustandPersistWrapper<T> {
+  state?: T;
+  version?: number;
+}
 
 const logger = createLogger('Persistence');
 

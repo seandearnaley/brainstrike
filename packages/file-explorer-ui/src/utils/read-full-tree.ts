@@ -10,7 +10,7 @@ import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-syste
 import type { IFileNode, StreamMeta } from '@brainstrike/types';
 import { type ParallelWalkerOptions, walkDirectoryParallel } from './parallel-directory-walker';
 
-export type ReadFullTreeOptions = {
+export interface ReadFullTreeOptions {
   /** Maximum number of concurrent directory reads (default: 10) */
   concurrency?: number | undefined;
   /** AbortSignal for cancellation support */
@@ -23,7 +23,7 @@ export type ReadFullTreeOptions = {
   onTreeSnapshot?: ((tree: IFileNode[], meta: StreamMeta) => void) | undefined;
   /** Snapshot interval in ms (default: 100) */
   snapshotIntervalMs?: number | undefined;
-};
+}
 
 /**
  * Reads a directory tree with parallel traversal.

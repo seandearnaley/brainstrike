@@ -7,11 +7,11 @@ import { resolveAssistantProviderConfig } from '../../../server/assistant-config
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 10;
 
-type RateLimitEntry = {
+interface RateLimitEntry {
   count: number;
   windowStartedAt: number;
   blockedUntil?: number;
-};
+}
 
 const rateLimitState = new Map<string, RateLimitEntry>();
 

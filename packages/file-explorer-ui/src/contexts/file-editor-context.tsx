@@ -1,16 +1,16 @@
 import type React from 'react';
 import { createContext, useContext } from 'react';
 
-export type FileEditorContextValue = {
+export interface FileEditorContextValue {
   openFileInTab: (compositeKey: string) => void;
-};
+}
 
 const FileEditorContext = createContext<FileEditorContextValue | null>(null);
 
-export type FileEditorProviderProps = {
+export interface FileEditorProviderProps {
   children: React.ReactNode;
   value: FileEditorContextValue;
-};
+}
 
 export const FileEditorProvider: React.FC<FileEditorProviderProps> = ({ children, value }) => (
   <FileEditorContext.Provider value={value}>{children}</FileEditorContext.Provider>

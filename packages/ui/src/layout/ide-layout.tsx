@@ -16,10 +16,10 @@ import { ToolsPanel } from './tools-panel';
 const logger = createLogger('IdeLayout');
 
 // Context for sharing file editor functionality between main content and console
-type FileEditorContextValue = {
+interface FileEditorContextValue {
   openFileInTab: ((compositeKey: string) => void) | undefined;
   registerOpenFileInTab: (fn: (compositeKey: string) => void) => void;
-};
+}
 
 const IdeFileEditorContext = createContext<FileEditorContextValue>({
   openFileInTab: undefined,
@@ -92,7 +92,7 @@ function usePanelEffects(
 }
 
 // Layout handler configuration
-type LayoutHandlerConfig = {
+interface LayoutHandlerConfig {
   leftPanelContent?: React.ReactNode;
   rightPanelContent?: React.ReactNode;
   consoleContent?: React.ReactNode;
@@ -108,7 +108,7 @@ type LayoutHandlerConfig = {
     showLeftPanel?: boolean,
     showRightPanel?: boolean
   ) => void;
-};
+}
 
 // Helper to determine panel visibility state
 function getPanelVisibilityState(config: LayoutHandlerConfig) {
@@ -409,13 +409,13 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
   return fallback;
 }
 
-export type IdeLayoutProps = {
+export interface IdeLayoutProps {
   children: React.ReactNode;
   leftPanelContent?: React.ReactNode;
   rightPanelContent?: React.ReactNode;
   consoleContent?: React.ReactNode;
   className?: string;
-};
+}
 
 export const IdeLayout = React.memo(function IdeLayout({
   children,

@@ -8,22 +8,22 @@ import {
   isTextExtension,
 } from '@brainstrike/utils';
 
-export type FileReadRequest = {
+export interface FileReadRequest {
   compositeKey: string;
   handle: FileHandle;
   path: string;
-};
+}
 
-export type ProgressEvent = {
+export interface ProgressEvent {
   key: string;
   loaded: number;
   total: number;
-};
+}
 
-export type FileContentWorkerOptions = {
+export interface FileContentWorkerOptions {
   fileSystemAdapter: FileSystemAdapter;
   concurrency?: number;
-};
+}
 
 const logger = createLogger('FileContentWorker');
 

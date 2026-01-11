@@ -2,13 +2,13 @@ import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
 import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';
 
-export type LoggingIpcHandlers = {
+export interface LoggingIpcHandlers {
   getState: () => LoggingSettingsPayload;
   setPreferences: (preferences: LoggingPreferences) => LoggingSettingsPayload;
   selectDestination: () => Promise<string | null>;
   openDestination: (target: string | null) => Promise<boolean>;
   getBufferedLogs: () => readonly LogRecord[];
-};
+}
 
 export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): void {
   ipcMain.handle('logging:get-preferences', () => handlers.getState());

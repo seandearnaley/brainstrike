@@ -12,7 +12,7 @@ const renderWithProviders = makeRenderWithProviders(Wrapper);
 let previewSnapshot: Set<string>;
 // biome-ignore lint/suspicious/noVar: var required for vi.mock hoisting - let creates temporal dead zone
 var previewPanelMock: ReturnType<typeof vi.fn> | undefined;
-type MockPreviewPanelProps = {
+interface MockPreviewPanelProps {
   onSelectionChange: (files: Set<string>) => void;
   performUndoableAction: (
     key: string,
@@ -24,7 +24,7 @@ type MockPreviewPanelProps = {
       onUndo: (key: string, snapshot: Set<string>) => void;
     }
   ) => void;
-};
+}
 
 vi.mock('../preview-panel', () => {
   previewPanelMock = vi.fn(

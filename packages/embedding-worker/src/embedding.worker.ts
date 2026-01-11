@@ -217,7 +217,7 @@ function convertTensorToVectors(tensor: Tensor, truncateDim?: number): Float32Ar
   return [truncateVector(l2Normalize(flattened), truncateDim)];
 }
 
-type EmbeddingContext = {
+interface EmbeddingContext {
   readonly id: string;
   readonly model: string;
   readonly texts: readonly string[];
@@ -228,14 +228,14 @@ type EmbeddingContext = {
   readonly provider?: string;
   readonly targetDimension?: number;
   readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
-};
+}
 
-type EmbeddingState = {
+interface EmbeddingState {
   device: EmbeddingDevice;
   batchSize: number;
   fallbackApplied: boolean;
   readonly maxBatchSize?: number;
-};
+}
 
 function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
   const requestedDimension = payload.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;

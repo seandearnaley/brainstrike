@@ -18,13 +18,13 @@ type FixtureCapableAdapter = FileSystemAdapter & {
   canLoadInlineFixture?: boolean;
 };
 
-type InlineFixtureToast = {
+interface InlineFixtureToast {
   title: string;
   description: string;
   variant?: 'default' | 'destructive';
-};
+}
 
-type UseInlineFixtureEffectOptions = {
+interface UseInlineFixtureEffectOptions {
   fileSystemAdapter: FileSystemAdapter;
   devInlineFixtureEnabled: boolean;
   setDevInlineFixtureEnabled: (enabled: boolean) => void;
@@ -39,12 +39,12 @@ type UseInlineFixtureEffectOptions = {
     enableError: string;
     disableError: string;
   };
-};
+}
 
-type InlineFixtureState = {
+interface InlineFixtureState {
   isLoading: boolean;
   isAvailable: boolean;
-};
+}
 
 /**
  * Checks if the current state requires no action.
@@ -86,8 +86,10 @@ export function useInlineFixtureEffect(options: UseInlineFixtureEffectOptions): 
   const [isLoading, setIsLoading] = useState(false);
   const hasAppliedInitialFixtureRef = useRef(false);
   const prevTargetStateRef = useRef<boolean | null>(null);
+  const runIdRef = useRef(0);
   const clearRootDirectoryRef = useRef(clearRootDirectory);
   const showToastRef = useRef(showToast);
+  const stringsRef = useRef(strings);
 
   // Keep refs updated
   useEffect(() => {
@@ -97,6 +99,10 @@ export function useInlineFixtureEffect(options: UseInlineFixtureEffectOptions): 
   useEffect(() => {
     showToastRef.current = showToast;
   }, [showToast]);
+
+  useEffect(() => {
+    stringsRef.current = strings;
+  }, [strings]);
 
   const fixtureAdapter = isFixtureCapableAdapter(fileSystemAdapter)
     ? (fileSystemAdapter as FixtureCapableAdapter)
@@ -121,36 +127,33 @@ export function useInlineFixtureEffect(options: UseInlineFixtureEffectOptions): 
     clearRootDirectoryRef.current?.();
   }, [fixtureAdapter]);
 
-  const notifySuccess = useCallback(
-    (enabled: boolean) => {
-      if (!hasAppliedInitialFixtureRef.current) {
-        return;
-      }
-      const description = enabled ? strings.enableSuccess : strings.disableSuccess;
-      showToastRef.current?.({
-        title: strings.successTitle,
-        description,
-      });
-    },
-    [strings]
-  );
+  const notifySuccess = useCallback((enabled: boolean) => {
+    if (!hasAppliedInitialFixtureRef.current) {
+      return;
+    }
+    const s = stringsRef.current;
+    const description = enabled ? s.enableSuccess : s.disableSuccess;
+    showToastRef.current?.({
+      title: s.successTitle,
+      description,
+    });
+  }, []);
 
-  const notifyError = useCallback(
-    (enabled: boolean) => {
-      const description = enabled ? strings.enableError : strings.disableError;
-      showToastRef.current?.({
-        title: strings.errorTitle,
-        description,
-        variant: 'destructive',
-      });
-    },
-    [strings]
-  );
+  const notifyError = useCallback((enabled: boolean) => {
+    const s = stringsRef.current;
+    const description = enabled ? s.enableError : s.disableError;
+    showToastRef.current?.({
+      title: s.errorTitle,
+      description,
+      variant: 'destructive',
+    });
+  }, []);
 
   // Main effect for synchronizing fixture state
   useEffect(() => {
     // Guard: adapter must be available
     if (!(fixtureAdapter && isAvailable)) {
+      setIsLoading(false);
       if (devInlineFixtureEnabled) {
         setDevInlineFixtureEnabled(false);
       }
@@ -159,6 +162,7 @@ export function useInlineFixtureEffect(options: UseInlineFixtureEffectOptions): 
 
     // Guard: wait for initial application or explicit enable
     if (!(hasAppliedInitialFixtureRef.current || devInlineFixtureEnabled)) {
+      setIsLoading(false);
       return;
     }
 
@@ -171,6 +175,7 @@ export function useInlineFixtureEffect(options: UseInlineFixtureEffectOptions): 
         hasAppliedInitialFixtureRef.current
       )
     ) {
+      setIsLoading(false);
       hasAppliedInitialFixtureRef.current = true;
       return;
     }
@@ -181,21 +186,32 @@ export function useInlineFixtureEffect(options: UseInlineFixtureEffectOptions): 
     const targetState = devInlineFixtureEnabled;
 
     const applySetting = async () => {
+      runIdRef.current += 1;
+      const runId = runIdRef.current;
+
+      const applyToggle = targetState ? enableInlineFixture : disableInlineFixture;
+      const rollbackOnEnableFailure: (() => Promise<void>) | null = targetState
+        ? async () => {
+            try {
+              await fixtureAdapter.clearInlineFixture();
+            } catch {}
+            clearRootDirectoryRef.current?.();
+          }
+        : null;
+
       setIsLoading(true);
       try {
-        if (targetState) {
-          await enableInlineFixture();
-        } else {
-          await disableInlineFixture();
-        }
+        await applyToggle();
         notifySuccess(targetState);
         hasAppliedInitialFixtureRef.current = true;
       } catch (error) {
         logger.warn('Failed to toggle inline fixture', { error, targetState });
         notifyError(targetState);
+        await rollbackOnEnableFailure?.();
         setDevInlineFixtureEnabled(!targetState);
       } finally {
-        if (!isCancelled) {
+        // Only the latest run may clear loading; prevents stale async from wedging the UI.
+        if (!isCancelled && runIdRef.current === runId) {
           setIsLoading(false);
         }
         hasAppliedInitialFixtureRef.current = true;

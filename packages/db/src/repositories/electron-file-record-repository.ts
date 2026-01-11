@@ -4,10 +4,10 @@ import type { IDatabase } from './interfaces.js';
 /**
  * Electron IPC API
  */
-export type ElectronDbAPI = {
+export interface ElectronDbAPI {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
   exec: (sql: string) => Promise<void>;
-};
+}
 
 /**
  * Adapter to make ElectronDbAPI compatible with IDatabase interface

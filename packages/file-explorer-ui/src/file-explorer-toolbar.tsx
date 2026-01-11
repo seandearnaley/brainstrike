@@ -7,7 +7,7 @@ import { FileFilterBar } from './file-filter-bar';
 import { SelectionCounter } from './selection-counter';
 import WorkspaceSettings from './workspace-settings';
 
-type FileExplorerToolbarProps = {
+interface FileExplorerToolbarProps {
   onDirectorySelect: () => Promise<void>;
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   filterError: string | null;
@@ -23,7 +23,7 @@ type FileExplorerToolbarProps = {
     available: boolean;
     loading: boolean;
   };
-};
+}
 
 const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
   ({

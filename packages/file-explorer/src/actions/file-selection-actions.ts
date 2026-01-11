@@ -5,7 +5,7 @@ import type { StoreApi, UseBoundStore } from 'zustand';
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
 
-export type FileSelectionActions = {
+export interface FileSelectionActions {
   setSelectedFiles: (selectedFiles: ReadonlySet<string>) => void;
   addSelectedFile: (folderId: string | null, path: string) => void;
   removeSelectedFile: (folderId: string | null, path: string) => void;
@@ -13,7 +13,7 @@ export type FileSelectionActions = {
   clearSelectedFiles: () => void;
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
   removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
-};
+}
 
 export const createFileSelectionActions = (
   set: SetState<FileExplorerState>,

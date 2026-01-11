@@ -39,14 +39,14 @@ const DEFAULT_STREAMING_BATCH_SIZE = 50;
  */
 
 /** Configuration options for ElectronFileSystemAdapter */
-export type ElectronAdapterOptions = {
+export interface ElectronAdapterOptions {
   /**
    * Enable metadata caching to reduce filesystem I/O.
    * When true, uses default cache settings.
    * Pass a MetadataCacheConfig object for custom settings.
    */
   cache?: boolean | MetadataCacheConfig;
-};
+}
 
 // Helpers to build nodes
 function toDirectoryNode(root: DirectoryHandle, entryName: string, fullPath: string): IFileNode {

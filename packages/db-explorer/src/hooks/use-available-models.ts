@@ -1,20 +1,20 @@
 import type { DbModel, DbProvider } from '@brainstrike/preferences';
 import { useMemo } from 'react';
 
-type AvailableModel = {
+interface AvailableModel {
   id: string;
   providerId: string;
   name: string;
   description: string;
   capabilities: DbModel['capabilities'];
   pricePer1MTokensInput?: number;
-};
+}
 
-type AvailableProvider = {
+interface AvailableProvider {
   id: string;
   name: string;
   icon: string | null;
-};
+}
 
 /**
  * Transforms registered models into available embedding models for UI.

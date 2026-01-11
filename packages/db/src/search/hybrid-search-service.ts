@@ -22,7 +22,7 @@ import { createRankedList, type FusedResult, fuseRankedLists, type RRFOptions } 
  * Defines only the methods required by HybridSearchService, allowing
  * any repository implementation (Drizzle, Electron, PGlite) to be used.
  */
-export type HybridSearchRepository = {
+export interface HybridSearchRepository {
   /** Vector similarity search */
   searchSimilar(
     queryEmbedding: number[],
@@ -30,12 +30,12 @@ export type HybridSearchRepository = {
   ): Promise<ChunkSearchResult[]>;
   /** Full-text keyword search */
   fullTextSearch(query: string, options: FTSSearchOptions): Promise<FTSSearchResult[]>;
-};
+}
 
 /**
  * Options for hybrid search
  */
-export type HybridSearchOptions = {
+export interface HybridSearchOptions {
   /** Maximum number of final results to return (default: 10) */
   limit?: number;
 
@@ -76,12 +76,12 @@ export type HybridSearchOptions = {
   rrfK?: number;
   /** Minimum sources required for result inclusion (default: 1) */
   minSourceCount?: number;
-};
+}
 
 /**
  * Result from hybrid search with detailed scoring information
  */
-export type HybridSearchResult = {
+export interface HybridSearchResult {
   /** The matched chunk */
   chunk: FileChunk;
   /** Combined RRF score (higher = better) */
@@ -96,12 +96,12 @@ export type HybridSearchResult = {
   headline?: string;
   /** Position in final result set (1-indexed) */
   position: number;
-};
+}
 
 /**
  * Metadata about the hybrid search execution
  */
-export type HybridSearchMetadata = {
+export interface HybridSearchMetadata {
   /** Number of results from vector search before fusion */
   vectorResultCount: number;
   /** Number of results from FTS before fusion */
@@ -116,17 +116,17 @@ export type HybridSearchMetadata = {
   fusionMs: number;
   /** Total time (ms) */
   totalMs: number;
-};
+}
 
 /**
  * Complete response from hybrid search
  */
-export type HybridSearchResponse = {
+export interface HybridSearchResponse {
   /** Search results */
   results: HybridSearchResult[];
   /** Execution metadata */
   metadata: HybridSearchMetadata;
-};
+}
 
 /**
  * Service for performing hybrid search combining vector and full-text search

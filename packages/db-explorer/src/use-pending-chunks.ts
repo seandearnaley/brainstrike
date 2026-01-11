@@ -2,7 +2,9 @@ import type { usePGliteDatabase } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-type PendingRow = { dedupeKey: string | null };
+interface PendingRow {
+  dedupeKey: string | null;
+}
 
 function derivePendingChunkIds(rows: PendingRow[], activeSetId: string): Set<string> {
   return rows.reduce((ids, row) => {
@@ -14,16 +16,16 @@ function derivePendingChunkIds(rows: PendingRow[], activeSetId: string): Set<str
   }, new Set<string>());
 }
 
-export type UsePendingChunksOptions = {
+export interface UsePendingChunksOptions {
   database: ReturnType<typeof usePGliteDatabase>;
   resolveActiveSetId?: () => string | null | undefined;
   intervalMs?: number;
-};
+}
 
-export type UsePendingChunksResult = {
+export interface UsePendingChunksResult {
   pendingChunkIds: Set<string>;
   refreshPendingChunks: () => Promise<void>;
-};
+}
 
 const logger = createLogger('usePendingChunks');
 

@@ -1,4 +1,4 @@
-export type FileChunk = {
+export interface FileChunk {
   id: string;
   fileRecordId: string;
   chunkIndex: number;
@@ -13,9 +13,9 @@ export type FileChunk = {
   embeddingHash?: string;
   createdAt: string;
   updatedAt: string;
-};
+}
 
-export type FileChunkInsert = {
+export interface FileChunkInsert {
   id: string;
   fileRecordId: string;
   chunkIndex: number;
@@ -30,9 +30,9 @@ export type FileChunkInsert = {
   embeddingHash?: string;
   createdAt: string;
   updatedAt: string;
-};
+}
 
-export type FileChunkUpdate = {
+export interface FileChunkUpdate {
   id: string;
   content?: string;
   contentHash?: string;
@@ -44,15 +44,15 @@ export type FileChunkUpdate = {
   embeddingUpdatedAt?: string;
   embeddingHash?: string;
   updatedAt: string;
-};
+}
 
-export type ChunkSearchResult = {
+export interface ChunkSearchResult {
   chunk: FileChunk;
   similarity: number;
   rank: number;
-};
+}
 
-export type ChunkSearchOptions = {
+export interface ChunkSearchOptions {
   limit?: number;
   threshold?: number;
   fileRecordId?: string;
@@ -62,7 +62,7 @@ export type ChunkSearchOptions = {
   filePaths?: readonly string[];
   /** Optional snapshot id referencing a persisted selection allowlist. */
   selectionSnapshotId?: string;
-};
+}
 
 /**
  * Query parsing mode for full-text search
@@ -75,7 +75,7 @@ export type FTSQueryMode = 'plain' | 'websearch' | 'phrase';
 /**
  * Options for full-text search on file chunks
  */
-export type FTSSearchOptions = {
+export interface FTSSearchOptions {
   /** Maximum number of results to return (default: 10) */
   limit?: number;
   /** Minimum FTS rank score threshold (default: 0, no threshold) */
@@ -104,12 +104,12 @@ export type FTSSearchOptions = {
    * Can be combined with | (e.g., 1|2 for both normalizations)
    */
   rankNormalization?: number;
-};
+}
 
 /**
  * Result from full-text search with FTS-specific metadata
  */
-export type FTSSearchResult = {
+export interface FTSSearchResult {
   /** The matched chunk */
   chunk: FileChunk;
   /** FTS relevance rank score (higher = more relevant) */
@@ -118,4 +118,4 @@ export type FTSSearchResult = {
   position: number;
   /** Headline snippet with search terms highlighted (if requested) */
   headline?: string;
-};
+}

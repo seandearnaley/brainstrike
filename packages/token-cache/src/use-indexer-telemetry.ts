@@ -24,21 +24,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createIndexerTelemetryAggregator, type IndexerTelemetrySnapshot } from './telemetry';
 
-export type UseIndexerTelemetryOptions = {
+export interface UseIndexerTelemetryOptions {
   /** Time window for aggregation in ms (default: 60000 = 1 minute) */
   windowMs?: number;
   /** Max events to retain (default: 5000) */
   maxEvents?: number;
   /** How often to update the snapshot in ms (default: 1000 = 1 second) */
   updateIntervalMs?: number;
-};
+}
 
-export type UseIndexerTelemetryReturn = {
+export interface UseIndexerTelemetryReturn {
   /** Current telemetry snapshot */
   snapshot: IndexerTelemetrySnapshot;
   /** Reset the aggregator (clears all events) */
   reset: () => void;
-};
+}
 
 const emptySnapshot: IndexerTelemetrySnapshot = {
   events: [],

@@ -12,10 +12,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useFileSystem } from '../use-file-system-context';
 
-type ExposedHooks = {
+interface ExposedHooks {
   store: ReturnType<typeof useFileExplorerStoreContext>;
   fs: ReturnType<typeof useFileSystem>;
-};
+}
 
 function HookExposer({ onReady }: { onReady: (hooks: ExposedHooks) => void }) {
   const store = useFileExplorerStoreContext();

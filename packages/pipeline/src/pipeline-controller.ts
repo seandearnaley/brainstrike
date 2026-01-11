@@ -73,29 +73,29 @@ export type StateChangeCallback = (
 /**
  * Metadata for state changes.
  */
-export type StateChangeMetadata = {
+export interface StateChangeMetadata {
   /** Error message if transitioning to error state */
   error?: string;
   /** Timestamp of state change */
   timestamp: string;
   /** Duration in current state before transition (ms) */
   durationInPreviousStateMs?: number;
-};
+}
 
 /**
  * Configuration for creating a pipeline controller.
  */
-export type PipelineControllerConfig = {
+export interface PipelineControllerConfig {
   /** Callback invoked on state changes */
   onStateChange?: StateChangeCallback;
   /** Initial state (defaults to 'idle') */
   initialState?: PipelineState;
-};
+}
 
 /**
  * Pipeline controller interface.
  */
-export type PipelineController = {
+export interface PipelineController {
   /**
    * Get current pipeline state.
    */
@@ -200,7 +200,7 @@ export type PipelineController = {
    * @throws AbortError if canceled
    */
   checkAndWait(): Promise<void>;
-};
+}
 
 // =============================================================================
 // FACTORY

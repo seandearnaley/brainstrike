@@ -5,7 +5,7 @@
 /**
  * Tool/function definition for local LLM function calling
  */
-export type LocalLlmToolDefinition = {
+export interface LocalLlmToolDefinition {
   type: 'function';
   function: {
     name: string;
@@ -16,34 +16,34 @@ export type LocalLlmToolDefinition = {
       required?: string[];
     };
   };
-};
+}
 
 /**
  * Chat message format for local LLMs
  */
-export type LocalLlmMessage = {
+export interface LocalLlmMessage {
   role: 'system' | 'user' | 'assistant' | 'developer' | 'tool';
   content: string;
   toolCallId?: string;
   name?: string;
-};
+}
 
 /**
  * Tool call result from model output
  */
-export type LocalLlmToolCall = {
+export interface LocalLlmToolCall {
   id: string;
   type: 'function';
   function: {
     name: string;
     arguments: string;
   };
-};
+}
 
 /**
  * Generation options for local LLM
  */
-export type LocalLlmGenerationOptions = {
+export interface LocalLlmGenerationOptions {
   maxNewTokens?: number;
   temperature?: number;
   topP?: number;
@@ -52,12 +52,12 @@ export type LocalLlmGenerationOptions = {
   repetitionPenalty?: number;
   tools?: LocalLlmToolDefinition[];
   signal?: AbortSignal;
-};
+}
 
 /**
  * Result from local LLM generation
  */
-export type LocalLlmGenerationResult = {
+export interface LocalLlmGenerationResult {
   text: string;
   toolCalls?: LocalLlmToolCall[];
   finishReason: 'stop' | 'length' | 'tool_calls';
@@ -66,7 +66,7 @@ export type LocalLlmGenerationResult = {
     completionTokens: number;
     totalTokens: number;
   };
-};
+}
 
 /**
  * Progress callback for model loading
@@ -81,31 +81,31 @@ export type LocalLlmProgressCallback = (progress: {
 /**
  * Configuration for local LLM provider
  */
-export type LocalLlmConfig = {
+export interface LocalLlmConfig {
   modelId: string;
   device?: 'webgpu' | 'wasm';
   quantized?: boolean;
   onProgress?: LocalLlmProgressCallback;
-};
+}
 
 /**
  * Local LLM model capabilities
  */
-export type LocalLlmModelCapabilities = {
+export interface LocalLlmModelCapabilities {
   type: 'llm';
   streaming: boolean;
   toolCalling: boolean;
   contextWindow: number;
-};
+}
 
 /**
  * Local LLM model parameters
  */
-export type LocalLlmModelParameters = {
+export interface LocalLlmModelParameters {
   size: string;
   architecture: string;
   quantization: string;
-};
+}
 
 /**
  * Status of a local LLM provider

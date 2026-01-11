@@ -18,7 +18,7 @@ import type { DbModel, DbProvider } from '../../stores/model-registry-store';
 const LOCAL_PROVIDER_IDS = new Set<string>(['local', 'transformers']);
 const numberFormatter = new Intl.NumberFormat();
 
-type ModelListProps = {
+interface ModelListProps {
   models: DbModel[];
   providers: DbProvider[];
   onToggle: (modelId: string, enabled: boolean) => void;
@@ -27,26 +27,26 @@ type ModelListProps = {
   downloadProgress: Record<string, number>;
   downloadedModels: Record<string, boolean>;
   modelCacheDir?: string | null;
-};
+}
 
 type ModelCategory = 'chat' | 'embedding';
 type ModelTier = 'local' | 'remote';
 
-type ProviderGroup = {
+interface ProviderGroup {
   id: string;
   name: string;
   models: DbModel[];
-};
+}
 
-type ModelSection = {
+interface ModelSection {
   id: ModelTier;
   title: string;
   description: string;
   groups: ProviderGroup[];
   modelsCount: number;
-};
+}
 
-type ModelRowProps = {
+interface ModelRowProps {
   model: DbModel;
   modelCacheDir: string | null;
   downloadedModels: Record<string, boolean>;
@@ -54,40 +54,40 @@ type ModelRowProps = {
   downloadProgress: Record<string, number>;
   onToggle: (modelId: string, enabled: boolean) => void;
   onDownload: (modelId: string) => void;
-};
+}
 
-type ModelMetaBadgesProps = {
+interface ModelMetaBadgesProps {
   model: DbModel;
   dimensionLabel: string | null;
   sizeLabel: string | null;
-};
+}
 
-type ModelBestForTagsProps = {
+interface ModelBestForTagsProps {
   modelId: string;
   tags: string[];
-};
+}
 
-type ModelCachePathProps = {
+interface ModelCachePathProps {
   isLocal: boolean;
   modelId: string;
   modelCacheDir: string | null;
   downloadedModels: Record<string, boolean>;
-};
+}
 
-type ModelDownloadProgressProps = {
+interface ModelDownloadProgressProps {
   isLocal: boolean;
   modelId: string;
   downloadProgress: Record<string, number>;
   isDownloading: Record<string, boolean>;
-};
+}
 
-type ModelDownloadControlsProps = {
+interface ModelDownloadControlsProps {
   isLocal: boolean;
   modelId: string;
   downloadedModels: Record<string, boolean>;
   isDownloading: Record<string, boolean>;
   onDownload: (modelId: string) => void;
-};
+}
 
 function isLocalProviderId(providerId: string): boolean {
   return LOCAL_PROVIDER_IDS.has(providerId);

@@ -32,7 +32,7 @@ function useFileImportingState(): boolean {
  */
 export type ElectronFileReader = (handle: ElectronFileHandle) => Promise<string>;
 
-export type UseBackgroundTokenIndexerIntegrationProps = {
+export interface UseBackgroundTokenIndexerIntegrationProps {
   /** The file tree containing IFileNodes with handles */
   fileTree: IFileNode[];
   /** Set of selected file composite keys (folderId::path format) */
@@ -41,10 +41,10 @@ export type UseBackgroundTokenIndexerIntegrationProps = {
   onTokenResolved?: (compositeKey: string, tokenCount: number) => void;
   /** File reader for Electron handles - required when using Electron file handles */
   electronFileReader?: ElectronFileReader;
-};
+}
 
 /** Diagnostic info for debugging indexing issues */
-export type IndexerDiagnostics = {
+export interface IndexerDiagnostics {
   /** Number of files tracked as already indexed */
   indexedCount: number;
   /** Number of files currently being processed */
@@ -59,9 +59,9 @@ export type IndexerDiagnostics = {
   cachePersisted: boolean;
   /** Clear the indexed files tracking (forces re-indexing) */
   clearIndexedCache: () => void;
-};
+}
 
-export type UseBackgroundTokenIndexerIntegrationReturn = {
+export interface UseBackgroundTokenIndexerIntegrationReturn {
   /** Whether background indexing is active */
   isIndexing: boolean;
   /** Manually trigger indexing for specific files (async for Electron file reading) */
@@ -72,17 +72,17 @@ export type UseBackgroundTokenIndexerIntegrationReturn = {
   progress: { completed: number; total: number; currentFile?: string } | null;
   /** Diagnostic info for debugging */
   diagnostics: IndexerDiagnostics;
-};
+}
 
 /**
  * Electron-style handle with path property
  */
-type ElectronFileHandle = {
+interface ElectronFileHandle {
   path: string;
   name: string;
   kind: 'file';
   platform: 'electron';
-};
+}
 
 /**
  * Type guard to check if handle is an Electron handle with path
@@ -113,10 +113,10 @@ function isWebFileHandle(handle: unknown): handle is FileSystemFileHandle {
 /**
  * Combined handle info for indexing
  */
-type HandleInfo = {
+interface HandleInfo {
   webHandle?: FileSystemFileHandle;
   electronHandle?: ElectronFileHandle;
-};
+}
 
 /**
  * Log debug info for first file node encountered
@@ -591,7 +591,6 @@ export function useBackgroundTokenIndexerIntegration({
       const paths = keys.map((key) => decodeFileSelection(key).path);
       void cache.store
         .getBatch(folderId, paths)
-        // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Hydration logic requires iteration and conditional logging
         .then((entries) => {
           // Use ref to get latest cache instance in async callback
           const currentCache = tokenCacheRef.current;

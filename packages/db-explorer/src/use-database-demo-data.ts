@@ -37,13 +37,13 @@ function resolveStorageLocation(
   return 'PGlite WASM';
 }
 
-export type DatabaseInfo = {
+export interface DatabaseInfo {
   location: string;
   testResult: string;
   connected: boolean;
-};
+}
 
-export type UseDatabaseDemoDataOptions = {
+export interface UseDatabaseDemoDataOptions {
   repository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
   chunkRepository?: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
   toast: ReturnType<typeof useToast>['toast'];
@@ -51,12 +51,12 @@ export type UseDatabaseDemoDataOptions = {
   activeCollectionId: string | null;
   /** When true, live queries are paused to avoid performance degradation during bulk operations */
   isImporting?: boolean;
-};
+}
 
-type DatabaseLoaders = {
+interface DatabaseLoaders {
   loadRecords: () => Promise<void>;
   loadChunks: () => Promise<void>;
-};
+}
 
 export interface UseDatabaseDemoDataResult extends DatabaseLoaders {
   records: FileRecord[];
@@ -124,7 +124,7 @@ const FILE_CHUNKS_LIVE_QUERY = `
   ORDER BY updated_at DESC
 `.trim();
 
-type FileRecordRow = {
+interface FileRecordRow {
   id: string;
   name: string;
   path: string;
@@ -141,9 +141,9 @@ type FileRecordRow = {
   /** Boolean flag - embedding exists but not fetched for performance */
   hasEmbedding: boolean;
   embeddingSetId: string | null;
-};
+}
 
-type FileChunkRow = {
+interface FileChunkRow {
   id: string;
   fileRecordId: string;
   chunkIndex: number;
@@ -161,7 +161,7 @@ type FileChunkRow = {
   embeddingHash: string | null;
   createdAt: string;
   updatedAt: string;
-};
+}
 
 // NOTE: Embedding normalization functions (coerceNumericArray, parseStringEmbedding,
 // normalizeEmbeddingVector) were removed as part of the performance optimization.

@@ -3,7 +3,7 @@ import type React from 'react';
 import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { Button } from '../button';
 
-type ConsolePanelProps = {
+interface ConsolePanelProps {
   panelRef: React.RefObject<ImperativePanelHandle | null>;
   content: React.ReactNode;
   hideButtonRef: React.RefObject<HTMLButtonElement | null>;
@@ -11,7 +11,7 @@ type ConsolePanelProps = {
   defaultSize: number;
   onCollapse: () => void;
   onExpand: (size?: number) => void;
-};
+}
 
 export function ConsolePanel({
   panelRef,

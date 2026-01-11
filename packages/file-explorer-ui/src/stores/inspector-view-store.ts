@@ -3,23 +3,23 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type ContextKey = string; // e.g., folderId, file path, or compositeKey
 
-export type InspectorFields = {
+export interface InspectorFields {
   // Example fields; add/extend as inspector grows
   includeInReport: boolean;
   summaryLevel: number; // e.g., 1..10
   note: string;
-};
+}
 
-type InspectorData = {
+interface InspectorData {
   byContext: Record<ContextKey, InspectorFields | undefined>;
-};
+}
 
-type InspectorActions = {
+interface InspectorActions {
   setFields: (ctx: ContextKey, fields: InspectorFields) => void;
   updateFields: (ctx: ContextKey, patch: Partial<InspectorFields>) => void;
   getFields: (ctx: ContextKey) => InspectorFields | undefined;
   clear: (ctx?: ContextKey) => void;
-};
+}
 
 export type InspectorViewStore = InspectorData & InspectorActions;
 

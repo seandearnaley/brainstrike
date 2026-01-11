@@ -5,7 +5,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 /**
  * Cached collection data - persists across component unmounts during imports
  */
-export type CachedCollection = {
+export interface CachedCollection {
   id: string;
   modelKey: string;
   modelId: string;
@@ -19,12 +19,12 @@ export type CachedCollection = {
   fileCount: number;
   chunkCount: number;
   embeddingCount: number;
-};
+}
 
 /**
  * Minimal file record for caching - excludes large fields like content/embedding
  */
-export type CachedFileRecord = {
+export interface CachedFileRecord {
   id: string;
   name: string;
   path: string;
@@ -34,30 +34,30 @@ export type CachedFileRecord = {
   tokenCount: number | undefined;
   chunksCount: number | undefined;
   embeddingSetId: string | undefined;
-};
+}
 
 /**
  * Minimal file chunk for caching - excludes large fields like content/embedding
  */
-export type CachedFileChunk = {
+export interface CachedFileChunk {
   id: string;
   fileRecordId: string;
   chunkIndex: number;
   tokenCount: number;
   chunkType: 'text' | 'sentence' | 'recursive' | 'code';
   embeddingSetId: string | undefined;
-};
+}
 
 /**
  * Per-collection cache entry
  */
-type CollectionDataCache = {
+interface CollectionDataCache {
   collectionId: string;
   records: CachedFileRecord[];
   chunks: CachedFileChunk[];
-};
+}
 
-type VectorStatusUIData = {
+interface VectorStatusUIData {
   activeEmbeddingSetId: string | null;
   /** When true, live queries should be paused to avoid performance degradation during bulk operations */
   isImporting: boolean;
@@ -73,9 +73,9 @@ type VectorStatusUIData = {
   cachedFileData: CollectionDataCache | null;
   /** Whether database schema has been verified - persists across component unmounts */
   schemaVerified: boolean;
-};
+}
 
-type VectorStatusUIActions = {
+interface VectorStatusUIActions {
   setActiveEmbeddingSetId: (id: string | null) => void;
   setIsImporting: (importing: boolean) => void;
   setIsEmbeddingQueueActive: (active: boolean) => void;
@@ -88,7 +88,7 @@ type VectorStatusUIActions = {
   removeCachedCollection: (collectionId: string) => void;
   setCachedFileData: (data: CollectionDataCache | null) => void;
   setSchemaVerified: (verified: boolean) => void;
-};
+}
 
 export type VectorStatusUIStore = VectorStatusUIData & VectorStatusUIActions;
 

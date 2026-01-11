@@ -45,7 +45,6 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
       return;
     }
 
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Worker lifecycle with error handling requires multiple branches
     const startWorker = async () => {
       if (startingRef.current || controllerRef.current) {
         return;

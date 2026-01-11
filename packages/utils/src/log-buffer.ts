@@ -2,7 +2,7 @@ import type { LogRecord } from './logger';
 
 export type LogBufferSubscriber = (records: readonly LogRecord[]) => void;
 
-export type LogBufferOptions = {
+export interface LogBufferOptions {
   /**
    * Maximum number of records to keep in the buffer.
    * Default: 1000
@@ -21,7 +21,7 @@ export type LogBufferOptions = {
    * Default: 1000
    */
   maxArgSize?: number;
-};
+}
 
 export class LogBuffer {
   private readonly maxSize: number;

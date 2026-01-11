@@ -57,13 +57,13 @@ const SELECTION_PRESETS = [
   { label: '4K', value: 4000 },
 ] as const;
 
-export type SelectionCounterProps = {
+export interface SelectionCounterProps {
   selectedCount: number;
   maxSelectionCount: number;
   onMaxSelectionCountChange?: ((count: number) => void) | undefined;
   /** Compact mode for smaller layouts */
   compact?: boolean;
-};
+}
 
 export const SelectionCounter = memo<SelectionCounterProps>(function SelectionCounter({
   selectedCount,

@@ -15,13 +15,13 @@ type QueryMock = Mock<[string], Promise<{ rows: unknown[] } | undefined>>;
 type TransactionCallback = (tx: { query: QueryMock }) => Promise<unknown> | unknown;
 type TransactionMock = Mock<[callback: TransactionCallback], Promise<unknown>>;
 
-type MockDb = {
+interface MockDb {
   query: QueryMock;
   exec: Mock<[string], Promise<unknown>>;
   close: Mock<[], Promise<void>>;
   transaction?: TransactionMock;
   closed?: boolean;
-};
+}
 
 function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   const baseQuery: QueryMock = vi.fn(async (sql: string) => {

@@ -5,17 +5,17 @@ import { Button } from './button';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Progress } from './progress';
 
-export type ImportProgress = {
+export interface ImportProgress {
   total: number;
   completed: number;
   current?: string;
   errors: Array<{ file: string; error: string }>;
-};
+}
 
-type ImportProgressProps = {
+interface ImportProgressProps {
   progress: ImportProgress;
   onClose?: () => void;
-};
+}
 
 export function ImportProgress({ progress, onClose }: ImportProgressProps) {
   const [showErrors, setShowErrors] = useState(false);

@@ -8,7 +8,7 @@
 import * as React from 'react';
 import { cn } from './lib/utils';
 
-export type ExpandableTextareaProps = {
+export interface ExpandableTextareaProps {
   /** Current value */
   value: string;
   /** Callback when value changes */
@@ -31,7 +31,7 @@ export type ExpandableTextareaProps = {
   id?: string;
   /** Aria label for accessibility */
   'aria-label'?: string;
-};
+}
 
 /**
  * ExpandableTextarea - Auto-growing textarea for RAG prompts

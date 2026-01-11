@@ -3,7 +3,7 @@ import { cn } from '../lib/utils';
 
 export type StatusBarItemStatus = 'connected' | 'disconnected' | 'loading' | 'warning';
 
-export type StatusBarItemProps = {
+export interface StatusBarItemProps {
   /** Icon component to display */
   icon?: React.ComponentType<{ className?: string }>;
   /** Label text */
@@ -16,7 +16,7 @@ export type StatusBarItemProps = {
   className?: string;
   /** Test ID for testing */
   testId?: string;
-};
+}
 
 const statusClasses: Record<StatusBarItemStatus, string> = {
   connected: 'text-green-600',

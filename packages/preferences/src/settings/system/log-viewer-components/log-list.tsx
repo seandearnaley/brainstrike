@@ -13,14 +13,14 @@ import { useCallback, useEffect, useRef } from 'react';
 import { LogRow } from './log-row';
 import type { LogRecordRow } from './log-utils';
 
-type LogListProps = {
+interface LogListProps {
   table: ReactTableInstance<LogRecordRow>;
   rows: Row<LogRecordRow>[];
   logsLoading: boolean;
   autoScroll: boolean;
   autoScrollAnchor: 'start' | 'end';
   wrapLines: boolean;
-};
+}
 
 export function LogList({
   table,

@@ -14,16 +14,16 @@ const logger = createLogger('ModelSelectionPage');
 
 type ToastFn = ReturnType<typeof useToast>['toast'];
 
-type DownloadDeps = {
+interface DownloadDeps {
   modelCacheDir: string | null;
   setDownloadProgress: (modelId: string, progress: number) => void;
   setDownloading: (modelId: string, isDownloading: boolean) => void;
   toast: ToastFn;
-};
+}
 
-type DownloadProgress = {
+interface DownloadProgress {
   progress?: number;
-};
+}
 
 function readQuantizedFlag(parameters: Record<string, unknown> | null): boolean {
   const value = parameters?.['quantized'];

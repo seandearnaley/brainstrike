@@ -21,7 +21,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 export type PanelTab = 'explorer' | 'settings';
 
-export type PanelLayoutStoreState = {
+export interface PanelLayoutStoreState {
   // Layout
   sizes: [number, number, number];
   showLeftPanel: boolean;
@@ -38,7 +38,7 @@ export type PanelLayoutStoreState = {
   toggleConsole: () => void;
   setActiveTab: (tab: PanelTab) => void;
   setState: (next: Partial<PanelLayoutStoreState>) => void;
-};
+}
 
 const DEFAULT_STATE: Omit<
   PanelLayoutStoreState,

@@ -17,13 +17,13 @@ import {
 
 type WindowHandlers = Map<string, (...args: unknown[]) => void>;
 
-type MockBrowserWindow = {
+interface MockBrowserWindow {
   isFullScreen: () => boolean;
   isMaximized: () => boolean;
   getBounds: () => DesktopWindowBounds;
   getNormalBounds: () => DesktopWindowBounds;
   on: (event: string, handler: (...args: unknown[]) => void) => void;
-};
+}
 
 const createMockStore = () => {
   const get = vi.fn();

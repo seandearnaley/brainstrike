@@ -20,7 +20,7 @@ export type QueueTelemetryAdapter = 'job-queue' | 'workerpool' | 'custom';
  */
 export type QueueTelemetryEventType = 'enqueue' | 'start' | 'complete' | 'error' | 'cancel';
 
-export type QueueTelemetryEvent = {
+export interface QueueTelemetryEvent {
   readonly timestamp: number;
   readonly adapter: QueueTelemetryAdapter;
   readonly event: QueueTelemetryEventType;
@@ -32,7 +32,7 @@ export type QueueTelemetryEvent = {
   readonly pending?: number;
   readonly errorMessage?: string;
   readonly metadata?: Record<string, unknown>;
-};
+}
 
 export type QueueTelemetryListener = (event: QueueTelemetryEvent) => void;
 
@@ -55,14 +55,14 @@ export function addQueueTelemetryListener(listener: QueueTelemetryListener): () 
   };
 }
 
-export type QueueTelemetrySnapshot = {
+export interface QueueTelemetrySnapshot {
   readonly events: readonly QueueTelemetryEvent[];
   readonly throughputPerMinute: number;
   readonly averageLatencyMs: number | null;
   readonly latencyP50Ms: number | null;
   readonly latencyP95Ms: number | null;
   readonly errorCount: number;
-};
+}
 
 function computePercentile(values: readonly number[], percentile: number): number | null {
   if (values.length === 0) {

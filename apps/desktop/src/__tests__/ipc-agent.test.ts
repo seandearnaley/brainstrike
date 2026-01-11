@@ -52,18 +52,18 @@ describe('registerAgentIpcHandlers', () => {
 
   describe('agent:chat handler', () => {
     // Local minimal types mirroring ipc-agent.ts
-    type AgentMessage = {
+    interface AgentMessage {
       id: string;
       role: 'user' | 'assistant' | 'system';
       parts: Array<{ type: 'text'; text: string }>;
-    };
-    type RuntimeData = {
+    }
+    interface RuntimeData {
       projectId?: string;
       provider?: string;
       model?: string;
       mcpEnabled?: boolean;
       mcpConfig?: unknown;
-    };
+    }
     type StreamChunk =
       | { type: 'text-delta'; value: string }
       | {

@@ -20,7 +20,7 @@ import type { TokenCountingState } from './use-token-counting';
 /**
  * Props for the persistent token cache hook
  */
-export type UsePersistentTokenCacheProps = {
+export interface UsePersistentTokenCacheProps {
   /** File contents by composite key (folderId::path) - now optional for cache hits */
   fileContents: Record<string, string>;
   /** Token counting state (old API) */
@@ -29,12 +29,12 @@ export type UsePersistentTokenCacheProps = {
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
   /** Callback when token count is resolved (triggers re-render) */
   onTokenResolved: () => void;
-};
+}
 
 /**
  * Return type for the persistent token cache hook
  */
-export type UsePersistentTokenCacheReturn = {
+export interface UsePersistentTokenCacheReturn {
   /**
    * Get token count for a file.
    * Returns cached value or undefined if loading.
@@ -61,7 +61,7 @@ export type UsePersistentTokenCacheReturn = {
    * Use as a dependency in useMemo/useEffect to trigger re-renders.
    */
   cacheVersion: number;
-};
+}
 
 /**
  * Helper to check if content is accessible (not a placeholder message)

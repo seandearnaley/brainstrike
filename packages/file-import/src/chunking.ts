@@ -38,12 +38,12 @@ export function getChunkingStrategy(
   return 'sentence';
 }
 
-type ChunkingDeps = {
+interface ChunkingDeps {
   repository: ReturnType<typeof import('@brainstrike/db').useFileRecordRepository> | null;
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
-};
+}
 
-type ChunkingOptions = {
+interface ChunkingOptions {
   chunkingStrategy?: ChunkingStrategy;
   chunkingStrategyExplicit?: boolean;
   chunkSize?: number;
@@ -71,14 +71,14 @@ type ChunkingOptions = {
   streamBatchSize?: number;
   // Worker port for off-main-thread chunking
   chunkingWorkerPort?: import('./chunking-worker-port').ChunkingWorkerPort;
-};
+}
 
-type ChunkingProgressSnapshot = {
+interface ChunkingProgressSnapshot {
   filesProcessed: number;
   totalFiles: number;
   chunksCreated: number;
   strategyUsed?: ChunkingStrategy;
-};
+}
 
 function createChunkingProgressScheduler(
   updateProgress: ChunkingOptions['updateProgress'],
@@ -146,9 +146,9 @@ function createChunkingProgressScheduler(
  * Type guard to check if repository supports transactional insert.
  * Used to safely detect if insertManyWithTx is available.
  */
-type RepoWithTransactionalInsert = {
+interface RepoWithTransactionalInsert {
   insertManyWithTx: (t: IDatabase, chunks: FileChunk[]) => Promise<FileChunk[]>;
-};
+}
 
 function hasTransactionalInsert(repo: unknown): repo is RepoWithTransactionalInsert {
   return Boolean(
@@ -185,11 +185,11 @@ async function updateFileRecordWithChunkInfo(
   });
 }
 
-type ChunkingSkipResult = {
+interface ChunkingSkipResult {
   enhancedResult: EnhancedImportResult;
   chunksCreated: number;
   strategyUsed: ChunkingStrategy;
-};
+}
 
 type ChunkingPreparation =
   | { kind: 'skip'; response: ChunkingSkipResult }

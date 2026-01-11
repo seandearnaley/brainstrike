@@ -6,7 +6,7 @@ import FileTreeRow, { ROW_HEIGHT } from './file-tree-row';
 import { useTreePerfMetrics } from './hooks/use-tree-perf-metrics';
 import { useVirtualList } from './use-virtual-list';
 
-type IFileTreeProps = {
+interface IFileTreeProps {
   fileTree: IFileNode[];
   loadingFiles: Set<string>;
   onRender?: (() => void) | undefined;
@@ -15,7 +15,7 @@ type IFileTreeProps = {
   loadingPaths?: Set<string>;
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: (path: string) => void;
-};
+}
 
 /**
  * @file FileTree.tsx

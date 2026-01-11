@@ -6,7 +6,7 @@ export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled
 
 export type JobType = 'embed_chunk';
 
-export type JobRow = {
+export interface JobRow {
   id: string;
   queue: string;
   job_type: string;
@@ -23,7 +23,7 @@ export type JobRow = {
   error?: string | null;
   created_at: string;
   updated_at: string;
-};
+}
 
 export interface Job extends Omit<JobRow, 'job_type' | 'payload' | 'run_at' | 'leased_until'> {
   jobType: JobType;
@@ -71,46 +71,46 @@ function computeElapsedMs(startIso: string, endIso: string): number | null {
   return null;
 }
 
-export type EnqueueParams = {
+export interface EnqueueParams {
   queue: string;
   jobType: JobType;
   payload: unknown;
   dedupeKey?: string;
   runAt?: string; // ISO string; defaults to now
   maxAttempts?: number; // defaults to configured
-};
+}
 
-export type ClaimParams = {
+export interface ClaimParams {
   queue: string;
   leaseMs: number;
   now?: string; // ISO string; defaults to now
   workerId?: string;
-};
+}
 
-export type HeartbeatParams = {
+export interface HeartbeatParams {
   id: string;
   leaseToken: string;
   extendMs: number;
-};
+}
 
-export type CompleteParams = {
+export interface CompleteParams {
   id: string;
   leaseToken: string;
-};
+}
 
-export type FailParams = {
+export interface FailParams {
   id: string;
   leaseToken: string;
   error: string;
   backoffMs?: number;
   terminal?: boolean;
-};
+}
 
-export type CancelParams = {
+export interface CancelParams {
   id: string;
   leaseToken?: string;
   reason?: string;
-};
+}
 
 export class JobQueue {
   constructor(

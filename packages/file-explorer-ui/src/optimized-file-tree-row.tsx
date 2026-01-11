@@ -17,7 +17,7 @@ import type { CSSProperties } from 'react';
 import { memo, useCallback, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
-type OptimizedFileTreeRowProps = {
+interface OptimizedFileTreeRowProps {
   node: IFileNode;
   depth: number;
   isExpanded: boolean;
@@ -31,7 +31,7 @@ type OptimizedFileTreeRowProps = {
   isChildrenLoading?: boolean | undefined;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
-};
+}
 
 const ROW_HEIGHT = 32;
 

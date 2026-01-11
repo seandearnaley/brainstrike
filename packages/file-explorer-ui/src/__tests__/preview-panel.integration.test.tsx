@@ -21,59 +21,59 @@ const mockUsePreviewPanelState = vi.mocked(
   await import('../use-preview-panel-state')
 ).usePreviewPanelState;
 
-type TabsContextValue = {
+interface TabsContextValue {
   value?: string;
   onValueChange?: (value: string) => void;
-};
+}
 
-type TabsProps = {
+interface TabsProps {
   children: React.ReactNode;
   value?: string;
   defaultValue?: string;
   onValueChange?: (value: string) => void;
   [key: string]: unknown;
-};
+}
 
-type TabsTriggerProps = {
+interface TabsTriggerProps {
   children: React.ReactNode;
   value: string;
   disabled?: boolean;
   onClick?: () => void;
   [key: string]: unknown;
-};
+}
 
-type TabsContentProps = {
+interface TabsContentProps {
   children: React.ReactNode;
   value: string;
   forceMount?: boolean;
   [key: string]: unknown;
-};
+}
 
 const TabsContext = React.createContext<TabsContextValue | null>(null);
 
 // Mock UI component types
-type MockBadgeProps = {
+interface MockBadgeProps {
   children: React.ReactNode;
   [key: string]: unknown;
-};
+}
 
-type MockButtonProps = {
+interface MockButtonProps {
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
   [key: string]: unknown;
-};
+}
 
-type MockCheckboxProps = {
+interface MockCheckboxProps {
   checked?: boolean;
   onCheckedChange?: (checked: boolean) => void;
   [key: string]: unknown;
-};
+}
 
-type MockProgressProps = {
+interface MockProgressProps {
   value?: number;
   [key: string]: unknown;
-};
+}
 
 // Mock UI components with more realistic behavior
 vi.mock('@brainstrike/ui', () => ({

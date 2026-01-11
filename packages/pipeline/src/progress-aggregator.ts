@@ -39,14 +39,14 @@ import type { PipelineProgress, StageProgress } from './types.js';
 /**
  * Configuration for creating a progress aggregator.
  */
-export type ProgressAggregatorConfig = {
+export interface ProgressAggregatorConfig {
   /** Callback invoked when progress changes */
   onProgress?: ProgressCallback;
   /** Throttle interval for progress callbacks (ms) */
   throttleMs?: number;
   /** Maximum number of recent errors to retain */
   maxRecentErrors?: number;
-};
+}
 
 /**
  * Progress callback signature.
@@ -56,19 +56,19 @@ export type ProgressCallback = (progress: PipelineProgress) => void;
 /**
  * Initial totals for the pipeline run.
  */
-export type PipelineTotals = {
+export interface PipelineTotals {
   /** Total files to import */
   files: number;
   /** Total chunks to process (may be updated as chunking progresses) */
   chunks?: number;
   /** Total embedding jobs (may be updated as jobs are enqueued) */
   embeddings?: number;
-};
+}
 
 /**
  * Stage update payload.
  */
-export type StageUpdate = {
+export interface StageUpdate {
   /** Items completed */
   completed?: number;
   /** Items currently in progress */
@@ -79,22 +79,22 @@ export type StageUpdate = {
   currentItem?: string;
   /** Update total (for chunks/embeddings that are discovered during processing) */
   total?: number;
-};
+}
 
 /**
  * Error entry for tracking.
  */
-export type PipelineError = {
+export interface PipelineError {
   stage: 'import' | 'chunking' | 'embedding';
   item: string;
   error: string;
   timestamp: string;
-};
+}
 
 /**
  * The progress aggregator interface.
  */
-export type ProgressAggregator = {
+export interface ProgressAggregator {
   /**
    * Set initial totals for the pipeline run.
    * Can be called multiple times as totals become known.
@@ -145,7 +145,7 @@ export type ProgressAggregator = {
    * Force emit the current progress (bypasses throttle).
    */
   flush(): void;
-};
+}
 
 // =============================================================================
 // CONSTANTS
@@ -174,13 +174,13 @@ export function createProgressAggregator(
   } = config;
 
   // Internal mutable state type (allows undefined for currentItem)
-  type MutableStageProgress = {
+  interface MutableStageProgress {
     total: number;
     completed: number;
     inProgress: number;
     failed: number;
     currentItem: string | undefined;
-  };
+  }
 
   // Internal state
   let phase: PipelineProgress['phase'] = 'importing';

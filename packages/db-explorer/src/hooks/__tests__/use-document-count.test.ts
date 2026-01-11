@@ -2,7 +2,9 @@ import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { indexedChunkCountLogger, useIndexedChunkCount } from '../use-document-count';
 
-type MockRow = { count: number };
+interface MockRow {
+  count: number;
+}
 
 const mockLiveQueryState = {
   rows: [] as MockRow[],

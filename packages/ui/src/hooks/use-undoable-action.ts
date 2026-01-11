@@ -2,13 +2,13 @@ import * as React from 'react';
 import { Button } from '../button';
 import { useToast } from '../use-toast';
 
-export type UndoableActionOptions<T, S = unknown> = {
+export interface UndoableActionOptions<T, S = unknown> {
   actionName: string;
   itemDescription: string;
   duration?: number;
   onUndo: (item: T, snapshot: S) => void;
   getStateSnapshot?: () => S;
-};
+}
 
 export function useUndoableAction<T, S = unknown>() {
   const { toast, dismiss } = useToast();

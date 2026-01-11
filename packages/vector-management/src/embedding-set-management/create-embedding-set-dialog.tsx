@@ -18,7 +18,7 @@ import { createLogger } from '@brainstrike/utils';
 import { useEffect, useState } from 'react';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
-type CreateEmbeddingSetDialogProps = {
+interface CreateEmbeddingSetDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   repository: IEmbeddingSetsRepository | null;
@@ -26,7 +26,7 @@ type CreateEmbeddingSetDialogProps = {
   providers: ModelPickerProvider[];
   isLoading?: boolean;
   onSetCreated?: (setId: string) => void;
-};
+}
 
 // Helper to build metadata object with only non-empty fields
 function buildMetadata(formData: {

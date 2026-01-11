@@ -3,13 +3,13 @@ import { Maximize2, Minimize2 } from 'lucide-react';
 import { memo } from 'react';
 import { GROUPING_CONFIGS, type GroupedData, type TableRowData } from './utils/grouping-configs';
 
-type PreviewGroupingControlsProps = {
+interface PreviewGroupingControlsProps {
   groupingConfig: string;
   groupedData: GroupedData<TableRowData>[];
   onGroupingChange: (value: string) => void;
   onExpandAllGroups: () => void;
   onCollapseAllGroups: () => void;
-};
+}
 
 export const PreviewGroupingControls = memo<PreviewGroupingControlsProps>(
   function PreviewGroupingControlsComponent({

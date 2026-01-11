@@ -4,7 +4,7 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { useTokenPreferencesStore } from './token-preferences-store';
 
-type ImportSettingsData = {
+interface ImportSettingsData {
   enableChunking: boolean;
   chunkingStrategy: ChunkingStrategy;
   chunkingStrategyExplicit: boolean;
@@ -12,16 +12,16 @@ type ImportSettingsData = {
   chunkOverlap: number;
   tokenTrueSizing: boolean;
   chunkTokenLimit: number;
-};
+}
 
-type ImportSettingsActions = {
+interface ImportSettingsActions {
   setEnableChunking: (v: boolean) => void;
   setChunkingStrategy: (v: ChunkingStrategy) => void;
   setChunkSize: (n: number) => void;
   setChunkOverlap: (n: number) => void;
   setTokenTrueSizing: (v: boolean) => void;
   setChunkTokenLimit: (n: number) => void;
-};
+}
 
 export type ImportSettingsStore = ImportSettingsData & ImportSettingsActions;
 

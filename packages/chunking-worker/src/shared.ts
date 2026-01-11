@@ -16,7 +16,7 @@ export type ChunkType = 'text' | 'sentence' | 'recursive';
 /**
  * Options for chunking requests sent to the worker.
  */
-export type ChunkingRequestOptions = {
+export interface ChunkingRequestOptions {
   strategy: ChunkingStrategy;
   maxTokens?: number;
   overlap?: number;
@@ -31,13 +31,13 @@ export type ChunkingRequestOptions = {
   maxTokensCap?: number;
   /** Skip file-type recommendations and only enforce global safety caps when true */
   ignoreFileTypeRecommendations?: boolean;
-};
+}
 
 /**
  * A portable chunk that can be serialized across the worker boundary.
  * Does not include database-specific fields like fileRecordId or embeddingSetId.
  */
-export type PortableChunk = {
+export interface PortableChunk {
   /** Sequential index of this chunk within the file */
   chunkIndex: number;
   /** The actual text content of the chunk */
@@ -50,7 +50,7 @@ export type PortableChunk = {
   chunkType: ChunkType;
   /** Maximum chunk size used when creating this chunk */
   chunkSize: number;
-};
+}
 
 // ============================================================================
 // Worker Message Types (Main Thread → Worker)
@@ -59,7 +59,7 @@ export type PortableChunk = {
 /**
  * Request to chunk a single file.
  */
-export type ChunkRequest = {
+export interface ChunkRequest {
   type: 'chunk';
   /** Unique request ID for correlation */
   id: string;
@@ -73,16 +73,16 @@ export type ChunkRequest = {
   filePath: string;
   /** Chunking options */
   options: ChunkingRequestOptions;
-};
+}
 
 /**
  * Request to chunk multiple files in a batch.
  */
-export type ChunkBatchRequest = {
+export interface ChunkBatchRequest {
   type: 'chunk-batch';
   /** Array of chunk requests (without the 'type' field) */
   requests: Omit<ChunkRequest, 'type'>[];
-};
+}
 
 /**
  * All possible messages from main thread to worker.
@@ -96,7 +96,7 @@ export type WorkerRequest = ChunkRequest | ChunkBatchRequest;
 /**
  * Successful chunking result for a single file.
  */
-export type ChunkResult = {
+export interface ChunkResult {
   type: 'result';
   /** Request ID for correlation */
   id: string;
@@ -112,12 +112,12 @@ export type ChunkResult = {
   skipped: boolean;
   /** Reason for skipping, if applicable */
   skipReason?: string;
-};
+}
 
 /**
  * Progress update during batch processing.
  */
-export type ChunkProgress = {
+export interface ChunkProgress {
   type: 'progress';
   /** Request ID for correlation */
   id: string;
@@ -129,12 +129,12 @@ export type ChunkProgress = {
   currentIndex?: number;
   /** For batch: total files in batch */
   totalFiles?: number;
-};
+}
 
 /**
  * Error during chunking.
  */
-export type ChunkError = {
+export interface ChunkError {
   type: 'error';
   /** Request ID for correlation */
   id: string;
@@ -144,24 +144,24 @@ export type ChunkError = {
   error: string;
   /** Stack trace if available */
   stack?: string;
-};
+}
 
 /**
  * Worker is ready to receive requests.
  */
-export type WorkerReady = {
+export interface WorkerReady {
   type: 'ready';
-};
+}
 
 /**
  * Log message from worker (for debugging).
  */
-export type WorkerLog = {
+export interface WorkerLog {
   type: 'log';
   level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
   data?: Record<string, unknown>;
-};
+}
 
 /**
  * All possible messages from worker to main thread.

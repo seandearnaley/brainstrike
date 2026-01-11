@@ -1,12 +1,12 @@
 import type { ChunkingStrategy, FileChunk, FileRecord, ImportProgress } from '@brainstrike/db';
 
-export type ChunkSearchResult = {
+export interface ChunkSearchResult {
   chunk: FileChunk;
   similarity: number;
   fileRecord: FileRecord;
-};
+}
 
-export type EnhancedImportResult = {
+export interface EnhancedImportResult {
   id: string;
   imported: boolean;
   existed: boolean;
@@ -14,7 +14,7 @@ export type EnhancedImportResult = {
   chunksCreated: number;
   chunksWithEmbeddings?: number;
   chunkingStrategy?: ChunkingStrategy;
-};
+}
 
 export interface EnhancedImportProgress extends ImportProgress {
   phase: 'importing' | 'chunking' | 'embedding' | 'complete';
@@ -47,24 +47,24 @@ export interface EnhancedImportProgress extends ImportProgress {
   };
 }
 
-export type ImportProgressDisplayProps = {
+export interface ImportProgressDisplayProps {
   progress: EnhancedImportProgress;
   onClose: () => void;
-};
+}
 
-export type SettingsPanelProps = {
+export interface SettingsPanelProps {
   importSettings: ImportSettings;
   onFactoryReset?: (() => Promise<void>) | undefined;
   className?: string;
-};
+}
 
-export type ExportButtonsProps = {
+export interface ExportButtonsProps {
   records: FileRecord[];
   chunks: FileChunk[];
   exportHandlers: ExportHandlers;
-};
+}
 
-export type ImportSettings = {
+export interface ImportSettings {
   enableChunking: boolean;
   setEnableChunking: (value: boolean) => void;
   chunkingStrategy: ChunkingStrategy;
@@ -78,16 +78,16 @@ export type ImportSettings = {
   setTokenTrueSizing: (value: boolean) => void;
   chunkTokenLimit: number;
   setChunkTokenLimit: (value: number) => void;
-};
+}
 
-export type ExportHandlers = {
+export interface ExportHandlers {
   handleExportFiles: () => void;
   handleExportChunks: () => void;
   handleExportEmbeddings: () => void;
   handleExportAll: () => Promise<void>;
-};
+}
 
-export type SearchFunctionality = {
+export interface SearchFunctionality {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   searchResults: ChunkSearchResult[];
@@ -96,4 +96,4 @@ export type SearchFunctionality = {
   setSearchThreshold: (threshold: number) => void;
   handleSearch: () => Promise<void>;
   hasSearched: boolean;
-};
+}

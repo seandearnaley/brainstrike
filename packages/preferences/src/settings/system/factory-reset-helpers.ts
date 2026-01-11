@@ -14,14 +14,14 @@ export const FALLBACK_INDEXED_DB_NAMES = [
   'brainstrike-web', // Legacy web builds used idb://brainstrike-web; keep to clean up stale installs
 ] as const;
 
-export type ClearPersistentUiStateOptions = {
+export interface ClearPersistentUiStateOptions {
   /**
    * When true, skips clearing IndexedDB databases. Use when the database layer has already deleted
    * its storage (e.g., DbProvider factoryReset). Defaults to false so standalone callers still wipe
    * IndexedDB completely.
    */
   skipIndexedDb?: boolean;
-};
+}
 
 /**
  * Desktop bridges expose storage, secrets, and settings stores via IPC.

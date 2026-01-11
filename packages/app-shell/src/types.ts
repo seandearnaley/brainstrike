@@ -1,28 +1,28 @@
 import type { ComponentType, ReactNode } from 'react';
 
-export type NavigationItem = {
+export interface NavigationItem {
   name: string;
   icon: ComponentType<{ className?: string }>;
   path: string;
-};
+}
 
-export type AppShellConfig = {
+export interface AppShellConfig {
   title: string;
   description: string;
   themeStorageKey: string;
   navigationItems: NavigationItem[];
-};
+}
 
-export type AppLayoutProps = {
+export interface AppLayoutProps {
   children: ReactNode;
   config: AppShellConfig;
   currentPath: string;
   sidebarContent?: ReactNode;
   onNavigationClick?: (path: string) => void;
-};
+}
 
-export type RouteConfig = {
+export interface RouteConfig {
   path: string;
   element: ReactNode;
   index?: boolean;
-};
+}

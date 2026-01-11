@@ -76,7 +76,7 @@ const DEFAULT_EXCLUDE_PATTERNS = [
 /**
  * Configuration for the CLI tool
  */
-type EmbedCodeConfig = {
+interface EmbedCodeConfig {
   /** Root directory to scan for code files */
   rootDir: string;
   /** Model configuration to use for embeddings */
@@ -97,12 +97,12 @@ type EmbedCodeConfig = {
   chunkOverlap?: number;
   /** Verbose logging */
   verbose?: boolean;
-};
+}
 
 /**
  * Represents an embedded code chunk
  */
-type CodeEmbedding = {
+interface CodeEmbedding {
   /** Unique identifier for the chunk */
   id: string;
   /** File path relative to root */
@@ -123,7 +123,7 @@ type CodeEmbedding = {
   model: string;
   /** Timestamp when embedding was created */
   timestamp: string;
-};
+}
 
 /**
  * CLI tool for embedding code files

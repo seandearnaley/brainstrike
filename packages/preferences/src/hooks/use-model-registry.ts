@@ -6,10 +6,10 @@ import { useModelRegistryStore } from '../stores/model-registry-store';
 
 const logger = createLogger('UseEnsureModelRegistry');
 
-export type UseEnsureModelRegistryOptions = {
+export interface UseEnsureModelRegistryOptions {
   db?: IDatabase | null;
   enabled?: boolean;
-};
+}
 
 export function useEnsureModelRegistry(options: UseEnsureModelRegistryOptions = {}): string | null {
   const contextDb = usePGliteDatabase();

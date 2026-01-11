@@ -14,9 +14,9 @@ const JOB_QUEUE_ACTIVE_QUERY = `
      AND state IN ('queued', 'running')
 `.trim();
 
-export type EmbeddingJobQueueTrackerProps = {
+export interface EmbeddingJobQueueTrackerProps {
   readonly intervalMs?: number;
-};
+}
 
 export function EmbeddingJobQueueTracker({
   intervalMs = JOB_QUEUE_POLL_MS,

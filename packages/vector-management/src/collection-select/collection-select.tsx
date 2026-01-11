@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 /**
  * Row shape returned by the collections query
  */
-export type CollectionRow = {
+export interface CollectionRow {
   id: string;
   modelKey: string;
   modelId: string;
@@ -21,7 +21,7 @@ export type CollectionRow = {
   fileCount: string | number;
   chunkCount: string | number;
   embeddingCount: string | number;
-};
+}
 
 /**
  * Normalized collection data with file count
@@ -31,7 +31,7 @@ export type CollectionRow = {
  * - chunkCount: Number of chunks (file_chunks) in this collection
  * - embeddingCount: Number of chunks with embeddings in this collection
  */
-export type CollectionWithDocCount = {
+export interface CollectionWithDocCount {
   id: string;
   modelKey: string;
   modelId: string;
@@ -48,7 +48,7 @@ export type CollectionWithDocCount = {
   chunkCount: number;
   /** Number of embeddings in this collection */
   embeddingCount: number;
-};
+}
 
 /**
  * SQL query to fetch all embedding sets with their file counts.
@@ -106,7 +106,7 @@ const SIZE_STYLES = {
   },
 } as const;
 
-export type CollectionSelectProps = {
+export interface CollectionSelectProps {
   /**
    * Database instance for querying collections.
    * Required if collections/loading/error are not provided (will fetch internally).
@@ -176,7 +176,7 @@ export type CollectionSelectProps = {
    * Error state (used when collections are provided externally)
    */
   error?: Error | null;
-};
+}
 
 /**
  * Hook to report errors to parent callback (only once per unique error)
@@ -304,7 +304,6 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     initialFetchedRef.current = true;
     setInitialLoading(true);
 
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Error handling and cleanup logic adds necessary complexity
     const fetchOnce = async () => {
       try {
         const result = await (

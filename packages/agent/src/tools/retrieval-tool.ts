@@ -49,7 +49,7 @@ export const SAFE_ERROR_MESSAGES = new Set<string>(Object.values(RETRIEVAL_ERROR
 /**
  * Chunk search result from the database search operation.
  */
-export type ChunkSearchResultInput = {
+export interface ChunkSearchResultInput {
   chunk: {
     id: string;
     content: string;
@@ -61,40 +61,40 @@ export type ChunkSearchResultInput = {
   };
   similarity: number;
   rank: number;
-};
+}
 
 /**
  * File record information for enriching search results.
  */
-export type FileRecordInfo = {
+export interface FileRecordInfo {
   id: string;
   name: string;
   path: string;
   tokenCount: number | null;
-};
+}
 
 /**
  * Embedding set metadata.
  */
-export type EmbeddingSetInfo = {
+export interface EmbeddingSetInfo {
   modelKey: string;
   modelId: string;
   dimensions: number;
   distance: string | null;
-};
+}
 
 /**
  * Selection state for scoping retrieval.
  */
-export type RetrievalSelectionState = {
+export interface RetrievalSelectionState {
   filePaths?: string[];
   selectionSnapshotId?: string;
-};
+}
 
 /**
  * Result returned by the retrieval tool.
  */
-export type RetrievalToolResult = {
+export interface RetrievalToolResult {
   query: string;
   embeddingSetId: string;
   limit: number;
@@ -106,13 +106,13 @@ export type RetrievalToolResult = {
   skipped: number;
   context: string;
   chunks: PackedContextChunk[];
-};
+}
 
 /**
  * Dependencies required by the retrieval tool.
  * Platform-specific implementations provide these callbacks.
  */
-export type RetrievalToolDependencies = {
+export interface RetrievalToolDependencies {
   /**
    * Resolves embedding set metadata by ID.
    * @throws Error with safe message on failure
@@ -164,7 +164,7 @@ export type RetrievalToolDependencies = {
     warn: (message: string, context?: Record<string, unknown>) => void;
     error: (message: string, context?: Record<string, unknown>) => void;
   };
-};
+}
 
 /**
  * Default token estimation heuristic based on average chars per token.
@@ -337,9 +337,9 @@ function handleRetrievalError(error: unknown, logger?: RetrievalToolDependencies
 /**
  * Context type for Mastra tool execution.
  */
-type ToolContext<TInput> = {
+interface ToolContext<TInput> {
   context: TInput;
-};
+}
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 

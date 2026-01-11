@@ -11,7 +11,7 @@ import { error as logError } from '@brainstrike/utils';
 import { saveAs } from 'file-saver';
 import { useCallback } from 'react';
 
-type UseReportManagerProps<A = unknown> = {
+interface UseReportManagerProps<A = unknown> {
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
   generateReportWithContent: () => Promise<string>;
   showToast: (props: {
@@ -27,7 +27,7 @@ type UseReportManagerProps<A = unknown> = {
     action?: A;
     duration?: number;
   }) => { dismiss?: () => void };
-};
+}
 
 const DEFAULT_REPORT_FILENAME = FileExplorerStrings.fileNames.report;
 

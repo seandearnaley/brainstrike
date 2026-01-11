@@ -3,18 +3,18 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type Key = string; // use compositeKey (folder:name:path) or tab id
 
-type EditorViewStateData = {
+interface EditorViewStateData {
   scrollTops: Record<Key, number>;
   selections: Record<Key, { start: number; end: number } | undefined>;
-};
+}
 
-type EditorViewStateActions = {
+interface EditorViewStateActions {
   setScrollTop: (key: Key, top: number) => void;
   getScrollTop: (key: Key) => number;
   setSelection: (key: Key, start: number, end: number) => void;
   getSelection: (key: Key) => { start: number; end: number } | undefined;
   clear: (key?: Key) => void;
-};
+}
 
 export type EditorViewStateStore = EditorViewStateData & EditorViewStateActions;
 

@@ -11,7 +11,7 @@ import { Loader2, X } from 'lucide-react';
 import * as React from 'react';
 import { useMemo } from 'react';
 
-export type ScanningStatusProps = {
+export interface ScanningStatusProps {
   /** Whether scanning is in progress */
   isScanning: boolean;
   /** Depth-based progress information */
@@ -28,7 +28,7 @@ export type ScanningStatusProps = {
   onCancel?: (() => void) | undefined;
   /** Additional CSS classes */
   className?: string | undefined;
-};
+}
 
 /**
  * Format path for display by showing only the last 2 parts

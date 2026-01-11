@@ -5,11 +5,11 @@ import {
   FALLBACK_INDEXED_DB_NAMES,
 } from '../settings/system/factory-reset-helpers';
 
-type FakeRequest = {
+interface FakeRequest {
   onsuccess: ((event: Event) => void) | null;
   onerror: ((event: Event) => void) | null;
   onblocked: ((event: Event) => void) | null;
-};
+}
 
 const globalWindow = window as Window &
   typeof globalThis & {

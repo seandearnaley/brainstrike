@@ -12,7 +12,7 @@ const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';
 
 type FetchLike = typeof fetch;
 
-type GoogleEmbeddingResponse = {
+interface GoogleEmbeddingResponse {
   embedding?: { values?: number[] };
   embeddings?: Array<{ values?: number[] }>;
   predictions?: Array<{
@@ -20,7 +20,7 @@ type GoogleEmbeddingResponse = {
   }>;
   usageMetadata?: { totalTokenCount?: number; inputTokenCount?: number };
   error?: { message?: string };
-};
+}
 
 const GOOGLE_MODELS: Record<string, ModelConfig> = {
   'text-embedding-004': {
@@ -45,13 +45,13 @@ const GOOGLE_MODELS: Record<string, ModelConfig> = {
   },
 };
 
-export type GoogleEmbeddingProviderOptions = {
+export interface GoogleEmbeddingProviderOptions {
   readonly modelId: string;
   readonly outputDimensions?: number;
   readonly apiKey?: string;
   readonly fetch?: FetchLike;
   readonly endpoint?: string;
-};
+}
 
 export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
   readonly runtime = 'hosted' as const;

@@ -13,7 +13,7 @@ const logger = createLogger('useVectorQueueState');
 
 export type BackfillProgress = { done: number; total: number } | null;
 
-export type UseVectorQueueStateParams = {
+export interface UseVectorQueueStateParams {
   service: VectorQueueService | null;
   activeEmbeddingSetId: string | null;
   shouldAutoBackfill: boolean;
@@ -21,21 +21,21 @@ export type UseVectorQueueStateParams = {
   isImporting?: boolean;
   /** When true, live queries are paused to avoid performance degradation during embedding generation */
   isEmbeddingActive?: boolean;
-};
+}
 
-export type TelemetryTrendPoint = {
+export interface TelemetryTrendPoint {
   readonly timestamp: number;
   readonly throughput: number;
   readonly latencyP95: number;
   readonly errorCount: number;
-};
+}
 
 /**
  * Result of API key validation before backfill
  */
 export type ApiKeyValidationResult = { valid: true } | { valid: false; message: string };
 
-export type UseVectorQueueStateResult = {
+export interface UseVectorQueueStateResult {
   coverage: { total: number; withSet: number };
   queueCounts: QueueCounts;
   throughput: number;
@@ -54,7 +54,7 @@ export type UseVectorQueueStateResult = {
   retryFailed: (limit?: number) => Promise<void>;
   clearQueue: () => Promise<void>;
   wipeQueue: () => Promise<void>;
-};
+}
 
 const DEFAULT_COVERAGE: { total: number; withSet: number } = { total: 0, withSet: 0 };
 const DEFAULT_QUEUE_COUNTS: QueueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
@@ -121,23 +121,30 @@ const COVERAGE_QUERY = `
   JOIN target ON fr.embedding_set_id = target.embedding_set_id
 `.trim();
 
-type QueueCountsRow = {
+interface QueueCountsRow {
   queued: number | string | null;
   running: number | string | null;
   failed: number | string | null;
   succeeded: number | string | null;
-};
+}
 
-type ThroughputRow = { count: number | string | null };
+interface ThroughputRow {
+  count: number | string | null;
+}
 
-type LastErrorRow = { error: string | null };
+interface LastErrorRow {
+  error: string | null;
+}
 
-type LatencyRow = { runAt: string; updatedAt: string };
+interface LatencyRow {
+  runAt: string;
+  updatedAt: string;
+}
 
-type CoverageRow = {
+interface CoverageRow {
   totalChunks: number | string | null;
   chunksWithEmbeddingsForSet: number | string | null;
-};
+}
 
 export function useVectorQueueState(params: UseVectorQueueStateParams): UseVectorQueueStateResult {
   // shouldAutoBackfill is retained in the API for future use but currently has no effect

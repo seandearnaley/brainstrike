@@ -9,18 +9,18 @@ import { createLogger } from '@brainstrike/utils';
 /**
  * Snapshot of embedding coverage statistics for a specific embedding set.
  */
-export type CoverageSnapshot = {
+export interface CoverageSnapshot {
   /** Total number of file chunks in the database */
   total: number;
   /** Number of chunks that have embeddings for the active set */
   withSet: number;
-};
+}
 
 /**
  * Current counts for embedding jobs across all queue states.
  * Used to track job queue activity and determine UI state (e.g., button disabled states).
  */
-export type QueueCounts = {
+export interface QueueCounts {
   /** Number of jobs waiting to be processed */
   queued: number;
   /** Number of jobs currently being processed by workers */
@@ -29,25 +29,25 @@ export type QueueCounts = {
   failed: number;
   /** Number of jobs that completed successfully */
   succeeded: number;
-};
+}
 
 /**
  * Performance statistics tracking job processing latency.
  */
-export type LatencyStats = {
+export interface LatencyStats {
   /** Average latency in milliseconds across all recent jobs */
   avgMs: number;
   /** Median (50th percentile) latency in milliseconds */
   p50Ms: number;
   /** 95th percentile latency in milliseconds */
   p95Ms: number;
-};
+}
 
 /**
  * Complete snapshot of the vector queue state at a point in time.
  * Returned by service.refresh() to update UI with current queue activity.
  */
-export type VectorQueueSnapshot = {
+export interface VectorQueueSnapshot {
   /** Coverage statistics for the active embedding set, null if no active set */
   coverage: CoverageSnapshot | null;
   /** Current job counts across all queue states */
@@ -58,26 +58,26 @@ export type VectorQueueSnapshot = {
   lastError: string | null;
   /** Latency performance statistics */
   latency: LatencyStats;
-};
+}
 
-export type VectorQueueDatabase = {
+export interface VectorQueueDatabase {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
-};
+}
 
-export type VectorQueueServiceDependencies = {
+export interface VectorQueueServiceDependencies {
   db: VectorQueueDatabase;
   jobQueue: Pick<JobQueue, 'getQueueStats' | 'clear' | 'requeueFailed'>;
   chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet' | 'clearEmbeddingsForSet'>;
-};
+}
 
 export type BackfillProgressHandler = (done: number, total: number) => void;
 
 export const EMBEDDINGS_QUEUE = 'embeddings';
 
-type EmbeddingSetJobMetadata = {
+interface EmbeddingSetJobMetadata {
   modelKey: string;
   expectedDimension: number;
-};
+}
 
 const logger = createLogger('VectorQueueService');
 
@@ -114,14 +114,14 @@ export type ApiKeyValidation = { valid: true } | { valid: false; message: string
 /**
  * Result of a re-embed operation
  */
-export type ReembedResult = {
+export interface ReembedResult {
   /** Number of chunks that had embeddings cleared */
   clearedCount: number;
   /** Queue counts after backfill was triggered */
   queueCounts: QueueCounts;
-};
+}
 
-export type VectorQueueService = {
+export interface VectorQueueService {
   refresh(activeSetId: string | null): Promise<VectorQueueSnapshot>;
   /**
    * Validates that the API key is available for the embedding set's model.
@@ -159,7 +159,7 @@ export type VectorQueueService = {
   retryFailed(limit: number): Promise<void>;
   clearQueue(states?: Array<'queued' | 'running' | 'failed' | 'succeeded'>): Promise<void>;
   wipeQueue(): Promise<void>;
-};
+}
 
 export function createVectorQueueService(
   dependencies: VectorQueueServiceDependencies
@@ -362,11 +362,11 @@ export function createVectorQueueService(
   };
 }
 
-type BackfillCandidate = {
+interface BackfillCandidate {
   id: string;
   fileRecordId: string;
   contentHash: string;
-};
+}
 
 async function resolveEmbeddingSetJobMetadata(
   db: VectorQueueDatabase,

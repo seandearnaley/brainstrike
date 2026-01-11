@@ -44,16 +44,16 @@ function getPathDepth(path: string): number {
 type UseFileExplorerProps = Record<string, never>;
 
 /** Progress state for restoring expanded directories on app startup */
-export type RestorationProgress = {
+export interface RestorationProgress {
   /** Number of directories restored so far */
   loaded: number;
   /** Total number of directories to restore */
   total: number;
   /** Current directory path being restored */
   currentPath: string | null;
-};
+}
 
-type UseFileExplorerReturn = {
+interface UseFileExplorerReturn {
   fileTree: IFileNode[];
   handleRootDirectorySelect: () => Promise<DirectoryHandle | null>;
   isLoading: boolean;
@@ -104,7 +104,7 @@ type UseFileExplorerReturn = {
   isRestoringExpandedPaths: boolean;
   /** Progress of expanded directory restoration */
   restorationProgress: RestorationProgress | null;
-};
+}
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
   // Split Zustand selectors and hoist them to avoid recreating selector lambdas per render

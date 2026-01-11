@@ -15,7 +15,9 @@ import type {
  * Defined locally since assistant-stream is a transitive dependency.
  */
 type JsonValue = null | string | number | boolean | JsonObject | JsonArray;
-type JsonObject = { readonly [key: string]: JsonValue };
+interface JsonObject {
+  readonly [key: string]: JsonValue;
+}
 type JsonArray = readonly JsonValue[];
 
 /**
@@ -141,7 +143,7 @@ function convertMessages(messages: ChatModelRunOptions['messages']): LocalLlmMes
   return result;
 }
 
-export type LocalRuntimeAdapterOptions = {
+export interface LocalRuntimeAdapterOptions {
   modelId: string;
   onLoadingProgress?: (progress: {
     stage: 'downloading' | 'loading' | 'ready';
@@ -150,7 +152,7 @@ export type LocalRuntimeAdapterOptions = {
     file?: string;
   }) => void;
   onError?: (error: Error) => void;
-};
+}
 
 /**
  * Create a ChatModelAdapter for local browser-based LLM inference.

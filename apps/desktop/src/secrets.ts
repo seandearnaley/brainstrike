@@ -1,17 +1,17 @@
 import { safeStorage } from 'electron';
 import ElectronStore from 'electron-store';
 
-export type SecretsService = {
+export interface SecretsService {
   saveKey(provider: string, value: string): Promise<boolean>;
   getKey(provider: string): Promise<string | null>;
   deleteKey(provider: string): Promise<boolean>;
   listProviders(): Promise<string[]>;
   clearAll(): Promise<boolean>;
-};
+}
 
-type SecretsSchema = {
+interface SecretsSchema {
   secrets: Record<string, string>; // base64-encoded encrypted strings
-};
+}
 
 export function createSecretsService(store?: ElectronStore<SecretsSchema>): SecretsService {
   const _store = store ?? new ElectronStore<SecretsSchema>({ name: 'brainstrike-secrets' });

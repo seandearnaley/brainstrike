@@ -44,9 +44,9 @@ type Action =
       toastId?: ToasterToast['id'];
     };
 
-type State = {
+interface State {
   toasts: ToasterToast[];
-};
+}
 
 export const reducer = (state: State, action: Action): State => {
   switch (action.type) {

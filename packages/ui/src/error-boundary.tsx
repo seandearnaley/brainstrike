@@ -3,20 +3,20 @@ import { isDevEnv } from '@brainstrike/utils';
 import { AlertTriangle, ArrowLeft, Bug, RefreshCw, X } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 
-export type ErrorBoundaryProps = {
+export interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
   onReset?: () => void;
   onError?: (error: Error, errorInfo: ErrorInfo) => void;
   showDetails?: boolean;
-};
+}
 
-export type ErrorBoundaryState = {
+export interface ErrorBoundaryState {
   hasError: boolean;
   error: Error | null;
   errorInfo: ErrorInfo | null;
   detailsVisible: boolean;
-};
+}
 
 /**
  * Generic ErrorBoundary component that provides basic error handling.

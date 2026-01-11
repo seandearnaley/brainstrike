@@ -2,10 +2,10 @@ import { createLogger, generateUUID } from '@brainstrike/utils';
 import { ensureDimensionIndexExists } from '../migrations/dimension-index-helpers.js';
 import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
 
-type EmbeddingSetsDb = {
+interface EmbeddingSetsDb {
   exec(sql: string, params?: unknown): Promise<unknown>;
   query<T = unknown>(sql: string, params?: unknown): Promise<{ rows: T[] }>;
-};
+}
 
 export class EmbeddingSetsRepository {
   private readonly logger = createLogger('EmbeddingSetsRepository');

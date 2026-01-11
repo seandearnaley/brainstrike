@@ -8,10 +8,10 @@ import { Sidebar } from './components/sidebar';
 import { usePromptStore } from './store';
 import type { Prompt } from './types';
 
-type PromptManagerProps = {
+interface PromptManagerProps {
   availableModels?: ModelPickerModel[];
   providers?: ModelPickerProvider[];
-};
+}
 
 export function PromptManager({ availableModels, providers }: PromptManagerProps) {
   const {

@@ -20,10 +20,10 @@ vi.mock('../logger', () => ({
 }));
 
 // Store captured event handlers
-type CapturedHandlers = {
+interface CapturedHandlers {
   error: ((event: ErrorEvent) => void) | null;
   unhandledrejection: ((event: PromiseRejectionEvent) => void) | null;
-};
+}
 
 const capturedHandlers: CapturedHandlers = {
   error: null,

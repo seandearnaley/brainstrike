@@ -18,12 +18,12 @@ import {
 
 type TokenRuntimeStatus = 'checking' | 'accurate' | 'fallback' | 'disabled';
 
-type StatusMetadata = {
+interface StatusMetadata {
   label: string;
   description: string;
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
   variant: 'secondary' | 'outline' | 'destructive';
-};
+}
 
 const STATUS_METADATA: Record<TokenRuntimeStatus, StatusMetadata> = {
   checking: {

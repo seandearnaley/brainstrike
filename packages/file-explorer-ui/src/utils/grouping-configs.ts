@@ -21,24 +21,24 @@ export const TOKEN_THRESHOLDS = {
   veryLarge: 5000,
 } as const;
 
-export type GroupConfig<T = unknown> = {
+export interface GroupConfig<T = unknown> {
   id: string;
   label: string;
   groupBy: GroupFunction<T> | GroupBandFunction<T>;
   sortGroups?: (a: GroupKey, b: GroupKey) => number;
-};
+}
 
-export type GroupedData<T = unknown> = {
+export interface GroupedData<T = unknown> {
   groupKey: GroupKey;
   groupLabel: string;
   items: T[];
   count: number;
   totalTokens: number;
   totalSize: number;
-};
+}
 
 // Table data structure for preview panel
-export type TableRowData = {
+export interface TableRowData {
   id: string;
   rootFolderId: string;
   path: string;
@@ -46,7 +46,7 @@ export type TableRowData = {
   size?: number;
   tokens?: number;
   compositeKey: string;
-};
+}
 
 // Predefined grouping configurations
 export const GROUPING_CONFIGS = {

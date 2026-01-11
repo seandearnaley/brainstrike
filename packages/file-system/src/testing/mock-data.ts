@@ -7,7 +7,7 @@ export const TEST_DIRECTORY_PATH = '/mock/test/directory';
 export const TEST_DIRECTORY_HANDLE_ID = 'mock-directory-handle';
 
 // Using a looser type here to avoid strict dependency on IFileNode which might need FileSystemHandle
-export type SerializableFileNode = {
+export interface SerializableFileNode {
   name: string;
   path: string;
   type: 'file' | 'directory';
@@ -23,7 +23,7 @@ export type SerializableFileNode = {
     platform: 'electron';
   };
   children?: SerializableFileNode[];
-};
+}
 
 /**
  * Returns a mock directory structure for testing purposes.

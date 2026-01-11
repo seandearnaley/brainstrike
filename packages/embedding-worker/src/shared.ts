@@ -4,7 +4,7 @@ export type EmbeddingDeviceHint = EmbeddingDevice;
 
 export type EmbeddingDType = 'fp16' | 'q4' | 'fp32';
 
-export type EmbedWorkerRequest = {
+export interface EmbedWorkerRequest {
   readonly type: 'embed';
   readonly id: string;
   readonly model: string;
@@ -19,16 +19,16 @@ export type EmbedWorkerRequest = {
   readonly provider?: string;
   readonly targetDimension?: number;
   readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
-};
+}
 
-export type EmbedWorkerProgress = {
+export interface EmbedWorkerProgress {
   readonly type: 'progress';
   readonly id: string;
   readonly progress: number;
   readonly phase: 'initializing' | 'embedding' | 'complete';
-};
+}
 
-export type EmbedWorkerSuccess = {
+export interface EmbedWorkerSuccess {
   readonly type: 'result';
   readonly id: string;
   readonly vectors: readonly Float32Array[];
@@ -41,15 +41,15 @@ export type EmbedWorkerSuccess = {
     readonly fallbackApplied: boolean;
     readonly dimensions: number;
   };
-};
+}
 
-export type EmbedWorkerError = {
+export interface EmbedWorkerError {
   readonly type: 'error';
   readonly id: string;
   readonly message: string;
   /** Serialized error cause for debugging (string instead of unknown for safe workerpool serialization) */
   readonly cause?: string | undefined;
-};
+}
 
 export function l2Normalize(vector: Float32Array): Float32Array {
   let sum = 0;

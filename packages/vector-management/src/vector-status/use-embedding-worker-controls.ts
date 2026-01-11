@@ -2,16 +2,16 @@ import type { EmbeddingWorkerController, EmbeddingWorkerOptions } from '@brainst
 import { startEmbeddingWorker } from '@brainstrike/embeddings';
 import { useCallback, useRef, useState } from 'react';
 
-export type UseEmbeddingWorkerControlsParams = {
+export interface UseEmbeddingWorkerControlsParams {
   db: EmbeddingWorkerOptions['db'] | null;
   devicePreference: 'webgpu' | 'wasm';
   reinitEveryN: number;
   activeEmbeddingSetId: string | null;
   onBackfill: () => Promise<void>;
   toast: (options: { title: string; description?: string; variant?: 'destructive' }) => void;
-};
+}
 
-export type UseEmbeddingWorkerControlsResult = {
+export interface UseEmbeddingWorkerControlsResult {
   workerLocalRunning: boolean;
   startingWorker: boolean;
   startWorkerError: string | null;
@@ -19,7 +19,7 @@ export type UseEmbeddingWorkerControlsResult = {
   startWorker: () => Promise<void>;
   stopWorker: () => Promise<void>;
   resetWorker: () => Promise<void>;
-};
+}
 
 function dispatchQueueDrainedEvent(): void {
   if (typeof window === 'undefined') {

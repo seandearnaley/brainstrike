@@ -7,10 +7,10 @@ import { _electron as electron } from 'playwright';
 
 declare const process: NodeJS.Process;
 
-export type ElectronAppContext = {
+export interface ElectronAppContext {
   app: ElectronApplication;
   window: Page;
-};
+}
 
 // Single launch attempt - extracted for reduced complexity
 async function attemptElectronLaunch(

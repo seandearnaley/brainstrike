@@ -6,13 +6,13 @@ export type ProviderRuntime = 'hosted' | 'gateway' | 'local' | 'browser';
 
 export type ProviderModelType = 'llm' | 'embedding';
 
-export type ProviderCapabilities = {
+export interface ProviderCapabilities {
   llm: boolean;
   embeddings: boolean;
   streaming: boolean;
-};
+}
 
-type BaseModelDefinition = {
+interface BaseModelDefinition {
   /**
    * Provider-specific model identifier (as accepted by the upstream API).
    */
@@ -25,7 +25,7 @@ type BaseModelDefinition = {
    * Flag a sensible default for the given model type.
    */
   default?: boolean;
-};
+}
 
 export interface LlmModelDefinition extends BaseModelDefinition {
   type: 'llm';
@@ -62,7 +62,7 @@ export interface EmbeddingModelDefinition extends BaseModelDefinition {
 
 export type ProviderModelDefinition = LlmModelDefinition | EmbeddingModelDefinition;
 
-export type ProviderDefinition = {
+export interface ProviderDefinition {
   id: ProviderId;
   displayName: string;
   runtime: ProviderRuntime;
@@ -75,7 +75,7 @@ export type ProviderDefinition = {
    * Environment variable keys (most preferred first) for secret discovery.
    */
   envKeys?: readonly string[];
-};
+}
 
 export type ProviderId =
   | 'openai'

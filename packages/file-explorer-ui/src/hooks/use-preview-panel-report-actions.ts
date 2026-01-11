@@ -4,7 +4,7 @@ import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { useCallback } from 'react';
 import type { useFileExplorerStoreContext } from '../file-explorer-provider';
 
-type UsePreviewPanelReportActionsInput = {
+interface UsePreviewPanelReportActionsInput {
   store: ReturnType<typeof useFileExplorerStoreContext>;
   selectedFiles: Set<string>;
   fileContents: Record<string, string>;
@@ -15,7 +15,7 @@ type UsePreviewPanelReportActionsInput = {
   includeProjectTree: boolean;
   folderSummaryThreshold: number;
   loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
-};
+}
 
 export function usePreviewPanelReportActions(input: UsePreviewPanelReportActionsInput): {
   handleDownloadReport: () => void;

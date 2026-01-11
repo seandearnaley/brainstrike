@@ -18,17 +18,17 @@ export type PathValidationErrorCode =
   | 'outside-root'
   | 'realpath-failure';
 
-export type PathValidationError = {
+export interface PathValidationError {
   code: PathValidationErrorCode;
   message: string;
   path?: string;
-};
+}
 
 export type PathValidationResult =
   | { ok: true; path: string }
   | { ok: false; error: PathValidationError };
 
-export type PathValidationOptions = {
+export interface PathValidationOptions {
   rootDir?: string;
   requestedPath: unknown;
   fallbackPath?: string;
@@ -36,7 +36,7 @@ export type PathValidationOptions = {
   maxTraversal?: number;
   blockSensitiveDirectories?: boolean;
   platform?: NodeJS.Platform;
-};
+}
 
 export function expandHome(p: string): string {
   if (p.startsWith('~/')) {
