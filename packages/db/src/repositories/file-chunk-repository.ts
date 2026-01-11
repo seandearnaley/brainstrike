@@ -22,7 +22,7 @@ import {
 } from './_shared.js';
 
 // Type definition for database row returned by PGlite
-type FileChunkRow = {
+interface FileChunkRow {
   id: string;
   file_record_id: string;
   chunk_index: number;
@@ -38,7 +38,7 @@ type FileChunkRow = {
   embedding_hash?: string | null;
   created_at: string;
   updated_at: string;
-};
+}
 
 // Type for search result rows with additional fields
 interface FileChunkSearchRow extends FileChunkRow {
@@ -47,13 +47,13 @@ interface FileChunkSearchRow extends FileChunkRow {
 }
 
 // Type for stats query rows
-type FileChunkStatsRow = {
+interface FileChunkStatsRow {
   total_chunks: string;
   chunks_with_embeddings: string;
   average_token_count: string;
   chunk_type: string;
   type_count: string;
-};
+}
 
 export class FileChunkRepository {
   constructor(private readonly db: PGlite) {}

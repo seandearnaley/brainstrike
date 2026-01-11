@@ -12,17 +12,17 @@ vi.mock('lucide-react', () => ({
 vi.mock('@brainstrike/ui', async () => {
   const React = await import('react');
 
-  type GenericProps = {
+  interface GenericProps {
     children?: React.ReactNode;
     [key: string]: unknown;
-  };
+  }
 
-  type ButtonProps = {
+  interface ButtonProps {
     children: React.ReactNode;
     onClick?: (() => void) | undefined;
     disabled?: boolean | undefined;
     [key: string]: unknown;
-  };
+  }
 
   type InputProps = React.ComponentPropsWithoutRef<'input'>;
 

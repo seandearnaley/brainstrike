@@ -6,12 +6,12 @@ import { generateProjectTreeText } from './tree-generator';
 const logger = createLogger('ReportGenerator');
 
 // File tree processing configuration
-type FileTreeProcessingConfig = {
+interface FileTreeProcessingConfig {
   depth: number;
   rootFolderId: string;
   visitedPaths: Set<string>;
   maxDepth: number;
-};
+}
 
 // Helper function to check if a path should be ignored
 function shouldIgnorePath(pathString: string): boolean {

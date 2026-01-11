@@ -3,12 +3,12 @@ import { useLayoutEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVirtualList } from '../use-virtual-list';
 
-type TestComponentProps = {
+interface TestComponentProps {
   itemCount: number;
   rowHeight: number;
   overscan?: number;
   onUpdate: (range: { start: number; end: number }) => void;
-};
+}
 
 function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestComponentProps) {
   const { containerRef, range } = useVirtualList(itemCount, rowHeight, { overscan: overscan ?? 0 });

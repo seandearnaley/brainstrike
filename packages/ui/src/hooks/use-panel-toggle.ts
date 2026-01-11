@@ -1,14 +1,14 @@
 import { type RefObject, useCallback } from 'react';
 import type { ImperativePanelHandle } from 'react-resizable-panels';
 
-type UsePanelToggleOptions = {
+interface UsePanelToggleOptions {
   focusRef?: RefObject<HTMLElement | null>;
   // Callback invoked on user-initiated actions to lift any initialization gate
   liftInitGate?: () => void;
   // Optional callback before toggling visibility (useful when panel is unmounted)
   onBeforeShow?: () => void;
   onBeforeHide?: () => void;
-};
+}
 
 function liftInitGate(fn?: () => void) {
   fn?.();

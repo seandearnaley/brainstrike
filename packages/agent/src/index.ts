@@ -3,28 +3,28 @@ import type { MastraAgentRuntimeOptions } from './mastra/agent-runtime';
 import { streamMastraAgent } from './mastra/agent-runtime';
 import type { McpConfig } from './mcp/config';
 
-export type AgentMessagePartText = {
+export interface AgentMessagePartText {
   type: 'text';
   text: string;
-};
-export type AgentMessagePartTool = {
+}
+export interface AgentMessagePartTool {
   type: `tool-${string}`;
   state: 'input-available' | 'input-streaming' | 'output-available' | 'output-error';
   input?: unknown;
   output?: unknown;
   errorText?: string;
-};
+}
 export type AgentMessagePart = AgentMessagePartText | AgentMessagePartTool;
 
-export type AgentMessage = {
+export interface AgentMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   parts: AgentMessagePart[];
-};
+}
 
 export type AssistantUiScalar = string | number | bigint | boolean | null;
 
-export type AssistantUiNodeObject = {
+export interface AssistantUiNodeObject {
   text?: AssistantUiScalar;
   value?: AssistantUiScalar;
   content?: AssistantUiNode;
@@ -35,7 +35,7 @@ export type AssistantUiNodeObject = {
   message?: AssistantUiNode;
   messages?: AssistantUiNode;
   [key: string]: AssistantUiScalar | AssistantUiNode | undefined;
-};
+}
 
 export type AssistantUiNode =
   | AssistantUiScalar
@@ -43,20 +43,20 @@ export type AssistantUiNode =
   | readonly AssistantUiNode[];
 
 // Recommended stricter message shape for first‑party API boundaries.
-export type AssistantUiMessageStrict = {
+export interface AssistantUiMessageStrict {
   id?: string | undefined;
   role?: 'user' | 'assistant' | 'system' | undefined;
   text?: string | undefined;
-};
+}
 
 // Assistant UI input message (intentionally permissive; normalized at runtime)
-export type AssistantUiMessage = {
+export interface AssistantUiMessage {
   id?: string | number | null;
   role?: string | null;
   text?: AssistantUiScalar | undefined;
   content?: AssistantUiNode;
   parts?: AssistantUiNode;
-};
+}
 
 type NormalizedRole = 'user' | 'assistant' | 'system';
 
@@ -245,7 +245,7 @@ export function convertAssistantUiMessages(
   return fallback ? [fallback] : [];
 }
 
-export type RuntimeData = {
+export interface RuntimeData {
   projectId?: string;
   /** AI provider to use. Defaults to 'openai' if not specified. */
   provider?: 'openai' | 'anthropic' | 'google' | 'openrouter' | string;
@@ -273,28 +273,28 @@ export type RuntimeData = {
   mastraTools?: ToolsInput;
   /** API key for the specified provider. Falls back to environment variables if not provided. */
   apiKey?: string;
-};
+}
 
-export type StreamChunkText = {
+export interface StreamChunkText {
   type: 'text-delta';
   value: string;
-};
-export type StreamChunkTool = {
+}
+export interface StreamChunkTool {
   type: 'tool-event';
   name: string;
   status: 'start' | 'progress' | 'success' | 'error';
   payload?: unknown;
-};
-export type StreamChunkFinish = {
+}
+export interface StreamChunkFinish {
   type: 'finish';
   usage: { promptTokens: number; completionTokens: number };
-};
-export type StreamChunkMessageFinish = {
+}
+export interface StreamChunkMessageFinish {
   type: 'message-finish';
   finishReason: 'stop';
   usage: { promptTokens: number; completionTokens: number };
   path: readonly number[];
-};
+}
 export type StreamChunk =
   | StreamChunkText
   | StreamChunkTool

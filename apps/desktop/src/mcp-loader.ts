@@ -12,9 +12,9 @@ export type McpServer =
       env?: Record<string, string>;
     }
   | { transport: 'sse'; name: string; url: string; headers?: Record<string, string> };
-export type McpConfig = {
+export interface McpConfig {
   servers: McpServer[];
-};
+}
 
 const logger = createLogger('DesktopMcpLoader');
 
@@ -108,13 +108,13 @@ export function parseMcpConfig(text: string): McpConfig {
   return { servers };
 }
 
-export type LoadedMcpConfig = {
+export interface LoadedMcpConfig {
   path: string;
   exists: boolean;
   config?: McpConfig;
   servers?: McpServer[];
   loadedAt?: number;
-};
+}
 
 let customConfigPath: string | null = null;
 
@@ -284,7 +284,9 @@ export async function loadMcpConfig(): Promise<LoadedMcpConfig> {
   }
 }
 
-export type McpWatcher = { close: () => void };
+export interface McpWatcher {
+  close: () => void;
+}
 
 export async function watchMcpConfig(
   onChange: (config: LoadedMcpConfig) => void

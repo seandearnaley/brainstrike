@@ -64,12 +64,12 @@ const SAFE_ERROR_MESSAGES = new Set<string>([
   ERROR_MESSAGES.embeddingDimensionMismatch,
 ]);
 
-type EmbeddingSetRow = {
+interface EmbeddingSetRow {
   modelKey: string;
   modelId: string;
   dimensions: number;
   distance: string | null;
-};
+}
 
 type HostedEmbeddingProvider =
   | OpenAIEmbeddingProvider
@@ -77,25 +77,25 @@ type HostedEmbeddingProvider =
   | CohereEmbeddingProvider
   | VoyageEmbeddingProvider;
 
-type FileRecordRow = {
+interface FileRecordRow {
   id: string;
   name: string;
   path: string;
   tokenCount: number | null;
-};
+}
 
-type RetrievalSelectionState = {
+interface RetrievalSelectionState {
   filePaths?: string[];
   selectionSnapshotId?: string;
-};
+}
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
-type ToolContext<TInput> = {
+interface ToolContext<TInput> {
   context: TInput;
-};
+}
 
-type RetrievalToolResult = {
+interface RetrievalToolResult {
   query: string;
   embeddingSetId: string;
   limit: number;
@@ -107,7 +107,7 @@ type RetrievalToolResult = {
   skipped: number;
   context: string;
   chunks: PackedContextChunk[];
-};
+}
 
 function normalizeText(value: string | null | undefined): string | undefined {
   if (!value) {
@@ -155,7 +155,9 @@ function assertValidSelectionFilePaths(filePaths: readonly string[]): void {
   }
 }
 
-type QueryResult<T> = { rows: T[] };
+interface QueryResult<T> {
+  rows: T[];
+}
 
 async function resolveEmbeddingSet(db: PGlite, embeddingSetId: string): Promise<EmbeddingSetRow> {
   let result: QueryResult<EmbeddingSetRow>;

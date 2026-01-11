@@ -2,10 +2,10 @@ import type { IFileNode } from '@brainstrike/types';
 import { useMemo } from 'react';
 import { useSelectionManager } from '../use-selection-manager-context';
 
-type UseFileExplorerSelectionParams = {
+interface UseFileExplorerSelectionParams {
   quickFilteredTree: IFileNode[] | null;
   onSelectionLimitExceeded: () => void;
-};
+}
 
 export function useFileExplorerSelection({
   quickFilteredTree,

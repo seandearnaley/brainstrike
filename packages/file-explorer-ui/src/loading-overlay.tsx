@@ -11,7 +11,7 @@ import {
   useProgressMessage,
 } from './hooks';
 
-export type LoadingProgressState = {
+export interface LoadingProgressState {
   loaded: number;
   total: number;
   currentPath?: string;
@@ -20,7 +20,7 @@ export type LoadingProgressState = {
   percentage?: number;
   /** Depth-based progress for streaming updates */
   depthProgress?: DepthProgress;
-};
+}
 
 export interface LoadingOverlayProps extends React.HTMLAttributes<HTMLDivElement> {
   isLoading: boolean;

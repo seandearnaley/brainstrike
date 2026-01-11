@@ -12,7 +12,7 @@ export type TokenCountingMode = 'accurate' | 'heuristic';
 /**
  * Entry stored in the persistent token cache (PGlite)
  */
-export type TokenCacheEntry = {
+export interface TokenCacheEntry {
   /** Root folder identifier */
   folderId: string;
   /** Relative file path within the folder */
@@ -33,24 +33,24 @@ export type TokenCacheEntry = {
   createdAt?: string;
   /** Timestamp when entry was last updated */
   updatedAt?: string;
-};
+}
 
 /**
  * Request to count tokens for a file
  */
-export type TokenCountRequest = {
+export interface TokenCountRequest {
   /** Unique identifier for this request */
   id: string;
   /** File content to count tokens for */
   content: string;
   /** Counting mode to use */
   mode: TokenCountingMode;
-};
+}
 
 /**
  * Result of token counting operation
  */
-export type TokenCountResult = {
+export interface TokenCountResult {
   /** Request identifier */
   id: string;
   /** Number of tokens counted */
@@ -59,12 +59,12 @@ export type TokenCountResult = {
   contentHash: string;
   /** Mode that was used */
   mode: TokenCountingMode;
-};
+}
 
 /**
  * Progress event emitted during batch token counting
  */
-export type TokenCountProgress = {
+export interface TokenCountProgress {
   type: 'progress';
   /** Number of items completed */
   completed: number;
@@ -72,12 +72,12 @@ export type TokenCountProgress = {
   total: number;
   /** Current item being processed (optional) */
   currentId?: string;
-};
+}
 
 /**
  * Error event from token counting worker
  */
-export type TokenCountError = {
+export interface TokenCountError {
   type: 'error';
   /** Request identifier that failed */
   id: string;
@@ -85,7 +85,7 @@ export type TokenCountError = {
   message: string;
   /** Error cause/stack (optional) */
   cause?: string;
-};
+}
 
 /**
  * Worker message types
@@ -95,7 +95,7 @@ export type TokenWorkerMessage = TokenCountProgress | TokenCountError;
 /**
  * Statistics about the token cache
  */
-export type TokenCacheStats = {
+export interface TokenCacheStats {
   /** Total number of cached entries */
   entryCount: number;
   /** Total tokens across all cached files */
@@ -104,22 +104,22 @@ export type TokenCacheStats = {
   accurateCount: number;
   /** Number of entries using heuristic counting */
   heuristicCount: number;
-};
+}
 
 /**
  * Options for the token cache store
  */
-export type TokenCacheStoreOptions = {
+export interface TokenCacheStoreOptions {
   /** Whether to log debug information */
   debug?: boolean;
-};
+}
 
 /**
  * File metadata for quick cache validation
  */
-export type FileMetadata = {
+export interface FileMetadata {
   /** File size in bytes */
   size: number;
   /** Modification time in milliseconds (if available) */
   mtimeMs?: number;
-};
+}

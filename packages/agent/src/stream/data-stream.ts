@@ -8,21 +8,24 @@ import type {
 } from '../index';
 import { toJsonSafe } from './json';
 
-type ToolState = {
+interface ToolState {
   toolName: string;
   pendingArgsText: string;
   lastInput?: unknown;
-};
+}
 
-type StepState = {
+interface StepState {
   id: string;
   index: number;
   usage: Usage;
   finishReason: FinishReason;
   status: 'success' | 'error';
-};
+}
 
-type Usage = { promptTokens: number; completionTokens: number };
+interface Usage {
+  promptTokens: number;
+  completionTokens: number;
+}
 
 type FinishReason =
   | 'stop'
@@ -47,27 +50,27 @@ enum DataStreamCode {
   StartStep = 'f',
 }
 
-type EncodedChunk = {
+interface EncodedChunk {
   code: DataStreamCode;
   value: unknown;
-};
+}
 
-type StoredChunk = {
+interface StoredChunk {
   sequence: number;
   payload: Uint8Array;
   chunk: EncodedChunk;
-};
+}
 
-type AssistantDataStreamSessionOptions = {
+interface AssistantDataStreamSessionOptions {
   messageId?: string;
   sessionId?: string;
   cleanupDelayMs?: number;
-};
+}
 
-type CreateResponseOptions = {
+interface CreateResponseOptions {
   resumeFromEventId?: string | null;
   headers?: HeadersInit;
-};
+}
 
 const logger = createLogger('AgentDataStream');
 const encoder = new TextEncoder();

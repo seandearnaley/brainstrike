@@ -42,7 +42,7 @@ async function timeDirectoryRead<T>(
   return { result, durationMs, exceededBudget };
 }
 
-export type ParallelWalkerOptions = {
+export interface ParallelWalkerOptions {
   /** Maximum number of concurrent directory reads (default: 10) */
   concurrency?: number | undefined;
   /** AbortSignal for cancellation support */
@@ -55,14 +55,14 @@ export type ParallelWalkerOptions = {
   onTreeSnapshot?: ((tree: IFileNode[], meta: StreamMeta) => void) | undefined;
   /** Snapshot interval in ms (default: 100) */
   snapshotIntervalMs?: number | undefined;
-};
+}
 
-type WorkItem = {
+interface WorkItem {
   handle: DirectoryHandle;
   parentPath: string;
   parentNode: IFileNode | null;
   depth: number;
-};
+}
 
 /**
  * Creates a promise that can be resolved/rejected externally

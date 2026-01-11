@@ -7,20 +7,20 @@ export const fileContentCacheLogger = logger;
  * LRU Cache for file contents with automatic eviction based on memory limits
  */
 
-export type CacheEntry = {
+export interface CacheEntry {
   content: string;
   timestamp: number;
   lastAccessed: number;
   size: number; // in bytes
   accessOrder: number;
-};
+}
 
-export type CacheStats = {
+export interface CacheStats {
   totalSize: number;
   entryCount: number;
   hitRate: number;
   evictionCount: number;
-};
+}
 
 export class FileContentCache {
   private readonly cache = new Map<string, CacheEntry>();

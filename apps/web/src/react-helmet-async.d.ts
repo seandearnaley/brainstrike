@@ -5,7 +5,7 @@
 declare module 'react-helmet-async' {
   import type { Component, ReactNode } from 'react';
 
-  export type HelmetProps = {
+  export interface HelmetProps {
     async?: boolean;
     base?: Record<string, unknown>;
     bodyAttributes?: Record<string, unknown>;
@@ -24,14 +24,14 @@ declare module 'react-helmet-async' {
     titleTemplate?: string;
     prioritizeSeoTags?: boolean;
     children?: ReactNode;
-  };
+  }
 
   export class Helmet extends Component<HelmetProps> {}
 
-  export type ProviderProps = {
+  export interface ProviderProps {
     context?: unknown;
     children?: ReactNode;
-  };
+  }
 
   export class HelmetProvider extends Component<ProviderProps> {}
 

@@ -8,7 +8,7 @@ import {
 import { useCollections } from '@brainstrike/vector-management';
 import { useCallback, useEffect, useRef } from 'react';
 
-type SearchCollectionSelectorProps = {
+interface SearchCollectionSelectorProps {
   /**
    * The database instance for querying collections
    */
@@ -38,7 +38,7 @@ type SearchCollectionSelectorProps = {
    * Callback when delete is clicked on a collection
    */
   onDeleteCollection: (collection: CollectionPickerCollection) => void;
-};
+}
 
 /**
  * SearchCollectionSelector - User-friendly collection picker for Database Explorer

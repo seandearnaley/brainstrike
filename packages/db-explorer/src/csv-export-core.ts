@@ -88,10 +88,10 @@ export function truncateContent(content: string | undefined, maxLength: number):
 /**
  * Column configuration for CSV export
  */
-export type CSVColumn<T = unknown> = {
+export interface CSVColumn<T = unknown> {
   header: string;
   getValue: (record: T) => string | number | undefined | null;
-};
+}
 
 /**
  * Generates CSV content from an array of records

@@ -16,30 +16,30 @@ import migrationsManifest from './migrations.json' with { type: 'json' };
 
 const logger = createLogger('DrizzleMigrate');
 
-type Migration = {
+interface Migration {
   version: string;
   name: string;
   sql: string;
   hash: string;
-};
+}
 
-type MigrationManifest = {
+interface MigrationManifest {
   version: number;
   generatedAt: string;
   migrations: Migration[];
-};
+}
 
-type MigrationResult = {
+interface MigrationResult {
   success: boolean;
   appliedMigrations: string[];
   error?: string;
-};
+}
 
-type AppliedMigration = {
+interface AppliedMigration {
   id: number;
   hash: string;
   created_at: Date;
-};
+}
 
 const MIGRATIONS_TABLE = '__drizzle_migrations';
 

@@ -26,7 +26,7 @@ async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
   return cachedExpect;
 }
 
-export type PanelElements = {
+export interface PanelElements {
   leftPanel: ReturnType<Page['locator']>;
   rightPanel: ReturnType<Page['locator']>;
   consolePanel: ReturnType<Page['locator']>;
@@ -38,7 +38,7 @@ export type PanelElements = {
   showExplorerShim: ReturnType<Page['locator']>;
   showRightPanelShim: ReturnType<Page['locator']>;
   showConsoleShim: ReturnType<Page['locator']>;
-};
+}
 
 /**
  * Get all panel-related elements for testing
@@ -497,11 +497,11 @@ export async function clearAllStorage(page: Page): Promise<void> {
   });
 }
 
-type DefaultLayoutState = {
+interface DefaultLayoutState {
   leftPanelHidden?: boolean;
   rightPanelHidden?: boolean;
   consoleHidden?: boolean;
-};
+}
 
 /**
  * Verifies the default state of the layout.

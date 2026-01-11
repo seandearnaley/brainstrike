@@ -1,14 +1,14 @@
 import { Badge, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import { FileText, Info } from 'lucide-react';
 
-type SearchCollectionContextProps = {
+interface SearchCollectionContextProps {
   collectionName: string;
   /**
    * Number of chunks with embeddings (searchable chunks)
    * This is the count from useIndexedChunkCount which queries file_chunks with non-null embeddings
    */
   indexedChunkCount?: number | undefined;
-};
+}
 
 /**
  * Displays the active collection context for the Search tab

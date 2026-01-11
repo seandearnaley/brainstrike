@@ -7,21 +7,21 @@ import { useTokenCache } from '../use-token-cache';
 
 const VERSION_DEBOUNCE_MS = 50;
 
-type StoreMock = {
+interface StoreMock {
   get: ReturnType<typeof vi.fn>;
   set: ReturnType<typeof vi.fn>;
   getTotalTokens: ReturnType<typeof vi.fn>;
   getAllForFolder: ReturnType<typeof vi.fn>;
-};
+}
 
-type WorkerPoolMock = {
+interface WorkerPoolMock {
   exec: ReturnType<typeof vi.fn>;
-};
+}
 
-type HasherMock = {
+interface HasherMock {
   init: ReturnType<typeof vi.fn>;
   hashContent: ReturnType<typeof vi.fn>;
-};
+}
 
 const createStoreMock = (): StoreMock => ({
   get: vi.fn(async () => null),

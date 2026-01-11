@@ -1,24 +1,24 @@
-export type RetrievalGoldenChunk = {
+export interface RetrievalGoldenChunk {
   id: string;
   content: string;
   embedding: number[];
-};
+}
 
-export type RetrievalGoldenFile = {
+export interface RetrievalGoldenFile {
   id: string;
   name: string;
   path: string;
   chunks: RetrievalGoldenChunk[];
-};
+}
 
-export type RetrievalGoldenQuery = {
+export interface RetrievalGoldenQuery {
   id: string;
   text: string;
   embedding: number[];
   expectedFilePaths: string[];
-};
+}
 
-export type RetrievalGoldenDataset = {
+export interface RetrievalGoldenDataset {
   embeddingSet: {
     modelKey: string;
     modelId: string;
@@ -27,7 +27,7 @@ export type RetrievalGoldenDataset = {
   };
   files: RetrievalGoldenFile[];
   queries: RetrievalGoldenQuery[];
-};
+}
 
 export const retrievalGoldenDataset = {
   embeddingSet: {

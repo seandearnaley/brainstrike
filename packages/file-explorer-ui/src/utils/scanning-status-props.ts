@@ -4,16 +4,16 @@
  * Extracted from FileExplorerLeftPanel to reduce cognitive complexity.
  */
 
-type ExpandProgress = {
+interface ExpandProgress {
   loaded: number;
   total: number;
-};
+}
 
-type LoadingProgress = {
+interface LoadingProgress {
   isInitialLoading?: boolean;
-};
+}
 
-type ScanningStatusPropsInput = {
+interface ScanningStatusPropsInput {
   loadingProgress: LoadingProgress | null | undefined;
   isExpandingAll: boolean;
   expandAllProgress: ExpandProgress | null | undefined;
@@ -21,7 +21,7 @@ type ScanningStatusPropsInput = {
   isCancelling: boolean;
   cancelExpandAll: () => void;
   handleCancelOperation: () => void;
-};
+}
 
 type ScanningStatusProps = {
   isScanning: boolean;

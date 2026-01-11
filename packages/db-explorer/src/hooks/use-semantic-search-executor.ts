@@ -41,20 +41,20 @@ const DEFAULT_VECTOR_WEIGHT = 1.0;
 /** Default weight for FTS in hybrid mode */
 const DEFAULT_FTS_WEIGHT = 1.0;
 
-type SearchEmbedder = {
+interface SearchEmbedder {
   embedQuery: (text: string) => Promise<{ embedding: number[] }>;
   dispose?: () => Promise<void> | void;
-};
+}
 
 type EmbedderError =
   | { message: string }
   | { originalError: { message: string }; type: string }
   | { type: string };
 
-type UseSemanticSearchExecutorOptions = {
+interface UseSemanticSearchExecutorOptions {
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
   fileRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
-};
+}
 
 /**
  * Create a hosted provider embedder
@@ -114,10 +114,10 @@ async function createLocalEmbedder(modelConfig: ModelConfig): Promise<SearchEmbe
   };
 }
 
-type RetrievalFilterOptions = {
+interface RetrievalFilterOptions {
   filePaths?: string[];
   selectionSnapshotId?: string;
-};
+}
 
 /**
  * Build retrieval filter options, preferring selectionSnapshotId over filePaths

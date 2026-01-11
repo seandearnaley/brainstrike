@@ -1,14 +1,14 @@
-type SplitFilePathResult = {
+interface SplitFilePathResult {
   fileName: string;
   dirPath: string;
-};
+}
 
-type DirPathDisplayOptions = {
+interface DirPathDisplayOptions {
   maxDisplayChars: number;
   headSegments: number;
   tailSegments: number;
   maxSegmentChars: number;
-};
+}
 
 function normalizeSeparators(inputPath: string): string {
   return inputPath.replace(/\\/g, '/');

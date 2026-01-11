@@ -15,10 +15,10 @@ type FileTreeContextType = CancellableFileTreeHook & {
 
 const FileTreeContext = createContext<FileTreeContextType | null>(null);
 
-export type FileTreeProviderProps = {
+export interface FileTreeProviderProps {
   children: ReactNode;
   rootDirectoryHandle: DirectoryHandle | null;
-};
+}
 
 /**
  * Provider component that creates a single file tree state.

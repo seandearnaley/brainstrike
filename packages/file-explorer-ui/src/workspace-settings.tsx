@@ -16,31 +16,31 @@ import InlineFixtureSetting from './inline-fixture-setting';
 import UseRegexSetting from './use-regex-setting';
 
 // Types
-type FileExplorerSettings = {
+interface FileExplorerSettings {
   includeFilters: string[];
   excludeFilters: string[];
   useRegex: boolean;
   folderSummaryThreshold: number;
   devInlineFixtureEnabled: boolean;
-};
+}
 
-type WorkspaceSettingsProps = {
+interface WorkspaceSettingsProps {
   filterError: string | null;
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   inlineFixtureSetting?: {
     available: boolean;
     loading: boolean;
   };
-};
+}
 
 const logger = createLogger('WorkspaceSettings');
 export const workspaceSettingsLogger = logger;
 
-type InlineFixtureToggleDependencies = {
+interface InlineFixtureToggleDependencies {
   onSettingsChange: (key: 'devInlineFixtureEnabled', value: boolean) => void;
   persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
   setDevInlineFixtureEnabled: (value: boolean) => void;
-};
+}
 
 export const createInlineFixtureToggleHandler =
   (deps: InlineFixtureToggleDependencies) => async (checked: boolean) => {

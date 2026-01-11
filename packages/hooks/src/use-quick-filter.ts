@@ -37,12 +37,12 @@ function filterTreeIterative(
 ): IFileNode[] {
   const result: IFileNode[] = [];
 
-  type Frame = {
+  interface Frame {
     node: IFileNode;
     state: 'enter' | 'exit';
     parentChildren: IFileNode[];
     tempChildren?: IFileNode[];
-  };
+  }
 
   const stack: Frame[] = [];
 

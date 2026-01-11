@@ -14,13 +14,13 @@ import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import { useState } from 'react';
 
-type DeleteEmbeddingSetDialogProps = {
+interface DeleteEmbeddingSetDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   db: PGlite | null;
   embeddingSet: (EmbeddingSet & { chunkCount: number }) | null;
   onSetDeleted?: (setId: string) => void;
-};
+}
 
 const logger = createLogger('DeleteEmbeddingSetDialog');
 

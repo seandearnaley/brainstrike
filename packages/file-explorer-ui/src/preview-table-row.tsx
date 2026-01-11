@@ -7,13 +7,13 @@ import type { TableRowData } from './utils/grouping-configs';
 import { formatDirPathForDisplay, splitFilePath } from './utils/path-display';
 import { formatPreviewFileSize } from './utils/preview-formatters';
 
-type PreviewTableRowProps = {
+interface PreviewTableRowProps {
   item: TableRowData;
   isSelected: boolean;
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
   onFileClick?: ((compositeKey: string) => void) | undefined;
   columnVisibility: ColumnVisibility;
-};
+}
 
 export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableRowComponent({
   item,

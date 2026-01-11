@@ -30,41 +30,41 @@ vi.mock('../../src/theme-provider', () => ({
 }));
 
 vi.mock('@assistant-ui/react', () => {
-  type PrimitiveProps = {
+  interface PrimitiveProps {
     children?: React.ReactNode;
     asChild?: boolean;
     [key: string]: unknown;
-  };
+  }
 
   const Primitive = ({ children, asChild, ...props }: PrimitiveProps) => {
     const Component = asChild ? 'span' : 'div';
     return <Component {...props}>{children}</Component>;
   };
 
-  type IfProps = {
+  interface IfProps {
     children?: React.ReactNode | ((props: Record<string, unknown>) => React.ReactNode);
-  };
+  }
 
   const If = ({ children }: IfProps) =>
     typeof children === 'function' ? children({}) : (children ?? null);
 
   const TextStub = () => <div data-testid="assistant-text" />;
 
-  type ProviderProps = {
+  interface ProviderProps {
     children?: React.ReactNode;
-  };
+  }
 
-  type CounterProps = {
+  interface CounterProps {
     children?: React.ReactNode;
-  };
+  }
 
   type InputProps = Record<string, unknown>;
 
-  type PartsProps = {
+  interface PartsProps {
     components?: {
       Text?: React.ComponentType;
     };
-  };
+  }
 
   return {
     ActionBarPrimitive: {

@@ -17,13 +17,13 @@ import { estimateHardwareConcurrency, ProgressEmitter } from '../util';
 
 const logger = createLogger('BrowserWorkerpoolAdapter');
 
-export type WorkerpoolAdapterOptions = {
+export interface WorkerpoolAdapterOptions {
   readonly maxWorkers?: number;
   readonly maxQueueSize?: number;
   readonly name?: string;
   /** Optional worker URL override (use bundler-provided worker URL in apps). */
   readonly workerUrl?: string;
-};
+}
 
 type WorkerEvent = QueueProgressEvent | QueueErrorEvent;
 
@@ -201,7 +201,6 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     });
   };
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Error extraction requires multiple type checks
   const onTaskError = (task: TaskPayload, startedAt: number, error: unknown) => {
     // Extract as much error information as possible
     let errorMessage: string;

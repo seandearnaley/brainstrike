@@ -5,7 +5,7 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
 import { useVirtualList } from './use-virtual-list';
 
-type IOptimizedFileTreeProps = {
+interface IOptimizedFileTreeProps {
   fileTree: IFileNode[];
   loadingFiles: Set<string>;
   onRender?: (() => void) | undefined;
@@ -16,7 +16,7 @@ type IOptimizedFileTreeProps = {
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: ((path: string) => void) | undefined;
-};
+}
 
 /**
  * @file OptimizedFileTree.tsx

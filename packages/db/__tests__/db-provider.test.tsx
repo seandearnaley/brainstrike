@@ -14,7 +14,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 type QueryMock = Mock<[string], Promise<{ rows: unknown[] } | undefined>>;
-type MockDb = {
+interface MockDb {
   query: QueryMock;
   exec: Mock<[string], Promise<unknown>>;
   close: Mock<[], Promise<void>>;
@@ -22,7 +22,7 @@ type MockDb = {
     [callback: (tx: { query: QueryMock }) => Promise<unknown> | unknown],
     Promise<unknown>
   >;
-};
+}
 
 function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
   const baseQuery: QueryMock = vi.fn(async (sql: string) => {

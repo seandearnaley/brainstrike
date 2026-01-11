@@ -12,7 +12,7 @@ export type ProviderDimensionParameter =
   | 'output_dimensionality'
   | 'output_dimension';
 
-export type EmbedTaskPayload = {
+export interface EmbedTaskPayload {
   readonly kind: 'embed';
   readonly id: string;
   readonly model: string;
@@ -24,18 +24,18 @@ export type EmbedTaskPayload = {
   readonly provider?: string;
   readonly targetDimension?: number;
   readonly dimensionParameter?: ProviderDimensionParameter;
-};
+}
 
 export type TaskPayload = EmbedTaskPayload;
 
-export type QueueAddOptions = {
+export interface QueueAddOptions {
   readonly priority?: number;
   readonly signal?: AbortSignal;
-};
+}
 
-export type QueueAddBulkOptions = {
+export interface QueueAddBulkOptions {
   readonly priority?: number;
-};
+}
 
 export type QueueResult = EmbedWorkerSuccess;
 
@@ -64,11 +64,11 @@ export type WorkerClientErrorType =
 /**
  * Structured error for worker client failures.
  */
-export type WorkerClientError = {
+export interface WorkerClientError {
   readonly type: WorkerClientErrorType;
   readonly message: string;
   readonly cause?: Error;
-};
+}
 
 /**
  * Base interface for worker client implementations.
@@ -87,7 +87,7 @@ export type WorkerClientError = {
  *
  * @see docs/adr/0002-queue-boundaries.md
  */
-export type WorkerClient = {
+export interface WorkerClient {
   /**
    * Check if the worker is ready to accept messages.
    * Equivalent to `getState() === 'ready'`.
@@ -102,7 +102,7 @@ export type WorkerClient = {
    * After termination, `getState()` returns 'terminated'.
    */
   terminate(): void;
-};
+}
 
 /**
  * Extended worker client with async ready-waiting capability.
@@ -137,7 +137,7 @@ export type WorkerClientWithTimeout = WorkerClient & {
  *
  * @see docs/adr/0002-queue-boundaries.md
  */
-export type QueueAdapter = {
+export interface QueueAdapter {
   /** Submit a single task for execution */
   add(task: TaskPayload, options?: QueueAddOptions): Promise<QueueResult>;
   /** Submit multiple tasks for execution */
@@ -177,7 +177,7 @@ export type QueueAdapter = {
    * Whether the adapter has active tasks processing.
    */
   readonly isProcessing: boolean;
-};
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Queue Health Diagnostics (BST-166)
@@ -187,7 +187,7 @@ export type QueueAdapter = {
  * Durable queue statistics from database.
  * Represents persistent job state counts (from JobQueue/SQL storage).
  */
-export type DurableQueueStats = {
+export interface DurableQueueStats {
   /** Number of jobs waiting to be processed */
   readonly queued: number;
   /** Number of jobs currently being processed */
@@ -198,13 +198,13 @@ export type DurableQueueStats = {
   readonly succeeded: number;
   /** ISO timestamp of next scheduled job, if any */
   readonly nextRunnableAt: string | null;
-};
+}
 
 /**
  * Ephemeral queue metrics from runtime telemetry.
  * Represents real-time performance data (from workerpool/telemetry).
  */
-export type EphemeralQueueMetrics = {
+export interface EphemeralQueueMetrics {
   /** Currently active tasks in the worker pool */
   readonly active: number;
   /** Total tasks completed in the current session */
@@ -225,19 +225,19 @@ export type EphemeralQueueMetrics = {
   readonly latencyP95Ms: number | null;
   /** Error count in the telemetry window */
   readonly windowErrorCount: number;
-};
+}
 
 /**
  * Worker health status for diagnostics.
  */
-export type WorkerHealthStatus = {
+export interface WorkerHealthStatus {
   /** Current worker lifecycle state */
   readonly state: WorkerClientState;
   /** Whether the worker is ready for work */
   readonly isReady: boolean;
   /** Error details if in error state */
   readonly error: WorkerClientError | null;
-};
+}
 
 /**
  * Consolidated queue health metrics for diagnostics.
@@ -255,7 +255,7 @@ export type WorkerHealthStatus = {
  * };
  * ```
  */
-export type QueueHealthMetrics = {
+export interface QueueHealthMetrics {
   /**
    * Durable queue stats from database.
    * Null if DB is not available or not connected.
@@ -275,7 +275,7 @@ export type QueueHealthMetrics = {
    * Timestamp when metrics were last updated.
    */
   readonly lastUpdated: number;
-};
+}
 
 /**
  * Listener for queue health metric updates.

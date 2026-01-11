@@ -7,13 +7,13 @@ import type {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePGliteDatabase } from './db-provider.js';
 
-type BaseLiveQueryOptions = {
+interface BaseLiveQueryOptions {
   readonly query: string;
   readonly params?: readonly unknown[];
   readonly offset?: number;
   readonly limit?: number;
   readonly enabled?: boolean;
-};
+}
 
 type IncrementalOptions = BaseLiveQueryOptions & {
   readonly mode: 'incremental';
@@ -34,50 +34,50 @@ export type UsePGliteLiveQueryOptions<T> = (IncrementalOptions | StandardOptions
   readonly select?: (rows: T[]) => T[];
 };
 
-export type LiveQueryHookResult<T> = {
+export interface LiveQueryHookResult<T> {
   readonly rows: T[];
   readonly loading: boolean;
   readonly error: Error | null;
   readonly refresh: () => Promise<void>;
-};
+}
 
-type LiveSubscription<T> = {
+interface LiveSubscription<T> {
   initialResults: LiveQueryResults<T>;
   refresh: (options?: { offset?: number; limit?: number }) => Promise<void>;
   unsubscribe: () => Promise<void>;
-};
+}
 
-type ElectronLiveQueryStartOptions = {
+interface ElectronLiveQueryStartOptions {
   mode: 'query' | 'incremental';
   query: string;
   params?: readonly unknown[] | null;
   key?: string;
   offset?: number;
   limit?: number;
-};
+}
 
-type ElectronLiveQueryStartResult<T> = {
+interface ElectronLiveQueryStartResult<T> {
   id: number;
   initialResults: LiveQueryResults<T>;
-};
+}
 
-type ElectronLiveQueryUpdate<T> = {
+interface ElectronLiveQueryUpdate<T> {
   id: number;
   results: LiveQueryResults<T>;
-};
+}
 
-type ElectronLiveQueryRefreshPayload = {
+interface ElectronLiveQueryRefreshPayload {
   id: number;
   offset?: number;
   limit?: number;
-};
+}
 
-type ElectronLiveBridge = {
+interface ElectronLiveBridge {
   start<T>(options: ElectronLiveQueryStartOptions): Promise<ElectronLiveQueryStartResult<T>>;
   stop(id: number): Promise<void>;
   refresh(payload: ElectronLiveQueryRefreshPayload): Promise<void>;
   onUpdate(callback: (payload: ElectronLiveQueryUpdate<unknown>) => void): () => void;
-};
+}
 
 type LiveSource =
   | { kind: 'pglite'; live: LiveNamespace }

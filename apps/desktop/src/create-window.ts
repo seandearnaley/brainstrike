@@ -83,9 +83,9 @@ async function loadRenderer(win: BrowserWindow) {
 /**
  * Create the main application window and load the appropriate renderer.
  */
-type CreateWindowOptions = {
+interface CreateWindowOptions {
   windowState?: DesktopWindowState | null;
-};
+}
 
 export async function createWindow(options: CreateWindowOptions = {}) {
   const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');

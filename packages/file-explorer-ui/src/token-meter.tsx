@@ -2,7 +2,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brain
 import { memo, useMemo } from 'react';
 import { formatTokenCount } from './use-preview-panel-state';
 
-type TokenMeterProps = {
+interface TokenMeterProps {
   usedTokens: number;
   budget: number;
   selectedTokens: number;
@@ -10,7 +10,7 @@ type TokenMeterProps = {
   includeTree: boolean;
   isOverBudget: boolean;
   size?: 'sm' | 'md' | 'lg';
-};
+}
 
 const SIZES = {
   sm: { diameter: 48, stroke: 4, fontSize: 'text-[10px]', labelSize: 'text-[8px]' },

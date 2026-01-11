@@ -35,11 +35,11 @@ vi.mock('react-resizable-panels', () => {
   const React = require('react') as typeof import('react');
   const { forwardRef, useImperativeHandle } = React;
 
-  type PanelGroupProps = {
+  interface PanelGroupProps {
     direction?: string;
     onLayout?: (sizes: number[]) => void;
     children?: React.ReactNode;
-  };
+  }
 
   const PanelGroup = ({ direction, onLayout, children }: PanelGroupProps) => {
     if (typeof onLayout === 'function') {
@@ -52,12 +52,12 @@ vi.mock('react-resizable-panels', () => {
     return <div data-testid={`panel-group-${direction}`}>{children}</div>;
   };
 
-  type MockImperativeHandle = {
+  interface MockImperativeHandle {
     isCollapsed: () => boolean;
     isExpanded: () => boolean;
     expand: () => void;
     collapse: () => void;
-  };
+  }
 
   interface PanelProps extends React.HTMLAttributes<HTMLDivElement> {
     children?: React.ReactNode;

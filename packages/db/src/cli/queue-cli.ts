@@ -13,14 +13,14 @@ import { wasmLoader } from '../wasm-loader.js';
 
 const logger = createLogger('QueueCli');
 
-type Args = {
+interface Args {
   cmd: 'stats' | 'requeue' | 'clear' | 'prune' | 'help';
   queue?: string;
   limit?: number;
   db?: string;
   states?: string[];
   olderThan?: string;
-};
+}
 
 function parseStates(tokens: string[], start: number): { values: string[]; next: number } {
   const values: string[] = [];

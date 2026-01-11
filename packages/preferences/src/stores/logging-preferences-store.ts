@@ -17,14 +17,14 @@ type DeepPartial<T> = {
         : T[K];
 };
 
-type LoggingPreferencesState = {
+interface LoggingPreferencesState {
   preferences: LoggingPreferences;
   hasHydrated: boolean;
   setPreferences: (preferences: LoggingPreferences) => void;
   updatePreferences: (updates: DeepPartial<LoggingPreferences>) => void;
   resetPreferences: () => void;
   markHydrated: () => void;
-};
+}
 
 const STORE_NAME = 'logging-preferences.v1' as const;
 

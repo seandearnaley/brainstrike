@@ -188,7 +188,7 @@ export const FilterBar = React.memo(function FilterBar({
           <div className="flex items-center gap-2">
             {/* Search Input */}
             <div className="relative flex-1">
-              <Search className="-translate-y-1/2 absolute top-1/2 left-2.5 h-4 w-4 text-muted-foreground" />
+              <Search className="absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="h-8 bg-background pr-8 pl-9 text-sm"
                 data-testid="filter-search-input"
@@ -200,7 +200,7 @@ export const FilterBar = React.memo(function FilterBar({
               {filters.searchQuery && (
                 <Button
                   aria-label="Clear search"
-                  className="-translate-y-1/2 absolute top-1/2 right-1 h-6 w-6 hover:bg-transparent"
+                  className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 hover:bg-transparent"
                   onClick={handleClearSearch}
                   size="icon"
                   variant="ghost"

@@ -26,7 +26,7 @@ export type PackedSearchResult = ContextPackerResult & {
   formattedContext: string;
 };
 
-export type UseContextPackerOptions = {
+export interface UseContextPackerOptions {
   /**
    * Token budget for packing (default: 4000)
    */
@@ -44,7 +44,7 @@ export type UseContextPackerOptions = {
    * Custom token estimation function (default: countTokensHeuristic)
    */
   estimateTokens?: (content: string) => number;
-};
+}
 
 export type ContextPackerFunction = (
   results: readonly SemanticSearchResult[]

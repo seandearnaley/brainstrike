@@ -1,6 +1,6 @@
 import { createLogger } from '../logger';
 
-export type RendererErrorEventPayload = {
+export interface RendererErrorEventPayload {
   type: 'error' | 'unhandledrejection';
   message: string;
   stack?: string;
@@ -8,12 +8,12 @@ export type RendererErrorEventPayload = {
   line?: number;
   column?: number;
   reason?: unknown;
-};
+}
 
-export type RendererErrorHooksOptions = {
+export interface RendererErrorHooksOptions {
   scope?: string;
   onError?: (payload: RendererErrorEventPayload) => void;
-};
+}
 
 /**
  * Installs global window error hooks that forward unhandled errors/rejections to the logger.

@@ -2,21 +2,21 @@ import type { IFileNode } from '@brainstrike/types';
 import { fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
 import { useCallback, useMemo, useState } from 'react';
 
-export type UseFileTreeNodeSelectionProps = {
+export interface UseFileTreeNodeSelectionProps {
   node: IFileNode;
   folderId: string;
   selectedFilePaths: Set<string>;
   maxSelectionCount: number;
   onToggleFileSelection: (path: string) => void;
-};
+}
 
-export type FolderInfo = {
+export interface FolderInfo {
   count: number;
   isComplete: boolean;
   selectedCount: number;
-};
+}
 
-export type UseFileTreeNodeSelectionReturn = {
+export interface UseFileTreeNodeSelectionReturn {
   checkboxState: boolean | 'indeterminate';
   folderInfo: FolderInfo | null;
   showSelectionDialog: boolean;
@@ -24,7 +24,7 @@ export type UseFileTreeNodeSelectionReturn = {
   handleNodeSelection: () => void;
   wouldExceedLimit: boolean;
   getAllFilePaths: (dirNode: IFileNode) => string[];
-};
+}
 
 export function useFileTreeNodeSelection({
   node,

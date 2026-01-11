@@ -33,13 +33,13 @@ import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useState } from 'react';
 import { useQueueHealthMetrics } from './use-queue-health-metrics';
 
-type MetricCardProps = {
+interface MetricCardProps {
   readonly label: string;
   readonly value: string | number;
   readonly icon?: ReactNode;
   readonly variant?: 'default' | 'success' | 'warning' | 'error';
   readonly tooltip?: string;
-};
+}
 
 function MetricCard({
   label,
@@ -81,11 +81,11 @@ function MetricCard({
   return content;
 }
 
-type SectionHeaderProps = {
+interface SectionHeaderProps {
   readonly title: string;
   readonly icon: ReactNode;
   readonly status: 'available' | 'unavailable';
-};
+}
 
 function SectionHeader({ title, icon, status }: SectionHeaderProps): ReactElement {
   return (
@@ -124,11 +124,11 @@ function formatThroughput(tpm: number): string {
   return Math.round(tpm).toString();
 }
 
-type StatusIndicatorProps = {
+interface StatusIndicatorProps {
   readonly hasErrors: boolean;
   readonly totalActive: number;
   readonly totalFailed: number;
-};
+}
 
 function StatusIndicator({
   hasErrors,
@@ -165,9 +165,9 @@ function StatusIndicator({
   );
 }
 
-type DurableQueueSectionProps = {
+interface DurableQueueSectionProps {
   readonly durableQueue: QueueHealthMetrics['durableQueue'];
-};
+}
 
 function DurableQueueSection({ durableQueue }: DurableQueueSectionProps): ReactElement {
   return (
@@ -214,10 +214,10 @@ function DurableQueueSection({ durableQueue }: DurableQueueSectionProps): ReactE
   );
 }
 
-type EphemeralQueueSectionProps = {
+interface EphemeralQueueSectionProps {
   readonly ephemeralQueue: QueueHealthMetrics['ephemeralQueue'];
   readonly compact: boolean;
-};
+}
 
 function EphemeralQueueSection({
   ephemeralQueue,
@@ -239,10 +239,10 @@ function EphemeralQueueSection({
   );
 }
 
-type EphemeralQueueMetricsDisplayProps = {
+interface EphemeralQueueMetricsDisplayProps {
   readonly ephemeralQueue: NonNullable<QueueHealthMetrics['ephemeralQueue']>;
   readonly compact: boolean;
-};
+}
 
 function EphemeralQueueMetricsDisplay({
   ephemeralQueue,
@@ -294,9 +294,9 @@ function EphemeralQueueMetricsDisplay({
   );
 }
 
-type PerformanceMetricsDisplayProps = {
+interface PerformanceMetricsDisplayProps {
   readonly ephemeralQueue: NonNullable<QueueHealthMetrics['ephemeralQueue']>;
-};
+}
 
 function PerformanceMetricsDisplay({
   ephemeralQueue,
@@ -332,9 +332,9 @@ function PerformanceMetricsDisplay({
   );
 }
 
-type WorkerHealthSectionProps = {
+interface WorkerHealthSectionProps {
   readonly workerHealth: QueueHealthMetrics['workerHealth'];
-};
+}
 
 function WorkerHealthSection({ workerHealth }: WorkerHealthSectionProps): ReactElement | null {
   if (!workerHealth) {
@@ -357,14 +357,14 @@ function WorkerHealthSection({ workerHealth }: WorkerHealthSectionProps): ReactE
   );
 }
 
-type QueueDiagnosticsPanelProps = {
+interface QueueDiagnosticsPanelProps {
   /** Custom metrics (for testing) - if not provided, uses useQueueHealthMetrics hook */
   readonly metrics?: QueueHealthMetrics;
   /** Show refresh button */
   readonly showRefresh?: boolean;
   /** Compact mode for smaller displays */
   readonly compact?: boolean;
-};
+}
 
 /**
  * Consolidated queue diagnostics panel.

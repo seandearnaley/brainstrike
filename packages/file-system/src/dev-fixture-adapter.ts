@@ -13,23 +13,23 @@ import type {
 
 const logger = createLogger('FixtureAdapter');
 
-type FixtureState = {
+interface FixtureState {
   rootHandle: DirectoryHandle;
   directories: Map<string, IFileNode[]>;
   fileContents: Map<string, { content: string; size: number; lastModified: number }>;
-};
+}
 
-export type FixtureAdapterOptions = {
+export interface FixtureAdapterOptions {
   platform: DirectoryHandle['platform'];
   defaultFixture?: FixtureDefinition;
-};
+}
 
-export type FixtureControls = {
+export interface FixtureControls {
   loadInlineFixture: (fixture?: FixtureDefinition) => Promise<DirectoryHandle>;
   clearInlineFixture: () => Promise<void>;
   isInlineFixtureActive: () => boolean;
   canLoadInlineFixture: boolean;
-};
+}
 
 export type FixtureCapableFileSystemAdapter = FileSystemAdapter & FixtureControls;
 

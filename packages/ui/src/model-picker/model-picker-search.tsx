@@ -2,12 +2,12 @@ import { Command } from 'cmdk';
 import { Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-type ModelPickerSearchProps = {
+interface ModelPickerSearchProps {
   value?: string;
   onValueChange?: (value: string) => void;
   placeholder?: string;
   className?: string;
-};
+}
 
 export function ModelPickerSearch({
   value,

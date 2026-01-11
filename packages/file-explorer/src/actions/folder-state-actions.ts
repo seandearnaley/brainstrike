@@ -10,10 +10,10 @@ import {
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
 
-export type FolderStateActions = {
+export interface FolderStateActions {
   setCurrentFolderId: (folderId: string | null) => void;
   hydrateFolderState: (folderId: string) => void;
-};
+}
 
 export const createFolderStateActions = (
   set: SetState<FileExplorerState>,

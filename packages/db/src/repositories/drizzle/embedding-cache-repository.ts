@@ -62,7 +62,7 @@ export type EmbeddingCacheLookupResult =
 /**
  * Cache statistics for monitoring and eviction decisions
  */
-export type EmbeddingCacheStats = {
+export interface EmbeddingCacheStats {
   /** Total entries in cache */
   totalEntries: number;
   /** Total cache hits (sum of accessCount) */
@@ -71,15 +71,15 @@ export type EmbeddingCacheStats = {
   oldestAccessedAt: Date | null;
   /** Newest entry timestamp */
   newestAccessedAt: Date | null;
-};
+}
 
 /**
  * Batch lookup request
  */
-export type BatchLookupRequest = {
+export interface BatchLookupRequest {
   contentHash: string;
   modelKey: string;
-};
+}
 
 /**
  * Batch lookup result
@@ -89,12 +89,12 @@ export type BatchLookupResult = Map<string, EmbeddingCacheEntry>;
 /**
  * Metrics for monitoring fire-and-forget operations
  */
-export type EmbeddingCacheMetrics = {
+export interface EmbeddingCacheMetrics {
   /** Count of failed access time updates */
   failedAccessTimeUpdates: number;
   /** Count of failed batch access time updates */
   failedBatchAccessTimeUpdates: number;
-};
+}
 
 export class DrizzleEmbeddingCacheRepository {
   private readonly logger = createLogger('DrizzleEmbeddingCacheRepository');

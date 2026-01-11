@@ -38,17 +38,17 @@ const logger = createLogger('TokenCacheContext');
 /**
  * PGlite database type (subset of @electric-sql/pglite)
  */
-type PGliteDB = {
+interface PGliteDB {
   query: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[]; affectedRows?: number }>;
-};
+}
 
 /**
  * Worker pool type
  */
-type WorkerPool = {
+interface WorkerPool {
   exec: (method: string, params: unknown[]) => Promise<unknown>;
   terminate: () => Promise<void>;
-};
+}
 
 class InMemoryTokenCacheStore {
   private readonly entries = new Map<string, TokenCacheEntry>();
@@ -224,7 +224,7 @@ const TokenCacheContext = createContext<TokenCacheContextValue | null>(null);
 /**
  * Props for TokenCacheProvider
  */
-type TokenCacheProviderProps = {
+interface TokenCacheProviderProps {
   /** PGlite database instance (or compatible interface) */
   db: PGliteDB | null;
   /** Worker URL for the token cache worker */
@@ -233,7 +233,7 @@ type TokenCacheProviderProps = {
   onTokenResolved?: (folderId: string, filePath: string, tokenCount: number) => void;
   /** Children to render */
   children: ReactNode;
-};
+}
 
 function createNoopWorkerPool(): WorkerPool {
   return {

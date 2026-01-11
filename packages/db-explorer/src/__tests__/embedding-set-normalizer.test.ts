@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeEmbeddingSets } from '../utils/embedding-set-normalizer';
 
-type EmbeddingSetRow = {
+interface EmbeddingSetRow {
   id: string;
   model_key: string;
   model_id: string;
   dimensions: number;
   distance: string;
   created_at: string;
-};
+}
 
-type FileChunkRow = {
+interface FileChunkRow {
   id: string;
   embedding_set_id: string | null;
-};
+}
 
 function createMockDb({ sets, chunks }: { sets: EmbeddingSetRow[]; chunks: FileChunkRow[] }) {
   const state = {

@@ -32,15 +32,15 @@ import {
   sortLogRecords,
 } from './log-utils';
 
-export type LogSourceAdapter = {
+export interface LogSourceAdapter {
   getInitialRecords?: () => Promise<readonly LogRecord[]>;
   subscribe?: (handler: (records: readonly LogRecord[]) => void) => () => void;
-};
+}
 
-type LogViewerProps = {
+interface LogViewerProps {
   logSource: LogSourceAdapter | undefined;
   toast: ReturnType<typeof useToast>['toast'];
-};
+}
 
 const LOG_LEVEL_OPTIONS: LogLevel[] = [
   LogLevel.TRACE,

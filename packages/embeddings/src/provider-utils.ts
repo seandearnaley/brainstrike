@@ -4,10 +4,10 @@ import { isLocalProviderType } from './provider-types';
 const PROVIDER_SEPARATOR = '::';
 const LEGACY_SEPARATOR = ':';
 
-export type ParsedProviderModel = {
+export interface ParsedProviderModel {
   provider: EmbeddingProviderType;
   modelId: string;
-};
+}
 
 export function formatProviderModelKey(provider: EmbeddingProviderType, modelId: string): string {
   return `${provider}${PROVIDER_SEPARATOR}${modelId}`;

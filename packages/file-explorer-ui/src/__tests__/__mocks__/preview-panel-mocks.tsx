@@ -36,10 +36,10 @@ interface MockTableGroupHeaderProps extends MockComponentProps {
   isPartiallySelected?: boolean;
 }
 
-type TabsContextValue = {
+interface TabsContextValue {
   value?: string;
   onValueChange?: (value: string) => void;
-};
+}
 
 type TabsProps = MockComponentProps & {
   value?: string;
@@ -60,15 +60,15 @@ type TabsContentProps = MockComponentProps & {
 
 const TabsContext = React.createContext<TabsContextValue | null>(null);
 
-type UsePaginationOptions = {
+interface UsePaginationOptions {
   totalItems: number;
   pageSize?: number;
-};
+}
 
-type PaginationState = {
+interface PaginationState {
   currentPage: number;
   prevTotalPages: number;
-};
+}
 
 const INITIAL_PAGINATION_STATE: PaginationState = {
   currentPage: 0,
@@ -102,10 +102,10 @@ export const resetPreviewPanelPaginationMockState = () => {
   sharedPaginationState = { ...INITIAL_PAGINATION_STATE };
 };
 
-type UsePreviewPanelStateMockReturn = {
+interface UsePreviewPanelStateMockReturn {
   usePreviewPanelState: Mock;
   formatTokenCount: (tokens: number) => string;
-};
+}
 
 export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn => ({
   usePreviewPanelState: vi.fn(),

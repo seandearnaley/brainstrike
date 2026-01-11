@@ -39,19 +39,19 @@ import {
 /**
  * Minimal file node representation for the engine.
  */
-export type FileNode = {
+export interface FileNode {
   /** Relative path from folder root */
   path: string;
   /** Whether this is a directory */
   isDirectory: boolean;
-};
+}
 
 /**
  * Tree adapter interface for accessing file tree data.
  *
  * Implementations can lazily load data as needed.
  */
-export type TreeAdapter = {
+export interface TreeAdapter {
   /**
    * Get all file paths (non-directories) in the tree.
    *
@@ -82,7 +82,7 @@ export type TreeAdapter = {
    * @returns Total number of files (non-directories)
    */
   getTotalFileCount(): number;
-};
+}
 
 // ============================================================================
 // Rule Precedence
@@ -132,7 +132,7 @@ function sortRulesByPrecedence(rules: SelectionRule[]): SelectionRule[] {
 /**
  * Options for materialization.
  */
-export type MaterializeOptions = {
+export interface MaterializeOptions {
   /**
    * Maximum number of files to return (for lazy evaluation).
    * If not specified, returns all matching files.
@@ -144,7 +144,7 @@ export type MaterializeOptions = {
    * Used when cap strategy is 'random'.
    */
   seed?: number;
-};
+}
 
 // ============================================================================
 // Selection Diff
@@ -153,7 +153,7 @@ export type MaterializeOptions = {
 /**
  * Represents changes between two materialized selections.
  */
-export type SelectionDiff = {
+export interface SelectionDiff {
   /** Paths added in the new selection */
   added: Set<string>;
 
@@ -162,7 +162,7 @@ export type SelectionDiff = {
 
   /** Whether the selections are identical */
   unchanged: boolean;
-};
+}
 
 // ============================================================================
 // Selection Rule Engine

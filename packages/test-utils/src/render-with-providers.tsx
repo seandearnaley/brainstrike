@@ -4,7 +4,9 @@
 import { createRequire } from 'node:module';
 import type { ComponentType, ReactElement, ReactNode } from 'react';
 
-type AnyProps = { children?: ReactNode };
+interface AnyProps {
+  children?: ReactNode;
+}
 type AnyWrapper = (props: AnyProps) => ReactElement | null;
 
 type RenderFunction = (ui: ReactElement, options?: Record<string, unknown>) => unknown;

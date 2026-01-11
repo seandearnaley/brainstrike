@@ -13,7 +13,7 @@ const NoFilesSelected = () => (
   />
 );
 
-type FileExplorerSidebarProps = {
+interface FileExplorerSidebarProps {
   rootDirectoryHandle: DirectoryHandle | null;
   treeError: Error | null;
   filterError: Error | null;
@@ -29,7 +29,7 @@ type FileExplorerSidebarProps = {
   onLoadChildren?: (path: string) => Promise<void>;
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: (path: string) => void;
-};
+}
 
 const ErrorDisplay = ({
   treeError,

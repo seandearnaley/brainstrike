@@ -46,14 +46,14 @@ export type PerfBudgetKey = keyof typeof PERF_BUDGETS;
 /**
  * Result of a timed operation.
  */
-export type TimingResult<T> = {
+export interface TimingResult<T> {
   /** The result of the operation */
   result: T;
   /** Duration in milliseconds */
   durationMs: number;
   /** Whether the operation exceeded its budget */
   exceededBudget: boolean;
-};
+}
 
 /**
  * Time an operation and check against budget.
@@ -251,14 +251,14 @@ export function checkBudget(name: string, durationMs: number, budgetKey: PerfBud
 /**
  * Statistics for a series of timed operations.
  */
-export type TimingStats = {
+export interface TimingStats {
   count: number;
   totalMs: number;
   minMs: number;
   maxMs: number;
   avgMs: number;
   exceededCount: number;
-};
+}
 
 /**
  * Collector for timing statistics.

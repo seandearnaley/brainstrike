@@ -21,7 +21,7 @@ export function useEmbeddingSetSelection() {
   return { selectedId, setSelectedId };
 }
 
-export type EmbeddingSetSelectorProps = {
+export interface EmbeddingSetSelectorProps {
   /**
    * Database instance for querying embedding sets
    */
@@ -36,7 +36,7 @@ export type EmbeddingSetSelectorProps = {
    * Callback when selection changes
    */
   onSelectionChange: (id: string | null) => void;
-};
+}
 
 /**
  * EmbeddingSetSelector - Compact dropdown for selecting embedding sets in Vector Status

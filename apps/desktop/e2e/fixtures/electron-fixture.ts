@@ -16,9 +16,9 @@ import {
 } from '../utils/electron-helpers';
 import { resetToAppHome } from '../utils/test-reset';
 
-type ElectronHarnessOptions = {
+interface ElectronHarnessOptions {
   readonly preserveState?: boolean;
-};
+}
 
 class ElectronHarness {
   private context: ElectronAppContext | null = null;
@@ -103,17 +103,17 @@ class ElectronHarness {
   }
 }
 
-type ElectronTestFixtures = {
+interface ElectronTestFixtures {
   electronApp: ElectronAppContext;
   window: Page;
   homePage: HomePage;
   /** Failure artifact collector - automatically captures diagnostics on test failure */
   failureCollector: FailureArtifactCollector;
-};
+}
 
-type ElectronWorkerFixtures = {
+interface ElectronWorkerFixtures {
   electron: ElectronHarness;
-};
+}
 
 export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
   electron: [

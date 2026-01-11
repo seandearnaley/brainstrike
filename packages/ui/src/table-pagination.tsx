@@ -1,14 +1,14 @@
 import { memo } from 'react';
 import { Button } from './button';
 
-type TablePaginationProps = {
+interface TablePaginationProps {
   currentPage: number;
   totalPages: number;
   totalItems: number;
   onPageChange: (page: number) => void;
   pageInfo?: string;
   maxPageButtons?: number;
-};
+}
 
 export const TablePagination = memo<TablePaginationProps>(function TablePaginationComponent({
   currentPage,

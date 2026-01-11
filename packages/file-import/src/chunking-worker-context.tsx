@@ -31,7 +31,7 @@ const logger = createLogger('ChunkingWorkerContext');
 // Context Types
 // ============================================================================
 
-export type ChunkingWorkerContextValue = {
+export interface ChunkingWorkerContextValue {
   /** The worker port for sending chunking requests (null if not ready) */
   port: ChunkingWorkerPort | null;
   /** Whether the worker is ready to receive requests */
@@ -42,7 +42,7 @@ export type ChunkingWorkerContextValue = {
   error: Error | null;
   /** Reinitialize the worker (e.g., after an error) */
   reinitialize: () => void;
-};
+}
 
 const ChunkingWorkerContext = createContext<ChunkingWorkerContextValue | null>(null);
 
@@ -50,9 +50,9 @@ const ChunkingWorkerContext = createContext<ChunkingWorkerContextValue | null>(n
 // Provider Component
 // ============================================================================
 
-export type ChunkingWorkerProviderProps = {
+export interface ChunkingWorkerProviderProps {
   children: ReactNode;
-};
+}
 
 /**
  * Provider component that initializes and manages the chunking worker.

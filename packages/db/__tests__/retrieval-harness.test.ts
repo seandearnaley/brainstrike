@@ -9,10 +9,10 @@ import { FileRecordRepository } from '../src/repositories/file-record-repository
 import { wasmLoader } from '../src/wasm-loader.js';
 import { retrievalGoldenDataset } from './fixtures/retrieval-golden';
 
-type RankedResult = {
+interface RankedResult {
   filePath: string;
   similarity: number;
-};
+}
 
 const NOW = new Date(0).toISOString();
 

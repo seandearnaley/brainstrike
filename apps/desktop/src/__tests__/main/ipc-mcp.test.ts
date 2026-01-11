@@ -7,7 +7,9 @@ import { readOpenAIApiKey } from '../../openai-api-key';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
 type WatchCallback = (config: unknown) => void;
-type LoadResult = { config?: { servers?: Array<{ name?: string }> } };
+interface LoadResult {
+  config?: { servers?: Array<{ name?: string }> };
+}
 
 function mockWatchImpl(setter: (cb: WatchCallback) => void, ret: { close: () => void }) {
   const mock = watchMcpConfig as unknown as import('vitest').Mock<

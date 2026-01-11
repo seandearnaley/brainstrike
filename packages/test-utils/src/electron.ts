@@ -3,11 +3,11 @@ import { vi } from 'vitest';
 
 type IpcHandler = (event: unknown, ...args: unknown[]) => unknown | Promise<unknown>;
 
-type IpcMainMock = {
+interface IpcMainMock {
   handle: Mock<(channel: string, handler: IpcHandler) => void>;
   removeHandler: Mock<(channel: string) => void>;
   __invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
-};
+}
 
 export function createIpcMainMock(): IpcMainMock {
   const handlers = new Map<string, IpcHandler>();
@@ -30,14 +30,14 @@ export function createIpcMainMock(): IpcMainMock {
   };
 }
 
-type IpcRendererMock = {
+interface IpcRendererMock {
   invoke: Mock<(_channel: string, ..._args: unknown[]) => Promise<unknown>>;
   on: Mock;
   once: Mock;
   removeListener: Mock;
   removeAllListeners: Mock;
   send: Mock;
-};
+}
 
 export function createIpcRendererMock(): IpcRendererMock {
   return {
@@ -52,9 +52,9 @@ export function createIpcRendererMock(): IpcRendererMock {
   };
 }
 
-type ContextBridgeMock = {
+interface ContextBridgeMock {
   exposeInMainWorld: Mock;
-};
+}
 
 export function createContextBridgeMock(): ContextBridgeMock {
   return {
@@ -62,7 +62,7 @@ export function createContextBridgeMock(): ContextBridgeMock {
   };
 }
 
-type AppMock = {
+interface AppMock {
   whenReady: Mock<() => Promise<void>>;
   getAppPath: Mock<() => string>;
   getPath: Mock<(key: string) => string>;
@@ -71,7 +71,7 @@ type AppMock = {
   quit: Mock;
   on: Mock;
   once: Mock;
-};
+}
 
 export function createAppMock(opts?: {
   whenReadyResolved?: boolean;
@@ -93,12 +93,12 @@ export function createAppMock(opts?: {
   };
 }
 
-type ElectronMocks = {
+interface ElectronMocks {
   app: AppMock;
   ipcMain: IpcMainMock;
   ipcRenderer: IpcRendererMock;
   contextBridge: ContextBridgeMock;
-};
+}
 
 export function installElectronModuleMocks(parts?: {
   app?: AppMock;

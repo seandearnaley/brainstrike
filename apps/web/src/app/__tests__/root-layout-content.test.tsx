@@ -110,7 +110,7 @@ vi.mock('@brainstrike/db', () => ({
 
 let capturedOnNavigationClick: ((path: string) => void) | undefined;
 
-type MockAppLayoutProps = {
+interface MockAppLayoutProps {
   children: React.ReactNode;
   config: {
     title: string;
@@ -118,14 +118,14 @@ type MockAppLayoutProps = {
   };
   currentPath: string;
   onNavigationClick?: (path: string) => void;
-};
+}
 
-type MockAppConfig = {
+interface MockAppConfig {
   title: string;
   description: string;
   themeStorageKey: string;
   navigationItems: unknown[];
-};
+}
 
 // Mock the app-shell package completely (no importOriginal to avoid loading real modules)
 // This prevents the entire import chain from being evaluated

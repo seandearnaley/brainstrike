@@ -2,27 +2,27 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 
-export type PerformanceMetric = {
+export interface PerformanceMetric {
   name: string;
   value: number;
   threshold: number;
   unit: string;
   timestamp: number;
   passed: boolean;
-};
+}
 
-export type MemoryInfo = {
+export interface MemoryInfo {
   used: number;
   total: number;
   limit: number;
-};
+}
 
-export type RenderMetrics = {
+export interface RenderMetrics {
   totalRenders: number;
   averageRenderTime: number;
   maxRenderTime: number;
   renderTimes: number[];
-};
+}
 
 /**
  * Get current memory usage from the browser

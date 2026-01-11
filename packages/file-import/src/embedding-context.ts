@@ -4,14 +4,14 @@
  * improving retrieval accuracy for queries like "code in utils.ts" or
  * "installation section".
  */
-export type ChunkContext = {
+export interface ChunkContext {
   /** File path relative to project root (e.g., "src/utils/helpers.ts") */
   filePath?: string;
   /** Heading path for markdown files (e.g., "Getting Started > Installation") */
   headingPath?: string;
   /** Programming language detected from file extension */
   language?: string;
-};
+}
 
 /**
  * Build embedding text with contextual metadata prepended.

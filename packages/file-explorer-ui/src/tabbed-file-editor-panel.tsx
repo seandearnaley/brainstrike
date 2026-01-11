@@ -5,9 +5,9 @@ import { useTabManager } from './hooks/use-tab-manager';
 import { TabbedFileEditor, type TabStripAction } from './tabbed-file-editor';
 import { useFileExplorer } from './use-file-explorer-context';
 
-export type TabbedFileEditorPanelProps = {
+export interface TabbedFileEditorPanelProps {
   className?: string;
-};
+}
 
 export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
   function TabbedFileEditorPanel({ className }) {

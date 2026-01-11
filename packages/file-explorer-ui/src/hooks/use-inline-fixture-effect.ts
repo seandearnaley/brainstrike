@@ -18,13 +18,13 @@ type FixtureCapableAdapter = FileSystemAdapter & {
   canLoadInlineFixture?: boolean;
 };
 
-type InlineFixtureToast = {
+interface InlineFixtureToast {
   title: string;
   description: string;
   variant?: 'default' | 'destructive';
-};
+}
 
-type UseInlineFixtureEffectOptions = {
+interface UseInlineFixtureEffectOptions {
   fileSystemAdapter: FileSystemAdapter;
   devInlineFixtureEnabled: boolean;
   setDevInlineFixtureEnabled: (enabled: boolean) => void;
@@ -39,12 +39,12 @@ type UseInlineFixtureEffectOptions = {
     enableError: string;
     disableError: string;
   };
-};
+}
 
-type InlineFixtureState = {
+interface InlineFixtureState {
   isLoading: boolean;
   isAvailable: boolean;
-};
+}
 
 /**
  * Checks if the current state requires no action.

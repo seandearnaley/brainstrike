@@ -142,7 +142,7 @@ async function initializeSingleton(): Promise<void> {
 // React Hook - Just returns singleton state
 // ============================================================================
 
-export type UseChunkingWorkerResult = {
+export interface UseChunkingWorkerResult {
   /** The worker port for sending chunking requests */
   port: ChunkingWorkerPort | null;
   /** Whether the worker is ready to receive requests */
@@ -153,7 +153,7 @@ export type UseChunkingWorkerResult = {
   error: Error | null;
   /** Reinitialize the worker (e.g., after an error) */
   reinitialize: () => void;
-};
+}
 
 /**
  * React hook for managing the chunking worker lifecycle.

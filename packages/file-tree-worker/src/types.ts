@@ -16,7 +16,7 @@ export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
  * Node type without FileSystemHandle - safe for worker transfer.
  * Uses handleKey (the path) for main thread handle lookup.
  */
-export type WorkerFileNode = {
+export interface WorkerFileNode {
   /** File or directory name */
   name: string;
   /** Full path (also used as handleKey for handle lookup) */
@@ -37,7 +37,7 @@ export type WorkerFileNode = {
   size?: number;
   /** Last modification time (for files) */
   lastModified?: number;
-};
+}
 
 // ============================================================================
 // Messages: Main Thread -> Worker
@@ -46,106 +46,106 @@ export type WorkerFileNode = {
 /**
  * Initialize the worker with root-level nodes.
  */
-export type InitMessage = {
+export interface InitMessage {
   type: 'init';
   payload: {
     rootNodes: WorkerFileNode[];
     folderId: string;
   };
-};
+}
 
 /**
  * Result of loading a directory from the main thread.
  */
-export type LoadResultMessage = {
+export interface LoadResultMessage {
   type: 'loadResult';
   payload: {
     path: string;
     children: WorkerFileNode[];
   };
-};
+}
 
 /**
  * Result of a failed directory load.
  */
-export type LoadErrorMessage = {
+export interface LoadErrorMessage {
   type: 'loadError';
   payload: {
     path: string;
     error: string;
   };
-};
+}
 
 /**
  * Start expand-all operation.
  */
-export type ExpandAllMessage = {
+export interface ExpandAllMessage {
   type: 'expandAll';
   payload: {
     folderId: string;
   };
-};
+}
 
 /**
  * Collapse all directories.
  */
-export type CollapseAllMessage = {
+export interface CollapseAllMessage {
   type: 'collapseAll';
-};
+}
 
 /**
  * Toggle expansion of a single directory.
  */
-export type ToggleExpandMessage = {
+export interface ToggleExpandMessage {
   type: 'toggleExpand';
   payload: {
     path: string;
   };
-};
+}
 
 /**
  * Abort current operation.
  */
-export type AbortMessage = {
+export interface AbortMessage {
   type: 'abort';
-};
+}
 
 /**
  * Load specific paths (for restoring expanded directories).
  * Unlike expandAll which does BFS discovery, this loads only the requested paths.
  */
-export type LoadPathsMessage = {
+export interface LoadPathsMessage {
   type: 'loadPaths';
   payload: {
     /** Directory paths to load (should be sorted by depth, shallowest first) */
     paths: string[];
   };
-};
+}
 
 /**
  * Update the tree with new nodes (e.g., after single directory load).
  */
-export type UpdateTreeMessage = {
+export interface UpdateTreeMessage {
   type: 'updateTree';
   payload: {
     path: string;
     children: WorkerFileNode[];
     loadState: DirectoryLoadState;
   };
-};
+}
 
 /**
  * Request worker to flatten the tree for virtualized rendering.
  * The worker computes the flattened list based on its current tree state
  * and the set of expanded paths.
  */
-export type FlattenTreeMessage = {
+export interface FlattenTreeMessage {
   type: 'flattenTree';
   payload: {
     /** Paths that should be considered expanded (from UI state) */
     expandedPaths: string[];
   };
-};
+}
 
 /**
  * All possible messages from main thread to worker.
@@ -169,14 +169,14 @@ export type MainToWorkerMessage =
 /**
  * Worker is ready to receive messages.
  */
-export type WorkerReadyMessage = {
+export interface WorkerReadyMessage {
   type: 'ready';
-};
+}
 
 /**
  * Request main thread to load directories (I/O needs FileSystemHandle).
  */
-export type RequestLoadMessage = {
+export interface RequestLoadMessage {
   type: 'requestLoad';
   payload: {
     /** Request ID for correlation */
@@ -184,35 +184,35 @@ export type RequestLoadMessage = {
     /** Directory paths to load */
     paths: string[];
   };
-};
+}
 
 /**
  * Updated tree snapshot for React state sync.
  */
-export type TreeSnapshotMessage = {
+export interface TreeSnapshotMessage {
   type: 'treeSnapshot';
   payload: {
     tree: WorkerFileNode[];
     expandedPaths: string[];
   };
-};
+}
 
 /**
  * Progress update during expand-all.
  */
-export type ProgressMessage = {
+export interface ProgressMessage {
   type: 'progress';
   payload: {
     loaded: number;
     total: number;
     currentPath: string;
   };
-};
+}
 
 /**
  * Expand-all operation completed.
  */
-export type CompleteMessage = {
+export interface CompleteMessage {
   type: 'complete';
   payload: {
     tree: WorkerFileNode[];
@@ -220,45 +220,45 @@ export type CompleteMessage = {
     /** Number of directories actually loaded (0 means all were cached) */
     loadedCount: number;
   };
-};
+}
 
 /**
  * Error occurred in worker.
  */
-export type ErrorMessage = {
+export interface ErrorMessage {
   type: 'error';
   payload: {
     message: string;
     path?: string;
   };
-};
+}
 
 /**
  * Log message from worker for debugging.
  */
-export type WorkerLogMessage = {
+export interface WorkerLogMessage {
   type: 'log';
   level: 'debug' | 'info' | 'warn' | 'error';
   message: string;
   data?: Record<string, unknown>;
-};
+}
 
 /**
  * A node in the flattened list for virtualized rendering.
  * Contains the node data plus computed depth for indentation.
  */
-export type FlattenedNode = {
+export interface FlattenedNode {
   /** The node data */
   node: WorkerFileNode;
   /** Nesting depth (0 = root level) */
   depth: number;
-};
+}
 
 /**
  * Result of flattening the tree.
  * Sent in response to FlattenTreeMessage.
  */
-export type FlattenedResultMessage = {
+export interface FlattenedResultMessage {
   type: 'flattenedResult';
   payload: {
     /** Flattened list of visible nodes for virtualized rendering */
@@ -268,7 +268,7 @@ export type FlattenedResultMessage = {
     /** Duration of the flatten operation in ms (for perf monitoring) */
     durationMs: number;
   };
-};
+}
 
 /**
  * All possible messages from worker to main thread.
@@ -290,8 +290,8 @@ export type WorkerToMainMessage =
 /**
  * Result of loading a single directory.
  */
-export type BatchLoadResult = {
+export interface BatchLoadResult {
   path: string;
   children?: WorkerFileNode[];
   error?: string;
-};
+}

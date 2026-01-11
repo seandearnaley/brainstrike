@@ -3,47 +3,47 @@ import type { DirectoryHandle, FileHandle, IFileNode } from './file-system';
 /**
  * Result of a database test operation
  */
-export type DatabaseTestResult = {
+export interface DatabaseTestResult {
   success: boolean;
   message: string;
-};
+}
 
 /**
  * Query result containing rows of data
  */
-export type QueryResult<T = unknown> = {
+export interface QueryResult<T = unknown> {
   rows: T[];
-};
+}
 
 /**
  * Storage API exposed via Electron IPC
  */
-export type ElectronStorageAPI = {
+export interface ElectronStorageAPI {
   getItem: (key: string) => Promise<string | null>;
   setItem: (key: string, value: string) => Promise<void>;
   removeItem: (key: string) => Promise<void>;
   clear: () => Promise<void>;
   getAllKeys: () => Promise<string[]>;
-};
+}
 
 /**
  * File system API exposed via Electron IPC
  */
-export type ElectronFileSystemAPI = {
+export interface ElectronFileSystemAPI {
   requestDirectoryAccess: () => Promise<DirectoryHandle>;
   readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
   readFile: (handle: FileHandle) => Promise<string>;
   exists: (path: string) => Promise<boolean>;
   restoreLastFolder: () => Promise<DirectoryHandle | null>;
   saveLastFolder: (folderPath: string) => Promise<void>;
-};
+}
 
 /**
  * Electron database API exposed via IPC
  *
  * Operations are executed in the main process and results are returned via IPC.
  */
-export type ElectronDatabaseAPI = {
+export interface ElectronDatabaseAPI {
   /**
    * Basic connectivity check
    */
@@ -93,12 +93,12 @@ export type ElectronDatabaseAPI = {
    * Reset the local database (desktop only)
    */
   resetLocal?: () => Promise<{ success: boolean; message?: string }>;
-};
+}
 
 /**
  * Live query IPC helpers
  */
-export type ElectronLiveQueryAPI = {
+export interface ElectronLiveQueryAPI {
   start: (options: {
     query: string;
     params?: readonly unknown[];
@@ -113,14 +113,14 @@ export type ElectronLiveQueryAPI = {
     message?: string;
   }>;
   onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => () => void;
-};
+}
 
 /**
  * Electron API exposed to renderer process via preload script
  *
  * This is the top-level API object available on window.electronAPI
  */
-export type ElectronAPI = {
+export interface ElectronAPI {
   /**
    * Key/value storage bridge
    */
@@ -175,13 +175,12 @@ export type ElectronAPI = {
     documents: string;
     temp: string;
   };
-};
+}
 
 /**
  * Global window augmentation for Electron renderer process
  */
 declare global {
-  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     /**
      * Electron IPC API

@@ -10,13 +10,13 @@
 import { worker, workerEmit } from 'workerpool';
 import type { TokenCountRequest, TokenCountResult } from './types';
 
-type XXHashModule = {
+interface XXHashModule {
   h64: (input: string) => bigint;
   create64: () => {
     update: (input: string) => void;
     digest: () => bigint;
   };
-};
+}
 
 /**
  * Convert bigint hash to hex string

@@ -28,7 +28,7 @@
 
 import { LogLevel, setLogLevel } from './logger';
 
-export type BulkOperationOptions = {
+export interface BulkOperationOptions {
   /**
    * Minimum log level during bulk operations.
    * Default: LogLevel.WARN (skips DEBUG and INFO)
@@ -47,14 +47,14 @@ export type BulkOperationOptions = {
    */
   onEnter?: () => void;
   onExit?: () => void;
-};
+}
 
-type BulkOperationState = {
+interface BulkOperationState {
   active: boolean;
   previousLevel: LogLevel | null;
   options: Required<BulkOperationOptions>;
   enterCount: number;
-};
+}
 
 // Global state for bulk operation context
 let globalState: BulkOperationState = {
@@ -111,7 +111,7 @@ export function getBulkOperationSampleRate(): number {
   return globalState.active ? globalState.options.sampleRate : 1;
 }
 
-export type BulkOperationContext = {
+export interface BulkOperationContext {
   /**
    * Enter the bulk operation context.
    * Can be called multiple times (reference counted).
@@ -128,7 +128,7 @@ export type BulkOperationContext = {
    * Check if this context is currently active.
    */
   isActive: () => boolean;
-};
+}
 
 /**
  * Create a bulk operation context.

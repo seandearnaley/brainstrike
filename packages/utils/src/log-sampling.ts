@@ -26,7 +26,7 @@
  * ```
  */
 
-export type LogSamplerOptions = {
+export interface LogSamplerOptions {
   /**
    * Sample rate (0-1). 0.1 = 10% of logs.
    * Mutually exclusive with everyNth.
@@ -49,16 +49,16 @@ export type LogSamplerOptions = {
    * Always log the last item (requires knowing total count).
    */
   alwaysLogLast?: boolean;
-};
+}
 
-export type LogSamplerStats = {
+export interface LogSamplerStats {
   totalCalls: number;
   loggedCalls: number;
   skippedCalls: number;
   sampleRate: number;
-};
+}
 
-export type LogSampler = {
+export interface LogSampler {
   /**
    * Check if this call should be logged.
    * Call this before each log statement.
@@ -85,7 +85,7 @@ export type LogSampler = {
    * Reset the sampler state.
    */
   reset: () => void;
-};
+}
 
 /**
  * Create a log sampler for controlling log frequency.

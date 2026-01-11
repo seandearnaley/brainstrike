@@ -2,15 +2,15 @@ import { Button, Checkbox } from '@brainstrike/ui';
 import { FileIcon, FileX2, Loader2 } from 'lucide-react';
 import { memo } from 'react';
 
-export type FileRowItem = {
+export interface FileRowItem {
   compositeKey: string;
   folderId: string;
   path: string;
   size?: number;
   tokens?: number;
-};
+}
 
-export type FileRowProps = {
+export interface FileRowProps {
   item: FileRowItem;
   isSelected: boolean;
   isLoading: boolean;
@@ -18,7 +18,7 @@ export type FileRowProps = {
   onRemove: () => void;
   onShowDetail: () => void;
   formatFileSize: (bytes?: number) => string;
-};
+}
 
 export const FileRow = memo<FileRowProps>(function FileRow({
   item,

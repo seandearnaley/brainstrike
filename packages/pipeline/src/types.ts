@@ -60,7 +60,7 @@ export type ContentHash = string & { readonly __brand: 'ContentHash' };
 /**
  * Input to the import stage - raw file data from filesystem.
  */
-export type FileImportInput = {
+export interface FileImportInput {
   /** Absolute file path */
   path: string;
   /** File name (basename) */
@@ -71,12 +71,12 @@ export type FileImportInput = {
   size: number;
   /** Target embedding set for this file */
   embeddingSetId?: EmbeddingSetId;
-};
+}
 
 /**
  * Output from import stage - stored file record reference.
  */
-export type FileImportOutput = {
+export interface FileImportOutput {
   /** Assigned file record ID */
   fileId: FileId;
   /** Content hash used for deduplication */
@@ -85,7 +85,7 @@ export type FileImportOutput = {
   isNew: boolean;
   /** Token count from import */
   tokenCount: number;
-};
+}
 
 /**
  * Chunking strategy determines how content is split.
@@ -95,7 +95,7 @@ export type ChunkingStrategy = 'sentence' | 'token' | 'recursive';
 /**
  * Input to the chunking stage.
  */
-export type ChunkingInput = {
+export interface ChunkingInput {
   /** File record ID to chunk */
   fileId: FileId;
   /** File content to chunk */
@@ -110,12 +110,12 @@ export type ChunkingInput = {
   maxTokens?: number;
   /** Overlap between chunks */
   overlap?: number;
-};
+}
 
 /**
  * Single chunk output from chunking stage.
  */
-export type ChunkOutput = {
+export interface ChunkOutput {
   /** Sequential index within the file (0-based) */
   chunkIndex: number;
   /** Chunk text content */
@@ -128,12 +128,12 @@ export type ChunkOutput = {
   chunkType: 'text' | 'code' | 'sentence' | 'recursive';
   /** Maximum chunk size used */
   chunkSize: number;
-};
+}
 
 /**
  * Output from chunking stage.
  */
-export type ChunkingOutput = {
+export interface ChunkingOutput {
   /** Source file record ID */
   fileId: FileId;
   /** Created chunks */
@@ -146,12 +146,12 @@ export type ChunkingOutput = {
   skipped: boolean;
   /** Reason for skipping, if applicable */
   skipReason?: string;
-};
+}
 
 /**
  * Input to the embedding stage - a chunk ready for embedding.
  */
-export type EmbeddingInput = {
+export interface EmbeddingInput {
   /** Chunk ID to embed */
   chunkId: ChunkId;
   /** Content to embed */
@@ -162,12 +162,12 @@ export type EmbeddingInput = {
   embeddingSetId: EmbeddingSetId;
   /** Model key for embedding generation */
   modelKey: string;
-};
+}
 
 /**
  * Output from embedding stage.
  */
-export type EmbeddingOutput = {
+export interface EmbeddingOutput {
   /** Chunk ID that was embedded */
   chunkId: ChunkId;
   /** Generated embedding vector */
@@ -176,7 +176,7 @@ export type EmbeddingOutput = {
   modelKey: string;
   /** Hash of the embedding for cache invalidation */
   embeddingHash: ContentHash;
-};
+}
 
 // =============================================================================
 // JOB QUEUE TYPES
@@ -186,7 +186,7 @@ export type EmbeddingOutput = {
  * Embedding job payload for durable queue.
  * Contains all data needed to embed a chunk independently.
  */
-export type EmbedJobPayload = {
+export interface EmbedJobPayload {
   /** Chunk ID to embed */
   chunkId: ChunkId;
   /** Embedding set this job belongs to */
@@ -199,7 +199,7 @@ export type EmbedJobPayload = {
   fileId: FileId;
   /** Chunk index for ordering */
   chunkIndex: number;
-};
+}
 
 /**
  * Job states in the queue.
@@ -213,7 +213,7 @@ export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled
 /**
  * Progress for a single stage.
  */
-export type StageProgress = {
+export interface StageProgress {
   /** Total items to process */
   total: number;
   /** Items completed (success or skip) */
@@ -224,12 +224,12 @@ export type StageProgress = {
   failed: number;
   /** Current item being processed */
   currentItem?: string;
-};
+}
 
 /**
  * Aggregated progress across all pipeline stages.
  */
-export type PipelineProgress = {
+export interface PipelineProgress {
   /** Current pipeline phase */
   phase: 'importing' | 'chunking' | 'embedding' | 'complete' | 'error';
   /** Import stage progress */
@@ -244,7 +244,7 @@ export type PipelineProgress = {
   completedAt?: string;
   /** Recent errors for diagnostics */
   recentErrors: Array<{ stage: string; item: string; error: string; timestamp: string }>;
-};
+}
 
 // =============================================================================
 // DEDUPE KEY BUILDERS
@@ -254,7 +254,7 @@ export type PipelineProgress = {
  * Dedupe key formats for different entity types.
  * These are the canonical key structures used for idempotent operations.
  */
-export type DedupeKeyFormat = {
+export interface DedupeKeyFormat {
   /**
    * File dedupe: hash + set
    * Format: `file:{contentHash}:{embeddingSetId}`
@@ -272,7 +272,7 @@ export type DedupeKeyFormat = {
    * Format: `embed:{chunkId}:{embeddingSetId}:{modelKey}`
    */
   embedJob: `embed:${string}:${string}:${string}`;
-};
+}
 
 // =============================================================================
 // STREAMING IMPORT TYPES (BST-156)
@@ -295,7 +295,7 @@ export type DedupeKeyFormat = {
  * };
  * ```
  */
-export type ContentReader = {
+export interface ContentReader {
   /**
    * Read content for a single file path on-demand.
    *
@@ -319,12 +319,12 @@ export type ContentReader = {
    * @param compositeKey - The file's composite key
    */
   releaseContent?(compositeKey: string): void;
-};
+}
 
 /**
  * Streaming import configuration options.
  */
-export type StreamingImportOptions = {
+export interface StreamingImportOptions {
   /**
    * Number of files to process concurrently.
    * Higher values increase throughput but use more memory.
@@ -352,12 +352,12 @@ export type StreamingImportOptions = {
    * @default 100
    */
   progressThrottleMs?: number;
-};
+}
 
 /**
  * Result from streaming a single file through the pipeline.
  */
-export type StreamingFileResult = {
+export interface StreamingFileResult {
   /** File path that was processed */
   path: string;
   /** Composite key (folderId:path) */
@@ -376,12 +376,12 @@ export type StreamingFileResult = {
   error?: string;
   /** Processing time in ms */
   durationMs: number;
-};
+}
 
 /**
  * Streaming import completion result.
  */
-export type StreamingImportResult = {
+export interface StreamingImportResult {
   /** All file results */
   files: StreamingFileResult[];
   /** Total files processed */
@@ -398,7 +398,7 @@ export type StreamingImportResult = {
   durationMs: number;
   /** Peak memory usage estimate (if available) */
   peakMemoryMb?: number;
-};
+}
 
 // =============================================================================
 // DATABASE MAPPING TYPES
@@ -417,7 +417,7 @@ export type StreamingImportResult = {
  * | EmbeddingOutput  | file_chunks   | embedding → embedding col  |
  * | EmbedJobPayload  | job_queue     | dedupeKey → dedupe_key     |
  */
-export type DbMapping = {
+export interface DbMapping {
   fileRecords: {
     table: 'file_records';
     primaryKey: 'id';
@@ -464,4 +464,4 @@ export type DbMapping = {
       dedupeKey: string;
     };
   };
-};
+}

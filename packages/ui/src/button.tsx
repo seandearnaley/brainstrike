@@ -41,7 +41,6 @@ export interface ButtonProps
   depress?: boolean;
 }
 
-// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to button element
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, depress = true, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button';

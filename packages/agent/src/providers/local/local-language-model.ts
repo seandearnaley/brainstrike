@@ -14,14 +14,17 @@ import type {
 import { LocalLlmBackend } from './local-llm-backend';
 import type { LocalLlmMessage, LocalLlmToolDefinition } from './types';
 
-type LocalLanguageModelSettings = {
+interface LocalLanguageModelSettings {
   maxNewTokens?: number;
   temperature?: number;
   topP?: number;
   topK?: number;
-};
+}
 
-type TextPart = { type: 'text'; text: string };
+interface TextPart {
+  type: 'text';
+  text: string;
+}
 
 /**
  * Extract text from content array parts
@@ -64,7 +67,6 @@ function parseToolResultMessage(content: unknown): LocalLlmMessage[] {
 /**
  * Convert AI SDK messages to LocalLlmMessage format
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Message parsing requires handling multiple roles
 function convertMessages(prompt: LanguageModelV1CallOptions['prompt']): LocalLlmMessage[] {
   const result: LocalLlmMessage[] = [];
 

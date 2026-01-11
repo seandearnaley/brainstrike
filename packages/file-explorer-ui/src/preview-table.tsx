@@ -6,7 +6,7 @@ import { PreviewTableRow } from './preview-table-row';
 import { formatTokenCount } from './use-preview-panel-state';
 import type { GroupedData, GroupKey, TableRowData } from './utils/grouping-configs';
 
-type PreviewTableProps = {
+interface PreviewTableProps {
   columnVisibility: ColumnVisibility;
   sortField: keyof TableRowData;
   sortDirection: 'asc' | 'desc';
@@ -28,9 +28,9 @@ type PreviewTableProps = {
   handleGroupSelectAll: (group: GroupedData<TableRowData>) => void;
   handleGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
   pagination: { startIndex: number; endIndex: number };
-};
+}
 
-type PushGroupItemsInput = {
+interface PushGroupItemsInput {
   group: GroupedData<TableRowData>;
   itemCount: number;
   columnVisibility: ColumnVisibility;
@@ -40,7 +40,7 @@ type PushGroupItemsInput = {
   startIndex: number;
   endIndex: number;
   elements: React.ReactNode[];
-};
+}
 
 function pushGroupItemsForPage(input: PushGroupItemsInput): number {
   let currentItemCount = input.itemCount;

@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
 import { cn } from './lib/utils';
 
-export type UnsupportedFeatureProps = {
+export interface UnsupportedFeatureProps {
   /** The title to display */
   title: string;
   /** A descriptive message or ReactNode to explain the unsupported feature */
   description: ReactNode;
-};
+}
 
 /**
  * A panel for displaying that a feature is not supported, with title and description.

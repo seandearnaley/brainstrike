@@ -7,9 +7,9 @@ import { useFileContentLoading } from './use-file-content-loading';
 import { useFileSystem } from './use-file-system';
 import { useFileTree } from './use-file-tree';
 
-export type UseFileExplorerParams = {
+export interface UseFileExplorerParams {
   onDisplayedFilePathsChange?: (paths: Set<string>) => void;
-};
+}
 
 export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams = {}) {
   // Stabilize callback to avoid dependency churn - memoize the function itself

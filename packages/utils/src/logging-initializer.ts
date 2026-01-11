@@ -9,14 +9,14 @@ import {
 
 export type LoggerRuntime = 'browser' | 'electron-main' | 'electron-renderer';
 
-export type FileLoggingOptions = {
+export interface FileLoggingOptions {
   destination: string;
   level?: LogLevel;
   mkdir?: boolean;
   append?: boolean;
-};
+}
 
-export type InitializeLoggingOptions = {
+export interface InitializeLoggingOptions {
   runtime: LoggerRuntime;
   level?: LogLevel;
   consoleLevel?: LogLevel;
@@ -28,7 +28,7 @@ export type InitializeLoggingOptions = {
   enableDebugInProduction?: boolean;
   file?: FileLoggingOptions;
   customTransports?: readonly CustomTransportConfig[];
-};
+}
 
 function resolveBaseBindings(options: InitializeLoggingOptions): Record<string, unknown> {
   const { runtime, appName, appVersion, baseBindings } = options;

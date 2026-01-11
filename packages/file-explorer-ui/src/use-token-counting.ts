@@ -9,12 +9,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 export type TokenCountingMode = 'accurate' | 'heuristic';
 export type TokenCountingReason = 'preference-disabled' | 'runtime-fallback' | null;
 
-export type TokenCountingState = {
+export interface TokenCountingState {
   mode: TokenCountingMode;
   reason: TokenCountingReason;
   loading: boolean;
   countTokens: (content: string) => Promise<number>;
-};
+}
 
 let runtimeSupportPromise: Promise<boolean> | null = null;
 

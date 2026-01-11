@@ -68,17 +68,17 @@ async function persistResultToStore(
 /**
  * Electron-style handle with path property
  */
-export type ElectronFileHandle = {
+export interface ElectronFileHandle {
   path: string;
   name: string;
   kind: 'file';
   platform: 'electron';
-};
+}
 
 /**
  * File ready for indexing - supports both Web FileSystemFileHandle and Electron with pre-loaded content
  */
-export type FileToIndex = {
+export interface FileToIndex {
   compositeKey: string;
   folderId: string;
   filePath: string;
@@ -88,15 +88,15 @@ export type FileToIndex = {
   fileSize?: number;
   /** Web FileSystemFileHandle for File System Access API */
   fileHandle?: FileSystemFileHandle;
-};
+}
 
-export type IndexingProgress = {
+export interface IndexingProgress {
   completed: number;
   total: number;
   currentFile?: string;
-};
+}
 
-export type UseBackgroundTokenIndexerOptions = {
+export interface UseBackgroundTokenIndexerOptions {
   /** Token cache store for persistence (null to disable indexing) */
   store: TokenCacheStoreLike | null;
   /** Token counting mode */
@@ -107,9 +107,9 @@ export type UseBackgroundTokenIndexerOptions = {
   onProgress?: (progress: IndexingProgress) => void;
   /** Callback when a file fails to index */
   onFileError?: (compositeKey: string, error: string) => void;
-};
+}
 
-export type UseBackgroundTokenIndexerReturn = {
+export interface UseBackgroundTokenIndexerReturn {
   /** Queue files for background indexing */
   indexFiles: (files: FileToIndex[]) => void;
   /** Cancel all pending indexing */
@@ -120,7 +120,7 @@ export type UseBackgroundTokenIndexerReturn = {
   progress: IndexingProgress | null;
   /** Whether the worker is ready */
   isReady: boolean;
-};
+}
 
 /**
  * Create a unique ID for each indexing request

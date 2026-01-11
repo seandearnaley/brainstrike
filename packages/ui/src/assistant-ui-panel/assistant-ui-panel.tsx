@@ -32,16 +32,16 @@ import { TooltipIconButton } from './tooltip-icon-button';
 // Re-export types needed by consumers
 export type { ModelPickerModel, ModelPickerProvider };
 
-export type ProviderConfig = {
+export interface ProviderConfig {
   id: string;
   name: string;
   models: readonly string[];
   defaultModel: string;
-};
+}
 
 export type ProviderRuntimeCategory = 'hosted' | 'gateway' | 'local' | 'browser';
 
-export type ProviderModelOptionConfig = {
+export interface ProviderModelOptionConfig {
   id: string;
   label: string;
   type: 'llm' | 'embedding';
@@ -49,9 +49,9 @@ export type ProviderModelOptionConfig = {
   default?: boolean;
   supportsStreaming?: boolean;
   supportsStandardDimension?: boolean;
-};
+}
 
-export type ProviderOptionConfig = {
+export interface ProviderOptionConfig {
   id: string;
   name: string;
   runtime: ProviderRuntimeCategory;
@@ -62,15 +62,15 @@ export type ProviderOptionConfig = {
     supportsStandardEmbeddingDimension: boolean;
   };
   models: ProviderModelOptionConfig[];
-};
+}
 
-export type ProviderGroupConfig = {
+export interface ProviderGroupConfig {
   runtime: ProviderRuntimeCategory;
   label: string;
   providers: ProviderOptionConfig[];
-};
+}
 
-export type AssistantUiPanelProps = {
+export interface AssistantUiPanelProps {
   className?: string;
   providers?: ProviderConfig[];
   providerGroups?: ProviderGroupConfig[];
@@ -85,25 +85,24 @@ export type AssistantUiPanelProps = {
   disabled?: boolean;
   disabledReason?: string;
   requestData?: Record<string, unknown>;
-};
+}
 
 declare global {
-  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     assistant?: { getUrl?: () => Promise<string>; url?: string };
   }
 }
 
 // Local model loading state for progress display
-type LocalModelLoadingState = {
+interface LocalModelLoadingState {
   stage: 'downloading' | 'loading' | 'ready' | 'error';
   progress: number;
   message: string;
   file?: string;
-};
+}
 
 // Shared props for inner chat components
-type ChatThreadProps = {
+interface ChatThreadProps {
   providerGroups: ProviderGroupConfig[];
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
@@ -113,7 +112,7 @@ type ChatThreadProps = {
   disabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
-};
+}
 
 /**
  * Inner component for local runtime (browser-based inference).
@@ -509,7 +508,7 @@ const UserMessage: FC = () => {
         />
       </div>
 
-      <BranchPicker className="-mr-1 col-span-full col-start-1 row-start-3 justify-end" />
+      <BranchPicker className="col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
     </MessagePrimitive.Root>
   );
 };
@@ -563,7 +562,7 @@ const AssistantMessage: FC = () => {
 
       <AssistantActionBar />
 
-      <BranchPicker className="-ml-2 col-start-2 row-start-2 mr-2" />
+      <BranchPicker className="col-start-2 row-start-2 mr-2 -ml-2" />
     </MessagePrimitive.Root>
   );
 };
@@ -572,7 +571,7 @@ const AssistantActionBar: FC = () => (
   <ActionBarPrimitive.Root
     autohide="not-last"
     autohideFloat="single-branch"
-    className="-ml-1 col-start-3 row-start-2 flex gap-1 text-muted-foreground data-[floating]:absolute data-[floating]:rounded-md data-[floating]:border data-[floating]:bg-background data-[floating]:p-1 data-[floating]:shadow-sm"
+    className="col-start-3 row-start-2 -ml-1 flex gap-1 text-muted-foreground data-[floating]:absolute data-[floating]:rounded-md data-[floating]:border data-[floating]:bg-background data-[floating]:p-1 data-[floating]:shadow-sm"
     hideWhenRunning
   >
     <ActionBarPrimitive.Copy asChild>
@@ -621,30 +620,30 @@ const RUNTIME_LABELS: Record<ProviderRuntimeCategory, string> = {
   browser: 'Browser',
 };
 
-type ProviderModelOption = {
+interface ProviderModelOption {
   value: string;
   provider: ProviderOptionConfig;
   model: ProviderModelOptionConfig;
   groupLabel: string;
-};
+}
 
-type NormalizedProviderGroup = {
+interface NormalizedProviderGroup {
   runtime: ProviderRuntimeCategory;
   label: string;
   providers: Array<{
     provider: ProviderOptionConfig;
     models: ProviderModelOptionConfig[];
   }>;
-};
+}
 
-type ProviderModelHeaderProps = {
+interface ProviderModelHeaderProps {
   groups: ProviderGroupConfig[];
   pickerModels: ModelPickerModel[];
   pickerProviders: ModelPickerProvider[];
   selectedProvider?: string | undefined;
   selectedModel?: string | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
-};
+}
 
 const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   groups,
@@ -763,12 +762,12 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   );
 };
 
-type ProviderSelectionSummaryProps = {
+interface ProviderSelectionSummaryProps {
   provider: ProviderOptionConfig | undefined;
   model: ProviderModelOptionConfig | undefined;
   selectedProvider?: string | undefined;
   selectedModel?: string | undefined;
-};
+}
 
 const ProviderSelectionSummary: FC<ProviderSelectionSummaryProps> = ({
   provider,

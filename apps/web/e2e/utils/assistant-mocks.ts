@@ -1,6 +1,10 @@
 import type { Page } from '@playwright/test';
 
-type Chunk = { delayMs: number; type: string; value: unknown };
+interface Chunk {
+  delayMs: number;
+  type: string;
+  value: unknown;
+}
 
 function buildChunks(): Chunk[] {
   return [

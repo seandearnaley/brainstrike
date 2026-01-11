@@ -164,14 +164,14 @@ function calculateNewRange(
   return { startLine, endLine };
 }
 
-type TapestrySection = {
+interface TapestrySection {
   group: GroupedData<TableRowData>;
   isCollapsed: boolean;
   showHeader: boolean;
   items: FileTapestry[];
-};
+}
 
-type TapestryViewProps = {
+interface TapestryViewProps {
   ungroupedFiles: FileTapestry[];
   groupedSections: TapestrySection[];
   groupedData: GroupedData<TableRowData>[];
@@ -206,7 +206,7 @@ type TapestryViewProps = {
     onPageChange: (page: number) => void;
     pageInfo?: string;
   };
-};
+}
 
 const TapestryGroupHeader = memo<{
   group: GroupedData<TableRowData>;

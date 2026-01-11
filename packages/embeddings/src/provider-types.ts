@@ -133,10 +133,10 @@ export type Result<T, E = EmbeddingProviderError> =
 /**
  * Input for embedding generation
  */
-export type EmbeddingInput = {
+export interface EmbeddingInput {
   text: string | string[];
   modelId: string;
-};
+}
 
 /**
  * Distance/similarity metric used for vector comparison
@@ -147,7 +147,7 @@ export type DistanceMetric = 'cosine' | 'l2' | 'ip';
  * Unified provider metadata for both local and hosted providers
  * Used for embedding-set creation and validation (BST-167)
  */
-export type ProviderMetadata = {
+export interface ProviderMetadata {
   /** Provider identifier (e.g., 'local', 'openai', 'google', 'cohere', 'voyage') */
   providerId: EmbeddingProviderType;
   /** Model key/identifier used for embedding generation */
@@ -160,12 +160,12 @@ export type ProviderMetadata = {
   displayName?: string;
   /** Optional context window size */
   contextWindow?: number;
-};
+}
 
 /**
  * Output from embedding generation
  */
-export type EmbeddingOutput = {
+export interface EmbeddingOutput {
   embedding: number[];
   embeddings?: number[][];
   dimensions: number;
@@ -177,4 +177,4 @@ export type EmbeddingOutput = {
     inputTokens: number;
     totalTokens?: number;
   };
-};
+}

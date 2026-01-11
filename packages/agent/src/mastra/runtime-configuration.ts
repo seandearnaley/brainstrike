@@ -9,11 +9,11 @@ import { createMastraAgentError } from './mastra-agent-error';
 
 const logger = createLogger('MastraAgentRuntimeConfig');
 
-export type ResolvedRuntimeConfiguration = {
+export interface ResolvedRuntimeConfiguration {
   provider: SupportedProvider;
   runtime: RuntimeData & { provider: SupportedProvider };
   apiKey: string;
-};
+}
 
 export function resolveRuntimeConfiguration(
   runtimeData: RuntimeData | undefined

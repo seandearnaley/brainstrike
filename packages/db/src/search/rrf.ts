@@ -29,29 +29,29 @@ export const RRF_K_DEFAULT = 60;
 /**
  * A single item with an identifier and score from a ranking source
  */
-export type RankedItem<T = string> = {
+export interface RankedItem<T = string> {
   /** Unique identifier for the item */
   id: T;
   /** Original score from the ranking source (optional, for debugging) */
   score?: number;
-};
+}
 
 /**
  * A ranked list from a single source (e.g., vector search, full-text search)
  */
-export type RankedList<T = string> = {
+export interface RankedList<T = string> {
   /** Name of the ranking source for debugging/logging */
   source: string;
   /** Items in rank order (first = rank 1, best match) */
   items: RankedItem<T>[];
   /** Optional weight multiplier for this source (default: 1.0) */
   weight?: number;
-};
+}
 
 /**
  * Result item after RRF fusion with combined score
  */
-export type FusedResult<T = string> = {
+export interface FusedResult<T = string> {
   /** Unique identifier for the item */
   id: T;
   /** Combined RRF score (higher = better) */
@@ -60,12 +60,12 @@ export type FusedResult<T = string> = {
   sourceCount: number;
   /** Breakdown of contributions from each source */
   contributions: RRFContribution[];
-};
+}
 
 /**
  * Contribution from a single ranking source to the final RRF score
  */
-export type RRFContribution = {
+export interface RRFContribution {
   /** Name of the ranking source */
   source: string;
   /** Rank in this source (1-indexed) */
@@ -74,19 +74,19 @@ export type RRFContribution = {
   contribution: number;
   /** Original score from this source (if available) */
   originalScore?: number;
-};
+}
 
 /**
  * Options for RRF fusion
  */
-export type RRFOptions = {
+export interface RRFOptions {
   /** The k constant (default: 60) */
   k?: number;
   /** Maximum number of results to return (default: all) */
   limit?: number;
   /** Minimum number of sources an item must appear in (default: 1) */
   minSourceCount?: number;
-};
+}
 
 /**
  * Calculate the RRF contribution for a single rank
@@ -141,11 +141,11 @@ export function calculateRRFContribution(
 /**
  * Internal type for accumulating item scores during fusion
  */
-type ItemScoreAccumulator = {
+interface ItemScoreAccumulator {
   rrfScore: number;
   sourceCount: number;
   contributions: RRFContribution[];
-};
+}
 
 /**
  * Create a contribution entry with optional original score

@@ -9,7 +9,7 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type ModelKey = string;
 
-type EmbeddingsPanelData = {
+interface EmbeddingsPanelData {
   status: EmbeddingStatus;
   progress: number;
   progressMessage: string;
@@ -19,16 +19,16 @@ type EmbeddingsPanelData = {
   similarity: number | null;
   selectedDevice: string | null;
   error: string | null;
-};
+}
 
-type EmbeddingsPanelActions = {
+interface EmbeddingsPanelActions {
   setSelectedModel: (k: ModelKey) => void;
   setText1: (v: string) => void;
   setText2: (v: string) => void;
   initialize: (modelConfig: ModelConfig) => Promise<void>;
   calculateSimilarity: () => Promise<void>;
   dispose: () => Promise<void>;
-};
+}
 
 type Store = EmbeddingsPanelData & EmbeddingsPanelActions;
 

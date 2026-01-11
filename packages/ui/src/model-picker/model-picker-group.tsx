@@ -3,12 +3,12 @@ import type { ModelPickerProvider } from './types';
 import { getProviderColor } from './utils/provider-colors';
 import { getProviderIcon } from './utils/provider-icons';
 
-type ModelPickerGroupProps = {
+interface ModelPickerGroupProps {
   provider: ModelPickerProvider;
   children: React.ReactNode;
   theme?: 'light' | 'dark';
   modelCount?: number;
-};
+}
 
 export function ModelPickerGroup({
   provider,

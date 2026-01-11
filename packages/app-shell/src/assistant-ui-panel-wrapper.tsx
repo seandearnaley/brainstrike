@@ -26,10 +26,10 @@ import {
 import { decodeFileSelection } from '@brainstrike/utils';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 
-export type AssistantUiPanelWrapperProps = {
+export interface AssistantUiPanelWrapperProps {
   className?: string;
   initialProviders?: SupportedProvider[];
-};
+}
 
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   hosted: 'Hosted',

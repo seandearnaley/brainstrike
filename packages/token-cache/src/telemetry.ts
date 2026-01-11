@@ -22,10 +22,10 @@ export type IndexerTelemetryEventType = 'indexed_file' | 'indexing_error' | 'ind
 /**
  * Base fields shared by all indexer telemetry events
  */
-type IndexerTelemetryEventBase = {
+interface IndexerTelemetryEventBase {
   readonly timestamp: number;
   readonly event: IndexerTelemetryEventType;
-};
+}
 
 /**
  * Emitted when a file is successfully indexed (or cache-hit skipped)
@@ -108,7 +108,7 @@ export function addIndexerTelemetryListener(listener: IndexerTelemetryListener):
 /**
  * Aggregated snapshot of indexer telemetry within a time window
  */
-export type IndexerTelemetrySnapshot = {
+export interface IndexerTelemetrySnapshot {
   readonly events: readonly IndexerTelemetryEvent[];
   /** Files indexed per minute (excludes cache hits) */
   readonly indexedPerMinute: number;
@@ -126,7 +126,7 @@ export type IndexerTelemetrySnapshot = {
   readonly errorCount: number;
   /** Cache hit rate (0-1) */
   readonly cacheHitRate: number | null;
-};
+}
 
 function computePercentile(values: readonly number[], percentile: number): number | null {
   if (values.length === 0) {

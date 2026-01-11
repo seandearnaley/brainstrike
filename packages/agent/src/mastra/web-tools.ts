@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 const DEFAULT_SEARCH_LIMIT = 5;
 
-type WebDocEntry = {
+interface WebDocEntry {
   id: string;
   title: string;
   summary: string;
@@ -12,7 +12,7 @@ type WebDocEntry = {
   tags: readonly string[];
   sections: readonly string[];
   versionIntroduced?: string;
-};
+}
 
 type IndexedDoc = WebDocEntry & {
   tokens: Set<string>;
@@ -20,7 +20,7 @@ type IndexedDoc = WebDocEntry & {
   sentenceTokens: Array<{ text: string; tokens: Set<string> }>;
 };
 
-type SearchResult = {
+interface SearchResult {
   id: string;
   title: string;
   summary: string;
@@ -28,17 +28,17 @@ type SearchResult = {
   highlight: string;
   tags: readonly string[];
   score: number;
-};
+}
 
-type SearchResponse = {
+interface SearchResponse {
   query: string;
   limit: number;
   totalResults: number;
   tookMs: number;
   results: readonly SearchResult[];
-};
+}
 
-type DocSummaryResponse = {
+interface DocSummaryResponse {
   doc: {
     id: string;
     title: string;
@@ -48,7 +48,7 @@ type DocSummaryResponse = {
     versionIntroduced?: string;
     sections: ReadonlyArray<{ id: string; text: string }>;
   };
-};
+}
 
 const DOCS_INDEX: readonly WebDocEntry[] = [
   {

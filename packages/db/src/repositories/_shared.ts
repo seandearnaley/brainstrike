@@ -6,9 +6,9 @@ import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 
 export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 
-export type Queryable = {
+export interface Queryable {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
-};
+}
 
 /**
  * Maximum number of file path filters allowed inline for similarity search.
@@ -348,11 +348,11 @@ export function cosineToSearchSimilarity(cosineSimilarity: number): number {
   return (cosineSimilarity + 1) / 2;
 }
 
-export type UpdateBuilder = {
+export interface UpdateBuilder {
   setParts: string[];
   values: unknown[];
   index: number;
-};
+}
 
 export function createUpdateBuilder(startIndex = 1): UpdateBuilder {
   return { setParts: [], values: [], index: startIndex };

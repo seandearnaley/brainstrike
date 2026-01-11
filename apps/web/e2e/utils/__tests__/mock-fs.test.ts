@@ -3,20 +3,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockBrowserApis } from '../mock-fs';
 
 // Shared test handle types, mirroring the injected mock API
-type TestFileHandle = {
+interface TestFileHandle {
   kind: 'file';
   name: string;
   getFile(): Promise<{ text(): Promise<string> }>;
   createWritable(): Promise<{ write(data: unknown): Promise<void>; close(): Promise<void> }>;
-};
-type TestDirHandle = {
+}
+interface TestDirHandle {
   name: string;
   kind: 'directory';
   getFileHandle(name: string, options?: { create?: boolean }): Promise<TestFileHandle>;
   getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<TestDirHandle>;
   removeEntry(name: string): Promise<void>;
   entries(): AsyncIterable<[string, TestFileHandle | TestDirHandle]>;
-};
+}
 
 // Mock File and Blob APIs for jsdom environment
 beforeEach(() => {

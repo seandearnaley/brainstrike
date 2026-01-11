@@ -6,10 +6,10 @@ const LOCAL_PROVIDER_IDS = new Set<string>(['local', 'transformers']);
 
 type ModelParameters = Record<string, unknown> | null | undefined;
 
-type ModelMetadata = {
+interface ModelMetadata {
   size?: string;
   contextWindow?: number;
-};
+}
 
 function readModelMetadata(parameters: ModelParameters): ModelMetadata {
   const metadata: ModelMetadata = {};
@@ -91,16 +91,16 @@ export function buildLocalEmbeddingModelConfigMap(models: DbModel[]): Map<string
   return map;
 }
 
-export type EffectiveModelInfo = {
+export interface EffectiveModelInfo {
   modelKey: string;
   dimensions: number;
   modelConfig?: ModelConfig;
-};
+}
 
-type EmbeddingSetRow = {
+interface EmbeddingSetRow {
   modelKey: string;
   dimensions: number;
-};
+}
 
 export function resolveEmbeddingSetModelInfo(
   row: EmbeddingSetRow,

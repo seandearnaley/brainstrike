@@ -8,14 +8,14 @@ const DEFAULT_MODELS: Record<string, string> = {
   openrouter: 'gpt-4o-mini',
 } as const;
 
-export type AssistantMockOptions = {
+export interface AssistantMockOptions {
   readonly provider?: string;
   readonly apiKey?: string;
   readonly message?: string;
   readonly errorMessage?: string;
   readonly variant?: 'simple' | 'detailed' | 'tool' | 'tool-error' | 'stream-error';
   readonly models?: Record<string, string>;
-};
+}
 
 const defaultOptions: Required<AssistantMockOptions> = {
   provider: 'openai',

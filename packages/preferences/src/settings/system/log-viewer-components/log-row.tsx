@@ -4,12 +4,12 @@ import type { VirtualItem } from '@tanstack/react-virtual';
 import { memo } from 'react';
 import type { LogRecordRow } from './log-utils';
 
-type LogRowProps = {
+interface LogRowProps {
   row: Row<LogRecordRow>;
   virtualRow: VirtualItem;
   measureRow: (node: HTMLTableRowElement | null) => void;
   wrapLines: boolean;
-};
+}
 
 export const LogRow = memo(function LogRow({
   row,

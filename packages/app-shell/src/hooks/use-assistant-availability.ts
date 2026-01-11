@@ -12,7 +12,6 @@ export type AssistantStatusFetcher = (signal: AbortSignal) => Promise<AssistantA
 const defaultFetcher: AssistantStatusFetcher = (signal) => fetchAssistantStatusState({ signal });
 
 declare global {
-  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     __assistantAvailabilityOverride?: AssistantAvailabilityStatus;
   }
@@ -69,10 +68,10 @@ export async function resolveAssistantStatusUrl(): Promise<string> {
     return '/api/assistant/status';
   }
 
-  type AssistantBridge = {
+  interface AssistantBridge {
     url?: string;
     getUrl?: () => Promise<string>;
-  };
+  }
 
   const assistantBridge = (window as unknown as { assistant?: AssistantBridge }).assistant;
 
@@ -98,10 +97,10 @@ export async function resolveAssistantStatusUrl(): Promise<string> {
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
-type FetchAssistantStatusStateOptions = {
+interface FetchAssistantStatusStateOptions {
   signal: AbortSignal;
   fetchImpl?: typeof fetch;
-};
+}
 
 export async function fetchAssistantStatusState({
   signal,

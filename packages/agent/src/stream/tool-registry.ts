@@ -1,20 +1,20 @@
 import { cloneJsonSafe } from './json';
 
-export type ToolCallControllerLike = {
+export interface ToolCallControllerLike {
   argsText: { append: (text: string) => void };
   setResponse: (options: { result: unknown; isError: boolean }) => void;
   close: () => void;
-};
+}
 
-export type ToolRegistryEntry<TController extends ToolCallControllerLike> = {
+export interface ToolRegistryEntry<TController extends ToolCallControllerLike> {
   controller: TController;
   name: string;
-};
+}
 
-export type ToolRegistry<TController extends ToolCallControllerLike> = {
+export interface ToolRegistry<TController extends ToolCallControllerLike> {
   byKey: Map<string, ToolRegistryEntry<TController>>;
   nameToKeys: Map<string, string[]>;
-};
+}
 
 let toolKeyCounter = 0;
 

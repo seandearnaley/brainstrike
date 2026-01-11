@@ -1,5 +1,5 @@
 // Operation handlers for different storage operations
-type StorageOperation = {
+interface StorageOperation {
   id: string;
   type: string;
   key?: string;
@@ -7,7 +7,7 @@ type StorageOperation = {
   operation?: string;
   rawValue?: string;
   success?: boolean;
-};
+}
 
 // Handle save operation
 function handleSaveOperation(data: StorageOperation): void {

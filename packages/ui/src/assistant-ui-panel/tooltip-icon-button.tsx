@@ -9,7 +9,6 @@ export interface TooltipIconButtonProps extends ComponentPropsWithoutRef<typeof 
   asChild?: boolean;
 }
 
-// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to Button
 export const TooltipIconButton = forwardRef<HTMLButtonElement, TooltipIconButtonProps>(
   ({ children, tooltip, side = 'bottom', className, asChild = false, ...rest }, ref) => (
     <Tooltip>

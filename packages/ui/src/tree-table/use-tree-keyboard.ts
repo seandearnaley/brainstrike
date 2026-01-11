@@ -24,7 +24,7 @@ import type {
 /**
  * Options for the useTreeKeyboard hook.
  */
-export type UseTreeKeyboardOptions<T> = {
+export interface UseTreeKeyboardOptions<T> {
   /** Flattened rows for navigation */
   rows: FlattenedRow<T>[];
   /** All tree nodes (for parent/child lookup) */
@@ -49,7 +49,7 @@ export type UseTreeKeyboardOptions<T> = {
   isTableFocused?: boolean;
   /** Callback when a node should be scrolled into view */
   onScrollToNode?: (nodeId: string) => void;
-};
+}
 
 /**
  * useTreeKeyboard provides full keyboard navigation for TreeTable.

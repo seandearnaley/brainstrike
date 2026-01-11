@@ -3,14 +3,14 @@ import { useEffect, useRef } from 'react';
 /**
  * Options for the useResizeObserver hook.
  */
-export type UseResizeObserverOptions = {
+export interface UseResizeObserverOptions {
   /**
    * When true, the observer is disabled and will not observe the element.
    * Useful for conditional observation without unmounting/remounting.
    * @default false
    */
   disabled?: boolean;
-};
+}
 
 /**
  * A hook that provides a ResizeObserver with requestAnimationFrame debouncing

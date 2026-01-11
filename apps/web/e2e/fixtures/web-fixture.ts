@@ -13,10 +13,10 @@ import {
 import type { TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 
-type WebTestFixtures = {
+interface WebTestFixtures {
   /** Failure artifact collector - automatically captures diagnostics on test failure */
   failureCollector: FailureArtifactCollector;
-};
+}
 
 export const test = base.extend<WebTestFixtures>({
   // BST-180: Failure artifact collector for enhanced test diagnostics

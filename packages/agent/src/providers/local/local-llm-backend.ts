@@ -16,28 +16,28 @@ import type {
 const logger = createLogger('LocalLlmBackend');
 
 // Transformers.js types (dynamically imported)
-type ProgressInfo = {
+interface ProgressInfo {
   status: string;
   loaded?: number;
   total?: number;
   file?: string;
-};
+}
 
 // Chat message for pipeline input
 // Includes all standard chat roles - pipeline handles them appropriately
-type ChatMessage = {
+interface ChatMessage {
   role: 'user' | 'assistant' | 'system' | 'developer' | 'tool';
   content: string;
-};
+}
 
 // Pipeline output for text generation
-type TextGenerationOutput = {
+interface TextGenerationOutput {
   // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
   generated_text: string | ChatMessage[];
-};
+}
 
 // Text generation pipeline type
-type TextGenerationPipeline = {
+interface TextGenerationPipeline {
   (
     messages: ChatMessage[] | string,
     options?: {
@@ -57,7 +57,7 @@ type TextGenerationPipeline = {
     }
   ): Promise<TextGenerationOutput[]>;
   dispose?: () => Promise<void>;
-};
+}
 
 // Pipeline factory function type
 type PipelineFunction = (
@@ -72,25 +72,25 @@ type PipelineFunction = (
 ) => Promise<TextGenerationPipeline>;
 
 // Tokenizer type for token counting
-type Tokenizer = {
+interface Tokenizer {
   encode: (text: string) => { length: number };
-};
+}
 
 // AutoTokenizer factory type
-type AutoTokenizerFactory = {
+interface AutoTokenizerFactory {
   // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
   from_pretrained: (
     modelId: string,
     // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
     options?: { progress_callback?: (progress: ProgressInfo) => void }
   ) => Promise<Tokenizer>;
-};
+}
 
-type TransformersModule = {
+interface TransformersModule {
   pipeline: PipelineFunction;
   // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
   AutoTokenizer: AutoTokenizerFactory;
-};
+}
 
 /**
  * Type guard for validating dynamically imported TransformersModule.
@@ -300,7 +300,6 @@ function validateOutputLength(output: string, parser: string): void {
  * Parse FunctionGemma format: <start_function_call>call:name{args}<end_function_call>
  * Uses iterative string parsing instead of regex to prevent ReDoS attacks.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Iterative parsing requires multiple boundary checks
 function parseGemmaFormat(output: string): LocalLlmToolCall | null {
   // ReDoS protection: validate output length
   validateOutputLength(output, 'gemma');
@@ -421,7 +420,6 @@ function parseQwenFormat(output: string): LocalLlmToolCall | null {
  * Parse generic JSON format: {"name": "...", "arguments": {...}}
  * Uses iterative string parsing with JSON.parse instead of regex to prevent ReDoS attacks.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Iterative JSON parsing requires depth tracking
 function parseGenericJsonFormat(output: string): LocalLlmToolCall | null {
   // ReDoS protection: validate output length
   validateOutputLength(output, 'genericJson');
@@ -735,12 +733,12 @@ export function isModelAllowed(modelId: string): boolean {
  * Maps model ID to SHA256 hash of the main ONNX model file.
  * These are verified after download to detect tampering or corruption.
  */
-type ModelChecksums = {
+interface ModelChecksums {
   /** SHA256 hash of the model's main ONNX file */
   onnxSha256: string;
   /** Optional config.json hash for additional verification */
   configSha256?: string;
-};
+}
 
 /**
  * Baseline checksums for approved models.
@@ -1150,7 +1148,7 @@ function supportsToolCalling(modelId: string): boolean {
 /**
  * Tool definition type (matches LocalLlmToolDefinition from types.ts)
  */
-type ToolDefinition = {
+interface ToolDefinition {
   type: 'function';
   function: {
     name: string;
@@ -1161,7 +1159,7 @@ type ToolDefinition = {
       required?: string[];
     };
   };
-};
+}
 
 /**
  * Format tools as a system prompt for FunctionGemma.
@@ -1924,12 +1922,12 @@ export class LocalLlmBackend {
     const allFiles = [...tokenizerFiles, ...configFiles, ...modelFiles];
     let completedFiles = 0;
 
-    type DownloadProgressData = {
+    interface DownloadProgressData {
       stage: 'downloading' | 'ready';
       progress: number;
       message: string;
       file?: string;
-    };
+    }
 
     const updateProgress = (filename: string, fileProgress?: number) => {
       // If we have file-level progress, use it; otherwise use completed file count

@@ -31,20 +31,20 @@ import { memo, useCallback, useMemo, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 /** Props for the selection rules editor */
-export type SelectionRulesEditorProps = {
+export interface SelectionRulesEditorProps {
   /** Whether the dialog is open */
   isOpen: boolean;
   /** Callback when dialog open state changes */
   onOpenChange: (open: boolean) => void;
   /** Current folder ID for rule context */
   folderId: string;
-};
+}
 
 /** State for a pattern input row */
-type PatternInput = {
+interface PatternInput {
   id: string;
   pattern: string;
-};
+}
 
 /** Generate a unique ID for patterns */
 function generateId(): string {

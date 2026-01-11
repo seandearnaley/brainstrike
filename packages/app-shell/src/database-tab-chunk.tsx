@@ -2,7 +2,7 @@ import { DatabaseDemoPanel } from '@brainstrike/db-explorer';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type React from 'react';
 
-type DatabaseTabProps = {
+interface DatabaseTabProps {
   /**
    * CRITICAL: The embedding queue from the app layer.
    *
@@ -20,7 +20,7 @@ type DatabaseTabProps = {
    * - Import operations will use the wrong queue instance
    */
   embeddingQueue?: QueueAdapter | null;
-};
+}
 
 /**
  * Database tab chunk component showing database demo panel.

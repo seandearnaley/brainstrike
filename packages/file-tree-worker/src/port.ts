@@ -26,7 +26,7 @@ type LogHandler = (
 ) => void;
 type FlattenedResultHandler = (nodes: FlattenedNode[], count: number, durationMs: number) => void;
 
-type PendingOperation = {
+interface PendingOperation {
   resolve: (result: {
     tree: WorkerFileNode[];
     expandedPaths: string[];
@@ -34,7 +34,7 @@ type PendingOperation = {
   }) => void;
   reject: (error: Error) => void;
   operationId: number;
-};
+}
 
 /**
  * Handle requestLoad message - processes load requests from worker
@@ -93,7 +93,7 @@ function sendLoadErrors(worker: Worker, paths: string[], err: unknown): void {
 /**
  * Port abstraction for communicating with the file tree worker.
  */
-export type FileTreeWorkerPort = {
+export interface FileTreeWorkerPort {
   /** Initialize worker with root nodes */
   init(rootNodes: WorkerFileNode[], folderId: string): void;
 
@@ -158,7 +158,7 @@ export type FileTreeWorkerPort = {
 
   /** Terminate the worker */
   terminate(): void;
-};
+}
 
 /**
  * Create a port abstraction for the file tree worker.

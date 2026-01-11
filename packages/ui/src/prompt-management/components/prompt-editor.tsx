@@ -12,7 +12,7 @@ import { ScrollArea } from '../../scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../select';
 import type { Category, Prompt } from '../types';
 
-type PromptEditorProps = {
+interface PromptEditorProps {
   isOpen: boolean;
   onClose: () => void;
   prompt?: Prompt | null;
@@ -20,7 +20,7 @@ type PromptEditorProps = {
   availableModels?: ModelPickerModel[];
   providers?: ModelPickerProvider[];
   onSave: (promptData: Partial<Prompt>) => void;
-};
+}
 
 export function PromptEditor({
   isOpen,

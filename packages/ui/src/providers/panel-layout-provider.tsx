@@ -7,13 +7,13 @@ import type { PanelPersistenceState } from '../types/panel';
 
 export type PanelLayoutState = PanelPersistenceState;
 
-export type PanelLayoutProviderProps = {
+export interface PanelLayoutProviderProps {
   children: ReactNode;
   initialState?: PanelLayoutState;
   adapter?: PanelPersistenceAdapter | null;
   controlledState?: PanelLayoutState;
   onChange?: (state: PanelLayoutState) => void;
-};
+}
 
 interface PanelLayoutContextValue extends PanelLayoutState {
   setState: (state: PanelLayoutState) => void;

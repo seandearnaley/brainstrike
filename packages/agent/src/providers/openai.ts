@@ -1,10 +1,10 @@
 import type { AgentMessage, AgentMessagePartText, StreamChunk, StreamIterator } from '../index';
 
-export type OpenAIStreamRuntime = {
+export interface OpenAIStreamRuntime {
   apiKey: string;
   model?: string;
   signal?: AbortSignal | null | undefined;
-};
+}
 
 function toChatMessages(
   messages: AgentMessage[]

@@ -17,14 +17,14 @@ export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
  * Minimal type for tree nodes that these operations can work with.
  * Both IFileNode and WorkerFileNode satisfy this type.
  */
-export type TreeNode = {
+export interface TreeNode {
   path: string;
   name: string;
   type: 'file' | 'directory' | 'loadMore';
   children?: TreeNode[];
   loadState?: DirectoryLoadState;
   loadError?: string;
-};
+}
 
 /**
  * Sort nodes: directories first, then alphabetically by name.

@@ -27,30 +27,30 @@ const COLUMN_VISIBILITY_KEYS = Object.keys(
   createDefaultColumnVisibility()
 ) as (keyof ColumnVisibility)[];
 
-type StoredPreferences = {
+interface StoredPreferences {
   columnVisibility?: Partial<ColumnVisibility>;
   sortField?: keyof TableRowData;
   sortDirection?: 'asc' | 'desc';
   groupingConfig?: string;
   activeTab?: string;
   collapsedGroups?: string[];
-};
+}
 
-type PreviewPanelPreferences = {
+interface PreviewPanelPreferences {
   columnVisibility: ColumnVisibility;
   sortField: keyof TableRowData;
   sortDirection: 'asc' | 'desc';
   groupingConfig: string;
   activeTab: string;
   collapsedGroups: Set<string>;
-};
+}
 
-type PreviewPanelPreferencesDefaults = {
+interface PreviewPanelPreferencesDefaults {
   sortField: keyof TableRowData;
   sortDirection: 'asc' | 'desc';
   groupingConfig: string;
   activeTab: string;
-};
+}
 
 function loadStoredPreferences(): StoredPreferences | null {
   try {
@@ -183,14 +183,14 @@ function isQuotaExceeded(error: unknown): boolean {
   return error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED';
 }
 
-type PreviewPanelPreferencesSetters = {
+interface PreviewPanelPreferencesSetters {
   setColumnVisibility: Dispatch<SetStateAction<ColumnVisibility>>;
   setSortField: Dispatch<SetStateAction<keyof TableRowData>>;
   setSortDirection: Dispatch<SetStateAction<'asc' | 'desc'>>;
   setGroupingConfig: Dispatch<SetStateAction<string>>;
   setActiveTab: Dispatch<SetStateAction<string>>;
   setCollapsedGroups: Dispatch<SetStateAction<Set<string>>>;
-};
+}
 
 export function usePreviewPanelPreferences(
   defaults: PreviewPanelPreferencesDefaults

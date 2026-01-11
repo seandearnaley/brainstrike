@@ -32,7 +32,7 @@ const noopResult: QueueResult = {
   },
 };
 
-type MockQueueMetrics = {
+interface MockQueueMetrics {
   readonly active: number;
   readonly completed: number;
   readonly failed: number;
@@ -44,7 +44,7 @@ type MockQueueMetrics = {
   readonly latencyP50Ms: number | null;
   readonly latencyP95Ms: number | null;
   readonly windowErrorCount: number;
-};
+}
 
 const DEFAULT_QUEUE_METRICS: MockQueueMetrics = {
   active: 0,

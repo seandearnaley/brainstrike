@@ -14,10 +14,10 @@ export const DEFAULT_MAX_FILE_SIZE = 750 * 1024; // 750KB
 /**
  * File size configuration interface
  */
-export type FileSizeConfig = {
+export interface FileSizeConfig {
   /** Maximum file size in bytes for reading file content */
   maxFileSize: number;
-};
+}
 
 /**
  * Global file size configuration.

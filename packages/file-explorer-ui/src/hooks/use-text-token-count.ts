@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useOptionalTokenCacheContext } from '../token-cache-context';
 
-export type UseTextTokenCountOptions = {
+export interface UseTextTokenCountOptions {
   text: string;
   enabled?: boolean;
-};
+}
 
-export type UseTextTokenCountReturn = {
+export interface UseTextTokenCountReturn {
   tokenCount: number;
   loading: boolean;
-};
+}
 
 export function useTextTokenCount({
   text,

@@ -204,7 +204,7 @@ function WorkerControls({
   );
 }
 
-type BackfillButtonProps = {
+interface BackfillButtonProps {
   activeId: string | null;
   activeLabel?: string | null;
   hasDb: boolean;
@@ -217,7 +217,7 @@ type BackfillButtonProps = {
   willAutoStartWorker?: boolean;
   /** Whether worker is currently starting */
   startingWorker?: boolean;
-};
+}
 
 /** Truncates label to 24 chars with ellipsis */
 export function truncateLabel(label: string): string {
@@ -525,9 +525,9 @@ export function formatRelativeTimeFromNow(input: string | null): string {
 // Note: Collection selection is now managed by the useEmbeddingSetSelection hook
 // and the EmbeddingSetSelector component from ./vector-status/embedding-set-selector.tsx
 
-type VectorStatusWithDbProps = {
+interface VectorStatusWithDbProps {
   queueAdapter?: QueueAdapter | null;
-};
+}
 
 export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbProps = {}) {
   const queueEnabled = isQueueEnabled();
@@ -550,9 +550,9 @@ export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbPr
   );
 }
 
-type VectorStatusWithDbContentProps = {
+interface VectorStatusWithDbContentProps {
   queueEnabled: boolean;
-};
+}
 
 function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentProps) {
   const vectorEnabled = useVectorEnabled();

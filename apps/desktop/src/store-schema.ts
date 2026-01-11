@@ -1,20 +1,20 @@
 import type { PanelPersistenceState } from '@brainstrike/ui';
 import type { LoggingPreferences } from '@brainstrike/utils';
 
-export type DesktopWindowBounds = {
+export interface DesktopWindowBounds {
   width: number;
   height: number;
   x?: number;
   y?: number;
-};
+}
 
-export type DesktopWindowState = {
+export interface DesktopWindowState {
   bounds: DesktopWindowBounds;
   isFullScreen: boolean;
   isMaximized: boolean;
-};
+}
 
-export type DesktopSettingsStoreSchema = {
+export interface DesktopSettingsStoreSchema {
   panelLayout?: {
     v1: PanelPersistenceState;
   };
@@ -24,4 +24,4 @@ export type DesktopSettingsStoreSchema = {
   windowState?: {
     v1: DesktopWindowState;
   };
-};
+}

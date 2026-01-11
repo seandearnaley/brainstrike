@@ -1,7 +1,7 @@
 /**
  * Configuration for the embedding service
  */
-export type EmbeddingConfig = {
+export interface EmbeddingConfig {
   /** Model ID for the embedding model */
   modelId: string;
   /** Device preference (no automatic fallbacks) */
@@ -12,12 +12,12 @@ export type EmbeddingConfig = {
   revision?: string;
   /** Cache directory for models */
   cacheDir?: string;
-};
+}
 
 /**
  * Model registry entry
  */
-export type ModelConfig = {
+export interface ModelConfig {
   /** Hugging Face model ID or API model identifier */
   id: string;
   /** Display name for UI */
@@ -40,12 +40,12 @@ export type ModelConfig = {
   supportedDimensions?: number[] | string;
   /** Price per 1M tokens (for hosted models) */
   pricePer1MTokens?: number;
-};
+}
 
 /**
  * Hosted model configuration (subset of ModelConfig for API-based models)
  */
-export type HostedModelConfig = {
+export interface HostedModelConfig {
   /** Display name for UI */
   name: string;
   /** Embedding dimensions */
@@ -60,12 +60,12 @@ export type HostedModelConfig = {
   pricePer1MTokens: number;
   /** Supported dimension ranges for flexible models */
   supportedDimensions?: string;
-};
+}
 
 /**
  * Model registry structure
  */
-export type ModelRegistry = {
+export interface ModelRegistry {
   /** Default model key */
   default: string;
   /** Available local models */
@@ -77,12 +77,12 @@ export type ModelRegistry = {
     cohere?: Record<string, HostedModelConfig>;
     google?: Record<string, HostedModelConfig>;
   };
-};
+}
 
 /**
  * Result of embedding generation
  */
-export type EmbeddingResult = {
+export interface EmbeddingResult {
   /** The generated embedding vector */
   embedding: number[];
   /** Dimensions of the embedding */
@@ -93,19 +93,19 @@ export type EmbeddingResult = {
   usage?: {
     totalTokens?: number;
   };
-};
+}
 
 /**
  * Result of similarity calculation between two embeddings
  */
-export type SimilarityResult = {
+export interface SimilarityResult {
   /** Similarity score (0-1) */
   similarity: number;
   /** Distance score (0-2) */
   distance: number;
   /** Method used for calculation */
   method: 'cosine' | 'euclidean' | 'manhattan' | 'l2' | 'dot_product';
-};
+}
 
 /**
  * Status of the embedding service
@@ -122,7 +122,7 @@ export type EmbeddingStatus =
 /**
  * Progress information during model download
  */
-export type EmbeddingProgress = {
+export interface EmbeddingProgress {
   /** Current stage */
   stage: 'initializing' | 'downloading' | 'processing' | 'ready' | 'error';
   /** Progress percentage (0-100) */
@@ -135,12 +135,12 @@ export type EmbeddingProgress = {
   loaded?: number;
   /** Total bytes */
   total?: number;
-};
+}
 
 /**
  * Main embedding service interface
  */
-export type EmbeddingService = {
+export interface EmbeddingService {
   /** Initialize the service with given configuration */
   initialize(
     config?: Partial<EmbeddingConfig>,
@@ -170,7 +170,7 @@ export type EmbeddingService = {
 
   /** Dispose of resources */
   dispose(): Promise<void>;
-};
+}
 
 /**
  * Error thrown by embedding service

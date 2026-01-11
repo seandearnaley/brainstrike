@@ -7,7 +7,6 @@ import type { TriggerRenderProps } from './types';
 import { getProviderColor } from './utils/provider-colors';
 import { getProviderIcon } from './utils/provider-icons';
 
-// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to Button
 export const ModelPickerTrigger = React.forwardRef<
   HTMLButtonElement,
   TriggerRenderProps & React.ButtonHTMLAttributes<HTMLButtonElement>

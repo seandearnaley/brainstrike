@@ -4,12 +4,12 @@ import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('ToolPersistence');
 
-export type ToolPreferences = {
+export interface ToolPreferences {
   enabledTools: string[];
   disabledTools: string[];
   version: number;
   lastUpdated: number;
-};
+}
 
 /**
  * Load tool preferences from disk

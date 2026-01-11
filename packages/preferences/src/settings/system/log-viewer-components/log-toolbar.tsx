@@ -18,7 +18,7 @@ import { Download, RefreshCw, Search, Settings2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { LogRecordRow } from './log-utils';
 
-type LogToolbarProps = {
+interface LogToolbarProps {
   logLevelFilter: LogLevel;
   onLevelChange: (value: LogLevel) => void;
   logLevelItems: ReactNode;
@@ -45,7 +45,7 @@ type LogToolbarProps = {
   onExport: () => void;
   onRefresh: () => void;
   canRefresh: boolean;
-};
+}
 
 export function LogToolbar({
   logLevelFilter,

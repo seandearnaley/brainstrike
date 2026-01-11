@@ -7,7 +7,7 @@ import { TokenMeter } from './token-meter';
 import { TokenSummaryBar } from './token-summary-bar';
 import type { TokenCountingState } from './use-token-counting';
 
-export type TokenUsageMetrics = {
+export interface TokenUsageMetrics {
   budget: number;
   selectedTokens: number;
   includedTreeTokens: number;
@@ -18,9 +18,9 @@ export type TokenUsageMetrics = {
   treeLabel: string;
   remainingLabel: string;
   isOverBudget: boolean;
-};
+}
 
-type PreviewPanelFooterProps = {
+interface PreviewPanelFooterProps {
   totalFiles: number;
   tokenCounting: TokenCountingState;
   tokenUsage: TokenUsageMetrics;
@@ -35,7 +35,7 @@ type PreviewPanelFooterProps = {
   onCopyReport?: (() => void) | undefined;
   folderSummaryThreshold?: number;
   onFolderSummaryThresholdChange?: ((threshold: number) => void) | undefined;
-};
+}
 
 export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
   function PreviewPanelFooterComponent(props) {

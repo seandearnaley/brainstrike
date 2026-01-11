@@ -120,13 +120,13 @@ test.describe('File Explorer', () => {
   });
 
   test.describe('filtering', () => {
-    type FilterScenario = {
+    interface FilterScenario {
       title: string;
       query: string;
       expectedVisible: string[];
       expectedHidden: string[];
       before?: (ctx: { page: Page; explorer: FileExplorerPage }) => Promise<void>;
-    };
+    }
 
     const tree: FileTree = {
       'Button.tsx': null,
@@ -221,7 +221,7 @@ test.describe('File Explorer', () => {
   });
 
   test.describe('settings persistence', () => {
-    type SettingsScenario = {
+    interface SettingsScenario {
       name: string;
       tree: FileTree;
       options?: Partial<ExplorerBootstrapOptions>;
@@ -230,7 +230,7 @@ test.describe('File Explorer', () => {
         explorer: FileExplorerPage;
         openDialog: () => Promise<Locator>;
       }) => Promise<void>;
-    };
+    }
 
     const settingsScenarios: SettingsScenario[] = [
       {

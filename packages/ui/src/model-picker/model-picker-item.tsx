@@ -4,12 +4,12 @@ import { cn } from '../lib/utils';
 import type { ModelPickerModel } from './types';
 import { getProviderColor } from './utils/provider-colors';
 
-type ModelPickerItemProps = {
+interface ModelPickerItemProps {
   model: ModelPickerModel;
   isSelected: boolean;
   onSelect: (value: string) => void;
   theme?: 'light' | 'dark';
-};
+}
 
 export function ModelPickerItem({
   model,

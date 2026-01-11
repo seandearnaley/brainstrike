@@ -1,9 +1,9 @@
 import type { AgentMessage } from '../index';
 
-export type Conversation = {
+export interface Conversation {
   id: string;
   messages: AgentMessage[];
-};
+}
 
 export class InMemoryMemoryStore {
   private readonly conversations = new Map<string, Conversation>();

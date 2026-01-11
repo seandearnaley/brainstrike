@@ -10,7 +10,10 @@ import {
 } from '../util';
 
 describe('ProgressEmitter', () => {
-  type TestEvent = { message: string; value: number };
+  interface TestEvent {
+    message: string;
+    value: number;
+  }
   let emitter: ProgressEmitter<TestEvent>;
 
   beforeEach(() => {

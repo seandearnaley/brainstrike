@@ -1,7 +1,7 @@
 # lefthook.yml
 pre-commit:
   jobs:
-    - run: pnpm exec ultracite fix
+    - run: pnpm dlx ultracite fix
       glob: 
         - "*.js"
         - "*.jsx"

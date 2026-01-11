@@ -3,17 +3,17 @@ import { getFolderColor } from '@brainstrike/utils';
 import { ArrowDown, ArrowUp, Folder } from 'lucide-react';
 import { memo } from 'react';
 
-export type FolderHeaderItem = {
+export interface FolderHeaderItem {
   folderId: string;
   fileCount: number;
   totalTokens: number;
-};
+}
 
-export type FolderHeaderRowProps = {
+export interface FolderHeaderRowProps {
   item: FolderHeaderItem;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
-};
+}
 
 export const FolderHeaderRow = memo<FolderHeaderRowProps>(function FolderHeaderRow({
   item,

@@ -1,13 +1,13 @@
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import type { TableRowData } from './utils/grouping-configs';
 
-export type ColumnConfig = {
+export interface ColumnConfig {
   id: keyof ColumnVisibility;
   label: string;
   accessor: keyof TableRowData | 'checkbox';
   canHide: boolean;
   defaultVisible: boolean;
-};
+}
 
 export const COLUMN_CONFIGS: ColumnConfig[] = [
   {

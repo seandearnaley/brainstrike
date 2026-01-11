@@ -26,13 +26,13 @@ type EmbeddingSetWithStats = EmbeddingSet & {
   lastEmbeddedAt: string | null;
 };
 
-type ManageEmbeddingSetsDialogProps = {
+interface ManageEmbeddingSetsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   db: PGlite | null;
   repository: IEmbeddingSetsRepository | null;
   onSetSelected?: (setId: string) => void;
-};
+}
 
 // Helper function to map database row to EmbeddingSetWithStats
 function mapRowToSet(row: {

@@ -14,9 +14,9 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
-type UseSelectionManagerProps = {
+interface UseSelectionManagerProps {
   onSelectionLimitExceeded: () => void;
-};
+}
 
 export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionManagerProps) => {
   const store = useFileExplorerStoreContext();

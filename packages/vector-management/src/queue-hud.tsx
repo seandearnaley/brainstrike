@@ -23,35 +23,35 @@ import {
   useState,
 } from 'react';
 
-type QueueStats = {
+interface QueueStats {
   queue: string;
   queued: number;
   running: number;
   failed: number;
   succeeded: number;
   nextRunnableAt?: string | null;
-};
+}
 
 type QueueHudVariant = 'card' | 'status-bar';
 
-type QueueHudProps = {
+interface QueueHudProps {
   variant?: QueueHudVariant;
-};
+}
 
-type QueueMetrics = {
+interface QueueMetrics {
   queued: number;
   running: number;
   failed: number;
   succeeded: number;
   nextRunnableAt?: string | null;
-};
+}
 
-type QueueHudViewProps = {
+interface QueueHudViewProps {
   metrics: QueueMetrics;
   retryDisabled: boolean;
   retryLabel: string;
   onRetry: () => Promise<void>;
-};
+}
 
 type ToastFn = ReturnType<typeof useToast>['toast'];
 

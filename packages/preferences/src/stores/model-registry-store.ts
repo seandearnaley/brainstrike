@@ -6,15 +6,15 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 const logger = createLogger('ModelRegistryStore');
 let registryLoadPromise: Promise<void> | null = null;
 
-export type DbProvider = {
+export interface DbProvider {
   id: string;
   name: string;
   icon: string | null;
   isEnabled: boolean;
   sortOrder: number;
-};
+}
 
-export type DbModel = {
+export interface DbModel {
   id: string;
   providerId: string;
   name: string;
@@ -30,9 +30,9 @@ export type DbModel = {
   };
   parameters: Record<string, unknown> | null;
   sortOrder: number;
-};
+}
 
-type ModelRegistryState = {
+interface ModelRegistryState {
   providers: DbProvider[];
   models: DbModel[];
   isLoading: boolean;
@@ -52,10 +52,10 @@ type ModelRegistryState = {
   setDownloadProgress: (modelId: string, progress: number) => void;
   setDownloading: (modelId: string, isDownloading: boolean) => void;
   downloadedModels: Record<string, boolean>;
-};
+}
 
 // Raw DB types
-type RawProvider = {
+interface RawProvider {
   id: string;
   name: string;
   icon: string | null;
@@ -63,9 +63,9 @@ type RawProvider = {
   is_enabled: number | boolean;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   sort_order: number;
-};
+}
 
-type RawModel = {
+interface RawModel {
   id: string;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   provider_id: string;
@@ -81,11 +81,11 @@ type RawModel = {
   parameters: string | object | null;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   sort_order: number;
-};
+}
 
-type FileSystemAccess = {
+interface FileSystemAccess {
   exists: (path: string) => Promise<boolean>;
-};
+}
 
 /**
  * Get the ONNX model file to check for in cache based on model type.

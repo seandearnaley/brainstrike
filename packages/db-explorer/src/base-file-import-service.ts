@@ -17,13 +17,13 @@ import type {
   FileSystemPort,
 } from './file-import/file-import-types';
 
-type UseFileImportServiceOptions = {
+interface UseFileImportServiceOptions {
   onProgress?: (progress: ImportProgress) => void;
   onComplete?: (results: FileImportResult[]) => void;
   onError?: (error: Error) => void;
-};
+}
 
-type FileImportServiceReturn = {
+interface FileImportServiceReturn {
   importFiles: (
     selectedFilePaths: Set<string>,
     fileTree: IFileNode[],
@@ -32,7 +32,7 @@ type FileImportServiceReturn = {
   ) => Promise<void>;
   isImporting: boolean;
   progress: ImportProgress | null;
-};
+}
 
 function createFileSystemPort(adapter: FileSystemAdapter | null): FileSystemPort | null {
   if (!adapter) {

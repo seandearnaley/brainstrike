@@ -5,11 +5,11 @@ const logger = createLogger('SafeStorage');
 /**
  * Error details for storage operations
  */
-export type StorageError = {
+export interface StorageError {
   operation: 'get' | 'set' | 'remove' | 'clear' | 'key';
   key: string;
   error: unknown;
-};
+}
 
 /**
  * Optional callback for handling storage errors

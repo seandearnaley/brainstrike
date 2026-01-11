@@ -2,7 +2,6 @@ import * as React from 'react';
 
 import { cn } from './lib/utils';
 
-// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to table elements
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
     <div className="relative w-full overflow-auto">
@@ -12,7 +11,6 @@ const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableE
 );
 Table.displayName = 'Table';
 
-// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to table elements
 const TableHeader = React.forwardRef<
   HTMLTableSectionElement,
   React.HTMLAttributes<HTMLTableSectionElement>
@@ -21,7 +19,6 @@ const TableHeader = React.forwardRef<
 ));
 TableHeader.displayName = 'TableHeader';
 
-// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to table elements
 const TableBody = React.forwardRef<
   HTMLTableSectionElement,
   React.HTMLAttributes<HTMLTableSectionElement>
@@ -30,7 +27,6 @@ const TableBody = React.forwardRef<
 ));
 TableBody.displayName = 'TableBody';
 
-// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to table elements
 const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTMLTableRowElement>>(
   ({ className, ...props }, ref) => (
     <tr
@@ -45,7 +41,6 @@ const TableRow = React.forwardRef<HTMLTableRowElement, React.HTMLAttributes<HTML
 );
 TableRow.displayName = 'TableRow';
 
-// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to table elements
 const TableHead = React.forwardRef<
   HTMLTableCellElement,
   React.ThHTMLAttributes<HTMLTableCellElement>
@@ -61,7 +56,6 @@ const TableHead = React.forwardRef<
 ));
 TableHead.displayName = 'TableHead';
 
-// biome-ignore lint/nursery/noReactForwardRef: forwardRef required for ref forwarding to table elements
 const TableCell = React.forwardRef<
   HTMLTableCellElement,
   React.TdHTMLAttributes<HTMLTableCellElement>

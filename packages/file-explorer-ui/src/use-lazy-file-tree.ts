@@ -214,14 +214,14 @@ function handleLoadRootError(
   }
 }
 
-export type LazyFileTreeState = {
+export interface LazyFileTreeState {
   fileTree: IFileNode[];
   isInitialLoading: boolean;
   error: Error | null;
   loadingPaths: Set<string>;
-};
+}
 
-export type UseLazyFileTreeReturn = {
+export interface UseLazyFileTreeReturn {
   /** Current file tree (lazily loaded) */
   fileTree: IFileNode[];
   /** Whether initial load or any directory is loading */
@@ -259,7 +259,7 @@ export type UseLazyFileTreeReturn = {
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void
   ) => Promise<void>;
-};
+}
 
 /**
  * Hook for managing lazily-loaded file tree state.

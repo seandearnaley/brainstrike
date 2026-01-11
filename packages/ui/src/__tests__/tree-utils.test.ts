@@ -22,9 +22,9 @@ import {
 import type { FlattenedRow, TreeNode } from '../tree-table/types';
 
 // Test data types
-type TestData = {
+interface TestData {
   name: string;
-};
+}
 
 // Helper to create test nodes
 function createTestNode(

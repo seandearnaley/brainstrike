@@ -22,9 +22,9 @@ import type React from 'react';
 import { useEffect } from 'react';
 import { useVectorStatusUIStore } from '../stores/vector-status-ui-store';
 
-export type DbSchemaVerifierProps = {
+export interface DbSchemaVerifierProps {
   children: React.ReactNode;
-};
+}
 
 export function DbSchemaVerifier({ children }: DbSchemaVerifierProps): React.ReactElement {
   const db = usePGliteDatabase();

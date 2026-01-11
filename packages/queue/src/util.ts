@@ -45,12 +45,12 @@ export const DEFAULT_WORKER_READY_TIMEOUT_MS = 30_000;
 /**
  * Options for configuring worker ready waiting behavior.
  */
-export type WorkerReadyWaiterOptions = {
+export interface WorkerReadyWaiterOptions {
   /** Default timeout in ms if none provided to waitForReady (default: 30000) */
   readonly defaultTimeoutMs?: number;
   /** Polling interval in ms for checking ready state (default: 50) */
   readonly pollIntervalMs?: number;
-};
+}
 
 /**
  * Creates a waitForReady function for a worker client.

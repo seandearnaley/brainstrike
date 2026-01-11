@@ -21,7 +21,7 @@ export type DirectoryLoadState = 'unloaded' | 'loading' | 'loaded' | 'error';
 /**
  * Represents a file or directory in the file system
  */
-export type IFileNode = {
+export interface IFileNode {
   name: string;
   path: string;
   type: FileNodeType;
@@ -46,30 +46,30 @@ export type IFileNode = {
   loadState?: DirectoryLoadState;
   /** Error message when loadState is 'error' */
   loadError?: string;
-};
+}
 
 /**
  * Options for file filtering
  */
-export type FileFilterOptions = {
+export interface FileFilterOptions {
   includeFilters: string[];
   excludeFilters: string[];
   useRegex: boolean;
-};
+}
 
 /**
  * Result of a file tree operation
  */
-export type FileTreeResult = {
+export interface FileTreeResult {
   nodes: IFileNode[];
   isComplete: boolean;
   error?: Error;
-};
+}
 
 /**
  * Depth-based progress tracking for tree loading
  */
-export type DepthProgress = {
+export interface DepthProgress {
   /** Deepest depth currently being processed */
   currentDepth: number;
   /** Maximum depth encountered so far */
@@ -82,12 +82,12 @@ export type DepthProgress = {
   directoriesRemaining: number;
   /** Total files discovered so far */
   filesFound: number;
-};
+}
 
 /**
  * Metadata emitted with each streaming tree snapshot
  */
-export type StreamMeta = {
+export interface StreamMeta {
   /** Whether this is the final snapshot (tree complete) */
   isComplete: boolean;
   /** Current depth-based progress */
@@ -96,7 +96,7 @@ export type StreamMeta = {
   totalNodesDiscovered: number;
   /** Milliseconds elapsed since loading started */
   elapsedMs: number;
-};
+}
 
 /**
  * File System API types - Global augmentations need careful handling in packages.
@@ -105,39 +105,37 @@ export type StreamMeta = {
  * For now, including them here, but watch for TS errors.
  */
 declare global {
-  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     showDirectoryPicker(): Promise<FileSystemDirectoryHandle>;
   }
 
-  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface FileSystemDirectoryHandle {
     entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
   }
 }
 
 // Cross-package compatible handle types used by stores and UI
-export type DirectoryHandle = {
+export interface DirectoryHandle {
   path: string;
   name: string;
   kind: 'directory';
   platform: 'web' | 'electron';
   _internal?: unknown;
-};
+}
 
-export type FileHandle = {
+export interface FileHandle {
   path: string;
   name: string;
   kind: 'file';
   size?: number;
   platform: 'web' | 'electron';
   _internal?: unknown;
-};
+}
 
 /**
  * Options that influence how adapters enumerate directories.
  */
-export type DirectoryReadOptions = {
+export interface DirectoryReadOptions {
   /**
    * When false, adapters may skip expensive metadata calls (size/lastModified).
    * Defaults to true for backward compatibility.
@@ -148,7 +146,7 @@ export type DirectoryReadOptions = {
    * Values <= 0 or non-finite are treated as "unlimited".
    */
   concurrency?: number;
-};
+}
 
 /**
  * Options for streaming directory enumeration (BST-147).
@@ -179,16 +177,16 @@ export type DirectoryStreamCallback = (
   meta: { done: boolean; total: number }
 ) => void;
 
-export type FileSystemChange = {
+export interface FileSystemChange {
   type: 'added' | 'removed' | 'modified';
   path: string;
   kind: 'file' | 'directory';
-};
+}
 
 /**
  * Platform-agnostic adapter contract implemented by web/electron shims.
  */
-export type FileSystemAdapter = {
+export interface FileSystemAdapter {
   requestDirectoryAccess(): Promise<DirectoryHandle>;
   readDirectory(handle: DirectoryHandle, options?: DirectoryReadOptions): Promise<IFileNode[]>;
   readFile(handle: FileHandle): Promise<string>;
@@ -227,4 +225,4 @@ export type FileSystemAdapter = {
     onBatch: DirectoryStreamCallback,
     options?: StreamingDirectoryReadOptions
   ): Promise<void>;
-};
+}

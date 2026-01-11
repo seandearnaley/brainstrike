@@ -2,11 +2,11 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { McpBanner } from '../mcp-banner';
 
-type McpConfig = {
+interface McpConfig {
   path: string;
   exists: boolean;
   servers?: Array<{ name: string; transport: 'stdio' | 'sse' }>;
-};
+}
 
 type McpConfigResult = McpConfig | undefined;
 

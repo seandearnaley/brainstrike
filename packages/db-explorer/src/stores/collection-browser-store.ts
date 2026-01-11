@@ -15,7 +15,7 @@ export type { CollectionSortDirection, CollectionSortKey, CollectionSortState, S
 /**
  * Persisted data for the CollectionBrowserView
  */
-type CollectionBrowserData = {
+interface CollectionBrowserData {
   /** Expanded node IDs in the tree */
   expandedIds: string[];
   /** Currently selected node ID */
@@ -53,12 +53,12 @@ type CollectionBrowserData = {
   searchConfigExpanded: boolean;
   /** Whether the filter bar is visible */
   isFilterVisible: boolean;
-};
+}
 
 /**
  * Actions for the CollectionBrowserView store
  */
-type CollectionBrowserActions = {
+interface CollectionBrowserActions {
   /** Set expanded node IDs */
   setExpandedIds: (ids: string[]) => void;
   /** Toggle a single node's expansion */
@@ -108,7 +108,7 @@ type CollectionBrowserActions = {
   setIsFilterVisible: (visible: boolean) => void;
   /** Reset all state to defaults */
   reset: () => void;
-};
+}
 
 export type CollectionBrowserStore = CollectionBrowserData & CollectionBrowserActions;
 

@@ -7,14 +7,13 @@
  * - { message: 'embedding chunk 5/100' }
  */
 
-export type NormalizedProgress = {
+export interface NormalizedProgress {
   step?: string;
   percent?: number; // 0..100
   note?: string;
   raw?: unknown;
-};
+}
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: normalization accepts diverse shapes
 export function normalizeProgressPayload(input: unknown): NormalizedProgress {
   const out: NormalizedProgress = { raw: input };
   if (!input || typeof input !== 'object') {

@@ -3,12 +3,12 @@ import type { ResolvedTheme } from '../hooks/use-resolved-theme';
 /**
  * Color configuration for collection items.
  */
-export type CollectionColorResult = {
+export interface CollectionColorResult {
   /** Primary color for the collection (border, accent, badge) */
   primary: string;
   /** Background color (subtle tint for hover/selected states) */
   background: string;
-};
+}
 
 /**
  * Sanitize and validate HSL color values to prevent injection.

@@ -9,14 +9,14 @@ import {
   DialogTitle,
 } from '@brainstrike/ui';
 
-type ClearDatabaseDialogProps = {
+interface ClearDatabaseDialogProps {
   records: FileRecord[];
   chunks: FileChunk[];
   clearing: boolean;
   showClearDialog: boolean;
   setShowClearDialog: (show: boolean) => void;
   onClear: () => Promise<void>;
-};
+}
 
 /**
  * Dialog-only component for confirming database clear.

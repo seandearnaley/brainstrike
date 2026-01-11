@@ -34,14 +34,14 @@ const LOG_LEVEL_OPTIONS: LogLevel[] = [
   LogLevel.SILENT,
 ];
 
-type FileCapabilities = {
+interface FileCapabilities {
   fileLoggingSupported: boolean;
   canSelectDestination: boolean;
   reason?: string | null;
   defaultDestination?: string | null;
-};
+}
 
-export type LoggingSettingsSectionProps = {
+export interface LoggingSettingsSectionProps {
   runtime: 'browser' | 'electron-renderer';
   fileCapabilities?: FileCapabilities;
   busy?: boolean;
@@ -51,7 +51,7 @@ export type LoggingSettingsSectionProps = {
   onSelectLogDestination?: () => Promise<string | null>;
   onOpenLogDestination?: (target: string | null) => Promise<boolean>;
   onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
-};
+}
 
 function formatLogLevel(level: LogLevel): string {
   return level.charAt(0).toUpperCase() + level.slice(1).toLowerCase();

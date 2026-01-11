@@ -1,7 +1,7 @@
 import type React from 'react';
 import { cn } from '../lib/utils';
 
-export type StatusBarProps = {
+export interface StatusBarProps {
   /** Content to display on the left side of the status bar */
   leftContent?: React.ReactNode;
   /** Content to display in the center of the status bar */
@@ -10,7 +10,7 @@ export type StatusBarProps = {
   rightContent?: React.ReactNode;
   /** Additional CSS classes */
   className?: string;
-};
+}
 
 /**
  * A VS Code-style status bar that displays at the bottom of the application.

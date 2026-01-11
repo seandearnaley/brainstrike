@@ -1,11 +1,11 @@
 import { useCallback } from 'react';
 import type { GroupedData } from '../utils/grouping-configs';
 
-type UseGroupSelectionOptions<T> = {
+interface UseGroupSelectionOptions<T> {
   selections: Set<string>;
   onSelectionChange: (selections: Set<string>) => void;
   getItemKey: (item: T) => string;
-};
+}
 
 export function useGroupSelection<T>({
   selections,

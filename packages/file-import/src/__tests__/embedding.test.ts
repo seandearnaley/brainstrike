@@ -4,16 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { initializeEmbeddingService, processChunkEmbedding, processEmbeddings } from '../embedding';
 import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
 
-type MockEmbeddingService = {
+interface MockEmbeddingService {
   getStatus: Mock<() => string>;
   initializeWithModel: Mock<(model: string) => Promise<void>>;
   generateEmbedding: Mock<(text: string) => Promise<{ embedding: Float32Array }>>;
   generateDocEmbedding?: Mock<(text: string) => Promise<{ embedding: Float32Array }>>;
-};
+}
 
-type MockChunkRepository = {
+interface MockChunkRepository {
   update: Mock<(data: Record<string, unknown>) => Promise<void>>;
-};
+}
 
 // Type for progress update callback
 type ProgressUpdater = (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null;

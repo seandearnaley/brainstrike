@@ -6,10 +6,21 @@
     "declaration": true,
     "declarationMap": true,
     "skipLibCheck": true,
-    "lib": ["ES2020", "WebWorker"],
-    "types": ["node"],
+    "lib": [
+      "ES2020",
+      "WebWorker"
+    ],
+    "types": [
+      "node"
+    ],
     "strictNullChecks": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "**/*.test.ts"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "dist",
+    "node_modules",
+    "**/*.test.ts"
+  ]
 }

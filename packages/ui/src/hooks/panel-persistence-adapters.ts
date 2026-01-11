@@ -1,11 +1,11 @@
 import { getElectronAPI } from '../lib/electron-utils';
 import type { PanelPersistenceState } from '../types/panel';
 
-export type PanelPersistenceAdapter = {
+export interface PanelPersistenceAdapter {
   load: () => Promise<PanelPersistenceState | null>;
   save: (state: PanelPersistenceState) => Promise<void>;
   flush?: () => Promise<void>;
-};
+}
 
 const STORAGE_KEY = 'panelLayout.v1';
 

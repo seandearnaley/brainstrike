@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { ActionButtons } from './action-buttons';
 
-type Props = {
+interface Props {
   displayedFiles: readonly string[];
   selectedFiles: readonly string[];
   maxSelectionCount: number;
@@ -9,7 +9,7 @@ type Props = {
   setSelectedFiles: (next: readonly string[]) => void;
   encodeFileSelection: (folderId: string, path: string) => string;
   onSelectionLimitExceeded: () => void | Promise<void>;
-};
+}
 
 // Reuse Set instances to reduce GC pressure for large arrays
 function useStableSet(source: readonly string[]) {

@@ -12,13 +12,13 @@ import type { FileMetadata } from './types';
 /**
  * xxHash WASM module type
  */
-type XXHashModule = {
+interface XXHashModule {
   h64: (input: string) => bigint;
   create64: () => {
     update: (input: string) => void;
     digest: () => bigint;
   };
-};
+}
 
 /**
  * Convert bigint hash to hex string

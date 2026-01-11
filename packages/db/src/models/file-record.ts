@@ -1,4 +1,4 @@
-export type FileRecord = {
+export interface FileRecord {
   id: string; // UUID
   name: string;
   path: string;
@@ -14,26 +14,26 @@ export type FileRecord = {
   chunksCount?: number; // Number of chunks created for this file
   chunkingStrategy?: 'sentence' | 'token' | 'recursive'; // Strategy used for chunking
   embeddingSetId?: string; // Collection this file belongs to (set at import time)
-};
+}
 
-export type FileImportRequest = {
+export interface FileImportRequest {
   path: string;
   name: string;
   content: string;
   size: number;
   embeddingSetId?: string; // Collection this file belongs to (set at import time)
-};
+}
 
-export type FileImportResult = {
+export interface FileImportResult {
   id: string;
   imported: boolean;
   existed: boolean;
   error?: string;
-};
+}
 
-export type ImportProgress = {
+export interface ImportProgress {
   total: number;
   completed: number;
   current?: string;
   errors: Array<{ file: string; error: string }>;
-};
+}

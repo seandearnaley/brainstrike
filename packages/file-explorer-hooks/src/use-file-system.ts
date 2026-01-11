@@ -7,14 +7,14 @@ import { isUserCancellation, mapFileSystemError } from './file-system-error-help
 
 const logger = createLogger('FileSystemHook');
 
-type UseFileSystemParams = {
+interface UseFileSystemParams {
   setCurrentFolderId: FileExplorerState['setCurrentFolderId'];
-};
+}
 
-type FileSystemState = {
+interface FileSystemState {
   rootDirectoryHandle: DirectoryHandle | null;
   isAccessLoading: boolean;
-};
+}
 
 type FileSystemAction =
   | { type: 'setRoot'; handle: DirectoryHandle | null }

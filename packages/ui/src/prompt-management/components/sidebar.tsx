@@ -5,13 +5,13 @@ import { cn } from '../../lib/utils';
 import { ScrollArea } from '../../scroll-area';
 import type { Category, PromptFilter } from '../types';
 
-type SidebarProps = {
+interface SidebarProps {
   categories: Category[];
   filter: PromptFilter;
   onFilterChange: (updates: Partial<PromptFilter>) => void;
   onAddPrompt: () => void;
   className?: string;
-};
+}
 
 export function Sidebar({
   categories,

@@ -1,52 +1,52 @@
 declare module '@brainstrike/agent' {
-  export type AgentMessagePartText = {
+  export interface AgentMessagePartText {
     type: 'text';
     text: string;
-  };
-  export type AgentMessagePartTool = {
+  }
+  export interface AgentMessagePartTool {
     type: `tool-${string}`;
     state: 'input-available' | 'input-streaming' | 'output-available' | 'output-error';
     input?: unknown;
     output?: unknown;
     errorText?: string;
-  };
+  }
   export type AgentMessagePart = AgentMessagePartText | AgentMessagePartTool;
 
-  export type AgentMessage = {
+  export interface AgentMessage {
     id: string;
     role: 'user' | 'assistant' | 'system';
     parts: AgentMessagePart[];
-  };
+  }
 
-  export type RuntimeData = {
+  export interface RuntimeData {
     projectId?: string;
     provider?: string;
     model?: string;
     mcpEnabled?: boolean;
     mcpConfig?: unknown;
     mastraTools?: unknown;
-  };
+  }
 
-  export type StreamChunkText = {
+  export interface StreamChunkText {
     type: 'text-delta';
     value: string;
-  };
-  export type StreamChunkTool = {
+  }
+  export interface StreamChunkTool {
     type: 'tool-event';
     name: string;
     status: 'start' | 'progress' | 'success' | 'error';
     payload?: unknown;
-  };
-  export type StreamChunkFinish = {
+  }
+  export interface StreamChunkFinish {
     type: 'finish';
     usage: { promptTokens: number; completionTokens: number };
-  };
-  export type StreamChunkMessageFinish = {
+  }
+  export interface StreamChunkMessageFinish {
     type: 'message-finish';
     finishReason: 'stop';
     usage: { promptTokens: number; completionTokens: number };
     path: readonly number[];
-  };
+  }
   export type StreamChunk =
     | StreamChunkText
     | StreamChunkTool

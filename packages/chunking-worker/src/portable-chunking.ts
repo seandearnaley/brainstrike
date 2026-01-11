@@ -9,14 +9,14 @@ import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
 import type { ChunkingRequestOptions, ChunkingStrategy, ChunkType, PortableChunk } from './shared';
 import { countTokensAccurate, countTokensHeuristic } from './token-utils-lite';
 
-export type PortableChunkingResult = {
+export interface PortableChunkingResult {
   chunks: PortableChunk[];
   totalTokens: number;
   avgTokensPerChunk: number;
   strategyUsed: ChunkingStrategy;
   skipped: boolean;
   skipReason?: string;
-};
+}
 
 // File patterns that should be skipped or handled differently
 const SKIP_CHUNKING_PATTERNS = [
@@ -163,7 +163,10 @@ function adjustChunkingForFileType(
     ? normalize(requestedOverlap, CHUNKING_CONFIG.defaultOverlap, 0)
     : Number.POSITIVE_INFINITY;
 
-  type ChunkAdjustment = { maxTokens: number; overlap: number };
+  interface ChunkAdjustment {
+    maxTokens: number;
+    overlap: number;
+  }
   const apply = (state: ChunkAdjustment, cap: Partial<ChunkAdjustment>) => {
     const next: ChunkAdjustment = { ...state };
     if (typeof cap.maxTokens === 'number') {
@@ -557,7 +560,10 @@ function splitByBlankLines(text: string): string[] {
   return parts;
 }
 
-type MarkdownBlock = { text: string; meta: { isFence?: boolean; heading?: string } };
+interface MarkdownBlock {
+  text: string;
+  meta: { isFence?: boolean; heading?: string };
+}
 
 /** Regex to match code fence opening/closing (backticks or tildes, optionally indented) */
 const CODE_FENCE_PATTERN = /^\s*(`{3,}|~{3,})/;
@@ -699,7 +705,10 @@ export async function chunkContent(
   const isCode = Boolean(codeLanguage);
   const isStructuredData = /\.(json|xml|yaml|yml|csv|tsv)$/.test(name);
 
-  type ChunkGroup = { pieces: string[]; type: ChunkType };
+  interface ChunkGroup {
+    pieces: string[];
+    type: ChunkType;
+  }
 
   const chunkTokens = async (): Promise<ChunkGroup[]> => {
     const tokenChunker = new RecursiveCharacterTextSplitter({
@@ -808,11 +817,11 @@ export async function chunkContent(
 
   // Process groups into portable chunks
   // PERF: Collect all pieces first, then batch hash generation
-  type PendingChunk = {
+  interface PendingChunk {
     content: string;
     tokenCount: number;
     chunkType: ChunkType;
-  };
+  }
   const pendingChunks: PendingChunk[] = [];
 
   // PERF: Reuse splitter instance for all oversized chunks

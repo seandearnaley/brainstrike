@@ -25,10 +25,10 @@ import {
 } from '../utils/embedding-models';
 import { getActiveEmbeddingSetId } from '../vector-preferences';
 
-type SearchEmbedder = {
+interface SearchEmbedder {
   embedQuery: (text: string) => Promise<{ embedding: number[] }>;
   dispose?: () => Promise<void> | void;
-};
+}
 
 export function useSearchFunctionality(
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null,

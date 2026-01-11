@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
 
-export type PageWrapperProps = {
+export interface PageWrapperProps {
   title: string;
   description?: string;
   children: ReactNode;
   className?: string;
-};
+}
 
 export function PageWrapper({ title, description, children, className = '' }: PageWrapperProps) {
   return (

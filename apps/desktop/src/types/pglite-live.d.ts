@@ -1,20 +1,20 @@
 declare module '@electric-sql/pglite/live' {
-  export type LiveQueryResults<T = Record<string, unknown>> = {
+  export interface LiveQueryResults<T = Record<string, unknown>> {
     rows: T[];
     fields?: Array<{ name: string; dataTypeID: number }>;
     totalCount?: number;
     offset?: number;
     limit?: number;
-  };
+  }
 
-  export type LiveQuery<T = Record<string, unknown>> = {
+  export interface LiveQuery<T = Record<string, unknown>> {
     initialResults: LiveQueryResults<T>;
     subscribe(callback: (results: LiveQueryResults<T>) => void): void;
     unsubscribe(callback?: (results: LiveQueryResults<T>) => void): Promise<void>;
     refresh(options?: { offset?: number; limit?: number }): Promise<void>;
-  };
+  }
 
-  export type LiveNamespace = {
+  export interface LiveNamespace {
     query<T = Record<string, unknown>>(options: {
       query: string;
       params?: unknown[] | null;
@@ -37,11 +37,11 @@ declare module '@electric-sql/pglite/live' {
       key: string,
       callback?: (results: LiveQueryResults<T>) => void
     ): Promise<LiveQuery<T>>;
-  };
+  }
 
-  export type PGliteWithLive = {
+  export interface PGliteWithLive {
     live: LiveNamespace;
-  };
+  }
 
   export const live: {
     name: string;

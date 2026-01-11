@@ -12,7 +12,7 @@ const DEFAULT_DISTANCE_METRIC: ProviderMetadata['distance'] = 'cosine';
 
 type FetchLike = typeof fetch;
 
-type CohereEmbeddingResponse = {
+interface CohereEmbeddingResponse {
   id?: string;
   // biome-ignore lint/style/useNamingConvention: Cohere API uses snake_case
   response_type?: string;
@@ -25,7 +25,7 @@ type CohereEmbeddingResponse = {
   };
   texts?: string[];
   error?: { message?: string };
-};
+}
 
 const COHERE_MODELS: Record<string, ModelConfig> = {
   'embed-english-v3.0': {
@@ -50,13 +50,13 @@ const COHERE_MODELS: Record<string, ModelConfig> = {
   },
 };
 
-export type CohereEmbeddingProviderOptions = {
+export interface CohereEmbeddingProviderOptions {
   readonly modelId: string;
   readonly inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
   readonly apiKey?: string;
   readonly fetch?: FetchLike;
   readonly endpoint?: string;
-};
+}
 
 export class CohereEmbeddingProvider implements IHostedEmbeddingProvider {
   readonly runtime = 'hosted' as const;

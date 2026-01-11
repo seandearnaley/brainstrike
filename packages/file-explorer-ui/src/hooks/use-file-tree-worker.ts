@@ -107,21 +107,21 @@ async function loadSingleDirectory(
   }
 }
 
-export type WorkerProgressUpdate = {
+export interface WorkerProgressUpdate {
   loaded: number;
   total: number;
-};
+}
 
-export type UseFileTreeWorkerOptions = {
+export interface UseFileTreeWorkerOptions {
   /** File system adapter for I/O operations */
   fileSystemAdapter: FileSystemAdapter | null;
   /** Callback when progress updates occur */
   onProgress?: (loaded: number, total: number) => void;
   /** Callback when errors occur */
   onError?: (error: Error) => void;
-};
+}
 
-export type UseFileTreeWorkerReturn = {
+export interface UseFileTreeWorkerReturn {
   /** Worker port for sending commands */
   portRef: React.RefObject<FileTreeWorkerPort | null>;
   /** Handle map for file system handles */
@@ -130,7 +130,7 @@ export type UseFileTreeWorkerReturn = {
   rootHandleRef: React.RefObject<DirectoryHandle | null>;
   /** Update the root handle ref */
   setRootHandle: (handle: DirectoryHandle | null) => void;
-};
+}
 
 /**
  * Hook for managing file tree Web Worker lifecycle.

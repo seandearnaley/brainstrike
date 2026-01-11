@@ -3,22 +3,22 @@ import type { ToolsInput } from '@mastra/core/agent';
 
 const logger = createLogger('ToolRegistry');
 
-export type McpToolMetadata = {
+export interface McpToolMetadata {
   id: string;
   serverName: string;
   description?: string;
   inputSchema?: unknown;
   enabled: boolean;
   discoveredAt: number;
-};
+}
 
-export type McpToolsByServer = {
+export interface McpToolsByServer {
   [serverName: string]: McpToolMetadata[];
-};
+}
 
-export type ToolFilterConfig = {
+export interface ToolFilterConfig {
   enabledTools?: string[];
-};
+}
 
 /**
  * Registry for tracking MCP tools discovered from servers.

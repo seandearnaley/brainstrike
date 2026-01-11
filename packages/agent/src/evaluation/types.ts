@@ -8,7 +8,7 @@
  * A single test case in the golden dataset.
  * Maps a query to expected relevant file/chunk patterns.
  */
-export type GoldenTestCase = {
+export interface GoldenTestCase {
   /** Unique identifier for the test case */
   id: string;
   /** The search query */
@@ -21,12 +21,12 @@ export type GoldenTestCase = {
   minSimilarity?: number;
   /** Optional: Tags for categorizing test cases */
   tags?: string[];
-};
+}
 
 /**
  * Golden dataset containing multiple test cases.
  */
-export type GoldenDataset = {
+export interface GoldenDataset {
   /** Dataset name/identifier */
   name: string;
   /** Version for tracking changes */
@@ -35,12 +35,12 @@ export type GoldenDataset = {
   description?: string;
   /** The test cases */
   testCases: GoldenTestCase[];
-};
+}
 
 /**
  * Result of a single retrieval for evaluation.
  */
-export type RetrievalResult = {
+export interface RetrievalResult {
   /** File path of the retrieved chunk */
   filePath: string;
   /** Chunk content */
@@ -49,12 +49,12 @@ export type RetrievalResult = {
   similarity: number;
   /** Rank position (1-based) */
   rank: number;
-};
+}
 
 /**
  * Evaluation result for a single test case.
  */
-export type TestCaseResult = {
+export interface TestCaseResult {
   /** Test case ID */
   testCaseId: string;
   /** The query that was tested */
@@ -79,12 +79,12 @@ export type TestCaseResult = {
   retrievedResults: RetrievalResult[];
   /** Any errors that occurred */
   error?: string;
-};
+}
 
 /**
  * Aggregated metrics across all test cases.
  */
-export type AggregateMetrics = {
+export interface AggregateMetrics {
   /** Mean precision at various k values */
   meanPrecisionAtK: Record<number, number>;
   /** Mean recall at various k values */
@@ -101,12 +101,12 @@ export type AggregateMetrics = {
   failedEvaluations: number;
   /** Average execution time */
   avgExecutionTimeMs: number;
-};
+}
 
 /**
  * Full evaluation report.
  */
-export type EvaluationReport = {
+export interface EvaluationReport {
   /** Dataset that was evaluated */
   datasetName: string;
   /** Dataset version */
@@ -119,12 +119,12 @@ export type EvaluationReport = {
   testCaseResults: TestCaseResult[];
   /** K values that were evaluated */
   kValues: number[];
-};
+}
 
 /**
  * Configuration for the evaluation harness.
  */
-export type EvaluationConfig = {
+export interface EvaluationConfig {
   /** K values to compute precision/recall at */
   kValues: number[];
   /** Whether to run in verbose mode */
@@ -133,7 +133,7 @@ export type EvaluationConfig = {
   concurrency?: number;
   /** Timeout per test case in ms */
   timeoutMs?: number;
-};
+}
 
 /**
  * Default evaluation configuration.

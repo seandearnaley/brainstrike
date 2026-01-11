@@ -16,7 +16,6 @@ import {
 
 // Type declarations for File System Access API
 declare global {
-  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface Window {
     showDirectoryPicker(): Promise<FileSystemDirectoryHandle>;
   }
@@ -33,7 +32,6 @@ declare global {
     readonly name: string;
   }
 
-  // biome-ignore lint/style/useConsistentTypeDefinitions: Interface required for global declaration merging - types cannot be merged
   interface FileSystemHandle {
     readonly kind: 'file' | 'directory';
     readonly name: string;

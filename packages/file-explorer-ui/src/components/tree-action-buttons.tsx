@@ -9,16 +9,16 @@ import { Button, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrik
 import { ChevronsDown, ChevronsUp, Loader2, RefreshCw, X } from 'lucide-react';
 import * as React from 'react';
 
-export type ScanningStatusInfo = {
+export interface ScanningStatusInfo {
   isScanning: boolean;
   cancellable: boolean;
   isCancelling: boolean;
   onCancel: () => void;
   currentPath?: string;
   percentage?: number;
-};
+}
 
-type TreeActionButtonsProps = {
+interface TreeActionButtonsProps {
   isLoading: boolean;
   isRefreshing: boolean;
   isExpandingAll: boolean;
@@ -27,7 +27,7 @@ type TreeActionButtonsProps = {
   onCollapseAll: () => void;
   /** Optional scanning status for inline display */
   scanningStatus?: ScanningStatusInfo | null;
-};
+}
 
 /**
  * Compact inline scanning indicator that shows progress without causing layout shift.

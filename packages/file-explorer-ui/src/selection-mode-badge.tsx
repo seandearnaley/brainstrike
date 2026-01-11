@@ -28,14 +28,14 @@ import { BookOpen, CheckSquare, Sparkles } from 'lucide-react';
 import { memo, useCallback, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
-export type SelectionModeBadgeProps = {
+export interface SelectionModeBadgeProps {
   /** Callback when rules editor should be opened */
   onOpenRulesEditor?: () => void;
   /** Whether the rules editor is available */
   rulesEditorAvailable?: boolean;
   /** Whether to show the badge (handles conditional rendering internally) */
   show?: boolean;
-};
+}
 
 /** Popover content extracted to reduce cognitive complexity */
 const SelectionModePopoverContent: React.FC<{

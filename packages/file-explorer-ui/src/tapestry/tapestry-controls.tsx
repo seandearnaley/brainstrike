@@ -2,7 +2,7 @@ import { Button, Checkbox } from '@brainstrike/ui';
 import { RotateCcw } from 'lucide-react';
 import { memo } from 'react';
 
-type TapestryControlsProps = {
+interface TapestryControlsProps {
   scale: number;
   setScale: (s: number) => void;
   totalFiles: number;
@@ -11,7 +11,7 @@ type TapestryControlsProps = {
   onReset: () => void;
   allowOverlap: boolean;
   setAllowOverlap: (v: boolean) => void;
-};
+}
 
 export const TapestryControls = memo(
   ({

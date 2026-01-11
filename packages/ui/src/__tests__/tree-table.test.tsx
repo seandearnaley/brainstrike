@@ -27,10 +27,10 @@ vi.mock('@tanstack/react-virtual', () => ({
 }));
 
 // Test data types
-type TestData = {
+interface TestData {
   name: string;
   size?: number;
-};
+}
 
 // Helper to create test nodes
 function createTestNode(

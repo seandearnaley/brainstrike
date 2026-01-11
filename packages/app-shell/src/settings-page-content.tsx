@@ -30,7 +30,7 @@ const SETTINGS_HASH_PREFIX = 'settings/';
  * };
  * ```
  */
-export type SettingsCategory = {
+export interface SettingsCategory {
   /**
    * Unique identifier for the category.
    * Used in URL hash routing (e.g., #settings/appearance).
@@ -69,12 +69,12 @@ export type SettingsCategory = {
    * Called only when the category is active (lazy rendering).
    */
   render: () => ReactNode;
-};
+}
 
 /**
  * Props for the SettingsPageContent component.
  */
-export type SettingsPageContentProps = {
+export interface SettingsPageContentProps {
   /**
    * Array of settings categories to display in the navigation panel.
    * Order determines the display order in navigation.
@@ -93,7 +93,7 @@ export type SettingsPageContentProps = {
    * @default 'Search settings…'
    */
   searchPlaceholder?: string;
-};
+}
 
 const isClient = typeof window !== 'undefined';
 
@@ -244,7 +244,7 @@ export function SettingsPageContent({
           <div className="relative mt-6">
             <Search
               aria-hidden="true"
-              className="-translate-y-1/2 absolute top-1/2 left-3 h-4 w-4 text-muted-foreground"
+              className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground"
             />
             <Input
               aria-label="Search settings"

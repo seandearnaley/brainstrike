@@ -1,4 +1,4 @@
-export type StorageAdapter = {
+export interface StorageAdapter {
   /**
    * Get a value from storage
    */
@@ -23,12 +23,12 @@ export type StorageAdapter = {
    * Get all keys in storage
    */
   getAllKeys(): Promise<string[]>;
-};
+}
 
-export type PersistConfig<TState> = {
+export interface PersistConfig<TState> {
   name: string;
   version?: number;
   storage: StorageAdapter;
   partialize?: (state: TState) => Partial<TState>;
   onRehydrateStorage?: () => (state?: TState) => void;
-};
+}

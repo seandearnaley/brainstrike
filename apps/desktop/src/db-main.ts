@@ -5,11 +5,11 @@ import { app } from 'electron';
 
 const logger = createLogger('DatabaseMain');
 
-type ExtensionModuleShape = {
+interface ExtensionModuleShape {
   default?: unknown;
   vector?: unknown;
   live?: unknown;
-};
+}
 
 function extractExtensionExport(module: unknown, field: 'vector' | 'live'): unknown {
   if (module && typeof module === 'object') {

@@ -90,7 +90,7 @@ function getTokenUsageMetrics(args: {
   };
 }
 
-type PreviewPanelProps = {
+interface PreviewPanelProps {
   selectedFiles: Set<string>;
   fileContents: { [compositeKey: string]: string };
   loadingFiles: Set<string>;
@@ -122,7 +122,7 @@ type PreviewPanelProps = {
   folderSummaryThreshold?: number;
   onFolderSummaryThresholdChange?: (threshold: number) => void;
   onRequestFileContent?: (compositeKey: string) => void;
-};
+}
 
 type TapestryRangeMap = Record<string, TapestryRange[]>;
 

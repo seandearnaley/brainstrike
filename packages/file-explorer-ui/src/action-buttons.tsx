@@ -20,7 +20,7 @@ import { Button } from '@brainstrike/ui';
 import * as React from 'react';
 import { useCallback } from 'react';
 
-export type ActionButtonsProps = {
+export interface ActionButtonsProps {
   displayedFiles: Set<string>;
   selectedFilePaths: Set<string>;
   maxSelectionCount: number;
@@ -28,7 +28,7 @@ export type ActionButtonsProps = {
   setSelectedFiles: (files: Set<string>) => void;
   encodeFileSelection: (folderId: string, path: string) => string;
   onSelectionLimitExceeded?: () => void;
-};
+}
 
 export const ActionButtons = React.memo(
   ({

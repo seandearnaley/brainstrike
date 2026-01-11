@@ -5,7 +5,7 @@ import { create } from 'zustand';
  * Components that depend on available providers can subscribe to `secretsVersion`
  * and re-check provider availability when it changes.
  */
-type SecretsState = {
+interface SecretsState {
   /**
    * Incremented whenever secrets are added, removed, or modified.
    * Components can use this as a dependency to trigger re-fetching of available providers.
@@ -16,7 +16,7 @@ type SecretsState = {
    * Call this after saving or deleting an API key to notify subscribers.
    */
   notifySecretsChanged: () => void;
-};
+}
 
 export const useSecretsStore = create<SecretsState>()((set) => ({
   secretsVersion: 0,

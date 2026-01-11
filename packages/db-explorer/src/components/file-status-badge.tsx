@@ -3,10 +3,10 @@ import { AlertCircle, CheckCircle, Info } from 'lucide-react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
 import { formatDate } from '../utils/format';
 
-type FileStatusBadgeProps = {
+interface FileStatusBadgeProps {
   status: FileCollectionStatus;
   activeCollectionName: string;
-};
+}
 
 /**
  * Formats relative time from ISO string

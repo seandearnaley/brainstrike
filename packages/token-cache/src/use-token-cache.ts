@@ -21,7 +21,7 @@ import type { TokenCacheEntry, TokenCountingMode, TokenCountResult } from './typ
 /**
  * Options for useTokenCache hook
  */
-export type UseTokenCacheOptions = {
+export interface UseTokenCacheOptions {
   /** Token cache store instance */
   store: TokenCacheStore;
   /** File hasher instance */
@@ -32,12 +32,12 @@ export type UseTokenCacheOptions = {
   countingMode: TokenCountingMode;
   /** Callback when token count is resolved */
   onTokenResolved?: (folderId: string, filePath: string, tokenCount: number) => void;
-};
+}
 
 /**
  * Return type for useTokenCache hook
  */
-export type UseTokenCacheReturn = {
+export interface UseTokenCacheReturn {
   /**
    * Get token count for a file.
    * Returns cached value if available, otherwise triggers background count.
@@ -107,7 +107,7 @@ export type UseTokenCacheReturn = {
    * Use as a dependency in useMemo/useEffect to trigger re-renders on cache changes.
    */
   cacheVersion: number;
-};
+}
 
 /**
  * Create a composite cache key

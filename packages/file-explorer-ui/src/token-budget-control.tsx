@@ -65,11 +65,11 @@ const BUDGET_PRESETS = [
   { label: '200K', value: 200_000 },
 ] as const;
 
-export type TokenBudgetControlProps = {
+export interface TokenBudgetControlProps {
   budget?: number;
   onBudgetChange?: ((budget: number) => void) | undefined;
   compact?: boolean;
-};
+}
 
 export const TokenBudgetControl = memo<TokenBudgetControlProps>(function TokenBudgetControl({
   budget = DEFAULT_TOKEN_BUDGET,

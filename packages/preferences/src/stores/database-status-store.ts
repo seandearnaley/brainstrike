@@ -1,18 +1,18 @@
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type DatabaseStatusState = {
+export interface DatabaseStatusState {
   location: string | null;
   testResult: string | null;
   connected: boolean;
   loading: boolean;
-};
+}
 
-export type DatabaseStatusActions = {
+export interface DatabaseStatusActions {
   setConnected: (location: string, testResult: string) => void;
   setDisconnected: (location: string, testResult: string) => void;
   setLoading: () => void;
   reset: () => void;
-};
+}
 
 export type DatabaseStatusStore = DatabaseStatusState & DatabaseStatusActions;
 

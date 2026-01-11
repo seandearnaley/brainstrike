@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp } from 'lucide-react';
 import { memo, type ReactNode, useCallback } from 'react';
 import { Checkbox } from './checkbox';
 
-type TableGroupHeaderProps = {
+interface TableGroupHeaderProps {
   groupKey: string | number;
   groupLabel: string;
   isCollapsed: boolean;
@@ -13,7 +13,7 @@ type TableGroupHeaderProps = {
   icon?: ReactNode;
   stats?: ReactNode;
   colSpan?: number;
-};
+}
 
 export const TableGroupHeader = memo<TableGroupHeaderProps>(function TableGroupHeaderComponent({
   groupLabel,

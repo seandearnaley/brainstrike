@@ -20,7 +20,7 @@ import { FALLBACK_MODEL_CONFIG } from '../types';
  * Allows dependency injection without coupling to the Drizzle implementation.
  * BST-170: Content-level embedding deduplication.
  */
-export type EmbeddingCacheInterface = {
+export interface EmbeddingCacheInterface {
   /**
    * Get a cached embedding by content hash and model key.
    * Returns hit: true with the entry if found, or hit: false if not cached.
@@ -59,24 +59,24 @@ export type EmbeddingCacheInterface = {
       dimensions: number;
     }>
   ): Promise<number>;
-};
+}
 
 /**
  * Minimal cached embedding entry returned from cache lookups.
  */
-export type CachedEmbedding = {
+export interface CachedEmbedding {
   contentHash: string;
   modelKey: string;
   embedding: number[];
   dimensions: number;
-};
+}
 
 const workerLogger = createLogger('EmbeddingWorker');
 
 /**
  * Raw model row from the database
  */
-type DbModelRow = {
+interface DbModelRow {
   id: string;
   // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
   provider_id: string;
@@ -84,7 +84,7 @@ type DbModelRow = {
   description: string | null;
   capabilities: string | { type: string; defaultDimension?: number } | null;
   parameters: string | { size?: string; contextWindow?: number } | null;
-};
+}
 
 /**
  * Cache for database model configs to avoid repeated queries
@@ -257,7 +257,7 @@ type HostedProviderConfig = Extract<
   { runtime: 'hosted'; provider: SupportedHostedProvider }
 >;
 
-export type EmbeddingWorkerOptions = {
+export interface EmbeddingWorkerOptions {
   db: IDatabase;
   queue?: string; // default: 'embeddings'
   concurrency?: number; // default: 1..4
@@ -276,13 +276,13 @@ export type EmbeddingWorkerOptions = {
   onDownloadProgress?: (modelId: string, progress: number) => void;
   /** Optional embedding cache for content-level deduplication (BST-170) */
   embeddingCache?: EmbeddingCacheInterface;
-};
+}
 
-export type EmbeddingWorkerController = {
+export interface EmbeddingWorkerController {
   stop: () => Promise<void>;
-};
+}
 
-type EmbedChunkPayload = {
+interface EmbedChunkPayload {
   chunkId: string;
   fileRecordId?: string;
   embeddingSetId?: string | null;
@@ -290,7 +290,7 @@ type EmbedChunkPayload = {
   modelKey?: string | null;
   provider?: EmbeddingProviderType | null;
   dimensionParameter?: ProviderDimensionParameter | null;
-};
+}
 
 async function sha256Hex(input: string): Promise<string> {
   try {
@@ -1159,11 +1159,11 @@ export async function startEmbeddingWorker(
     return { toProcess, completed };
   }
 
-  type LoadedChunkItem = {
+  interface LoadedChunkItem {
     job: ClaimedJob;
     chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>;
     payload: EmbedChunkPayload;
-  };
+  }
 
   // BST-170: Helper to lookup cache hits
   async function lookupCacheHits(

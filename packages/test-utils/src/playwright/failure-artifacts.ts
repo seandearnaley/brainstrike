@@ -16,40 +16,40 @@ import type { Page, TestInfo } from '@playwright/test';
 /**
  * Console message entry with structured data
  */
-export type ConsoleLogEntry = {
+export interface ConsoleLogEntry {
   type: 'error' | 'warning' | 'log' | 'info' | 'debug';
   text: string;
   timestamp: number;
   location?: string;
-};
+}
 
 /**
  * Network request summary for debugging
  */
-export type NetworkRequestEntry = {
+export interface NetworkRequestEntry {
   url: string;
   method: string;
   status: number | null;
   timing: number | null;
   failed: boolean;
   failureReason?: string | undefined;
-};
+}
 
 /**
  * Application state snapshot
  */
-export type AppStateSnapshot = {
+export interface AppStateSnapshot {
   url: string;
   title: string;
   viewportSize: { width: number; height: number } | null;
   localStorage: Record<string, string>;
   timestamp: number;
-};
+}
 
 /**
  * Complete failure diagnostic bundle
  */
-export type FailureDiagnostics = {
+export interface FailureDiagnostics {
   testName: string;
   testFile: string;
   timestamp: string;
@@ -61,7 +61,7 @@ export type FailureDiagnostics = {
   networkRequests: NetworkRequestEntry[];
   appState: AppStateSnapshot | null;
   domSnapshot?: string | undefined;
-};
+}
 
 /**
  * Type-safe console message type mapping
@@ -376,13 +376,13 @@ export function createFailureCollector(page: Page): FailureArtifactCollector {
 /**
  * Summary of test health metrics for the entire suite
  */
-export type TestHealthMetrics = {
+export interface TestHealthMetrics {
   totalConsoleErrors: number;
   totalFailedRequests: number;
   averageTestDuration: number;
   flakyTests: string[];
   commonErrors: Array<{ message: string; count: number }>;
-};
+}
 
 /**
  * Aggregate metrics from multiple test diagnostics

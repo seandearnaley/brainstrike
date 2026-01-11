@@ -23,14 +23,14 @@ import {
   updateNodeChildren as updateNodeChildrenGeneric,
 } from '@brainstrike/utils';
 
-export type LazyLoadOptions = {
+export interface LazyLoadOptions {
   /** AbortSignal for cancellation support */
   abortSignal?: AbortSignal;
   /** Whether to include file metadata (size, lastModified) */
   includeMetadata?: boolean;
   /** Custom sort function for nodes */
   sortFileNodes?: (nodes: IFileNode[]) => IFileNode[];
-};
+}
 
 /**
  * Default sort function: directories first, then alphabetically

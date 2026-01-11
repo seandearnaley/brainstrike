@@ -11,10 +11,10 @@ import type {
   SimilarityResult,
 } from './types';
 
-export type DownloadModelOptions = {
+export interface DownloadModelOptions {
   cacheDir?: string;
   onProgress?: (progress: EmbeddingProgress) => void;
-};
+}
 
 /**
  * Embedding service using transformers.js feature-extraction pipeline.

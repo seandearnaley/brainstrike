@@ -139,11 +139,11 @@ function handleExpandError(err: unknown, onError?: (error: Error) => void): void
   }
 }
 
-export type ExpandAllState = {
+export interface ExpandAllState {
   isExpandingAll: boolean;
-};
+}
 
-export type UseExpandAllOptions = {
+export interface UseExpandAllOptions {
   /** Ref to worker port for expand-all commands (use ref to get current value at call time) */
   workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
   /** Ref to handle map for rehydrating worker tree */
@@ -154,9 +154,9 @@ export type UseExpandAllOptions = {
   onTreeUpdate: (tree: IFileNode[]) => void;
   /** Callback when error occurs */
   onError?: (error: Error) => void;
-};
+}
 
-export type UseExpandAllReturn = {
+export interface UseExpandAllReturn {
   /** Whether expand-all is in progress */
   isExpandingAll: boolean;
   /** Start expand-all operation */
@@ -167,7 +167,7 @@ export type UseExpandAllReturn = {
   cancelExpandAll: () => void;
   /** Ref to check if expand-all is active (for use in effects) */
   isExpandingAllRef: React.RefObject<boolean>;
-};
+}
 
 /**
  * Hook for managing expand-all operation.

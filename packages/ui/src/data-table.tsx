@@ -3,7 +3,7 @@ import { cn } from './lib/utils';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './table';
 import { TablePagination } from './table-pagination';
 
-export type DataTableColumn<TData> = {
+export interface DataTableColumn<TData> {
   id: string;
   header?: React.ReactNode | ((props: { column: DataTableColumn<TData> }) => React.ReactNode);
   cell: (props: { row: TData; rowIndex: number }) => React.ReactNode;
@@ -11,9 +11,9 @@ export type DataTableColumn<TData> = {
   sortable?: boolean;
   className?: string;
   headerClassName?: string;
-};
+}
 
-export type DataTableProps<TData> = {
+export interface DataTableProps<TData> {
   columns: DataTableColumn<TData>[];
   data: TData[];
   getRowId?: (row: TData, index: number) => string;
@@ -36,7 +36,7 @@ export type DataTableProps<TData> = {
   };
   emptyState?: React.ReactNode;
   className?: string;
-};
+}
 
 export function DataTable<TData>({
   columns,

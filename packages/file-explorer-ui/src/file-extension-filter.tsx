@@ -14,14 +14,14 @@ import { AlertCircle } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-type FileExtensionFilterProps = {
+interface FileExtensionFilterProps {
   includeFilters: string[];
   excludeFilters: string[];
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   useRegex: boolean;
   filterError: string | null;
   onDraftChange?: (includeFilters: string[], excludeFilters: string[]) => void;
-};
+}
 
 const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
   includeFilters,

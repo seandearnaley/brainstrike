@@ -101,7 +101,7 @@ const SORT_KEY_TO_COLUMN: Record<CollectionSortKey, string> = {
 /**
  * Props for the CollectionBrowser component
  */
-export type CollectionBrowserProps = {
+export interface CollectionBrowserProps {
   /** Input data for the tree */
   data: CollectionTreeInput;
   /** Called when a node is selected */
@@ -155,7 +155,7 @@ export type CollectionBrowserProps = {
   filters?: CollectionBrowserFilters;
   /** Callback when filters change (controlled) */
   onFiltersChange?: (filters: CollectionBrowserFilters) => void;
-};
+}
 
 /**
  * Format file size for display
@@ -268,7 +268,6 @@ function getEmptyStateMessage(
 /**
  * CollectionBrowser - Unified hierarchical browser
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This component handles multiple search modes, tree state, and semantic search with aggregated scores
 export function CollectionBrowser({
   data,
   onSelect,
@@ -789,7 +788,7 @@ export function CollectionBrowser({
 
       {/* Bulk Action Bar - floating at the bottom when items are selected */}
       {multiSelectEnabled && showBulkActionBar && multiSelectedIds.size > 0 && (
-        <div className="-translate-x-1/2 absolute bottom-4 left-1/2 z-20">
+        <div className="absolute bottom-4 left-1/2 z-20 -translate-x-1/2">
           <BulkActionBar
             actions={bulkActions}
             nodeTypes={nodeTypeMap}

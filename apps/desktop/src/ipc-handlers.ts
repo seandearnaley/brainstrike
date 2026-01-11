@@ -23,17 +23,17 @@ const MOCK_PATH_PREFIX = '/mock/' as const;
 /**
  * Register all IPC handlers used by the desktop application.
  */
-type RegisterIpcHandlerOptions = {
+interface RegisterIpcHandlerOptions {
   onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
-};
+}
 
-type LiveSubscriptionRecord = {
+interface LiveSubscriptionRecord {
   id: number;
   mode: 'query' | 'incremental';
   handle: LiveQuery<unknown>;
   listener: (results: LiveQueryResults<unknown>) => void;
   webContentsId: number;
-};
+}
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 let nextLiveSubscriptionId = 1;
@@ -114,14 +114,14 @@ function isMissingRelationError(error: unknown): boolean {
   return message.includes('relation') && message.includes('does not exist');
 }
 
-type LiveQueryPayload = {
+interface LiveQueryPayload {
   query: string;
   params?: readonly unknown[];
   key?: string;
   mode?: 'query' | 'incremental';
   offset?: number;
   limit?: number;
-};
+}
 
 /**
  * Create a live query handle based on the payload mode

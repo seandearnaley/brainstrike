@@ -3,34 +3,34 @@ import type { IFileNode } from '@brainstrike/types';
 
 type BulkImportProgressHandler = (completed: number, total: number, current?: string) => void;
 
-export type FileImportRepositoryPort = {
+export interface FileImportRepositoryPort {
   readonly bulkImport?: (
     requests: FileImportRequest[],
     onProgress: BulkImportProgressHandler
   ) => Promise<FileImportResult[] | null>;
-};
+}
 
-export type FileSystemPort = {
+export interface FileSystemPort {
   readFile(node: IFileNode): Promise<string>;
-};
+}
 
-export type FileImportDependencies = {
+export interface FileImportDependencies {
   readonly repository: FileImportRepositoryPort | null;
   readonly fileSystem: FileSystemPort | null;
-};
+}
 
-export type FileImportContext = {
+export interface FileImportContext {
   readonly selectedFilePaths: Set<string>;
   readonly fileTree: IFileNode[];
   readonly fileContents: Record<string, string>;
   readonly embeddingSetId?: string; // Collection to associate files with
-};
+}
 
-export type FileImportCallbacks = {
+export interface FileImportCallbacks {
   readonly onProgress?: (progress: ImportProgress) => void;
-};
+}
 
-export type FileImportOutcome = {
+export interface FileImportOutcome {
   readonly results: FileImportResult[];
   readonly progress: ImportProgress;
-};
+}

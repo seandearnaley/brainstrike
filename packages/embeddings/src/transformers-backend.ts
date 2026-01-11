@@ -7,13 +7,13 @@ import type { EmbeddingConfig, EmbeddingProgress, EmbeddingResult, ModelConfig }
 const logger = createLogger('TransformersBackend');
 
 // Type definitions for transformers.js
-type TransformersModule = {
+interface TransformersModule {
   pipeline: (
     task: string,
     model: string,
     config: PipelineConfig
   ) => Promise<FeatureExtractionPipeline>;
-};
+}
 
 /**
  * Options for FeatureExtractionPipeline._call().
@@ -24,12 +24,12 @@ type TransformersModule = {
  *
  * See: https://huggingface.co/docs/transformers.js/api/pipelines#featureextractionpipeline
  */
-type FeatureExtractionPipelineOptions = {
+interface FeatureExtractionPipelineOptions {
   pooling: string;
   normalize: boolean;
   quantize?: boolean;
   precision?: 'binary' | 'ubinary';
-};
+}
 
 type FeatureExtractionPipeline = (
   text: string,
@@ -38,24 +38,24 @@ type FeatureExtractionPipeline = (
   data: Float32Array;
 }>;
 
-type PipelineConfig = {
+interface PipelineConfig {
   quantized?: boolean;
   device?: string;
   dtype?: string;
   progressCallback?: (progress: ProgressInfo) => void;
-};
+}
 
-type ProgressInfo = {
+interface ProgressInfo {
   status: string;
   loaded?: number;
   total?: number;
   file?: string;
-};
+}
 
-type DownloadOptions = {
+interface DownloadOptions {
   cacheDir?: string;
   onProgress?: (progress: ProgressInfo) => void;
-};
+}
 
 // Cache the imported module to avoid duplicate imports across instances
 let transformersModule: TransformersModule | null = null;

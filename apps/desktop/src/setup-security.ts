@@ -6,9 +6,9 @@ const logger = createLogger('DesktopSecurity');
 export const desktopSecurityLogger = logger;
 
 // Type definitions for Electron's webRequest
-type WebRequestDetails = {
+interface WebRequestDetails {
   responseHeaders?: Record<string, string[]>;
-};
+}
 
 type WebRequestCallback = (response: { responseHeaders: Record<string, string[]> }) => void;
 

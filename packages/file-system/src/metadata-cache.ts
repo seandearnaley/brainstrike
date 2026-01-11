@@ -13,7 +13,7 @@
  */
 
 /** Cached file metadata entry */
-export type MetadataCacheEntry = {
+export interface MetadataCacheEntry {
   /** File size in bytes */
   size: number;
   /** Modification time in milliseconds since epoch */
@@ -22,18 +22,18 @@ export type MetadataCacheEntry = {
   isDirectory: boolean;
   /** When this entry was cached (for TTL) */
   cachedAt: number;
-};
+}
 
 /** Configuration for the metadata cache */
-export type MetadataCacheConfig = {
+export interface MetadataCacheConfig {
   /** Maximum number of entries (default: 10000) */
   maxEntries?: number;
   /** Time-to-live in milliseconds (default: 30000 = 30s) */
   ttlMs?: number;
-};
+}
 
 /** Statistics for cache monitoring */
-export type MetadataCacheStats = {
+export interface MetadataCacheStats {
   /** Current number of entries */
   size: number;
   /** Maximum allowed entries */
@@ -48,7 +48,7 @@ export type MetadataCacheStats = {
   evictions: number;
   /** Hit rate as percentage (0-100) */
   hitRate: number;
-};
+}
 
 /** Default configuration values */
 const DEFAULT_MAX_ENTRIES = 10_000;

@@ -10,9 +10,14 @@ import type {
 } from './file-import-types';
 import { ImportProgressTracker } from './progress-tracker';
 
-type PendingFile = { fileNode: IFileNode };
+interface PendingFile {
+  fileNode: IFileNode;
+}
 
-type ErrorEntry = { file: string; error: string };
+interface ErrorEntry {
+  file: string;
+  error: string;
+}
 
 const IMPORT_PROCESS_LABEL = 'Import Process';
 const BINARY_FILE_ERROR_MESSAGE = 'Binary file - only text files are supported';

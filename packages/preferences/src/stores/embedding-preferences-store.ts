@@ -12,7 +12,7 @@ type EnabledModelsMap = Record<EmbeddingProviderType, string[]>;
 /**
  * State shape for embedding preferences
  */
-type EmbeddingPreferencesData = {
+interface EmbeddingPreferencesData {
   /**
    * Enabled models per provider
    * Only enabled models are shown in UI and available for selection
@@ -25,12 +25,12 @@ type EmbeddingPreferencesData = {
    * - 'hosted': Prefer API-based models (OpenAI, Google, etc.)
    */
   preferredRuntime: 'browser' | 'hosted';
-};
+}
 
 /**
  * Actions for managing embedding preferences
  */
-type EmbeddingPreferencesActions = {
+interface EmbeddingPreferencesActions {
   /**
    * Enable or disable a specific model for a provider
    */
@@ -59,7 +59,7 @@ type EmbeddingPreferencesActions = {
    * Set preferred runtime for embedding operations
    */
   setPreferredRuntime: (runtime: 'browser' | 'hosted') => void;
-};
+}
 
 type Store = EmbeddingPreferencesData & EmbeddingPreferencesActions;
 
@@ -155,10 +155,10 @@ function disableModelForProvider(
   return updates;
 }
 
-type AccumulatedState = {
+interface AccumulatedState {
   enabledModelsByProvider: EnabledModelsMap;
   hasChanges: boolean;
-};
+}
 
 function processModelUpdate(
   accumulated: AccumulatedState,

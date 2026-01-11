@@ -11,17 +11,17 @@ import { checkBudget, createTimer, type PerfBudgetKey } from '@brainstrike/utils
 import { useCallback, useRef, useState } from 'react';
 
 /** Performance metric entry */
-export type PerfMetric = {
+export interface PerfMetric {
   name: string;
   durationMs: number;
   timestamp: number;
   exceededBudget: boolean;
   budgetKey?: PerfBudgetKey;
   metadata?: Record<string, unknown>;
-};
+}
 
 /** Aggregated metrics summary */
-export type PerfSummary = {
+export interface PerfSummary {
   totalRenders: number;
   avgFlattenTime: number;
   maxFlattenTime: number;
@@ -29,7 +29,7 @@ export type PerfSummary = {
   maxRenderTime: number;
   budgetExceededCount: number;
   lastMetrics: PerfMetric[];
-};
+}
 
 /** Check if perf metrics are enabled (dev mode only) */
 export function isPerfMetricsEnabled(): boolean {

@@ -4,17 +4,17 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type DevicePref = 'webgpu' | 'wasm';
 
-type VectorPreferencesData = {
+interface VectorPreferencesData {
   devicePref: DevicePref;
   reinitEveryN: number;
   verboseOrtLogs: boolean;
-};
+}
 
-type VectorPreferencesActions = {
+interface VectorPreferencesActions {
   setDevicePref: (v: DevicePref) => void;
   setReinitEveryN: (n: number) => void;
   setVerboseOrtLogs: (v: boolean) => void;
-};
+}
 
 export type VectorPreferencesStore = VectorPreferencesData & VectorPreferencesActions;
 

@@ -16,7 +16,7 @@ import type {
 /**
  * Database row type (snake_case from SQL)
  */
-type TokenCacheRow = {
+interface TokenCacheRow {
   id: number;
   folder_id: string;
   file_path: string;
@@ -28,7 +28,7 @@ type TokenCacheRow = {
   model_encoding: string | null;
   created_at: string;
   updated_at: string;
-};
+}
 
 /**
  * Convert database row to TokenCacheEntry

@@ -15,7 +15,7 @@ import type { BrowserNodeData, CollectionNodeType } from './types';
 /**
  * Bulk action definition
  */
-export type BulkAction = {
+export interface BulkAction {
   /** Unique identifier for this action */
   id: string;
   /** Label to display on the button */
@@ -32,12 +32,12 @@ export type BulkAction = {
   disabledReason?: string;
   /** Node types this action applies to (if not specified, applies to all) */
   applicableTypes?: CollectionNodeType[];
-};
+}
 
 /**
  * Props for the BulkActionBar component
  */
-export type BulkActionBarProps = {
+export interface BulkActionBarProps {
   /** Set of selected node IDs */
   selectedIds: Set<string>;
   /** Map of node ID to node type */
@@ -50,7 +50,7 @@ export type BulkActionBarProps = {
   onClearSelection: () => void;
   /** Custom class name */
   className?: string;
-};
+}
 
 /**
  * Get counts of selected items by type

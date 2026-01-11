@@ -27,16 +27,16 @@ interface DbHandle extends IDatabase {
   readonly raw?: unknown;
 }
 
-type QueryExecutor = {
+interface QueryExecutor {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
   exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
   transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
-};
+}
 
 // Forward declare for type reference (imported below)
 type EmbeddingSetsRepo = import('./repositories/interfaces.js').IEmbeddingSetsRepository;
 
-type DbContextValue = {
+interface DbContextValue {
   fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
   embeddingSetsRepository: EmbeddingSetsRepo | null;
@@ -50,13 +50,13 @@ type DbContextValue = {
   vectorEnabled: boolean; // Whether pgvector extension is available
   factoryReset: () => Promise<void>; // Close DB, wipe state, reinitialize
   clearQueuesAndEmbeddingSets: () => Promise<void>; // Helper to purge job_queue and embedding_sets
-};
+}
 
-type DbProviderProps = {
+interface DbProviderProps {
   children: React.ReactNode;
   dbPath?: string;
   useElectronIPC?: boolean;
-};
+}
 
 export function getDefaultDbPath() {
   const isBrowser = typeof window !== 'undefined';

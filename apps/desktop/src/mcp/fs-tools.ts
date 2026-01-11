@@ -86,7 +86,11 @@ export async function handleFilesystemSearch(
       : 3;
   const ignore = new Set(['node_modules', '.git', 'dist', 'build', '.turbo', 'coverage']);
   const lcQuery = q.toLowerCase();
-  type Item = { name: string; path: string; type: 'file' | 'dir' };
+  interface Item {
+    name: string;
+    path: string;
+    type: 'file' | 'dir';
+  }
   const results: Item[] = [];
   const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
   try {

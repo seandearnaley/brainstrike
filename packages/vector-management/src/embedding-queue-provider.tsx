@@ -19,13 +19,13 @@ import {
   useState,
 } from 'react';
 
-type ProgressSnapshot = {
+interface ProgressSnapshot {
   readonly id: string;
   readonly progress: number;
   readonly phase: string;
-};
+}
 
-type QueueMetrics = {
+interface QueueMetrics {
   readonly active: number;
   readonly completed: number;
   readonly failed: number;
@@ -37,7 +37,7 @@ type QueueMetrics = {
   readonly latencyP50Ms: number | null;
   readonly latencyP95Ms: number | null;
   readonly windowErrorCount: number;
-};
+}
 
 const INITIAL_METRICS: QueueMetrics = {
   active: 0,
@@ -53,16 +53,16 @@ const INITIAL_METRICS: QueueMetrics = {
   windowErrorCount: 0,
 };
 
-type EmbeddingQueueContextValue = {
+interface EmbeddingQueueContextValue {
   queue: QueueAdapter;
   metrics: QueueMetrics;
-};
+}
 
 const EmbeddingQueueContext = createContext<EmbeddingQueueContextValue | null>(null);
 
-export type EmbeddingQueueProviderProps = {
+export interface EmbeddingQueueProviderProps {
   readonly adapter?: QueueAdapter;
-};
+}
 
 export function EmbeddingQueueProvider({
   children,

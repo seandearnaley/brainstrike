@@ -11,7 +11,7 @@ import type { DistanceMetric, ProviderMetadata, Result } from './provider-types'
  * Parameters required to create an embedding set.
  * Maps to IEmbeddingSetsRepository.getOrCreateSet parameters.
  */
-export type EmbeddingSetCreateParams = {
+export interface EmbeddingSetCreateParams {
   /** Provider identifier (e.g., 'openai', 'voyage', 'local') */
   modelKey: string;
   /** Model identifier (e.g., 'text-embedding-3-small', 'voyage-3') */
@@ -27,7 +27,7 @@ export type EmbeddingSetCreateParams = {
     tags?: string;
     category?: string;
   };
-};
+}
 
 /**
  * Validation error types for embedding set creation

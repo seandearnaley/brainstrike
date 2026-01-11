@@ -12,18 +12,18 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
-type Migration = {
+interface Migration {
   version: string;
   name: string;
   sql: string;
   hash: string;
-};
+}
 
-type MigrationManifest = {
+interface MigrationManifest {
   version: 1;
   generatedAt: string;
   migrations: Migration[];
-};
+}
 
 /**
  * Compute a cryptographic hash for migration content verification.

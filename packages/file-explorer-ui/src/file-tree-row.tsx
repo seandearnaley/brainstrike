@@ -16,7 +16,7 @@ import type { CSSProperties } from 'react';
 import { memo, useCallback, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
-type FileTreeRowProps = {
+interface FileTreeRowProps {
   node: IFileNode;
   depth: number;
   isExpanded: boolean;
@@ -26,7 +26,7 @@ type FileTreeRowProps = {
   folderId: string;
   style?: CSSProperties;
   children?: React.ReactNode;
-};
+}
 
 const ROW_HEIGHT = 32;
 

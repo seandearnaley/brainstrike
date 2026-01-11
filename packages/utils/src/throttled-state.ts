@@ -12,7 +12,7 @@ export type SetStateAction<T> = T | ((prevState: T) => T);
 /** React-compatible Dispatch type for state setters */
 export type Dispatch<A> = (value: A) => void;
 
-export type ThrottledSetState<T> = {
+export interface ThrottledSetState<T> {
   /** Update state (throttled) */
   update: Dispatch<SetStateAction<T>>;
   /** Force immediate flush of pending update */
@@ -23,25 +23,25 @@ export type ThrottledSetState<T> = {
   getPending: () => T | undefined;
   /** Get diagnostic info about timer state (for testing/debugging) */
   getDiagnostics: () => ThrottledStateDiagnostics;
-};
+}
 
 /**
  * Diagnostic information about the throttled state.
  * Useful for testing and debugging timer cleanup.
  */
-export type ThrottledStateDiagnostics = {
+export interface ThrottledStateDiagnostics {
   /** Whether there is a pending value waiting to be flushed */
   hasPending: boolean;
   /** Whether a timer is currently scheduled */
   hasScheduledTimer: boolean;
   /** Timestamp of last emit (0 if never emitted) */
   lastEmitTime: number;
-};
+}
 
-export type ThrottleOptions = {
+export interface ThrottleOptions {
   /** Minimum time between updates in ms (default: 100) */
   intervalMs?: number;
-};
+}
 
 /**
  * Create a throttled state setter that batches rapid updates.
