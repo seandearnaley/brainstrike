@@ -130,11 +130,19 @@ async function openModelCache(): Promise<Cache> {
     return await caches.open('transformers-cache');
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    // Build environment context for better debugging
+    const context = {
+      cacheApiAvailable: typeof caches !== 'undefined',
+      isSecureContext: typeof isSecureContext !== 'undefined' ? isSecureContext : 'unknown',
+    };
+
     if (error instanceof DOMException && error.name === 'SecurityError') {
+      logger.error('Cache access denied', { ...context, originalError: message });
       throw new Error(
         `Cache access denied: Storage permissions may be blocked. Please enable storage access in browser settings. (${message})`
       );
     }
+    logger.error('Failed to open model cache', { ...context, originalError: message });
     throw new Error(`Failed to open model cache: ${message}`);
   }
 }
@@ -414,6 +422,27 @@ const MODELS_REQUIRING_MANUAL_FORMATTING = new Set(['onnx-community/functiongemm
 const MAX_OUTPUT_LENGTH = 10_000;
 
 /**
+ * Multiplier for estimating total GPU memory usage including runtime overhead.
+ * WebGPU requires additional buffers beyond model weights for:
+ * - Activation tensors during forward pass
+ * - Temporary computation buffers
+ * - KV cache for attention mechanisms
+ */
+const WEBGPU_MEMORY_OVERHEAD_MULTIPLIER = 1.5;
+
+/**
+ * Validate HuggingFace model ID format to prevent path traversal and SSRF attacks.
+ * Model IDs must be in "owner/model-name" format with alphanumeric characters,
+ * hyphens, underscores, and periods only.
+ */
+function isValidModelId(modelId: string): boolean {
+  // HuggingFace model IDs are "owner/repo-name" format
+  // Allow alphanumeric, hyphens, underscores, periods (common in version strings)
+  const modelIdPattern = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
+  return modelIdPattern.test(modelId) && !modelId.includes('..');
+}
+
+/**
  * Wrap a promise with abort signal handling.
  * If the signal is aborted during execution, rejects with AbortError.
  *
@@ -438,7 +467,13 @@ function withAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<
     new Promise<never>((_, reject) => {
       signal.addEventListener(
         'abort',
-        () => reject(new DOMException('Generation aborted', 'AbortError')),
+        () => {
+          logger.warn(
+            'Generation aborted but inference continues in background ' +
+              '(transformers.js limitation - GPU/WASM work cannot be cancelled)'
+          );
+          reject(new DOMException('Generation aborted', 'AbortError'));
+        },
         { once: true }
       );
     }),
@@ -697,6 +732,14 @@ export class LocalLlmBackend {
    */
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Initialization handles multiple device types and error cases
   async initialize(config: LocalLlmConfig): Promise<void> {
+    // Validate modelId to prevent path traversal and SSRF attacks
+    if (!isValidModelId(config.modelId)) {
+      throw new Error(
+        `Invalid model ID format: "${config.modelId}". Expected format: "owner/model-name" ` +
+          '(alphanumeric, hyphens, underscores, and periods only).'
+      );
+    }
+
     if (this.pipeline && this.modelId === config.modelId) {
       return; // Already initialized with same model
     }
@@ -744,7 +787,7 @@ export class LocalLlmBackend {
 
       // Check if model might be too large for GPU buffers
       if (gpuInfo && this.selectedDevice === 'webgpu') {
-        const modelSizeWithOverhead = estimatedModelSize * 1.5; // Add 50% overhead for runtime allocations
+        const modelSizeWithOverhead = estimatedModelSize * WEBGPU_MEMORY_OVERHEAD_MULTIPLIER;
         if (modelSizeWithOverhead > gpuInfo.maxBufferSize) {
           logger.warn('Model may exceed WebGPU buffer limits', {
             modelId: config.modelId,
@@ -803,6 +846,17 @@ export class LocalLlmBackend {
 
       // Validate tokenizer has encode method
       if (!tokenizerResult || typeof tokenizerResult.encode !== 'function') {
+        // Clean up pipeline before throwing to prevent resource leaks
+        if (tempPipeline?.dispose) {
+          try {
+            await tempPipeline.dispose();
+            logger.debug('Disposed temp pipeline after tokenizer validation failure');
+          } catch (disposeError) {
+            logger.debug('Error disposing temp pipeline', {
+              error: disposeError instanceof Error ? disposeError.message : String(disposeError),
+            });
+          }
+        }
         throw new Error(
           'Invalid tokenizer result: expected object with encode method. ' +
             'The transformers.js API may have changed.'
@@ -1247,6 +1301,14 @@ export class LocalLlmBackend {
       }) => void;
     }
   ): Promise<void> {
+    // Validate modelId to prevent path traversal and SSRF attacks
+    if (!isValidModelId(modelId)) {
+      throw new Error(
+        `Invalid model ID format: "${modelId}". Expected format: "owner/model-name" ` +
+          '(alphanumeric, hyphens, underscores, and periods only).'
+      );
+    }
+
     // Note: cacheDir option is ignored for browser Cache API storage
     // The Cache API uses the HuggingFace CDN URL as the cache key
 

@@ -368,11 +368,31 @@ describe('initialize error handling', () => {
 
   it('throws error when WebGPU is requested but unavailable', async () => {
     const config: LocalLlmConfig = {
-      modelId: 'test-model',
+      modelId: 'test/model',
       device: 'webgpu',
     };
 
     await expect(backend.initialize(config)).rejects.toThrow('WebGPU requested but not available');
+  });
+
+  it('throws error for invalid model ID format', async () => {
+    const config: LocalLlmConfig = {
+      modelId: 'invalid-model-no-slash',
+      device: 'wasm',
+    };
+
+    await expect(backend.initialize(config)).rejects.toThrow(
+      'Invalid model ID format: "invalid-model-no-slash". Expected format: "owner/model-name"'
+    );
+  });
+
+  it('throws error for model ID with path traversal', async () => {
+    const config: LocalLlmConfig = {
+      modelId: '../malicious/path',
+      device: 'wasm',
+    };
+
+    await expect(backend.initialize(config)).rejects.toThrow('Invalid model ID format');
   });
 });
 

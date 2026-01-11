@@ -73,10 +73,16 @@ function convertMessages(prompt: LanguageModelV1CallOptions['prompt']): LocalLlm
   }
 
   for (const msg of prompt) {
-    if (!msg || typeof msg !== 'object') {
+    // Explicit null/undefined check for clarity
+    if (msg === null || msg === undefined) {
       continue;
     }
 
+    if (typeof msg !== 'object') {
+      continue;
+    }
+
+    // TypeScript now knows msg is a non-null object
     switch (msg.role) {
       case 'system':
         if (typeof msg.content === 'string') {
