@@ -10,9 +10,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SimpleEmbeddingService } from '../bge-m3-service';
-import { ModelRegistryManager } from '../model-registry';
 import type { EmbeddingProgress } from '../types';
-import { BGE_LARGE_MODEL, JINA_CODE_MODEL, MINILM_MODEL } from './fixtures/model-configs';
+import { JINA_CODE_MODEL, MINILM_MODEL } from './fixtures/model-configs';
 
 // Skip integration tests by default (they require model downloads)
 const SKIP_INTEGRATION =
@@ -30,15 +29,6 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
 
   afterEach(async () => {
     await service.dispose();
-  });
-
-  describe('Model Registry Integration', () => {
-    it('should determine quantization correctly', () => {
-      // Test that smaller models (≤768D) force quantization
-      expect(ModelRegistryManager.shouldQuantize(JINA_CODE_MODEL)).toBe(true);
-      // Test that larger models respect the quantized flag
-      expect(ModelRegistryManager.shouldQuantize(BGE_LARGE_MODEL)).toBe(BGE_LARGE_MODEL.quantized);
-    });
   });
 
   describe('Model Initialization', () => {

@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FALLBACK_MODEL_CONFIG } from '../types';
 
 // Spy on fs methods used by CLI
 const writeFileSync = vi.fn();
@@ -45,6 +46,7 @@ describe('CodeEmbeddingCLI basics', () => {
       format: 'json',
       maxLines: 2,
       chunkOverlap: 1,
+      modelConfig: FALLBACK_MODEL_CONFIG,
     });
     const chunks = cli.splitIntoChunks('a\nb\nc\nd', 'file.ts');
     expect(chunks.length).toBeGreaterThan(1);
@@ -58,6 +60,7 @@ describe('CodeEmbeddingCLI basics', () => {
       format: 'json',
       verbose: true,
       maxLines: 3,
+      modelConfig: FALLBACK_MODEL_CONFIG,
     });
 
     // stub reads for two files
@@ -82,7 +85,12 @@ describe('CodeEmbeddingCLI basics', () => {
     expect(writeFileSync).not.toHaveBeenCalled();
 
     // Now with output
-    const cliCsv = new CodeEmbeddingCLI({ rootDir: '/proj', format: 'csv', output: jsonPath });
+    const cliCsv = new CodeEmbeddingCLI({
+      rootDir: '/proj',
+      format: 'csv',
+      output: jsonPath,
+      modelConfig: FALLBACK_MODEL_CONFIG,
+    });
     await cliCsv.saveEmbeddings(
       embeddings.map((e) => ({ ...e, embedding: [0.1, 0.2, 0.3], content: 'x' }))
     );

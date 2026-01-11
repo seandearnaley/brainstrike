@@ -15,6 +15,7 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useSecretsStore } from '../../stores/secrets-store';
 
 /**
  * Settings section for managing LLM provider API keys.
@@ -24,6 +25,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from 'react';
  */
 export function ApiKeysSettings() {
   const { toast } = useToast();
+  const notifySecretsChanged = useSecretsStore((state) => state.notifySecretsChanged);
   const providerDefinitions = useMemo(() => listProviders(), []);
   const providerOptions = useMemo(
     () =>
@@ -94,20 +96,22 @@ export function ApiKeysSettings() {
       }
       setApiKey('');
       await refreshProviders();
+      notifySecretsChanged();
     } finally {
       setBusy(false);
     }
-  }, [apiKey, provider, refreshProviders, toast]);
+  }, [apiKey, provider, refreshProviders, toast, notifySecretsChanged]);
 
   const handleDelete = useCallback(async () => {
     setBusy(true);
     try {
       await window.secrets?.deleteKey?.(provider);
       await refreshProviders();
+      notifySecretsChanged();
     } finally {
       setBusy(false);
     }
-  }, [provider, refreshProviders]);
+  }, [provider, refreshProviders, notifySecretsChanged]);
 
   const providerId = useId();
   const apiKeyId = useId();

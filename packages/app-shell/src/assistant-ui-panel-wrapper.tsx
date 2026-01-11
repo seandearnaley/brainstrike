@@ -14,6 +14,7 @@ import {
   useAssistantPreferencesStore,
   useEnsureModelRegistry,
   useModelRegistryStore,
+  useSecretsStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
 import {
@@ -56,6 +57,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     getSelectedProvider,
     getEnabledModels,
   } = useAssistantPreferencesStore();
+
+  // Subscribe to secrets changes to re-check available providers when API keys change
+  const secretsVersion = useSecretsStore((state) => state.secretsVersion);
 
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
@@ -193,7 +197,8 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     return () => {
       cancelled = true;
     };
-  }, [initialProviders, getAvailableProviders]);
+    // secretsVersion triggers re-check when API keys are added/removed
+  }, [initialProviders, getAvailableProviders, secretsVersion]);
 
   // Reconcile selection whenever providers or enabled models change
   // Using useEffect (not useLayoutEffect) because we're mutating external state (Zustand store)

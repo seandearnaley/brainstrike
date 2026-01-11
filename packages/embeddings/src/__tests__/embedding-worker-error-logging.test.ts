@@ -38,22 +38,6 @@ vi.mock('../bge-m3-service', () => {
     private modelId = 'mock-model';
     private dimensions = 768;
 
-    static getDefaultModelKey(): string {
-      return 'jinaai/jina-embeddings-v2-base-code';
-    }
-
-    static getRegistry() {
-      return { default: MockSimpleEmbeddingService.getDefaultModelKey(), models: {} };
-    }
-
-    static listModels(): Record<string, ModelConfig> {
-      return {};
-    }
-
-    static getModelConfig(_key: string): ModelConfig | null {
-      return null;
-    }
-
     async initializeWithModel(
       modelKeyOrConfig?: string | ModelConfig,
       _onProgress?: (progress: EmbeddingProgress) => void

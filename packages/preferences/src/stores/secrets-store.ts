@@ -1,0 +1,36 @@
+import { create } from 'zustand';
+
+/**
+ * Simple store to track when secrets (API keys) change.
+ * Components that depend on available providers can subscribe to `secretsVersion`
+ * and re-check provider availability when it changes.
+ */
+type SecretsState = {
+  /**
+   * Incremented whenever secrets are added, removed, or modified.
+   * Components can use this as a dependency to trigger re-fetching of available providers.
+   */
+  secretsVersion: number;
+
+  /**
+   * Call this after saving or deleting an API key to notify subscribers.
+   */
+  notifySecretsChanged: () => void;
+};
+
+export const useSecretsStore = create<SecretsState>()((set) => ({
+  secretsVersion: 0,
+
+  notifySecretsChanged: () =>
+    set((state) => ({
+      secretsVersion: state.secretsVersion + 1,
+    })),
+}));
+
+/**
+ * Test helper to reset state between tests.
+ * @internal
+ */
+export function __resetSecretsStoreForTests() {
+  useSecretsStore.setState({ secretsVersion: 0 });
+}

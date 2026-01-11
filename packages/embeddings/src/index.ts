@@ -51,14 +51,7 @@ export type {
   ILocalEmbeddingProvider,
 } from './interfaces/provider';
 // Export model dimension helpers
-export {
-  type GetModelDimensionsOptions,
-  getModelDimensionsSafe,
-  isValidDimension,
-  validateDimensions,
-} from './model-dimensions';
-// Export model registry manager
-export { ModelRegistryManager } from './model-registry';
+export { isValidDimension, validateDimensions } from './model-dimensions';
 export type {
   DistanceMetric,
   EmbeddingInput,

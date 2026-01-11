@@ -203,19 +203,18 @@ export const BGE_M3_CONFIG = {
 } as const;
 
 /**
- * Alternative smaller model for testing/fallback
+ * Alternative smaller model for testing/fallback.
+ * Conforms to ModelConfig for use with initializeWithModel().
  */
-export const FALLBACK_MODEL_CONFIG = {
-  /** Fallback model ID - smaller and more reliable */
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  /** Embedding dimensions */
+export const FALLBACK_MODEL_CONFIG: ModelConfig = {
+  id: 'Xenova/all-MiniLM-L6-v2',
+  name: 'all-MiniLM-L6-v2',
   dimensions: 384,
-  /** Maximum input length */
-  maxLength: 512,
-  /** Supported languages */
-  supportedLanguages: ['en'],
-  /** Retrieval modes */
-  retrievalModes: ['dense'] as const,
-} as const;
+  quantized: false,
+  description: 'Small, fast general-purpose embedding model',
+  tags: ['english', 'small', 'fast'],
+  origin: 'HuggingFace',
+  size: '~80MB',
+};
 
 export type RetrievalMode = (typeof BGE_M3_CONFIG.retrievalModes)[number];
