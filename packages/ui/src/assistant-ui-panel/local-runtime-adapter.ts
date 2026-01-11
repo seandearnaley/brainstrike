@@ -22,15 +22,22 @@ type JsonArray = readonly JsonValue[];
 let backendInstance: LocalLlmBackendType | null = null;
 let backendInstancePromise: Promise<LocalLlmBackendType> | null = null;
 let currentModelId: string | null = null;
+// Track disposal requests to prevent race conditions during initialization
+// Using object pattern since the property must be mutable across async operations
+const disposalState = { requested: false };
 
 /**
  * Get or create the LocalLlmBackend singleton.
  * Uses promise-based caching to prevent race conditions when called concurrently.
  * Dynamically imports to avoid loading transformers.js until needed.
+ *
+ * Handles edge case where disposeLocalBackend() is called during initialization:
+ * - Sets disposalRequested flag before clearing promise
+ * - Promise checks flag and disposes instance if disposal was requested
  */
 async function getBackend(): Promise<LocalLlmBackendType> {
-  // Fast path: already initialized
-  if (backendInstance) {
+  // Fast path: already initialized and not disposed
+  if (backendInstance && !disposalState.requested) {
     return backendInstance;
   }
 
@@ -41,6 +48,14 @@ async function getBackend(): Promise<LocalLlmBackendType> {
       // Dynamic import to avoid bundling transformers.js in non-local builds
       const { LocalLlmBackend } = await import('@brainstrike/agent/client');
       const instance = new LocalLlmBackend();
+
+      // Check if disposal was requested while we were initializing
+      if (disposalState.requested) {
+        // Disposal was requested - clean up the instance we just created
+        await instance.dispose();
+        throw new Error('Backend initialization cancelled: disposal was requested');
+      }
+
       backendInstance = instance;
       return instance;
     })();
@@ -198,14 +213,34 @@ export function createLocalModelAdapter(options: LocalRuntimeAdapterOptions): Ch
 /**
  * Dispose the backend and free resources.
  * Call this when the local provider is no longer needed.
+ *
+ * Handles race condition: if initialization is in progress, sets flag
+ * so the initializing promise will dispose the instance when complete.
  */
 export async function disposeLocalBackend(): Promise<void> {
+  // Signal disposal request - this prevents race conditions if
+  // initialization is in progress (the promise will check this flag)
+  disposalState.requested = true;
+
+  // Wait for any pending initialization to complete before disposing
+  if (backendInstancePromise) {
+    try {
+      await backendInstancePromise;
+    } catch {
+      // Initialization may have failed or been cancelled - that's ok
+    }
+  }
+
+  // Now safely dispose the instance
   if (backendInstance) {
     await backendInstance.dispose();
-    backendInstance = null;
-    backendInstancePromise = null;
-    currentModelId = null;
   }
+
+  // Reset all state
+  backendInstance = null;
+  backendInstancePromise = null;
+  currentModelId = null;
+  disposalState.requested = false; // Reset for potential re-initialization
 }
 
 /**

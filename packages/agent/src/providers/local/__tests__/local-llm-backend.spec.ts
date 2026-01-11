@@ -10,6 +10,20 @@ vi.mock('@huggingface/transformers', () => ({
   },
 }));
 
+/**
+ * Create a mock tokenizer for tests.
+ * The tokenizer is required for token counting in generate().
+ */
+function createMockTokenizer() {
+  return {
+    encode: vi.fn((text: string) => {
+      // Approximate token count: ~4 chars per token
+      const tokenCount = Math.ceil(text.length / 4);
+      return new Array(tokenCount).fill(0);
+    }),
+  };
+}
+
 describe('LocalLlmBackend', () => {
   let backend: LocalLlmBackend;
 
@@ -61,9 +75,10 @@ describe('LocalLlmBackend', () => {
     });
 
     it('throws AbortError when signal is aborted before generation', async () => {
-      // Setup mock pipeline
+      // Setup mock pipeline and tokenizer
       const mockPipeline = vi.fn().mockResolvedValue([{ generated_text: 'test' }]);
       (backend as any).pipeline = mockPipeline;
+      (backend as any).tokenizer = createMockTokenizer();
       (backend as any).modelId = 'test-model';
       (backend as any).selectedDevice = 'wasm';
       (backend as any).status = { state: 'ready', device: 'wasm' };
@@ -134,6 +149,7 @@ describe('pipeline-based generation', () => {
       .mockResolvedValue([{ generated_text: 'Hello! How can I help you today?' }]);
 
     (backend as any).pipeline = mockPipeline;
+    (backend as any).tokenizer = createMockTokenizer();
     (backend as any).modelId = 'test-model';
     (backend as any).selectedDevice = 'wasm';
     (backend as any).status = { state: 'ready', device: 'wasm' };
@@ -157,6 +173,7 @@ describe('pipeline-based generation', () => {
     ]);
 
     (backend as any).pipeline = mockPipeline;
+    (backend as any).tokenizer = createMockTokenizer();
     (backend as any).modelId = 'test-model';
     (backend as any).selectedDevice = 'wasm';
     (backend as any).status = { state: 'ready', device: 'wasm' };
@@ -172,6 +189,7 @@ describe('pipeline-based generation', () => {
     const mockPipeline = vi.fn().mockResolvedValue([{ generated_text: 'test output' }]);
 
     (backend as any).pipeline = mockPipeline;
+    (backend as any).tokenizer = createMockTokenizer();
     (backend as any).modelId = 'test-model';
     (backend as any).selectedDevice = 'wasm';
     (backend as any).status = { state: 'ready', device: 'wasm' };
@@ -190,6 +208,7 @@ describe('tool call parsing', () => {
 
   beforeEach(() => {
     backend = new LocalLlmBackend();
+    (backend as any).tokenizer = createMockTokenizer();
     (backend as any).modelId = 'test-model';
     (backend as any).selectedDevice = 'wasm';
     (backend as any).status = { state: 'ready', device: 'wasm' };
@@ -376,6 +395,7 @@ describe('generation with tools', () => {
       .mockResolvedValue([{ generated_text: 'I will help you with that.' }]);
 
     (backend as any).pipeline = mockPipeline;
+    (backend as any).tokenizer = createMockTokenizer();
     (backend as any).modelId = 'test-model';
     (backend as any).selectedDevice = 'wasm';
     (backend as any).status = { state: 'ready', device: 'wasm' };
@@ -418,6 +438,7 @@ describe('edge cases in tool call parsing', () => {
 
   beforeEach(() => {
     backend = new LocalLlmBackend();
+    (backend as any).tokenizer = createMockTokenizer();
     (backend as any).modelId = 'test-model';
     (backend as any).selectedDevice = 'wasm';
     (backend as any).status = { state: 'ready', device: 'wasm' };

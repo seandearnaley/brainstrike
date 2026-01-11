@@ -407,15 +407,21 @@ function parseFunctionCall(output: string): LocalLlmToolCall | null {
 const MODELS_REQUIRING_MANUAL_FORMATTING = new Set(['onnx-community/functiongemma-270m-it-ONNX']);
 
 /**
- * Maximum output length for tool call parsing (100KB).
+ * Maximum output length for tool call parsing (10KB).
  * Prevents ReDoS attacks from unbounded regex matching on large inputs.
+ * Reduced from 100KB to 10KB as defense-in-depth measure.
  */
-const MAX_OUTPUT_LENGTH = 100_000;
+const MAX_OUTPUT_LENGTH = 10_000;
 
 /**
  * Wrap a promise with abort signal handling.
  * If the signal is aborted during execution, rejects with AbortError.
- * Note: This doesn't cancel the underlying operation, but allows early rejection.
+ *
+ * LIMITATION: This wrapper enables early rejection but does NOT cancel
+ * the underlying transformers.js pipeline operation. The GPU/WASM inference
+ * will continue to completion in the background. This is a limitation of
+ * the transformers.js library which doesn't expose cancellation APIs.
+ * For large generations, this may result in wasted compute resources.
  */
 function withAbortSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) {
@@ -776,25 +782,34 @@ export class LocalLlmBackend {
       // This avoids issues with custom tokenizer classes like "TokenizersBackend"
       logger.info('Loading local LLM', { modelId: config.modelId, device: this.selectedDevice });
 
-      tempPipeline = await transformers.pipeline('text-generation', config.modelId, {
+      const pipelineResult = await transformers.pipeline('text-generation', config.modelId, {
         device: this.selectedDevice,
         dtype,
         // biome-ignore lint/style/useNamingConvention: Matches transformers.js API
         progress_callback: progressCallback,
       });
 
-      // Load tokenizer for token counting (pipeline doesn't expose token counts)
-      try {
-        this.tokenizer = await transformers.AutoTokenizer.from_pretrained(config.modelId);
-        logger.debug('Tokenizer loaded for token counting', { modelId: config.modelId });
-      } catch (tokenizerError) {
-        // Tokenizer loading is optional - token counts will be 0 if it fails
-        logger.debug('Tokenizer not available, token counts will be estimates', {
-          modelId: config.modelId,
-          error: tokenizerError instanceof Error ? tokenizerError.message : String(tokenizerError),
-        });
-        this.tokenizer = null;
+      // Validate pipeline result - must be a callable function
+      if (typeof pipelineResult !== 'function') {
+        throw new Error(
+          `Invalid pipeline result: expected function, got ${typeof pipelineResult}. ` +
+            'The transformers.js API may have changed.'
+        );
       }
+      tempPipeline = pipelineResult;
+
+      // Load tokenizer for token counting (required for accurate usage tracking)
+      const tokenizerResult = await transformers.AutoTokenizer.from_pretrained(config.modelId);
+
+      // Validate tokenizer has encode method
+      if (!tokenizerResult || typeof tokenizerResult.encode !== 'function') {
+        throw new Error(
+          'Invalid tokenizer result: expected object with encode method. ' +
+            'The transformers.js API may have changed.'
+        );
+      }
+      this.tokenizer = tokenizerResult;
+      logger.debug('Tokenizer loaded for token counting', { modelId: config.modelId });
 
       // Only assign after successful initialization to prevent leaks
       this.pipeline = tempPipeline;
@@ -1017,19 +1032,25 @@ export class LocalLlmBackend {
     // Parse for tool calls
     const toolCall = parseFunctionCall(generatedText);
 
-    // Count tokens using tokenizer if available
-    let promptTokens = 0;
-    let completionTokens = 0;
-    if (this.tokenizer) {
-      try {
-        promptTokens = this.tokenizer.encode(promptText).length;
-        completionTokens = this.tokenizer.encode(generatedText).length;
-      } catch (tokenError) {
-        logger.debug('Token counting failed, using 0', {
-          error: tokenError instanceof Error ? tokenError.message : String(tokenError),
-        });
-      }
+    // Count tokens using tokenizer - fail if not available
+    if (!this.tokenizer) {
+      throw new Error(
+        'Tokenizer not available for token counting. Model initialization may have failed.'
+      );
     }
+
+    let promptTokens: number;
+    let completionTokens: number;
+    try {
+      promptTokens = this.tokenizer.encode(promptText).length;
+      completionTokens = this.tokenizer.encode(generatedText).length;
+    } catch (tokenError) {
+      throw new Error(
+        `Token counting failed: ${tokenError instanceof Error ? tokenError.message : String(tokenError)}`
+      );
+    }
+
+    logger.debug('Token counts', { promptTokens, completionTokens });
 
     // Build result
     const result: LocalLlmGenerationResult = {
