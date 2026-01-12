@@ -198,6 +198,7 @@ export async function createMastraAgentRuntime(
   }
 
   const agent = new Agent({
+    id: 'brainstrike-assistant',
     name: 'Brainstrike Assistant',
     instructions:
       instructions ??

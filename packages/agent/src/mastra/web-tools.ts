@@ -309,13 +309,13 @@ const baseWebTools = {
     id: 'web.searchDocs',
     description: 'Searches Brainstrike documentation entries.',
     inputSchema: searchDocsInputSchema,
-    execute: async (context) => searchDocsExecute({ input: context.context }),
+    execute: async (inputData) => searchDocsExecute({ input: inputData }),
   }),
   'web.docSummary': createTool({
     id: 'web.docSummary',
     description: 'Returns a structured summary of a documentation entry.',
     inputSchema: docSummaryInputSchema,
-    execute: async (context) => docSummaryExecute({ input: context.context }),
+    execute: async (inputData) => docSummaryExecute({ input: inputData }),
   }),
 };
 

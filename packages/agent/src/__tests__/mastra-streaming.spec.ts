@@ -95,7 +95,7 @@ vi.mock('@mastra/mcp', () => ({
       mcpInstances.push(this);
     }
 
-    async getTools() {
+    async listTools() {
       return {
         'remote tool': { id: 'remote tool', description: 'remote' },
       } satisfies Record<string, { id: string; description: string }>;
