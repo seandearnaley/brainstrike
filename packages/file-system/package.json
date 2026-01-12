@@ -40,11 +40,11 @@
     "@stryker-mutator/core": "^9.4.0",
     "@stryker-mutator/typescript-checker": "^9.4.0",
     "@stryker-mutator/vitest-runner": "^9.4.0",
-    "@types/node": "^24.10.1",
-    "electron": "^39.2.4",
-    "jsdom": "^27.2.0",
-    "tsup": "^8.5.0",
+    "@types/node": "^24.10.7",
+    "electron": "^39.2.7",
+    "jsdom": "26.1.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.16"
   }
 }

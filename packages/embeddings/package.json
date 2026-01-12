@@ -36,16 +36,16 @@
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^3.8.0",
+    "@huggingface/transformers": "^3.8.1",
     "glob": "^13.0.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.3.14",
-    "@types/node": "^24.10.1",
+    "@types/node": "^24.10.7",
     "rimraf": "^6.1.2",
-    "tsup": "^8.5.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.16"
   },
   "peerDependencies": {
     "react": "^19.1.1"

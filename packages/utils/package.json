@@ -47,7 +47,7 @@
   "dependencies": {
     "@brainstrike/types": "workspace:*",
     "minimatch": "^10.1.1",
-    "pino": "^10.1.0",
+    "pino": "^10.1.1",
     "tiktoken": "^1.0.22"
   },
   "devDependencies": {
@@ -55,12 +55,12 @@
     "@stryker-mutator/core": "^9.4.0",
     "@stryker-mutator/typescript-checker": "^9.4.0",
     "@stryker-mutator/vitest-runner": "^9.4.0",
-    "@swc/core": "^1.13.5",
-    "@types/node": "^24.10.1",
+    "@swc/core": "^1.15.8",
+    "@types/node": "^24.10.7",
     "rimraf": "^6.1.2",
-    "tsup": "^8.5.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.16"
   },
   "publishConfig": {
     "access": "public"

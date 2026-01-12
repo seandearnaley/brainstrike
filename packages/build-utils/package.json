@@ -33,10 +33,10 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@types/node": "^24.10.1",
-    "tsup": "^8.5.0",
+    "@types/node": "^24.10.7",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.16"
   },
   "turbo": {
     "outputs": [
