@@ -7,7 +7,7 @@ const StdioSchema = z.object({
   name: z.string().min(1),
   command: z.string().min(1),
   args: z.array(z.string()).optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   enabledTools: z.array(z.string()).optional(),
 });
 
@@ -15,7 +15,7 @@ const SseSchema = z.object({
   transport: z.literal('sse'),
   name: z.string().min(1),
   url: z.string().url(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   enabledTools: z.array(z.string()).optional(),
 });
 

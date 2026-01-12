@@ -46,7 +46,7 @@
     "@mastra/core": "^1.0.0-beta.21",
     "@mastra/mcp": "^1.0.0-beta.9",
     "minimatch": "^10.1.1",
-    "zod": "^3.25.76"
+    "zod": "^4.3.5"
   },
   "devDependencies": {
     "@types/node": "^24.10.7",

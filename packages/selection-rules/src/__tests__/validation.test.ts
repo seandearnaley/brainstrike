@@ -460,8 +460,17 @@ describe('validation', () => {
   describe('Zod schemas', () => {
     it('should have discriminated union for SelectionRuleSchema', () => {
       // Verify that the schema uses discriminated union on 'type'
-      const definition = SelectionRuleSchema._def;
-      expect(definition.typeName).toBe('ZodDiscriminatedUnion');
+      // In Zod v4, discriminated unions have _def.type === 'union' and a discriminator property
+      const definition = SelectionRuleSchema._def as {
+        type?: string;
+        discriminator?: string;
+        typeName?: string;
+      };
+      // Support both Zod v3 (typeName) and Zod v4 (type + discriminator) structures
+      const isDiscriminatedUnion =
+        definition.typeName === 'ZodDiscriminatedUnion' ||
+        (definition.type === 'union' && definition.discriminator === 'type');
+      expect(isDiscriminatedUnion).toBe(true);
     });
 
     it('should validate all rule types through union', () => {
