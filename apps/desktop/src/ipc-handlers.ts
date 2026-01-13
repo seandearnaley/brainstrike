@@ -173,7 +173,7 @@ async function cleanupLiveSubscription(id: number): Promise<void> {
 export function registerIpcHandlers(
   fileSystem: ElectronFileSystemAdapter,
   storage: ElectronStorageAdapter,
-  store: ElectronStore<DesktopSettingsStoreSchema>,
+  getStore: () => ElectronStore<DesktopSettingsStoreSchema>,
   options?: RegisterIpcHandlerOptions
 ) {
   ipcMain.handle('storage:getItem', async (_e: IpcMainInvokeEvent, key: string) =>
@@ -317,14 +317,14 @@ export function registerIpcHandlers(
     // Using proper type access for electron-store
     // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
     // @ts-ignore
-    store.set('panelLayout', { v1: state });
+    getStore().set('panelLayout', { v1: state });
   });
 
   ipcMain.handle('layout:load', async () => {
     // Using proper type access for electron-store
     // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
     // @ts-ignore
-    const layout = store.get('panelLayout');
+    const layout = getStore().get('panelLayout');
     return layout?.v1;
   });
 
@@ -332,7 +332,7 @@ export function registerIpcHandlers(
   ipcMain.handle('settings:clearAll', async () => {
     try {
       // Clear all settings from the store
-      (store as ElectronStore<DesktopSettingsStoreSchema> & { clear: () => void }).clear();
+      (getStore() as ElectronStore<DesktopSettingsStoreSchema> & { clear: () => void }).clear();
       return { success: true };
     } catch (error) {
       return {

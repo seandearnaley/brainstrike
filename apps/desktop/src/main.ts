@@ -52,9 +52,15 @@ function getLogFilePath(): string | undefined {
 }
 
 // Defer ElectronStore creation until app is ready
+// CRITICAL: ElectronStore uses app.getPath('userData') internally, which fails before app.ready
 let _settingsStore: ElectronStore<DesktopSettingsStoreSchema> | null = null;
 function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> {
   if (!_settingsStore) {
+    if (!app.isReady()) {
+      throw new Error(
+        'Cannot initialize ElectronStore before app.ready - app.getPath() not available'
+      );
+    }
     _settingsStore = new ElectronStore<DesktopSettingsStoreSchema>({
       name: 'brainstrike-settings',
     });
@@ -340,7 +346,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 logger.info('Setting up IPC handlers...');
-registerIpcHandlers(fileSystem, storage, getSettingsStore(), {
+registerIpcHandlers(fileSystem, storage, getSettingsStore, {
   onResetLocal: handleResetLocal,
 });
 registerSecretsIpcHandlers(createSecretsService());
