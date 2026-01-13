@@ -1,19 +1,18 @@
-import { createLogger, isDevEnv } from '@brainstrike/utils';
-import { ChevronLeft, ChevronRight, Terminal } from 'lucide-react';
+import { isDevEnv } from '@brainstrike/utils';
+import { ChevronLeft, ChevronRight, PanelLeft, PanelRight, Terminal, X } from 'lucide-react';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
-import { type ImperativePanelHandle, Panel, PanelGroup } from 'react-resizable-panels';
+import {
+  Group,
+  type GroupImperativeHandle,
+  Panel,
+  type PanelImperativeHandle,
+  Separator,
+} from 'react-resizable-panels';
 import { Button } from '../button';
 import type { PanelPersistenceAdapter } from '../hooks/panel-persistence-adapters';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
-// Phase 3: no internal persistence fallback; require provider/controlled usage
-import { usePanelToggle } from '../hooks/use-panel-toggle';
 import { cn } from '../lib/utils';
 import { usePanelLayout } from '../providers/panel-layout-provider';
-import { ConsolePanel } from './console-panel';
-import { ExplorerPanel } from './explorer-panel';
-import { ToolsPanel } from './tools-panel';
-
-const logger = createLogger('IdeLayout');
 
 // Context for sharing file editor functionality between main content and console
 interface FileEditorContextValue {
@@ -28,68 +27,9 @@ const IdeFileEditorContext = createContext<FileEditorContextValue>({
 
 export const useIdeFileEditor = () => useContext(IdeFileEditorContext);
 
-// Panel state synchronization helper
-function syncPanelState(
-  panel: ImperativePanelHandle | null,
-  shouldShow: boolean,
-  hasContent: boolean
-): (() => void) | undefined {
-  if (!(hasContent && panel)) {
-    return;
-  }
-
-  const frameId = requestAnimationFrame(() => {
-    try {
-      if (shouldShow) {
-        if (panel.isCollapsed()) {
-          panel.expand();
-        }
-      } else if (panel.isExpanded()) {
-        panel.collapse();
-      }
-    } catch (error) {
-      if (isDevEnv()) {
-        logger.debug('Failed to sync panel state', {
-          error,
-          shouldShow,
-          hasContent,
-          panelCollapsed: panel?.isCollapsed?.(),
-          panelExpanded: panel?.isExpanded?.(),
-        });
-      }
-    }
-  });
-
-  return () => cancelAnimationFrame(frameId);
-}
-
-// Custom hook for managing panel state effects
-function usePanelEffects(
-  leftPanelRef: React.RefObject<ImperativePanelHandle | null>,
-  rightPanelRef: React.RefObject<ImperativePanelHandle | null>,
-  consolePanelRef: React.RefObject<ImperativePanelHandle | null>,
-  showLeftPanel: boolean,
-  showRightPanel: boolean,
-  showConsole: boolean,
-  leftPanelContent?: React.ReactNode,
-  rightPanelContent?: React.ReactNode,
-  consoleContent?: React.ReactNode
-) {
-  useEffect(
-    () => syncPanelState(leftPanelRef.current, showLeftPanel, !!leftPanelContent),
-    [showLeftPanel, leftPanelContent, leftPanelRef]
-  );
-
-  useEffect(
-    () => syncPanelState(rightPanelRef.current, showRightPanel, !!rightPanelContent),
-    [showRightPanel, rightPanelContent, rightPanelRef]
-  );
-
-  useEffect(
-    () => syncPanelState(consolePanelRef.current, showConsole, !!consoleContent),
-    [showConsole, consoleContent, consolePanelRef]
-  );
-}
+// In react-resizable-panels v4, panels must ALWAYS be rendered (never conditionally mounted).
+// Visibility is controlled via the collapsible prop and imperative collapse()/expand() API.
+// This is a fundamental architectural requirement - conditional rendering breaks the layout.
 
 // Layout handler configuration
 interface LayoutHandlerConfig {
@@ -108,50 +48,7 @@ interface LayoutHandlerConfig {
     showLeftPanel?: boolean,
     showRightPanel?: boolean
   ) => void;
-}
-
-// Helper to determine panel visibility state
-function getPanelVisibilityState(config: LayoutHandlerConfig) {
-  return {
-    hasLeft: config.leftPanelContent && config.showLeftPanel,
-    hasRight: config.rightPanelContent && config.showRightPanel,
-  };
-}
-
-// Helper to get size from array with fallback
-function getSizeWithFallback(sizes: number[], index: number, fallback: number): number {
-  return sizes[index] ?? fallback;
-}
-
-// Horizontal layout size calculation
-function calculateHorizontalSizes(
-  newSizes: number[],
-  config: LayoutHandlerConfig
-): [number, number] {
-  const { hasLeft, hasRight } = getPanelVisibilityState(config);
-  const defaultLeftSize = config.safeLeftSize ?? 25;
-  const defaultRightSize = config.safeRightSize ?? 20;
-
-  // Both panels visible - expect 3 sizes [explorer, middle, tools]
-  if (hasLeft && hasRight && newSizes.length === 3) {
-    return [
-      getSizeWithFallback(newSizes, 0, defaultLeftSize),
-      getSizeWithFallback(newSizes, 2, defaultRightSize),
-    ];
-  }
-
-  // Only explorer panel visible - expect 2 sizes [explorer, middle]
-  if (hasLeft && newSizes.length === 2) {
-    return [getSizeWithFallback(newSizes, 0, defaultLeftSize), defaultRightSize];
-  }
-
-  // Only tools panel visible - expect 2 sizes [middle, tools]
-  if (hasRight && newSizes.length === 2) {
-    return [defaultLeftSize, getSizeWithFallback(newSizes, 1, defaultRightSize)];
-  }
-
-  // Fallback to defaults for all other cases
-  return [defaultLeftSize, defaultRightSize];
+  isInitialRenderRef?: React.RefObject<boolean>;
 }
 
 function buildLayoutHandlerConfig(config: LayoutHandlerConfig): LayoutHandlerConfig {
@@ -186,6 +83,9 @@ function buildLayoutHandlerConfig(config: LayoutHandlerConfig): LayoutHandlerCon
   if (config.saveLayout) {
     cfg.saveLayout = config.saveLayout;
   }
+  if (config.isInitialRenderRef) {
+    cfg.isInitialRenderRef = config.isInitialRenderRef;
+  }
   return cfg;
 }
 
@@ -204,18 +104,24 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
       config.safeRightSize,
       config.safeConsoleSize,
       config.saveLayout,
+      config.isInitialRenderRef,
     ]
   );
 
   const handleHorizontalLayout = useCallback(
-    (newSizes: number[]) => {
+    (layout: { [id: string]: number }) => {
+      if (stableConfig.isInitialRenderRef?.current) {
+        return;
+      }
       if (!stableConfig.saveLayout) {
         return;
       }
 
-      const [newLeftSize, newRightSize] = calculateHorizontalSizes(newSizes, stableConfig);
+      const explorerSize = layout['explorer-panel'] ?? stableConfig.safeLeftSize ?? 25;
+      const toolsSize = layout['tools-panel'] ?? stableConfig.safeRightSize ?? 20;
+
       stableConfig.saveLayout(
-        [newLeftSize, newRightSize, stableConfig.safeConsoleSize ?? 20],
+        [explorerSize, toolsSize, stableConfig.safeConsoleSize ?? 20],
         !!stableConfig.showConsole,
         !!stableConfig.showLeftPanel,
         !!stableConfig.showRightPanel
@@ -225,25 +131,189 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
   );
 
   const handleVerticalLayout = useCallback(
-    (newSizes: number[]) => {
+    (layout: { [id: string]: number }) => {
+      if (stableConfig.isInitialRenderRef?.current) {
+        return;
+      }
       if (!stableConfig.saveLayout) {
         return;
       }
 
-      if (stableConfig.showConsole && stableConfig.consoleContent && newSizes.length >= 2) {
-        const consoleSize = newSizes[1] ?? stableConfig.safeConsoleSize ?? 20;
-        stableConfig.saveLayout(
-          [stableConfig.safeLeftSize ?? 25, stableConfig.safeRightSize ?? 20, consoleSize],
-          !!stableConfig.showConsole,
-          !!stableConfig.showLeftPanel,
-          !!stableConfig.showRightPanel
-        );
-      }
+      const consoleSize = layout['console-panel'] ?? stableConfig.safeConsoleSize ?? 20;
+      stableConfig.saveLayout(
+        [stableConfig.safeLeftSize ?? 25, stableConfig.safeRightSize ?? 20, consoleSize],
+        !!stableConfig.showConsole,
+        !!stableConfig.showLeftPanel,
+        !!stableConfig.showRightPanel
+      );
     },
     [stableConfig]
   );
 
   return { handleHorizontalLayout, handleVerticalLayout };
+}
+
+// Configuration for initial layout application
+interface InitialLayoutConfig {
+  horizontalGroupRef: React.RefObject<GroupImperativeHandle | null>;
+  verticalGroupRef: React.RefObject<GroupImperativeHandle | null>;
+  leftPanelRef: React.RefObject<PanelImperativeHandle | null>;
+  rightPanelRef: React.RefObject<PanelImperativeHandle | null>;
+  consolePanelRef: React.RefObject<PanelImperativeHandle | null>;
+  hasAppliedInitialLayout: React.RefObject<boolean>;
+  isInitialRenderRef: React.RefObject<boolean>;
+  hasExplorer: boolean;
+  hasTools: boolean;
+  hasConsole: boolean;
+  showLeftPanel: boolean;
+  showRightPanel: boolean;
+  showConsole: boolean;
+  safeLeftSize: number;
+  safeRightSize: number;
+  safeConsoleSize: number;
+}
+
+// Helper: Apply horizontal layout via Group imperative API
+function applyHorizontalLayout(
+  groupRef: GroupImperativeHandle,
+  hasExplorer: boolean,
+  hasTools: boolean,
+  showLeftPanel: boolean,
+  showRightPanel: boolean,
+  safeLeftSize: number,
+  safeRightSize: number
+): void {
+  const layout: { [id: string]: number } = {};
+  if (hasExplorer) {
+    layout['explorer-panel'] = showLeftPanel ? safeLeftSize : 0;
+  }
+  const leftUsed = hasExplorer && showLeftPanel ? safeLeftSize : 0;
+  const rightUsed = hasTools && showRightPanel ? safeRightSize : 0;
+  layout['middle-panel'] = 100 - leftUsed - rightUsed;
+  if (hasTools) {
+    layout['tools-panel'] = showRightPanel ? safeRightSize : 0;
+  }
+  groupRef.setLayout(layout);
+}
+
+// Helper: Apply vertical layout via Group imperative API
+function applyVerticalLayout(
+  groupRef: GroupImperativeHandle,
+  hasConsole: boolean,
+  showConsole: boolean,
+  safeConsoleSize: number
+): void {
+  const layout: { [id: string]: number } = {};
+  const consoleSize = hasConsole && showConsole ? safeConsoleSize : 0;
+  layout['main-content-panel'] = 100 - consoleSize;
+  if (hasConsole) {
+    layout['console-panel'] = consoleSize;
+  }
+  groupRef.setLayout(layout);
+}
+
+// Helper: Apply collapsed state via Panel imperative API
+function applyCollapsedState(
+  leftPanelRef: React.RefObject<PanelImperativeHandle | null>,
+  rightPanelRef: React.RefObject<PanelImperativeHandle | null>,
+  consolePanelRef: React.RefObject<PanelImperativeHandle | null>,
+  hasExplorer: boolean,
+  hasTools: boolean,
+  hasConsole: boolean,
+  showLeftPanel: boolean,
+  showRightPanel: boolean,
+  showConsole: boolean
+): void {
+  if (hasExplorer && leftPanelRef.current && !showLeftPanel) {
+    leftPanelRef.current.collapse();
+  }
+  if (hasTools && rightPanelRef.current && !showRightPanel) {
+    rightPanelRef.current.collapse();
+  }
+  if (hasConsole && consolePanelRef.current && !showConsole) {
+    consolePanelRef.current.collapse();
+  }
+}
+
+// Custom hook for applying initial layout imperatively (v4 requirement)
+function useInitialLayoutEffect(config: InitialLayoutConfig): void {
+  const {
+    horizontalGroupRef,
+    verticalGroupRef,
+    leftPanelRef,
+    rightPanelRef,
+    consolePanelRef,
+    hasAppliedInitialLayout,
+    isInitialRenderRef,
+    hasExplorer,
+    hasTools,
+    hasConsole,
+    showLeftPanel,
+    showRightPanel,
+    showConsole,
+    safeLeftSize,
+    safeRightSize,
+    safeConsoleSize,
+  } = config;
+
+  useEffect(() => {
+    if (hasAppliedInitialLayout.current) {
+      return;
+    }
+
+    // Wait for refs to be populated
+    const timeoutId = setTimeout(() => {
+      hasAppliedInitialLayout.current = true;
+      isInitialRenderRef.current = false;
+
+      if (horizontalGroupRef.current) {
+        applyHorizontalLayout(
+          horizontalGroupRef.current,
+          hasExplorer,
+          hasTools,
+          showLeftPanel,
+          showRightPanel,
+          safeLeftSize,
+          safeRightSize
+        );
+      }
+
+      if (verticalGroupRef.current) {
+        applyVerticalLayout(verticalGroupRef.current, hasConsole, showConsole, safeConsoleSize);
+      }
+
+      applyCollapsedState(
+        leftPanelRef,
+        rightPanelRef,
+        consolePanelRef,
+        hasExplorer,
+        hasTools,
+        hasConsole,
+        showLeftPanel,
+        showRightPanel,
+        showConsole
+      );
+    }, 50); // Wait for DOM to stabilize
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    horizontalGroupRef,
+    verticalGroupRef,
+    leftPanelRef,
+    rightPanelRef,
+    consolePanelRef,
+    hasAppliedInitialLayout,
+    isInitialRenderRef,
+    hasExplorer,
+    hasTools,
+    hasConsole,
+    showLeftPanel,
+    showRightPanel,
+    showConsole,
+    safeLeftSize,
+    safeRightSize,
+    safeConsoleSize,
+  ]);
 }
 
 // Custom hook for managing file editor context
@@ -267,74 +337,13 @@ function useFileEditorContext() {
   return fileEditorContextValue;
 }
 
-// Panel collapse/expand handler factory
-function createPanelHandler(
-  isInitialRenderRef: React.MutableRefObject<boolean>,
-  saveLayout: (
-    sizes: number[],
-    showConsole?: boolean,
-    showLeftPanel?: boolean,
-    showRightPanel?: boolean
-  ) => void,
-  sizes: [number, number, number],
-  panelType: 'left' | 'right' | 'console'
-) {
-  const [safeLeftSize, safeRightSize, safeConsoleSize] = sizes;
-
-  return {
-    onCollapse: () => {
-      if (isInitialRenderRef.current) {
-        return;
-      }
-
-      switch (panelType) {
-        case 'left':
-          // Keep last known size so restore works; just flip visibility
-          saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], undefined, false, undefined);
-          break;
-        case 'right':
-          saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], undefined, undefined, false);
-          break;
-        case 'console':
-          saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], false, undefined, undefined);
-          break;
-      }
-    },
-    onExpand: (size?: number) => {
-      if (isInitialRenderRef.current) {
-        return;
-      }
-
-      const newSize =
-        typeof size === 'number'
-          ? size
-          : sizes[panelType === 'left' ? 0 : panelType === 'right' ? 1 : 2];
-
-      switch (panelType) {
-        case 'left':
-          saveLayout([newSize, safeRightSize, safeConsoleSize], undefined, true, undefined);
-          break;
-        case 'right':
-          saveLayout([safeLeftSize, newSize, safeConsoleSize], undefined, undefined, true);
-          break;
-        case 'console':
-          saveLayout([safeLeftSize, safeRightSize, newSize], true, undefined, undefined);
-          break;
-      }
-    },
-  };
-}
-
 // Resolve panel state from provider if present, otherwise use internal persistence
 function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
   const ctx = usePanelLayout();
-  // In dev, enforce explicit provider wiring and avoid invoking fallback persistence at all
   if (!ctx && isDevEnv()) {
     throw new Error('Missing PanelLayoutProvider');
   }
 
-  // Always call fallback hook to preserve rules-of-hooks ordering.
-  // In dev, provide a noop adapter to satisfy strict adapter requirements without side effects.
   const noopAdapter: PanelPersistenceAdapter = useMemo(
     () => ({
       load: async () => null,
@@ -343,8 +352,10 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
     }),
     []
   );
+  // sizes format: [leftPanelSize, rightPanelSize, consolePanelSize]
+  // The middle panel size is calculated dynamically as: 100 - left - right
   const fallback = usePanelPersistence(
-    [25, 55, 20],
+    [25, 20, 20],
     false,
     !!leftPanelContent,
     false,
@@ -409,6 +420,148 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
   return fallback;
 }
 
+// Panel toggle handler configuration
+interface PanelToggleConfig {
+  safeLeftSize: number;
+  safeRightSize: number;
+  safeConsoleSize: number;
+  showConsole: boolean;
+  showLeftPanel: boolean;
+  showRightPanel: boolean;
+  saveLayout: (
+    sizes: number[],
+    showConsole?: boolean,
+    showLeftPanel?: boolean,
+    showRightPanel?: boolean
+  ) => void;
+  toggleConsole: () => void;
+  toggleLeftPanel: () => void;
+  toggleRightPanel: () => void;
+  isInitialRenderRef: React.RefObject<boolean>;
+  hideExplorerButtonRef: React.RefObject<HTMLButtonElement | null>;
+  hideToolsPanelButtonRef: React.RefObject<HTMLButtonElement | null>;
+  hideConsoleButtonRef: React.RefObject<HTMLButtonElement | null>;
+}
+
+// Custom hook for panel toggle handlers - extracted to reduce component complexity
+function usePanelToggleHandlers(config: PanelToggleConfig) {
+  const {
+    safeLeftSize,
+    safeRightSize,
+    safeConsoleSize,
+    showConsole,
+    showLeftPanel,
+    showRightPanel,
+    saveLayout,
+    toggleConsole,
+    toggleLeftPanel,
+    toggleRightPanel,
+    isInitialRenderRef,
+    hideExplorerButtonRef,
+    hideToolsPanelButtonRef,
+    hideConsoleButtonRef,
+  } = config;
+
+  const handleShowLeftPanel = useCallback(() => {
+    isInitialRenderRef.current = false;
+    const effectiveLeftSize = safeLeftSize < 10 ? 25 : safeLeftSize;
+    saveLayout(
+      [effectiveLeftSize, safeRightSize, safeConsoleSize],
+      showConsole,
+      true,
+      showRightPanel
+    );
+    toggleLeftPanel();
+    requestAnimationFrame(() => {
+      hideExplorerButtonRef.current?.focus();
+    });
+  }, [
+    toggleLeftPanel,
+    saveLayout,
+    safeLeftSize,
+    safeRightSize,
+    safeConsoleSize,
+    showConsole,
+    showRightPanel,
+    isInitialRenderRef,
+    hideExplorerButtonRef,
+  ]);
+
+  const handleHideLeftPanel = useCallback(() => {
+    isInitialRenderRef.current = false;
+    toggleLeftPanel();
+  }, [toggleLeftPanel, isInitialRenderRef]);
+
+  const handleShowRightPanel = useCallback(() => {
+    isInitialRenderRef.current = false;
+    const effectiveRightSize = safeRightSize < 10 ? 20 : safeRightSize;
+    saveLayout(
+      [safeLeftSize, effectiveRightSize, safeConsoleSize],
+      showConsole,
+      showLeftPanel,
+      true
+    );
+    toggleRightPanel();
+    requestAnimationFrame(() => {
+      hideToolsPanelButtonRef.current?.focus();
+    });
+  }, [
+    toggleRightPanel,
+    saveLayout,
+    safeLeftSize,
+    safeRightSize,
+    safeConsoleSize,
+    showConsole,
+    showLeftPanel,
+    isInitialRenderRef,
+    hideToolsPanelButtonRef,
+  ]);
+
+  const handleHideRightPanel = useCallback(() => {
+    isInitialRenderRef.current = false;
+    toggleRightPanel();
+  }, [toggleRightPanel, isInitialRenderRef]);
+
+  const handleShowConsole = useCallback(() => {
+    isInitialRenderRef.current = false;
+    const effectiveConsoleSize = safeConsoleSize < 10 ? 20 : safeConsoleSize;
+    saveLayout(
+      [safeLeftSize, safeRightSize, effectiveConsoleSize],
+      true,
+      showLeftPanel,
+      showRightPanel
+    );
+    toggleConsole();
+    requestAnimationFrame(() => {
+      hideConsoleButtonRef.current?.focus();
+    });
+  }, [
+    toggleConsole,
+    saveLayout,
+    safeLeftSize,
+    safeRightSize,
+    safeConsoleSize,
+    showLeftPanel,
+    showRightPanel,
+    isInitialRenderRef,
+    hideConsoleButtonRef,
+  ]);
+
+  const handleHideConsole = useCallback(() => {
+    isInitialRenderRef.current = false;
+    toggleConsole();
+  }, [toggleConsole, isInitialRenderRef]);
+
+  return {
+    handleShowLeftPanel,
+    handleHideLeftPanel,
+    handleShowRightPanel,
+    handleHideRightPanel,
+    handleShowConsole,
+    handleHideConsole,
+  };
+}
+
 export interface IdeLayoutProps {
   children: React.ReactNode;
   leftPanelContent?: React.ReactNode;
@@ -424,42 +577,20 @@ export const IdeLayout = React.memo(function IdeLayout({
   consoleContent,
   className,
 }: IdeLayoutProps) {
-  const leftPanelRef = useRef<ImperativePanelHandle>(null);
-  const rightPanelRef = useRef<ImperativePanelHandle>(null);
-  const consolePanelRef = useRef<ImperativePanelHandle>(null);
+  // Panel refs for imperative collapse/expand control
+  const leftPanelRef = useRef<PanelImperativeHandle>(null);
+  const rightPanelRef = useRef<PanelImperativeHandle>(null);
+  const consolePanelRef = useRef<PanelImperativeHandle>(null);
 
-  // Flag to prevent panel callbacks from saving during initial render
-  // Use a ref to avoid re-renders and make this more deterministic
+  // Group refs for imperative layout control (v4 API)
+  const horizontalGroupRef = useRef<GroupImperativeHandle>(null);
+  const verticalGroupRef = useRef<GroupImperativeHandle>(null);
+
   const isInitialRenderRef = useRef(true);
-  const panelsInitializedRef = useRef(false);
+  const hasAppliedInitialLayout = useRef(false);
 
-  // Mark initial render as complete once panels are actually initialized
-  // This is more deterministic than using a timeout
-  useEffect(() => {
-    // Check if all panels are initialized
-    const checkPanelsInitialized = () => {
-      const hasLeftPanel = !(leftPanelContent && showLeftPanel) || leftPanelRef.current !== null;
-      const hasRightPanel =
-        !(rightPanelContent && showRightPanel) || rightPanelRef.current !== null;
-      const hasConsolePanel = !(consoleContent && showConsole) || consolePanelRef.current !== null;
-
-      return hasLeftPanel && hasRightPanel && hasConsolePanel;
-    };
-
-    if (!panelsInitializedRef.current && checkPanelsInitialized()) {
-      panelsInitializedRef.current = true;
-      // Use a shorter delay to allow panel state to settle
-      // but not as long as the original 100ms timeout
-      setTimeout(() => {
-        isInitialRenderRef.current = false;
-      }, 16); // One frame at 60fps
-    }
-  });
-
-  // File editor context management
   const fileEditorContextValue = useFileEditorContext();
 
-  // Add refs for focus management
   const hideExplorerButtonRef = useRef<HTMLButtonElement>(null);
   const hideToolsPanelButtonRef = useRef<HTMLButtonElement>(null);
   const hideConsoleButtonRef = useRef<HTMLButtonElement>(null);
@@ -475,72 +606,116 @@ export const IdeLayout = React.memo(function IdeLayout({
     toggleRightPanel,
   } = useResolvedPanelState(leftPanelContent);
 
+  // sizes format: [leftPanelSize, rightPanelSize, consolePanelSize]
+  // The middle panel size is calculated dynamically as: 100 - left - right
+  // IMPORTANT: Enforce minimum thresholds to prevent corrupted tiny values from localStorage
+  const MinPanelSize = 10;
   const [safeLeftSize, safeRightSize, safeConsoleSize] = [
-    typeof sizes[0] === 'number' && !Number.isNaN(sizes[0]) ? sizes[0] : 25,
-    typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) ? sizes[1] : 55,
-    typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) ? sizes[2] : 20,
+    typeof sizes[0] === 'number' && !Number.isNaN(sizes[0]) && sizes[0] >= MinPanelSize
+      ? sizes[0]
+      : 25,
+    typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) && sizes[1] >= MinPanelSize
+      ? sizes[1]
+      : 20,
+    typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) && sizes[2] >= MinPanelSize
+      ? sizes[2]
+      : 20,
   ];
 
-  const safeSizes: [number, number, number] = [safeLeftSize, safeRightSize, safeConsoleSize];
+  // Determine if we should render panels (has content)
+  const hasExplorer = !!leftPanelContent;
+  const hasTools = !!rightPanelContent;
+  const hasConsole = !!consoleContent;
 
-  const { show: handleShowLeftPanel, hide: handleHideLeftPanel } = usePanelToggle(
-    leftPanelRef,
-    toggleLeftPanel,
-    {
-      focusRef: hideExplorerButtonRef,
-      liftInitGate: () => {
-        isInitialRenderRef.current = false;
-      },
-      onBeforeShow: () => {
-        // Ensure a sensible width when restoring from collapsed/unmounted (do not flip visibility here)
-        const nextLeft = safeLeftSize > 1 ? safeLeftSize : 25;
-        saveLayout([nextLeft, safeRightSize, safeConsoleSize]);
-      },
-    }
-  );
-
-  const { show: handleShowToolsPanel, hide: handleHideToolsPanel } = usePanelToggle(
-    rightPanelRef,
-    toggleRightPanel,
-    {
-      focusRef: hideToolsPanelButtonRef,
-      liftInitGate: () => {
-        isInitialRenderRef.current = false;
-      },
-      onBeforeShow: () => {
-        const nextRight = safeRightSize > 1 ? safeRightSize : 20;
-        saveLayout([safeLeftSize, nextRight, safeConsoleSize]);
-      },
-    }
-  );
-
-  const { show: handleShowConsole, hide: handleConsoleClose } = usePanelToggle(
-    consolePanelRef,
-    toggleConsole,
-    {
-      focusRef: hideConsoleButtonRef,
-      liftInitGate: () => {
-        isInitialRenderRef.current = false;
-      },
-      onBeforeShow: () => {
-        const nextConsole = safeConsoleSize > 1 ? safeConsoleSize : 20;
-        saveLayout([safeLeftSize, safeRightSize, nextConsole]);
-      },
-    }
-  );
-
-  // Panel state effects
-  usePanelEffects(
+  // v4 CRITICAL: Apply initial layout imperatively after mount
+  // defaultLayout only works on first render - we need setLayout() for dynamic control
+  useInitialLayoutEffect({
+    horizontalGroupRef,
+    verticalGroupRef,
     leftPanelRef,
     rightPanelRef,
     consolePanelRef,
+    hasAppliedInitialLayout,
+    isInitialRenderRef,
+    hasExplorer,
+    hasTools,
+    hasConsole,
     showLeftPanel,
     showRightPanel,
     showConsole,
-    leftPanelContent,
-    rightPanelContent,
-    consoleContent
-  );
+    safeLeftSize,
+    safeRightSize,
+    safeConsoleSize,
+  });
+
+  // Sync panel visibility with imperative API (for user interactions after mount)
+  // In v4, panels are ALWAYS rendered; we use collapse()/expand() to control visibility
+  useEffect(() => {
+    if (!hasAppliedInitialLayout.current) {
+      return;
+    }
+
+    if (leftPanelContent && leftPanelRef.current) {
+      if (showLeftPanel) {
+        leftPanelRef.current.expand();
+      } else {
+        leftPanelRef.current.collapse();
+      }
+    }
+  }, [showLeftPanel, leftPanelContent]);
+
+  useEffect(() => {
+    if (!hasAppliedInitialLayout.current) {
+      return;
+    }
+
+    if (rightPanelContent && rightPanelRef.current) {
+      if (showRightPanel) {
+        rightPanelRef.current.expand();
+      } else {
+        rightPanelRef.current.collapse();
+      }
+    }
+  }, [showRightPanel, rightPanelContent]);
+
+  useEffect(() => {
+    if (!hasAppliedInitialLayout.current) {
+      return;
+    }
+
+    if (consoleContent && consolePanelRef.current) {
+      if (showConsole) {
+        consolePanelRef.current.expand();
+      } else {
+        consolePanelRef.current.collapse();
+      }
+    }
+  }, [showConsole, consoleContent]);
+
+  // Toggle handlers - extracted to custom hook to reduce component complexity
+  const {
+    handleShowLeftPanel,
+    handleHideLeftPanel,
+    handleShowRightPanel,
+    handleHideRightPanel,
+    handleShowConsole,
+    handleHideConsole,
+  } = usePanelToggleHandlers({
+    safeLeftSize,
+    safeRightSize,
+    safeConsoleSize,
+    showConsole,
+    showLeftPanel,
+    showRightPanel,
+    saveLayout,
+    toggleConsole,
+    toggleLeftPanel,
+    toggleRightPanel,
+    isInitialRenderRef,
+    hideExplorerButtonRef,
+    hideToolsPanelButtonRef,
+    hideConsoleButtonRef,
+  });
 
   // Layout handlers
   const layoutConfig: LayoutHandlerConfig = {
@@ -554,114 +729,233 @@ export const IdeLayout = React.memo(function IdeLayout({
     safeRightSize,
     safeConsoleSize,
     saveLayout,
+    isInitialRenderRef,
   };
 
   const { handleHorizontalLayout, handleVerticalLayout } = useLayoutHandlers(layoutConfig);
 
-  // Panel handlers
-  const leftPanelHandlers = createPanelHandler(isInitialRenderRef, saveLayout, safeSizes, 'left');
-  const rightPanelHandlers = createPanelHandler(isInitialRenderRef, saveLayout, safeSizes, 'right');
-  const consolePanelHandlers = createPanelHandler(
-    isInitialRenderRef,
-    saveLayout,
-    safeSizes,
-    'console'
-  );
+  // v4: Build defaultLayout object for the horizontal Group
+  // IMPORTANT: All panels must ALWAYS be included in the layout
+  // Collapsed panels should have size 0 (matching their collapsedSize prop)
+  const horizontalLayout = useMemo(() => {
+    const layout: { [id: string]: number } = {};
+
+    // Calculate effective sizes based on visibility
+    const leftSize = hasExplorer && showLeftPanel ? safeLeftSize : 0;
+    const rightSize = hasTools && showRightPanel ? safeRightSize : 0;
+    const middleSize = 100 - leftSize - rightSize;
+
+    // Always include all panels that exist
+    if (hasExplorer) {
+      layout['explorer-panel'] = leftSize;
+    }
+    layout['middle-panel'] = middleSize;
+    if (hasTools) {
+      layout['tools-panel'] = rightSize;
+    }
+
+    return layout;
+  }, [hasExplorer, hasTools, showLeftPanel, showRightPanel, safeLeftSize, safeRightSize]);
+
+  // v4: Build defaultLayout for the vertical Group (console)
+  // All panels must ALWAYS be included
+  const verticalLayout = useMemo(() => {
+    const layout: { [id: string]: number } = {};
+
+    const consoleSize = hasConsole && showConsole ? safeConsoleSize : 0;
+    layout['main-content-panel'] = 100 - consoleSize;
+    if (hasConsole) {
+      layout['console-panel'] = consoleSize;
+    }
+
+    return layout;
+  }, [hasConsole, showConsole, safeConsoleSize]);
 
   return (
     <IdeFileEditorContext.Provider value={fileEditorContextValue}>
-      <div className={cn('flex h-full flex-1 flex-col', className)}>
-        <PanelGroup direction="horizontal" onLayout={handleHorizontalLayout}>
-          {!showLeftPanel && leftPanelContent && (
-            <div className="flex items-center justify-center border-border border-r bg-muted/30 p-2">
-              <Button
-                aria-label="Show explorer panel"
-                className="h-6 w-6"
-                data-testid="show-explorer-panel"
-                onClick={handleShowLeftPanel}
-                size="icon"
-                variant="ghost"
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
-          {showLeftPanel && leftPanelContent && (
-            <ExplorerPanel
-              content={leftPanelContent}
-              defaultSize={safeLeftSize}
-              hideButtonRef={hideExplorerButtonRef}
-              onHide={handleHideLeftPanel}
-              panelRef={leftPanelRef}
-              {...leftPanelHandlers}
-            />
-          )}
+      <div className={cn('relative flex h-full flex-1 flex-col', className)}>
+        {/* Toggle buttons outside the Group - fixed position overlay */}
+        {hasExplorer && !showLeftPanel && (
+          <div className="absolute top-1/2 left-0 z-10 -translate-y-1/2">
+            <Button
+              aria-label="Show explorer panel"
+              className="h-8 w-6 rounded-r-md rounded-l-none border border-border border-l-0 bg-muted/90 shadow-sm"
+              data-testid="show-explorer-panel"
+              onClick={handleShowLeftPanel}
+              size="icon"
+              variant="ghost"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
 
-          <Panel data-panel-id="middle-panel" id="middle-panel" minSize={30} order={2}>
-            <PanelGroup direction="vertical" onLayout={handleVerticalLayout}>
+        {hasTools && !showRightPanel && (
+          <div className="absolute top-1/2 right-0 z-10 -translate-y-1/2">
+            <Button
+              aria-label="Show tools panel"
+              className="h-8 w-6 rounded-r-none rounded-l-md border border-border border-r-0 bg-muted/90 shadow-sm"
+              data-testid="show-tools-panel"
+              onClick={handleShowRightPanel}
+              size="icon"
+              variant="ghost"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
+        <Group
+          defaultLayout={horizontalLayout}
+          groupRef={horizontalGroupRef}
+          onLayoutChanged={handleHorizontalLayout}
+          orientation="horizontal"
+        >
+          {/* Explorer Panel - conditionally rendered based on content availability */}
+          {hasExplorer && (
+            <>
               <Panel
                 className="bg-background"
-                data-panel-id="main-content-panel"
-                id="main-content-panel"
-                minSize={30}
-                order={1}
+                collapsedSize="0%"
+                collapsible
+                id="explorer-panel"
+                maxSize="50%"
+                minSize="15%"
+                panelRef={leftPanelRef}
               >
-                <div className="h-full">{children}</div>
+                <div className="h-full">
+                  <div className="flex items-center justify-between border-border border-b bg-muted/30 px-2 py-2">
+                    <div className="flex items-center gap-2">
+                      <PanelLeft className="h-4 w-4" />
+                      <span className="font-medium text-sm">Explorer</span>
+                    </div>
+                    <Button
+                      aria-label="Hide explorer panel"
+                      className="h-6 w-6"
+                      data-testid="hide-explorer-panel"
+                      onClick={handleHideLeftPanel}
+                      ref={hideExplorerButtonRef}
+                      size="icon"
+                      variant="ghost"
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="h-[calc(100%-2.5rem)]">{leftPanelContent}</div>
+                </div>
+              </Panel>
+              <Separator className="w-1 bg-border transition-colors hover:bg-border/80" />
+            </>
+          )}
+
+          {/* Middle Panel - Main content area with optional console */}
+          <Panel id="middle-panel" minSize="30%">
+            <Group
+              defaultLayout={verticalLayout}
+              groupRef={verticalGroupRef}
+              onLayoutChanged={handleVerticalLayout}
+              orientation="vertical"
+            >
+              <Panel className="bg-background" id="main-content-panel" minSize="30%">
+                <div className="flex h-full flex-col">
+                  <div className="min-h-0 flex-1">{children}</div>
+                  {/* Show console toggle when collapsed - inside main content panel */}
+                  {hasConsole && !showConsole && (
+                    <div className="flex shrink-0 items-center justify-center border-border border-t bg-muted/30 py-1">
+                      <Button
+                        aria-label="Show File Editor"
+                        className="h-6"
+                        data-testid="show-console-panel"
+                        onClick={handleShowConsole}
+                        size="sm"
+                        variant="ghost"
+                      >
+                        <Terminal className="h-4 w-4" />
+                        <span className="ml-2 text-xs">Show File Editor</span>
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </Panel>
 
-              {!showConsole && consoleContent && (
-                <div className="flex items-center justify-center border-border border-t bg-muted/30 py-1">
-                  <Button
-                    aria-label="Show File Editor"
-                    className="h-6"
-                    data-testid="show-console-panel"
-                    onClick={handleShowConsole}
-                    size="sm"
-                    variant="ghost"
+              {/* Console Panel - conditionally rendered based on content availability */}
+              {hasConsole && (
+                <>
+                  <Separator className="h-1 bg-border transition-colors hover:bg-border/80" />
+                  <Panel
+                    className="bg-background"
+                    collapsedSize="0%"
+                    collapsible
+                    id="console-panel"
+                    maxSize="80%"
+                    minSize="15%"
+                    panelRef={consolePanelRef}
                   >
-                    <Terminal className="h-4 w-4" />
-                    <span className="ml-2 text-xs">Show File Editor</span>
-                  </Button>
-                </div>
+                    <div className="h-full border-border border-t">
+                      <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
+                        <div className="flex items-center gap-2">
+                          <Terminal className="h-4 w-4" />
+                          <span className="font-medium text-sm">File Editor</span>
+                        </div>
+                        <Button
+                          aria-label="Close File Editor"
+                          className="h-6 w-6"
+                          data-testid="hide-console-panel"
+                          onClick={handleHideConsole}
+                          ref={hideConsoleButtonRef}
+                          size="icon"
+                          variant="ghost"
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="h-[calc(100%-2.5rem)] overflow-auto">{consoleContent}</div>
+                    </div>
+                  </Panel>
+                </>
               )}
-              {showConsole && consoleContent && (
-                <ConsolePanel
-                  content={consoleContent}
-                  defaultSize={safeConsoleSize}
-                  hideButtonRef={hideConsoleButtonRef}
-                  onHide={handleConsoleClose}
-                  panelRef={consolePanelRef}
-                  {...consolePanelHandlers}
-                />
-              )}
-            </PanelGroup>
+            </Group>
           </Panel>
 
-          {!showRightPanel && rightPanelContent && (
-            <div className="flex items-center justify-center border-border border-l bg-muted/30 p-2">
-              <Button
-                aria-label="Show tools panel"
-                className="h-6 w-6"
-                data-testid="show-tools-panel"
-                onClick={handleShowToolsPanel}
-                size="icon"
-                variant="ghost"
+          {/* Tools Panel - conditionally rendered based on content availability */}
+          {hasTools && (
+            <>
+              <Separator className="w-1 bg-border transition-colors hover:bg-border/80" />
+              <Panel
+                className="bg-background"
+                collapsedSize="0%"
+                collapsible
+                id="tools-panel"
+                maxSize="60%"
+                minSize="15%"
+                panelRef={rightPanelRef}
               >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-            </div>
+                <div className="h-full border-border border-l">
+                  <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">
+                    <div className="flex items-center gap-2">
+                      <PanelRight className="h-4 w-4" />
+                      <span className="font-medium text-sm">Tools</span>
+                    </div>
+                    <Button
+                      aria-label="Hide tools panel"
+                      className="h-6 w-6"
+                      data-testid="hide-tools-panel"
+                      onClick={handleHideRightPanel}
+                      ref={hideToolsPanelButtonRef}
+                      size="icon"
+                      variant="ghost"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex h-[calc(100%-2.5rem)] flex-col overflow-hidden">
+                    {rightPanelContent}
+                  </div>
+                </div>
+              </Panel>
+            </>
           )}
-          {showRightPanel && rightPanelContent && (
-            <ToolsPanel
-              content={rightPanelContent}
-              defaultSize={safeRightSize}
-              hideButtonRef={hideToolsPanelButtonRef}
-              onHide={handleHideToolsPanel}
-              panelRef={rightPanelRef}
-              {...rightPanelHandlers}
-            />
-          )}
-        </PanelGroup>
+        </Group>
       </div>
     </IdeFileEditorContext.Provider>
   );

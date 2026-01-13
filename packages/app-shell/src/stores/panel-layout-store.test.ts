@@ -11,7 +11,8 @@ describe('panel-layout-store', () => {
 
   it('initializes with default state', () => {
     const s = store.getState();
-    expect(s.sizes).toEqual([25, 55, 20]);
+    // sizes format: [leftPanel, rightPanel, console] - NOT middle panel
+    expect(s.sizes).toEqual([25, 20, 20]);
     expect(s.showLeftPanel).toBe(true);
     expect(s.showRightPanel).toBe(false);
     expect(s.showConsole).toBe(false);

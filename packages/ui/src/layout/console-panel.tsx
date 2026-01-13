@@ -1,16 +1,14 @@
 import { Terminal, X } from 'lucide-react';
 import type React from 'react';
-import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
+import { Panel, type PanelImperativeHandle, Separator } from 'react-resizable-panels';
 import { Button } from '../button';
 
 interface ConsolePanelProps {
-  panelRef: React.RefObject<ImperativePanelHandle | null>;
+  panelRef: React.RefObject<PanelImperativeHandle | null>;
   content: React.ReactNode;
   hideButtonRef: React.RefObject<HTMLButtonElement | null>;
   onHide: () => void;
-  defaultSize: number;
-  onCollapse: () => void;
-  onExpand: (size?: number) => void;
+  defaultSize: number | string;
 }
 
 export function ConsolePanel({
@@ -19,25 +17,20 @@ export function ConsolePanel({
   hideButtonRef,
   onHide,
   defaultSize,
-  onCollapse,
-  onExpand,
 }: ConsolePanelProps) {
   return (
     <>
-      <PanelResizeHandle className="h-1 bg-border transition-colors hover:bg-border/80" />
+      <Separator className="h-1 bg-border transition-colors hover:bg-border/80" />
       <Panel
         className="bg-background"
-        collapsedSize={0}
+        collapsedSize="0%"
         collapsible
         data-panel-id="console-panel"
-        defaultSize={defaultSize}
+        defaultSize={typeof defaultSize === 'number' ? `${defaultSize}%` : defaultSize}
         id="console-panel"
-        maxSize={80}
-        minSize={15}
-        onCollapse={onCollapse}
-        onExpand={onExpand}
-        order={2}
-        ref={panelRef}
+        maxSize="80%"
+        minSize="15%"
+        panelRef={panelRef}
       >
         <div className="h-full border-border border-t">
           <div className="flex items-center justify-between border-border border-b bg-muted/30 p-2">

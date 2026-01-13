@@ -188,7 +188,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Get container width before resize
       const containerWidth = await page
-        .locator('[data-panel-id="middle-panel"]')
+        .locator('#middle-panel')
         .evaluate((el) => el.getBoundingClientRect().width);
 
       // Get initial width
@@ -225,7 +225,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Get container width after reload
       const containerWidthAfter = await page
-        .locator('[data-panel-id="middle-panel"]')
+        .locator('#middle-panel')
         .evaluate((el) => el.getBoundingClientRect().width);
 
       // Verify width persisted by comparing percentages (accounts for container size changes)

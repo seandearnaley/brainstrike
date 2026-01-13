@@ -1,5 +1,4 @@
 import { type RefObject, useCallback } from 'react';
-import type { ImperativePanelHandle } from 'react-resizable-panels';
 
 interface UsePanelToggleOptions {
   focusRef?: RefObject<HTMLElement | null>;
@@ -22,27 +21,11 @@ function safeCall(fn?: () => void) {
   }
 }
 
-function expandPanel(ref: RefObject<ImperativePanelHandle | null>) {
-  try {
-    const handle = ref.current;
-    if (handle && typeof handle.expand === 'function') {
-      handle.expand();
-    }
-  } catch {
-    // ignore impl errors
-  }
-}
-
-function collapsePanel(ref: RefObject<ImperativePanelHandle | null>) {
-  try {
-    const handle = ref.current;
-    if (handle && typeof handle.collapse === 'function') {
-      handle.collapse();
-    }
-  } catch {
-    // ignore impl errors
-  }
-}
+// Note: In react-resizable-panels v4, panels are conditionally rendered.
+// We no longer call expand()/collapse() imperatively because:
+// 1. These methods trigger onLayoutChange/onLayoutChanged events
+// 2. Combined with state updates, this can cause infinite loops (React error #185)
+// 3. With conditional rendering, panels mount/unmount based on visibility state
 
 function focusAfterAnimation(ref?: RefObject<HTMLElement | null>) {
   if (!ref) {
@@ -55,25 +38,21 @@ function focusAfterAnimation(ref?: RefObject<HTMLElement | null>) {
   });
 }
 
-export function usePanelToggle(
-  panelRef: RefObject<ImperativePanelHandle | null>,
-  toggleFn: () => void,
-  options: UsePanelToggleOptions = {}
-) {
+export function usePanelToggle(toggleFn: () => void, options: UsePanelToggleOptions = {}) {
   const show = useCallback(() => {
     liftInitGate(options.liftInitGate);
     safeCall(options.onBeforeShow);
-    expandPanel(panelRef);
+    // Panel visibility is controlled via conditional rendering, not expand()
     toggleFn();
     focusAfterAnimation(options.focusRef);
-  }, [panelRef, toggleFn, options.liftInitGate, options.onBeforeShow, options.focusRef]);
+  }, [toggleFn, options.liftInitGate, options.onBeforeShow, options.focusRef]);
 
   const hide = useCallback(() => {
     liftInitGate(options.liftInitGate);
     safeCall(options.onBeforeHide);
-    collapsePanel(panelRef);
+    // Panel visibility is controlled via conditional rendering, not collapse()
     toggleFn();
-  }, [panelRef, toggleFn, options.liftInitGate, options.onBeforeHide]);
+  }, [toggleFn, options.liftInitGate, options.onBeforeHide]);
 
   return { show, hide };
 }

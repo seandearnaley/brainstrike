@@ -101,7 +101,7 @@ test.describe('Application Layout', () => {
 
       // Verify horizontal resize handles are present (left panel boundary)
       const horizontalResizeHandles = page.locator(
-        '[data-panel-resize-handle-enabled="true"][data-panel-group-direction="horizontal"]'
+        '[data-panel-resize-handle-enabled="true"][data-panel-group-orientation="horizontal"]'
       );
       await expect(horizontalResizeHandles.first()).toBeVisible(); // Left panel resize handle
 
@@ -111,7 +111,7 @@ test.describe('Application Layout', () => {
 
       // Should have console resize handle (vertical direction)
       const verticalResizeHandles = page.locator(
-        '[data-panel-resize-handle-enabled="true"][data-panel-group-direction="vertical"]'
+        '[data-panel-resize-handle-enabled="true"][data-panel-group-orientation="vertical"]'
       );
       await expect(verticalResizeHandles.first()).toBeVisible();
     });
@@ -124,11 +124,12 @@ test.describe('Application Layout', () => {
       await elements.showRightPanelShim.click(); // And show it again
 
       // Verify all main layout containers exist
-      await expect(page.locator('[data-panel-id="explorer-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="middle-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="tools-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="main-content-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="console-panel"]')).toBeAttached();
+      // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
+      await expect(page.locator('#explorer-panel')).toBeAttached();
+      await expect(page.locator('#middle-panel')).toBeAttached();
+      await expect(page.locator('#tools-panel')).toBeAttached();
+      await expect(page.locator('#main-content-panel')).toBeAttached();
+      await expect(page.locator('#console-panel')).toBeAttached();
 
       // Verify panel group structure using correct data attributes
       // Expecting three panel groups:

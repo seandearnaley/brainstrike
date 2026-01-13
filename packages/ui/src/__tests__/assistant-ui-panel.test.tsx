@@ -7,8 +7,8 @@ import type {
 } from '../../src/assistant-ui-panel/assistant-ui-panel';
 import { AssistantUiPanel } from '../../src/assistant-ui-panel/assistant-ui-panel';
 
+// @assistant-ui/styles v0.3.x consolidated all styles into index.css
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
-vi.mock('@assistant-ui/styles/markdown.css', () => ({}));
 vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
 
 vi.mock('@assistant-ui/react-data-stream', () => ({

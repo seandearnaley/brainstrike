@@ -38,7 +38,7 @@
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "^24.10.7",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.27.2",
     "rimraf": "^6.1.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",

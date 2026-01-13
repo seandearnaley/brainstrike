@@ -28,8 +28,9 @@ describe('layout-helpers (unit)', () => {
     } as unknown as Page;
     await waitForAppLoad(page, 10_000);
     expect(loadStates).toContain('domcontentloaded');
-    expect(waited).toContain('[data-panel-id="middle-panel"]');
-    expect(waited).toContain('[data-panel-id="main-content-panel"]');
+    // react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
+    expect(waited).toContain('#middle-panel');
+    expect(waited).toContain('#main-content-panel');
   });
 
   it('resetLayoutState clears state and reloads', async () => {

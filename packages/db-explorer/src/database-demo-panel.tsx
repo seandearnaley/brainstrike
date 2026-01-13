@@ -38,7 +38,7 @@ import {
 } from '@brainstrike/vector-management';
 import { Database, FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import { Group, Panel, Separator } from 'react-resizable-panels';
 import {
   ClearDatabaseDialog,
   CollectionBrowserView,
@@ -300,8 +300,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" data-testid="database-demo-panel">
-      <PanelGroup className="min-h-0 flex-1" direction="vertical">
-        <Panel className="min-h-0" defaultSize={38} maxSize={60} minSize={26}>
+      <Group className="min-h-0 flex-1" orientation="vertical">
+        <Panel className="min-h-0" defaultSize="38%" maxSize="60%" minSize="26%">
           <div className="flex h-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
             <div className="flex flex-1 flex-col gap-3 overflow-auto px-4 py-3">
               <SearchCollectionSelector
@@ -456,9 +456,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           </div>
         </Panel>
 
-        <PanelResizeHandle className="h-1 bg-border transition-colors hover:bg-border/80" />
+        <Separator className="h-1 bg-border transition-colors hover:bg-border/80" />
 
-        <Panel className="min-h-0" defaultSize={62} minSize={30}>
+        <Panel className="min-h-0" defaultSize="62%" minSize="30%">
           <div className="relative flex h-full min-h-0 flex-col overflow-hidden border-border border-t">
             <SemanticSearchProvider
               {...(semanticSearchExecutor ? { searchExecutor: semanticSearchExecutor } : {})}
@@ -484,7 +484,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             )}
           </div>
         </Panel>
-      </PanelGroup>
+      </Group>
 
       {/* Clear Database Dialog - triggered from Import Settings */}
       <ClearDatabaseDialog

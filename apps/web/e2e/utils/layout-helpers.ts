@@ -42,15 +42,16 @@ export interface PanelElements {
 
 /**
  * Get all panel-related elements for testing
+ * Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
  */
 export function getPanelElements(page: Page): PanelElements {
   return {
-    // Main panels
-    leftPanel: page.locator('[data-panel-id="explorer-panel"]'),
-    rightPanel: page.locator('[data-panel-id="tools-panel"]'),
-    consolePanel: page.locator('[data-panel-id="console-panel"]'),
-    mainContentPanel: page.locator('[data-panel-id="main-content-panel"]'),
-    middlePanel: page.locator('[data-panel-id="middle-panel"]'),
+    // Main panels - v4 uses id attribute for panel identification
+    leftPanel: page.locator('#explorer-panel'),
+    rightPanel: page.locator('#tools-panel'),
+    consolePanel: page.locator('#console-panel'),
+    mainContentPanel: page.locator('#main-content-panel'),
+    middlePanel: page.locator('#middle-panel'),
 
     // Hide buttons (when panels are open)
     hideExplorerButton: page.locator('[data-testid="hide-explorer-panel"]'),
@@ -108,12 +109,13 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // Ensure the document has finished initial parsing before checking layout markers.
   await page.waitForLoadState('domcontentloaded', { timeout: effectiveTimeout });
   // Wait for the main layout structure to be present, regardless of panel visibility
-  await page.waitForSelector('[data-panel-id="middle-panel"]', {
+  // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
+  await page.waitForSelector('#middle-panel', {
     state: 'attached',
     timeout: effectiveTimeout,
   });
   // Also ensure the main content panel is present
-  await page.waitForSelector('[data-panel-id="main-content-panel"]', {
+  await page.waitForSelector('#main-content-panel', {
     state: 'attached',
     timeout: effectiveTimeout,
   });
@@ -172,8 +174,9 @@ export async function resizePanel(
   const startY = handleBox.y + handleBox.height / 2;
 
   // Get the panel being resized (parent panel group contains the panels)
+  // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
   const panelGroup = resizeHandle.locator('..').locator('..');
-  const panels = panelGroup.locator('[data-panel-id]');
+  const panels = panelGroup.locator('[data-panel]');
 
   // Record initial panel dimensions for stability check
   const initialDimensions = await panels.first().evaluate((el) => {
@@ -206,9 +209,8 @@ export async function resizePanel(
       {
         selector: await panels.first().evaluate((el) => {
           // Generate a unique selector for this element
-          return el.getAttribute('data-panel-id')
-            ? `[data-panel-id="${el.getAttribute('data-panel-id')}"]`
-            : `#${el.id}`;
+          // v4 uses id attribute for panel identification
+          return el.id ? `#${el.id}` : '[data-panel]';
         }),
         initial: initialDimensions,
         isHorizontal: deltaX !== 0,
@@ -231,7 +233,7 @@ export async function resizePanel(
 export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']> {
   // The explorer panel's resize handle is the first one in the horizontal group
   return page
-    .locator('[data-panel-group-direction="horizontal"] [data-panel-resize-handle-id]')
+    .locator('[data-panel-group-orientation="horizontal"] [data-panel-resize-handle-id]')
     .first();
 }
 
@@ -241,7 +243,7 @@ export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']
 export function getConsolePanelResizeHandle(page: Page): ReturnType<Page['locator']> {
   // The console panel's resize handle is in the vertical group
   return page
-    .locator('[data-panel-group-direction="vertical"] [data-panel-resize-handle-id]')
+    .locator('[data-panel-group-orientation="vertical"] [data-panel-resize-handle-id]')
     .first();
 }
 
@@ -399,11 +401,7 @@ export async function testPanelSizeConstraints(
         const rect = el.getBoundingClientRect();
         return rect.width > 0;
       },
-      await panel.evaluate((el) =>
-        el.getAttribute('data-panel-id')
-          ? `[data-panel-id="${el.getAttribute('data-panel-id')}"]`
-          : `#${el.id}`
-      ),
+      await panel.evaluate((el) => (el.id ? `#${el.id}` : '[data-panel]')),
       { timeout: 5000 }
     );
   };
@@ -565,7 +563,8 @@ export async function testLayoutPersistenceAcrossNavigation(
   await setupCallback();
 
   // Check if explorer panel is hidden and temporarily show it for navigation
-  const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
+  // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
+  const leftPanel = page.locator('#explorer-panel');
   const wasHidden = !(await leftPanel.isVisible());
 
   if (wasHidden) {

@@ -40,7 +40,7 @@ test.describe('Simple State Preservation Test', () => {
     await hideExplorerButton.click();
 
     // Verify panel is hidden
-    const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
+    const leftPanel = page.locator('#explorer-panel');
     await expect(leftPanel).not.toBeVisible();
 
     // Show the panel again

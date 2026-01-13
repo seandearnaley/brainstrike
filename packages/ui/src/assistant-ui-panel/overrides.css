@@ -126,6 +126,42 @@
 }
 
 /**
+ * CRITICAL: Override .aui-root fixed positioning for embedded panel layout
+ *
+ * @assistant-ui/styles v0.3.x changed .aui-root to use fixed positioning for
+ * a floating modal/popup pattern:
+ *   - position: fixed
+ *   - right: 16px; bottom: 16px
+ *   - Fixed width: 400px; height: 500px
+ *   - z-index: 50
+ *
+ * This breaks our embedded panel layout where the assistant UI should flow
+ * within the Tools panel's tab content, not float over the page.
+ *
+ * THE FIX:
+ * - Use position: relative so it participates in normal document flow
+ * - Reset right/bottom to auto (removes corner positioning)
+ * - Use width/height: 100% to fill parent container
+ * - Reset z-index to auto (no layering needed for embedded content)
+ * - Remove fixed dimensions that override flex layout
+ *
+ * This override applies to all .aui-root elements. If you need the floating
+ * modal behavior elsewhere, use a different class or wrap in a container.
+ */
+.aui-root {
+  position: relative;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  height: 100%;
+  z-index: auto;
+  border-radius: 0;
+  border-width: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+/**
  * VIEWPORT OVERRIDE: Critical fix for extracted-composer layout pattern
  *
  * BACKGROUND:

@@ -29,12 +29,7 @@ import {
   SearchModeBar,
 } from '@brainstrike/ui';
 import { useCallback, useMemo, useRef } from 'react';
-import {
-  type ImperativePanelHandle,
-  Panel,
-  PanelGroup,
-  PanelResizeHandle,
-} from 'react-resizable-panels';
+import { Group, Panel, type PanelImperativeHandle, Separator } from 'react-resizable-panels';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
 
@@ -453,7 +448,7 @@ export function CollectionBrowserView({
   );
 
   // Inspector panel ref for imperative control
-  const inspectorPanelRef = useRef<ImperativePanelHandle>(null);
+  const inspectorPanelRef = useRef<PanelImperativeHandle>(null);
 
   // Handle inspector toggle from within the component
   const handleInspectorCollapse = useCallback(
@@ -470,9 +465,10 @@ export function CollectionBrowserView({
 
   // Handle panel layout changes to persist size
   const handleLayoutChange = useCallback(
-    (sizes: number[]) => {
-      if (sizes.length === 2 && sizes[1] !== undefined && sizes[1] > 0) {
-        setInspectorWidth(sizes[1]);
+    (layout: { [id: string]: number }) => {
+      const inspectorSize = layout['inspector-panel'];
+      if (inspectorSize !== undefined && inspectorSize > 0) {
+        setInspectorWidth(inspectorSize);
       }
     },
     [setInspectorWidth]
@@ -562,12 +558,12 @@ export function CollectionBrowserView({
 
       {/* Main content area */}
       <div className="flex min-h-0 flex-1 border-t">
-        <PanelGroup direction="horizontal" onLayout={handleLayoutChange}>
+        <Group onLayoutChange={handleLayoutChange} orientation="horizontal">
           {/* Main browser */}
           <Panel
             className="min-w-0"
-            defaultSize={100 - (isInspectorCollapsed ? 0 : inspectorWidth)}
-            minSize={30}
+            defaultSize={`${100 - (isInspectorCollapsed ? 0 : inspectorWidth)}%`}
+            minSize="30%"
           >
             <CollectionBrowser
               className="h-full"
@@ -593,16 +589,16 @@ export function CollectionBrowserView({
 
           {!isInspectorCollapsed && (
             <>
-              <PanelResizeHandle className="w-1 bg-border transition-colors hover:bg-primary/20" />
+              <Separator className="w-1 bg-border transition-colors hover:bg-primary/20" />
 
               {/* Inspector panel */}
               <Panel
-                collapsedSize={0}
+                collapsedSize="0%"
                 collapsible
-                defaultSize={inspectorWidth}
-                minSize={15}
-                onCollapse={() => setInspectorCollapsed(true)}
-                ref={inspectorPanelRef}
+                defaultSize={`${inspectorWidth}%`}
+                id="inspector-panel"
+                minSize="15%"
+                panelRef={inspectorPanelRef}
               >
                 <NodeInspector
                   isCollapsed={false}
@@ -614,7 +610,7 @@ export function CollectionBrowserView({
               </Panel>
             </>
           )}
-        </PanelGroup>
+        </Group>
 
         {isInspectorCollapsed && (
           <NodeInspector

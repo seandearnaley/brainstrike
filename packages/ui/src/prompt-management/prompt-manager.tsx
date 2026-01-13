@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { useToast } from '../use-toast';
 import { PromptEditor } from './components/prompt-editor';
@@ -111,8 +111,8 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-background text-foreground">
       <div className="flex-1 overflow-hidden">
-        <PanelGroup direction="horizontal">
-          <Panel className="min-w-[250px]" defaultSize={20} maxSize={30} minSize={15}>
+        <Group orientation="horizontal">
+          <Panel className="min-w-[250px]" defaultSize="20%" maxSize="30%" minSize="15%">
             <Sidebar
               categories={categories}
               filter={filter}
@@ -121,7 +121,7 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
             />
           </Panel>
 
-          <PanelResizeHandle className="w-1 bg-border/50 transition-colors hover:bg-primary/50" />
+          <Separator className="w-1 bg-border/50 transition-colors hover:bg-primary/50" />
 
           <Panel>
             <div className="flex h-full flex-col">
@@ -147,7 +147,7 @@ export function PromptManager({ availableModels, providers }: PromptManagerProps
               </div>
             </div>
           </Panel>
-        </PanelGroup>
+        </Group>
       </div>
 
       <PromptEditor

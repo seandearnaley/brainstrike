@@ -17,8 +17,8 @@ import {
   RefreshCwIcon,
 } from 'lucide-react';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
+// @assistant-ui/styles v0.3.x consolidated all styles into index.css
 import '@assistant-ui/styles/index.css';
-import '@assistant-ui/styles/markdown.css';
 import './overrides.css';
 import { Badge } from '../badge';
 import { Button } from '../button';

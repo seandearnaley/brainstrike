@@ -10,9 +10,10 @@ vi.mock('@brainstrike/utils', async () => {
 });
 
 // Mock persistence hook used internally by IdeLayout
+// sizes format: [leftPanelSize, rightPanelSize, consolePanelSize]
 vi.mock('../hooks/use-panel-persistence', () => ({
   usePanelPersistence: vi.fn(() => ({
-    sizes: [25, 55, 20],
+    sizes: [25, 20, 20],
     showConsole: false,
     showLeftPanel: true,
     showRightPanel: false,
