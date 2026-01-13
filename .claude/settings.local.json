@@ -242,7 +242,13 @@
       "WebFetch(domain:mastra.ai)",
       "mcp__assistant-ui__assistantUIDocs",
       "WebFetch(domain:raw.githubusercontent.com)",
-      "Bash(node scripts/postinstall.js:*)"
+      "Bash(node scripts/postinstall.js:*)",
+      "Bash(npm show:*)",
+      "Bash(xargs:*)",
+      "Bash(tar:*)",
+      "Bash(timeout 15s pnpm start:*)",
+      "mcp__chrome-devtools__list_pages",
+      "Bash(git diff:*)"
     ],
     "deny": [],
     "ask": []
