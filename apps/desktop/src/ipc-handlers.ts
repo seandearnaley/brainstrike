@@ -173,7 +173,7 @@ async function cleanupLiveSubscription(id: number): Promise<void> {
 export function registerIpcHandlers(
   fileSystem: ElectronFileSystemAdapter,
   storage: ElectronStorageAdapter,
-  getStore: () => ElectronStore<DesktopSettingsStoreSchema>,
+  getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null,
   options?: RegisterIpcHandlerOptions
 ) {
   ipcMain.handle('storage:getItem', async (_e: IpcMainInvokeEvent, key: string) =>
@@ -314,25 +314,39 @@ export function registerIpcHandlers(
 
   // Layout persistence IPC handlers
   ipcMain.handle('layout:save', async (_e: IpcMainInvokeEvent, state: PanelPersistenceState) => {
+    const store = getStore();
+    if (!store) {
+      logger.warn('Cannot save layout: store not initialized');
+      return;
+    }
     // Using proper type access for electron-store
     // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
     // @ts-ignore
-    getStore().set('panelLayout', { v1: state });
+    store.set('panelLayout', { v1: state });
   });
 
   ipcMain.handle('layout:load', async () => {
+    const store = getStore();
+    if (!store) {
+      logger.warn('Cannot load layout: store not initialized');
+      return undefined;
+    }
     // Using proper type access for electron-store
     // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
     // @ts-ignore
-    const layout = getStore().get('panelLayout');
+    const layout = store.get('panelLayout');
     return layout?.v1;
   });
 
   // Settings store clear handler for factory reset
   ipcMain.handle('settings:clearAll', async () => {
     try {
+      const store = getStore();
+      if (!store) {
+        return { success: false, message: 'Store not initialized' };
+      }
       // Clear all settings from the store
-      (getStore() as ElectronStore<DesktopSettingsStoreSchema> & { clear: () => void }).clear();
+      (store as ElectronStore<DesktopSettingsStoreSchema> & { clear: () => void }).clear();
       return { success: true };
     } catch (error) {
       return {

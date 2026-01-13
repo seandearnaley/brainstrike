@@ -45,6 +45,10 @@ function getLogFilePath(): string | undefined {
   if (disableFileLogs) {
     return undefined;
   }
+  // CRITICAL: app.getPath() throws before app.ready - return undefined and configure later
+  if (!app.isReady()) {
+    return undefined;
+  }
   if (logFilePath === undefined) {
     logFilePath = path.join(app.getPath('logs'), 'brainstrike.log');
   }
@@ -54,12 +58,11 @@ function getLogFilePath(): string | undefined {
 // Defer ElectronStore creation until app is ready
 // CRITICAL: ElectronStore uses app.getPath('userData') internally, which fails before app.ready
 let _settingsStore: ElectronStore<DesktopSettingsStoreSchema> | null = null;
-function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> {
+function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
   if (!_settingsStore) {
+    // Return null before app.ready - callers must handle this gracefully
     if (!app.isReady()) {
-      throw new Error(
-        'Cannot initialize ElectronStore before app.ready - app.getPath() not available'
-      );
+      return null;
     }
     _settingsStore = new ElectronStore<DesktopSettingsStoreSchema>({
       name: 'brainstrike-settings',
@@ -455,9 +458,14 @@ app.whenReady().then(async () => {
     ipcMain.handle('assistant:get-url', () => assistantUrl);
 
     const createMainWindow = async () => {
-      const storedWindowState = readStoredWindowState(getSettingsStore());
+      // Store is guaranteed to exist after app.whenReady()
+      const store = getSettingsStore();
+      if (!store) {
+        throw new Error('Settings store unavailable after app.ready - this should never happen');
+      }
+      const storedWindowState = readStoredWindowState(store);
       const win = await createWindow({ windowState: storedWindowState });
-      registerWindowStatePersistence(win, getSettingsStore());
+      registerWindowStatePersistence(win, store);
       return win;
     };
 
