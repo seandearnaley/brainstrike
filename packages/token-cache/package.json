@@ -51,13 +51,13 @@
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.1",
-    "@types/node": "^24.10.7",
+    "@types/node": "^25.0.8",
     "@types/react": "^19.2.8",
     "react": "^19.2.3",
     "rimraf": "^6.1.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.17"
   },
   "turbo": {
     "outputs": [

@@ -31,16 +31,16 @@
     "type-check": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@babel/parser": "^7.28.5",
+    "@babel/parser": "^7.28.6",
     "@langchain/textsplitters": "^1.0.1",
     "tiktoken": "^1.0.22"
   },
   "devDependencies": {
-    "@types/node": "^24.10.7",
+    "@types/node": "^25.0.8",
     "rimraf": "^6.1.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.17"
   },
   "turbo": {
     "outputs": [

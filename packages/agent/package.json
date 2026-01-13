@@ -36,9 +36,9 @@
     "test:coverage": "pnpm -w test:coverage"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^3.0.9",
-    "@ai-sdk/google": "^3.0.6",
-    "@ai-sdk/openai": "^3.0.7",
+    "@ai-sdk/anthropic": "^3.0.12",
+    "@ai-sdk/google": "^3.0.7",
+    "@ai-sdk/openai": "^3.0.9",
     "@ai-sdk/provider": "3.0.2",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
@@ -49,11 +49,11 @@
     "zod": "^4.3.5"
   },
   "devDependencies": {
-    "@types/node": "^24.10.7",
+    "@types/node": "^25.0.8",
     "rimraf": "^6.1.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.16"
+    "vitest": "^4.0.17"
   },
   "turbo": {
     "outputs": [
