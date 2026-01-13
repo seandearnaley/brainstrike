@@ -43,6 +43,7 @@ const whenReadyMock = vi.fn(() => Promise.resolve());
 const mockApp = {
   isPackaged: false,
   whenReady: whenReadyMock,
+  isReady: vi.fn(() => true),
   on: vi.fn(),
   getPath: vi.fn(),
   getVersion: vi.fn(() => '0.0.0-test'),

@@ -64,6 +64,7 @@ export function createContextBridgeMock(): ContextBridgeMock {
 
 interface AppMock {
   whenReady: Mock<() => Promise<void>>;
+  isReady: Mock<() => boolean>;
   getAppPath: Mock<() => string>;
   getPath: Mock<(key: string) => string>;
   getVersion: Mock<() => string>;
@@ -83,6 +84,7 @@ export function createAppMock(opts?: {
 
   return {
     whenReady: vi.fn(() => whenReadyPromise),
+    isReady: vi.fn(() => whenReadyResolved),
     getAppPath: vi.fn(() => '/app'),
     getPath: vi.fn((key: string) => (key === 'documents' ? documentsPath : '/mock/path')),
     getVersion: vi.fn(() => '0.0.0-test'),
