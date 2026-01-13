@@ -117,8 +117,18 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
         return;
       }
 
-      const explorerSize = layout['explorer-panel'] ?? stableConfig.safeLeftSize ?? 25;
-      const toolsSize = layout['tools-panel'] ?? stableConfig.safeRightSize ?? 20;
+      // Preserve last non-zero size when panel is collapsed (size=0)
+      // This ensures reopening a hidden panel restores user's previous width
+      const rawExplorerSize = layout['explorer-panel'];
+      const rawToolsSize = layout['tools-panel'];
+      const explorerSize =
+        rawExplorerSize != null && rawExplorerSize > 0
+          ? rawExplorerSize
+          : (stableConfig.safeLeftSize ?? 25);
+      const toolsSize =
+        rawToolsSize != null && rawToolsSize > 0
+          ? rawToolsSize
+          : (stableConfig.safeRightSize ?? 20);
 
       stableConfig.saveLayout(
         [explorerSize, toolsSize, stableConfig.safeConsoleSize ?? 20],
@@ -139,7 +149,12 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
         return;
       }
 
-      const consoleSize = layout['console-panel'] ?? stableConfig.safeConsoleSize ?? 20;
+      // Preserve last non-zero size when panel is collapsed (size=0)
+      const rawConsoleSize = layout['console-panel'];
+      const consoleSize =
+        rawConsoleSize != null && rawConsoleSize > 0
+          ? rawConsoleSize
+          : (stableConfig.safeConsoleSize ?? 20);
       stableConfig.saveLayout(
         [stableConfig.safeLeftSize ?? 25, stableConfig.safeRightSize ?? 20, consoleSize],
         !!stableConfig.showConsole,
