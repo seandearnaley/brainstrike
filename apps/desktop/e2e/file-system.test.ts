@@ -5,7 +5,8 @@ import { mockFileSystemOperations } from './utils/electron-helpers';
 
 test.describe('File System Integration', () => {
   async function ensureLeftPanelVisible(window: Page): Promise<void> {
-    const leftPanel = window.locator('[data-panel-id="explorer-panel"]');
+    // Use id selector for react-resizable-panels v4 compatibility
+    const leftPanel = window.locator('#explorer-panel');
     const showLeftPanelButton = window
       .getByTestId('show-explorer-panel')
       .or(window.getByRole('button', { name: /show explorer/i }));
