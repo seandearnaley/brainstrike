@@ -1,6 +1,43 @@
 import '@testing-library/jest-dom';
 import { vi } from 'vitest';
 
+// Mock Electron module for tests that transitively import window-state.ts
+vi.mock('electron', () => ({
+  app: {
+    isPackaged: false,
+    whenReady: vi.fn(() => Promise.resolve()),
+    isReady: vi.fn(() => true),
+    on: vi.fn(),
+    getPath: vi.fn(() => '/mock/path'),
+    getVersion: vi.fn(() => '0.0.0-test'),
+    quit: vi.fn(),
+  },
+  BrowserWindow: vi.fn(),
+  ipcMain: { handle: vi.fn(), on: vi.fn() },
+  ipcRenderer: { invoke: vi.fn(), on: vi.fn(), send: vi.fn() },
+  contextBridge: { exposeInMainWorld: vi.fn() },
+  screen: {
+    getAllDisplays: vi.fn(() => [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }]),
+    getPrimaryDisplay: vi.fn(() => ({ workArea: { x: 0, y: 0, width: 1920, height: 1080 } })),
+  },
+  safeStorage: {
+    decryptString: vi.fn((buffer: Buffer) => Buffer.from(buffer).toString('utf-8')),
+    encryptString: vi.fn((text: string) => Buffer.from(text)),
+    isEncryptionAvailable: vi.fn(() => true),
+    setUsePlainTextEncryption: vi.fn(),
+    getSelectedStorageBackend: vi.fn(() => 'basic_text'),
+  },
+  session: {
+    defaultSession: {
+      webRequest: { onHeadersReceived: vi.fn() },
+    },
+  },
+  Menu: {
+    setApplicationMenu: vi.fn(),
+    buildFromTemplate: vi.fn(),
+  },
+}));
+
 // Mock Electron APIs
 const mockElectronAPI = {
   storage: {
