@@ -128,14 +128,14 @@ export default defineConfig({
         find: 'pino',
         replacement: path.resolve(
           __dirname,
-          '../../node_modules/.pnpm/pino@10.1.0/node_modules/pino/browser.js'
+          '../../node_modules/.pnpm/pino@10.1.1/node_modules/pino/browser.js'
         ),
       },
       {
         find: 'pino/browser.js',
         replacement: path.resolve(
           __dirname,
-          '../../node_modules/.pnpm/pino@10.1.0/node_modules/pino/browser.js'
+          '../../node_modules/.pnpm/pino@10.1.1/node_modules/pino/browser.js'
         ),
       },
       // Agent client-safe exports (no Mastra dependencies)
