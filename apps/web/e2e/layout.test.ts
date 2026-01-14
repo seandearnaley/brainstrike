@@ -100,8 +100,9 @@ test.describe('Application Layout', () => {
       const elements = getPanelElements(page);
 
       // Verify horizontal resize handles are present (left panel boundary)
+      // Note: react-resizable-panels v4 uses aria-orientation and data-separator
       const horizontalResizeHandles = page.locator(
-        '[data-panel-resize-handle-enabled="true"][data-panel-group-orientation="horizontal"]'
+        '[aria-orientation="horizontal"] [data-separator]'
       );
       await expect(horizontalResizeHandles.first()).toBeVisible(); // Left panel resize handle
 
@@ -110,9 +111,8 @@ test.describe('Application Layout', () => {
       await expect(elements.consolePanel).toBeVisible();
 
       // Should have console resize handle (vertical direction)
-      const verticalResizeHandles = page.locator(
-        '[data-panel-resize-handle-enabled="true"][data-panel-group-orientation="vertical"]'
-      );
+      // Note: react-resizable-panels v4 uses aria-orientation and data-separator
+      const verticalResizeHandles = page.locator('[aria-orientation="vertical"] [data-separator]');
       await expect(verticalResizeHandles.first()).toBeVisible();
     });
 
@@ -132,11 +132,12 @@ test.describe('Application Layout', () => {
       await expect(page.locator('#console-panel')).toBeAttached();
 
       // Verify panel group structure using correct data attributes
+      // Note: react-resizable-panels v4 uses data-group instead of data-panel-group
       // Expecting three panel groups:
       // - Outer horizontal (left/middle/right)
       // - Inner vertical (main/console)
       // - Right panel's prompt manager (when right panel is visible)
-      await expect(page.locator('[data-panel-group]')).toHaveCount(3);
+      await expect(page.locator('[data-group]')).toHaveCount(3);
     });
   });
 });

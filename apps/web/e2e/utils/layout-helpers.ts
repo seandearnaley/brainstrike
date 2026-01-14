@@ -232,9 +232,8 @@ export async function resizePanel(
  */
 export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']> {
   // The explorer panel's resize handle is the first one in the horizontal group
-  return page
-    .locator('[data-panel-group-orientation="horizontal"] [data-panel-resize-handle-id]')
-    .first();
+  // Note: react-resizable-panels v4 uses aria-orientation and data-separator
+  return page.locator('[aria-orientation="horizontal"] [data-separator]').first();
 }
 
 /**
@@ -242,9 +241,8 @@ export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']
  */
 export function getConsolePanelResizeHandle(page: Page): ReturnType<Page['locator']> {
   // The console panel's resize handle is in the vertical group
-  return page
-    .locator('[data-panel-group-orientation="vertical"] [data-panel-resize-handle-id]')
-    .first();
+  // Note: react-resizable-panels v4 uses aria-orientation and data-separator
+  return page.locator('[aria-orientation="vertical"] [data-separator]').first();
 }
 
 /**
