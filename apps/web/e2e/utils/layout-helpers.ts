@@ -110,10 +110,10 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
   // CI needs significantly more time for:
   // 1. Initial page load
-  // 2. JS bundle download and parsing
+  // 2. JS bundle download and parsing (15MB+ vendor bundle)
   // 3. React hydration
   // 4. Panel rendering with react-resizable-panels
-  const effectiveTimeout = isCI ? Math.max(timeout, 45_000) : timeout;
+  const effectiveTimeout = isCI ? Math.max(timeout, 55_000) : timeout;
 
   // Wait for the page to fully load, including JS execution
   // Using 'load' instead of 'domcontentloaded' to ensure JS has loaded
@@ -129,11 +129,28 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
 
   // Wait for the main layout structure to be present
   // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
-  // Using a polling approach to handle React hydration timing
-  await page.waitForSelector('#middle-panel', {
-    state: 'attached',
-    timeout: effectiveTimeout,
-  });
+  try {
+    await page.waitForSelector('#middle-panel', {
+      state: 'attached',
+      timeout: effectiveTimeout,
+    });
+  } catch (error) {
+    // Debug: Log page content on failure to help diagnose CI issues
+    if (isCI) {
+      const bodyHTML = await page.evaluate(
+        () => document.body?.innerHTML?.slice(0, 1000) || 'no body'
+      );
+      const hasRoot = await page.evaluate(() => !!document.getElementById('root'));
+      const rootContent = await page.evaluate(
+        () => document.getElementById('root')?.innerHTML?.slice(0, 500) || 'empty'
+      );
+      console.error('[waitForAppLoad] Debug info on failure:');
+      console.error(`  hasRoot: ${hasRoot}`);
+      console.error(`  rootContent: ${rootContent}`);
+      console.error(`  bodyHTML: ${bodyHTML}`);
+    }
+    throw error;
+  }
 
   // Also ensure the main content panel is present
   await page.waitForSelector('#main-content-panel', {
