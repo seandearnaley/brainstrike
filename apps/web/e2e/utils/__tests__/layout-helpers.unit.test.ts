@@ -25,6 +25,8 @@ describe('layout-helpers (unit)', () => {
     const page = {
       waitForLoadState: vi.fn(async (state: string) => void loadStates.push(state)),
       waitForSelector: vi.fn(async (sel: string) => void waited.push(sel)),
+      // CI debug listeners (no-op in unit tests)
+      on: vi.fn(),
     } as unknown as Page;
     await waitForAppLoad(page, 10_000);
     // Using 'load' instead of 'domcontentloaded' to ensure JS bundles are loaded
@@ -44,6 +46,8 @@ describe('layout-helpers (unit)', () => {
       reload: vi.fn(async () => {}),
       waitForLoadState: vi.fn(async () => {}),
       waitForSelector: vi.fn(async () => {}),
+      // CI debug listeners (no-op in unit tests)
+      on: vi.fn(),
     } as unknown as Page;
     await resetLayoutState(page);
     expect(page.reload).toHaveBeenCalled();
