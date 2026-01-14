@@ -27,7 +27,11 @@ describe('layout-helpers (unit)', () => {
       waitForSelector: vi.fn(async (sel: string) => void waited.push(sel)),
     } as unknown as Page;
     await waitForAppLoad(page, 10_000);
-    expect(loadStates).toContain('domcontentloaded');
+    // Using 'load' instead of 'domcontentloaded' to ensure JS bundles are loaded
+    // before checking React elements (important for CI with vite preview)
+    expect(loadStates).toContain('load');
+    // Best-effort networkidle wait for deferred script loading
+    expect(loadStates).toContain('networkidle');
     // react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
     expect(waited).toContain('#middle-panel');
     expect(waited).toContain('#main-content-panel');
