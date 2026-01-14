@@ -102,18 +102,39 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
 /**
  * Waits for the main application content to be ready.
  * This is useful to ensure tests don't start before the UI is fully initialized.
+ *
+ * In CI with vite preview (production build), React needs time to hydrate after
+ * the initial HTML loads. This function handles the full hydration cycle.
  */
 export async function waitForAppLoad(page: Page, timeout = 10_000) {
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
-  const effectiveTimeout = isCI ? Math.max(timeout, 20_000) : timeout;
-  // Ensure the document has finished initial parsing before checking layout markers.
-  await page.waitForLoadState('domcontentloaded', { timeout: effectiveTimeout });
-  // Wait for the main layout structure to be present, regardless of panel visibility
+  // CI needs significantly more time for:
+  // 1. Initial page load
+  // 2. JS bundle download and parsing
+  // 3. React hydration
+  // 4. Panel rendering with react-resizable-panels
+  const effectiveTimeout = isCI ? Math.max(timeout, 45_000) : timeout;
+
+  // Wait for the page to fully load, including JS execution
+  // Using 'load' instead of 'domcontentloaded' to ensure JS has loaded
+  await page.waitForLoadState('load', { timeout: effectiveTimeout });
+
+  // Best-effort wait for network to settle - important for production builds
+  // that may have deferred script loading. Use short timeout since apps with
+  // background workers often never reach networkidle state.
+  const networkIdleTimeout = isCI ? 5000 : 2000;
+  await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch(() => {
+    // networkidle timeout is expected when app has background activity - continue
+  });
+
+  // Wait for the main layout structure to be present
   // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
+  // Using a polling approach to handle React hydration timing
   await page.waitForSelector('#middle-panel', {
     state: 'attached',
     timeout: effectiveTimeout,
   });
+
   // Also ensure the main content panel is present
   await page.waitForSelector('#main-content-panel', {
     state: 'attached',
@@ -128,10 +149,9 @@ export async function resetLayoutState(page: Page): Promise<void> {
   await page.evaluate(() => {
     localStorage.removeItem('panel-layout-store.v1');
   });
-  // Wait for the page to finish navigating before continuing. Using
-  // `networkidle` helps avoid flaky reload errors in CI where the
-  // default navigation wait can resolve too early.
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  // Wait for the page to finish navigating before continuing.
+  // Using 'load' to ensure JS bundles are loaded before checking React elements.
+  await page.reload({ waitUntil: 'load' });
   await waitForAppLoad(page);
 }
 
