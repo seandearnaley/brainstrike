@@ -220,14 +220,17 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: [
       'src/**/__tests__/**/*.test.{ts,tsx}',
-      'src/**/__tests__/**/*.test.{ts,tsx}',
       'src/**/*.test.{ts,tsx}',
-      'src/**/*.test.{ts,tsx}',
+      // E2E utility unit tests (*.unit.test.ts) run in Vitest, not Playwright
+      'e2e/utils/__tests__/**/*.unit.test.ts',
+      'e2e/utils/__tests__/**/*.test.ts',
     ],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
-      '**/e2e/**',
+      // Exclude actual E2E test specs (*.spec.ts), but allow unit tests in e2e/utils/__tests__/
+      'e2e/**/*.spec.ts',
+      'e2e/**/!(utils/__tests__)/**/*.test.ts',
       '**/cypress/**',
       '**/.{idea,git,cache,output,temp}/**',
     ],
