@@ -115,6 +115,25 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
   // 4. Panel rendering with react-resizable-panels
   const effectiveTimeout = isCI ? Math.max(timeout, 55_000) : timeout;
 
+  // Collect console errors and network failures in CI for debugging
+  // Set up listeners BEFORE waiting for load states to capture all events
+  const consoleErrors: string[] = [];
+  const networkFailures: string[] = [];
+
+  if (isCI) {
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(`[${msg.type()}] ${msg.text()}`);
+      }
+    });
+    page.on('pageerror', (err) => {
+      consoleErrors.push(`[pageerror] ${err.message}`);
+    });
+    page.on('requestfailed', (request) => {
+      networkFailures.push(`${request.failure()?.errorText ?? 'unknown'}: ${request.url()}`);
+    });
+  }
+
   // Wait for the page to fully load, including JS execution
   // Using 'load' instead of 'domcontentloaded' to ensure JS has loaded
   await page.waitForLoadState('load', { timeout: effectiveTimeout });
@@ -144,10 +163,23 @@ export async function waitForAppLoad(page: Page, timeout = 10_000) {
       const rootContent = await page.evaluate(
         () => document.getElementById('root')?.innerHTML?.slice(0, 500) || 'empty'
       );
+      const scriptTags = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('script')).map((s) => ({
+          src: s.src || '[inline]',
+          type: s.type || 'text/javascript',
+        }))
+      );
       console.error('[waitForAppLoad] Debug info on failure:');
       console.error(`  hasRoot: ${hasRoot}`);
       console.error(`  rootContent: ${rootContent}`);
       console.error(`  bodyHTML: ${bodyHTML}`);
+      console.error(`  scriptTags: ${JSON.stringify(scriptTags)}`);
+      console.error(
+        `  consoleErrors (${consoleErrors.length}): ${consoleErrors.join('; ') || 'none'}`
+      );
+      console.error(
+        `  networkFailures (${networkFailures.length}): ${networkFailures.join('; ') || 'none'}`
+      );
     }
     throw error;
   }
