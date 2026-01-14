@@ -221,16 +221,15 @@ export default defineConfig({
     include: [
       'src/**/__tests__/**/*.test.{ts,tsx}',
       'src/**/*.test.{ts,tsx}',
-      // E2E utility unit tests (*.unit.test.ts) run in Vitest, not Playwright
-      'e2e/utils/__tests__/**/*.unit.test.ts',
-      'e2e/utils/__tests__/**/*.test.ts',
+      // E2E utility unit tests use .vitest.ts extension to avoid Playwright extension conflict
+      'e2e/utils/__tests__/**/*.vitest.ts',
     ],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
-      // Exclude actual E2E test specs (*.spec.ts), but allow unit tests in e2e/utils/__tests__/
+      // Exclude all E2E test specs - Playwright handles those
       'e2e/**/*.spec.ts',
-      'e2e/**/!(utils/__tests__)/**/*.test.ts',
+      'e2e/**/*.test.ts',
       '**/cypress/**',
       '**/.{idea,git,cache,output,temp}/**',
     ],
