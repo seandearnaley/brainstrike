@@ -1,4 +1,3 @@
-import { createLogger } from '@brainstrike/utils';
 import type { Page } from '@playwright/test';
 
 /**
@@ -6,9 +5,27 @@ import type { Page } from '@playwright/test';
  */
 
 type PlaywrightExpect = typeof import('@playwright/test').expect;
+interface ScopedLogger {
+  warn: (message: string, context?: Record<string, unknown>) => void;
+}
 
 let cachedExpect: PlaywrightExpect | null = null;
-const logger = createLogger('E2ELayoutHelpers');
+let cachedLogger: Promise<ScopedLogger> | null = null;
+
+async function getLogger(): Promise<ScopedLogger> {
+  if (!cachedLogger) {
+    cachedLogger = import('@brainstrike/utils')
+      .then((mod) => mod.createLogger('E2ELayoutHelpers'))
+      .catch(() => ({
+        warn: () => undefined,
+      }));
+  }
+  return cachedLogger;
+}
+
+function logWarn(message: string, context?: Record<string, unknown>): void {
+  void getLogger().then((logger) => logger.warn(message, context));
+}
 
 async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
   if (!cachedExpect) {
@@ -89,15 +106,13 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
     if ((await showButton.count()) > 0) {
       await showButton.first().click();
     } else {
-      logger.warn(
-        '⚠️ Unable to find "Show tools panel" control; assuming panel is already visible.'
-      );
+      logWarn('⚠️ Unable to find "Show tools panel" control; assuming panel is already visible.');
       return;
     }
   }
 
   await elements.rightPanel.waitFor({ state: 'visible', timeout }).catch(() => {
-    logger.warn('⚠️ Tools panel did not become visible after requesting to show it.');
+    logWarn('⚠️ Tools panel did not become visible after requesting to show it.');
   });
 }
 
@@ -488,7 +503,7 @@ export async function testPanelSizeConstraints(
       try {
         await waitForPanelExpansion();
       } catch {
-        logger.warn('Panel did not expand within timeout - skipping size constraint test');
+        logWarn('Panel did not expand within timeout - skipping size constraint test');
         return;
       }
 
@@ -501,7 +516,7 @@ export async function testPanelSizeConstraints(
 
   // If still width 0, skip the constraint test as the panel is not properly expanded
   if (currentWidth === 0) {
-    logger.warn('Panel width is still 0 after expansion attempts - skipping size constraint test');
+    logWarn('Panel width is still 0 after expansion attempts - skipping size constraint test');
     return;
   }
 
@@ -522,7 +537,7 @@ export async function testPanelSizeConstraints(
         await waitForPanelExpansion();
         postResizeWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
       } catch {
-        logger.warn('Panel did not re-expand after collapse - skipping minimum constraint test');
+        logWarn('Panel did not re-expand after collapse - skipping minimum constraint test');
         postResizeWidth = 0;
       }
     }
@@ -535,7 +550,7 @@ export async function testPanelSizeConstraints(
     const minExpectedWidth = viewportSize.width * (minPercentage / 100);
     expect(minDimensions.width).toBeGreaterThan(minExpectedWidth * 0.8); // Allow 20% variance
   } else {
-    logger.warn('Panel width is 0 after resize - skipping minimum constraint test');
+    logWarn('Panel width is 0 after resize - skipping minimum constraint test');
   }
 
   // Test maximum size constraint
