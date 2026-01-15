@@ -35,10 +35,22 @@ vi.mock('react-resizable-panels', () => {
   interface GroupProps {
     orientation?: string;
     onLayoutChanged?: (layout: { [id: string]: number }) => void;
+    groupRef?: React.RefObject<{ setLayout: Mock } | null>;
     children?: React.ReactNode;
   }
 
-  const Group = ({ orientation, onLayoutChanged, children }: GroupProps) => {
+  const Group = ({ orientation, onLayoutChanged, groupRef, children }: GroupProps) => {
+    const handle = React.useMemo(() => ({ setLayout: vi.fn() as Mock }), []);
+    React.useEffect(() => {
+      if (groupRef) {
+        groupRef.current = handle;
+      }
+      return () => {
+        if (groupRef && groupRef.current === handle) {
+          groupRef.current = null;
+        }
+      };
+    }, [groupRef, handle]);
     if (typeof onLayoutChanged === 'function') {
       if (orientation === 'horizontal') {
         handlers.horizontal.push(onLayoutChanged);
