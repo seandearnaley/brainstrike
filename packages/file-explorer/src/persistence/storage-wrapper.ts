@@ -4,6 +4,13 @@ import type { WorkerStorage } from './worker-storage';
 
 const logger = createLogger('Persistence');
 
+export type StorageOperationResult =
+  | { success: true }
+  | { success: false; message: string; error: unknown };
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 async function getItemFromWorker(
   workerStorage: WorkerStorage,
   name: string,
@@ -89,14 +96,23 @@ async function setItemWithWorker(
   name: string,
   value: unknown,
   shouldLog: boolean
-): Promise<void> {
+): Promise<StorageOperationResult> {
   try {
     await workerStorage.setItem(name, value);
+    return { success: true };
   } catch (error) {
     if (shouldLog) {
       logger.error('Worker setItem failed, falling back to immediate approach:', error);
     }
-    await storageAdapter.setItem(name, JSON.stringify(value));
+    try {
+      await storageAdapter.setItem(name, JSON.stringify(value));
+      return { success: true };
+    } catch (fallbackError) {
+      if (shouldLog) {
+        logger.error('Error setting item in storage:', fallbackError);
+      }
+      return { success: false, message: getErrorMessage(fallbackError), error: fallbackError };
+    }
   }
 }
 
@@ -104,8 +120,13 @@ async function setItemWithStorage(
   storageAdapter: StorageAdapter,
   name: string,
   value: unknown
-): Promise<void> {
-  await storageAdapter.setItem(name, JSON.stringify(value));
+): Promise<StorageOperationResult> {
+  try {
+    await storageAdapter.setItem(name, JSON.stringify(value));
+    return { success: true };
+  } catch (error) {
+    return { success: false, message: getErrorMessage(error), error };
+  }
 }
 
 export function createStorageWrapper(
@@ -123,24 +144,23 @@ export function createStorageWrapper(
     },
     setItem: async (name: string, value: unknown) => {
       if (useWorker && workerStorage) {
-        await setItemWithWorker(workerStorage, storageAdapter, name, value, shouldLog);
-      } else {
-        try {
-          await setItemWithStorage(storageAdapter, name, value);
-        } catch (error) {
-          if (shouldLog) {
-            logger.error('Error setting item in storage:', error);
-          }
-        }
+        return await setItemWithWorker(workerStorage, storageAdapter, name, value, shouldLog);
       }
+      const result = await setItemWithStorage(storageAdapter, name, value);
+      if (!result.success && shouldLog) {
+        logger.error('Error setting item in storage:', result.error);
+      }
+      return result;
     },
     removeItem: async (name: string) => {
       try {
         await storageAdapter.removeItem(name);
+        return { success: true };
       } catch (error) {
         if (shouldLog) {
           logger.error('Error removing item from storage:', error);
         }
+        return { success: false, message: getErrorMessage(error), error };
       }
     },
   };

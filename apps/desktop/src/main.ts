@@ -313,6 +313,7 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 }
 
 let stopAssistantServer: null | (() => Promise<void>) = null;
+let unregisterMainIpcHandlers: null | (() => void) = null;
 
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
   // Note: Embedding worker runs in renderer, not main process, so no need to stop it here
@@ -348,18 +349,18 @@ process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled promise rejection', { reason, promise });
 });
 
-logger.info('Setting up IPC handlers...');
-registerIpcHandlers(fileSystem, storage, getSettingsStore, {
-  onResetLocal: handleResetLocal,
-});
-registerSecretsIpcHandlers(createSecretsService());
-registerAgentIpcHandlers();
-registerMcpIpcHandlers();
-logger.info('IPC handlers registered successfully');
-
 app.whenReady().then(async () => {
   try {
     logger.info('App ready, starting initialization...');
+
+    logger.info('Setting up IPC handlers...');
+    unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
+      onResetLocal: handleResetLocal,
+    });
+    registerSecretsIpcHandlers(createSecretsService());
+    registerAgentIpcHandlers();
+    registerMcpIpcHandlers();
+    logger.info('IPC handlers registered successfully');
 
     // Setup security before creating windows
     setupSecurity();
@@ -510,6 +511,10 @@ app.on('before-quit', async () => {
 app.on('will-quit', () => {
   // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
   console.log('--- RAW CONSOLE LOG: WILL-QUIT TRIGGERED ---');
+  if (unregisterMainIpcHandlers) {
+    unregisterMainIpcHandlers();
+    unregisterMainIpcHandlers = null;
+  }
   removeLogBufferListener();
 });
 
