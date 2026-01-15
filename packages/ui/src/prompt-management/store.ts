@@ -1,5 +1,6 @@
+import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type { Category, Prompt, PromptFilter, PromptRevision } from './types';
 
 interface PromptState {
@@ -32,6 +33,8 @@ const DEFAULT_CATEGORIES: Category[] = [
   { id: 'writing', name: 'Writing', color: '#8b5cf6', icon: 'PenTool' },
   { id: 'productivity', name: 'Productivity', color: '#10b981', icon: 'Zap' },
 ];
+
+const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 
 export const usePromptStore = create<PromptState>()(
   persist(
@@ -140,6 +143,7 @@ export const usePromptStore = create<PromptState>()(
     }),
     {
       name: 'brainstrike-prompt-store',
+      storage,
       partialize: (state) => ({
         prompts: state.prompts,
         categories: state.categories,
