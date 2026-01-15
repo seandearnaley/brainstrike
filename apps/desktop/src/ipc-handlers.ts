@@ -6,12 +6,13 @@ import type {
 } from '@brainstrike/file-system';
 import { getTestDirectoryStructure, resolveValidatedPath } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
-import type { PanelPersistenceState } from '@brainstrike/ui';
+import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
 import { app, ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
+import { z } from 'zod';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 // import { getDatabase } from './db-main'; // Disabled - using renderer process database
@@ -38,6 +39,17 @@ interface LiveSubscriptionRecord {
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
+
+const panelPersistenceStateSchema = z.object({
+  sizes: z.array(
+    z.number().refine((value) => Number.isFinite(value), {
+      message: 'Panel size must be a finite number',
+    })
+  ),
+  showConsole: z.boolean(),
+  showLeftPanel: z.boolean(),
+  showRightPanel: z.boolean(),
+});
 
 /**
  * Wrap a database operation with corruption detection and auto-recovery.
@@ -313,29 +325,64 @@ export function registerIpcHandlers(
   });
 
   // Layout persistence IPC handlers
-  ipcMain.handle('layout:save', async (_e: IpcMainInvokeEvent, state: PanelPersistenceState) => {
-    const store = getStore();
-    if (!store) {
-      logger.warn('Cannot save layout: store not initialized');
-      return;
-    }
-    // Using proper type access for electron-store
-    // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
-    // @ts-ignore
-    store.set('panelLayout', { v1: state });
-  });
+  ipcMain.handle(
+    'layout:save',
+    async (_e: IpcMainInvokeEvent, state: unknown): Promise<LayoutPersistenceResult> => {
+      const store = getStore();
+      if (!store) {
+        logger.warn('Cannot save layout: store not initialized');
+        return { success: false, message: 'Store not initialized' };
+      }
 
-  ipcMain.handle('layout:load', async () => {
+      const parsed = panelPersistenceStateSchema.safeParse(state);
+      if (!parsed.success) {
+        logger.warn('Invalid panel layout payload', { issues: parsed.error.issues });
+        return { success: false, message: 'Invalid panel layout payload' };
+      }
+
+      try {
+        // Using proper type access for electron-store
+        // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
+        // @ts-ignore
+        store.set('panelLayout', { v1: parsed.data });
+        return { success: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn('Failed to save panel layout', { error: message });
+        return { success: false, message };
+      }
+    }
+  );
+
+  ipcMain.handle('layout:load', async (): Promise<LayoutLoadResult> => {
     const store = getStore();
     if (!store) {
       logger.warn('Cannot load layout: store not initialized');
-      return undefined;
+      return { success: false, message: 'Store not initialized' };
     }
-    // Using proper type access for electron-store
-    // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
-    // @ts-ignore
-    const layout = store.get('panelLayout');
-    return layout?.v1;
+
+    try {
+      // Using proper type access for electron-store
+      // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
+      // @ts-ignore
+      const layout = store.get('panelLayout') as { v1?: unknown } | undefined;
+      const candidate = layout?.v1;
+      if (!candidate) {
+        return { success: true, data: null };
+      }
+
+      const parsed = panelPersistenceStateSchema.safeParse(candidate);
+      if (!parsed.success) {
+        logger.warn('Invalid panel layout data in store', { issues: parsed.error.issues });
+        return { success: false, message: 'Invalid panel layout data' };
+      }
+
+      return { success: true, data: parsed.data };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn('Failed to load panel layout', { error: message });
+      return { success: false, message };
+    }
   });
 
   // Settings store clear handler for factory reset

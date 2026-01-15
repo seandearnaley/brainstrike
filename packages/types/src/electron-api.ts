@@ -144,8 +144,8 @@ export interface ElectronAPI {
   /**
    * Panel layout persistence
    */
-  saveLayout: (state: unknown) => Promise<void>;
-  loadLayout: () => Promise<unknown>;
+  saveLayout: (state: unknown) => Promise<{ success: boolean; message?: string }>;
+  loadLayout: () => Promise<{ success: boolean; data?: unknown; message?: string }>;
 
   /**
    * Database path lookup (legacy)

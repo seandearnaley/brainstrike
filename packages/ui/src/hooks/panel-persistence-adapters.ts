@@ -38,8 +38,11 @@ export class ElectronPanelPersistenceAdapter implements PanelPersistenceAdapter 
   async load(): Promise<PanelPersistenceState | null> {
     try {
       const api = getElectronAPI();
-      const loaded = await api?.loadLayout?.();
-      return loaded ?? null;
+      const result = await api?.loadLayout?.();
+      if (!result?.success) {
+        return null;
+      }
+      return result.data ?? null;
     } catch {
       return null;
     }

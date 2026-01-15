@@ -3,7 +3,11 @@ const { contextBridge, ipcRenderer, clipboard } = require('electron');
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { PanelPersistenceState } from '@brainstrike/ui';
+import type {
+  LayoutLoadResult,
+  LayoutPersistenceResult,
+  PanelPersistenceState,
+} from '@brainstrike/ui';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
 import type { LoggingSettingsPayload } from './logging-shared';
 
@@ -25,8 +29,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     saveLastFolder: (folderPath: string) => ipcRenderer.invoke('fs:saveLastFolder', folderPath),
   },
   // Panel layout persistence
-  saveLayout: (state: PanelPersistenceState) => ipcRenderer.invoke('layout:save', state),
-  loadLayout: () => ipcRenderer.invoke('layout:load'),
+  saveLayout: (state: PanelPersistenceState): Promise<LayoutPersistenceResult> =>
+    ipcRenderer.invoke('layout:save', state),
+  loadLayout: (): Promise<LayoutLoadResult> => ipcRenderer.invoke('layout:load'),
   // Database operations
   db: {
     ping: () => ipcRenderer.invoke('db:ping'),
