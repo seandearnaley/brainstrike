@@ -1,4 +1,4 @@
-import { isDevEnv } from '@brainstrike/utils';
+import { createLogger, isDevEnv } from '@brainstrike/utils';
 import { ChevronLeft, ChevronRight, PanelLeft, PanelRight, Terminal, X } from 'lucide-react';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import {
@@ -11,6 +11,7 @@ import {
 import { Button } from '../button';
 import type { PanelPersistenceAdapter } from '../hooks/panel-persistence-adapters';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
+import { DEFAULT_PANEL_SIZES, MIN_PANEL_SIZE_THRESHOLD } from '../lib/panel-constants';
 import { cn } from '../lib/utils';
 import { usePanelLayout } from '../providers/panel-layout-provider';
 
@@ -26,6 +27,8 @@ const IdeFileEditorContext = createContext<FileEditorContextValue>({
 });
 
 export const useIdeFileEditor = () => useContext(IdeFileEditorContext);
+
+const logger = createLogger('IdeLayout');
 
 // In react-resizable-panels v4, panels must ALWAYS be rendered (never conditionally mounted).
 // Visibility is controlled via the collapsible prop and imperative collapse()/expand() API.
@@ -239,14 +242,33 @@ function applyCollapsedState(
   showRightPanel: boolean,
   showConsole: boolean
 ): void {
-  if (hasExplorer && leftPanelRef.current && !showLeftPanel) {
-    leftPanelRef.current.collapse();
+  if (hasExplorer && !showLeftPanel) {
+    safeTogglePanelVisibility(leftPanelRef, false, 'left');
   }
-  if (hasTools && rightPanelRef.current && !showRightPanel) {
-    rightPanelRef.current.collapse();
+  if (hasTools && !showRightPanel) {
+    safeTogglePanelVisibility(rightPanelRef, false, 'right');
   }
-  if (hasConsole && consolePanelRef.current && !showConsole) {
-    consolePanelRef.current.collapse();
+  if (hasConsole && !showConsole) {
+    safeTogglePanelVisibility(consolePanelRef, false, 'console');
+  }
+}
+
+function safeTogglePanelVisibility(
+  panelRef: React.RefObject<PanelImperativeHandle | null>,
+  show: boolean,
+  label: string
+): void {
+  if (!panelRef.current) {
+    return;
+  }
+  try {
+    if (show) {
+      panelRef.current.expand();
+    } else {
+      panelRef.current.collapse();
+    }
+  } catch (error) {
+    logger.warn(`Failed to toggle ${label} panel visibility`, { error });
   }
 }
 
@@ -276,11 +298,19 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
       return;
     }
 
-    // Wait for refs to be populated
-    const timeoutId = setTimeout(() => {
-      hasAppliedInitialLayout.current = true;
-      isInitialRenderRef.current = false;
+    const refsReady =
+      horizontalGroupRef.current !== null &&
+      verticalGroupRef.current !== null &&
+      (!hasExplorer || leftPanelRef.current !== null) &&
+      (!hasTools || rightPanelRef.current !== null) &&
+      (!hasConsole || consolePanelRef.current !== null);
 
+    if (!refsReady) {
+      return;
+    }
+
+    // Wait for refs and DOM to stabilize
+    const timeoutId = setTimeout(() => {
       if (horizontalGroupRef.current) {
         applyHorizontalLayout(
           horizontalGroupRef.current,
@@ -308,6 +338,9 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
         showRightPanel,
         showConsole
       );
+
+      hasAppliedInitialLayout.current = true;
+      isInitialRenderRef.current = false;
     }, 50); // Wait for DOM to stabilize
 
     return () => clearTimeout(timeoutId);
@@ -624,17 +657,16 @@ export const IdeLayout = React.memo(function IdeLayout({
   // sizes format: [leftPanelSize, rightPanelSize, consolePanelSize]
   // The middle panel size is calculated dynamically as: 100 - left - right
   // IMPORTANT: Enforce minimum thresholds to prevent corrupted tiny values from localStorage
-  const MinPanelSize = 10;
   const [safeLeftSize, safeRightSize, safeConsoleSize] = [
-    typeof sizes[0] === 'number' && !Number.isNaN(sizes[0]) && sizes[0] >= MinPanelSize
+    typeof sizes[0] === 'number' && !Number.isNaN(sizes[0]) && sizes[0] >= MIN_PANEL_SIZE_THRESHOLD
       ? sizes[0]
-      : 25,
-    typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) && sizes[1] >= MinPanelSize
+      : DEFAULT_PANEL_SIZES[0],
+    typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) && sizes[1] >= MIN_PANEL_SIZE_THRESHOLD
       ? sizes[1]
-      : 20,
-    typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) && sizes[2] >= MinPanelSize
+      : DEFAULT_PANEL_SIZES[1],
+    typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) && sizes[2] >= MIN_PANEL_SIZE_THRESHOLD
       ? sizes[2]
-      : 20,
+      : DEFAULT_PANEL_SIZES[2],
   ];
 
   // Determine if we should render panels (has content)
@@ -671,11 +703,7 @@ export const IdeLayout = React.memo(function IdeLayout({
     }
 
     if (leftPanelContent && leftPanelRef.current) {
-      if (showLeftPanel) {
-        leftPanelRef.current.expand();
-      } else {
-        leftPanelRef.current.collapse();
-      }
+      safeTogglePanelVisibility(leftPanelRef, showLeftPanel, 'left');
     }
   }, [showLeftPanel, leftPanelContent]);
 
@@ -685,11 +713,7 @@ export const IdeLayout = React.memo(function IdeLayout({
     }
 
     if (rightPanelContent && rightPanelRef.current) {
-      if (showRightPanel) {
-        rightPanelRef.current.expand();
-      } else {
-        rightPanelRef.current.collapse();
-      }
+      safeTogglePanelVisibility(rightPanelRef, showRightPanel, 'right');
     }
   }, [showRightPanel, rightPanelContent]);
 
@@ -699,11 +723,7 @@ export const IdeLayout = React.memo(function IdeLayout({
     }
 
     if (consoleContent && consolePanelRef.current) {
-      if (showConsole) {
-        consolePanelRef.current.expand();
-      } else {
-        consolePanelRef.current.collapse();
-      }
+      safeTogglePanelVisibility(consolePanelRef, showConsole, 'console');
     }
   }, [showConsole, consoleContent]);
 

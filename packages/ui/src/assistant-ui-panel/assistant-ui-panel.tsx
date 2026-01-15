@@ -22,6 +22,7 @@ import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import { Badge } from '../badge';
 import { Button } from '../button';
+import { cn } from '../lib/utils';
 import { ModelPicker } from '../model-picker';
 import type { ModelPickerModel, ModelPickerProvider } from '../model-picker/types';
 import { createLocalModelAdapter, disposeLocalBackend } from './local-runtime-adapter';
@@ -396,6 +397,7 @@ const ChatThreadUI: FC<{
 );
 
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
+  className,
   providerGroups,
   pickerModels,
   pickerProviders,
@@ -456,7 +458,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   return (
     <section
       aria-label="Assistant chat"
-      className="flex h-full min-h-0 flex-col"
+      className={cn('assistant-ui-panel flex h-full min-h-0 flex-col', className)}
       data-testid="chat-panel"
     >
       {isLocalProvider && modelName ? (

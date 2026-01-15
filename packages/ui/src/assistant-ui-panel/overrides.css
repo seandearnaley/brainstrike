@@ -148,7 +148,7 @@
  * This override applies to all .aui-root elements. If you need the floating
  * modal behavior elsewhere, use a different class or wrap in a container.
  */
-.aui-root {
+.assistant-ui-panel .aui-root {
   position: relative;
   right: auto;
   bottom: auto;

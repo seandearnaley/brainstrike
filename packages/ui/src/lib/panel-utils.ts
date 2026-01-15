@@ -1,10 +1,5 @@
 import type { PanelPersistenceState } from '../types/panel';
-
-// Panel sizes format: [leftPanelSize, rightPanelSize, consolePanelSize]
-// Minimum reasonable sizes for each panel position
-// These match the minSize props in ide-layout.tsx Panel components
-const MIN_PANEL_SIZES = [15, 15, 15] as const;
-const DEFAULT_PANEL_SIZES = [25, 20, 20] as const;
+import { DEFAULT_PANEL_SIZES, MIN_PANEL_SIZES } from './panel-constants';
 
 /**
  * Validates and normalizes panel sizes.
