@@ -150,7 +150,7 @@ export const SelectionRuleBaseSchema = z.object({
   type: SelectionRuleTypeSchema,
   label: z.string().optional(),
   enabled: z.boolean().optional(),
-  createdAt: z.string().datetime({ error: 'createdAt must be ISO 8601 datetime' }),
+  createdAt: z.string().datetime({ message: 'createdAt must be ISO 8601 datetime' }),
   priority: z.number().int().optional(),
 });
 
@@ -226,8 +226,8 @@ export const SelectionRuleSchema = z.discriminatedUnion('type', [
 
 /** Rule set metadata */
 export const SelectionRuleSetMetadataSchema = z.object({
-  createdAt: z.string().datetime({ error: 'createdAt must be ISO 8601 datetime' }),
-  updatedAt: z.string().datetime({ error: 'updatedAt must be ISO 8601 datetime' }),
+  createdAt: z.string().datetime({ message: 'createdAt must be ISO 8601 datetime' }),
+  updatedAt: z.string().datetime({ message: 'updatedAt must be ISO 8601 datetime' }),
   migratedFrom: z.literal('explicit-set').optional(),
   description: z.string().optional(),
 });

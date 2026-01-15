@@ -67,7 +67,7 @@ describe('tools-panel-store migration', () => {
     let shouldThrow = true;
 
     vi.doMock('@brainstrike/utils', () => ({
-      createSafeStorageAdapter: () => ({
+      createSafeJsonStorageAdapter: () => ({
         getItem: (_key: string) => {
           if (shouldThrow) {
             shouldThrow = false;

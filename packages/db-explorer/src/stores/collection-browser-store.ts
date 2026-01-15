@@ -5,7 +5,7 @@ import type {
   DistanceMetric,
   SearchMode,
 } from '@brainstrike/ui';
-import { createSafeStorageAdapter } from '@brainstrike/utils';
+import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -143,7 +143,7 @@ const DEFAULT_STATE: CollectionBrowserData = {
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
  */
-const storage = createJSONStorage(() => createSafeStorageAdapter());
+const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 
 /**
  * Helper to cycle through sort directions: null -> asc -> desc -> null

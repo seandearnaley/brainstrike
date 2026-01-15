@@ -4,20 +4,52 @@ import type { WorkerStorage } from './worker-storage';
 
 const logger = createLogger('Persistence');
 
-async function getItemFromWorker(workerStorage: WorkerStorage, name: string): Promise<unknown> {
+async function getItemFromWorker(
+  workerStorage: WorkerStorage,
+  name: string,
+  shouldLog: boolean
+): Promise<unknown> {
   const value = await workerStorage.getItem(name);
   if (value === null || value === undefined) {
     return null;
   }
   if (typeof value === 'string') {
-    return JSON.parse(value);
+    try {
+      return JSON.parse(value);
+    } catch (error) {
+      if (shouldLog) {
+        logger.error('Invalid JSON from worker storage; ignoring value', { name, error });
+      }
+      return null;
+    }
   }
   return value;
 }
 
-async function getItemFromStorage(storageAdapter: StorageAdapter, name: string): Promise<unknown> {
+async function getItemFromStorage(
+  storageAdapter: StorageAdapter,
+  name: string,
+  shouldLog: boolean
+): Promise<unknown> {
   const value = await storageAdapter.getItem(name);
-  return value ? JSON.parse(value) : null;
+  if (!value) {
+    return null;
+  }
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    if (shouldLog) {
+      logger.error('Invalid JSON from storage adapter; clearing value', { name, error });
+    }
+    try {
+      await storageAdapter.removeItem(name);
+    } catch (removeError) {
+      if (shouldLog) {
+        logger.error('Failed to remove invalid storage entry', { name, error: removeError });
+      }
+    }
+    return null;
+  }
 }
 
 async function getItemWithWorkerFallback(
@@ -27,12 +59,12 @@ async function getItemWithWorkerFallback(
   shouldLog: boolean
 ): Promise<unknown> {
   try {
-    return await getItemFromWorker(workerStorage, name);
+    return await getItemFromWorker(workerStorage, name, shouldLog);
   } catch (error) {
     if (shouldLog) {
       logger.error('Worker getItem failed, falling back to main thread:', error);
     }
-    return await getItemFromStorage(storageAdapter, name);
+    return await getItemFromStorage(storageAdapter, name, shouldLog);
   }
 }
 
@@ -42,7 +74,7 @@ async function getItemWithStorageOnly(
   shouldLog: boolean
 ): Promise<unknown> {
   try {
-    return await getItemFromStorage(storageAdapter, name);
+    return await getItemFromStorage(storageAdapter, name, shouldLog);
   } catch (error) {
     if (shouldLog) {
       logger.error('Error getting item from storage:', error);

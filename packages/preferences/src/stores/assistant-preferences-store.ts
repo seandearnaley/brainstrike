@@ -6,7 +6,7 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/agent/client';
-import { createSafeStorageAdapter } from '@brainstrike/utils';
+import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -95,7 +95,7 @@ function resolvePreferredModel(
  * Storage adapter with fallback to in-memory for SSR/tests
  * Uses safe storage utility with proper error logging
  */
-const storage = createJSONStorage(() => createSafeStorageAdapter());
+const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 
 function ensureEnabledModels(
   enabledModelsByProvider: EnabledModelsMap,

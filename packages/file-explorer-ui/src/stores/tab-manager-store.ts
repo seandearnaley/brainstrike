@@ -101,17 +101,32 @@ const storage = createJSONStorage(() => {
     }
   };
 
+  const ensureValidJson = (name: string, value: string | null): string | null => {
+    if (value === null) {
+      return null;
+    }
+    try {
+      JSON.parse(value);
+      return value;
+    } catch {
+      removeLocalStorage(name);
+      memory.delete(name);
+      return null;
+    }
+  };
+
   return {
     getItem: (name: string) => {
-      const direct = fromLocalStorage(name);
+      const direct = ensureValidJson(name, fromLocalStorage(name));
       if (direct !== null) {
         return direct;
       }
       const migrated = migrateIfNeeded(name);
-      if (migrated !== null) {
-        return migrated;
+      const validatedMigrated = ensureValidJson(name, migrated);
+      if (validatedMigrated !== null) {
+        return validatedMigrated;
       }
-      return memory.get(name) ?? null;
+      return ensureValidJson(name, memory.get(name) ?? null);
     },
     setItem: (name: string, value: string) => {
       writeLocalStorage(name, value);

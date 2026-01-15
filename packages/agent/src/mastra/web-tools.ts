@@ -202,11 +202,9 @@ function tokenizeQuery(query: string): string[] {
   return tokenize(query).slice(0, 8);
 }
 
-async function searchDocsExecute({
-  input,
-}: {
-  input: z.infer<typeof searchDocsInputSchema>;
-}): Promise<SearchResponse> {
+async function searchDocsExecute(
+  input: z.infer<typeof searchDocsInputSchema>
+): Promise<SearchResponse> {
   const query = (input.query ?? '').trim();
   const limit = input.limit ?? DEFAULT_SEARCH_LIMIT;
   const startedAt = Date.now();
@@ -259,11 +257,9 @@ async function searchDocsExecute({
   } satisfies SearchResponse;
 }
 
-async function docSummaryExecute({
-  input,
-}: {
-  input: z.infer<typeof docSummaryInputSchema>;
-}): Promise<DocSummaryResponse> {
+async function docSummaryExecute(
+  input: z.infer<typeof docSummaryInputSchema>
+): Promise<DocSummaryResponse> {
   const docId = (input.docId ?? '').trim();
   const doc = docId.length > 0 ? INDEXED_DOC_MAP.get(docId) : undefined;
 
@@ -309,13 +305,13 @@ const baseWebTools = {
     id: 'web.searchDocs',
     description: 'Searches Brainstrike documentation entries.',
     inputSchema: searchDocsInputSchema,
-    execute: async (inputData) => searchDocsExecute({ input: inputData }),
+    execute: async (inputData) => searchDocsExecute(inputData),
   }),
   'web.docSummary': createTool({
     id: 'web.docSummary',
     description: 'Returns a structured summary of a documentation entry.',
     inputSchema: docSummaryInputSchema,
-    execute: async (inputData) => docSummaryExecute({ input: inputData }),
+    execute: async (inputData) => docSummaryExecute(inputData),
   }),
 };
 
