@@ -448,7 +448,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         </div>
 
         {/* Scrollable Middle Content */}
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1 overflow-hidden">
           {/* Fixed buttons overlay - outside scrollable area */}
           {rootDirectoryHandle && (
             <TreeActionButtons

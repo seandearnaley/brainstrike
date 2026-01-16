@@ -82,10 +82,10 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   const hasContent = deferredTree && deferredTree.length > 0;
 
   return (
-    <div className="flex h-full w-full flex-col bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
+    <div className="flex h-full w-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
       {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
       {rootDirectoryHandle ? (
-        <div className="flex min-h-0 flex-1 flex-col px-3 pt-4">
+        <div className="flex min-h-0 flex-1 flex-col pt-2">
           {hasContent ? (
             <OptimizedFileTree
               cancelChildLoading={cancelChildLoading}

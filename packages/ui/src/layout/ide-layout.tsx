@@ -921,7 +921,7 @@ export const IdeLayout = React.memo(function IdeLayout({
           {hasExplorer && (
             <>
               <Panel
-                className="bg-background"
+                className="overflow-hidden bg-background"
                 collapsedSize="0%"
                 collapsible
                 id="explorer-panel"
@@ -929,7 +929,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                 minSize="15%"
                 panelRef={leftPanelRef}
               >
-                <div className="h-full">
+                <div className="h-full overflow-hidden">
                   <div className="flex items-center justify-between border-border border-b bg-muted/30 px-2 py-2">
                     <div className="flex items-center gap-2">
                       <PanelLeft className="h-4 w-4" />
@@ -947,10 +947,10 @@ export const IdeLayout = React.memo(function IdeLayout({
                       <ChevronLeft className="h-4 w-4" />
                     </Button>
                   </div>
-                  <div className="h-[calc(100%-2.5rem)]">{leftPanelContent}</div>
+                  <div className="h-[calc(100%-2.5rem)] overflow-hidden">{leftPanelContent}</div>
                 </div>
               </Panel>
-              <Separator className="w-1 bg-border transition-colors hover:bg-border/80" />
+              <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
             </>
           )}
 
@@ -987,7 +987,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               {/* Console Panel - conditionally rendered based on content availability */}
               {hasConsole && (
                 <>
-                  <Separator className="h-1 bg-border transition-colors hover:bg-border/80" />
+                  <Separator className="z-10 h-1 bg-border transition-colors hover:bg-border/80" />
                   <Panel
                     className="bg-background"
                     collapsedSize="0%"
@@ -1026,7 +1026,7 @@ export const IdeLayout = React.memo(function IdeLayout({
           {/* Tools Panel - conditionally rendered based on content availability */}
           {hasTools && (
             <>
-              <Separator className="w-1 bg-border transition-colors hover:bg-border/80" />
+              <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
               <Panel
                 className="bg-background"
                 collapsedSize="0%"

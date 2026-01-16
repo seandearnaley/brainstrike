@@ -390,8 +390,17 @@ export function createModelRegistrySettingsCategory(): SettingsCategory {
   return {
     id: 'models',
     title: 'Models & Providers',
-    description: 'Manage AI providers and enable/disable specific models.',
-    keywords: ['models', 'providers', 'llm', 'embedding', 'openai', 'anthropic', 'google'],
+    description: 'Choose chat and embedding models, manage downloads, and configure providers.',
+    keywords: [
+      'models',
+      'providers',
+      'llm',
+      'embedding',
+      'openai',
+      'anthropic',
+      'google',
+      'download',
+    ],
     icon: Settings, // Using Settings icon for now, could import something better like Brain or Cpu
     render: () => <ModelSelectionPage />,
   };

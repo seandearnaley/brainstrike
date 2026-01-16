@@ -31,17 +31,7 @@ function McpIntegrationsCategory() {
 }
 
 function EmbeddingModelsCategory() {
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <h3 className="flex items-center gap-2 font-semibold text-lg">Models & Providers</h3>
-        <p className="text-muted-foreground text-sm">
-          Manage AI providers and enable/disable specific models for chat and embeddings.
-        </p>
-      </div>
-      <ModelSelectionPage />
-    </div>
-  );
+  return <ModelSelectionPage />;
 }
 
 export default function SettingsPageContent() {
@@ -53,8 +43,8 @@ export default function SettingsPageContent() {
       {
         id: 'embedding-models',
         title: 'Models & Providers',
-        description: 'Enable embedding providers and choose the active model.',
-        keywords: ['embeddings', 'models', 'providers', 'vector'],
+        description: 'Choose chat and embedding models, manage downloads, and configure providers.',
+        keywords: ['embeddings', 'models', 'providers', 'vector', 'llm', 'download'],
         icon: Layers,
         render: () => <EmbeddingModelsCategory />,
       },

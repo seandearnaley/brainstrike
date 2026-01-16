@@ -268,47 +268,40 @@ export function ModelSelectionPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <h2 className="font-semibold text-lg">Models & Providers</h2>
-          <p className="text-muted-foreground text-sm">
-            Choose chat and embedding models, manage downloads, and fine-tune providers.
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1 space-y-2">
+          <Label htmlFor="model-cache-dir">Local Model Cache Directory</Label>
+          <div className="flex gap-2">
+            <Input
+              className="font-mono text-xs"
+              id="model-cache-dir"
+              onChange={(e) => setModelCacheDir(e.target.value)}
+              placeholder="System default (Transformers.js cache)"
+              value={modelCacheDir || ''}
+            />
+            <Button
+              disabled={isSelectingCacheDir}
+              onClick={handleSelectCacheDir}
+              size="icon"
+              title="Select Directory"
+              variant="outline"
+            >
+              <Folder className="h-4 w-4" />
+            </Button>
+          </div>
+          <p className="text-muted-foreground text-xs">
+            Stored on disk for local models only. Leave blank to use the system cache directory.
           </p>
         </div>
         <Button
           disabled={isLoading}
           onClick={() => db && fetchRegistry(db)}
           size="icon"
-          title="Refresh Registry"
-          variant="ghost"
+          title="Refresh model registry"
+          variant="outline"
         >
           <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
         </Button>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="model-cache-dir">Local Model Cache Directory</Label>
-        <div className="flex gap-2">
-          <Input
-            className="font-mono text-xs"
-            id="model-cache-dir"
-            onChange={(e) => setModelCacheDir(e.target.value)}
-            placeholder="System default (Transformers.js cache)"
-            value={modelCacheDir || ''}
-          />
-          <Button
-            disabled={isSelectingCacheDir}
-            onClick={handleSelectCacheDir}
-            size="icon"
-            title="Select Directory"
-            variant="outline"
-          >
-            <Folder className="h-4 w-4" />
-          </Button>
-        </div>
-        <p className="text-muted-foreground text-xs">
-          Stored on disk for local models only. Leave blank to use the system cache directory.
-        </p>
       </div>
 
       <ModelList

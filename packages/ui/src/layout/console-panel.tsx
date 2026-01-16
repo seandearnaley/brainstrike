@@ -20,7 +20,7 @@ export function ConsolePanel({
 }: ConsolePanelProps) {
   return (
     <>
-      <Separator className="h-1 bg-border transition-colors hover:bg-border/80" />
+      <Separator className="z-10 h-1 bg-border transition-colors hover:bg-border/80" />
       <Panel
         className="bg-background"
         collapsedSize="0%"

@@ -20,7 +20,7 @@ export function ToolsPanel({
 }: ToolsPanelProps) {
   return (
     <>
-      <Separator className="w-1 bg-border transition-colors hover:bg-border/80" />
+      <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
       <Panel
         className="bg-background"
         collapsedSize="0%"
