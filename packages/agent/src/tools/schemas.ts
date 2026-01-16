@@ -78,6 +78,12 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'brainstrike.retrieveContext': RetrievalContextInputSchema,
 };
 
+function formatZodIssue(issue: z.ZodIssue): string {
+  const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
+  const prefix = path.length > 0 ? `${path} ` : '';
+  return `${prefix}${issue.message}`;
+}
+
 function parseWithSchema(
   schema: z.ZodSchema,
   params: Record<string, unknown> | undefined
@@ -86,7 +92,7 @@ function parseWithSchema(
   if (!res.success) {
     return {
       ok: false,
-      issues: res.error.issues.map((i) => `${i.path.join('.')} ${i.message}`),
+      issues: res.error.issues.map((issue) => formatZodIssue(issue)),
     };
   }
   return { ok: true, data: res.data };

@@ -458,15 +458,32 @@ describe('validation', () => {
   });
 
   describe('Zod schemas', () => {
-    it('should have discriminated union for SelectionRuleSchema', () => {
-      // Verify that the schema uses discriminated union on 'type'
-      // In Zod v4, discriminated unions have _def.type === 'union' and a discriminator property
-      const definition = SelectionRuleSchema._def as {
-        type?: string;
-        discriminator?: string;
-      };
-      expect(definition.type).toBe('union');
-      expect(definition.discriminator).toBe('type');
+    it('should correctly discriminate rule types in union', () => {
+      const explicitRule = {
+        id: 'explicit-test',
+        type: 'explicit',
+        paths: ['test.ts'],
+        createdAt: '2026-01-02T00:00:00.000Z',
+      } as const;
+
+      const globRule = {
+        id: 'glob-test',
+        type: 'glob-include',
+        patterns: ['*.ts'],
+        createdAt: '2026-01-02T00:00:00.000Z',
+      } as const;
+
+      expect(SelectionRuleSchema.safeParse(explicitRule).success).toBe(true);
+      expect(SelectionRuleSchema.safeParse(globRule).success).toBe(true);
+
+      const invalidMix = {
+        id: 'invalid-test',
+        type: 'explicit',
+        patterns: ['*.ts'],
+        createdAt: '2026-01-02T00:00:00.000Z',
+      } as const;
+
+      expect(SelectionRuleSchema.safeParse(invalidMix).success).toBe(false);
     });
 
     it('should validate all rule types through union', () => {

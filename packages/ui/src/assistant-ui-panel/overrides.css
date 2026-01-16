@@ -1,4 +1,9 @@
 /* Brainstrike overrides for assistant-ui in the Right Panel */
+/**
+ * COMPATIBILITY: @assistant-ui/styles v0.3.x
+ * LAST VERIFIED: 2026-01-16 with @assistant-ui/styles@0.3.2
+ * BREAKING CHANGE RISK: Medium
+ */
 
 /**
  * CRITICAL: Override assistant-ui's global theme variables

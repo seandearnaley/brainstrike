@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { resetAppState } from './utils/app-state';
 import {
+  corruptLayoutStorage,
   getPanelElements,
   togglePanelVisibility,
   verifyDefaultLayout,
@@ -61,6 +62,34 @@ test.describe('Application Layout', () => {
     });
 
     test('should display default panel layout correctly', async ({ page }) => {
+      await verifyDefaultLayout(page);
+    });
+
+    test('should recover from corrupted layout storage on reload', async ({ page }) => {
+      await corruptLayoutStorage(page);
+      await page.reload();
+      await waitForAppLoad(page);
+      await verifyDefaultLayout(page);
+    });
+
+    test('should normalize invalid persisted sizes on reload', async ({ page }) => {
+      await page.evaluate(() => {
+        localStorage.setItem(
+          'panel-layout-store.v1',
+          JSON.stringify({
+            state: {
+              sizes: [-10, 20, 'NaN'],
+              showLeftPanel: true,
+              showRightPanel: false,
+              showConsole: false,
+            },
+            version: 2,
+          })
+        );
+      });
+
+      await page.reload();
+      await waitForAppLoad(page);
       await verifyDefaultLayout(page);
     });
 
@@ -138,6 +167,39 @@ test.describe('Application Layout', () => {
       // - Inner vertical (main/console)
       // - Right panel's prompt manager (when right panel is visible)
       await expect(page.locator('[data-group]')).toHaveCount(3);
+    });
+
+    test('should handle rapid panel visibility changes', async ({ page }) => {
+      const elements = getPanelElements(page);
+
+      await elements.hideExplorerButton.click();
+      await expect(elements.showExplorerShim).toBeVisible();
+
+      await elements.showConsoleShim.click();
+      await expect(elements.consolePanel).toBeVisible();
+
+      await elements.showExplorerShim.click();
+      await expect(elements.leftPanel).toBeVisible();
+
+      await elements.hideConsoleButton.click();
+      await expect(elements.consolePanel).not.toBeVisible();
+
+      await verifyDefaultLayout(page);
+
+      const layoutState = await page.evaluate(() => localStorage.getItem('panel-layout-store.v1'));
+      expect(layoutState).not.toBeNull();
+
+      const parsed = JSON.parse(layoutState ?? '{}') as {
+        state?: { sizes?: unknown[] };
+      };
+      const sizes = Array.isArray(parsed.state?.sizes) ? parsed.state?.sizes : [];
+
+      for (const size of sizes) {
+        const numeric = typeof size === 'number' ? size : Number.NaN;
+        expect(Number.isFinite(numeric)).toBe(true);
+        expect(numeric).toBeGreaterThanOrEqual(0);
+        expect(numeric).toBeLessThanOrEqual(100);
+      }
     });
   });
 });

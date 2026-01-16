@@ -42,8 +42,13 @@ const logger = createLogger('DesktopIpcHandlers');
 
 const panelPersistenceStateSchema = z.object({
   sizes: z.array(
-    z.number().refine((value) => Number.isFinite(value), {
-      message: 'Panel size must be a finite number',
+    z.number().superRefine((value, ctx) => {
+      if (!Number.isFinite(value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Panel size must be a finite number',
+        });
+      }
     })
   ),
   showConsole: z.boolean(),

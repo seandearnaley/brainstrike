@@ -29,6 +29,8 @@ const IdeFileEditorContext = createContext<FileEditorContextValue>({
 export const useIdeFileEditor = () => useContext(IdeFileEditorContext);
 
 const logger = createLogger('IdeLayout');
+const LAYOUT_INITIALIZATION_DELAY_MS = 50;
+const LAYOUT_INIT_SLOW_THRESHOLD_MS = 100;
 
 // In react-resizable-panels v4, panels must ALWAYS be rendered (never conditionally mounted).
 // Visibility is controlled via the collapsible prop and imperative collapse()/expand() API.
@@ -272,6 +274,75 @@ function safeTogglePanelVisibility(
   }
 }
 
+interface InitialLayoutApplicationConfig {
+  horizontalGroupRef: GroupImperativeHandle | null;
+  verticalGroupRef: GroupImperativeHandle | null;
+  leftPanelRef: React.RefObject<PanelImperativeHandle | null>;
+  rightPanelRef: React.RefObject<PanelImperativeHandle | null>;
+  consolePanelRef: React.RefObject<PanelImperativeHandle | null>;
+  hasAppliedInitialLayout: React.RefObject<boolean>;
+  isInitialRenderRef: React.RefObject<boolean>;
+  hasExplorer: boolean;
+  hasTools: boolean;
+  hasConsole: boolean;
+  showLeftPanel: boolean;
+  showRightPanel: boolean;
+  showConsole: boolean;
+  safeLeftSize: number;
+  safeRightSize: number;
+  safeConsoleSize: number;
+}
+
+function applyInitialLayout(config: InitialLayoutApplicationConfig): void {
+  const startTime = typeof performance !== 'undefined' ? performance.now() : null;
+  try {
+    if (config.horizontalGroupRef) {
+      applyHorizontalLayout(
+        config.horizontalGroupRef,
+        config.hasExplorer,
+        config.hasTools,
+        config.showLeftPanel,
+        config.showRightPanel,
+        config.safeLeftSize,
+        config.safeRightSize
+      );
+    }
+
+    if (config.verticalGroupRef) {
+      applyVerticalLayout(
+        config.verticalGroupRef,
+        config.hasConsole,
+        config.showConsole,
+        config.safeConsoleSize
+      );
+    }
+
+    applyCollapsedState(
+      config.leftPanelRef,
+      config.rightPanelRef,
+      config.consolePanelRef,
+      config.hasExplorer,
+      config.hasTools,
+      config.hasConsole,
+      config.showLeftPanel,
+      config.showRightPanel,
+      config.showConsole
+    );
+
+    config.hasAppliedInitialLayout.current = true;
+    config.isInitialRenderRef.current = false;
+  } catch (error) {
+    logger.warn('Failed to apply initial layout', { error });
+  } finally {
+    if (isDevEnv() && startTime !== null) {
+      const duration = performance.now() - startTime;
+      if (duration > LAYOUT_INIT_SLOW_THRESHOLD_MS) {
+        logger.warn('Slow layout initialization', { duration });
+      }
+    }
+  }
+}
+
 // Custom hook for applying initial layout imperatively (v4 requirement)
 function useInitialLayoutEffect(config: InitialLayoutConfig): void {
   const {
@@ -293,6 +364,8 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
     safeConsoleSize,
   } = config;
 
+  const hasLoggedMissingRefs = useRef(false);
+
   useEffect(() => {
     if (hasAppliedInitialLayout.current) {
       return;
@@ -306,42 +379,40 @@ function useInitialLayoutEffect(config: InitialLayoutConfig): void {
       (!hasConsole || consolePanelRef.current !== null);
 
     if (!refsReady) {
+      if (isDevEnv() && !hasLoggedMissingRefs.current) {
+        hasLoggedMissingRefs.current = true;
+        logger.warn('Panel refs not ready for layout initialization', {
+          horizontal: !!horizontalGroupRef.current,
+          vertical: !!verticalGroupRef.current,
+          left: !!leftPanelRef.current,
+          right: !!rightPanelRef.current,
+          console: !!consolePanelRef.current,
+        });
+      }
       return;
     }
 
     // Wait for refs and DOM to stabilize
     const timeoutId = setTimeout(() => {
-      if (horizontalGroupRef.current) {
-        applyHorizontalLayout(
-          horizontalGroupRef.current,
-          hasExplorer,
-          hasTools,
-          showLeftPanel,
-          showRightPanel,
-          safeLeftSize,
-          safeRightSize
-        );
-      }
-
-      if (verticalGroupRef.current) {
-        applyVerticalLayout(verticalGroupRef.current, hasConsole, showConsole, safeConsoleSize);
-      }
-
-      applyCollapsedState(
+      applyInitialLayout({
+        horizontalGroupRef: horizontalGroupRef.current,
+        verticalGroupRef: verticalGroupRef.current,
         leftPanelRef,
         rightPanelRef,
         consolePanelRef,
+        hasAppliedInitialLayout,
+        isInitialRenderRef,
         hasExplorer,
         hasTools,
         hasConsole,
         showLeftPanel,
         showRightPanel,
-        showConsole
-      );
-
-      hasAppliedInitialLayout.current = true;
-      isInitialRenderRef.current = false;
-    }, 50); // Wait for DOM to stabilize
+        showConsole,
+        safeLeftSize,
+        safeRightSize,
+        safeConsoleSize,
+      });
+    }, LAYOUT_INITIALIZATION_DELAY_MS); // Wait for DOM to stabilize
 
     return () => clearTimeout(timeoutId);
   }, [

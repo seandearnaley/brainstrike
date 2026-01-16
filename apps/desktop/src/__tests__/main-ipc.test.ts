@@ -11,6 +11,7 @@ vi.mock('electron', async () => {
   });
   const ipcMain = electronUtils.createIpcMainMock();
   const ipcRenderer = electronUtils.createIpcRendererMock();
+  const screen = electronUtils.createScreenMock();
   // Wire renderer invokes to main handlers for convenience
   const mockInvoke = (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke;
   mockInvoke.mockImplementation(async (channel: string, ...args: unknown[]) =>
@@ -41,6 +42,7 @@ vi.mock('electron', async () => {
     app,
     ipcMain,
     ipcRenderer,
+    screen,
     BrowserWindow,
     session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
     Menu: {

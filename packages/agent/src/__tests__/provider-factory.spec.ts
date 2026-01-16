@@ -64,7 +64,18 @@ describe('provider-factory', () => {
         expect(isMastraAgentError(error)).toBe(true);
         if (isMastraAgentError(error)) {
           expect(error.code).toBe('mastra_agent_unsupported_provider');
-          expect(error.context).toEqual({ provider: 'unsupported' });
+          expect(error.context).toEqual(
+            expect.objectContaining({
+              provider: 'unsupported',
+              supportedProviders: expect.arrayContaining([
+                'openai',
+                'anthropic',
+                'google',
+                'openrouter',
+                'local',
+              ]),
+            })
+          );
         }
       }
     });
