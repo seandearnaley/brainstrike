@@ -139,8 +139,12 @@ function sanitizeDesktopPreferences(preferences: LoggingPreferences): LoggingPre
 
 function readStoredLoggingPreferences(): LoggingPreferences | undefined {
   try {
+    const store = getSettingsStore();
+    if (!store) {
+      return;
+    }
     const record = (
-      getSettingsStore() as ElectronStore<DesktopSettingsStoreSchema> & {
+      store as ElectronStore<DesktopSettingsStoreSchema> & {
         get: (key: string) => unknown;
       }
     ).get('loggingPreferences') as DesktopSettingsStoreSchema['loggingPreferences'] | undefined;
@@ -167,8 +171,12 @@ function isWritableLogDestination(destination: string): boolean {
 
 function persistLoggingPreferences(preferences: LoggingPreferences): boolean {
   try {
+    const store = getSettingsStore();
+    if (!store) {
+      return false;
+    }
     (
-      getSettingsStore() as ElectronStore<DesktopSettingsStoreSchema> & {
+      store as ElectronStore<DesktopSettingsStoreSchema> & {
         set: (key: string, value: unknown) => void;
       }
     ).set('loggingPreferences', { v1: cloneLoggingPreferences(preferences) });
@@ -340,6 +348,11 @@ registerLoggingIpcHandlers({
   getBufferedLogs: () => mainLogBuffer.getRecords(),
 });
 
+// Register IPC handlers early to avoid renderer calls racing registration during startup.
+unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
+  onResetLocal: handleResetLocal,
+});
+
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught exception:', error);
@@ -353,14 +366,11 @@ app.whenReady().then(async () => {
   try {
     logger.info('App ready, starting initialization...');
 
-    logger.info('Setting up IPC handlers...');
-    unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
-      onResetLocal: handleResetLocal,
-    });
+    logger.info('Setting up IPC handlers that require app readiness...');
     registerSecretsIpcHandlers(createSecretsService());
     registerAgentIpcHandlers();
     registerMcpIpcHandlers();
-    logger.info('IPC handlers registered successfully');
+    logger.info('Ready-dependent IPC handlers registered successfully');
 
     // Setup security before creating windows
     setupSecurity();

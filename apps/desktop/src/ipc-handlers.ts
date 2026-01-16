@@ -188,6 +188,7 @@ async function cleanupAllLiveSubscriptions(): Promise<void> {
     return;
   }
   await Promise.allSettled(ids.map((id) => cleanupLiveSubscription(id)));
+  liveSubscriptions.clear();
 }
 
 export function registerIpcHandlers(

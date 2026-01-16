@@ -8,7 +8,9 @@ vi.mock('electron', () => ({
     whenReady: vi.fn(() => Promise.resolve()),
     isReady: vi.fn(() => true),
     on: vi.fn(),
+    getAppPath: vi.fn(() => '/mock/app'),
     getPath: vi.fn(() => '/mock/path'),
+    getName: vi.fn(() => 'Brainstrike'),
     getVersion: vi.fn(() => '0.0.0-test'),
     quit: vi.fn(),
   },
@@ -35,6 +37,9 @@ vi.mock('electron', () => ({
   Menu: {
     setApplicationMenu: vi.fn(),
     buildFromTemplate: vi.fn(),
+  },
+  dialog: {
+    showMessageBox: vi.fn(async () => ({ response: 0 })),
   },
 }));
 
