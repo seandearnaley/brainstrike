@@ -950,7 +950,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                   <div className="h-[calc(100%-2.5rem)] overflow-hidden">{leftPanelContent}</div>
                 </div>
               </Panel>
-              <Separator className="w-1 bg-border transition-colors hover:bg-border/80" />
+              <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
             </>
           )}
 
@@ -987,7 +987,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               {/* Console Panel - conditionally rendered based on content availability */}
               {hasConsole && (
                 <>
-                  <Separator className="h-1 bg-border transition-colors hover:bg-border/80" />
+                  <Separator className="z-10 h-1 bg-border transition-colors hover:bg-border/80" />
                   <Panel
                     className="bg-background"
                     collapsedSize="0%"
@@ -1026,7 +1026,7 @@ export const IdeLayout = React.memo(function IdeLayout({
           {/* Tools Panel - conditionally rendered based on content availability */}
           {hasTools && (
             <>
-              <Separator className="w-1 bg-border transition-colors hover:bg-border/80" />
+              <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
               <Panel
                 className="bg-background"
                 collapsedSize="0%"

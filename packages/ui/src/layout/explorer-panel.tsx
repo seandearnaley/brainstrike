@@ -52,7 +52,7 @@ export function ExplorerPanel({
           <div className="h-[calc(100%-2.5rem)] overflow-hidden">{content}</div>
         </div>
       </Panel>
-      <Separator className="w-1 bg-border transition-colors hover:bg-border/80" />
+      <Separator className="z-10 w-1 bg-border transition-colors hover:bg-border/80" />
     </>
   );
 }
