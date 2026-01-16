@@ -21,7 +21,7 @@ export function ExplorerPanel({
   return (
     <>
       <Panel
-        className="bg-background"
+        className="overflow-hidden bg-background"
         collapsedSize="0%"
         collapsible
         data-panel-id="explorer-panel"
@@ -31,7 +31,7 @@ export function ExplorerPanel({
         minSize="15%"
         panelRef={panelRef}
       >
-        <div className="h-full">
+        <div className="h-full overflow-hidden">
           <div className="flex items-center justify-between border-border border-b bg-muted/30 px-2 py-2">
             <div className="flex items-center gap-2">
               <PanelLeft className="h-4 w-4" />
@@ -49,7 +49,7 @@ export function ExplorerPanel({
               <ChevronLeft className="h-4 w-4" />
             </Button>
           </div>
-          <div className="h-[calc(100%-2.5rem)]">{content}</div>
+          <div className="h-[calc(100%-2.5rem)] overflow-hidden">{content}</div>
         </div>
       </Panel>
       <Separator className="w-1 bg-border transition-colors hover:bg-border/80" />
