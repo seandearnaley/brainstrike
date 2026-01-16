@@ -7,7 +7,7 @@ const StdioSchema = z.object({
   name: z.string().min(1),
   command: z.string().min(1),
   args: z.array(z.string()).optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   enabledTools: z.array(z.string()).optional(),
 });
 
@@ -15,7 +15,7 @@ const SseSchema = z.object({
   transport: z.literal('sse'),
   name: z.string().min(1),
   url: z.string().url(),
-  headers: z.record(z.string()).optional(),
+  headers: z.record(z.string(), z.string()).optional(),
   enabledTools: z.array(z.string()).optional(),
 });
 
@@ -28,11 +28,16 @@ export const McpConfigSchema = z.object({
 export type McpServer = z.infer<typeof McpServerSchema>;
 export type McpConfig = z.infer<typeof McpConfigSchema>;
 
+function formatZodIssue(issue: z.ZodIssue): { path: string; message: string } {
+  const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
+  return { path, message: issue.message };
+}
+
 export function parseMcpConfig(jsonText: string): McpConfig {
   const raw = JSON.parse(jsonText) as unknown;
   const parsed = McpConfigSchema.safeParse(raw);
   if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
+    const issues = parsed.error.issues.map((issue) => formatZodIssue(issue));
     throw new Error(JSON.stringify({ code: 'invalid_mcp_config', issues }));
   }
   return parsed.data;

@@ -22,10 +22,10 @@
     "test:coverage": "pnpm -w test:coverage"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
-    "jsdom": "^27.2.0",
-    "tsup": "^8.5.0",
+    "@types/node": "^25.0.8",
+    "jsdom": "26.1.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.17"
   }
 }

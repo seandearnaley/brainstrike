@@ -44,19 +44,19 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/vector-management": "workspace:*",
-    "lucide-react": "^0.555.0"
+    "lucide-react": "^0.562.0"
   },
   "license": "ISC",
   "devDependencies": {
     "@brainstrike/db": "workspace:*",
     "@testing-library/jest-dom": "^6.9.1",
-    "@testing-library/react": "^16.3.0",
+    "@testing-library/react": "^16.3.1",
     "@testing-library/user-event": "^14.6.1",
-    "@types/node": "^24.10.1",
-    "@types/react": "^19.2.7",
-    "jsdom": "^27.2.0",
-    "react-dom": "^19.2.0",
-    "vitest": "^4.0.14",
-    "zustand": "^5.0.9"
+    "@types/node": "^25.0.8",
+    "@types/react": "^19.2.8",
+    "jsdom": "26.1.0",
+    "react-dom": "^19.2.3",
+    "vitest": "^4.0.17",
+    "zustand": "^5.0.10"
   }
 }

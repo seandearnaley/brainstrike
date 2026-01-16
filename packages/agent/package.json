@@ -36,24 +36,24 @@
     "test:coverage": "pnpm -w test:coverage"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.50",
-    "@ai-sdk/google": "^2.0.44",
-    "@ai-sdk/openai": "^2.0.74",
-    "@ai-sdk/provider": "1.1.3",
+    "@ai-sdk/anthropic": "^3.0.12",
+    "@ai-sdk/google": "^3.0.7",
+    "@ai-sdk/openai": "^3.0.9",
+    "@ai-sdk/provider": "3.0.2",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^3.8.0",
-    "@mastra/core": "^0.24.6",
-    "@mastra/mcp": "^0.14.4",
+    "@huggingface/transformers": "^3.8.1",
+    "@mastra/core": "^1.0.0-beta.21",
+    "@mastra/mcp": "^1.0.0-beta.9",
     "minimatch": "^10.1.1",
-    "zod": "^3.25.76"
+    "zod": "^4.3.5"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
+    "@types/node": "^25.0.8",
     "rimraf": "^6.1.2",
-    "tsup": "^8.5.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.17"
   },
   "turbo": {
     "outputs": [

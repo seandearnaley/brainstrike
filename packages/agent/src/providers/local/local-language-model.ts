@@ -1,15 +1,19 @@
 /**
- * AI SDK v1 compatible language model wrapper for local LLM inference.
+ * AI SDK v2 compatible language model wrapper for local LLM inference.
  *
  * Wraps the LocalLlmBackend to provide compatibility with Mastra's MastraModelConfig type.
  */
 import type {
-  LanguageModelV1,
-  LanguageModelV1CallOptions,
-  LanguageModelV1FinishReason,
-  LanguageModelV1FunctionTool,
-  LanguageModelV1FunctionToolCall,
-  LanguageModelV1StreamPart,
+  LanguageModelV2,
+  LanguageModelV2CallOptions,
+  LanguageModelV2CallWarning,
+  LanguageModelV2Content,
+  LanguageModelV2FinishReason,
+  LanguageModelV2FunctionTool,
+  LanguageModelV2StreamPart,
+  LanguageModelV2Text,
+  LanguageModelV2ToolCall,
+  LanguageModelV2Usage,
 } from '@ai-sdk/provider';
 import { LocalLlmBackend } from './local-llm-backend';
 import type { LocalLlmMessage, LocalLlmToolDefinition } from './types';
@@ -65,9 +69,9 @@ function parseToolResultMessage(content: unknown): LocalLlmMessage[] {
 }
 
 /**
- * Convert AI SDK messages to LocalLlmMessage format
+ * Convert AI SDK v2 messages to LocalLlmMessage format
  */
-function convertMessages(prompt: LanguageModelV1CallOptions['prompt']): LocalLlmMessage[] {
+function convertMessages(prompt: LanguageModelV2CallOptions['prompt']): LocalLlmMessage[] {
   const result: LocalLlmMessage[] = [];
 
   if (!Array.isArray(prompt)) {
@@ -115,31 +119,31 @@ function convertMessages(prompt: LanguageModelV1CallOptions['prompt']): LocalLlm
 }
 
 /**
- * Convert AI SDK tool array to LocalLlmToolDefinition format
+ * Convert AI SDK v2 tool array to LocalLlmToolDefinition format
  */
 function convertToolsFromArray(
-  tools?: Array<LanguageModelV1FunctionTool | { type: string }>
+  tools?: LanguageModelV2CallOptions['tools']
 ): LocalLlmToolDefinition[] | undefined {
   if (!tools || tools.length === 0) {
     return;
   }
 
   return tools
-    .filter((tool): tool is LanguageModelV1FunctionTool => tool.type === 'function')
+    .filter((tool): tool is LanguageModelV2FunctionTool => tool.type === 'function')
     .map((tool) => ({
       type: 'function' as const,
       function: {
         name: tool.name,
         description: tool.description ?? '',
-        parameters: tool.parameters as LocalLlmToolDefinition['function']['parameters'],
+        parameters: tool.inputSchema as LocalLlmToolDefinition['function']['parameters'],
       },
     }));
 }
 
 /**
- * Map finish reason to AI SDK format
+ * Map finish reason to AI SDK v2 format
  */
-function mapFinishReason(reason: 'stop' | 'length' | 'tool_calls'): LanguageModelV1FinishReason {
+function mapFinishReason(reason: 'stop' | 'length' | 'tool_calls'): LanguageModelV2FinishReason {
   switch (reason) {
     case 'stop':
       return 'stop';
@@ -153,15 +157,25 @@ function mapFinishReason(reason: 'stop' | 'length' | 'tool_calls'): LanguageMode
 }
 
 /**
- * AI SDK v1 compatible language model for local inference
+ * Generate a unique ID for stream parts
  */
-export class LocalLanguageModel implements LanguageModelV1 {
-  readonly specificationVersion = 'v1';
+function generateId(): string {
+  return Math.random().toString(36).slice(2, 11);
+}
+
+/**
+ * AI SDK v2 compatible language model for local inference
+ */
+export class LocalLanguageModel implements LanguageModelV2 {
+  readonly specificationVersion = 'v2';
   readonly provider = 'local';
   readonly modelId: string;
-  readonly defaultObjectGenerationMode = undefined;
-  readonly supportsImageUrls = false;
-  readonly supportsStructuredOutputs = false;
+
+  /**
+   * Supported URL patterns by media type.
+   * Local models don't natively support any URLs - all content must be provided directly.
+   */
+  readonly supportedUrls: Record<string, RegExp[]> = {};
 
   private readonly backend: LocalLlmBackend;
   private readonly settings: LocalLanguageModelSettings;
@@ -185,23 +199,20 @@ export class LocalLanguageModel implements LanguageModelV1 {
   }
 
   doGenerate(
-    options: LanguageModelV1CallOptions
-  ): PromiseLike<Awaited<ReturnType<LanguageModelV1['doGenerate']>>> {
+    options: LanguageModelV2CallOptions
+  ): PromiseLike<Awaited<ReturnType<LanguageModelV2['doGenerate']>>> {
     return this.executeGenerate(options);
   }
 
   private async executeGenerate(
-    options: LanguageModelV1CallOptions
-  ): Promise<Awaited<ReturnType<LanguageModelV1['doGenerate']>>> {
+    options: LanguageModelV2CallOptions
+  ): Promise<Awaited<ReturnType<LanguageModelV2['doGenerate']>>> {
     await this.ensureInitialized();
 
     const messages = convertMessages(options.prompt);
 
-    // Extract tools from mode if applicable
-    let tools: LocalLlmToolDefinition[] | undefined;
-    if (options.mode.type === 'regular' && 'tools' in options.mode && options.mode.tools) {
-      tools = convertToolsFromArray(options.mode.tools);
-    }
+    // Extract tools from options
+    const tools = convertToolsFromArray(options.tools);
 
     // Build generation options conditionally to satisfy exactOptionalPropertyTypes
     const generateOptions: {
@@ -212,7 +223,7 @@ export class LocalLanguageModel implements LanguageModelV1 {
       tools?: LocalLlmToolDefinition[];
       signal?: AbortSignal;
     } = {
-      maxNewTokens: options.maxTokens ?? this.settings.maxNewTokens ?? 512,
+      maxNewTokens: options.maxOutputTokens ?? this.settings.maxNewTokens ?? 512,
     };
 
     const temperature = options.temperature ?? this.settings.temperature;
@@ -240,53 +251,61 @@ export class LocalLanguageModel implements LanguageModelV1 {
 
     const result = await this.backend.generate(messages, generateOptions);
 
-    // Convert tool calls to AI SDK format
-    const toolCalls: LanguageModelV1FunctionToolCall[] | undefined = result.toolCalls?.map(
-      (tc) => ({
-        toolCallType: 'function' as const,
-        toolCallId: tc.id,
-        toolName: tc.function.name,
-        args: tc.function.arguments,
-      })
-    );
+    // Build content array (V2 format)
+    const content: LanguageModelV2Content[] = [];
 
-    // Type alias for readability
-    type GenerateResult = Awaited<ReturnType<LanguageModelV1['doGenerate']>>;
+    // Add text content if present
+    if (result.text) {
+      const textContent: LanguageModelV2Text = {
+        type: 'text',
+        text: result.text,
+      };
+      content.push(textContent);
+    }
 
-    // Build result object with required properties first
-    const finalResult: GenerateResult = {
+    // Convert tool calls to V2 format and add to content
+    if (result.toolCalls) {
+      for (const tc of result.toolCalls) {
+        const toolCall: LanguageModelV2ToolCall = {
+          type: 'tool-call',
+          toolCallId: tc.id,
+          toolName: tc.function.name,
+          input: tc.function.arguments,
+        };
+        content.push(toolCall);
+      }
+    }
+
+    // Build usage info (V2 format)
+    const usage: LanguageModelV2Usage = {
+      inputTokens: result.usage.promptTokens,
+      outputTokens: result.usage.completionTokens,
+      totalTokens: result.usage.totalTokens,
+    };
+
+    // Build warnings array (required in V2)
+    const warnings: LanguageModelV2CallWarning[] = [];
+
+    return {
+      content,
       finishReason: mapFinishReason(result.finishReason),
-      usage: {
-        promptTokens: result.usage.promptTokens,
-        completionTokens: result.usage.completionTokens,
-      },
-      rawCall: {
-        rawPrompt: messages,
-        rawSettings: {
-          maxNewTokens: options.maxTokens,
-          temperature: options.temperature,
-          topP: options.topP,
-          topK: options.topK,
+      usage,
+      warnings,
+      request: {
+        body: {
+          messages,
+          maxNewTokens: generateOptions.maxNewTokens,
+          temperature: generateOptions.temperature,
+          topP: generateOptions.topP,
+          topK: generateOptions.topK,
         },
       },
     };
-
-    // Add optional properties only when they have values
-    // This satisfies exactOptionalPropertyTypes without unsafe type assertions
-    if (result.text) {
-      finalResult.text = result.text;
-    }
-
-    if (toolCalls && toolCalls.length > 0) {
-      finalResult.toolCalls = toolCalls;
-    }
-
-    return finalResult;
   }
 
   doStream(
-    options: LanguageModelV1CallOptions
-  ): PromiseLike<Awaited<ReturnType<LanguageModelV1['doStream']>>> {
+    options: LanguageModelV2CallOptions
+  ): PromiseLike<Awaited<ReturnType<LanguageModelV2['doStream']>>> {
     return this.executeStream(options);
   }
 
@@ -294,7 +313,7 @@ export class LocalLanguageModel implements LanguageModelV1 {
    * Execute streaming generation.
    *
    * **LIMITATION**: This is NOT true token-by-token streaming.
-   * The full response is generated first, then emitted as a single text-delta.
+   * The full response is generated first, then emitted as stream parts.
    * This means:
    * - Users will experience full generation latency upfront
    * - No incremental text updates during generation
@@ -308,41 +327,42 @@ export class LocalLanguageModel implements LanguageModelV1 {
    * For now, consider using doGenerate() directly for non-streaming use cases.
    */
   private async executeStream(
-    options: LanguageModelV1CallOptions
-  ): Promise<Awaited<ReturnType<LanguageModelV1['doStream']>>> {
+    options: LanguageModelV2CallOptions
+  ): Promise<Awaited<ReturnType<LanguageModelV2['doStream']>>> {
     // SIMULATED STREAMING: Full generation first, then stream from memory
     // See method JSDoc for details on this limitation
     const result = await this.executeGenerate(options);
 
-    const parts: LanguageModelV1StreamPart[] = [];
+    const parts: LanguageModelV2StreamPart[] = [];
 
-    // Stream text if present
-    if (result.text) {
-      parts.push({ type: 'text-delta', textDelta: result.text });
-    }
+    // Emit stream-start with warnings
+    parts.push({
+      type: 'stream-start',
+      warnings: result.warnings,
+    });
 
-    // Stream tool calls if present
-    if (result.toolCalls) {
-      for (const tc of result.toolCalls) {
-        parts.push({
-          type: 'tool-call',
-          toolCallType: 'function',
-          toolCallId: tc.toolCallId,
-          toolName: tc.toolName,
-          args: tc.args,
-        });
+    // Stream text content if present
+    for (const item of result.content) {
+      if (item.type === 'text') {
+        const textId = generateId();
+        parts.push({ type: 'text-start', id: textId });
+        parts.push({ type: 'text-delta', id: textId, delta: item.text });
+        parts.push({ type: 'text-end', id: textId });
+      } else if (item.type === 'tool-call') {
+        // For tool calls, we emit the complete tool call
+        parts.push(item);
       }
     }
 
     // Add finish part
     parts.push({
       type: 'finish',
-      finishReason: result.finishReason,
       usage: result.usage,
+      finishReason: result.finishReason,
     });
 
     // Create a ReadableStream from the parts
-    const stream = new ReadableStream<LanguageModelV1StreamPart>({
+    const stream = new ReadableStream<LanguageModelV2StreamPart>({
       start(controller) {
         for (const part of parts) {
           controller.enqueue(part);
@@ -351,10 +371,17 @@ export class LocalLanguageModel implements LanguageModelV1 {
       },
     });
 
-    return {
+    // Build return object carefully to satisfy exactOptionalPropertyTypes
+    const streamResult: Awaited<ReturnType<LanguageModelV2['doStream']>> = {
       stream,
-      rawCall: result.rawCall,
     };
+
+    // Only add request if it exists
+    if (result.request !== undefined) {
+      streamResult.request = result.request;
+    }
+
+    return streamResult;
   }
 }
 
@@ -364,6 +391,6 @@ export class LocalLanguageModel implements LanguageModelV1 {
 export function createLocalLanguageModel(
   modelId: string,
   settings?: LocalLanguageModelSettings
-): LanguageModelV1 {
+): LanguageModelV2 {
   return new LocalLanguageModel(modelId, settings);
 }

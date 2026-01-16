@@ -34,11 +34,11 @@
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^24.10.1",
+    "@types/node": "^25.0.8",
     "rimraf": "^6.1.2",
-    "tsup": "^8.5.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.17"
   },
   "turbo": {
     "outputs": [

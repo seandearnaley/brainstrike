@@ -42,8 +42,8 @@ Object.defineProperty(window, 'localStorage', {
 });
 
 const electronAPIMock = {
-  saveLayout: vi.fn().mockResolvedValue(undefined),
-  loadLayout: vi.fn().mockResolvedValue(undefined),
+  saveLayout: vi.fn().mockResolvedValue({ success: true }),
+  loadLayout: vi.fn().mockResolvedValue({ success: true, data: null }),
 };
 
 // Mock window.addEventListener and removeEventListener
@@ -301,7 +301,7 @@ describe('usePanelPersistence', () => {
       showLeftPanel: false,
       showRightPanel: true,
     };
-    electronAPIMock.loadLayout.mockResolvedValue(electronData);
+    electronAPIMock.loadLayout.mockResolvedValue({ success: true, data: electronData });
     (window as { electronAPI?: unknown }).electronAPI = electronAPIMock;
 
     const { result } = renderHook(() =>

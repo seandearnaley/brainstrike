@@ -73,8 +73,9 @@ describe('StorageWrapper', () => {
     it('should log errors when storage fails and shouldLog=true', async () => {
       const wrapper = createStorageWrapper(errorStorage, false, null, true);
 
-      await wrapper.setItem('test-key', 'test-value');
+      const result = await wrapper.setItem('test-key', 'test-value');
 
+      expect(result.success).toBe(false);
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Error setting item in storage:',
         expect.any(Error)
@@ -84,8 +85,9 @@ describe('StorageWrapper', () => {
     it('should not log errors when storage fails and shouldLog=false', async () => {
       const wrapper = createStorageWrapper(errorStorage, false, null, false);
 
-      await wrapper.setItem('test-key', 'test-value');
+      const result = await wrapper.setItem('test-key', 'test-value');
 
+      expect(result.success).toBe(false);
       expect(mockLogger.error).not.toHaveBeenCalled();
     });
 
@@ -93,10 +95,12 @@ describe('StorageWrapper', () => {
       const wrapperWithLog = createStorageWrapper(mockStorage, false, null, true);
       const wrapperWithoutLog = createStorageWrapper(mockStorage, false, null, false);
 
-      await wrapperWithLog.setItem('key1', 'value1');
-      await wrapperWithoutLog.setItem('key2', 'value2');
+      const resultWithLog = await wrapperWithLog.setItem('key1', 'value1');
+      const resultWithoutLog = await wrapperWithoutLog.setItem('key2', 'value2');
 
       // Storage wrapper JSON stringifies values when storing
+      expect(resultWithLog.success).toBe(true);
+      expect(resultWithoutLog.success).toBe(true);
       expect(await mockStorage.getItem('key1')).toBe(JSON.stringify('value1'));
       expect(await mockStorage.getItem('key2')).toBe(JSON.stringify('value2'));
       expect(mockLogger.error).not.toHaveBeenCalled();
@@ -107,8 +111,9 @@ describe('StorageWrapper', () => {
     it('should log errors when storage fails and shouldLog=true', async () => {
       const wrapper = createStorageWrapper(errorStorage, false, null, true);
 
-      await wrapper.removeItem('test-key');
+      const result = await wrapper.removeItem('test-key');
 
+      expect(result.success).toBe(false);
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Error removing item from storage:',
         expect.any(Error)
@@ -118,8 +123,9 @@ describe('StorageWrapper', () => {
     it('should not log errors when storage fails and shouldLog=false', async () => {
       const wrapper = createStorageWrapper(errorStorage, false, null, false);
 
-      await wrapper.removeItem('test-key');
+      const result = await wrapper.removeItem('test-key');
 
+      expect(result.success).toBe(false);
       expect(mockLogger.error).not.toHaveBeenCalled();
     });
 
@@ -129,10 +135,12 @@ describe('StorageWrapper', () => {
       const wrapperWithLog = createStorageWrapper(mockStorage, false, null, true);
       const wrapperWithoutLog = createStorageWrapper(mockStorage, false, null, false);
 
-      await wrapperWithLog.removeItem('test-key');
+      const resultWithLog = await wrapperWithLog.removeItem('test-key');
       await mockStorage.setItem('test-key2', JSON.stringify('test-value2'));
-      await wrapperWithoutLog.removeItem('test-key2');
+      const resultWithoutLog = await wrapperWithoutLog.removeItem('test-key2');
 
+      expect(resultWithLog.success).toBe(true);
+      expect(resultWithoutLog.success).toBe(true);
       expect(await mockStorage.getItem('test-key')).toBeNull();
       expect(await mockStorage.getItem('test-key2')).toBeNull();
       expect(mockLogger.error).not.toHaveBeenCalled();
@@ -144,10 +152,12 @@ describe('StorageWrapper', () => {
       const wrapper = createStorageWrapper(errorStorage, false, null, true);
 
       await wrapper.getItem('test');
-      await wrapper.setItem('test', 'value');
-      await wrapper.removeItem('test');
+      const setResult = await wrapper.setItem('test', 'value');
+      const removeResult = await wrapper.removeItem('test');
 
       // Should have logged all three errors
+      expect(setResult.success).toBe(false);
+      expect(removeResult.success).toBe(false);
       expect(mockLogger.error).toHaveBeenCalledTimes(3);
       expect(mockLogger.error).toHaveBeenNthCalledWith(
         1,
@@ -170,10 +180,12 @@ describe('StorageWrapper', () => {
       const wrapper = createStorageWrapper(errorStorage, false, null, false);
 
       await wrapper.getItem('test');
-      await wrapper.setItem('test', 'value');
-      await wrapper.removeItem('test');
+      const setResult = await wrapper.setItem('test', 'value');
+      const removeResult = await wrapper.removeItem('test');
 
       // Should not have logged any errors
+      expect(setResult.success).toBe(false);
+      expect(removeResult.success).toBe(false);
       expect(mockLogger.error).not.toHaveBeenCalled();
     });
   });
@@ -190,19 +202,21 @@ describe('StorageWrapper', () => {
 
       mockLogger.error.mockClear();
 
-      await wrapper.setItem('test', 'value');
+      const setResult = await wrapper.setItem('test', 'value');
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Error setting item in storage:',
         expect.any(Error)
       );
+      expect(setResult.success).toBe(false);
 
       mockLogger.error.mockClear();
 
-      await wrapper.removeItem('test');
+      const removeResult = await wrapper.removeItem('test');
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Error removing item from storage:',
         expect.any(Error)
       );
+      expect(removeResult.success).toBe(false);
     });
 
     it('should pass the actual error object to logger', async () => {

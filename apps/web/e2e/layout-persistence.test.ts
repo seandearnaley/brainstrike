@@ -188,14 +188,15 @@ test.describe('IDE Layout Persistence', () => {
 
       // Get container width before resize
       const containerWidth = await page
-        .locator('[data-panel-id="middle-panel"]')
+        .locator('#middle-panel')
         .evaluate((el) => el.getBoundingClientRect().width);
 
       // Get initial width
       const initialWidth = await leftPanel.evaluate((el) => el.getBoundingClientRect().width);
 
       // Find and drag the resize handle to make panel wider
-      const resizeHandle = page.locator('[data-panel-resize-handle-enabled="true"]').first();
+      // Note: react-resizable-panels v4 uses data-separator
+      const resizeHandle = page.locator('[data-separator]').first();
       await expect(resizeHandle).toBeVisible();
 
       // Get the resize handle position
@@ -225,7 +226,7 @@ test.describe('IDE Layout Persistence', () => {
 
       // Get container width after reload
       const containerWidthAfter = await page
-        .locator('[data-panel-id="middle-panel"]')
+        .locator('#middle-panel')
         .evaluate((el) => el.getBoundingClientRect().width);
 
       // Verify width persisted by comparing percentages (accounts for container size changes)
@@ -433,7 +434,8 @@ test.describe('IDE Layout Persistence', () => {
       }
 
       // Try to resize panel to very small size (should be constrained to minimum)
-      const resizeHandle = page.locator('[data-panel-resize-handle-enabled="true"]').first();
+      // Note: react-resizable-panels v4 uses data-separator
+      const resizeHandle = page.locator('[data-separator]').first();
       const handleBox = await resizeHandle.boundingBox();
       if (!handleBox) {
         throw new Error('Resize handle not found');

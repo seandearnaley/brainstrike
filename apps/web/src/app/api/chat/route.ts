@@ -49,6 +49,11 @@ const ChatBodySchema = z.object({
   data: RuntimeDataSchema,
 });
 
+function formatZodIssue(issue: z.ZodIssue): { path: string; message: string } {
+  const path = Array.isArray(issue.path) ? issue.path.join('.') : String(issue.path);
+  return { path, message: issue.message };
+}
+
 // Export helper for tests
 export function __parseChatBodyForTests(body: unknown): {
   messages: AgentMessage[];
@@ -56,7 +61,7 @@ export function __parseChatBodyForTests(body: unknown): {
 } {
   const parsed = ChatBodySchema.safeParse(body);
   if (!parsed.success) {
-    const issues = parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message }));
+    const issues = parsed.error.issues.map((issue) => formatZodIssue(issue));
     throw new Error(JSON.stringify({ code: 'invalid_body', issues }));
   }
   return parsed.data as { messages: AgentMessage[]; data?: RuntimeData };

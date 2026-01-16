@@ -42,8 +42,10 @@ export function PanelLayoutProvider({
   }
 
   // Uncontrolled: use internal persistence hook
+  // sizes format: [leftPanelSize, rightPanelSize, consolePanelSize]
+  // The middle panel size is calculated as: 100 - left - right
   const uncontrolled = usePanelPersistence(
-    initialState?.sizes ?? [25, 55, 20],
+    initialState?.sizes ?? [25, 20, 20],
     initialState?.showConsole ?? false,
     initialState?.showLeftPanel ?? true,
     initialState?.showRightPanel ?? false,

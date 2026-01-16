@@ -64,6 +64,7 @@ export function createContextBridgeMock(): ContextBridgeMock {
 
 interface AppMock {
   whenReady: Mock<() => Promise<void>>;
+  isReady: Mock<() => boolean>;
   getAppPath: Mock<() => string>;
   getPath: Mock<(key: string) => string>;
   getVersion: Mock<() => string>;
@@ -83,6 +84,7 @@ export function createAppMock(opts?: {
 
   return {
     whenReady: vi.fn(() => whenReadyPromise),
+    isReady: vi.fn(() => whenReadyResolved),
     getAppPath: vi.fn(() => '/app'),
     getPath: vi.fn((key: string) => (key === 'documents' ? documentsPath : '/mock/path')),
     getVersion: vi.fn(() => '0.0.0-test'),
@@ -93,11 +95,29 @@ export function createAppMock(opts?: {
   };
 }
 
+interface ScreenMock {
+  getAllDisplays: Mock<
+    () => Array<{ workArea: { x: number; y: number; width: number; height: number } }>
+  >;
+  getPrimaryDisplay: Mock<
+    () => { workArea: { x: number; y: number; width: number; height: number } }
+  >;
+}
+
+export function createScreenMock(): ScreenMock {
+  const defaultWorkArea = { x: 0, y: 0, width: 1920, height: 1080 };
+  return {
+    getAllDisplays: vi.fn(() => [{ workArea: defaultWorkArea }]),
+    getPrimaryDisplay: vi.fn(() => ({ workArea: defaultWorkArea })),
+  };
+}
+
 interface ElectronMocks {
   app: AppMock;
   ipcMain: IpcMainMock;
   ipcRenderer: IpcRendererMock;
   contextBridge: ContextBridgeMock;
+  screen: ScreenMock;
 }
 
 export function installElectronModuleMocks(parts?: {
@@ -105,17 +125,20 @@ export function installElectronModuleMocks(parts?: {
   ipcMain?: IpcMainMock;
   ipcRenderer?: IpcRendererMock;
   contextBridge?: ContextBridgeMock;
+  screen?: ScreenMock;
 }): ElectronMocks {
   const app = parts?.app ?? createAppMock();
   const ipcMain = parts?.ipcMain ?? createIpcMainMock();
   const ipcRenderer = parts?.ipcRenderer ?? createIpcRendererMock();
   const contextBridge = parts?.contextBridge ?? createContextBridgeMock();
+  const screen = parts?.screen ?? createScreenMock();
 
   vi.mock('electron', () => ({
     app,
     ipcMain,
     ipcRenderer,
     contextBridge,
+    screen,
     // biome-ignore lint/style/useNamingConvention: Electron API uses PascalCase
     BrowserWindow: vi.fn(),
     session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
@@ -124,7 +147,7 @@ export function installElectronModuleMocks(parts?: {
     nativeTheme: { shouldUseDarkColors: false },
   }));
 
-  return { app, ipcMain, ipcRenderer, contextBridge };
+  return { app, ipcMain, ipcRenderer, contextBridge, screen };
 }
 
 interface ElectronCjsMocks extends ElectronMocks {
@@ -140,6 +163,7 @@ export function installElectronCjsMocks(parts?: {
   ipcMain?: IpcMainMock;
   ipcRenderer?: IpcRendererMock;
   contextBridge?: ContextBridgeMock;
+  screen?: ScreenMock;
 }): ElectronCjsMocks {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const Module = require('node:module');
@@ -149,6 +173,7 @@ export function installElectronCjsMocks(parts?: {
   const ipcMain = parts?.ipcMain ?? createIpcMainMock();
   const ipcRenderer = parts?.ipcRenderer ?? createIpcRendererMock();
   const contextBridge = parts?.contextBridge ?? createContextBridgeMock();
+  const screen = parts?.screen ?? createScreenMock();
 
   Module._load = ((id: string, parent: unknown, isMain?: boolean) => {
     if (id === 'electron') {
@@ -157,6 +182,7 @@ export function installElectronCjsMocks(parts?: {
         ipcMain,
         ipcRenderer,
         contextBridge,
+        screen,
       };
     }
     return originalLoad(id, parent, isMain);
@@ -166,5 +192,5 @@ export function installElectronCjsMocks(parts?: {
     Module._load = originalLoad as typeof Module._load;
   };
 
-  return { app, ipcMain, ipcRenderer, contextBridge, restore };
+  return { app, ipcMain, ipcRenderer, contextBridge, screen, restore };
 }

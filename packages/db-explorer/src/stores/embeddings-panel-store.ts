@@ -3,7 +3,7 @@ import {
   type ModelConfig,
   SimpleEmbeddingService,
 } from '@brainstrike/embeddings';
-import { createLogger, createSafeStorageAdapter } from '@brainstrike/utils';
+import { createLogger, createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -42,7 +42,7 @@ let service: SimpleEmbeddingService | null = null;
  * Storage adapter with fallback to in-memory for SSR/tests
  * Uses safe storage utility with proper error logging
  */
-const storage = createJSONStorage(() => createSafeStorageAdapter());
+const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 
 export const useEmbeddingsPanelStore = create<Store>()(
   persist(

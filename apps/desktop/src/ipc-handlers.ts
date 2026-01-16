@@ -6,12 +6,13 @@ import type {
 } from '@brainstrike/file-system';
 import { getTestDirectoryStructure, resolveValidatedPath } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
-import type { PanelPersistenceState } from '@brainstrike/ui';
+import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
 import { app, ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
+import { z } from 'zod';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 // import { getDatabase } from './db-main'; // Disabled - using renderer process database
@@ -38,6 +39,22 @@ interface LiveSubscriptionRecord {
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
+
+const panelPersistenceStateSchema = z.object({
+  sizes: z.array(
+    z.number().superRefine((value, ctx) => {
+      if (!Number.isFinite(value)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Panel size must be a finite number',
+        });
+      }
+    })
+  ),
+  showConsole: z.boolean(),
+  showLeftPanel: z.boolean(),
+  showRightPanel: z.boolean(),
+});
 
 /**
  * Wrap a database operation with corruption detection and auto-recovery.
@@ -170,25 +187,43 @@ async function cleanupLiveSubscription(id: number): Promise<void> {
   }
 }
 
+async function cleanupAllLiveSubscriptions(): Promise<void> {
+  const ids = Array.from(liveSubscriptions.keys());
+  if (ids.length === 0) {
+    return;
+  }
+  await Promise.allSettled(ids.map((id) => cleanupLiveSubscription(id)));
+  liveSubscriptions.clear();
+}
+
 export function registerIpcHandlers(
   fileSystem: ElectronFileSystemAdapter,
   storage: ElectronStorageAdapter,
-  store: ElectronStore<DesktopSettingsStoreSchema>,
+  getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null,
   options?: RegisterIpcHandlerOptions
-) {
-  ipcMain.handle('storage:getItem', async (_e: IpcMainInvokeEvent, key: string) =>
+): () => void {
+  const registeredChannels = new Set<string>();
+  const registerHandler = <Args extends unknown[], Result>(
+    channel: string,
+    handler: (event: IpcMainInvokeEvent, ...args: Args) => Result | Promise<Result>
+  ) => {
+    ipcMain.handle(channel, handler);
+    registeredChannels.add(channel);
+  };
+
+  registerHandler('storage:getItem', async (_e: IpcMainInvokeEvent, key: string) =>
     storage.getItem(key)
   );
-  ipcMain.handle('storage:setItem', async (_e: IpcMainInvokeEvent, key: string, value: string) =>
+  registerHandler('storage:setItem', async (_e: IpcMainInvokeEvent, key: string, value: string) =>
     storage.setItem(key, value)
   );
-  ipcMain.handle('storage:removeItem', async (_e: IpcMainInvokeEvent, key: string) =>
+  registerHandler('storage:removeItem', async (_e: IpcMainInvokeEvent, key: string) =>
     storage.removeItem(key)
   );
-  ipcMain.handle('storage:clear', async () => storage.clear());
-  ipcMain.handle('storage:getAllKeys', async () => storage.getAllKeys());
+  registerHandler('storage:clear', async (_e: IpcMainInvokeEvent) => storage.clear());
+  registerHandler('storage:getAllKeys', async (_e: IpcMainInvokeEvent) => storage.getAllKeys());
 
-  ipcMain.handle('fs:requestDirectoryAccess', async () => {
+  registerHandler('fs:requestDirectoryAccess', async (_e: IpcMainInvokeEvent) => {
     // Check if we're in test mode to avoid native dialogs
     const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
 
@@ -210,7 +245,7 @@ export function registerIpcHandlers(
 
     return fileSystem.requestDirectoryAccess();
   });
-  ipcMain.handle('fs:readDirectory', async (_e: IpcMainInvokeEvent, handle: DirectoryHandle) => {
+  registerHandler('fs:readDirectory', async (_e: IpcMainInvokeEvent, handle: DirectoryHandle) => {
     // Check if this is a mock handle for testing
     if (
       handle &&
@@ -225,7 +260,7 @@ export function registerIpcHandlers(
     return fileSystem.readDirectory(handle);
   });
 
-  ipcMain.handle('fs:readFile', async (_e: IpcMainInvokeEvent, handle: FileHandle) => {
+  registerHandler('fs:readFile', async (_e: IpcMainInvokeEvent, handle: FileHandle) => {
     // Check if this is a mock handle for testing
     if (
       handle &&
@@ -237,7 +272,7 @@ export function registerIpcHandlers(
     }
     return fileSystem.readFile(handle);
   });
-  ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
+  registerHandler('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
     // Check for mock paths in test mode
     if (p.startsWith(MOCK_PATH_PREFIX)) {
       return true;
@@ -262,7 +297,7 @@ export function registerIpcHandlers(
    * Attempts to restore the last opened folder if it still exists
    * @returns DirectoryHandle if successful, null if no folder or folder missing
    */
-  ipcMain.handle('fs:restoreLastFolder', async () => {
+  registerHandler('fs:restoreLastFolder', async (_e: IpcMainInvokeEvent) => {
     try {
       const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
 
@@ -300,7 +335,7 @@ export function registerIpcHandlers(
    * Saves the folder path for auto-restore on next application launch
    * @param folderPath - The folder path to save for future restoration
    */
-  ipcMain.handle('fs:saveLastFolder', async (_e: IpcMainInvokeEvent, folderPath: string) => {
+  registerHandler('fs:saveLastFolder', async (_e: IpcMainInvokeEvent, folderPath: string) => {
     try {
       await storage.setItem(LAST_FOLDER_STORAGE_KEY, folderPath);
     } catch (error) {
@@ -313,24 +348,73 @@ export function registerIpcHandlers(
   });
 
   // Layout persistence IPC handlers
-  ipcMain.handle('layout:save', async (_e: IpcMainInvokeEvent, state: PanelPersistenceState) => {
-    // Using proper type access for electron-store
-    // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
-    // @ts-ignore
-    store.set('panelLayout', { v1: state });
-  });
+  registerHandler(
+    'layout:save',
+    async (_e: IpcMainInvokeEvent, state: unknown): Promise<LayoutPersistenceResult> => {
+      const store = getStore();
+      if (!store) {
+        logger.warn('Cannot save layout: store not initialized');
+        return { success: false, message: 'Store not initialized' };
+      }
 
-  ipcMain.handle('layout:load', async () => {
-    // Using proper type access for electron-store
-    // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
-    // @ts-ignore
-    const layout = store.get('panelLayout');
-    return layout?.v1;
+      const parsed = panelPersistenceStateSchema.safeParse(state);
+      if (!parsed.success) {
+        logger.warn('Invalid panel layout payload', { issues: parsed.error.issues });
+        return { success: false, message: 'Invalid panel layout payload' };
+      }
+
+      try {
+        // Using proper type access for electron-store
+        // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
+        // @ts-ignore
+        store.set('panelLayout', { v1: parsed.data });
+        return { success: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        logger.warn('Failed to save panel layout', { error: message });
+        return { success: false, message };
+      }
+    }
+  );
+
+  registerHandler('layout:load', async (_e: IpcMainInvokeEvent): Promise<LayoutLoadResult> => {
+    const store = getStore();
+    if (!store) {
+      logger.warn('Cannot load layout: store not initialized');
+      return { success: false, message: 'Store not initialized' };
+    }
+
+    try {
+      // Using proper type access for electron-store
+      // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
+      // @ts-ignore
+      const layout = store.get('panelLayout') as { v1?: unknown } | undefined;
+      const candidate = layout?.v1;
+      if (!candidate) {
+        return { success: true, data: null };
+      }
+
+      const parsed = panelPersistenceStateSchema.safeParse(candidate);
+      if (!parsed.success) {
+        logger.warn('Invalid panel layout data in store', { issues: parsed.error.issues });
+        return { success: false, message: 'Invalid panel layout data' };
+      }
+
+      return { success: true, data: parsed.data };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.warn('Failed to load panel layout', { error: message });
+      return { success: false, message };
+    }
   });
 
   // Settings store clear handler for factory reset
-  ipcMain.handle('settings:clearAll', async () => {
+  registerHandler('settings:clearAll', async (_e: IpcMainInvokeEvent) => {
     try {
+      const store = getStore();
+      if (!store) {
+        return { success: false, message: 'Store not initialized' };
+      }
       // Clear all settings from the store
       (store as ElectronStore<DesktopSettingsStoreSchema> & { clear: () => void }).clear();
       return { success: true };
@@ -343,7 +427,7 @@ export function registerIpcHandlers(
   });
 
   // Database IPC handlers (wrapped with corruption recovery)
-  ipcMain.handle('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) =>
+  registerHandler('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) =>
     withCorruptionRecovery(async () => {
       const { getDatabase } = await import('./db-main');
       const db = await getDatabase();
@@ -351,7 +435,7 @@ export function registerIpcHandlers(
     }, 'db:query')
   );
 
-  ipcMain.handle('db:exec', async (_evt: IpcMainInvokeEvent, sql: string) =>
+  registerHandler('db:exec', async (_evt: IpcMainInvokeEvent, sql: string) =>
     withCorruptionRecovery(async () => {
       const { getDatabase } = await import('./db-main');
       const db = await getDatabase();
@@ -359,7 +443,7 @@ export function registerIpcHandlers(
     }, 'db:exec')
   );
 
-  ipcMain.handle(
+  registerHandler(
     'db:live-query:start',
     async (event: IpcMainInvokeEvent, payload: LiveQueryPayload) =>
       withCorruptionRecovery(async () => {
@@ -391,12 +475,12 @@ export function registerIpcHandlers(
       }, 'db:live-query:start')
   );
 
-  ipcMain.handle('db:live-query:stop', async (_event: IpcMainInvokeEvent, id: number) => {
+  registerHandler('db:live-query:stop', async (_event: IpcMainInvokeEvent, id: number) => {
     await cleanupLiveSubscription(Number(id));
     return { success: true };
   });
 
-  ipcMain.handle(
+  registerHandler(
     'db:live-query:refresh',
     async (
       _event: IpcMainInvokeEvent,
@@ -417,13 +501,13 @@ export function registerIpcHandlers(
   );
 
   // Database test handler for connection validation
-  ipcMain.handle('db:ping', async () => {
+  registerHandler('db:ping', async (_e: IpcMainInvokeEvent) => {
     // Lightweight connectivity check; does not initialize DB
     return { success: true, message: 'ping' };
   });
 
   // Database test handler for full connection validation
-  ipcMain.handle('db:test', async () => {
+  registerHandler('db:test', async (_e: IpcMainInvokeEvent) => {
     try {
       return await withCorruptionRecovery(async () => {
         const { getDatabase } = await import('./db-main');
@@ -445,7 +529,7 @@ export function registerIpcHandlers(
   });
 
   // Bulk database cleanup handler - requires confirmation token for security
-  ipcMain.handle('db:clearAll', async (_, confirmationToken?: string) => {
+  registerHandler('db:clearAll', async (_e: IpcMainInvokeEvent, confirmationToken?: string) => {
     try {
       // Require confirmation token to prevent unauthorized clearing
       if (!confirmationToken || confirmationToken !== 'CONFIRM_CLEAR_DATABASE') {
@@ -525,7 +609,7 @@ export function registerIpcHandlers(
   });
 
   // Hard reset database on disk (desktop only)
-  ipcMain.handle('db:resetLocal', async () => {
+  registerHandler('db:resetLocal', async (_e: IpcMainInvokeEvent) => {
     if (options?.onResetLocal) {
       return options.onResetLocal();
     }
@@ -540,7 +624,7 @@ export function registerIpcHandlers(
   });
 
   // Database path IPC handler for PGlite directory
-  ipcMain.handle('db:getUserDataPath', async () => {
+  registerHandler('db:getUserDataPath', async (_e: IpcMainInvokeEvent) => {
     if (process.env['NODE_ENV'] === 'test') {
       return path.join(app.getPath('userData'), 'pgdata');
     }
@@ -548,4 +632,12 @@ export function registerIpcHandlers(
     const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
     return path.join(app.getPath('documents'), dbDirName, 'pgdata');
   });
+
+  return () => {
+    for (const channel of registeredChannels) {
+      ipcMain.removeHandler(channel);
+    }
+    registeredChannels.clear();
+    void cleanupAllLiveSubscriptions();
+  };
 }

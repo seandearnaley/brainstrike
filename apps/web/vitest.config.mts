@@ -12,7 +12,11 @@ export default defineConfig({
     globals: true,
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     testTimeout: 15_000, // uiComponent timeout (getAdjustedTimeout not available in build context)
-    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'e2e/utils/**/__tests__/**/*.test.{ts,tsx}'],
+    include: [
+      'src/**/__tests__/**/*.test.{ts,tsx}',
+      // E2E utility unit tests use .vitest.ts extension to avoid Playwright extension conflict
+      'e2e/utils/__tests__/**/*.vitest.ts',
+    ],
     exclude: ['node_modules', 'dist'],
     // Use threads pool with increased parallelization for better CPU utilization
     pool: 'threads',

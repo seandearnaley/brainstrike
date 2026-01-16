@@ -1,3 +1,4 @@
+import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -20,36 +21,7 @@ export type EditorViewStateStore = EditorViewStateData & EditorViewStateActions;
 
 const STORE_NAME = 'editor-view-state.v1' as const;
 
-// Safe storage that falls back to memory in non-browser environments
-const memory: Map<string, string> = new Map();
-const storage = {
-  getItem: (name: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        return localStorage.getItem(name);
-      }
-    } catch {}
-    return memory.get(name) ?? null;
-  },
-  setItem: (name: string, value: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(name, value);
-        return;
-      }
-    } catch {}
-    memory.set(name, value);
-  },
-  removeItem: (name: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(name);
-        return;
-      }
-    } catch {}
-    memory.delete(name);
-  },
-};
+const storage = createSafeJsonStorageAdapter();
 
 export const useEditorViewStateStore = create<EditorViewStateStore>()(
   persist(

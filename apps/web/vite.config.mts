@@ -168,11 +168,11 @@ export default defineConfig({
       // Force pino to browser build to avoid dynamic require of node libs
       pino: path.resolve(
         __dirname,
-        '../../node_modules/.pnpm/pino@10.1.0/node_modules/pino/browser.js'
+        '../../node_modules/.pnpm/pino@10.1.1/node_modules/pino/browser.js'
       ),
       'pino/browser.js': path.resolve(
         __dirname,
-        '../../node_modules/.pnpm/pino@10.1.0/node_modules/pino/browser.js'
+        '../../node_modules/.pnpm/pino@10.1.1/node_modules/pino/browser.js'
       ),
       // Agent client-safe exports (no Mastra dependencies)
       '@brainstrike/agent/client': path.resolve(__dirname, '../../packages/agent/src/client.ts'),
@@ -220,14 +220,16 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: [
       'src/**/__tests__/**/*.test.{ts,tsx}',
-      'src/**/__tests__/**/*.test.{ts,tsx}',
       'src/**/*.test.{ts,tsx}',
-      'src/**/*.test.{ts,tsx}',
+      // E2E utility unit tests use .vitest.ts extension to avoid Playwright extension conflict
+      'e2e/utils/__tests__/**/*.vitest.ts',
     ],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
-      '**/e2e/**',
+      // Exclude all E2E test specs - Playwright handles those
+      'e2e/**/*.spec.ts',
+      'e2e/**/*.test.ts',
       '**/cypress/**',
       '**/.{idea,git,cache,output,temp}/**',
     ],

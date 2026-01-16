@@ -164,7 +164,7 @@ test.describe('Real-World Performance Validation', () => {
     // Pre-warm: trigger any lazy imports so baseline excludes one-time costs
     try {
       // Build a scoped set of interaction targets (same logic as below)
-      const warmMainScope = page.locator('[data-panel-id="main-content-panel"]');
+      const warmMainScope = page.locator('#main-content-panel');
       const warmFileTreeScope = page.locator(
         '[data-testid="file-tree"], [data-testid="file-tree-scroll-container"]'
       );
@@ -205,7 +205,7 @@ test.describe('Real-World Performance Validation', () => {
     // Interact with the application in ways that would load data
     // Scope interactions to the main content panel (file explorer) to avoid
     // unintentionally initializing heavy subsystems (e.g., DB/embeddings) in the right panel.
-    const mainContentScope = page.locator('[data-panel-id="main-content-panel"]');
+    const mainContentScope = page.locator('#main-content-panel');
     // Prefer interacting within the file tree to keep scope focused on the
     // memory-management area under test.
     const fileTreeScope = page.locator(

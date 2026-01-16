@@ -39,8 +39,8 @@
     "@types/file-saver": "2.0.7",
     "file-saver": "2.0.5",
     "minimatch": "^10.1.1",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
@@ -48,16 +48,16 @@
     "@stryker-mutator/core": "^9.4.0",
     "@stryker-mutator/typescript-checker": "^9.4.0",
     "@stryker-mutator/vitest-runner": "^9.4.0",
-    "@swc/core": "^1.13.5",
-    "@testing-library/react": "^16.3.0",
-    "@types/node": "^24.10.1",
-    "@types/react": "^19.2.7",
+    "@swc/core": "^1.15.8",
+    "@testing-library/react": "^16.3.1",
+    "@types/node": "^25.0.8",
+    "@types/react": "^19.2.8",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.0.4",
-    "jsdom": "^27.2.0",
-    "tsup": "^8.5.0",
+    "@vitejs/plugin-react": "^5.1.2",
+    "jsdom": "26.1.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.17"
   },
   "peerDependencies": {
     "react": "^19.1.1",

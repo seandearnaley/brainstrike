@@ -5,8 +5,27 @@ import type { Page } from '@playwright/test';
  */
 
 type PlaywrightExpect = typeof import('@playwright/test').expect;
+interface ScopedLogger {
+  warn: (message: string, context?: Record<string, unknown>) => void;
+}
 
 let cachedExpect: PlaywrightExpect | null = null;
+let cachedLogger: Promise<ScopedLogger> | null = null;
+
+async function getLogger(): Promise<ScopedLogger> {
+  if (!cachedLogger) {
+    cachedLogger = import('@brainstrike/utils')
+      .then((mod) => mod.createLogger('E2ELayoutHelpers'))
+      .catch(() => ({
+        warn: () => undefined,
+      }));
+  }
+  return cachedLogger;
+}
+
+function logWarn(message: string, context?: Record<string, unknown>): void {
+  void getLogger().then((logger) => logger.warn(message, context));
+}
 
 async function getPlaywrightExpect(): Promise<PlaywrightExpect> {
   if (!cachedExpect) {
@@ -42,15 +61,16 @@ export interface PanelElements {
 
 /**
  * Get all panel-related elements for testing
+ * Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
  */
 export function getPanelElements(page: Page): PanelElements {
   return {
-    // Main panels
-    leftPanel: page.locator('[data-panel-id="explorer-panel"]'),
-    rightPanel: page.locator('[data-panel-id="tools-panel"]'),
-    consolePanel: page.locator('[data-panel-id="console-panel"]'),
-    mainContentPanel: page.locator('[data-panel-id="main-content-panel"]'),
-    middlePanel: page.locator('[data-panel-id="middle-panel"]'),
+    // Main panels - v4 uses id attribute for panel identification
+    leftPanel: page.locator('#explorer-panel'),
+    rightPanel: page.locator('#tools-panel'),
+    consolePanel: page.locator('#console-panel'),
+    mainContentPanel: page.locator('#main-content-panel'),
+    middlePanel: page.locator('#middle-panel'),
 
     // Hide buttons (when panels are open)
     hideExplorerButton: page.locator('[data-testid="hide-explorer-panel"]'),
@@ -86,34 +106,103 @@ export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promi
     if ((await showButton.count()) > 0) {
       await showButton.first().click();
     } else {
-      console.warn(
-        '⚠️ Unable to find "Show tools panel" control; assuming panel is already visible.'
-      );
+      logWarn('⚠️ Unable to find "Show tools panel" control; assuming panel is already visible.');
       return;
     }
   }
 
   await elements.rightPanel.waitFor({ state: 'visible', timeout }).catch(() => {
-    console.warn('⚠️ Tools panel did not become visible after requesting to show it.');
+    logWarn('⚠️ Tools panel did not become visible after requesting to show it.');
   });
 }
 
 /**
  * Waits for the main application content to be ready.
  * This is useful to ensure tests don't start before the UI is fully initialized.
+ *
+ * In CI with vite preview (production build), React needs time to hydrate after
+ * the initial HTML loads. This function handles the full hydration cycle.
  */
 export async function waitForAppLoad(page: Page, timeout = 10_000) {
   const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
-  const effectiveTimeout = isCI ? Math.max(timeout, 20_000) : timeout;
-  // Ensure the document has finished initial parsing before checking layout markers.
-  await page.waitForLoadState('domcontentloaded', { timeout: effectiveTimeout });
-  // Wait for the main layout structure to be present, regardless of panel visibility
-  await page.waitForSelector('[data-panel-id="middle-panel"]', {
-    state: 'attached',
-    timeout: effectiveTimeout,
+  // CI needs significantly more time for:
+  // 1. Initial page load
+  // 2. JS bundle download and parsing (15MB+ vendor bundle)
+  // 3. React hydration
+  // 4. Panel rendering with react-resizable-panels
+  const effectiveTimeout = isCI ? Math.max(timeout, 55_000) : timeout;
+
+  // Collect console errors and network failures in CI for debugging
+  // Set up listeners BEFORE waiting for load states to capture all events
+  const consoleErrors: string[] = [];
+  const networkFailures: string[] = [];
+
+  if (isCI) {
+    page.on('console', (msg) => {
+      if (msg.type() === 'error') {
+        consoleErrors.push(`[${msg.type()}] ${msg.text()}`);
+      }
+    });
+    page.on('pageerror', (err) => {
+      consoleErrors.push(`[pageerror] ${err.message}`);
+    });
+    page.on('requestfailed', (request) => {
+      networkFailures.push(`${request.failure()?.errorText ?? 'unknown'}: ${request.url()}`);
+    });
+  }
+
+  // Wait for the page to fully load, including JS execution
+  // Using 'load' instead of 'domcontentloaded' to ensure JS has loaded
+  await page.waitForLoadState('load', { timeout: effectiveTimeout });
+
+  // Best-effort wait for network to settle - important for production builds
+  // that may have deferred script loading. Use short timeout since apps with
+  // background workers often never reach networkidle state.
+  const networkIdleTimeout = isCI ? 5000 : 2000;
+  await page.waitForLoadState('networkidle', { timeout: networkIdleTimeout }).catch(() => {
+    // networkidle timeout is expected when app has background activity - continue
   });
+
+  // Wait for the main layout structure to be present
+  // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
+  try {
+    await page.waitForSelector('#middle-panel', {
+      state: 'attached',
+      timeout: effectiveTimeout,
+    });
+  } catch (error) {
+    // Debug: Log page content on failure to help diagnose CI issues
+    if (isCI) {
+      const bodyHTML = await page.evaluate(
+        () => document.body?.innerHTML?.slice(0, 1000) || 'no body'
+      );
+      const hasRoot = await page.evaluate(() => !!document.getElementById('root'));
+      const rootContent = await page.evaluate(
+        () => document.getElementById('root')?.innerHTML?.slice(0, 500) || 'empty'
+      );
+      const scriptTags = await page.evaluate(() =>
+        Array.from(document.querySelectorAll('script')).map((s) => ({
+          src: s.src || '[inline]',
+          type: s.type || 'text/javascript',
+        }))
+      );
+      console.error('[waitForAppLoad] Debug info on failure:');
+      console.error(`  hasRoot: ${hasRoot}`);
+      console.error(`  rootContent: ${rootContent}`);
+      console.error(`  bodyHTML: ${bodyHTML}`);
+      console.error(`  scriptTags: ${JSON.stringify(scriptTags)}`);
+      console.error(
+        `  consoleErrors (${consoleErrors.length}): ${consoleErrors.join('; ') || 'none'}`
+      );
+      console.error(
+        `  networkFailures (${networkFailures.length}): ${networkFailures.join('; ') || 'none'}`
+      );
+    }
+    throw error;
+  }
+
   // Also ensure the main content panel is present
-  await page.waitForSelector('[data-panel-id="main-content-panel"]', {
+  await page.waitForSelector('#main-content-panel', {
     state: 'attached',
     timeout: effectiveTimeout,
   });
@@ -126,10 +215,9 @@ export async function resetLayoutState(page: Page): Promise<void> {
   await page.evaluate(() => {
     localStorage.removeItem('panel-layout-store.v1');
   });
-  // Wait for the page to finish navigating before continuing. Using
-  // `networkidle` helps avoid flaky reload errors in CI where the
-  // default navigation wait can resolve too early.
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  // Wait for the page to finish navigating before continuing.
+  // Using 'load' to ensure JS bundles are loaded before checking React elements.
+  await page.reload({ waitUntil: 'load' });
   await waitForAppLoad(page);
 }
 
@@ -172,8 +260,9 @@ export async function resizePanel(
   const startY = handleBox.y + handleBox.height / 2;
 
   // Get the panel being resized (parent panel group contains the panels)
+  // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
   const panelGroup = resizeHandle.locator('..').locator('..');
-  const panels = panelGroup.locator('[data-panel-id]');
+  const panels = panelGroup.locator('[data-panel]');
 
   // Record initial panel dimensions for stability check
   const initialDimensions = await panels.first().evaluate((el) => {
@@ -206,9 +295,8 @@ export async function resizePanel(
       {
         selector: await panels.first().evaluate((el) => {
           // Generate a unique selector for this element
-          return el.getAttribute('data-panel-id')
-            ? `[data-panel-id="${el.getAttribute('data-panel-id')}"]`
-            : `#${el.id}`;
+          // v4 uses id attribute for panel identification
+          return el.id ? `#${el.id}` : '[data-panel]';
         }),
         initial: initialDimensions,
         isHorizontal: deltaX !== 0,
@@ -230,9 +318,8 @@ export async function resizePanel(
  */
 export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']> {
   // The explorer panel's resize handle is the first one in the horizontal group
-  return page
-    .locator('[data-panel-group-direction="horizontal"] [data-panel-resize-handle-id]')
-    .first();
+  // Note: react-resizable-panels v4 uses aria-orientation and data-separator
+  return page.locator('[aria-orientation="horizontal"] [data-separator]').first();
 }
 
 /**
@@ -240,9 +327,8 @@ export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']
  */
 export function getConsolePanelResizeHandle(page: Page): ReturnType<Page['locator']> {
   // The console panel's resize handle is in the vertical group
-  return page
-    .locator('[data-panel-group-direction="vertical"] [data-panel-resize-handle-id]')
-    .first();
+  // Note: react-resizable-panels v4 uses aria-orientation and data-separator
+  return page.locator('[aria-orientation="vertical"] [data-separator]').first();
 }
 
 /**
@@ -399,11 +485,7 @@ export async function testPanelSizeConstraints(
         const rect = el.getBoundingClientRect();
         return rect.width > 0;
       },
-      await panel.evaluate((el) =>
-        el.getAttribute('data-panel-id')
-          ? `[data-panel-id="${el.getAttribute('data-panel-id')}"]`
-          : `#${el.id}`
-      ),
+      await panel.evaluate((el) => (el.id ? `#${el.id}` : '[data-panel]')),
       { timeout: 5000 }
     );
   };
@@ -421,7 +503,7 @@ export async function testPanelSizeConstraints(
       try {
         await waitForPanelExpansion();
       } catch {
-        console.warn('Panel did not expand within timeout - skipping size constraint test');
+        logWarn('Panel did not expand within timeout - skipping size constraint test');
         return;
       }
 
@@ -434,7 +516,7 @@ export async function testPanelSizeConstraints(
 
   // If still width 0, skip the constraint test as the panel is not properly expanded
   if (currentWidth === 0) {
-    console.warn('Panel width is still 0 after expansion attempts - skipping size constraint test');
+    logWarn('Panel width is still 0 after expansion attempts - skipping size constraint test');
     return;
   }
 
@@ -455,7 +537,7 @@ export async function testPanelSizeConstraints(
         await waitForPanelExpansion();
         postResizeWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
       } catch {
-        console.warn('Panel did not re-expand after collapse - skipping minimum constraint test');
+        logWarn('Panel did not re-expand after collapse - skipping minimum constraint test');
         postResizeWidth = 0;
       }
     }
@@ -468,7 +550,7 @@ export async function testPanelSizeConstraints(
     const minExpectedWidth = viewportSize.width * (minPercentage / 100);
     expect(minDimensions.width).toBeGreaterThan(minExpectedWidth * 0.8); // Allow 20% variance
   } else {
-    console.warn('Panel width is 0 after resize - skipping minimum constraint test');
+    logWarn('Panel width is 0 after resize - skipping minimum constraint test');
   }
 
   // Test maximum size constraint
@@ -565,7 +647,8 @@ export async function testLayoutPersistenceAcrossNavigation(
   await setupCallback();
 
   // Check if explorer panel is hidden and temporarily show it for navigation
-  const leftPanel = page.locator('[data-panel-id="explorer-panel"]');
+  // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
+  const leftPanel = page.locator('#explorer-panel');
   const wasHidden = !(await leftPanel.isVisible());
 
   if (wasHidden) {

@@ -4,6 +4,9 @@ import { waitForAppReady } from './electron-helpers';
 /**
  * Layout test utilities for Desktop E2E panel testing
  * Adapted from web E2E helpers for Electron-specific needs
+ *
+ * Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
+ * instead of custom data-panel-id attributes. Use #panel-name selectors.
  */
 
 async function ensureExplorerVisible(page: Page): Promise<void> {
@@ -29,7 +32,8 @@ async function ensureExplorerVisible(page: Page): Promise<void> {
 
 export async function ensureToolsPanelVisible(page: Page): Promise<Locator> {
   await ensureExplorerVisible(page);
-  const rightPanel = page.locator('[data-panel-id="tools-panel"]');
+  // Use id selector for react-resizable-panels v4 compatibility
+  const rightPanel = page.locator('#tools-panel');
   const showRightPanelButton = page
     .locator('[data-testid="show-tools-panel"]')
     .or(page.getByRole('button', { name: 'Show tools panel' }))
@@ -77,8 +81,9 @@ export async function showDatabaseDemoPanel(
   for (let attempt = 0; attempt < 2; attempt++) {
     activePage = await resolveActivePage(activePage);
     await waitForAppReady(activePage);
+    // Use id selector for react-resizable-panels v4 compatibility
     await activePage
-      .locator('[data-panel-id="middle-panel"]')
+      .locator('#middle-panel')
       .waitFor({ state: 'attached', timeout: tabTimeoutMs })
       .catch(() => {});
 

@@ -137,7 +137,7 @@ async function fetchMcpToolsWithTimeout(
     });
 
   try {
-    const toolsFromClient = (await withTimeout(mcpClient.getTools(), timeoutMs)) as ToolsInput;
+    const toolsFromClient = (await withTimeout(mcpClient.listTools(), timeoutMs)) as ToolsInput;
     return sanitizeTools(toolsFromClient, toolNameMap);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);

@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
@@ -344,7 +344,7 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
     }),
     {
       name: 'model-registry-storage',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => createSafeJsonStorageAdapter()),
       partialize: (state) => ({
         modelCacheDir: state.modelCacheDir,
         downloadedModels: state.downloadedModels,

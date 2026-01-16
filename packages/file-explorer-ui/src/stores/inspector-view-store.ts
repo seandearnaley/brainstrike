@@ -1,3 +1,4 @@
+import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -25,35 +26,7 @@ export type InspectorViewStore = InspectorData & InspectorActions;
 
 const STORE_NAME = 'inspector-view.v1' as const;
 
-const storage = createJSONStorage(() => {
-  const memory = new Map<string, string>();
-  return {
-    getItem: (k: string) => {
-      try {
-        if (typeof localStorage !== 'undefined') {
-          return localStorage.getItem(k);
-        }
-      } catch {}
-      return memory.get(k) ?? null;
-    },
-    setItem: (k: string, v: string) => {
-      try {
-        if (typeof localStorage !== 'undefined') {
-          return localStorage.setItem(k, v);
-        }
-      } catch {}
-      memory.set(k, v);
-    },
-    removeItem: (k: string) => {
-      try {
-        if (typeof localStorage !== 'undefined') {
-          return localStorage.removeItem(k);
-        }
-      } catch {}
-      memory.delete(k);
-    },
-  };
-});
+const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 
 const DEFAULTS: InspectorFields = {
   includeInReport: true,

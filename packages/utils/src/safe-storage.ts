@@ -16,6 +16,15 @@ export interface StorageError {
  */
 export type StorageErrorHandler = (error: StorageError) => void;
 
+export interface SafeJsonStorageAdapterOptions {
+  errorHandler?: StorageErrorHandler;
+  /**
+   * When true, log JSON parse failures before clearing the key.
+   * Defaults to true.
+   */
+  logParseErrors?: boolean;
+}
+
 /**
  * Creates a safe storage adapter with fallback to in-memory storage
  *
@@ -142,6 +151,39 @@ export function createSafeStorageAdapter(errorHandler?: StorageErrorHandler) {
 
   return {
     getItem: (key: string) => storage.getItem(key),
+    setItem: (key: string, value: string) => storage.setItem(key, value),
+    removeItem: (key: string) => storage.removeItem(key),
+  };
+}
+
+/**
+ * Creates a JSON-safe storage adapter for Zustand persistence.
+ *
+ * Ensures invalid JSON does not crash hydration by clearing corrupt entries
+ * and returning null instead.
+ */
+export function createSafeJsonStorageAdapter(options: SafeJsonStorageAdapterOptions = {}) {
+  const { errorHandler, logParseErrors = true } = options;
+  const storage = createSafeStorage(errorHandler);
+
+  return {
+    getItem: (key: string): string | null => {
+      const raw = storage.getItem(key);
+      if (raw === null) {
+        return null;
+      }
+      try {
+        JSON.parse(raw);
+        return raw;
+      } catch (error) {
+        if (logParseErrors) {
+          logger.warn('Invalid JSON in storage; clearing key', { key, error });
+        }
+        errorHandler?.({ operation: 'get', key, error });
+        storage.removeItem(key);
+        return null;
+      }
+    },
     setItem: (key: string, value: string) => storage.setItem(key, value),
     removeItem: (key: string) => storage.removeItem(key),
   };

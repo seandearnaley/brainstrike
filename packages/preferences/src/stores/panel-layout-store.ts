@@ -94,7 +94,19 @@ function persistOptions(
     storage: {
       getItem: async (name: string) => {
         const raw = await storage.getItem(name);
-        return raw ? JSON.parse(raw) : null;
+        if (!raw) {
+          return null;
+        }
+        try {
+          return JSON.parse(raw);
+        } catch {
+          try {
+            await storage.removeItem(name);
+          } catch {
+            // ignore removal errors
+          }
+          return null;
+        }
       },
       setItem: async (name: string, value: unknown) => {
         await storage.setItem(name, JSON.stringify(value));

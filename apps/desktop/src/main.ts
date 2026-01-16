@@ -39,24 +39,50 @@ import type { DesktopSettingsStoreSchema } from './store-schema';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
-const logFilePath = disableFileLogs ? undefined : path.join(app.getPath('logs'), 'brainstrike.log');
+// Defer getPath call until app is ready - calling at module load time fails
+let logFilePath: string | undefined;
+function getLogFilePath(): string | undefined {
+  if (disableFileLogs) {
+    return undefined;
+  }
+  // CRITICAL: app.getPath() throws before app.ready - return undefined and configure later
+  if (!app.isReady()) {
+    return undefined;
+  }
+  if (logFilePath === undefined) {
+    logFilePath = path.join(app.getPath('logs'), 'brainstrike.log');
+  }
+  return logFilePath;
+}
 
-const settingsStore: ElectronStore<DesktopSettingsStoreSchema> =
-  new ElectronStore<DesktopSettingsStoreSchema>({
-    name: 'brainstrike-settings',
-  });
+// Defer ElectronStore creation until app is ready
+// CRITICAL: ElectronStore uses app.getPath('userData') internally, which fails before app.ready
+let _settingsStore: ElectronStore<DesktopSettingsStoreSchema> | null = null;
+function getSettingsStore(): ElectronStore<DesktopSettingsStoreSchema> | null {
+  if (!_settingsStore) {
+    // Return null before app.ready - callers must handle this gracefully
+    if (!app.isReady()) {
+      return null;
+    }
+    _settingsStore = new ElectronStore<DesktopSettingsStoreSchema>({
+      name: 'brainstrike-settings',
+    });
+  }
+  return _settingsStore;
+}
 
 // Note: Embedding worker configuration moved to renderer process (see renderer/components/embedding-worker-provider.tsx)
 // Main process cannot run Web Workers - WASM/WebGPU require browser context
 
 function createDesktopDefaultPreferences(): LoggingPreferences {
+  const logPath = getLogFilePath();
   return createDefaultLoggingPreferences({
     level: LogLevel.DEBUG,
     consoleLevel: LogLevel.INFO,
     includeTimestamp: true,
     file: {
-      enabled: !disableFileLogs && Boolean(logFilePath),
-      destination: logFilePath ?? null,
+      enabled: !disableFileLogs && Boolean(logPath),
+      destination: logPath ?? null,
       level: LogLevel.DEBUG,
       append: true,
       mkdir: true,
@@ -98,7 +124,7 @@ function sanitizeDesktopPreferences(preferences: LoggingPreferences): LoggingPre
     normalized.file.enabled = false;
     normalized.file.destination = null;
   } else if (normalized.file.enabled) {
-    normalized.file.destination = trimmedDestination ?? logFilePath ?? null;
+    normalized.file.destination = trimmedDestination ?? getLogFilePath() ?? null;
     if (!normalized.file.destination) {
       normalized.file.enabled = false;
     } else if (!isWritableLogDestination(normalized.file.destination)) {
@@ -113,8 +139,14 @@ function sanitizeDesktopPreferences(preferences: LoggingPreferences): LoggingPre
 
 function readStoredLoggingPreferences(): LoggingPreferences | undefined {
   try {
+    const store = getSettingsStore();
+    if (!store) {
+      return;
+    }
     const record = (
-      settingsStore as ElectronStore<DesktopSettingsStoreSchema> & { get: (key: string) => unknown }
+      store as ElectronStore<DesktopSettingsStoreSchema> & {
+        get: (key: string) => unknown;
+      }
     ).get('loggingPreferences') as DesktopSettingsStoreSchema['loggingPreferences'] | undefined;
     return record?.v1;
   } catch {
@@ -139,8 +171,12 @@ function isWritableLogDestination(destination: string): boolean {
 
 function persistLoggingPreferences(preferences: LoggingPreferences): boolean {
   try {
+    const store = getSettingsStore();
+    if (!store) {
+      return false;
+    }
     (
-      settingsStore as ElectronStore<DesktopSettingsStoreSchema> & {
+      store as ElectronStore<DesktopSettingsStoreSchema> & {
         set: (key: string, value: unknown) => void;
       }
     ).set('loggingPreferences', { v1: cloneLoggingPreferences(preferences) });
@@ -211,28 +247,30 @@ applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
 });
 persistLoggingPreferences(currentLoggingPreferences);
 
-const loggingCapabilities = {
-  runtime: 'electron' as const,
-  fileLoggingSupported: !disableFileLogs,
-  canSelectDestination: !disableFileLogs,
-  defaultDestination: logFilePath ?? null,
-  reason: disableFileLogs ? 'File logging disabled by BRAINSTRIKE_DISABLE_FILE_LOGS=1' : null,
-};
+function getLoggingCapabilities() {
+  return {
+    runtime: 'electron' as const,
+    fileLoggingSupported: !disableFileLogs,
+    canSelectDestination: !disableFileLogs,
+    defaultDestination: getLogFilePath() ?? null,
+    reason: disableFileLogs ? 'File logging disabled by BRAINSTRIKE_DISABLE_FILE_LOGS=1' : null,
+  };
+}
 
 function getLoggingSettingsPayload(): LoggingSettingsPayload {
   return cloneLoggingSettingsPayload({
     preferences: currentLoggingPreferences,
-    capabilities: loggingCapabilities,
+    capabilities: getLoggingCapabilities(),
   });
 }
 
 async function selectLogDestination(): Promise<string | null> {
-  if (!loggingCapabilities.canSelectDestination) {
+  if (!getLoggingCapabilities().canSelectDestination) {
     return null;
   }
 
   const defaultPath =
-    currentLoggingPreferences.file.destination ?? logFilePath ?? app.getPath('logs');
+    currentLoggingPreferences.file.destination ?? getLogFilePath() ?? app.getPath('logs');
 
   const result = await dialog.showSaveDialog({
     title: 'Choose log file location',
@@ -268,7 +306,9 @@ function applyAndPersistLoggingPreferences(
 
 async function openLogDestination(target: string | null): Promise<boolean> {
   const destination =
-    target ?? currentLoggingPreferences.file.destination ?? loggingCapabilities.defaultDestination;
+    target ??
+    currentLoggingPreferences.file.destination ??
+    getLoggingCapabilities().defaultDestination;
   if (!destination) {
     return false;
   }
@@ -281,6 +321,7 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 }
 
 let stopAssistantServer: null | (() => Promise<void>) = null;
+let unregisterMainIpcHandlers: null | (() => void) = null;
 
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
   // Note: Embedding worker runs in renderer, not main process, so no need to stop it here
@@ -307,6 +348,11 @@ registerLoggingIpcHandlers({
   getBufferedLogs: () => mainLogBuffer.getRecords(),
 });
 
+// Register IPC handlers early to avoid renderer calls racing registration during startup.
+unregisterMainIpcHandlers = registerIpcHandlers(fileSystem, storage, getSettingsStore, {
+  onResetLocal: handleResetLocal,
+});
+
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught exception:', error);
@@ -316,18 +362,15 @@ process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled promise rejection', { reason, promise });
 });
 
-logger.info('Setting up IPC handlers...');
-registerIpcHandlers(fileSystem, storage, settingsStore, {
-  onResetLocal: handleResetLocal,
-});
-registerSecretsIpcHandlers(createSecretsService());
-registerAgentIpcHandlers();
-registerMcpIpcHandlers();
-logger.info('IPC handlers registered successfully');
-
 app.whenReady().then(async () => {
   try {
     logger.info('App ready, starting initialization...');
+
+    logger.info('Setting up IPC handlers that require app readiness...');
+    registerSecretsIpcHandlers(createSecretsService());
+    registerAgentIpcHandlers();
+    registerMcpIpcHandlers();
+    logger.info('Ready-dependent IPC handlers registered successfully');
 
     // Setup security before creating windows
     setupSecurity();
@@ -426,9 +469,14 @@ app.whenReady().then(async () => {
     ipcMain.handle('assistant:get-url', () => assistantUrl);
 
     const createMainWindow = async () => {
-      const storedWindowState = readStoredWindowState(settingsStore);
+      // Store is guaranteed to exist after app.whenReady()
+      const store = getSettingsStore();
+      if (!store) {
+        throw new Error('Settings store unavailable after app.ready - this should never happen');
+      }
+      const storedWindowState = readStoredWindowState(store);
       const win = await createWindow({ windowState: storedWindowState });
-      registerWindowStatePersistence(win, settingsStore);
+      registerWindowStatePersistence(win, store);
       return win;
     };
 
@@ -473,6 +521,10 @@ app.on('before-quit', async () => {
 app.on('will-quit', () => {
   // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
   console.log('--- RAW CONSOLE LOG: WILL-QUIT TRIGGERED ---');
+  if (unregisterMainIpcHandlers) {
+    unregisterMainIpcHandlers();
+    unregisterMainIpcHandlers = null;
+  }
   removeLogBufferListener();
 });
 

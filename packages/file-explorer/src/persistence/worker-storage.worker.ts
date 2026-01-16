@@ -58,7 +58,18 @@ function handleRemoveOperation(data: StorageOperation): void {
 
 // Handle storage response
 function handleStorageResponse(data: StorageOperation): void {
-  const result = data.operation === 'getItem' && data.rawValue ? JSON.parse(data.rawValue) : true;
+  let result: unknown = true;
+  if (data.operation === 'getItem') {
+    if (data.rawValue) {
+      try {
+        result = JSON.parse(data.rawValue);
+      } catch {
+        result = null;
+      }
+    } else {
+      result = null;
+    }
+  }
 
   self.postMessage({
     id: data.id,

@@ -25,11 +25,18 @@ describe('layout-helpers (unit)', () => {
     const page = {
       waitForLoadState: vi.fn(async (state: string) => void loadStates.push(state)),
       waitForSelector: vi.fn(async (sel: string) => void waited.push(sel)),
+      // CI debug listeners (no-op in unit tests)
+      on: vi.fn(),
     } as unknown as Page;
     await waitForAppLoad(page, 10_000);
-    expect(loadStates).toContain('domcontentloaded');
-    expect(waited).toContain('[data-panel-id="middle-panel"]');
-    expect(waited).toContain('[data-panel-id="main-content-panel"]');
+    // Using 'load' instead of 'domcontentloaded' to ensure JS bundles are loaded
+    // before checking React elements (important for CI with vite preview)
+    expect(loadStates).toContain('load');
+    // Best-effort networkidle wait for deferred script loading
+    expect(loadStates).toContain('networkidle');
+    // react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
+    expect(waited).toContain('#middle-panel');
+    expect(waited).toContain('#main-content-panel');
   });
 
   it('resetLayoutState clears state and reloads', async () => {
@@ -39,6 +46,8 @@ describe('layout-helpers (unit)', () => {
       reload: vi.fn(async () => {}),
       waitForLoadState: vi.fn(async () => {}),
       waitForSelector: vi.fn(async () => {}),
+      // CI debug listeners (no-op in unit tests)
+      on: vi.fn(),
     } as unknown as Page;
     await resetLayoutState(page);
     expect(page.reload).toHaveBeenCalled();

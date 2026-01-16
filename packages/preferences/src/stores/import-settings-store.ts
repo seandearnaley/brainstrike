@@ -1,5 +1,5 @@
 import type { ChunkingStrategy } from '@brainstrike/db';
-import { createSafeStorageAdapter } from '@brainstrike/utils';
+import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { useTokenPreferencesStore } from './token-preferences-store';
@@ -32,7 +32,7 @@ const STORE_VERSION = 5 as const;
  * Storage adapter with fallback to in-memory for SSR/tests
  * Uses safe storage utility with proper error logging
  */
-const storage = createJSONStorage(() => createSafeStorageAdapter());
+const storage = createJSONStorage(() => createSafeJsonStorageAdapter());
 
 const getAccurateCountingPreference = () => useTokenPreferencesStore.getState().accurateCounting;
 

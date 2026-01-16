@@ -27,10 +27,10 @@
     "test:coverage": "pnpm -w test:coverage"
   },
   "devDependencies": {
-    "@swc/core": "^1.13.5",
-    "@types/node": "^24.10.1",
+    "@swc/core": "^1.15.8",
+    "@types/node": "^25.0.8",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.17"
   },
   "license": "ISC",
   "turbo": {

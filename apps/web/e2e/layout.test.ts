@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { resetAppState } from './utils/app-state';
 import {
+  corruptLayoutStorage,
   getPanelElements,
   togglePanelVisibility,
   verifyDefaultLayout,
@@ -64,6 +65,34 @@ test.describe('Application Layout', () => {
       await verifyDefaultLayout(page);
     });
 
+    test('should recover from corrupted layout storage on reload', async ({ page }) => {
+      await corruptLayoutStorage(page);
+      await page.reload();
+      await waitForAppLoad(page);
+      await verifyDefaultLayout(page);
+    });
+
+    test('should normalize invalid persisted sizes on reload', async ({ page }) => {
+      await page.evaluate(() => {
+        localStorage.setItem(
+          'panel-layout-store.v1',
+          JSON.stringify({
+            state: {
+              sizes: [-10, 20, 'NaN'],
+              showLeftPanel: true,
+              showRightPanel: false,
+              showConsole: false,
+            },
+            version: 2,
+          })
+        );
+      });
+
+      await page.reload();
+      await waitForAppLoad(page);
+      await verifyDefaultLayout(page);
+    });
+
     test('should allow toggling left panel visibility', async ({ page }) => {
       const elements = getPanelElements(page);
 
@@ -100,8 +129,9 @@ test.describe('Application Layout', () => {
       const elements = getPanelElements(page);
 
       // Verify horizontal resize handles are present (left panel boundary)
+      // Note: react-resizable-panels v4 uses aria-orientation and data-separator
       const horizontalResizeHandles = page.locator(
-        '[data-panel-resize-handle-enabled="true"][data-panel-group-direction="horizontal"]'
+        '[aria-orientation="horizontal"] [data-separator]'
       );
       await expect(horizontalResizeHandles.first()).toBeVisible(); // Left panel resize handle
 
@@ -110,9 +140,8 @@ test.describe('Application Layout', () => {
       await expect(elements.consolePanel).toBeVisible();
 
       // Should have console resize handle (vertical direction)
-      const verticalResizeHandles = page.locator(
-        '[data-panel-resize-handle-enabled="true"][data-panel-group-direction="vertical"]'
-      );
+      // Note: react-resizable-panels v4 uses aria-orientation and data-separator
+      const verticalResizeHandles = page.locator('[aria-orientation="vertical"] [data-separator]');
       await expect(verticalResizeHandles.first()).toBeVisible();
     });
 
@@ -124,18 +153,53 @@ test.describe('Application Layout', () => {
       await elements.showRightPanelShim.click(); // And show it again
 
       // Verify all main layout containers exist
-      await expect(page.locator('[data-panel-id="explorer-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="middle-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="tools-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="main-content-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="console-panel"]')).toBeAttached();
+      // Note: react-resizable-panels v4 uses id="panel-name" with data-panel="true" as boolean marker
+      await expect(page.locator('#explorer-panel')).toBeAttached();
+      await expect(page.locator('#middle-panel')).toBeAttached();
+      await expect(page.locator('#tools-panel')).toBeAttached();
+      await expect(page.locator('#main-content-panel')).toBeAttached();
+      await expect(page.locator('#console-panel')).toBeAttached();
 
       // Verify panel group structure using correct data attributes
+      // Note: react-resizable-panels v4 uses data-group instead of data-panel-group
       // Expecting three panel groups:
       // - Outer horizontal (left/middle/right)
       // - Inner vertical (main/console)
       // - Right panel's prompt manager (when right panel is visible)
-      await expect(page.locator('[data-panel-group]')).toHaveCount(3);
+      await expect(page.locator('[data-group]')).toHaveCount(3);
+    });
+
+    test('should handle rapid panel visibility changes', async ({ page }) => {
+      const elements = getPanelElements(page);
+
+      await elements.hideExplorerButton.click();
+      await expect(elements.showExplorerShim).toBeVisible();
+
+      await elements.showConsoleShim.click();
+      await expect(elements.consolePanel).toBeVisible();
+
+      await elements.showExplorerShim.click();
+      await expect(elements.leftPanel).toBeVisible();
+
+      await elements.hideConsoleButton.click();
+      await expect(elements.consolePanel).not.toBeVisible();
+
+      await verifyDefaultLayout(page);
+
+      const layoutState = await page.evaluate(() => localStorage.getItem('panel-layout-store.v1'));
+      expect(layoutState).not.toBeNull();
+
+      const parsed = JSON.parse(layoutState ?? '{}') as {
+        state?: { sizes?: unknown[] };
+      };
+      const sizes = Array.isArray(parsed.state?.sizes) ? parsed.state?.sizes : [];
+
+      for (const size of sizes) {
+        const numeric = typeof size === 'number' ? size : Number.NaN;
+        expect(Number.isFinite(numeric)).toBe(true);
+        expect(numeric).toBeGreaterThanOrEqual(0);
+        expect(numeric).toBeLessThanOrEqual(100);
+      }
     });
   });
 });

@@ -55,7 +55,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockResolvedValue({}),
+        listTools: vi.fn().mockResolvedValue({}),
       };
 
       const result = await collectCombinedTools({
@@ -79,7 +79,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockResolvedValue(mockMcpTools),
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
       };
 
       const result = await collectCombinedTools({
@@ -100,6 +100,7 @@ describe('mcp-tool-loader', () => {
 
       expect(Object.keys(result)).toHaveLength(2);
       expect(result['local_tool']).toBeDefined();
+      // Tool names are sanitized: '.' gets replaced with '_'
       expect(result['server1_remote_tool']).toBeDefined();
     });
 
@@ -109,7 +110,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockImplementation(() => {
+        listTools: vi.fn().mockImplementation(() => {
           return new Promise((resolve) => {
             setTimeout(() => resolve({}), 10_000); // Will timeout
           });
@@ -142,7 +143,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockRejectedValue(new Error('Connection failed')),
+        listTools: vi.fn().mockRejectedValue(new Error('Connection failed')),
       };
 
       const result = await collectCombinedTools({
@@ -172,7 +173,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockResolvedValue(mockMcpTools),
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
       };
 
       const result = await collectCombinedTools({
@@ -202,7 +203,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockResolvedValue(mockMcpTools),
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
       };
 
       const result = await collectCombinedTools({
@@ -232,7 +233,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockResolvedValue(mockMcpTools),
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
       };
 
       const result = await collectCombinedTools({
@@ -263,7 +264,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockResolvedValue(mockMcpTools),
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
       };
 
       const result = await collectCombinedTools({
@@ -290,7 +291,7 @@ describe('mcp-tool-loader', () => {
 
     it('uses custom timeout value when provided', async () => {
       const mockMcpClient = {
-        getTools: vi.fn().mockImplementation(
+        listTools: vi.fn().mockImplementation(
           () =>
             new Promise((resolve) => {
               setTimeout(() => resolve({}), 50);
@@ -326,7 +327,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockResolvedValue(mockMcpTools),
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
       };
 
       const result = await collectCombinedTools({
@@ -346,7 +347,7 @@ describe('mcp-tool-loader', () => {
       });
 
       // Should use default timeout (5000ms) and still work
-      expect(mockMcpClient.getTools).toHaveBeenCalled();
+      expect(mockMcpClient.listTools).toHaveBeenCalled();
       expect(result).toBeDefined();
     });
 
@@ -357,7 +358,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockResolvedValue(mockMcpTools),
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
       };
 
       const result = await collectCombinedTools({
@@ -387,7 +388,7 @@ describe('mcp-tool-loader', () => {
       };
 
       const mockMcpClient = {
-        getTools: vi.fn().mockResolvedValue(mockMcpTools),
+        listTools: vi.fn().mockResolvedValue(mockMcpTools),
       };
 
       const result = await collectCombinedTools({

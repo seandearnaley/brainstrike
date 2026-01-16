@@ -4,7 +4,12 @@ import { createOpenAI } from '@ai-sdk/openai';
 import type { MastraModelConfig } from '@mastra/core/llm';
 import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import { createLocalLanguageModel } from './local';
-import { PROVIDER_DEFAULT_MODELS, type SupportedProvider } from './types';
+import {
+  isSupportedProvider,
+  listProviders,
+  PROVIDER_DEFAULT_MODELS,
+  type SupportedProvider,
+} from './types';
 
 /**
  * Create a language model instance for the specified provider
@@ -20,9 +25,26 @@ export function createProvider(
   apiKey?: string,
   model?: string
 ): MastraModelConfig {
-  const modelName = model ?? PROVIDER_DEFAULT_MODELS[provider as SupportedProvider];
+  const supportedProviders = listProviders().map(
+    (entry) => entry.id
+  ) as readonly SupportedProvider[];
+  if (!isSupportedProvider(provider)) {
+    throw createMastraAgentError('mastra_agent_unsupported_provider', {
+      detail: `Unsupported provider: ${provider}`,
+      context: { provider, supportedProviders },
+    });
+  }
 
-  switch (provider) {
+  const validatedProvider = provider;
+  const modelName = model ?? PROVIDER_DEFAULT_MODELS[validatedProvider];
+  if (!modelName) {
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      detail: `No default model configured for provider: ${provider}`,
+      context: { provider },
+    });
+  }
+
+  switch (validatedProvider) {
     case 'openai': {
       const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
       return openaiProvider(modelName);
@@ -55,7 +77,7 @@ export function createProvider(
     default:
       throw createMastraAgentError('mastra_agent_unsupported_provider', {
         detail: `Unsupported provider: ${provider}`,
-        context: { provider },
+        context: { provider, supportedProviders },
       });
   }
 }

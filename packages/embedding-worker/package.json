@@ -32,17 +32,17 @@
   },
   "dependencies": {
     "@brainstrike/types": "workspace:*",
-    "@huggingface/transformers": "^3.8.0",
+    "@huggingface/transformers": "^3.8.1",
     "workerpool": "^10.0.1"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@types/node": "^24.10.1",
-    "esbuild": "^0.25.12",
+    "@types/node": "^25.0.8",
+    "esbuild": "^0.27.2",
     "rimraf": "^6.1.2",
-    "tsup": "^8.5.0",
+    "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.14"
+    "vitest": "^4.0.17"
   },
   "turbo": {
     "outputs": [

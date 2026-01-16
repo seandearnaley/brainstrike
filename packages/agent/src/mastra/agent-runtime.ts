@@ -187,8 +187,16 @@ export async function createMastraAgentRuntime(
 
   // Detect if model is AI SDK V1 (may require streamLegacy instead of stream)
   // V1 models have specificationVersion === 'v1', V2 models don't have this property
-  const modelSpec = languageModel as unknown as { specificationVersion?: string };
-  const usesLegacyModel = modelSpec.specificationVersion === 'v1';
+  const usesLegacyModel = (() => {
+    if (!languageModel || typeof languageModel !== 'object') {
+      return false;
+    }
+    if (!('specificationVersion' in languageModel)) {
+      return false;
+    }
+    const spec = (languageModel as { specificationVersion?: unknown }).specificationVersion;
+    return spec === 'v1';
+  })();
 
   if (usesLegacyModel) {
     logger.info('legacy V1 model detected', {
@@ -198,6 +206,7 @@ export async function createMastraAgentRuntime(
   }
 
   const agent = new Agent({
+    id: 'brainstrike-assistant',
     name: 'Brainstrike Assistant',
     instructions:
       instructions ??

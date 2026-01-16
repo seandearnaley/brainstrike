@@ -104,16 +104,17 @@ export function validateGlobPatterns(patterns: string[]): GlobPatternValidationR
 
 /**
  * Zod refinement for safe glob patterns.
+ * Uses superRefine for dynamic error messages in Zod v4.
  */
-const safeGlobPatternSchema = z.string().refine(
-  (pattern) => validateGlobPattern(pattern).valid,
-  (pattern) => {
-    const result = validateGlobPattern(pattern);
-    return {
-      message: result.valid ? '' : result.reason,
-    };
+const safeGlobPatternSchema = z.string().superRefine((pattern, ctx) => {
+  const result = validateGlobPattern(pattern);
+  if (!result.valid) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: result.reason,
+    });
   }
-);
+});
 
 // ============================================================================
 // Schema Version

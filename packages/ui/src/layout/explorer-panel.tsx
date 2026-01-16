@@ -1,16 +1,14 @@
 import { ChevronLeft, PanelLeft } from 'lucide-react';
 import type React from 'react';
-import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
+import { Panel, type PanelImperativeHandle, Separator } from 'react-resizable-panels';
 import { Button } from '../button';
 
 interface ExplorerPanelProps {
-  panelRef: React.RefObject<ImperativePanelHandle | null>;
+  panelRef: React.RefObject<PanelImperativeHandle | null>;
   content: React.ReactNode;
   hideButtonRef: React.RefObject<HTMLButtonElement | null>;
   onHide: () => void;
-  defaultSize: number;
-  onCollapse: () => void;
-  onExpand: (size?: number) => void;
+  defaultSize: number | string;
 }
 
 export function ExplorerPanel({
@@ -19,24 +17,19 @@ export function ExplorerPanel({
   hideButtonRef,
   onHide,
   defaultSize,
-  onCollapse,
-  onExpand,
 }: ExplorerPanelProps) {
   return (
     <>
       <Panel
         className="bg-background"
-        collapsedSize={0}
+        collapsedSize="0%"
         collapsible
         data-panel-id="explorer-panel"
-        defaultSize={defaultSize}
+        defaultSize={typeof defaultSize === 'number' ? `${defaultSize}%` : defaultSize}
         id="explorer-panel"
-        maxSize={50}
-        minSize={15}
-        onCollapse={onCollapse}
-        onExpand={onExpand}
-        order={1}
-        ref={panelRef}
+        maxSize="50%"
+        minSize="15%"
+        panelRef={panelRef}
       >
         <div className="h-full">
           <div className="flex items-center justify-between border-border border-b bg-muted/30 px-2 py-2">
@@ -59,7 +52,7 @@ export function ExplorerPanel({
           <div className="h-[calc(100%-2.5rem)]">{content}</div>
         </div>
       </Panel>
-      <PanelResizeHandle className="w-1 bg-border transition-colors hover:bg-border/80" />
+      <Separator className="w-1 bg-border transition-colors hover:bg-border/80" />
     </>
   );
 }

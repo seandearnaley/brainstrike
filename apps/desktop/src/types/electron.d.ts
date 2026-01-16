@@ -1,6 +1,10 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
-import type { PanelPersistenceState } from '@brainstrike/ui';
+import type {
+  LayoutLoadResult,
+  LayoutPersistenceResult,
+  PanelPersistenceState,
+} from '@brainstrike/ui';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
 
 import type { LoggingSettingsPayload } from '../logging-shared';
@@ -68,8 +72,8 @@ declare global {
         ) => () => void;
       };
       // Layout persistence methods
-      saveLayout: (state: PanelPersistenceState) => Promise<void>;
-      loadLayout: () => Promise<PanelPersistenceState | undefined>;
+      saveLayout: (state: PanelPersistenceState) => Promise<LayoutPersistenceResult>;
+      loadLayout: () => Promise<LayoutLoadResult>;
       // Database path method (legacy)
       getUserDataPath: () => Promise<string>;
     };
