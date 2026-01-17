@@ -31,6 +31,8 @@ interface WorkspaceSettingsProps {
     available: boolean;
     loading: boolean;
   };
+  hasStoredFolders?: boolean;
+  onForgetStoredFolders?: () => void;
 }
 
 const logger = createLogger('WorkspaceSettings');
@@ -74,6 +76,8 @@ const ConfigDialogContent: React.FC<{
     available: boolean;
     loading: boolean;
   };
+  hasStoredFolders?: boolean;
+  onForgetStoredFolders?: () => void;
 }> = ({
   filterError,
   onFilterChange,
@@ -86,6 +90,8 @@ const ConfigDialogContent: React.FC<{
   persistPatch,
   setDevInlineFixtureEnabled,
   inlineFixtureSetting,
+  hasStoredFolders,
+  onForgetStoredFolders,
 }) => {
   const handleApplySettings = async () => {
     const {
@@ -169,6 +175,24 @@ const ConfigDialogContent: React.FC<{
             onChange={handleInlineFixtureToggle}
           />
         )}
+        {onForgetStoredFolders && (
+          <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 p-3">
+            <div>
+              <p className="font-medium text-sm">Stored folders</p>
+              <p className="text-muted-foreground text-xs">
+                Clear all remembered folders for File System access.
+              </p>
+            </div>
+            <Button
+              disabled={!hasStoredFolders}
+              onClick={onForgetStoredFolders}
+              size="sm"
+              variant="outline"
+            >
+              Forget all folders
+            </Button>
+          </div>
+        )}
         <div className="mt-2 flex justify-end border-t pt-2">
           <Button
             data-testid="apply-settings-button"
@@ -201,7 +225,16 @@ const SettingsDialogContainer: React.FC<
     };
     persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
   }
-> = ({ filterError, onFilterChange, selectors, actions, persistPatch, inlineFixtureSetting }) => {
+> = ({
+  filterError,
+  onFilterChange,
+  selectors,
+  actions,
+  persistPatch,
+  inlineFixtureSetting,
+  hasStoredFolders,
+  onForgetStoredFolders,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
   const [settings, setSettings] = useState<FileExplorerSettings>(() => ({
     includeFilters: selectors.includeFilters,
@@ -261,6 +294,7 @@ const SettingsDialogContainer: React.FC<
         >
           <ConfigDialogContent
             filterError={filterError}
+            hasStoredFolders={hasStoredFolders ?? false}
             onClose={() => setIsOpen(false)}
             onFilterChange={onFilterChange}
             onSettingsChange={handleSettingChange}
@@ -270,6 +304,7 @@ const SettingsDialogContainer: React.FC<
             setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
             settings={settings}
             setUseRegex={actions.setUseRegex}
+            {...(onForgetStoredFolders ? { onForgetStoredFolders } : {})}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
           />
         </DialogContent>
@@ -280,7 +315,13 @@ const SettingsDialogContainer: React.FC<
 
 // Main Component (compiled wrapper)
 const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
-  ({ filterError, onFilterChange, inlineFixtureSetting }) => {
+  ({
+    filterError,
+    onFilterChange,
+    inlineFixtureSetting,
+    hasStoredFolders,
+    onForgetStoredFolders,
+  }) => {
     const store = useFileExplorerStoreContext();
     const [
       includeFilters,
@@ -386,6 +427,9 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
           folderSummaryThreshold,
           devInlineFixtureEnabled,
         }}
+        {...(typeof onForgetStoredFolders === 'function'
+          ? { onForgetStoredFolders, hasStoredFolders }
+          : {})}
         {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
       />
     );

@@ -87,6 +87,10 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
     if (typeof fileSystemAdapter.restoreLastFolder !== 'function') {
       return;
     }
+    const adapterPlatform = (fileSystemAdapter as { platform?: 'web' | 'electron' }).platform;
+    if (adapterPlatform === 'web') {
+      return;
+    }
 
     // CRITICAL: Set loading state SYNCHRONOUSLY before starting async operation.
     // This prevents race conditions where other effects (like stale state clearing)

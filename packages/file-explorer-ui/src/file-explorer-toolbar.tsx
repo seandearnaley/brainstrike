@@ -23,6 +23,8 @@ interface FileExplorerToolbarProps {
     available: boolean;
     loading: boolean;
   };
+  hasStoredFolders?: boolean;
+  onForgetStoredFolders?: () => void;
 }
 
 const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
@@ -39,6 +41,8 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
     maxSelectionCount,
     onMaxSelectionCountChange,
     inlineFixtureSetting,
+    hasStoredFolders,
+    onForgetStoredFolders,
   }) => (
     <div className="@container flex flex-col gap-2 border-b px-2 py-2">
       <div className="flex items-center justify-between gap-2">
@@ -58,6 +62,9 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
           <WorkspaceSettings
             filterError={filterError}
             onFilterChange={onFilterChange}
+            {...(typeof onForgetStoredFolders === 'function'
+              ? { onForgetStoredFolders, hasStoredFolders }
+              : {})}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
           />
         </div>

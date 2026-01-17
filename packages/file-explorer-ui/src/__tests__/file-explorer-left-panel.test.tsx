@@ -84,6 +84,16 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
   return {
     ...actual,
     useAdapters: vi.fn(() => ({ fileSystemAdapter: {}, storageAdapter: {} })),
+    useRestoreAccess: vi.fn(() => ({
+      pendingRestore: null,
+      showDeniedBanner: false,
+      showStaleBanner: false,
+      storedFolders: [],
+      beginRestore: vi.fn(),
+      dismissRestore: vi.fn(),
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+    })),
     useToastManager: vi.fn(() => ({
       toast: vi.fn(),
       showToast: showToastMock,

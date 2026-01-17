@@ -1,4 +1,4 @@
-import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
+import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import { LoadingFallback } from '@brainstrike/ui';
 import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
@@ -8,6 +8,7 @@ const logger = createLogger('FileExplorerLeftPanel');
 import * as React from 'react';
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import ActionButtons from './action-buttons-array-facade';
+import { RestoreAccessBanner } from './components/restore-access-banner';
 import { TreeActionButtons } from './components/tree-action-buttons';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
@@ -148,6 +149,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     isRestoringExpandedPaths,
     restorationProgress,
   } = useFileExplorer();
+
+  const {
+    pendingRestore,
+    showDeniedBanner,
+    showStaleBanner,
+    storedFolders,
+    beginRestore,
+    dismissRestore,
+    clearStoredHandles,
+  } = useRestoreAccess();
 
   const {
     showToast,
@@ -422,10 +433,12 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           <FileExplorerToolbar
             clearQuickFilter={clearQuickFilter}
             filterError={filterError}
+            hasStoredFolders={storedFolders.length > 0}
             isLoading={isLoading}
             maxSelectionCount={maxSelectionCount}
             onDirectorySelect={handleDirectorySelect}
             onFilterChange={handleFilterChange}
+            onForgetStoredFolders={clearStoredHandles}
             onMaxSelectionCountChange={setMaxSelectionCount}
             quickFilter={quickFilter}
             rootDirectoryHandle={rootDirectoryHandle}
@@ -445,6 +458,21 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             isRestoring={isRestoringExpandedPaths}
             progress={restorationProgress}
           />
+          {!rootDirectoryHandle && (pendingRestore || showDeniedBanner || showStaleBanner) ? (
+            <RestoreAccessBanner
+              folderName={pendingRestore?.name ?? storedFolders[0]?.name ?? 'previous folder'}
+              onChooseDifferent={handleDirectorySelect}
+              onDismiss={dismissRestore}
+              onRestore={async () => {
+                const restored = await beginRestore();
+                if (restored) {
+                  setRootDirectoryHandle(restored);
+                  setCurrentFolderId(restored.name);
+                }
+              }}
+              variant={showStaleBanner ? 'stale' : showDeniedBanner ? 'denied' : 'pending'}
+            />
+          ) : null}
         </div>
 
         {/* Scrollable Middle Content */}
