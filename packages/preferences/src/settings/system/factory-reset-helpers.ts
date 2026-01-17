@@ -12,6 +12,7 @@ export const FALLBACK_INDEXED_DB_NAMES = [
   'web', // apps/web explicitly uses idb://web for persisted storage
   'brainstrike-desktop', // Desktop renderer stores its queue/embeddings database in IndexedDB
   'brainstrike-web', // Legacy web builds used idb://brainstrike-web; keep to clean up stale installs
+  'brainstrike-file-handles', // Web File System Access handle cache (IndexedDB)
 ] as const;
 
 export interface ClearPersistentUiStateOptions {
