@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WebFileSystemAdapter } from '../adapters/web-adapter';
+import type { HandleCache } from '../adapters/web-handle-cache';
 import type { DirectoryHandle, FileHandle } from '../types';
 
 function createFile(name: string, content = 'data', lastModified = Date.now()) {
@@ -12,6 +13,20 @@ function createFile(name: string, content = 'data', lastModified = Date.now()) {
     name,
   } as unknown as File;
 }
+
+const createHandleCache = (overrides: Partial<HandleCache> = {}): HandleCache => ({
+  storeRootHandle: vi.fn().mockResolvedValue(undefined),
+  getRootHandle: vi.fn().mockResolvedValue(null),
+  getAllRootHandles: vi.fn().mockResolvedValue([]),
+  removeRootHandle: vi.fn().mockResolvedValue(undefined),
+  restoreLastRootHandle: vi.fn().mockResolvedValue(null),
+  storeFileHandle: vi.fn().mockResolvedValue(undefined),
+  getFileHandle: vi.fn().mockResolvedValue(null),
+  removeFileHandle: vi.fn().mockResolvedValue(undefined),
+  clear: vi.fn().mockResolvedValue(undefined),
+  pruneOldHandles: vi.fn().mockResolvedValue(undefined),
+  ...overrides,
+});
 
 describe('WebFileSystemAdapter', () => {
   let adapter: WebFileSystemAdapter;
@@ -40,6 +55,24 @@ describe('WebFileSystemAdapter', () => {
         platform: 'web',
         _internal: dirHandle,
       });
+    });
+
+    it('persists the directory handle for restore', async () => {
+      const dirHandle = {
+        name: 'root',
+        kind: 'directory',
+        entries: vi.fn(),
+      } as unknown as FileSystemDirectoryHandle;
+      (
+        window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+      ).showDirectoryPicker = vi.fn().mockResolvedValue(dirHandle);
+
+      const handleCache = createHandleCache();
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      await adapter.requestDirectoryAccess();
+
+      expect(handleCache.storeRootHandle).toHaveBeenCalledWith('root', dirHandle);
     });
 
     it('throws when showDirectoryPicker is missing', async () => {
@@ -240,6 +273,29 @@ describe('WebFileSystemAdapter', () => {
       expect(text).toBe('text');
     });
 
+    it('caches file handles on read', async () => {
+      const file = createFile('a.txt', 'text');
+      const fileHandle = {
+        kind: 'file',
+        name: 'a.txt',
+        getFile: vi.fn().mockResolvedValue(file),
+      } as unknown as FileSystemFileHandle;
+      const handle: FileHandle = {
+        path: 'root/a.txt',
+        name: 'a.txt',
+        kind: 'file',
+        platform: 'web',
+        rootFolderId: 'root',
+        _internal: fileHandle,
+      };
+      const handleCache = createHandleCache();
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      await adapter.readFile(handle);
+
+      expect(handleCache.storeFileHandle).toHaveBeenCalledWith('root', 'root/a.txt', fileHandle);
+    });
+
     it('propagates getFile errors', async () => {
       const fileHandle = {
         kind: 'file',
@@ -293,6 +349,104 @@ describe('WebFileSystemAdapter', () => {
         message: expect.stringContaining('File too large'),
         path: 'big.bin',
       });
+    });
+  });
+
+  describe('restoreLastFolder', () => {
+    it('returns null when no cached handle exists', async () => {
+      const handleCache = createHandleCache();
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      const restored = await adapter.restoreLastFolder();
+
+      expect(restored).toBeNull();
+      expect(handleCache.getAllRootHandles).toHaveBeenCalledOnce();
+    });
+
+    it('returns a directory handle when permission is granted', async () => {
+      const entries = async function* () {
+        yield ['file.txt', {} as FileSystemHandle];
+      };
+      const dirHandle = {
+        name: 'root',
+        kind: 'directory',
+        entries,
+      } as unknown as FileSystemDirectoryHandle;
+      const handleCache = createHandleCache({
+        getAllRootHandles: vi.fn().mockResolvedValue([
+          {
+            folderId: 'root',
+            name: 'root',
+            handle: dirHandle,
+            storedAt: Date.now(),
+            lastAccessedAt: Date.now(),
+          },
+        ]),
+      });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      const restored = await adapter.restoreLastFolder();
+
+      expect(restored).toEqual({
+        path: 'root',
+        name: 'root',
+        kind: 'directory',
+        platform: 'web',
+        _internal: dirHandle,
+      });
+    });
+
+    it('clears the cached handle when the handle is invalid', async () => {
+      const invalidHandle = { name: 'oops' } as unknown as FileSystemDirectoryHandle;
+      const removeRootHandle = vi.fn().mockResolvedValue(undefined);
+      const handleCache = createHandleCache({
+        getAllRootHandles: vi.fn().mockResolvedValue([
+          {
+            folderId: 'oops',
+            name: 'oops',
+            handle: invalidHandle,
+            storedAt: Date.now(),
+            lastAccessedAt: Date.now(),
+          },
+        ]),
+        removeRootHandle,
+      });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      const restored = await adapter.restoreLastFolder();
+
+      expect(restored).toBeNull();
+      expect(removeRootHandle).toHaveBeenCalledOnce();
+    });
+
+    it('clears the cached handle when directory access fails', async () => {
+      const entries = vi.fn().mockImplementation(() => {
+        throw new Error('boom');
+      });
+      const dirHandle = {
+        name: 'root',
+        kind: 'directory',
+        entries,
+      } as unknown as FileSystemDirectoryHandle;
+      const removeRootHandle = vi.fn().mockResolvedValue(undefined);
+      const handleCache = createHandleCache({
+        getAllRootHandles: vi.fn().mockResolvedValue([
+          {
+            folderId: 'root',
+            name: 'root',
+            handle: dirHandle,
+            storedAt: Date.now(),
+            lastAccessedAt: Date.now(),
+          },
+        ]),
+        removeRootHandle,
+      });
+      const adapter = new WebFileSystemAdapter({ handleCache });
+
+      const restored = await adapter.restoreLastFolder();
+
+      expect(restored).toBeNull();
+      expect(removeRootHandle).toHaveBeenCalledOnce();
     });
   });
 

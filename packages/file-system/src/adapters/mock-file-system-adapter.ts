@@ -135,6 +135,7 @@ function sortFileNodes(entries: IFileNode[]): IFileNode[] {
  * Mock implementation of FileSystemAdapter for testing purposes
  */
 export class MockFileSystemAdapter implements FileSystemAdapter {
+  public readonly platform = 'web' as const;
   private mockFileSystem: Record<string, MockFileEntry> = {};
   private selectedDirectory: string | null = null;
   /** Delay between streaming batches (ms). Set to 0 for instant delivery in tests. */

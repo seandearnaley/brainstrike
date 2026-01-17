@@ -129,6 +129,7 @@ export interface FileHandle {
   kind: 'file';
   size?: number;
   platform: 'web' | 'electron';
+  rootFolderId?: string;
   _internal?: unknown;
 }
 

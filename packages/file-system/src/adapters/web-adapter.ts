@@ -13,6 +13,7 @@ import {
   isFileSystemFileHandle,
   normalizeDirectoryReadOptions,
 } from '../utils';
+import { type HandleCache, type StoredRootHandle, WebHandleCache } from './web-handle-cache';
 
 // Type declarations for File System Access API
 declare global {
@@ -35,6 +36,12 @@ declare global {
   interface FileSystemHandle {
     readonly kind: 'file' | 'directory';
     readonly name: string;
+    queryPermission?(descriptor?: FileSystemPermissionDescriptor): Promise<PermissionState>;
+    requestPermission?(descriptor?: FileSystemPermissionDescriptor): Promise<PermissionState>;
+  }
+
+  interface FileSystemPermissionDescriptor {
+    mode?: 'read' | 'readwrite';
   }
 }
 
@@ -103,13 +110,35 @@ async function createFileNode(
   }
 }
 
+export interface WebFileSystemAdapterOptions {
+  handleCache?: HandleCache;
+}
+
 export class WebFileSystemAdapter implements FileSystemAdapter {
+  public readonly platform = 'web' as const;
+  private readonly handleCache: HandleCache;
+  private lastRootFolderId: string | null = null;
+
+  constructor(options?: WebFileSystemAdapterOptions) {
+    this.handleCache = options?.handleCache ?? new WebHandleCache();
+  }
+
+  getHandleCache(): HandleCache {
+    return this.handleCache;
+  }
+
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     if (!('showDirectoryPicker' in window)) {
       throw new Error('File System Access API not supported');
     }
 
     const dirHandle = await window.showDirectoryPicker();
+    try {
+      await this.handleCache.storeRootHandle(dirHandle.name, dirHandle);
+      this.lastRootFolderId = dirHandle.name;
+    } catch {
+      // Best-effort persistence; ignore failures.
+    }
 
     return {
       path: dirHandle.name, // Web API doesn't give full path for security
@@ -213,6 +242,14 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     if (!isFileSystemFileHandle(fileHandle)) {
       throw new AccessError('Invalid file handle', handle.path, 'read');
     }
+    try {
+      const folderId = handle.rootFolderId ?? this.lastRootFolderId;
+      if (folderId) {
+        await this.handleCache.storeFileHandle(folderId, handle.path, fileHandle);
+      }
+    } catch {
+      // Best-effort persistence; ignore failures.
+    }
     const file = await fileHandle.getFile();
 
     // Check file size before reading
@@ -231,6 +268,43 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     // Web API doesn't provide a direct way to check existence without access
     // This would need to be implemented differently
     return false;
+  }
+
+  async restoreLastFolder(): Promise<DirectoryHandle | null> {
+    const handles = await this.handleCache.getAllRootHandles();
+    if (handles.length === 0) {
+      return null;
+    }
+
+    const latest = handles.reduce<StoredRootHandle | null>((current, candidate) => {
+      if (!current) {
+        return candidate;
+      }
+      return candidate.lastAccessedAt > current.lastAccessedAt ? candidate : current;
+    }, null);
+
+    if (!(latest && isFileSystemDirectoryHandle(latest.handle))) {
+      if (latest) {
+        await this.handleCache.removeRootHandle(latest.folderId);
+      }
+      return null;
+    }
+
+    const isAccessible = await this.verifyDirectoryHandle(latest.handle);
+    if (!isAccessible) {
+      await this.handleCache.removeRootHandle(latest.folderId);
+      return null;
+    }
+
+    this.lastRootFolderId = latest.folderId;
+
+    return {
+      path: latest.handle.name,
+      name: latest.handle.name,
+      kind: 'directory',
+      platform: 'web',
+      _internal: latest.handle,
+    };
   }
 
   // Web API doesn't support file watching
@@ -302,6 +376,16 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     } else {
       // Signal completion with empty batch if last batch was exactly full
       onBatch([], { done: true, total });
+    }
+  }
+
+  private async verifyDirectoryHandle(handle: FileSystemDirectoryHandle): Promise<boolean> {
+    try {
+      const iterator = handle.entries();
+      await iterator.next();
+      return true;
+    } catch {
+      return false;
     }
   }
 }
