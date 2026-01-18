@@ -1,3 +1,4 @@
+import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
 import { useIdeFileEditor } from '@brainstrike/ui';
 import { decodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect, useMemo } from 'react';
@@ -17,12 +18,34 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
 
     const { tabs, activeTabId, openTab, closeTab, clearTabs, setActiveTab } = useTabManager();
 
-    // Handle tab click
-    const handleTabClick = useCallback(
+    // BST-307: Use file restoration hook to restore file handles for persisted tabs
+    const { tabStatuses, requestTabPermission, getStatusMessage } = useTabFileRestoration(
+      tabs,
+      // Remove tabs whose files can't be found
       (tabId: string) => {
+        closeTab(tabId);
+      }
+    );
+
+    // Handle tab click - also handles permission requests for tabs needing restoration
+    const handleTabClick = useCallback(
+      async (tabId: string) => {
+        const tab = tabs.find((t) => t.id === tabId);
+        if (tab) {
+          const status = tabStatuses.get(tab.compositeKey);
+          // If tab needs permission, request it first (must be from user click)
+          if (status?.status === 'needs-permission') {
+            const granted = await requestTabPermission(tab.compositeKey);
+            if (granted) {
+              // Permission granted - load the file content
+              void loadFileContent(tab.compositeKey);
+            }
+            // If not granted, still select the tab to show the permission message
+          }
+        }
         setActiveTab(tabId);
       },
-      [setActiveTab]
+      [setActiveTab, tabs, tabStatuses, requestTabPermission, loadFileContent]
     );
 
     // Handle tab close
@@ -101,10 +124,12 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
           activeTabId={activeTabId}
           decodeFileSelection={decodeFileSelection}
           fileContents={fileContents}
+          getTabStatusMessage={getStatusMessage}
           loadingFiles={loadingFiles}
           onLoadFileContent={handleLoadFileContent}
           onTabClick={handleTabClick}
           onTabClose={handleTabClose}
+          tabStatuses={tabStatuses}
           tabStripActions={tabStripActions}
           tabs={tabs}
         />

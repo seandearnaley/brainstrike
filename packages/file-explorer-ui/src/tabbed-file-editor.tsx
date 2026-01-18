@@ -1,3 +1,4 @@
+import type { TabFileStatus } from '@brainstrike/file-explorer-hooks';
 import {
   Button,
   cn,
@@ -11,7 +12,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { File, Loader2, MoreHorizontal, X } from 'lucide-react';
+import { AlertCircle, File, Loader2, LockKeyhole, MoreHorizontal, X } from 'lucide-react';
 import { useCallback, useEffect, useRef } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import type { FileTab } from './hooks/use-tab-manager';
@@ -37,6 +38,28 @@ interface TabbedFileEditorProps {
   onLoadFileContent: (compositeKey: string) => void;
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
   tabStripActions?: TabStripAction[];
+  /** BST-307: Map of composite key to restoration status for persisted tabs */
+  tabStatuses?: Map<string, TabFileStatus>;
+  /** BST-307: Get status message for a tab (used for tooltips) */
+  getTabStatusMessage?: (compositeKey: string) => string | null;
+}
+
+/** Get the appropriate icon for a tab based on its status */
+function getTabIcon(isLoading: boolean, tabStatus: TabFileStatus | undefined): React.ReactNode {
+  if (isLoading) {
+    return <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />;
+  }
+
+  if (tabStatus) {
+    switch (tabStatus.status) {
+      case 'needs-permission':
+        return <LockKeyhole className="h-3 w-3 flex-shrink-0 text-amber-500" />;
+      case 'not-found':
+        return <AlertCircle className="h-3 w-3 flex-shrink-0 text-destructive" />;
+    }
+  }
+
+  return <File className="h-3 w-3 flex-shrink-0" />;
 }
 
 function buildContentNode(opts: {
@@ -49,6 +72,7 @@ function buildContentNode(opts: {
   truncated: boolean;
   activeContentRef: React.RefObject<HTMLPreElement | null>;
   handleContentScroll: (compositeKey: string, e: React.UIEvent<HTMLPreElement>) => void;
+  tabStatus: TabFileStatus | undefined;
 }) {
   const {
     isLoading,
@@ -60,7 +84,43 @@ function buildContentNode(opts: {
     truncated,
     activeContentRef,
     handleContentScroll,
+    tabStatus,
   } = opts;
+
+  // BST-307: Show permission prompt for tabs needing permission
+  if (tabStatus?.status === 'needs-permission') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center text-center">
+        <LockKeyhole className="mb-4 h-12 w-12 text-amber-500" />
+        <p className="font-semibold text-lg">File Access Required</p>
+        <p className="mt-2 max-w-md text-muted-foreground text-sm">
+          Click the tab again to restore access to this file. Your browser requires permission to
+          read files after a page reload.
+        </p>
+        {tabStatus.error ? (
+          <p className="mt-2 text-destructive text-xs">{tabStatus.error}</p>
+        ) : null}
+      </div>
+    );
+  }
+
+  // BST-307: Show not-found message for tabs whose files are missing
+  if (tabStatus?.status === 'not-found') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center text-center">
+        <AlertCircle className="mb-4 h-12 w-12 text-destructive" />
+        <p className="font-semibold text-lg">File Not Found</p>
+        <p className="mt-2 max-w-md text-muted-foreground text-sm">
+          This file could not be restored. It may have been moved, renamed, or deleted.
+        </p>
+        <p className="mt-1 text-muted-foreground text-xs">{path}</p>
+        {tabStatus.error ? (
+          <p className="mt-2 text-destructive text-xs">{tabStatus.error}</p>
+        ) : null}
+      </div>
+    );
+  }
+
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -161,6 +221,8 @@ export function TabbedFileEditor({
   onLoadFileContent,
   decodeFileSelection,
   tabStripActions = [],
+  tabStatuses,
+  getTabStatusMessage,
 }: TabbedFileEditorProps) {
   const activeTabRef = useRef<HTMLButtonElement>(null);
   const activeContentRef = useRef<HTMLPreElement>(null);
@@ -177,10 +239,14 @@ export function TabbedFileEditor({
         !fileContents[activeTab.compositeKey] &&
         !loadingFiles.has(activeTab.compositeKey)
       ) {
-        onLoadFileContent(activeTab.compositeKey);
+        // BST-307: Don't auto-load if tab needs permission (will be handled by click)
+        const tabStatus = tabStatuses?.get(activeTab.compositeKey);
+        if (!tabStatus || tabStatus.status === 'restored') {
+          onLoadFileContent(activeTab.compositeKey);
+        }
       }
     }
-  }, [activeTabId, tabs, fileContents, loadingFiles, onLoadFileContent]);
+  }, [activeTabId, tabs, fileContents, loadingFiles, onLoadFileContent, tabStatuses]);
 
   // Scroll active tab into view
   // biome-ignore lint/plugin: DOM scroll effect - runs once on mount
@@ -235,7 +301,8 @@ export function TabbedFileEditor({
       isActive: boolean,
       content: string | undefined,
       isLoading: boolean,
-      path: string
+      path: string,
+      tabStatus: TabFileStatus | undefined
     ) => {
       const panelId = `panel-${tab.id}`;
       const tabButtonId = `tab-${tab.id}`;
@@ -251,6 +318,7 @@ export function TabbedFileEditor({
         truncated,
         activeContentRef,
         handleContentScroll,
+        tabStatus,
       });
 
       return (
@@ -321,6 +389,30 @@ export function TabbedFileEditor({
               const fileName = getFileName(path);
               const tabButtonId = `tab-${tab.id}`;
               const panelId = `panel-${tab.id}`;
+              const tabStatus = tabStatuses?.get(tab.compositeKey);
+              const statusMessage = getTabStatusMessage?.(tab.compositeKey);
+              const isLoading = loadingFiles.has(tab.compositeKey);
+
+              const tabButton = (
+                <button
+                  aria-controls={panelId}
+                  aria-selected={isActive}
+                  className={cn(
+                    'flex items-center gap-2 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    tabStatus?.status === 'needs-permission' &&
+                      'text-amber-600 dark:text-amber-400',
+                    tabStatus?.status === 'not-found' && 'text-destructive'
+                  )}
+                  id={tabButtonId}
+                  onClick={() => onTabClick(tab.id)}
+                  ref={isActive ? activeTabRef : null}
+                  role="tab"
+                  type="button"
+                >
+                  {getTabIcon(isLoading, tabStatus)}
+                  <span className="truncate">{fileName}</span>
+                </button>
+              );
 
               return (
                 <div
@@ -337,23 +429,16 @@ export function TabbedFileEditor({
                       isActive ? 'bg-background' : 'bg-muted/50 hover:bg-muted'
                     )}
                   >
-                    <button
-                      aria-controls={panelId}
-                      aria-selected={isActive}
-                      className="flex items-center gap-2 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      id={tabButtonId}
-                      onClick={() => onTabClick(tab.id)}
-                      ref={isActive ? activeTabRef : null}
-                      role="tab"
-                      type="button"
-                    >
-                      {loadingFiles.has(tab.compositeKey) ? (
-                        <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
-                      ) : (
-                        <File className="h-3 w-3 flex-shrink-0" />
-                      )}
-                      <span className="truncate">{fileName}</span>
-                    </button>
+                    {statusMessage ? (
+                      <TooltipProvider delayDuration={200}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>{tabButton}</TooltipTrigger>
+                          <TooltipContent side="bottom">{statusMessage}</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    ) : (
+                      tabButton
+                    )}
                     <Button
                       aria-label={`Close ${fileName}`}
                       className="h-6 w-6 flex-shrink-0 rounded-sm"
@@ -392,7 +477,8 @@ export function TabbedFileEditor({
             const content = fileContents[tab.compositeKey];
             const isLoading = loadingFiles.has(tab.compositeKey);
             const { path } = decodeFileSelection(tab.compositeKey);
-            return renderTabPanel(tab, isActive, content, isLoading, path);
+            const tabStatus = tabStatuses?.get(tab.compositeKey);
+            return renderTabPanel(tab, isActive, content, isLoading, path, tabStatus);
           })
         )}
       </div>

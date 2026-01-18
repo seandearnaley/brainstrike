@@ -9,4 +9,5 @@ export * from './use-file-system';
 export * from './use-file-tree';
 export * from './use-restore-access';
 export * from './use-selection-manager';
+export * from './use-tab-file-restoration';
 export * from './use-toast-manager';
