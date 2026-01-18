@@ -47,6 +47,17 @@ describe('RestoreAccessModal', () => {
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
+  it('calls onDismiss when escape key is pressed', async () => {
+    const user = userEvent.setup();
+    const onDismiss = vi.fn();
+
+    render(<RestoreAccessModal {...defaultProps} onDismiss={onDismiss} />);
+
+    await user.keyboard('{Escape}');
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
   it('shows "Restoring..." when isRestoring is true', () => {
     render(<RestoreAccessModal {...defaultProps} isRestoring={true} />);
 
