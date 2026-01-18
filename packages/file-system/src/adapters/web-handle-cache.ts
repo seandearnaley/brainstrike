@@ -192,7 +192,13 @@ const MAX_FILE_HANDLES = 100;
  * - Permission-aware: Tracks permission state without requesting (Chrome gesture requirement)
  * - TTL-based pruning: Removes handles older than 30 days via pruneOldHandles()
  */
-/** Delay before retrying after IndexedDB open failure to prevent retry storms */
+/**
+ * Delay before retrying after IndexedDB open failure to prevent retry storms.
+ * 5 seconds is chosen as a balance between:
+ * - Being long enough to prevent rapid retry loops on persistent failures
+ * - Being short enough to recover quickly if IndexedDB becomes available
+ * Common failure scenarios: quota exceeded, private browsing mode, corrupted DB.
+ */
 const DB_RETRY_DELAY_MS = 5000;
 
 export class WebHandleCache implements HandleCache {
