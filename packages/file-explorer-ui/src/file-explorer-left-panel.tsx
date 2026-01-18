@@ -2,8 +2,23 @@ import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/fil
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import { LoadingFallback } from '@brainstrike/ui';
 import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
+import type { StoreApi } from 'zustand';
+import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
 
 const logger = createLogger('FileExplorerLeftPanel');
+
+/**
+ * Type for Zustand store with persist middleware.
+ * The persist middleware adds a `.persist` property with hydration methods.
+ */
+interface ZustandPersistApi {
+  hasHydrated: () => boolean;
+  onFinishHydration: (cb: () => void) => () => void;
+}
+
+type StoreWithPersist<T> = UseBoundStoreWithEqualityFn<StoreApi<T>> & {
+  persist: ZustandPersistApi;
+};
 
 import * as React from 'react';
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
@@ -166,7 +181,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // The stale clearing effect runs after 1500ms if no rootDirectoryHandle exists.
   // If we wait until the user clicks "Restore Access" to set isAccessLoading,
   // the expanded paths will already have been cleared by then.
-  // biome-ignore lint/plugin: Intentional - we need to set shared store state when restore modal becomes visible
+  // biome-ignore lint/plugin: setAccessLoading is a stable Zustand action - calling it conditionally on restore state is intentional
   useEffect(() => {
     if (pendingRestore || showDeniedBanner || showStaleBanner) {
       setAccessLoading(true);
@@ -184,10 +199,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const { selectedFilesList, setSelectedFilesFromList } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitError,
   });
-  // Back-compat for older test mocks that don't provide new fields
-  const safeSelectedFilesList: string[] = Array.isArray(selectedFilesList) ? selectedFilesList : [];
-  const safeSetSelectedFilesFromList =
-    (setSelectedFilesFromList as undefined | ((l: readonly string[]) => void)) ?? (() => {});
 
   // Inline fixture state management - extracted to reduce component complexity
   const { isLoading: isInlineFixtureLoading, isAvailable: inlineFixtureAvailable } =
@@ -240,21 +251,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       }
       return compositeKeys;
     }
-    return new Set(safeSelectedFilesList);
-  }, [
-    selectionModel.mode,
-    selectionModel.materializedPaths,
-    currentFolderId,
-    safeSelectedFilesList,
-  ]);
+    return new Set(selectedFilesList);
+  }, [selectionModel.mode, selectionModel.materializedPaths, currentFolderId, selectedFilesList]);
 
   // Selection count - mode-aware for display purposes
   const selectedCount = useMemo(() => {
     if (selectionModel.mode === 'rules' && selectionModel.materializedPaths) {
       return selectionModel.materializedPaths.size;
     }
-    return safeSelectedFilesList.length;
-  }, [selectionModel.mode, selectionModel.materializedPaths, safeSelectedFilesList]);
+    return selectedFilesList.length;
+  }, [selectionModel.mode, selectionModel.materializedPaths, selectedFilesList]);
 
   // Electron file reader - reads file content via IPC for the background worker
   // The worker cannot read files directly in Electron due to security restrictions
@@ -271,12 +277,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     electronFileReader,
   });
 
-  const [quickFilterRaw, setQuickFilterRaw, clearQuickFilterRaw] = store(
+  const [quickFilter, setQuickFilter, clearQuickFilter] = store(
     (s) => [s.quickFilter, s.setQuickFilter, s.clearQuickFilter] as const
   );
-  const quickFilter = typeof quickFilterRaw === 'string' ? quickFilterRaw : '';
-  const setQuickFilter = (setQuickFilterRaw ?? (() => {})) as (v: string) => void;
-  const clearQuickFilter = (clearQuickFilterRaw ?? (() => {})) as () => void;
 
   const inlineFixtureSetting = useMemo(() => {
     if (!inlineFixtureAvailable) {
@@ -360,7 +363,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     [applyFileFilters]
   );
 
-  // biome-ignore lint/plugin: Sync folder ID with root directory handle - controlled state update
+  // biome-ignore lint/plugin: setCurrentFolderId is a stable Zustand action - syncing folder ID with handle is controlled state update
   useEffect(() => {
     if (rootDirectoryHandle) {
       const id = rootDirectoryHandle.name;
@@ -537,8 +540,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               encodeFileSelection={encodeFileSelection}
               maxSelectionCount={maxSelectionCount}
               onSelectionLimitExceeded={() => {}}
-              selectedFiles={safeSelectedFilesList}
-              setSelectedFiles={safeSetSelectedFilesFromList}
+              selectedFiles={selectedFilesList}
+              setSelectedFiles={setSelectedFilesFromList}
             />
             {/* Selection mode toggle */}
             <SelectionModeBadge
@@ -574,12 +577,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               // The store may not have loaded folderStates from localStorage yet.
               // If we call setCurrentFolderId before hydration, it won't find any
               // existing folder state and will create a new empty one instead.
-              const persistApi = store as unknown as {
-                persist?: {
-                  hasHydrated?: () => boolean;
-                  onFinishHydration?: (cb: () => void) => () => void;
-                };
-              };
 
               const doRestore = () => {
                 const directoryHandle = {
@@ -599,16 +596,24 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
                   });
               };
 
+              // Type guard to check if store has persist middleware
+              const hasPersistApi = (s: unknown): s is StoreWithPersist<unknown> =>
+                typeof s === 'function' &&
+                'persist' in s &&
+                typeof (s as StoreWithPersist<unknown>).persist?.hasHydrated === 'function';
+
               // Check if store has hydrated
-              if (persistApi.persist?.hasHydrated?.()) {
-                doRestore();
-              } else if (persistApi.persist?.onFinishHydration) {
-                const unsub = persistApi.persist.onFinishHydration(() => {
-                  unsub();
+              if (hasPersistApi(store)) {
+                if (store.persist.hasHydrated()) {
                   doRestore();
-                });
+                } else {
+                  const unsub = store.persist.onFinishHydration(() => {
+                    unsub();
+                    doRestore();
+                  });
+                }
               } else {
-                // No persist API available, proceed anyway
+                // No persist API available, proceed without waiting
                 doRestore();
               }
             };

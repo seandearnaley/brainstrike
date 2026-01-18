@@ -175,9 +175,28 @@ export interface HandleCache {
 const MAX_ROOT_HANDLES = 10;
 const MAX_FILE_HANDLES = 100;
 
+/**
+ * WebHandleCache - Two-tier caching for File System Access API handles.
+ *
+ * This cache uses a two-tier strategy:
+ * 1. **IndexedDB (primary)**: Persists handles across browser sessions. IndexedDB can store
+ *    FileSystemDirectoryHandle and FileSystemFileHandle objects directly.
+ * 2. **In-memory (fallback)**: Used when IndexedDB is unavailable or fails. Handles are lost
+ *    on page reload but the app remains functional within a session.
+ *
+ * Features:
+ * - LRU eviction: Limits stored handles to prevent unbounded growth (10 roots, 100 files)
+ * - Automatic recovery: Detects and recreates corrupted IndexedDB databases
+ * - Permission-aware: Tracks permission state without requesting (Chrome gesture requirement)
+ * - TTL-based pruning: Removes handles older than 30 days via pruneOldHandles()
+ */
 export class WebHandleCache implements HandleCache {
-  private dbPromise: Promise<IDBPDatabase<HandleCacheSchema>> | null = null;
-  private dbOpenInProgress = false;
+  /**
+   * Cached promise for the IndexedDB connection.
+   * Using a single promise field eliminates race conditions - all concurrent
+   * getDb() calls will await the same promise.
+   */
+  private dbPromise: Promise<IDBPDatabase<HandleCacheSchema> | null> | null = null;
   private indexedDbAvailable =
     typeof globalThis !== 'undefined' && typeof globalThis.indexedDB !== 'undefined';
   private readonly memoryRootHandles = new Map<string, StoredRootHandle>();
@@ -214,28 +233,19 @@ export class WebHandleCache implements HandleCache {
       this.indexedDbAvailable = true;
     }
 
-    // Race condition protection: if another call is opening the DB, wait for it
-    if (!(this.dbPromise || this.dbOpenInProgress)) {
-      this.dbOpenInProgress = true;
-      this.dbPromise = this.openDbWithRecovery().finally(() => {
-        this.dbOpenInProgress = false;
+    // Single promise pattern: all concurrent calls share the same promise.
+    // No busy-wait needed - if dbPromise exists, we just await it.
+    if (!this.dbPromise) {
+      this.dbPromise = this.openDbWithRecovery().catch((err) => {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        logger.warn('getDb: failed to open database', { error: errorMessage });
+        this.dbPromise = null;
+        this.indexedDbAvailable = false;
+        return null;
       });
     }
 
-    // Wait for any in-progress open to complete
-    while (this.dbOpenInProgress && !this.dbPromise) {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-
-    try {
-      return await this.dbPromise;
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      logger.warn('getDb: failed to open database', { error: errorMessage });
-      this.dbPromise = null;
-      this.indexedDbAvailable = false;
-      return null;
-    }
+    return this.dbPromise;
   }
 
   /**
@@ -369,6 +379,13 @@ export class WebHandleCache implements HandleCache {
     }
   }
 
+  /**
+   * Store a root directory handle in the cache.
+   * Updates the lastAccessedAt timestamp if the handle already exists.
+   *
+   * @param folderId - Unique identifier for this folder (typically the directory name)
+   * @param handle - The FileSystemDirectoryHandle to store
+   */
   async storeRootHandle(folderId: string, handle: FileSystemDirectoryHandle): Promise<void> {
     logger.debug('storeRootHandle called', { folderId, handleName: handle.name });
     const timestamp = now();
@@ -384,6 +401,14 @@ export class WebHandleCache implements HandleCache {
     logger.debug('storeRootHandle completed', { folderId });
   }
 
+  /**
+   * Retrieve a root directory handle from the cache.
+   * Validates the handle is still accessible and updates lastAccessedAt on success.
+   * Automatically removes stale handles that are no longer valid.
+   *
+   * @param folderId - Unique identifier for the folder
+   * @returns The directory handle if found and valid, null otherwise
+   */
   async getRootHandle(folderId: string): Promise<FileSystemDirectoryHandle | null> {
     const record = await this.fetchRootRecord(folderId);
     if (!record) {
@@ -428,6 +453,12 @@ export class WebHandleCache implements HandleCache {
     return this.memoryRootHandles.get(folderId) ?? null;
   }
 
+  /**
+   * Get all stored root directory handles.
+   * Merges IndexedDB and in-memory caches to return a complete list.
+   *
+   * @returns Array of all stored root handles with metadata
+   */
   async getAllRootHandles(): Promise<StoredRootHandle[]> {
     logger.debug('getAllRootHandles called');
     const db = await this.getDb();
@@ -466,6 +497,11 @@ export class WebHandleCache implements HandleCache {
     return memoryResult;
   }
 
+  /**
+   * Remove a root directory handle and all associated file handles.
+   *
+   * @param folderId - Unique identifier for the folder to remove
+   */
   async removeRootHandle(folderId: string): Promise<void> {
     this.memoryRootHandles.delete(folderId);
     for (const [key, record] of this.memoryFileHandles) {
@@ -498,6 +534,13 @@ export class WebHandleCache implements HandleCache {
     }
   }
 
+  /**
+   * Restore the most recently accessed root handle with automatic permission handling.
+   * Finds the handle with the latest lastAccessedAt timestamp and requests permission
+   * if needed. Updates the timestamp on successful restore.
+   *
+   * @returns Object containing the handle if restore succeeds, null otherwise
+   */
   async restoreLastRootHandle(): Promise<{ handle: FileSystemDirectoryHandle } | null> {
     logger.debug('restoreLastRootHandle called');
     const db = await this.getDb();
@@ -660,6 +703,13 @@ export class WebHandleCache implements HandleCache {
     }
   }
 
+  /**
+   * Store a file handle in the cache, associated with a root folder.
+   *
+   * @param folderId - The root folder this file belongs to
+   * @param relativePath - Path relative to the root folder
+   * @param handle - The FileSystemFileHandle to store
+   */
   async storeFileHandle(
     folderId: string,
     relativePath: string,
@@ -678,6 +728,13 @@ export class WebHandleCache implements HandleCache {
     await this.updateFileRecord(record);
   }
 
+  /**
+   * Retrieve a file handle from the cache.
+   *
+   * @param folderId - The root folder this file belongs to
+   * @param relativePath - Path relative to the root folder
+   * @returns The file handle if found, null otherwise
+   */
   async getFileHandle(
     folderId: string,
     relativePath: string
@@ -707,6 +764,12 @@ export class WebHandleCache implements HandleCache {
     return null;
   }
 
+  /**
+   * Remove a file handle from the cache.
+   *
+   * @param folderId - The root folder this file belongs to
+   * @param relativePath - Path relative to the root folder
+   */
   async removeFileHandle(folderId: string, relativePath: string): Promise<void> {
     const path = this.buildFileKey(folderId, relativePath);
     this.memoryFileHandles.delete(path);
@@ -726,6 +789,9 @@ export class WebHandleCache implements HandleCache {
     }
   }
 
+  /**
+   * Clear all stored handles from both IndexedDB and in-memory cache.
+   */
   async clear(): Promise<void> {
     this.memoryRootHandles.clear();
     this.memoryFileHandles.clear();
@@ -746,6 +812,12 @@ export class WebHandleCache implements HandleCache {
     }
   }
 
+  /**
+   * Remove handles older than the specified age.
+   * Called automatically on adapter initialization and can be called manually.
+   *
+   * @param maxAge - Maximum age in milliseconds (default: 30 days)
+   */
   async pruneOldHandles(maxAge: number = DEFAULT_MAX_AGE_MS): Promise<void> {
     const cutoff = now() - maxAge;
 

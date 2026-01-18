@@ -5,6 +5,13 @@ import { useAdapters } from './adapters-context';
 
 const logger = createLogger('useRestoreAccess');
 
+/**
+ * Delay before checking stored handles on mount.
+ * This prevents UI flash if IndexedDB check completes quickly,
+ * while still allowing the restore modal to appear promptly.
+ */
+const HANDLE_CHECK_DELAY_MS = 500;
+
 export interface PendingRestoreState {
   folderId: string;
   name: string;
@@ -257,7 +264,7 @@ export function useRestoreAccess(): RestoreAccessState {
           }
         }
       })();
-    }, 500);
+    }, HANDLE_CHECK_DELAY_MS);
 
     return () => clearTimeout(timer);
   }, [handleCache]);

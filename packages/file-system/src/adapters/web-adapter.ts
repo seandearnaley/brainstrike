@@ -126,6 +126,14 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
 
   constructor(options?: WebFileSystemAdapterOptions) {
     this.handleCache = options?.handleCache ?? new WebHandleCache();
+
+    // Best-effort cleanup of stale handles on startup.
+    // Runs in background without blocking initialization.
+    void this.handleCache.pruneOldHandles().catch((err) => {
+      logger.debug('constructor: best-effort handle pruning failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   private async ensurePersistentStorage(): Promise<void> {
@@ -149,8 +157,10 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       if (!persisted) {
         await storage.persist();
       }
-    } catch {
-      // Best-effort: ignore persistence errors.
+    } catch (err) {
+      logger.debug('ensurePersistentStorage: best-effort persistence request failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -281,8 +291,11 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       if (folderId) {
         await this.handleCache.storeFileHandle(folderId, handle.path, fileHandle);
       }
-    } catch {
-      // Best-effort persistence; ignore failures.
+    } catch (err) {
+      logger.debug('readFile: best-effort file handle persistence failed', {
+        path: handle.path,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
     const file = await fileHandle.getFile();
 
