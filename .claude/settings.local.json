@@ -248,7 +248,9 @@
       "Bash(tar:*)",
       "Bash(timeout 15s pnpm start:*)",
       "mcp__chrome-devtools__list_pages",
-      "Bash(git diff:*)"
+      "Bash(git diff:*)",
+      "Skill(superpowers:systematic-debugging)",
+      "Skill(superpowers:systematic-debugging:*)"
     ],
     "deny": [],
     "ask": []
