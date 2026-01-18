@@ -596,26 +596,51 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
                   });
               };
 
-              // Type guard to check if store has persist middleware
-              const hasPersistApi = (s: unknown): s is StoreWithPersist<unknown> =>
-                typeof s === 'function' &&
-                'persist' in s &&
-                typeof (s as StoreWithPersist<unknown>).persist?.hasHydrated === 'function';
+              // Type guard to check if store has persist middleware using safe property access
+              const hasPersistApi = (s: unknown): s is StoreWithPersist<unknown> => {
+                if (typeof s !== 'function' || !('persist' in s)) {
+                  return false;
+                }
+                const persistObj = (s as Record<string, unknown>)['persist'];
+                if (typeof persistObj !== 'object' || persistObj === null) {
+                  return false;
+                }
+                const persist = persistObj as Record<string, unknown>;
+                return (
+                  typeof persist['hasHydrated'] === 'function' &&
+                  typeof persist['onFinishHydration'] === 'function'
+                );
+              };
+
+              // Track subscription for cleanup if component unmounts during hydration
+              let unsubscribeRef: (() => void) | null = null;
+              let isCancelled = false;
 
               // Check if store has hydrated
               if (hasPersistApi(store)) {
                 if (store.persist.hasHydrated()) {
                   doRestore();
                 } else {
-                  const unsub = store.persist.onFinishHydration(() => {
-                    unsub();
-                    doRestore();
+                  unsubscribeRef = store.persist.onFinishHydration(() => {
+                    if (!isCancelled) {
+                      unsubscribeRef?.();
+                      unsubscribeRef = null;
+                      doRestore();
+                    }
                   });
                 }
               } else {
                 // No persist API available, proceed without waiting
                 doRestore();
               }
+
+              // Return cleanup function to prevent memory leaks
+              // Note: This is captured in closure but the click handler is synchronous,
+              // so we just need the flags for the hydration callback case
+              return () => {
+                isCancelled = true;
+                unsubscribeRef?.();
+              };
             };
 
             // If we have a raw handle, call requestPermission IMMEDIATELY - no other code first

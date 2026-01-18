@@ -125,10 +125,12 @@ async function requestPermissionWithTimeout(
     });
     return result;
   } catch (err) {
-    logger.warn('requestPermissionWithTimeout: threw', {
-      error: err instanceof Error ? err.message : String(err),
-      errorName: err instanceof Error ? err.name : 'Unknown',
-    });
+    // Preserve full error context for debugging while returning a simple status
+    const errorInfo =
+      err instanceof Error
+        ? { message: err.message, name: err.name, stack: err.stack }
+        : { message: String(err), name: 'Unknown', stack: undefined };
+    logger.warn('requestPermissionWithTimeout: threw', errorInfo);
     return 'error';
   }
 }
@@ -190,6 +192,9 @@ const MAX_FILE_HANDLES = 100;
  * - Permission-aware: Tracks permission state without requesting (Chrome gesture requirement)
  * - TTL-based pruning: Removes handles older than 30 days via pruneOldHandles()
  */
+/** Delay before retrying after IndexedDB open failure to prevent retry storms */
+const DB_RETRY_DELAY_MS = 5000;
+
 export class WebHandleCache implements HandleCache {
   /**
    * Cached promise for the IndexedDB connection.
@@ -201,6 +206,9 @@ export class WebHandleCache implements HandleCache {
     typeof globalThis !== 'undefined' && typeof globalThis.indexedDB !== 'undefined';
   private readonly memoryRootHandles = new Map<string, StoredRootHandle>();
   private readonly memoryFileHandles = new Map<string, StoredFileHandle>();
+
+  /** Timestamp of last DB open failure - prevents retry storms */
+  private lastDbFailureTime = 0;
 
   private canUseIndexedDb(): boolean {
     return typeof globalThis !== 'undefined' && typeof globalThis.indexedDB !== 'undefined';
@@ -228,8 +236,17 @@ export class WebHandleCache implements HandleCache {
       return null;
     }
 
+    // Prevent retry storms: if we failed recently, don't retry yet
     if (!this.indexedDbAvailable) {
-      // IndexedDB might become available later (e.g. after hydration).
+      const timeSinceFailure = now() - this.lastDbFailureTime;
+      if (timeSinceFailure < DB_RETRY_DELAY_MS) {
+        logger.debug('getDb: skipping retry, cooling down', {
+          timeSinceFailure,
+          retryDelayMs: DB_RETRY_DELAY_MS,
+        });
+        return null;
+      }
+      // Cooldown period passed, allow retry
       this.indexedDbAvailable = true;
     }
 
@@ -241,6 +258,7 @@ export class WebHandleCache implements HandleCache {
         logger.warn('getDb: failed to open database', { error: errorMessage });
         this.dbPromise = null;
         this.indexedDbAvailable = false;
+        this.lastDbFailureTime = now();
         return null;
       });
     }

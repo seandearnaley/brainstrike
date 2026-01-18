@@ -114,6 +114,25 @@ async function loadHandlesLegacyMethod(
   setStoredFolders(handles.map((h) => ({ folderId: h.folderId, name: h.name })));
 }
 
+/**
+ * Validate and get the authoritative folderId from the handle.
+ * If folderId doesn't match the handle name, logs a warning and returns the handle name
+ * as the authoritative source to prevent state corruption.
+ */
+function getValidatedFolderId(
+  rawHandle: FileSystemDirectoryHandle,
+  storedFolderId: string
+): string {
+  if (storedFolderId !== rawHandle.name) {
+    logger.warn('folderId mismatch with handle name', {
+      storedFolderId,
+      handleName: rawHandle.name,
+    });
+  }
+  // Always use the handle's actual name as the authoritative source
+  return rawHandle.name;
+}
+
 /** Request permission and return DirectoryHandle if granted */
 async function requestPermissionAndRestore(
   rawHandle: FileSystemDirectoryHandle,
@@ -283,10 +302,13 @@ export function useRestoreAccess(): RestoreAccessState {
     if (pendingRestore?.rawHandle) {
       const { rawHandle, folderId, permissionState } = pendingRestore;
 
+      // Use validated folderId to prevent state corruption from stale cache entries
+      const validatedFolderId = getValidatedFolderId(rawHandle, folderId);
+
       // If already granted, just return it
       if (permissionState === 'granted') {
         logger.info('beginRestore: permission already granted');
-        await handleCache?.markHandleRestored?.(folderId);
+        await handleCache?.markHandleRestored?.(validatedFolderId);
         setPendingRestore(null);
         return toDirectoryHandle(rawHandle);
       }
@@ -302,7 +324,7 @@ export function useRestoreAccess(): RestoreAccessState {
       logger.info('beginRestore: requesting permission synchronously');
       const result = await requestPermissionAndRestore(
         rawHandle,
-        folderId,
+        validatedFolderId,
         handleCache,
         setPendingRestore
       );
