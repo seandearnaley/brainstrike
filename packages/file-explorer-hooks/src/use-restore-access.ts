@@ -136,7 +136,29 @@ async function requestPermissionAndRestore(
 
     return { handle: null, showDenied: false, showStale: true };
   } catch (error) {
-    logger.warn('beginRestore: permission request failed', { error });
+    // Differentiate error types for better UX
+    const errorName = error instanceof Error ? error.name : '';
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // AbortError: User cancelled the permission dialog - not a real error
+    if (errorName === 'AbortError') {
+      logger.debug('beginRestore: user cancelled permission dialog');
+      return { handle: null, showDenied: false, showStale: false };
+    }
+
+    // NotFoundError: Handle points to deleted/moved directory - treat as stale
+    if (errorName === 'NotFoundError') {
+      logger.info('beginRestore: handle target no longer exists', { error: errorMessage });
+      await handleCache?.removeRootHandle?.(folderId);
+      setPendingRestore(null);
+      return { handle: null, showDenied: false, showStale: true };
+    }
+
+    // Other errors - log and show stale banner
+    logger.warn('beginRestore: permission request failed', {
+      errorName,
+      error: errorMessage,
+    });
     return { handle: null, showDenied: false, showStale: true };
   }
 }
@@ -179,6 +201,15 @@ export function useRestoreAccess(): RestoreAccessState {
   const [storedFolders, setStoredFolders] = useState<Array<{ folderId: string; name: string }>>([]);
   const [isCheckingStoredHandles, setIsCheckingStoredHandles] = useState(true);
   const dismissedRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  // Track mounted state to prevent stale state updates after unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handleCache = useMemo(() => {
     const adapter = fileSystemAdapter as WebAdapterWithCache | null;
@@ -220,7 +251,10 @@ export function useRestoreAccess(): RestoreAccessState {
         } catch (error) {
           logger.warn('Failed to load stored root handles', { error });
         } finally {
-          setIsCheckingStoredHandles(false);
+          // Only update state if still mounted
+          if (isMountedRef.current) {
+            setIsCheckingStoredHandles(false);
+          }
         }
       })();
     }, 500);

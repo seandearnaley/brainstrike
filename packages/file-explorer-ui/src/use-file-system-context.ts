@@ -19,7 +19,7 @@ const ERROR_MESSAGES = {
   directoryAccessFailed:
     'Cannot access the selected directory. Please ensure you have proper access permissions.',
   genericError: 'An unexpected error occurred while selecting the directory.',
-} as const;
+} as const satisfies Record<string, string>;
 
 // Error mapping configuration
 const ERROR_PATTERNS = [
@@ -36,7 +36,7 @@ const ERROR_PATTERNS = [
     pattern: /Cannot access selected directory/i,
     message: ERROR_MESSAGES.directoryAccessFailed,
   },
-] as const;
+] as const satisfies ReadonlyArray<{ pattern: RegExp; message: string }>;
 
 // Helper function to map error messages to user-friendly text
 function getUserFriendlyErrorMessage(errorMessage: string): string {
@@ -119,7 +119,6 @@ export function useFileSystem() {
     }),
     // Only depend on data values, not functions - functions are stable closures
     // that reference the latest values through the closure scope
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [storedRootDirectoryHandle, coreApi.rootDirectoryHandle, coreApi.isAccessLoading]
   );
 }

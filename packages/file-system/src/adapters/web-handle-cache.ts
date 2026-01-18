@@ -4,15 +4,15 @@ import { type DBSchema, type IDBPDatabase, openDB } from 'idb';
 const logger = createLogger('WebHandleCache');
 
 // Keep this name in sync with factory-reset fallback IndexedDB list.
-const DB_NAME = 'brainstrike-file-handles';
-const DB_VERSION = 1;
+const DB_NAME = 'brainstrike-file-handles' as const;
+const DB_VERSION = 1 as const;
 
-const ROOT_STORE = 'root-handles';
-const FILE_STORE = 'file-handles';
-const ROOT_LAST_ACCESSED_INDEX = 'by-last-accessed';
-const FILE_BY_FOLDER_INDEX = 'by-folder';
+const ROOT_STORE = 'root-handles' as const;
+const FILE_STORE = 'file-handles' as const;
+const ROOT_LAST_ACCESSED_INDEX = 'by-last-accessed' as const;
+const FILE_BY_FOLDER_INDEX = 'by-folder' as const;
 
-const DEFAULT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30; // 30 days
+const DEFAULT_MAX_AGE_MS = 2_592_000_000; // 30 days in ms (1000 * 60 * 60 * 24 * 30)
 
 const now = () => Date.now();
 
@@ -45,19 +45,39 @@ interface HandleCacheSchema extends DBSchema {
   };
 }
 
-const isDirectoryHandle = (handle: unknown): handle is FileSystemDirectoryHandle =>
-  !!handle &&
-  typeof handle === 'object' &&
-  (handle as { kind?: unknown }).kind === 'directory' &&
-  typeof (handle as { name?: unknown }).name === 'string' &&
-  'entries' in handle;
+/**
+ * Type guard for FileSystemDirectoryHandle.
+ * Validates both property existence and that methods are actually functions.
+ */
+const isDirectoryHandle = (handle: unknown): handle is FileSystemDirectoryHandle => {
+  if (!handle || typeof handle !== 'object') {
+    return false;
+  }
+  const candidate = handle as Record<string, unknown>;
+  return (
+    candidate['kind'] === 'directory' &&
+    typeof candidate['name'] === 'string' &&
+    'entries' in candidate &&
+    typeof candidate['entries'] === 'function'
+  );
+};
 
-const isFileHandle = (handle: unknown): handle is FileSystemFileHandle =>
-  !!handle &&
-  typeof handle === 'object' &&
-  (handle as { kind?: unknown }).kind === 'file' &&
-  typeof (handle as { name?: unknown }).name === 'string' &&
-  'getFile' in handle;
+/**
+ * Type guard for FileSystemFileHandle.
+ * Validates both property existence and that methods are actually functions.
+ */
+const isFileHandle = (handle: unknown): handle is FileSystemFileHandle => {
+  if (!handle || typeof handle !== 'object') {
+    return false;
+  }
+  const candidate = handle as Record<string, unknown>;
+  return (
+    candidate['kind'] === 'file' &&
+    typeof candidate['name'] === 'string' &&
+    'getFile' in candidate &&
+    typeof candidate['getFile'] === 'function'
+  );
+};
 
 /**
  * Request permission from user with timeout protection.
@@ -151,8 +171,13 @@ export interface HandleCache {
   pruneOldHandles(maxAge?: number): Promise<void>;
 }
 
+// LRU cache configuration
+const MAX_ROOT_HANDLES = 10;
+const MAX_FILE_HANDLES = 100;
+
 export class WebHandleCache implements HandleCache {
   private dbPromise: Promise<IDBPDatabase<HandleCacheSchema>> | null = null;
+  private dbOpenInProgress = false;
   private indexedDbAvailable =
     typeof globalThis !== 'undefined' && typeof globalThis.indexedDB !== 'undefined';
   private readonly memoryRootHandles = new Map<string, StoredRootHandle>();
@@ -160,6 +185,21 @@ export class WebHandleCache implements HandleCache {
 
   private canUseIndexedDb(): boolean {
     return typeof globalThis !== 'undefined' && typeof globalThis.indexedDB !== 'undefined';
+  }
+
+  /**
+   * Evict oldest entries from a Map to maintain size limit (LRU eviction).
+   * Entries are ordered by insertion time in Map, so we delete from the beginning.
+   */
+  private evictOldest<K, V>(map: Map<K, V>, maxSize: number): void {
+    while (map.size > maxSize) {
+      const firstKey = map.keys().next().value;
+      if (firstKey !== undefined) {
+        map.delete(firstKey);
+      } else {
+        break;
+      }
+    }
   }
 
   private async getDb(): Promise<IDBPDatabase<HandleCacheSchema> | null> {
@@ -174,8 +214,17 @@ export class WebHandleCache implements HandleCache {
       this.indexedDbAvailable = true;
     }
 
-    if (!this.dbPromise) {
-      this.dbPromise = this.openDbWithRecovery();
+    // Race condition protection: if another call is opening the DB, wait for it
+    if (!(this.dbPromise || this.dbOpenInProgress)) {
+      this.dbOpenInProgress = true;
+      this.dbPromise = this.openDbWithRecovery().finally(() => {
+        this.dbOpenInProgress = false;
+      });
+    }
+
+    // Wait for any in-progress open to complete
+    while (this.dbOpenInProgress && !this.dbPromise) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
 
     try {
@@ -261,8 +310,25 @@ export class WebHandleCache implements HandleCache {
     return encodeFileSelection(folderId, relativePath);
   }
 
+  /**
+   * Verify a directory handle is still valid by checking if queryPermission works.
+   * Returns true if valid, false if the handle is stale/invalid.
+   */
+  private async isHandleValid(handle: FileSystemDirectoryHandle): Promise<boolean> {
+    try {
+      await handle.queryPermission?.({ mode: 'read' });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async updateRootRecord(record: StoredRootHandle): Promise<void> {
+    // LRU eviction: delete old key first to re-insert at end (Map maintains insertion order)
+    this.memoryRootHandles.delete(record.folderId);
     this.memoryRootHandles.set(record.folderId, record);
+    this.evictOldest(this.memoryRootHandles, MAX_ROOT_HANDLES);
+
     const db = await this.getDb();
     if (!db) {
       logger.debug('updateRootRecord: no db connection, storing in memory only');
@@ -281,15 +347,25 @@ export class WebHandleCache implements HandleCache {
   }
 
   private async updateFileRecord(record: StoredFileHandle): Promise<void> {
+    // LRU eviction: delete old key first to re-insert at end (Map maintains insertion order)
+    this.memoryFileHandles.delete(record.path);
     this.memoryFileHandles.set(record.path, record);
+    this.evictOldest(this.memoryFileHandles, MAX_FILE_HANDLES);
+
     const db = await this.getDb();
     if (!db) {
+      logger.debug('updateFileRecord: no db connection, storing in memory only');
       return;
     }
     try {
       await db.put(FILE_STORE, record);
-    } catch {
-      // Ignore persistence failures; in-memory copy remains.
+      logger.debug('updateFileRecord: stored to IndexedDB', { path: record.path });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.warn('updateFileRecord: IndexedDB write failed, in-memory copy remains', {
+        error: errorMessage,
+        path: record.path,
+      });
     }
   }
 
@@ -309,33 +385,47 @@ export class WebHandleCache implements HandleCache {
   }
 
   async getRootHandle(folderId: string): Promise<FileSystemDirectoryHandle | null> {
+    const record = await this.fetchRootRecord(folderId);
+    if (!record) {
+      return null;
+    }
+    if (!isDirectoryHandle(record.handle)) {
+      return null;
+    }
+
+    // Verify handle is still valid before returning
+    const isValid = await this.isHandleValid(record.handle);
+    if (!isValid) {
+      logger.warn('getRootHandle: handle no longer valid, removing', { folderId });
+      await this.removeRootHandle(folderId);
+      return null;
+    }
+
+    const updated: StoredRootHandle = { ...record, lastAccessedAt: now() };
+    await this.updateRootRecord(updated);
+    return updated.handle;
+  }
+
+  /**
+   * Fetch a root record from IndexedDB or memory cache.
+   */
+  private async fetchRootRecord(folderId: string): Promise<StoredRootHandle | null> {
     const db = await this.getDb();
     if (db) {
       try {
         const record = await db.get(ROOT_STORE, folderId);
-        if (record && isDirectoryHandle(record.handle)) {
-          const updated: StoredRootHandle = {
-            ...record,
-            lastAccessedAt: now(),
-          };
-          await this.updateRootRecord(updated);
-          return updated.handle;
+        if (record) {
+          return record;
         }
-      } catch {
-        // Fall back to memory cache.
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        logger.debug('fetchRootRecord: IndexedDB fetch failed, falling back to memory', {
+          folderId,
+          error: errorMessage,
+        });
       }
     }
-
-    const fallback = this.memoryRootHandles.get(folderId);
-    if (fallback && isDirectoryHandle(fallback.handle)) {
-      const updated: StoredRootHandle = {
-        ...fallback,
-        lastAccessedAt: now(),
-      };
-      this.memoryRootHandles.set(folderId, updated);
-      return updated.handle;
-    }
-    return null;
+    return this.memoryRootHandles.get(folderId) ?? null;
   }
 
   async getAllRootHandles(): Promise<StoredRootHandle[]> {
@@ -399,8 +489,12 @@ export class WebHandleCache implements HandleCache {
         cursor = await cursor.continue();
       }
       await tx.done;
-    } catch {
-      // Ignore delete failures.
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.warn('removeRootHandle: IndexedDB delete failed', {
+        folderId,
+        error: errorMessage,
+      });
     }
   }
 
@@ -597,8 +691,12 @@ export class WebHandleCache implements HandleCache {
           this.memoryFileHandles.set(path, record);
           return record.handle;
         }
-      } catch {
-        // Fall back to memory cache.
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        logger.debug('getFileHandle: IndexedDB fetch failed, falling back to memory', {
+          path,
+          error: errorMessage,
+        });
       }
     }
 
@@ -619,8 +717,12 @@ export class WebHandleCache implements HandleCache {
     }
     try {
       await db.delete(FILE_STORE, path);
-    } catch {
-      // Ignore delete failures.
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.warn('removeFileHandle: IndexedDB delete failed', {
+        path,
+        error: errorMessage,
+      });
     }
   }
 
@@ -638,8 +740,9 @@ export class WebHandleCache implements HandleCache {
       await tx.objectStore(ROOT_STORE).clear();
       await tx.objectStore(FILE_STORE).clear();
       await tx.done;
-    } catch {
-      // Ignore clear failures.
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.warn('clear: IndexedDB clear failed', { error: errorMessage });
     }
   }
 
@@ -685,8 +788,9 @@ export class WebHandleCache implements HandleCache {
       }
 
       await tx.done;
-    } catch {
-      // Ignore prune failures.
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.warn('pruneOldHandles: IndexedDB prune failed', { error: errorMessage });
     }
   }
 }

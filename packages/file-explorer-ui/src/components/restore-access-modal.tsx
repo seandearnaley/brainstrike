@@ -21,7 +21,7 @@ export interface RestoreAccessModalProps {
   onDismiss: () => void;
 }
 
-const variantCopy: Record<RestoreAccessModalVariant, { title: string; description: string }> = {
+const variantCopy = {
   pending: {
     title: 'Restore access to your last folder?',
     description:
@@ -37,7 +37,7 @@ const variantCopy: Record<RestoreAccessModalVariant, { title: string; descriptio
     description:
       'The folder may have been moved or deleted. Please select a new folder using the toolbar to continue.',
   },
-};
+} as const satisfies Record<RestoreAccessModalVariant, { title: string; description: string }>;
 
 export const RestoreAccessModal: React.FC<RestoreAccessModalProps> = ({
   isOpen,
@@ -51,11 +51,22 @@ export const RestoreAccessModal: React.FC<RestoreAccessModalProps> = ({
   const Icon = variant === 'pending' ? FolderClock : AlertTriangle;
   const showRestoreButton = variant !== 'stale';
 
+  // Generate descriptive label for screen readers
+  const ariaLabel =
+    variant === 'pending'
+      ? `Restore access to folder ${folderName}`
+      : variant === 'denied'
+        ? `Access to folder ${folderName} was denied`
+        : `Folder ${folderName} is no longer accessible`;
+
   return (
     <Dialog onOpenChange={(open) => !open && onDismiss()} open={isOpen}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent aria-label={ariaLabel} className="sm:max-w-md" role="alertdialog">
         <DialogHeader>
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+          <div
+            aria-hidden="true"
+            className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10"
+          >
             <Icon className="h-6 w-6 text-primary" />
           </div>
           <DialogTitle className="text-center">{copy.title}</DialogTitle>
@@ -67,11 +78,24 @@ export const RestoreAccessModal: React.FC<RestoreAccessModalProps> = ({
         </DialogHeader>
         <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
           {showRestoreButton && (
-            <Button className="w-full" disabled={isRestoring} onClick={onRestore} size="lg">
+            <Button
+              aria-busy={isRestoring}
+              aria-label={isRestoring ? 'Restoring folder access' : 'Restore folder access'}
+              className="w-full"
+              disabled={isRestoring}
+              onClick={onRestore}
+              size="lg"
+            >
               {isRestoring ? 'Restoring...' : 'Restore Access'}
             </Button>
           )}
-          <Button className="w-full" onClick={onDismiss} size="lg" variant="ghost">
+          <Button
+            aria-label={variant === 'stale' ? 'Close dialog' : 'Dismiss and restore later'}
+            className="w-full"
+            onClick={onDismiss}
+            size="lg"
+            variant="ghost"
+          >
             {variant === 'stale' ? 'Close' : 'Maybe Later'}
           </Button>
         </DialogFooter>

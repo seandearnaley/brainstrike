@@ -177,4 +177,112 @@ describe('WebHandleCache', () => {
     const roots = await cache.getAllRootHandles();
     expect(roots).toHaveLength(0);
   });
+
+  describe('database recovery', () => {
+    it('falls back to memory when IndexedDB is unavailable', async () => {
+      // Use real timers for this test since we need async operations to work properly
+      vi.useRealTimers();
+
+      // Save the original indexedDB
+      const originalIndexedDB = globalThis.indexedDB;
+
+      // Temporarily set indexedDB to undefined to simulate unavailability
+      // @ts-expect-error - intentionally setting undefined for test
+      globalThis.indexedDB = undefined;
+
+      try {
+        const cache = new WebHandleCache();
+        const handle = createDirectoryHandle('memory-only');
+
+        await cache.storeRootHandle('memory-only', handle);
+        const retrieved = await cache.getRootHandle('memory-only');
+
+        // Should still work using in-memory fallback
+        expect(retrieved).toBe(handle);
+      } finally {
+        // Restore indexedDB
+        globalThis.indexedDB = originalIndexedDB;
+        // Restore fake timers for other tests
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2025-01-01T00:00:00.000Z'));
+      }
+    });
+
+    it('removes invalid handles that fail validation', async () => {
+      const cache = new WebHandleCache();
+
+      // Create a handle that will fail validation
+      const invalidHandle = {
+        kind: 'directory',
+        name: 'invalid',
+        entries: vi.fn(),
+        // queryPermission throws, simulating a stale/revoked handle
+        queryPermission: vi.fn().mockRejectedValue(new Error('Permission revoked')),
+        requestPermission: vi.fn().mockRejectedValue(new Error('Permission revoked')),
+      } as unknown as FileSystemDirectoryHandle;
+
+      await cache.storeRootHandle('invalid', invalidHandle);
+
+      // Attempt to retrieve should return null and remove the invalid handle
+      const retrieved = await cache.getRootHandle('invalid');
+      expect(retrieved).toBeNull();
+
+      // Handle should be removed from cache
+      const allHandles = await cache.getAllRootHandles();
+      expect(allHandles).toHaveLength(0);
+    });
+
+    it('handles concurrent store operations without errors', async () => {
+      const cache = new WebHandleCache();
+
+      // Store multiple handles concurrently
+      const handles = Array.from({ length: 5 }, (_, i) => createDirectoryHandle(`concurrent-${i}`));
+
+      // All operations should complete without throwing
+      await Promise.all(
+        handles.map((handle, i) => cache.storeRootHandle(`concurrent-${i}`, handle))
+      );
+
+      // Verify all handles can be retrieved
+      const allHandles = await cache.getAllRootHandles();
+      expect(allHandles.length).toBe(5);
+    });
+  });
+
+  describe('type guards and validation', () => {
+    it('rejects handles missing required methods', async () => {
+      const cache = new WebHandleCache();
+
+      // Create a handle missing the entries method
+      const incompleteHandle = {
+        kind: 'directory',
+        name: 'incomplete',
+        // No entries method
+        queryPermission: vi.fn().mockResolvedValue('granted'),
+      } as unknown as FileSystemDirectoryHandle;
+
+      await cache.storeRootHandle('incomplete', incompleteHandle);
+
+      // Should return null because handle fails type guard
+      const retrieved = await cache.getRootHandle('incomplete');
+      expect(retrieved).toBeNull();
+    });
+
+    it('rejects file handles missing getFile method', async () => {
+      const cache = new WebHandleCache();
+
+      // Create a file handle missing the getFile method
+      const incompleteFileHandle = {
+        kind: 'file',
+        name: 'incomplete.txt',
+        // No getFile method
+      } as unknown as FileSystemFileHandle;
+
+      await cache.storeFileHandle('root', 'incomplete.txt', incompleteFileHandle);
+
+      // Should return null because handle fails type guard
+      const retrieved = await cache.getFileHandle('root', 'incomplete.txt');
+      expect(retrieved).toBeNull();
+    });
+  });
 });
