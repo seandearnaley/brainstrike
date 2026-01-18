@@ -125,6 +125,7 @@ function createLaunchOptions(
   userDataDir?: string,
   launchTimeoutMs?: number
 ): Parameters<typeof electron.launch>[0] {
+  const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
   const baseArgs = [
     mainPath,
@@ -163,7 +164,7 @@ function createLaunchOptions(
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
     env: {
-      ...process.env,
+      ...baseEnv,
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase

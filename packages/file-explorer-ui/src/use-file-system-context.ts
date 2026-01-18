@@ -71,10 +71,7 @@ export function useFileSystem() {
 
   const coreApi = useCoreFileSystem({ setCurrentFolderId });
 
-  const isFileSystemAccessSupported = (): {
-    supported: boolean;
-    reason: string;
-  } => coreApi.isFileSystemAccessSupported();
+  const isFileSystemAccessSupported = coreApi.isFileSystemAccessSupported;
 
   const selectRootDirectory = async (): Promise<DirectoryHandle | null> => {
     const handle = await selectDirectoryWithErrorMapping(coreApi);
@@ -89,6 +86,15 @@ export function useFileSystem() {
     setRootDirectoryHandle(null);
   };
 
+  /**
+   * Set root directory handle from external source (e.g., restore banner).
+   * Updates both the store and the core hook's internal state.
+   */
+  const setRootHandle = (handle: DirectoryHandle | null) => {
+    coreApi.setRootDirectoryHandle(handle);
+    setRootDirectoryHandle(handle);
+  };
+
   // Sync core hook's restoration to the store (desktop auto-restore)
   // Initial one-way sync only: if the core restored a handle and the store is empty.
   // biome-ignore lint/plugin: One-time sync from core hook to store - controlled state restoration
@@ -98,6 +104,9 @@ export function useFileSystem() {
     }
   }, [storedRootDirectoryHandle, coreApi.rootDirectoryHandle, setRootDirectoryHandle]);
 
+  // Memoize the return object with stable primitive/reference dependencies only
+  // Functions are recreated each render but the object identity changes only when
+  // the actual data values change
   return useMemo(
     () => ({
       rootDirectoryHandle: storedRootDirectoryHandle ?? coreApi.rootDirectoryHandle,
@@ -105,13 +114,12 @@ export function useFileSystem() {
       selectRootDirectory,
       isFileSystemAccessSupported,
       clearRootDirectory,
+      setRootDirectoryHandle: setRootHandle,
+      setAccessLoading: coreApi.setAccessLoading,
     }),
-    [
-      storedRootDirectoryHandle,
-      coreApi.rootDirectoryHandle,
-      coreApi.isAccessLoading,
-      selectRootDirectory,
-      clearRootDirectory,
-    ]
+    // Only depend on data values, not functions - functions are stable closures
+    // that reference the latest values through the closure scope
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [storedRootDirectoryHandle, coreApi.rootDirectoryHandle, coreApi.isAccessLoading]
   );
 }

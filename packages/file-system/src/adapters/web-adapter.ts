@@ -1,5 +1,9 @@
 import type { IFileNode } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils';
 import { AccessError } from '../errors';
+
+const logger = createLogger('WebFileSystemAdapter');
+
 import type {
   DirectoryHandle,
   DirectoryReadOptions,
@@ -118,9 +122,36 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
   public readonly platform = 'web' as const;
   private readonly handleCache: HandleCache;
   private lastRootFolderId: string | null = null;
+  private hasCheckedPersistence = false;
 
   constructor(options?: WebFileSystemAdapterOptions) {
     this.handleCache = options?.handleCache ?? new WebHandleCache();
+  }
+
+  private async ensurePersistentStorage(): Promise<void> {
+    if (this.hasCheckedPersistence) {
+      return;
+    }
+    this.hasCheckedPersistence = true;
+
+    if (typeof navigator === 'undefined') {
+      return;
+    }
+    const storage = navigator.storage;
+    if (
+      !(storage && typeof storage.persisted === 'function' && typeof storage.persist === 'function')
+    ) {
+      return;
+    }
+
+    try {
+      const persisted = await storage.persisted();
+      if (!persisted) {
+        await storage.persist();
+      }
+    } catch {
+      // Best-effort: ignore persistence errors.
+    }
   }
 
   getHandleCache(): HandleCache {
@@ -134,10 +165,13 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
 
     const dirHandle = await window.showDirectoryPicker();
     try {
+      await this.ensurePersistentStorage();
       await this.handleCache.storeRootHandle(dirHandle.name, dirHandle);
       this.lastRootFolderId = dirHandle.name;
-    } catch {
+      logger.info('Stored root handle to IndexedDB', { name: dirHandle.name });
+    } catch (err) {
       // Best-effort persistence; ignore failures.
+      logger.warn('Failed to store root handle', { error: err });
     }
 
     return {
@@ -271,8 +305,11 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
   }
 
   async restoreLastFolder(): Promise<DirectoryHandle | null> {
+    logger.debug('restoreLastFolder called');
     const handles = await this.handleCache.getAllRootHandles();
+    logger.debug('restoreLastFolder: found handles', { count: handles.length });
     if (handles.length === 0) {
+      logger.debug('restoreLastFolder: no handles found, returning null');
       return null;
     }
 
@@ -287,6 +324,24 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
       if (latest) {
         await this.handleCache.removeRootHandle(latest.folderId);
       }
+      return null;
+    }
+
+    let permission: PermissionState | 'unknown' = 'unknown';
+    if (typeof latest.handle.queryPermission === 'function') {
+      try {
+        permission = await latest.handle.queryPermission({ mode: 'read' });
+        logger.debug('restoreLastFolder: permission query result', { permission });
+      } catch (err) {
+        logger.debug('restoreLastFolder: permission query failed', { error: err });
+        permission = 'unknown';
+      }
+    }
+
+    if (permission !== 'granted') {
+      logger.debug(
+        'restoreLastFolder: permission not granted, returning null (banner should show)'
+      );
       return null;
     }
 

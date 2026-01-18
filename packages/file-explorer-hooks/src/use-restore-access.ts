@@ -8,17 +8,34 @@ const logger = createLogger('useRestoreAccess');
 export interface PendingRestoreState {
   folderId: string;
   name: string;
+  /** The raw FileSystemDirectoryHandle for requesting permission synchronously */
+  rawHandle: FileSystemDirectoryHandle;
+  /** Current permission state */
+  permissionState: PermissionState | 'unknown';
 }
 
 interface RestoreAccessState {
+  /** Whether the hook is still checking for stored handles on startup */
+  isCheckingStoredHandles: boolean;
   pendingRestore: PendingRestoreState | null;
   showDeniedBanner: boolean;
   showStaleBanner: boolean;
-  storedFolders: PendingRestoreState[];
+  storedFolders: Array<{ folderId: string; name: string }>;
+  /**
+   * Begin restore - requests permission SYNCHRONOUSLY in the click handler.
+   * MUST be called directly from a user gesture (click) handler.
+   */
   beginRestore: () => Promise<DirectoryHandle | null>;
   dismissRestore: () => void;
   chooseDifferentFolder: () => Promise<DirectoryHandle | null>;
   clearStoredHandles: () => Promise<void>;
+}
+
+interface RestoreHandleResult {
+  handle: FileSystemDirectoryHandle;
+  folderId: string;
+  name: string;
+  permissionState: PermissionState | 'unknown';
 }
 
 interface WebHandleCacheShape {
@@ -26,6 +43,8 @@ interface WebHandleCacheShape {
     Array<{ folderId: string; name: string; lastAccessedAt: number }>
   >;
   restoreLastRootHandle?: () => Promise<{ handle: FileSystemDirectoryHandle } | null>;
+  getLastRootHandleForRestore?: () => Promise<RestoreHandleResult | null>;
+  markHandleRestored?: (folderId: string) => Promise<void>;
   removeRootHandle?: (folderId: string) => Promise<void>;
   clear?: () => Promise<void>;
 }
@@ -34,48 +53,174 @@ interface WebAdapterWithCache {
   getHandleCache?: () => WebHandleCacheShape;
 }
 
+/** Convert a raw FileSystemDirectoryHandle to our DirectoryHandle type */
+function toDirectoryHandle(rawHandle: FileSystemDirectoryHandle): DirectoryHandle {
+  return {
+    path: rawHandle.name,
+    name: rawHandle.name,
+    kind: 'directory',
+    platform: 'web',
+    _internal: rawHandle,
+  };
+}
+
+/** Load handles using the new getLastRootHandleForRestore method */
+async function loadHandlesNewMethod(
+  handleCache: WebHandleCacheShape,
+  setPendingRestore: (state: PendingRestoreState | null) => void,
+  setStoredFolders: (folders: Array<{ folderId: string; name: string }>) => void
+): Promise<void> {
+  const result = await handleCache.getLastRootHandleForRestore?.();
+  logger.info('getLastRootHandleForRestore result', {
+    hasResult: !!result,
+    permissionState: result?.permissionState,
+  });
+
+  if (result) {
+    setPendingRestore({
+      folderId: result.folderId,
+      name: result.name,
+      rawHandle: result.handle,
+      permissionState: result.permissionState,
+    });
+
+    const allHandles = await handleCache.getAllRootHandles?.();
+    if (allHandles) {
+      setStoredFolders(allHandles.map((h) => ({ folderId: h.folderId, name: h.name })));
+    }
+  } else {
+    setStoredFolders([]);
+  }
+}
+
+/** Load handles using the legacy getAllRootHandles method */
+async function loadHandlesLegacyMethod(
+  handleCache: WebHandleCacheShape,
+  setStoredFolders: (folders: Array<{ folderId: string; name: string }>) => void
+): Promise<void> {
+  const handles = await handleCache.getAllRootHandles?.();
+  logger.info('Loaded stored root handles (legacy)', { count: handles?.length ?? 0 });
+  if (!handles || handles.length === 0) {
+    setStoredFolders([]);
+    return;
+  }
+  setStoredFolders(handles.map((h) => ({ folderId: h.folderId, name: h.name })));
+}
+
+/** Request permission and return DirectoryHandle if granted */
+async function requestPermissionAndRestore(
+  rawHandle: FileSystemDirectoryHandle,
+  folderId: string,
+  handleCache: WebHandleCacheShape | null,
+  setPendingRestore: (state: PendingRestoreState | null) => void
+): Promise<{ handle: DirectoryHandle | null; showDenied: boolean; showStale: boolean }> {
+  if (typeof rawHandle.requestPermission !== 'function') {
+    logger.warn('beginRestore: handle lacks requestPermission method');
+    return { handle: null, showDenied: false, showStale: true };
+  }
+
+  try {
+    // CRITICAL: This requestPermission call happens synchronously in the click handler chain
+    const permissionResult = await rawHandle.requestPermission({ mode: 'read' });
+    logger.info('beginRestore: permission result', { permissionResult });
+
+    if (permissionResult === 'granted') {
+      await handleCache?.markHandleRestored?.(folderId);
+      setPendingRestore(null);
+      return { handle: toDirectoryHandle(rawHandle), showDenied: false, showStale: false };
+    }
+
+    if (permissionResult === 'denied') {
+      return { handle: null, showDenied: true, showStale: false };
+    }
+
+    return { handle: null, showDenied: false, showStale: true };
+  } catch (error) {
+    logger.warn('beginRestore: permission request failed', { error });
+    return { handle: null, showDenied: false, showStale: true };
+  }
+}
+
+/** Legacy restore using restoreLastRootHandle */
+async function legacyRestore(
+  handleCache: WebHandleCacheShape,
+  setPendingRestore: (state: PendingRestoreState | null) => void,
+  setStoredFolders: (folders: Array<{ folderId: string; name: string }>) => void
+): Promise<{ handle: DirectoryHandle | null; showDenied: boolean; showStale: boolean }> {
+  try {
+    logger.debug('beginRestore: using legacy restoreLastRootHandle');
+    const result = await handleCache.restoreLastRootHandle?.();
+
+    if (!result?.handle) {
+      const remaining = await handleCache.getAllRootHandles?.();
+      const hasRemaining = Boolean(remaining && remaining.length > 0);
+      return { handle: null, showDenied: hasRemaining, showStale: !hasRemaining };
+    }
+
+    setPendingRestore(null);
+    const remaining = await handleCache.getAllRootHandles?.();
+    if (remaining) {
+      setStoredFolders(remaining.map((h) => ({ folderId: h.folderId, name: h.name })));
+    }
+
+    logger.info('beginRestore: successfully restored handle', { name: result.handle.name });
+    return { handle: toDirectoryHandle(result.handle), showDenied: false, showStale: false };
+  } catch (error) {
+    logger.warn('Failed to restore handle', { error });
+    return { handle: null, showDenied: false, showStale: true };
+  }
+}
+
 export function useRestoreAccess(): RestoreAccessState {
   const { fileSystemAdapter } = useAdapters();
   const [pendingRestore, setPendingRestore] = useState<PendingRestoreState | null>(null);
   const [showDeniedBanner, setShowDeniedBanner] = useState(false);
   const [showStaleBanner, setShowStaleBanner] = useState(false);
-  const [storedFolders, setStoredFolders] = useState<PendingRestoreState[]>([]);
+  const [storedFolders, setStoredFolders] = useState<Array<{ folderId: string; name: string }>>([]);
+  const [isCheckingStoredHandles, setIsCheckingStoredHandles] = useState(true);
   const dismissedRef = useRef(false);
 
   const handleCache = useMemo(() => {
     const adapter = fileSystemAdapter as WebAdapterWithCache | null;
-    return adapter?.getHandleCache?.() ?? null;
+    const cache = adapter?.getHandleCache?.() ?? null;
+    logger.debug('Handle cache availability', {
+      hasAdapter: !!adapter,
+      hasGetHandleCache: typeof adapter?.getHandleCache === 'function',
+      hasCache: !!cache,
+      hasNewMethod: typeof cache?.getLastRootHandleForRestore === 'function',
+    });
+    return cache;
   }, [fileSystemAdapter]);
 
+  // Load stored handles on startup
   useEffect(() => {
     if (dismissedRef.current) {
+      logger.debug('Skipping restore check - already dismissed');
+      setIsCheckingStoredHandles(false);
       return;
     }
-    if (!handleCache?.getAllRootHandles) {
+
+    const hasNewMethod = typeof handleCache?.getLastRootHandleForRestore === 'function';
+    const hasOldMethod = typeof handleCache?.getAllRootHandles === 'function';
+
+    if (!(hasNewMethod || hasOldMethod)) {
+      logger.debug('Skipping restore check - no handle cache methods');
+      setIsCheckingStoredHandles(false);
       return;
     }
 
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const handles = await handleCache.getAllRootHandles?.();
-          if (!handles || handles.length === 0) {
-            setStoredFolders([]);
-            return;
+          if (hasNewMethod && handleCache) {
+            await loadHandlesNewMethod(handleCache, setPendingRestore, setStoredFolders);
+          } else if (hasOldMethod && handleCache) {
+            await loadHandlesLegacyMethod(handleCache, setStoredFolders);
           }
-          const latestRecord = handles.reduce((current, candidate) =>
-            candidate.lastAccessedAt > current.lastAccessedAt ? candidate : current
-          );
-
-          setPendingRestore({
-            folderId: latestRecord.folderId,
-            name: latestRecord.name,
-          });
-          setStoredFolders(
-            handles.map((handle) => ({ folderId: handle.folderId, name: handle.name }))
-          );
         } catch (error) {
           logger.warn('Failed to load stored root handles', { error });
+        } finally {
+          setIsCheckingStoredHandles(false);
         }
       })();
     }, 500);
@@ -84,44 +229,67 @@ export function useRestoreAccess(): RestoreAccessState {
   }, [handleCache]);
 
   const beginRestore = useCallback(async (): Promise<DirectoryHandle | null> => {
-    if (!handleCache?.restoreLastRootHandle) {
-      return null;
-    }
+    logger.info('beginRestore called', {
+      hasPendingRestore: !!pendingRestore,
+      hasRawHandle: !!pendingRestore?.rawHandle,
+      permissionState: pendingRestore?.permissionState,
+    });
+
     setShowDeniedBanner(false);
     setShowStaleBanner(false);
 
-    try {
-      const result = await handleCache.restoreLastRootHandle();
-      if (!result?.handle) {
-        const remaining = await handleCache.getAllRootHandles?.();
-        if (!remaining || remaining.length === 0) {
-          setShowStaleBanner(true);
-        } else {
-          setShowDeniedBanner(true);
-        }
+    // NEW PATH: We have the raw handle - request permission synchronously
+    if (pendingRestore?.rawHandle) {
+      const { rawHandle, folderId, permissionState } = pendingRestore;
+
+      // If already granted, just return it
+      if (permissionState === 'granted') {
+        logger.info('beginRestore: permission already granted');
+        await handleCache?.markHandleRestored?.(folderId);
+        setPendingRestore(null);
+        return toDirectoryHandle(rawHandle);
+      }
+
+      // If denied, show banner
+      if (permissionState === 'denied') {
+        logger.info('beginRestore: permission denied');
+        setShowDeniedBanner(true);
         return null;
       }
 
-      setPendingRestore(null);
-      const remaining = await handleCache.getAllRootHandles?.();
-      if (remaining) {
-        setStoredFolders(
-          remaining.map((handle) => ({ folderId: handle.folderId, name: handle.name }))
-        );
+      // Permission is 'prompt' or 'unknown' - request it NOW
+      logger.info('beginRestore: requesting permission synchronously');
+      const result = await requestPermissionAndRestore(
+        rawHandle,
+        folderId,
+        handleCache,
+        setPendingRestore
+      );
+
+      if (result.showDenied) {
+        setShowDeniedBanner(true);
       }
-      return {
-        path: result.handle.name,
-        name: result.handle.name,
-        kind: 'directory',
-        platform: 'web',
-        _internal: result.handle,
-      };
-    } catch (error) {
-      logger.warn('Failed to restore handle', { error });
-      setShowStaleBanner(true);
+      if (result.showStale) {
+        setShowStaleBanner(true);
+      }
+      return result.handle;
+    }
+
+    // LEGACY PATH: No raw handle, use old restoreLastRootHandle method
+    if (!handleCache?.restoreLastRootHandle) {
+      logger.warn('beginRestore: no restore method available');
       return null;
     }
-  }, [handleCache]);
+
+    const result = await legacyRestore(handleCache, setPendingRestore, setStoredFolders);
+    if (result.showDenied) {
+      setShowDeniedBanner(true);
+    }
+    if (result.showStale) {
+      setShowStaleBanner(true);
+    }
+    return result.handle;
+  }, [handleCache, pendingRestore]);
 
   const dismissRestore = useCallback(() => {
     dismissedRef.current = true;
@@ -153,6 +321,7 @@ export function useRestoreAccess(): RestoreAccessState {
   }, [handleCache]);
 
   return {
+    isCheckingStoredHandles,
     pendingRestore,
     showDeniedBanner,
     showStaleBanner,

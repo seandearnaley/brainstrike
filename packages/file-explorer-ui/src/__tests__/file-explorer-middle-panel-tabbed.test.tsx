@@ -198,6 +198,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       isRestoringExpandedPaths: false,
       restorationProgress: null,
       cancelChildLoading: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+      setAccessLoading: vi.fn(),
     });
 
     const previewPanelModule = await import('../preview-panel');
@@ -273,6 +275,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       isRestoringExpandedPaths: false,
       restorationProgress: null,
       cancelChildLoading: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+      setAccessLoading: vi.fn(),
     });
 
     const previewPanelModule = await import('../preview-panel');

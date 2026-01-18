@@ -97,6 +97,23 @@ async function ensureConsolePanelVisible(page: Page): Promise<void> {
   }
 }
 
+async function restoreAccessIfNeeded(page: Page, explorer: FileExplorerPage): Promise<void> {
+  const restoreBanner = page.getByText('Restore access to your last folder?');
+  const restoreButton = page.getByRole('button', { name: 'Restore Access' });
+  const start = Date.now();
+
+  while (Date.now() - start < 10_000) {
+    if (await explorer.fileTree.isVisible().catch(() => false)) {
+      return;
+    }
+    if (await restoreBanner.isVisible().catch(() => false)) {
+      await restoreButton.click();
+      return;
+    }
+    await page.waitForTimeout(200);
+  }
+}
+
 async function resetExplorerState(page: Page, extraStorageKeys: string[] = []): Promise<void> {
   await resetAppState(page);
   if (extraStorageKeys.length > 0) {
@@ -134,10 +151,7 @@ test.describe('File Explorer persistence (web)', () => {
     await page.reload();
     await waitForAppLoad(page);
 
-    await expect(page.getByText('Restore access to your last folder?')).toBeVisible({
-      timeout: 10_000,
-    });
-    await page.getByRole('button', { name: 'Restore Access' }).click();
+    await restoreAccessIfNeeded(page, explorer);
 
     await expect(explorer.fileTree).toBeVisible({ timeout: 15_000 });
     await expect(explorer.fileTree.getByText('alpha.ts')).toBeVisible();
@@ -181,10 +195,7 @@ test.describe('File Explorer persistence (web)', () => {
     await page.reload();
     await waitForAppLoad(page);
 
-    await expect(page.getByText('Restore access to your last folder?')).toBeVisible({
-      timeout: 10_000,
-    });
-    await page.getByRole('button', { name: 'Restore Access' }).click();
+    await restoreAccessIfNeeded(page, explorer);
 
     await ensureConsolePanelVisible(page);
     await expect(elements.consolePanel).toBeVisible();

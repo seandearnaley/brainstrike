@@ -312,6 +312,13 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
   decorated.isInlineFixtureActive = isInlineFixtureActive;
   decorated.canLoadInlineFixture = true;
 
+  // Forward getHandleCache if available (required for web persistence via useRestoreAccess)
+  const adapterWithCache = adapter as { getHandleCache?: () => unknown };
+  if (typeof adapterWithCache.getHandleCache === 'function') {
+    (decorated as { getHandleCache?: () => unknown }).getHandleCache =
+      adapterWithCache.getHandleCache.bind(adapter);
+  }
+
   return decorated;
 }
 

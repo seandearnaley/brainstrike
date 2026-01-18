@@ -196,6 +196,8 @@ describe('FileExplorerLeftPanel', () => {
       isRestoringExpandedPaths: false,
       restorationProgress: null,
       cancelChildLoading: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+      setAccessLoading: vi.fn(),
     } as ReturnType<typeof useFileExplorer>;
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 

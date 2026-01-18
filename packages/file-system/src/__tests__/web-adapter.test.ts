@@ -20,6 +20,8 @@ const createHandleCache = (overrides: Partial<HandleCache> = {}): HandleCache =>
   getAllRootHandles: vi.fn().mockResolvedValue([]),
   removeRootHandle: vi.fn().mockResolvedValue(undefined),
   restoreLastRootHandle: vi.fn().mockResolvedValue(null),
+  getLastRootHandleForRestore: vi.fn().mockResolvedValue(null),
+  markHandleRestored: vi.fn().mockResolvedValue(undefined),
   storeFileHandle: vi.fn().mockResolvedValue(undefined),
   getFileHandle: vi.fn().mockResolvedValue(null),
   removeFileHandle: vi.fn().mockResolvedValue(undefined),
@@ -371,6 +373,7 @@ describe('WebFileSystemAdapter', () => {
         name: 'root',
         kind: 'directory',
         entries,
+        queryPermission: vi.fn().mockResolvedValue('granted'),
       } as unknown as FileSystemDirectoryHandle;
       const handleCache = createHandleCache({
         getAllRootHandles: vi.fn().mockResolvedValue([
@@ -427,6 +430,7 @@ describe('WebFileSystemAdapter', () => {
         name: 'root',
         kind: 'directory',
         entries,
+        queryPermission: vi.fn().mockResolvedValue('granted'),
       } as unknown as FileSystemDirectoryHandle;
       const removeRootHandle = vi.fn().mockResolvedValue(undefined);
       const handleCache = createHandleCache({
