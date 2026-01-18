@@ -31,7 +31,7 @@ describe('RestoreAccessModal', () => {
 
     render(<RestoreAccessModal {...defaultProps} onRestore={onRestore} />);
 
-    await user.click(screen.getByRole('button', { name: 'Restore Access' }));
+    await user.click(screen.getByRole('button', { name: 'Restore folder access' }));
 
     expect(onRestore).toHaveBeenCalledTimes(1);
   });
@@ -42,7 +42,7 @@ describe('RestoreAccessModal', () => {
 
     render(<RestoreAccessModal {...defaultProps} onDismiss={onDismiss} />);
 
-    await user.click(screen.getByRole('button', { name: 'Maybe Later' }));
+    await user.click(screen.getByRole('button', { name: 'Dismiss and restore later' }));
 
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
@@ -50,8 +50,8 @@ describe('RestoreAccessModal', () => {
   it('shows "Restoring..." when isRestoring is true', () => {
     render(<RestoreAccessModal {...defaultProps} isRestoring={true} />);
 
-    expect(screen.getByRole('button', { name: 'Restoring...' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Restoring...' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Restoring folder access' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Restoring folder access' })).toBeDisabled();
   });
 
   describe('variant: denied', () => {
@@ -59,7 +59,7 @@ describe('RestoreAccessModal', () => {
       render(<RestoreAccessModal {...defaultProps} variant="denied" />);
 
       expect(screen.getByText('Folder access was denied')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Restore Access' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Restore folder access' })).toBeInTheDocument();
     });
   });
 
@@ -68,11 +68,11 @@ describe('RestoreAccessModal', () => {
       render(<RestoreAccessModal {...defaultProps} variant="stale" />);
 
       expect(screen.getByText('Stored folder is no longer accessible')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: 'Restore Access' })).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Restore folder access' })
+      ).not.toBeInTheDocument();
       // The dismiss button shows "Close" in stale variant
-      const buttons = screen.getAllByRole('button', { name: 'Close' });
-      // There are two Close buttons: the dialog close icon (sr-only) and the dismiss button
-      expect(buttons.length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByRole('button', { name: 'Close dialog' })).toBeInTheDocument();
     });
   });
 });
