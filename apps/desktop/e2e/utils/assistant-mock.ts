@@ -32,38 +32,61 @@ export async function setupAssistantMock(
 ): Promise<void> {
   const merged = { ...defaultOptions, ...options };
 
-  await page.evaluate(
-    async ({ provider, apiKey }) => {
-      const globals = globalThis as unknown as {
-        secrets?: { saveKey?: (p: string, key: string) => Promise<unknown> };
-      };
-      await globals.secrets?.saveKey?.(provider, apiKey);
-    },
-    { provider: merged.provider, apiKey: merged.apiKey }
-  );
-
   await page.addInitScript(
-    ({ models, message, variant, errorMessage }) => {
+    ({ provider, apiKey, models, message, variant, errorMessage }) => {
       const globals = globalThis as unknown as Window & {
         fetch: typeof fetch;
         localStorage?: Storage;
         __assistantAvailabilityOverride?: { state: 'enabled' };
+        secrets?: {
+          saveKey?: (p: string, key: string) => Promise<unknown>;
+          getKey?: (p: string) => Promise<string | null>;
+          deleteKey?: (p: string) => Promise<void>;
+          list?: () => Promise<string[]>;
+          listStored?: () => Promise<string[]>;
+          clearAll?: () => Promise<{ success: boolean }>;
+        };
       };
+
+      const enabledModelsByProvider = Object.fromEntries(
+        Object.entries(models).map(([providerId, model]) => [providerId, [model]])
+      );
 
       try {
         globals.localStorage?.setItem(
           'assistant-preferences.v1',
           JSON.stringify({
             state: {
-              selectedProvider: 'openai',
+              selectedModel: `${provider}::${models[provider] ?? models['openai'] ?? ''}`,
               modelsByProvider: models,
+              enabledModelsByProvider,
             },
-            version: 1,
+            version: 2,
           })
         );
       } catch {
         // ignore storage errors in constrained environments
       }
+
+      const storedSecrets = new Map<string, string>();
+      storedSecrets.set(provider, apiKey);
+
+      globals.secrets = {
+        saveKey: async (p, key) => {
+          storedSecrets.set(p, key);
+          return { ok: true };
+        },
+        getKey: async (p) => storedSecrets.get(p) ?? null,
+        deleteKey: async (p) => {
+          storedSecrets.delete(p);
+        },
+        list: async () => Array.from(storedSecrets.keys()),
+        listStored: async () => Array.from(storedSecrets.keys()),
+        clearAll: async () => {
+          storedSecrets.clear();
+          return { success: true };
+        },
+      };
 
       const originalFetch: typeof globals.fetch = globals.fetch.bind(globals);
       const encoder = new TextEncoder();
@@ -275,6 +298,8 @@ export async function setupAssistantMock(
       globals.fetch = overrideFetch;
     },
     {
+      provider: merged.provider,
+      apiKey: merged.apiKey,
       models: merged.models,
       message: merged.message,
       variant: merged.variant,

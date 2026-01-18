@@ -172,6 +172,12 @@ export interface FileExplorerData {
    * Enables migration from explicit to rules while maintaining backward compatibility.
    */
   selectionModel: SelectionModel;
+  /**
+   * Whether file system access is currently being loaded/restored.
+   * Used to prevent stale state clearing during restore operations.
+   * This is ephemeral state (not persisted).
+   */
+  isAccessLoading: boolean;
 }
 
 export interface CacheStats {
@@ -244,6 +250,9 @@ export interface FileExplorerState extends FileExplorerData {
   // Ephemeral handle for current root directory. Not serialized.
   rootDirectoryHandle: import('./file-system').DirectoryHandle | null;
   setRootDirectoryHandle: (handle: import('./file-system').DirectoryHandle | null) => void;
+
+  // Access loading state action (for blocking stale clearing during restore)
+  setIsAccessLoading: (loading: boolean) => void;
 }
 
 // Constants
@@ -282,4 +291,5 @@ export const DEFAULT_STATE = {
   quickFilter: '',
   devInlineFixtureEnabled: false,
   selectionModel: createEmptySelectionModel(),
+  isAccessLoading: false,
 } as const;

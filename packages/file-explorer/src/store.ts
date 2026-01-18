@@ -41,6 +41,8 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     expandedDirectoryPaths: new Set<string>(),
     quickFilter: '',
     rootDirectoryHandle: null,
+    // Ephemeral access loading state (not persisted)
+    isAccessLoading: false,
   };
 
   const actions = {
@@ -61,6 +63,9 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     },
     setDevInlineFixtureEnabled: (value: boolean) => {
       set({ devInlineFixtureEnabled: value });
+    },
+    setIsAccessLoading: (loading: boolean) => {
+      set({ isAccessLoading: loading });
     },
   };
 

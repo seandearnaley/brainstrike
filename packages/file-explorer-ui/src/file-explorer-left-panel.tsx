@@ -8,7 +8,7 @@ const logger = createLogger('FileExplorerLeftPanel');
 import * as React from 'react';
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import ActionButtons from './action-buttons-array-facade';
-import { RestoreAccessBanner } from './components/restore-access-banner';
+import { RestoreAccessModal } from './components/restore-access-modal';
 import { TreeActionButtons } from './components/tree-action-buttons';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
@@ -101,7 +101,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setMaxSelectionCount,
     devInlineFixtureEnabled,
     setDevInlineFixtureEnabled,
-    setRootDirectoryHandle,
   ] = store(
     (s) =>
       [
@@ -114,13 +113,13 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.setMaxSelectionCount,
         s.devInlineFixtureEnabled,
         s.setDevInlineFixtureEnabled,
-        s.setRootDirectoryHandle,
       ] as const
   );
 
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isRulesEditorOpen, setIsRulesEditorOpen] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
 
   const {
     fileTree,
@@ -139,6 +138,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancelOperation,
     isCancelling,
     clearRootDirectory,
+    setRootDirectoryHandle,
     loadingPaths,
     loadChildren,
     cancelChildLoading,
@@ -148,9 +148,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     expandAllProgress,
     isRestoringExpandedPaths,
     restorationProgress,
+    setAccessLoading,
   } = useFileExplorer();
 
   const {
+    isCheckingStoredHandles,
     pendingRestore,
     showDeniedBanner,
     showStaleBanner,
@@ -159,6 +161,17 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     dismissRestore,
     clearStoredHandles,
   } = useRestoreAccess();
+
+  // CRITICAL: Block stale clearing effect as soon as restore modal becomes visible.
+  // The stale clearing effect runs after 1500ms if no rootDirectoryHandle exists.
+  // If we wait until the user clicks "Restore Access" to set isAccessLoading,
+  // the expanded paths will already have been cleared by then.
+  // biome-ignore lint/plugin: Intentional - we need to set shared store state when restore modal becomes visible
+  useEffect(() => {
+    if (pendingRestore || showDeniedBanner || showStaleBanner) {
+      setAccessLoading(true);
+    }
+  }, [pendingRestore, showDeniedBanner, showStaleBanner, setAccessLoading]);
 
   const {
     showToast,
@@ -357,9 +370,29 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         setCurrentFolderId(id);
       }
     } else {
-      setCurrentFolderId(null);
+      // CRITICAL: Don't clear currentFolderId if we're waiting for restore access.
+      // When the page loads with stored handles but no permission yet, we need to
+      // preserve the currentFolderId so that the per-folder expandedDirectoryPaths
+      // remain intact. Calling setCurrentFolderId(null) triggers buildResetState()
+      // which clears expandedDirectoryPaths.
+      //
+      // isCheckingStoredHandles: true during the initial 500ms while useRestoreAccess
+      // checks IndexedDB for stored handles. Don't clear during this time.
+      const isWaitingForRestore =
+        isCheckingStoredHandles || pendingRestore || showDeniedBanner || showStaleBanner;
+      if (!isWaitingForRestore) {
+        setCurrentFolderId(null);
+      }
     }
-  }, [rootDirectoryHandle, setCurrentFolderId, store]);
+  }, [
+    rootDirectoryHandle,
+    setCurrentFolderId,
+    store,
+    isCheckingStoredHandles,
+    pendingRestore,
+    showDeniedBanner,
+    showStaleBanner,
+  ]);
 
   const expandAll = useCallback(() => {
     logger.info('expandAll clicked', {
@@ -458,21 +491,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             isRestoring={isRestoringExpandedPaths}
             progress={restorationProgress}
           />
-          {!rootDirectoryHandle && (pendingRestore || showDeniedBanner || showStaleBanner) ? (
-            <RestoreAccessBanner
-              folderName={pendingRestore?.name ?? storedFolders[0]?.name ?? 'previous folder'}
-              onChooseDifferent={handleDirectorySelect}
-              onDismiss={dismissRestore}
-              onRestore={async () => {
-                const restored = await beginRestore();
-                if (restored) {
-                  setRootDirectoryHandle(restored);
-                  setCurrentFolderId(restored.name);
-                }
-              }}
-              variant={showStaleBanner ? 'stale' : showDeniedBanner ? 'denied' : 'pending'}
-            />
-          ) : null}
         </div>
 
         {/* Scrollable Middle Content */}
@@ -536,6 +554,127 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           folderId={(rootDirectoryHandle?.name ?? currentFolderId) || ''}
           isOpen={isRulesEditorOpen}
           onOpenChange={setIsRulesEditorOpen}
+        />
+
+        {/* Restore Access Modal - shown when stored handles exist but need permission */}
+        <RestoreAccessModal
+          folderName={pendingRestore?.name ?? storedFolders[0]?.name ?? 'previous folder'}
+          isOpen={!rootDirectoryHandle && (!!pendingRestore || showDeniedBanner || showStaleBanner)}
+          isRestoring={isRestoring}
+          onDismiss={dismissRestore}
+          onRestore={() => {
+            // CRITICAL: Chrome requires requestPermission() to be called as the ABSOLUTE
+            // FIRST operation in the click handler. Even console.log can break gesture context.
+            // See: https://developer.chrome.com/blog/user-activation
+            const rawHandle = pendingRestore?.rawHandle;
+
+            // Helper to complete restore after permission and hydration
+            const completeRestore = (handle: FileSystemDirectoryHandle) => {
+              // CRITICAL: Wait for Zustand store hydration before setting folder ID.
+              // The store may not have loaded folderStates from localStorage yet.
+              // If we call setCurrentFolderId before hydration, it won't find any
+              // existing folder state and will create a new empty one instead.
+              const persistApi = store as unknown as {
+                persist?: {
+                  hasHydrated?: () => boolean;
+                  onFinishHydration?: (cb: () => void) => () => void;
+                };
+              };
+
+              const doRestore = () => {
+                const directoryHandle = {
+                  path: handle.name,
+                  name: handle.name,
+                  kind: 'directory' as const,
+                  platform: 'web' as const,
+                  _internal: handle,
+                };
+                setRootDirectoryHandle(directoryHandle);
+                // Note: setRootDirectoryHandle already calls setCurrentFolderId internally
+                beginRestore()
+                  .catch(() => {})
+                  .finally(() => {
+                    setIsRestoring(false);
+                    setAccessLoading(false);
+                  });
+              };
+
+              // Check if store has hydrated
+              if (persistApi.persist?.hasHydrated?.()) {
+                doRestore();
+              } else if (persistApi.persist?.onFinishHydration) {
+                const unsub = persistApi.persist.onFinishHydration(() => {
+                  unsub();
+                  doRestore();
+                });
+              } else {
+                // No persist API available, proceed anyway
+                doRestore();
+              }
+            };
+
+            // If we have a raw handle, call requestPermission IMMEDIATELY - no other code first
+            if (rawHandle && typeof rawHandle.requestPermission === 'function') {
+              rawHandle.requestPermission({ mode: 'read' }).then(
+                (permissionResult) => {
+                  if (permissionResult === 'granted') {
+                    setAccessLoading(true);
+                    setIsRestoring(true);
+                    completeRestore(rawHandle);
+                  } else {
+                    // Permission denied - use beginRestore to update UI state
+                    setAccessLoading(true);
+                    setIsRestoring(true);
+                    beginRestore()
+                      .then((restored) => {
+                        if (restored) {
+                          setRootDirectoryHandle(restored);
+                        }
+                      })
+                      .catch(() => {})
+                      .finally(() => {
+                        setIsRestoring(false);
+                        setAccessLoading(false);
+                      });
+                  }
+                },
+                (err) => {
+                  logger.warn('requestPermission threw, falling back to legacy path', { err });
+                  // Fall back to legacy path
+                  setAccessLoading(true);
+                  setIsRestoring(true);
+                  beginRestore()
+                    .then((restored) => {
+                      if (restored) {
+                        setRootDirectoryHandle(restored);
+                      }
+                    })
+                    .catch(() => {})
+                    .finally(() => {
+                      setIsRestoring(false);
+                      setAccessLoading(false);
+                    });
+                }
+              );
+              return;
+            }
+
+            // No raw handle - fall back to legacy async path
+            setAccessLoading(true);
+            setIsRestoring(true);
+            beginRestore()
+              .then((restored) => {
+                if (restored) {
+                  setRootDirectoryHandle(restored);
+                }
+              })
+              .catch(() => {})
+              .finally(() => {
+                setIsRestoring(false);
+                setAccessLoading(false);
+              });
+          }}
+          variant={showStaleBanner ? 'stale' : showDeniedBanner ? 'denied' : 'pending'}
         />
       </div>
     </FileExplorerErrorBoundary>
