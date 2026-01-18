@@ -31,7 +31,8 @@
   "dependencies": {
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "idb": "^8.0.1"
   },
   "optionalDependencies": {
     "chokidar": "^5.0.0"
@@ -42,6 +43,7 @@
     "@stryker-mutator/vitest-runner": "^9.4.0",
     "@types/node": "^25.0.8",
     "electron": "^39.2.7",
+    "fake-indexeddb": "^5.0.2",
     "jsdom": "26.1.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",

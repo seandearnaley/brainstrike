@@ -58,6 +58,7 @@ export class WorkerFileContentProcessor implements FileContentProcessor {
       name: fileNode.name,
       kind: 'file',
       platform,
+      rootFolderId: fileNode.rootFolderId,
       _internal: fileNode.handle,
     };
   }
@@ -103,6 +104,7 @@ export class DirectFileContentProcessor implements FileContentProcessor {
       name: fileNode.name,
       kind: 'file',
       platform,
+      rootFolderId: fileNode.rootFolderId,
       _internal: fileNode.handle,
     };
 

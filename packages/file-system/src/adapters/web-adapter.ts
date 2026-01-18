@@ -1,5 +1,9 @@
 import type { IFileNode } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils';
 import { AccessError } from '../errors';
+
+const logger = createLogger('WebFileSystemAdapter');
+
 import type {
   DirectoryHandle,
   DirectoryReadOptions,
@@ -13,6 +17,7 @@ import {
   isFileSystemFileHandle,
   normalizeDirectoryReadOptions,
 } from '../utils';
+import { type HandleCache, type StoredRootHandle, WebHandleCache } from './web-handle-cache';
 
 // Type declarations for File System Access API
 declare global {
@@ -35,6 +40,12 @@ declare global {
   interface FileSystemHandle {
     readonly kind: 'file' | 'directory';
     readonly name: string;
+    queryPermission?(descriptor?: FileSystemPermissionDescriptor): Promise<PermissionState>;
+    requestPermission?(descriptor?: FileSystemPermissionDescriptor): Promise<PermissionState>;
+  }
+
+  interface FileSystemPermissionDescriptor {
+    mode?: 'read' | 'readwrite';
   }
 }
 
@@ -103,13 +114,75 @@ async function createFileNode(
   }
 }
 
+export interface WebFileSystemAdapterOptions {
+  handleCache?: HandleCache;
+}
+
 export class WebFileSystemAdapter implements FileSystemAdapter {
+  public readonly platform = 'web' as const;
+  private readonly handleCache: HandleCache;
+  private lastRootFolderId: string | null = null;
+  private hasCheckedPersistence = false;
+
+  constructor(options?: WebFileSystemAdapterOptions) {
+    this.handleCache = options?.handleCache ?? new WebHandleCache();
+
+    // Best-effort cleanup of stale handles on startup.
+    // Runs in background without blocking initialization.
+    void this.handleCache.pruneOldHandles().catch((err) => {
+      logger.debug('constructor: best-effort handle pruning failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+
+  private async ensurePersistentStorage(): Promise<void> {
+    if (this.hasCheckedPersistence) {
+      return;
+    }
+    this.hasCheckedPersistence = true;
+
+    if (typeof navigator === 'undefined') {
+      return;
+    }
+    const storage = navigator.storage;
+    if (
+      !(storage && typeof storage.persisted === 'function' && typeof storage.persist === 'function')
+    ) {
+      return;
+    }
+
+    try {
+      const persisted = await storage.persisted();
+      if (!persisted) {
+        await storage.persist();
+      }
+    } catch (err) {
+      logger.debug('ensurePersistentStorage: best-effort persistence request failed', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  getHandleCache(): HandleCache {
+    return this.handleCache;
+  }
+
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     if (!('showDirectoryPicker' in window)) {
       throw new Error('File System Access API not supported');
     }
 
     const dirHandle = await window.showDirectoryPicker();
+    try {
+      await this.ensurePersistentStorage();
+      await this.handleCache.storeRootHandle(dirHandle.name, dirHandle);
+      this.lastRootFolderId = dirHandle.name;
+      logger.info('Stored root handle to IndexedDB', { name: dirHandle.name });
+    } catch (err) {
+      // Best-effort persistence; ignore failures.
+      logger.warn('Failed to store root handle', { error: err });
+    }
 
     return {
       path: dirHandle.name, // Web API doesn't give full path for security
@@ -213,6 +286,17 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     if (!isFileSystemFileHandle(fileHandle)) {
       throw new AccessError('Invalid file handle', handle.path, 'read');
     }
+    try {
+      const folderId = handle.rootFolderId ?? this.lastRootFolderId;
+      if (folderId) {
+        await this.handleCache.storeFileHandle(folderId, handle.path, fileHandle);
+      }
+    } catch (err) {
+      logger.debug('readFile: best-effort file handle persistence failed', {
+        path: handle.path,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
     const file = await fileHandle.getFile();
 
     // Check file size before reading
@@ -231,6 +315,64 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     // Web API doesn't provide a direct way to check existence without access
     // This would need to be implemented differently
     return false;
+  }
+
+  async restoreLastFolder(): Promise<DirectoryHandle | null> {
+    logger.debug('restoreLastFolder called');
+    const handles = await this.handleCache.getAllRootHandles();
+    logger.debug('restoreLastFolder: found handles', { count: handles.length });
+    if (handles.length === 0) {
+      logger.debug('restoreLastFolder: no handles found, returning null');
+      return null;
+    }
+
+    const latest = handles.reduce<StoredRootHandle | null>((current, candidate) => {
+      if (!current) {
+        return candidate;
+      }
+      return candidate.lastAccessedAt > current.lastAccessedAt ? candidate : current;
+    }, null);
+
+    if (!(latest && isFileSystemDirectoryHandle(latest.handle))) {
+      if (latest) {
+        await this.handleCache.removeRootHandle(latest.folderId);
+      }
+      return null;
+    }
+
+    let permission: PermissionState | 'unknown' = 'unknown';
+    if (typeof latest.handle.queryPermission === 'function') {
+      try {
+        permission = await latest.handle.queryPermission({ mode: 'read' });
+        logger.debug('restoreLastFolder: permission query result', { permission });
+      } catch (err) {
+        logger.debug('restoreLastFolder: permission query failed', { error: err });
+        permission = 'unknown';
+      }
+    }
+
+    if (permission !== 'granted') {
+      logger.debug(
+        'restoreLastFolder: permission not granted, returning null (banner should show)'
+      );
+      return null;
+    }
+
+    const isAccessible = await this.verifyDirectoryHandle(latest.handle);
+    if (!isAccessible) {
+      await this.handleCache.removeRootHandle(latest.folderId);
+      return null;
+    }
+
+    this.lastRootFolderId = latest.folderId;
+
+    return {
+      path: latest.handle.name,
+      name: latest.handle.name,
+      kind: 'directory',
+      platform: 'web',
+      _internal: latest.handle,
+    };
   }
 
   // Web API doesn't support file watching
@@ -302,6 +444,16 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     } else {
       // Signal completion with empty batch if last batch was exactly full
       onBatch([], { done: true, total });
+    }
+  }
+
+  private async verifyDirectoryHandle(handle: FileSystemDirectoryHandle): Promise<boolean> {
+    try {
+      const iterator = handle.entries();
+      await iterator.next();
+      return true;
+    } catch {
+      return false;
     }
   }
 }

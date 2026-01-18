@@ -82,6 +82,8 @@ interface UseFileExplorerReturn {
   /** Whether the operation is currently being cancelled */
   isCancelling: boolean;
   clearRootDirectory: () => void;
+  /** Set root directory handle from external source (e.g., restore banner) */
+  setRootDirectoryHandle: (handle: DirectoryHandle | null) => void;
   /** Set of paths currently loading their children (lazy loading) */
   loadingPaths: Set<string>;
   /** Load children of a directory on expand (lazy loading) */
@@ -104,6 +106,13 @@ interface UseFileExplorerReturn {
   isRestoringExpandedPaths: boolean;
   /** Progress of expanded directory restoration */
   restorationProgress: RestorationProgress | null;
+  /**
+   * Set the access loading state.
+   * Used by restore flow to signal that a restore is in progress, which
+   * prevents the stale state clearing effect from clearing expanded paths
+   * while waiting for browser permission dialog.
+   */
+  setAccessLoading: (loading: boolean) => void;
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -119,6 +128,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // Subscribe to selection/expansion state for stale state detection
   const selectSelectedFilePaths = (s: FileExplorerState) => s.selectedFilePaths;
   const selectExpandedDirectoryPaths = (s: FileExplorerState) => s.expandedDirectoryPaths;
+  // Subscribe to isAccessLoading from store (shared across all components)
+  const selectIsAccessLoading = (s: FileExplorerState) => s.isAccessLoading;
+  const selectSetIsAccessLoading = (s: FileExplorerState) => s.setIsAccessLoading;
 
   const store = useFileExplorerStoreContext();
   const includeFilters = store(selectIncludeFilters);
@@ -132,14 +144,23 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // Subscribe to these values so effect fires when store rehydrates
   const selectedFilePaths = store(selectSelectedFilePaths);
   const expandedDirectoryPaths = store(selectExpandedDirectoryPaths);
+  // Use isAccessLoading from store (shared state, not local hook state)
+  const storeIsAccessLoading = store(selectIsAccessLoading);
+  const setIsAccessLoading = store(selectSetIsAccessLoading);
 
   const {
     rootDirectoryHandle,
-    isAccessLoading,
+    isAccessLoading: _hookIsAccessLoading, // Ignore the hook's local state
     selectRootDirectory,
     isFileSystemAccessSupported,
     clearRootDirectory,
+    setRootDirectoryHandle,
+    setAccessLoading: _hookSetAccessLoading, // Ignore the hook's local setter
   } = useFileSystem();
+
+  // Use the store's isAccessLoading (shared across all components)
+  const isAccessLoading = storeIsAccessLoading;
+  const setAccessLoading = setIsAccessLoading;
 
   // Try to get shared tree state from FileTreeProvider context.
   // This ensures all components using useFileExplorer share the same tree
@@ -256,9 +277,19 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const restoredForFolderRef = useRef<string | null>(null);
   // Track if restoration is in progress to prevent duplicate runs
   const isRestoringRef = useRef(false);
+  // Track the stale clearing timer ID so we can cancel it from outside the effect
+  const staleClearingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // State for restoration progress - exposed to UI for feedback
   const [isRestoringExpandedPaths, setIsRestoringExpandedPaths] = useState(false);
   const [restorationProgress, setRestorationProgress] = useState<RestorationProgress | null>(null);
+
+  // CRITICAL: Cancel the stale clearing timer immediately when isAccessLoading becomes true.
+  // This runs synchronously on every render, ensuring the timer is cancelled before it can fire.
+  if (isAccessLoading && staleClearingTimerRef.current !== null) {
+    logger.debug('Cancelling stale clearing timer - isAccessLoading became true');
+    clearTimeout(staleClearingTimerRef.current);
+    staleClearingTimerRef.current = null;
+  }
 
   /**
    * Clear stale selection and expansion state when there's no root directory handle.
@@ -272,6 +303,10 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
    * IMPORTANT: We must wait for isAccessLoading to be false before clearing state.
    * On desktop, the file system adapter may be restoring the last folder asynchronously.
    * If we clear state while that restore is in progress, we lose persisted selections/expansions.
+   *
+   * ALSO IMPORTANT: On web, useRestoreAccess checks for stored handles with a 500ms delay.
+   * We must wait longer before clearing state to allow the restore banner to show.
+   * We use a 1500ms delay to give the restore banner time to check handles and render.
    *
    * This effect is REACTIVE - it subscribes to selectedFilePaths and expandedDirectoryPaths
    * so it fires when Zustand's persist middleware rehydrates the store. The effect is
@@ -300,7 +335,27 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     const hasStaleSelection = selectedFilePaths.size > 0;
     const hasStaleExpansion = expandedDirectoryPaths.size > 0;
 
-    if (hasStaleSelection || hasStaleExpansion) {
+    if (!(hasStaleSelection || hasStaleExpansion)) {
+      return;
+    }
+
+    // Delay clearing to allow useRestoreAccess hook time to check for stored handles
+    // and show the restore banner. The restore hook has a 500ms delay, so we wait 1500ms.
+    // Store the timer in a ref so it can be cancelled synchronously from render phase
+    // if isAccessLoading becomes true before the timer fires.
+    staleClearingTimerRef.current = setTimeout(() => {
+      // Clear the ref since the timer is now executing
+      staleClearingTimerRef.current = null;
+
+      // CRITICAL: Check isAccessLoading directly from the store at callback time.
+      // This ensures we see the current value, not a stale closure-captured value.
+      // The store is shared across all components, so this check is reliable.
+      const currentStoreState = store.getState();
+      if (currentStoreState.isAccessLoading) {
+        logger.debug('Skipping stale clearing - access loading now in progress (store check)');
+        return;
+      }
+
       logger.info('Clearing stale file explorer state - no root directory handle', {
         staleSelectedFiles: selectedFilePaths.size,
         staleExpandedPaths: expandedDirectoryPaths.size,
@@ -312,7 +367,14 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
       if (hasStaleExpansion) {
         setExpandedPaths(new Set());
       }
-    }
+    }, 1500);
+
+    return () => {
+      if (staleClearingTimerRef.current !== null) {
+        clearTimeout(staleClearingTimerRef.current);
+        staleClearingTimerRef.current = null;
+      }
+    };
   }, [
     rootDirectoryHandle,
     isAccessLoading,
@@ -450,6 +512,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancelOperation,
     isCancelling,
     clearRootDirectory,
+    setRootDirectoryHandle,
     loadingPaths,
     loadChildren,
     cancelChildLoading,
@@ -460,5 +523,6 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     expandAllProgress,
     isRestoringExpandedPaths,
     restorationProgress,
+    setAccessLoading,
   };
 }

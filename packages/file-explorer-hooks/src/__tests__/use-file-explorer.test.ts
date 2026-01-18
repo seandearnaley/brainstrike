@@ -106,6 +106,8 @@ describe('useFileExplorer', () => {
       selectRootDirectory: mockSelectRootDirectory,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
       clearRootDirectory: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+      setAccessLoading: vi.fn(),
     });
 
     vi.mocked(useFileTree).mockReturnValue({
@@ -173,6 +175,8 @@ describe('useFileExplorer', () => {
       selectRootDirectory: mockSelectRootDirectory,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
       clearRootDirectory: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+      setAccessLoading: vi.fn(),
     });
 
     const { result } = renderHook(() => useFileExplorer());

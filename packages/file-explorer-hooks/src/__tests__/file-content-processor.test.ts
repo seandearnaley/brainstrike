@@ -75,6 +75,7 @@ describe('DirectFileContentProcessor', () => {
       name: 'test.txt',
       kind: 'file',
       platform: 'web',
+      rootFolderId: 'root1',
       _internal: mockFileNode.handle,
     });
   });

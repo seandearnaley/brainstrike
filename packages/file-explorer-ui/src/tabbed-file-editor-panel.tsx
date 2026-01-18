@@ -12,7 +12,8 @@ export interface TabbedFileEditorPanelProps {
 export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
   function TabbedFileEditorPanel({ className }) {
     const { registerOpenFileInTab } = useIdeFileEditor();
-    const { rootDirectoryHandle, fileContents, loadingFiles, loadFileContent } = useFileExplorer();
+    const { rootDirectoryHandle, fileContents, loadingFiles, loadFileContent, fileTree } =
+      useFileExplorer();
 
     const { tabs, activeTabId, openTab, closeTab, clearTabs, setActiveTab } = useTabManager();
 
@@ -43,6 +44,20 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
       },
       [loadFileContent]
     );
+
+    useEffect(() => {
+      if (!activeTabId || fileTree.length === 0) {
+        return;
+      }
+      const activeTab = tabs.find((tab) => tab.id === activeTabId);
+      if (!activeTab) {
+        return;
+      }
+      if (fileContents[activeTab.compositeKey] || loadingFiles.has(activeTab.compositeKey)) {
+        return;
+      }
+      void loadFileContent(activeTab.compositeKey);
+    }, [activeTabId, fileContents, fileTree, loadingFiles, loadFileContent, tabs]);
 
     // NOTE: Tab content is read directly from fileContents in TabbedFileEditor (line 306),
     // not from tab.content. The sync effect was removed as it maintained unused state.

@@ -8,7 +8,7 @@ import {
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
 } from '@brainstrike/agent/client';
-import { usePGliteDatabase } from '@brainstrike/db';
+import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import { useFileExplorerStoreContext, useSelectionManager } from '@brainstrike/file-explorer-ui';
 import {
   useAssistantPreferencesStore,
@@ -45,6 +45,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   const { setModel, clearModel, getAvailableProviders, getSelectedModel, getSelectedProvider } =
     useAssistantPreferencesStore();
+  const enabledModelsByProvider = useAssistantPreferencesStore(
+    (state) => state.enabledModelsByProvider
+  );
 
   // Subscribe to secrets changes to re-check available providers when API keys change
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
@@ -52,11 +55,14 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   // Load model registry from DB for local provider models
   useEnsureModelRegistry();
   const registryModels = useModelRegistryStore((state) => state.models);
+  const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
+  const dbInitializing = useDbInitializing();
+  const dbError = useDbProviderError();
 
   // Create a set of DB-enabled model IDs for quick lookup
-  const dbEnabledModelIds = useMemo(() => {
+  const registryEnabledModelIds = useMemo(() => {
     const enabledIds = new Set<string>();
     for (const model of registryModels) {
       if (model.isEnabled && model.capabilities.type === 'llm') {
@@ -65,6 +71,36 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     }
     return enabledIds;
   }, [registryModels]);
+
+  const shouldFallbackToPreferences = useMemo(() => {
+    if (dbError || registryError) {
+      return true;
+    }
+    if (!db) {
+      return !dbInitializing;
+    }
+    return false;
+  }, [db, dbError, dbInitializing, registryError]);
+
+  const enabledModelIds = useMemo(() => {
+    if (!shouldFallbackToPreferences) {
+      return registryEnabledModelIds;
+    }
+
+    const enabledIds = new Set<string>();
+    for (const providerId of configuredProviders) {
+      const enabledModels = enabledModelsByProvider[providerId] ?? [];
+      for (const modelId of enabledModels) {
+        enabledIds.add(modelId);
+      }
+    }
+    return enabledIds;
+  }, [
+    configuredProviders,
+    enabledModelsByProvider,
+    registryEnabledModelIds,
+    shouldFallbackToPreferences,
+  ]);
 
   const selectedProvider = getSelectedProvider();
   const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
@@ -120,8 +156,8 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
-    (_providerId: SupportedProvider, modelId: string): boolean => dbEnabledModelIds.has(modelId),
-    [dbEnabledModelIds]
+    (_providerId: SupportedProvider, modelId: string): boolean => enabledModelIds.has(modelId),
+    [enabledModelIds]
   );
 
   const providerHasEnabledModels = useCallback(
@@ -130,10 +166,10 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         (model: ProviderModelDefinition) => model.type === 'llm'
       );
       return modelDefinitions.some((model: ProviderModelDefinition) =>
-        dbEnabledModelIds.has(model.id)
+        enabledModelIds.has(model.id)
       );
     },
-    [dbEnabledModelIds]
+    [enabledModelIds]
   );
 
   const selectModelForProvider = useCallback(
@@ -215,7 +251,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     }
   }, [
     configuredProviders,
-    dbEnabledModelIds,
+    enabledModelIds,
     getSelectedProvider,
     clearModel,
     providerHasEnabledModels,

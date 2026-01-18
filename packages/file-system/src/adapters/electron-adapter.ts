@@ -148,6 +148,7 @@ async function createStreamingFileNode(
 }
 
 export class ElectronFileSystemAdapter implements FileSystemAdapter {
+  public readonly platform = 'electron' as const;
   private readonly metadataCache: MetadataCache | null;
 
   /**

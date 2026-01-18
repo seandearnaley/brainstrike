@@ -27,6 +27,7 @@ function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): File
     name: fileNode.name,
     kind: 'file',
     platform,
+    rootFolderId: fileNode.rootFolderId,
     _internal: fileNode.handle,
   };
 }
@@ -118,6 +119,181 @@ async function getFileNodeWithRetry(
   return fileNode;
 }
 
+interface CachedHandleLookup {
+  getFileHandle?: (folderId: string, relativePath: string) => Promise<FileSystemFileHandle | null>;
+}
+
+function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
+  const adapterWithCache = fileSystemAdapter as {
+    getHandleCache?: () => CachedHandleLookup;
+  };
+  return adapterWithCache.getHandleCache?.() ?? null;
+}
+
+function markFileLoading(
+  compositeKey: string,
+  loadingPathsRef: React.MutableRefObject<Set<string>>,
+  setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>
+): void {
+  loadingPathsRef.current.add(compositeKey);
+  setLoadingFiles((prev) => new Set(prev).add(compositeKey));
+}
+
+async function buildCachedFileRequest(args: {
+  handleCache: CachedHandleLookup | null;
+  folderId: string;
+  path: string;
+  compositeKey: string;
+  setFileContent: (key: string, content: string) => void;
+  loadingPathsRef: React.MutableRefObject<Set<string>>;
+  setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
+}): Promise<FileReadRequest | null> {
+  const {
+    handleCache,
+    folderId,
+    path,
+    compositeKey,
+    setFileContent,
+    loadingPathsRef,
+    setLoadingFiles,
+  } = args;
+  if (!handleCache?.getFileHandle) {
+    return null;
+  }
+
+  const cachedHandle = await handleCache.getFileHandle(folderId, path);
+  if (!cachedHandle) {
+    return null;
+  }
+
+  if (typeof cachedHandle.queryPermission === 'function') {
+    const permission = await cachedHandle.queryPermission({ mode: 'read' });
+    if (permission !== 'granted') {
+      setFileContent(compositeKey, `File not accessible - permission required: ${path}`);
+      return null;
+    }
+  }
+
+  markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
+  const name = path.split('/').pop() || path;
+  const fileHandle: FileHandle = {
+    path,
+    name,
+    kind: 'file',
+    platform: 'web',
+    rootFolderId: folderId,
+    _internal: cachedHandle,
+  };
+  return { compositeKey, handle: fileHandle, path };
+}
+
+async function handleMissingFileNode(args: {
+  fileTree: IFileNode[];
+  folderId: string;
+  path: string;
+  compositeKey: string;
+  handleCache: CachedHandleLookup | null;
+  nodeCacheRef: React.MutableRefObject<Map<string, Map<string, IFileNode>>>;
+  setFileContent: (key: string, content: string) => void;
+  loadingPathsRef: React.MutableRefObject<Set<string>>;
+  setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
+}): Promise<FileReadRequest | null> {
+  const {
+    fileTree,
+    folderId,
+    path,
+    compositeKey,
+    handleCache,
+    nodeCacheRef,
+    setFileContent,
+    loadingPathsRef,
+    setLoadingFiles,
+  } = args;
+
+  const cachedRequest = await buildCachedFileRequest({
+    handleCache,
+    folderId,
+    path,
+    compositeKey,
+    setFileContent,
+    loadingPathsRef,
+    setLoadingFiles,
+  });
+  if (cachedRequest) {
+    return cachedRequest;
+  }
+
+  const folderCache = nodeCacheRef.current.get(folderId);
+  const cacheSize = folderCache?.size ?? 0;
+  const totalCacheFolders = nodeCacheRef.current.size;
+  const treeNodeCount = countTreeNodes(fileTree);
+
+  logger.warn('File not found in tree', {
+    path,
+    folderId,
+    cacheSize,
+    totalCacheFolders,
+    treeNodeCount,
+    fileTreeLength: fileTree.length,
+  });
+  setFileContent(compositeKey, `File not found: ${path}`);
+  return null;
+}
+
+async function handleInvalidFileNode(args: {
+  fileNode: IFileNode;
+  folderId: string;
+  path: string;
+  compositeKey: string;
+  handleCache: CachedHandleLookup | null;
+  setFileContent: (key: string, content: string) => void;
+  loadingPathsRef: React.MutableRefObject<Set<string>>;
+  setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
+}): Promise<FileReadRequest | null> {
+  const {
+    fileNode,
+    folderId,
+    path,
+    compositeKey,
+    handleCache,
+    setFileContent,
+    loadingPathsRef,
+    setLoadingFiles,
+  } = args;
+
+  if (fileNode.rootFolderId !== folderId) {
+    const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
+    logger.warn('Folder mismatch', { path, expected: folderId, found: fileNode.rootFolderId });
+    setFileContent(compositeKey, error);
+    return null;
+  }
+
+  if (!fileNode.handle) {
+    const cachedRequest = await buildCachedFileRequest({
+      handleCache,
+      folderId,
+      path,
+      compositeKey,
+      setFileContent,
+      loadingPathsRef,
+      setLoadingFiles,
+    });
+    if (cachedRequest) {
+      return cachedRequest;
+    }
+    logger.warn('File has no handle', { path, folderId, nodeType: fileNode.type });
+    setFileContent(compositeKey, `File handle not available: ${path}`);
+    return null;
+  }
+
+  if (fileNode.type !== 'file') {
+    logger.warn('Node is not a file', { path, type: fileNode.type });
+    setFileContent(compositeKey, `Not a file: ${path}`);
+  }
+
+  return null;
+}
+
 // File read preparation logic
 async function prepareFileReadRequest(
   compositeKey: string,
@@ -136,43 +312,36 @@ async function prepareFileReadRequest(
   }
 
   const fileNode = await getFileNodeWithRetry(nodeCacheRef, fileTree, folderId, path);
+  const handleCache = getHandleCache(fileSystemAdapter);
 
   if (!fileNode) {
-    // Get cache stats for debugging
-    const folderCache = nodeCacheRef.current.get(folderId);
-    const cacheSize = folderCache?.size ?? 0;
-    const totalCacheFolders = nodeCacheRef.current.size;
-    const treeNodeCount = countTreeNodes(fileTree);
-
-    logger.warn('File not found in tree', {
-      path,
+    return handleMissingFileNode({
+      fileTree,
       folderId,
-      cacheSize,
-      totalCacheFolders,
-      treeNodeCount,
-      fileTreeLength: fileTree.length,
+      path,
+      compositeKey,
+      handleCache,
+      nodeCacheRef,
+      setFileContent,
+      loadingPathsRef,
+      setLoadingFiles,
     });
-    setFileContent(compositeKey, `File not found: ${path}`);
-    return null;
   }
 
   if (!isFileNodeValid(fileNode, folderId)) {
-    if (fileNode.rootFolderId !== folderId) {
-      const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
-      logger.warn('Folder mismatch', { path, expected: folderId, found: fileNode.rootFolderId });
-      setFileContent(compositeKey, error);
-    } else if (!fileNode.handle) {
-      logger.warn('File has no handle', { path, folderId, nodeType: fileNode.type });
-      setFileContent(compositeKey, `File handle not available: ${path}`);
-    } else if (fileNode.type !== 'file') {
-      logger.warn('Node is not a file', { path, type: fileNode.type });
-      setFileContent(compositeKey, `Not a file: ${path}`);
-    }
-    return null;
+    return handleInvalidFileNode({
+      fileNode,
+      folderId,
+      path,
+      compositeKey,
+      handleCache,
+      setFileContent,
+      loadingPathsRef,
+      setLoadingFiles,
+    });
   }
 
-  loadingPathsRef.current.add(compositeKey);
-  setLoadingFiles((prev) => new Set(prev).add(compositeKey));
+  markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
 
   const fileHandle = createFileHandle(fileNode, fileSystemAdapter);
   return { compositeKey, handle: fileHandle, path };

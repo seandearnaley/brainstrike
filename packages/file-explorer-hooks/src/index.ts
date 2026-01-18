@@ -7,5 +7,6 @@ export * from './use-file-explorer';
 export * from './use-file-loading-manager';
 export * from './use-file-system';
 export * from './use-file-tree';
+export * from './use-restore-access';
 export * from './use-selection-manager';
 export * from './use-toast-manager';

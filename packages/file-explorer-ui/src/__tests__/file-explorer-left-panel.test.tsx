@@ -84,6 +84,16 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
   return {
     ...actual,
     useAdapters: vi.fn(() => ({ fileSystemAdapter: {}, storageAdapter: {} })),
+    useRestoreAccess: vi.fn(() => ({
+      pendingRestore: null,
+      showDeniedBanner: false,
+      showStaleBanner: false,
+      storedFolders: [],
+      beginRestore: vi.fn(),
+      dismissRestore: vi.fn(),
+      chooseDifferentFolder: vi.fn(),
+      clearStoredHandles: vi.fn(),
+    })),
     useToastManager: vi.fn(() => ({
       toast: vi.fn(),
       showToast: showToastMock,
@@ -134,6 +144,9 @@ describe('FileExplorerLeftPanel', () => {
         materializedAt: null,
       },
       setMaterializedPaths: vi.fn(),
+      quickFilter: '',
+      setQuickFilter: vi.fn(),
+      clearQuickFilter: vi.fn(),
     };
 
     const mockStore = Object.assign(
@@ -186,6 +199,8 @@ describe('FileExplorerLeftPanel', () => {
       isRestoringExpandedPaths: false,
       restorationProgress: null,
       cancelChildLoading: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+      setAccessLoading: vi.fn(),
     } as ReturnType<typeof useFileExplorer>;
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 
@@ -402,10 +417,10 @@ describe('FileExplorerLeftPanel', () => {
     expect(await screen.findByTestId('selection-max')).toHaveTextContent('5');
   });
 
-  it('renders without crashing when selectedFilesList is not an array', async () => {
+  it('renders correctly when selectedFilesList is empty', async () => {
     vi.mocked(useSelectionManager).mockReturnValueOnce({
-      selectedFilesList: undefined as unknown as string[],
-      setSelectedFilesFromList: undefined as unknown as (files: readonly string[]) => void,
+      selectedFilesList: [],
+      setSelectedFilesFromList: vi.fn(),
       selectedFilePaths: new Set(),
       handleSelectionChange: vi.fn(),
       wouldExceedSelectionLimit: vi.fn(),
@@ -413,8 +428,9 @@ describe('FileExplorerLeftPanel', () => {
 
     renderWithProviders(<FileExplorerLeftPanel />);
 
-    // Should not crash and should render with empty selection
+    // Should render with zero selection count
     expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
+    expect(await screen.findByTestId('selection-count')).toHaveTextContent('0');
   });
 
   it('displays initial loading state correctly', async () => {

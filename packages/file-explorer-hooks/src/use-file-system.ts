@@ -78,7 +78,34 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
     setCurrentFolderId(null);
   }, [setCurrentFolderId]);
 
-  // Auto-restore last folder on startup (desktop only). Runs once and never changes hook order.
+  /**
+   * Set root directory handle from external source (e.g., restore banner).
+   * This allows the useRestoreAccess hook to update the root handle after
+   * successful permission restoration.
+   */
+  const setRootDirectoryHandle = useCallback(
+    (handle: DirectoryHandle | null) => {
+      dispatch({ type: 'setRoot', handle });
+      if (handle) {
+        setCurrentFolderId(handle.name);
+      } else {
+        setCurrentFolderId(null);
+      }
+    },
+    [setCurrentFolderId]
+  );
+
+  /**
+   * Set the access loading state.
+   * Used by restore flow to signal that a restore is in progress, which
+   * prevents the stale state clearing effect from clearing expanded paths
+   * while waiting for browser permission dialog.
+   */
+  const setAccessLoading = useCallback((loading: boolean) => {
+    dispatch({ type: 'setAccessLoading', loading });
+  }, []);
+
+  // Auto-restore last folder on startup. Runs once and never changes hook order.
   useEffect(() => {
     if (hasAttemptedRestoreRef.current || rootDirectoryHandle || isRestoringRef.current) {
       return;
@@ -87,7 +114,6 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
     if (typeof fileSystemAdapter.restoreLastFolder !== 'function') {
       return;
     }
-
     // CRITICAL: Set loading state SYNCHRONOUSLY before starting async operation.
     // This prevents race conditions where other effects (like stale state clearing)
     // might see isAccessLoading=false and rootDirectoryHandle=null before the
@@ -125,6 +151,8 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
       selectRootDirectory,
       isFileSystemAccessSupported,
       clearRootDirectory,
+      setRootDirectoryHandle,
+      setAccessLoading,
     }),
     [
       rootDirectoryHandle,
@@ -132,6 +160,8 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
       selectRootDirectory,
       isFileSystemAccessSupported,
       clearRootDirectory,
+      setRootDirectoryHandle,
+      setAccessLoading,
     ]
   );
 }

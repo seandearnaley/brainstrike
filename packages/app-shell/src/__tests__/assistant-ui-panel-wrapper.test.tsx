@@ -133,6 +133,8 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
 // Mock the DB hook
 vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: vi.fn(() => ({})),
+  useDbInitializing: vi.fn(() => false),
+  useDbProviderError: vi.fn(() => null),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui', () => {

@@ -38,6 +38,7 @@ interface PersistedState {
 }
 
 const STORE_NAME = 'tab-manager.v1' as const;
+const MAX_TABS = 20;
 
 const storage = createJSONStorage(() => {
   // Safe storage wrapper for SSR/tests with one-time migration from legacy key
@@ -160,7 +161,11 @@ export const useTabManagerStore = create<TabManagerStore>()(
             content: null,
             isLoading: true,
           };
-          return { tabs: [...state.tabs, newTab], activeTabId: tabId };
+          const nextTabs = [...state.tabs, newTab];
+          if (nextTabs.length > MAX_TABS) {
+            nextTabs.shift();
+          }
+          return { tabs: nextTabs, activeTabId: tabId };
         });
       },
 

@@ -304,8 +304,7 @@ describe('useFileSystem', () => {
     });
 
     it('should not attempt restore when adapter does not support restoreLastFolder', () => {
-      // This test verifies that the hook gracefully handles adapters without restoreLastFolder
-      // The web adapter doesn't have this method, so the hook should just skip auto-restore
+      // This test verifies that the hook gracefully handles adapters without restoreLastFolder.
       const { result } = renderHook(
         () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
         { wrapper: AdaptersTestWrapper }
