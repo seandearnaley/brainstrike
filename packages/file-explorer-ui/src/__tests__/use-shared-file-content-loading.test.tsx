@@ -61,7 +61,7 @@ describe('useSharedFileContentLoading - caching', () => {
           const results: Record<string, string> = {};
           for (const req of requests) {
             try {
-              const content = await adapter.readFile(req.handle);
+              const content = req.handle ? await adapter.readFile(req.handle) : 'No handle';
               results[req.compositeKey] = content;
               if (progressCallback) {
                 progressCallback({ key: req.compositeKey });
@@ -130,7 +130,7 @@ describe('useSharedFileContentLoading - caching', () => {
           const results: Record<string, string> = {};
           for (const req of requests) {
             try {
-              const content = await adapter.readFile(req.handle);
+              const content = req.handle ? await adapter.readFile(req.handle) : 'No handle';
               results[req.compositeKey] = content;
               if (progressCallback) {
                 progressCallback({ key: req.compositeKey });
@@ -250,7 +250,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
       progressCallback?: (event: { key: string }) => void
     ) => {
       try {
-        const content = await adapter.readFile(req.handle);
+        const content = req.handle ? await adapter.readFile(req.handle) : 'No handle';
         if (progressCallback) {
           progressCallback({ key: req.compositeKey });
         }

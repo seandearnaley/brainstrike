@@ -1,6 +1,10 @@
+import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
 import { useIdeFileEditor } from '@brainstrike/ui';
-import { decodeFileSelection } from '@brainstrike/utils';
-import { memo, useCallback, useEffect, useMemo } from 'react';
+import { createLogger, decodeFileSelection } from '@brainstrike/utils';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
+
+const logger = createLogger('TabbedFileEditorPanel');
+
 import { useTabManager } from './hooks/use-tab-manager';
 import { TabbedFileEditor, type TabStripAction } from './tabbed-file-editor';
 import { useFileExplorer } from './use-file-explorer-context';
@@ -12,17 +16,69 @@ export interface TabbedFileEditorPanelProps {
 export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
   function TabbedFileEditorPanel({ className }) {
     const { registerOpenFileInTab } = useIdeFileEditor();
-    const { rootDirectoryHandle, fileContents, loadingFiles, loadFileContent, fileTree } =
-      useFileExplorer();
+    const {
+      rootDirectoryHandle,
+      fileContents,
+      loadingFiles,
+      loadFileContent,
+      fileTree,
+      canLoadWithoutTree,
+    } = useFileExplorer();
 
     const { tabs, activeTabId, openTab, closeTab, clearTabs, setActiveTab } = useTabManager();
 
-    // Handle tab click
-    const handleTabClick = useCallback(
+    // BST-307: Use file restoration hook to restore file handles for persisted tabs
+    const { tabStatuses, requestTabPermission, getStatusMessage } = useTabFileRestoration(
+      tabs,
+      // Remove tabs whose files can't be found
       (tabId: string) => {
+        closeTab(tabId);
+      }
+    );
+
+    // Track in-progress permission requests to prevent race conditions from double-clicks
+    const permissionRequestsInProgressRef = useRef<Set<string>>(new Set());
+
+    // Handle tab click - also handles permission requests for tabs needing restoration
+    const handleTabClick = useCallback(
+      async (tabId: string) => {
+        const tab = tabs.find((t) => t.id === tabId);
+        if (!tab) {
+          // Tab not found - shouldn't happen in practice since click comes from rendered tab
+          return;
+        }
+
+        const status = tabStatuses.get(tab.compositeKey);
+        // If tab needs permission, request it first (must be from user click)
+        if (status?.status === 'needs-permission') {
+          // Prevent duplicate permission requests (race condition from double-clicks)
+          if (permissionRequestsInProgressRef.current.has(tab.compositeKey)) {
+            setActiveTab(tabId);
+            return;
+          }
+
+          permissionRequestsInProgressRef.current.add(tab.compositeKey);
+          try {
+            const granted = await requestTabPermission(tab.compositeKey);
+            if (granted) {
+              // Permission granted - load the file content
+              void loadFileContent(tab.compositeKey);
+            }
+            // If not granted, still select the tab to show the permission message
+          } catch (err) {
+            logger.error('Failed to request file permission', {
+              compositeKey: tab.compositeKey,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            // Still select the tab to show the current status
+          } finally {
+            permissionRequestsInProgressRef.current.delete(tab.compositeKey);
+          }
+        }
+
         setActiveTab(tabId);
       },
-      [setActiveTab]
+      [setActiveTab, tabs, tabStatuses, requestTabPermission, loadFileContent]
     );
 
     // Handle tab close
@@ -46,18 +102,55 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     );
 
     useEffect(() => {
-      if (!activeTabId || fileTree.length === 0) {
+      logger.info('Active tab effect triggered', {
+        activeTabId,
+        canLoadWithoutTree,
+        treeLength: fileTree.length,
+        tabsCount: tabs.length,
+      });
+
+      if (!activeTabId) {
+        logger.info('Bailing: no activeTabId');
+        return;
+      }
+      // On Electron (canLoadWithoutTree), we can load files without the tree.
+      // On web, we need the tree to get file handles.
+      if (!canLoadWithoutTree && fileTree.length === 0) {
+        logger.info('Bailing: no tree and canLoadWithoutTree is false');
         return;
       }
       const activeTab = tabs.find((tab) => tab.id === activeTabId);
       if (!activeTab) {
+        logger.info('Bailing: activeTab not found in tabs', {
+          activeTabId,
+          tabs: tabs.map((t) => t.id),
+        });
         return;
       }
-      if (fileContents[activeTab.compositeKey] || loadingFiles.has(activeTab.compositeKey)) {
+      const alreadyLoaded = !!fileContents[activeTab.compositeKey];
+      const isLoading = loadingFiles.has(activeTab.compositeKey);
+      if (alreadyLoaded || isLoading) {
+        logger.info('Bailing: already loaded or loading', {
+          alreadyLoaded,
+          isLoading,
+          compositeKey: activeTab.compositeKey,
+        });
         return;
       }
+      logger.info('Loading file content for active tab', {
+        compositeKey: activeTab.compositeKey,
+        path: activeTab.path,
+      });
       void loadFileContent(activeTab.compositeKey);
-    }, [activeTabId, fileContents, fileTree, loadingFiles, loadFileContent, tabs]);
+    }, [
+      activeTabId,
+      canLoadWithoutTree,
+      fileContents,
+      fileTree,
+      loadingFiles,
+      loadFileContent,
+      tabs,
+    ]);
 
     // NOTE: Tab content is read directly from fileContents in TabbedFileEditor (line 306),
     // not from tab.content. The sync effect was removed as it maintained unused state.
@@ -101,10 +194,12 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
           activeTabId={activeTabId}
           decodeFileSelection={decodeFileSelection}
           fileContents={fileContents}
+          getTabStatusMessage={getStatusMessage}
           loadingFiles={loadingFiles}
           onLoadFileContent={handleLoadFileContent}
           onTabClick={handleTabClick}
           onTabClose={handleTabClose}
+          tabStatuses={tabStatuses}
           tabStripActions={tabStripActions}
           tabs={tabs}
         />

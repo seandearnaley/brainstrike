@@ -4,4 +4,5 @@ export * from './actions/filter-actions';
 export * from './actions/folder-state-actions';
 export * from './actions/selection-model-actions';
 export * from './actions/settings-actions';
+export * from './persistence/tab-persistence';
 export * from './store';

@@ -9,6 +9,19 @@ const logger = createLogger('FileSystemHook');
 
 interface UseFileSystemParams {
   setCurrentFolderId: FileExplorerState['setCurrentFolderId'];
+  /**
+   * Optional callback to check if store has finished hydrating from persistence.
+   * When provided, the auto-restore effect will wait for hydration before calling
+   * setCurrentFolderId, preventing race conditions where empty initial state
+   * overwrites persisted selections.
+   */
+  waitForHydration?: () => Promise<void>;
+  /**
+   * Optional getter for the store's persisted currentFolderId.
+   * Used during auto-restore to avoid redundant setCurrentFolderId calls
+   * when the folder ID matches what will be hydrated from persistence.
+   */
+  getPersistedCurrentFolderId?: () => string | null;
 }
 
 interface FileSystemState {
@@ -31,7 +44,11 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
   }
 }
 
-export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
+export function useFileSystem({
+  setCurrentFolderId,
+  waitForHydration,
+  getPersistedCurrentFolderId,
+}: UseFileSystemParams) {
   const { fileSystemAdapter } = useAdapters();
 
   const [{ rootDirectoryHandle, isAccessLoading }, dispatch] = useReducer(reducer, {
@@ -132,7 +149,26 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
         const restored = await restoreFn();
         if (restored) {
           dispatch({ type: 'setRoot', handle: restored });
-          setCurrentFolderId(restored.name);
+
+          // CRITICAL: Wait for store hydration before calling setCurrentFolderId.
+          // Without this, the store may still have empty initial state, and
+          // setCurrentFolderId would read from the empty folderStates, overwriting
+          // the persisted selections that are about to be hydrated.
+          if (waitForHydration) {
+            await waitForHydration();
+          }
+
+          // Check if the persisted currentFolderId already matches.
+          // If so, skip calling setCurrentFolderId to avoid triggering the
+          // folder-switching logic which would read from stale folderStates.
+          const persistedFolderId = getPersistedCurrentFolderId?.();
+          if (persistedFolderId !== restored.name) {
+            setCurrentFolderId(restored.name);
+          } else {
+            logger.debug('Skipping setCurrentFolderId - folder already matches persisted state', {
+              folderId: restored.name,
+            });
+          }
         }
       } catch (error) {
         logger.warn('Failed to restore last folder', { error });
@@ -142,7 +178,13 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
       }
     };
     void run();
-  }, [fileSystemAdapter, rootDirectoryHandle, setCurrentFolderId]);
+  }, [
+    fileSystemAdapter,
+    rootDirectoryHandle,
+    setCurrentFolderId,
+    waitForHydration,
+    getPersistedCurrentFolderId,
+  ]);
 
   return useMemo(
     () => ({

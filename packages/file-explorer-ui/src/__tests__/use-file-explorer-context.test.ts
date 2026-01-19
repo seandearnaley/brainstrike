@@ -210,6 +210,7 @@ describe('useFileExplorer (context)', () => {
       error: null,
       loadingFiles: new Set<string>(),
       handleFileContentLoading: mockHandleFileContentLoading,
+      canLoadWithoutTree: false,
     });
 
     const coreReturn = {

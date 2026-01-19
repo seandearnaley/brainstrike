@@ -6,8 +6,30 @@
 
 import { useFileSystem as useCoreFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+
+/**
+ * Type guard to check if the store has the Zustand persist API.
+ */
+interface PersistApi {
+  hasHydrated: () => boolean;
+  onFinishHydration: (callback: () => void) => () => void;
+}
+
+function hasPersistApi(
+  store: ReturnType<typeof useFileExplorerStoreContext>
+): store is ReturnType<typeof useFileExplorerStoreContext> & { persist: PersistApi } {
+  const persistObj = (store as unknown as { persist?: unknown }).persist;
+  if (typeof persistObj !== 'object' || persistObj === null) {
+    return false;
+  }
+  const persist = persistObj as Record<string, unknown>;
+  return (
+    typeof persist['hasHydrated'] === 'function' &&
+    typeof persist['onFinishHydration'] === 'function'
+  );
+}
 
 // Error message mappings for consistent user experience
 const ERROR_MESSAGES = {
@@ -68,8 +90,48 @@ export function useFileSystem() {
   const setCurrentFolderId = store((s) => s.setCurrentFolderId);
   const storedRootDirectoryHandle = store((s) => s.rootDirectoryHandle);
   const setRootDirectoryHandle = store((s) => s.setRootDirectoryHandle);
+  const setStoreIsAccessLoading = store((s) => s.setIsAccessLoading);
 
-  const coreApi = useCoreFileSystem({ setCurrentFolderId });
+  /**
+   * Wait for store hydration to complete before proceeding.
+   * This prevents race conditions during auto-restore where setCurrentFolderId
+   * might be called before persisted state is loaded, causing empty state to
+   * overwrite the persisted selections.
+   */
+  const waitForHydration = useCallback((): Promise<void> => {
+    return new Promise((resolve) => {
+      if (!hasPersistApi(store)) {
+        // No persist API, resolve immediately
+        resolve();
+        return;
+      }
+
+      if (store.persist.hasHydrated()) {
+        resolve();
+        return;
+      }
+
+      // Wait for hydration to complete
+      const unsubscribe = store.persist.onFinishHydration(() => {
+        unsubscribe();
+        resolve();
+      });
+    });
+  }, [store]);
+
+  /**
+   * Get the current folder ID from the store after hydration.
+   * This is used to check if setCurrentFolderId would be a no-op.
+   */
+  const getPersistedCurrentFolderId = useCallback((): string | null => {
+    return store.getState().currentFolderId;
+  }, [store]);
+
+  const coreApi = useCoreFileSystem({
+    setCurrentFolderId,
+    waitForHydration,
+    getPersistedCurrentFolderId,
+  });
 
   const isFileSystemAccessSupported = coreApi.isFileSystemAccessSupported;
 
@@ -103,6 +165,15 @@ export function useFileSystem() {
       setRootDirectoryHandle(coreApi.rootDirectoryHandle);
     }
   }, [storedRootDirectoryHandle, coreApi.rootDirectoryHandle, setRootDirectoryHandle]);
+
+  // CRITICAL: Sync isAccessLoading from core hook to store.
+  // The stale state clearing effect in use-file-explorer-context checks the STORE's
+  // isAccessLoading value. On Electron, restoreLastFolder sets the core hook's local
+  // isAccessLoading but not the store's. Without this sync, the stale clearing effect
+  // sees store.isAccessLoading=false and incorrectly clears selections/expansions.
+  useEffect(() => {
+    setStoreIsAccessLoading(coreApi.isAccessLoading);
+  }, [coreApi.isAccessLoading, setStoreIsAccessLoading]);
 
   // Memoize the return object with stable primitive/reference dependencies only
   // Functions are recreated each render but the object identity changes only when
