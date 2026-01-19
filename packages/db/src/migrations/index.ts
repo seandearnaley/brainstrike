@@ -24,6 +24,7 @@ import { migration022EnableDefaultEmbeddingModels } from './022-enable-default-e
 import { migration023FixLocalProviderEnabled } from './023-fix-local-provider-enabled.js';
 import { migration024FixLlmToolCalling } from './024-fix-llm-tool-calling.js';
 import { migration025UpdateProviderModels2026 } from './025-update-provider-models-2026.js';
+import { migration026UpdateProviderModels2026V2 } from './026-update-provider-models-2026-v2.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -54,6 +55,7 @@ export const migrations: Migration[] = [
   migration023FixLocalProviderEnabled,
   migration024FixLlmToolCalling,
   migration025UpdateProviderModels2026,
+  migration026UpdateProviderModels2026V2,
 ];
 
 // Export base migrations (without chunks table) for test environments

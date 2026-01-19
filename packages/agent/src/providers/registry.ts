@@ -112,6 +112,19 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         supportsStreaming: true,
       },
       {
+        id: 'gpt-5.2-chat-latest',
+        label: 'GPT-5.2 Chat (Latest)',
+        type: 'llm',
+        default: true,
+        supportsStreaming: true,
+      },
+      {
+        id: 'gpt-5.2-pro',
+        label: 'GPT-5.2 Pro',
+        type: 'llm',
+        supportsStreaming: true,
+      },
+      {
         id: 'text-embedding-3-small',
         type: 'embedding',
         default: true,
@@ -147,6 +160,17 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         default: true,
         supportsStreaming: true,
       },
+      {
+        id: 'claude-sonnet-4-5',
+        type: 'llm',
+        default: true,
+        supportsStreaming: true,
+      },
+      {
+        id: 'claude-opus-4-5',
+        type: 'llm',
+        supportsStreaming: true,
+      },
     ],
   },
   {
@@ -162,6 +186,13 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     models: [
       {
         id: 'gemini-3-flash-preview',
+        type: 'llm',
+        default: true,
+        supportsStreaming: true,
+      },
+      {
+        id: 'gemini-3-pro-preview',
+        label: 'Gemini 3 Pro (Preview)',
         type: 'llm',
         default: true,
         supportsStreaming: true,
