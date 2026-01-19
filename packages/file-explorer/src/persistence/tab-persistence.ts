@@ -145,7 +145,29 @@ export async function restoreTabFileHandle(
   compositeKey: string,
   handleCache: FileHandleCache
 ): Promise<TabRestoreInfo> {
-  const { folderId, path } = decodeFileSelection(compositeKey);
+  // Wrap decodeFileSelection in try/catch to handle corrupted/legacy composite keys
+  let folderId: string;
+  let path: string;
+
+  try {
+    const decoded = decodeFileSelection(compositeKey);
+    folderId = decoded.folderId;
+    path = decoded.path;
+  } catch (err) {
+    logger.warn('restoreTabFileHandle: failed to decode compositeKey', {
+      compositeKey,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return {
+      tabId,
+      compositeKey,
+      path: '',
+      folderId: '',
+      status: 'not-found',
+      handle: null,
+      error: 'Invalid composite key',
+    };
+  }
 
   if (!(folderId && path)) {
     logger.warn('restoreTabFileHandle: invalid compositeKey', { compositeKey });

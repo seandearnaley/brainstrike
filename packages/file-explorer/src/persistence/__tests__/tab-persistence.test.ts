@@ -178,6 +178,24 @@ describe('tab-persistence', () => {
       expect(result.error).toBe('Invalid composite key');
     });
 
+    it('should handle decodeFileSelection throwing gracefully', async () => {
+      const handles = new Map<string, FileSystemFileHandle | null>();
+      const cache = createMockHandleCache(handles);
+
+      // Mock decodeFileSelection to throw for corrupted/legacy keys
+      const { decodeFileSelection } = await import('@brainstrike/utils');
+      vi.mocked(decodeFileSelection).mockImplementationOnce(() => {
+        throw new Error('Invalid separator in composite key');
+      });
+
+      const result = await restoreTabFileHandle('tab-1', 'corrupted-key-without-separator', cache);
+
+      expect(result.status).toBe('not-found');
+      expect(result.error).toBe('Invalid composite key');
+      expect(result.folderId).toBe('');
+      expect(result.path).toBe('');
+    });
+
     it('should handle queryPermission throwing gracefully', async () => {
       const handle = createMockFileHandle('test.txt', { queryPermissionResult: 'throw' });
       const handles = new Map([['folder1::path/to/test.txt', handle]]);
