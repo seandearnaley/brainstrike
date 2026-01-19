@@ -801,6 +801,11 @@ export class BFSEngine {
 
   /**
    * Initialize state for subtree loading.
+   *
+   * Important: We need to discover ALL unloaded directories in the subtree,
+   * including those nested under already-loaded directories. This is done
+   * via recursive traversal so that clicking a parent folder selects all
+   * descendants even if some intermediate directories were previously expanded.
    */
   private initializeSubtreeState(startNode: WorkerFileNode, startPath: string): SubtreeLoadState {
     const currentWave = new Set<string>();
@@ -810,13 +815,11 @@ export class BFSEngine {
       currentWave.add(startPath);
     }
 
-    // Add unloaded child directories if start is already loaded
-    if (startNode.loadState === 'loaded' && startNode.children) {
-      for (const child of startNode.children) {
-        if (child.type === 'directory' && child.loadState !== 'loaded') {
-          currentWave.add(child.path);
-        }
-      }
+    // Recursively discover all unloaded directories in the subtree
+    // This handles the case where some directories are already loaded
+    // but have unloaded descendants
+    if (startNode.children) {
+      this.collectUnloadedDescendants(startNode.children, currentWave);
     }
 
     this.logDebug(`[loadSubtree] Starting with ${currentWave.size} directories to load`);
@@ -829,6 +832,26 @@ export class BFSEngine {
       hitDepthLimit: false,
       hitDirectoryLimit: false,
     };
+  }
+
+  /**
+   * Recursively collect all unloaded directory paths from nodes.
+   * Also traverses into loaded directories to find deeper unloaded descendants.
+   */
+  private collectUnloadedDescendants(nodes: WorkerFileNode[], result: Set<string>): void {
+    for (const node of nodes) {
+      if (node.type !== 'directory') {
+        continue;
+      }
+
+      if (node.loadState !== 'loaded') {
+        // Unloaded directory - add to wave
+        result.add(node.path);
+      } else if (node.children) {
+        // Loaded directory - traverse into it to find unloaded descendants
+        this.collectUnloadedDescendants(node.children, result);
+      }
+    }
   }
 
   /**

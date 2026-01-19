@@ -347,14 +347,18 @@ export function useRecursiveFolderSelect(
         return { success: false, filePaths: [], error: 'Worker not ready' };
       }
 
-      // Guard against double-clicks
+      if (!handleMap) {
+        return { success: false, filePaths: [], error: 'Handle map not ready' };
+      }
+
+      // Guard against double-clicks - set immediately before check to prevent race
       if (isStartingRef.current) {
         logger.debug('selectFolderRecursively: blocked by double-click guard');
         return { success: false, filePaths: [], error: 'Operation already in progress' };
       }
-
-      // Set guards and state
       isStartingRef.current = true;
+
+      // Set remaining guards and state
       isLoadingForSelectionRef.current = true;
       setState({
         isLoadingForSelection: true,

@@ -135,20 +135,27 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     }, [node.type, node.path, selectionModel.mode, selectionModel.materializedPaths]);
 
     // Memoize expensive calculations
-    // Note: we include node.children and node.loadState as dependencies so this
-    // recalculates when children are loaded (e.g., during recursive folder selection)
+    // We extract node properties individually to avoid redundant dependencies.
+    // React compares by reference, so we need specific properties that change
+    // when children are loaded (e.g., during recursive folder selection).
+    const {
+      path: nodePath,
+      type: nodeType,
+      children: nodeChildren,
+      loadState: nodeLoadState,
+    } = node;
+
     const allFilePaths = useMemo(
-      () =>
-        node.type === 'directory' ? fileExplorer.getAllFilePathsInDirectory(node) : [node.path],
-      [node, node.children, node.loadState]
+      () => (nodeType === 'directory' ? fileExplorer.getAllFilePathsInDirectory(node) : [nodePath]),
+      [node, nodePath, nodeType, nodeChildren, nodeLoadState]
     );
 
     const folderInfo = useMemo(() => {
-      if (node.type !== 'directory') {
+      if (nodeType !== 'directory') {
         return null;
       }
       return fileExplorer.getFolderFileCount(node);
-    }, [node, node.children, node.loadState]);
+    }, [node, nodeType, nodeChildren, nodeLoadState]);
 
     const selectedCountInDir = useMemo(
       () =>
