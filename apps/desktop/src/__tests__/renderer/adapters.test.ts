@@ -126,6 +126,49 @@ describe('ElectronRendererFileSystemAdapter', () => {
     });
   });
 
+  // BST-307: Tests for readFileByPath
+  describe('readFileByPath', () => {
+    it('should call electronAPI.fileSystem.readFileByPath with absolute path', async () => {
+      const absolutePath = '/Users/test/project/file.ts';
+      const mockContent = 'export const example = "hello";';
+
+      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue(mockContent);
+
+      const result = await adapter.readFileByPath(absolutePath);
+
+      expect(mockElectronAPI.fileSystem.readFileByPath).toHaveBeenCalledWith(absolutePath);
+      expect(result).toBe(mockContent);
+    });
+
+    it('should return file content for valid paths', async () => {
+      const testPath = '/test/documents/readme.md';
+      const expectedContent = '# Test README\n\nThis is a test file.';
+
+      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue(expectedContent);
+
+      const result = await adapter.readFileByPath(testPath);
+
+      expect(result).toBe(expectedContent);
+    });
+
+    it('should handle errors from the IPC call', async () => {
+      const testPath = '/nonexistent/file.txt';
+
+      mockElectronAPI.fileSystem.readFileByPath.mockRejectedValue(new Error('File not found'));
+
+      await expect(adapter.readFileByPath(testPath)).rejects.toThrow('File not found');
+    });
+
+    it('should propagate path validation errors from main process', async () => {
+      const invalidPath = '/etc/passwd';
+
+      mockElectronAPI.fileSystem.readFileByPath.mockRejectedValue(new Error('Invalid path'));
+
+      await expect(adapter.readFileByPath(invalidPath)).rejects.toThrow('Invalid path');
+      expect(mockElectronAPI.fileSystem.readFileByPath).toHaveBeenCalledWith(invalidPath);
+    });
+  });
+
   describe('restoreLastFolder', () => {
     it('should call electronAPI.fileSystem.restoreLastFolder', async () => {
       const mockHandle = {
