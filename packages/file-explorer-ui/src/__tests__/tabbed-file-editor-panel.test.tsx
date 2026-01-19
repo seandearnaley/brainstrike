@@ -8,9 +8,11 @@ import { FileExplorerTestWrapper } from './test-helpers';
 // Mock the useFileExplorer hook
 vi.mock('../use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({
+    fileTree: [],
     fileContents: {},
     loadingFiles: new Set<string>(),
     loadFileContent: vi.fn(),
+    canLoadWithoutTree: false,
   })),
 }));
 
