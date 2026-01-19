@@ -8,27 +8,27 @@ describe('provider-factory', () => {
     it('creates OpenAI provider with default model', () => {
       const model = createProvider('openai', 'test-key') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('gpt-4o');
+      expect(model.modelId).toBe('gpt-5.2');
     });
 
     it('creates OpenAI provider with custom model', () => {
-      const model = createProvider('openai', 'test-key', 'gpt-4o') as { modelId: string };
+      const model = createProvider('openai', 'test-key', 'gpt-5.2') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('gpt-4o');
+      expect(model.modelId).toBe('gpt-5.2');
     });
 
     it('creates Anthropic provider with default model', () => {
       const model = createProvider('anthropic', 'test-key') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('claude-sonnet-4-20250514');
+      expect(model.modelId).toBe('claude-sonnet-4-5');
     });
 
     it('creates Anthropic provider with custom model', () => {
-      const model = createProvider('anthropic', 'test-key', 'claude-sonnet-4-20250514') as {
+      const model = createProvider('anthropic', 'test-key', 'claude-sonnet-4-5') as {
         modelId: string;
       };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('claude-sonnet-4-20250514');
+      expect(model.modelId).toBe('claude-sonnet-4-5');
     });
 
     it('creates Google provider with default model', () => {
@@ -48,15 +48,15 @@ describe('provider-factory', () => {
     it('creates OpenRouter provider with default model', () => {
       const model = createProvider('openrouter', 'test-key') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('openai/gpt-4o');
+      expect(model.modelId).toBe('openai/gpt-5.2');
     });
 
     it('creates OpenRouter provider with custom model', () => {
-      const model = createProvider('openrouter', 'test-key', 'anthropic/claude-3.5-sonnet') as {
+      const model = createProvider('openrouter', 'test-key', 'anthropic/claude-sonnet-4.5') as {
         modelId: string;
       };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('anthropic/claude-3.5-sonnet');
+      expect(model.modelId).toBe('anthropic/claude-sonnet-4.5');
     });
 
     it('throws MastraAgentError for unsupported provider', () => {
@@ -92,11 +92,11 @@ describe('provider-factory', () => {
 
   describe('getDefaultModel', () => {
     it('returns correct default for OpenAI', () => {
-      expect(getDefaultModel('openai')).toBe('gpt-4o');
+      expect(getDefaultModel('openai')).toBe('gpt-5.2');
     });
 
     it('returns correct default for Anthropic', () => {
-      expect(getDefaultModel('anthropic')).toBe('claude-sonnet-4-20250514');
+      expect(getDefaultModel('anthropic')).toBe('claude-sonnet-4-5');
     });
 
     it('returns correct default for Google', () => {
@@ -104,11 +104,11 @@ describe('provider-factory', () => {
     });
 
     it('returns correct default for OpenRouter', () => {
-      expect(getDefaultModel('openrouter')).toBe('openai/gpt-4o');
+      expect(getDefaultModel('openrouter')).toBe('openai/gpt-5.2');
     });
 
     it('falls back to OpenAI default for unsupported provider', () => {
-      expect(getDefaultModel('unsupported')).toBe('gpt-4o');
+      expect(getDefaultModel('unsupported')).toBe('gpt-5.2');
     });
   });
 

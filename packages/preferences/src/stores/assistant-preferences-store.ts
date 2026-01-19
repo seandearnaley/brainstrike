@@ -1,6 +1,5 @@
 import {
   getProviderDefaultModel,
-  PROVIDER_DEFAULT_ENABLED_MODELS,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_MODELS,
   providerEnvKeys,
@@ -71,10 +70,10 @@ function cloneModelList(models: readonly string[] | undefined): string[] {
   return Array.isArray(models) ? [...models] : [];
 }
 
-// Use PROVIDER_DEFAULT_ENABLED_MODELS (only models with default: true)
-// instead of PROVIDER_MODELS (all models) for initial defaults
+// Enable all provider models by default so the UI exposes full model lists
+// even before the DB-backed registry loads.
 const DEFAULT_ENABLED_MODELS = SUPPORTED_PROVIDERS.reduce((acc, provider) => {
-  acc[provider] = cloneModelList(PROVIDER_DEFAULT_ENABLED_MODELS[provider]);
+  acc[provider] = cloneModelList(PROVIDER_MODELS[provider]);
   return acc;
 }, {} as EnabledModelsMap);
 

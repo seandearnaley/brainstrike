@@ -143,8 +143,8 @@ const providerGroups: ProviderGroupConfig[] = [
         },
         models: [
           {
-            id: 'gpt-4o',
-            label: 'GPT-4o',
+            id: 'gpt-5.2',
+            label: 'GPT-5.2',
             type: 'llm',
             enabled: true,
             default: true,
@@ -170,8 +170,8 @@ const providerGroups: ProviderGroupConfig[] = [
         },
         models: [
           {
-            id: 'claude-sonnet-4-20250514',
-            label: 'Claude Haiku 4.5',
+            id: 'claude-sonnet-4-5',
+            label: 'Claude Sonnet 4.5',
             type: 'llm',
             enabled: true,
             supportsStreaming: true,
@@ -191,16 +191,16 @@ const pickerProviders: ModelPickerProvider[] = [
 // ModelPicker-compatible models (only enabled models)
 const pickerModels: ModelPickerModel[] = [
   {
-    id: 'gpt-4o',
+    id: 'gpt-5.2',
     providerId: 'openai',
-    name: 'GPT-4o',
+    name: 'GPT-5.2',
     description: null,
     capabilities: { type: 'llm', streaming: true },
   },
   {
-    id: 'claude-sonnet-4-20250514',
+    id: 'claude-sonnet-4-5',
     providerId: 'anthropic',
-    name: 'Claude Haiku 4.5',
+    name: 'Claude Sonnet 4.5',
     description: null,
     capabilities: { type: 'llm', streaming: true },
   },
@@ -211,7 +211,7 @@ const baseProps = {
   pickerModels,
   pickerProviders,
   selectedProvider: 'openai',
-  selectedModel: 'openai::gpt-4o',
+  selectedModel: 'openai::gpt-5.2',
 };
 
 describe('AssistantUiPanel model picker', () => {
@@ -230,7 +230,7 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getAllByText('OpenAI').length).toBeGreaterThan(0);
 
     // The model name appears in both the summary badge and the ModelPicker trigger
-    const modelTexts = screen.getAllByText('GPT-4o');
+    const modelTexts = screen.getAllByText('GPT-5.2');
     expect(modelTexts.length).toBeGreaterThan(0);
 
     // The dropdown container should be present
@@ -253,11 +253,11 @@ describe('AssistantUiPanel model picker', () => {
     fireEvent.click(trigger);
 
     // Wait for the popover to open and find the Claude model option
-    const option = await screen.findByText('Claude Haiku 4.5');
+    const option = await screen.findByText('Claude Sonnet 4.5');
     fireEvent.click(option);
 
     // Should be called with composite key format: "provider::model"
-    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-20250514');
+    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-5');
   });
 
   it('shows placeholder when no models are enabled', () => {

@@ -11,7 +11,7 @@ describe('Token Utilities Integration', () => {
       ) => ReturnType<typeof encoding_for_model>;
       try {
         // tiktoken types lag behind newest model IDs; fall back if unsupported at runtime.
-        encoder = encodingForModel('gpt-4o');
+        encoder = encodingForModel('gpt-5.2');
       } catch {
         encoder = get_encoding('o200k_base');
       }

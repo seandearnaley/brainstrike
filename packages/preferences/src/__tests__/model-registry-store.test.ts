@@ -164,9 +164,9 @@ describe('model-registry-store', () => {
       ];
       const mockModelRows = [
         {
-          id: 'gpt-4o',
+          id: 'gpt-5.2',
           provider_id: 'openai',
-          name: 'GPT-4o',
+          name: 'GPT-5.2',
           description: 'Advanced LLM',
           tagline: 'Most capable',
           best_for: JSON.stringify(['chat', 'code']),
@@ -192,7 +192,7 @@ describe('model-registry-store', () => {
       expect(useModelRegistryStore.getState().providers).toHaveLength(1);
       expect(useModelRegistryStore.getState().providers[0]?.name).toBe('OpenAI');
       expect(useModelRegistryStore.getState().models).toHaveLength(1);
-      expect(useModelRegistryStore.getState().models[0]?.name).toBe('GPT-4o');
+      expect(useModelRegistryStore.getState().models[0]?.name).toBe('GPT-5.2');
     });
 
     it('parses JSON fields correctly', async () => {

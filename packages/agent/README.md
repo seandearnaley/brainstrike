@@ -62,7 +62,7 @@ const messages = convertAssistantUiMessages([
 
 // Stream agent responses
 const stream = await streamMastraAgent(messages, {
-  model: 'gpt-4o',
+  model: 'gpt-5.2',
   runtime: {
     apiKey: process.env.OPENAI_API_KEY,
     provider: 'openai'
@@ -417,7 +417,7 @@ export async function POST(request: Request) {
   const { messages } = await request.json();
 
   const stream = await streamMastraAgent(messages, {
-    model: 'gpt-4o',
+    model: 'gpt-5.2',
     runtime: { apiKey: process.env.OPENAI_API_KEY }
   });
 
@@ -459,7 +459,7 @@ ipcMain.handle('agent:stream', async (event, messages, options) => {
 
 ### Benchmarks
 
-- **First Token Latency**: <500ms (GPT-4o-mini)
+- **First Token Latency**: <500ms (GPT-5.2 Chat (Latest))
 - **Throughput**: 100+ tokens/second streaming
 - **Memory Usage**: <50MB baseline, scales linearly with conversation
 - **Bundle Size**: 42KB minified + gzipped (core only)

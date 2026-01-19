@@ -27,17 +27,6 @@ interface GoogleModelConfig extends ModelConfig {
 }
 
 const GOOGLE_MODELS: Record<string, GoogleModelConfig> = {
-  'text-embedding-004': {
-    id: 'text-embedding-004',
-    name: 'Text Embedding 004',
-    dimensions: 768,
-    quantized: false,
-    description: 'Legacy Google text embedding model (768D).',
-    tags: ['google', 'hosted', 'embedding'],
-    origin: 'Google',
-    size: 'hosted',
-    supportsOutputDimensionality: false,
-  },
   'gemini-embedding-001': {
     id: 'gemini-embedding-001',
     name: 'Gemini embedding-001',
@@ -299,7 +288,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
-      body: JSON.stringify({ model, requests }),
+      body: JSON.stringify({ requests }),
     });
   }
 

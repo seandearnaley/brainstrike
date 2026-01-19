@@ -94,11 +94,6 @@ Hosted models require API keys and internet connectivity but offer cutting-edge 
 - **Dimensions**: 3072 (override via `outputDimensionality`)
 - **Best for**: General-purpose hosted embeddings with configurable dimensions
 
-**text-embedding-004** (Legacy, deprecated)
-- **Dimensions**: 768 (fixed)
-- **Best for**: Existing collections created before Gemini embeddings
-- **Status**: Disabled by default for new collections; deprecated and shut down on January 14, 2026
-
 #### Voyage AI
 
 **voyage-3** (Not wired in worker yet)
@@ -180,9 +175,9 @@ If switching models for existing data:
 2. Trigger backfill for your file set
 3. The old collection remains searchable until you're ready to delete it
 
-If you previously used `text-embedding-004`, keep that collection as-is and backfill to
-`gemini-embedding-001` in a new collection when you're ready to migrate. Avoid mixing
-legacy and Gemini embeddings in the same set.
+If you previously used `text-embedding-004`, create a new collection with
+`gemini-embedding-001` and backfill. Avoid mixing embeddings from different models in
+the same set.
 
 **Do not mix embeddings from different models in the same collection** - search quality will degrade significantly.
 
