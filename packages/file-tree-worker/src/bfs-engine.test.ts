@@ -470,6 +470,240 @@ describe('BFSEngine', () => {
     });
   });
 
+  describe('loadSubtree', () => {
+    it('should send complete with 0 count when start path not found', async () => {
+      engine.setTree([], 'root');
+
+      await engine.loadSubtree('/root/nonexistent');
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(0);
+      }
+    });
+
+    it('should send complete with 0 count when start path is a file', async () => {
+      const tree = [createFileNode({ path: '/root/file.txt' })];
+      engine.setTree(tree, 'root');
+
+      await engine.loadSubtree('/root/file.txt');
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(0);
+      }
+    });
+
+    it('should send complete with 0 count when directory is already fully loaded', async () => {
+      const tree = [
+        createDirectoryNode({
+          path: '/root/dir',
+          loadState: 'loaded',
+          children: [createFileNode({ path: '/root/dir/file.txt' })],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      await engine.loadSubtree('/root/dir');
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(0);
+      }
+    });
+
+    it('should load unloaded directory and send complete', async () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadSubtree('/root/dir');
+
+      // Wait for request
+      await vi.waitFor(() => {
+        const requestMsg = messages.find((m) => m.type === 'requestLoad');
+        expect(requestMsg).toBeDefined();
+      });
+
+      // Simulate load completion
+      engine.handleLoadResult('/root/dir', [createFileNode({ path: '/root/dir/file.txt' })]);
+
+      await loadPromise;
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(1);
+      }
+    });
+
+    it('should load nested unloaded directories', async () => {
+      const tree = [createDirectoryNode({ path: '/root/parent', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadSubtree('/root/parent');
+
+      // Wait for first request
+      await vi.waitFor(() => {
+        const requestMsg = messages.find((m) => m.type === 'requestLoad');
+        expect(requestMsg).toBeDefined();
+      });
+
+      // Simulate first load - parent contains a child directory
+      engine.handleLoadResult('/root/parent', [
+        createDirectoryNode({ path: '/root/parent/child', loadState: 'unloaded', depth: 2 }),
+      ]);
+
+      // Wait for next wave request
+      await vi.waitFor(() => {
+        const allRequests = messages.filter((m) => m.type === 'requestLoad');
+        expect(allRequests.length).toBeGreaterThanOrEqual(2);
+      });
+
+      // Simulate second load
+      engine.handleLoadResult('/root/parent/child', []);
+
+      await loadPromise;
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(2);
+      }
+    });
+
+    it('should discover unloaded descendants under loaded directories', async () => {
+      // This tests the critical P1 bug fix: when a parent is loaded but has
+      // unloaded child directories, loadSubtree should find and load them
+      const tree = [
+        createDirectoryNode({
+          path: '/root/parent',
+          loadState: 'loaded',
+          children: [
+            createDirectoryNode({ path: '/root/parent/child', loadState: 'unloaded', depth: 2 }),
+          ],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadSubtree('/root/parent');
+
+      // Wait for request to load the unloaded child
+      await vi.waitFor(() => {
+        const requestMsg = messages.find((m) => m.type === 'requestLoad');
+        expect(requestMsg).toBeDefined();
+      });
+
+      // Simulate load completion of the child
+      engine.handleLoadResult('/root/parent/child', []);
+
+      await loadPromise;
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        // Only the child was loaded (parent was already loaded)
+        expect(completeMsg.payload.loadedCount).toBe(1);
+      }
+    });
+
+    it('should discover deeply nested unloaded descendants', async () => {
+      // Tests that loadSubtree traverses through multiple loaded directories
+      // to find deeply nested unloaded ones
+      const tree = [
+        createDirectoryNode({
+          path: '/root/level1',
+          loadState: 'loaded',
+          children: [
+            createDirectoryNode({
+              path: '/root/level1/level2',
+              loadState: 'loaded',
+              depth: 2,
+              children: [
+                createDirectoryNode({
+                  path: '/root/level1/level2/level3',
+                  loadState: 'unloaded',
+                  depth: 3,
+                }),
+              ],
+            }),
+          ],
+        }),
+      ];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadSubtree('/root/level1');
+
+      // Wait for request to load the deeply nested unloaded directory
+      await vi.waitFor(() => {
+        const requestMsg = messages.find((m) => m.type === 'requestLoad');
+        expect(requestMsg).toBeDefined();
+        if (requestMsg?.type === 'requestLoad') {
+          expect(requestMsg.payload.paths).toContain('/root/level1/level2/level3');
+        }
+      });
+
+      // Simulate load completion
+      engine.handleLoadResult('/root/level1/level2/level3', []);
+
+      await loadPromise;
+
+      const completeMsg = messages.find((m) => m.type === 'complete');
+      expect(completeMsg).toBeDefined();
+      if (completeMsg?.type === 'complete') {
+        expect(completeMsg.payload.loadedCount).toBe(1);
+      }
+    });
+
+    it('should handle abort during loading', async () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadSubtree('/root/dir');
+
+      // Wait for request
+      await vi.waitFor(() => {
+        const requestMsg = messages.find((m) => m.type === 'requestLoad');
+        expect(requestMsg).toBeDefined();
+      });
+
+      // Abort the operation
+      engine.abort();
+
+      await loadPromise;
+
+      // Should have logged abort
+      const logMessages = messages.filter((m) => m.type === 'log');
+      const abortLog = logMessages.find(
+        (m) => m.type === 'log' && m.message.includes('[loadSubtree] Complete')
+      );
+      expect(abortLog).toBeDefined();
+    });
+
+    it('should send progress updates during loading', async () => {
+      const tree = [createDirectoryNode({ path: '/root/dir', loadState: 'unloaded' })];
+      engine.setTree(tree, 'root');
+
+      const loadPromise = engine.loadSubtree('/root/dir');
+
+      // Wait for initial progress
+      await vi.waitFor(() => {
+        const progressMsg = messages.find((m) => m.type === 'progress');
+        expect(progressMsg).toBeDefined();
+      });
+
+      // Complete the load
+      engine.handleLoadResult('/root/dir', []);
+
+      await loadPromise;
+
+      const progressMessages = messages.filter((m) => m.type === 'progress');
+      expect(progressMessages.length).toBeGreaterThan(0);
+    });
+  });
+
   describe('flattenTree', () => {
     it('should flatten an empty tree', () => {
       engine.setTree([], 'root');
@@ -554,8 +788,7 @@ describe('BFSEngine', () => {
         createDirectoryNode({
           name: 'dir1',
           path: '/root/dir1',
-          loadState: 'unloaded', // Not loaded yet
-          children: undefined,
+          loadState: 'unloaded', // Not loaded yet - children not set
         }),
       ];
       engine.setTree(tree, 'root');

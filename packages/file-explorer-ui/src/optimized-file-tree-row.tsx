@@ -147,7 +147,10 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
 
     const allFilePaths = useMemo(
       () => (nodeType === 'directory' ? fileExplorer.getAllFilePathsInDirectory(node) : [nodePath]),
-      [node, nodePath, nodeType, nodeChildren, nodeLoadState]
+      // Note: node is used in the callback but we depend on specific properties that change
+      // when children are loaded. This avoids redundant recalculations when only node reference changes.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [nodePath, nodeType, nodeChildren, nodeLoadState]
     );
 
     const folderInfo = useMemo(() => {
@@ -155,7 +158,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         return null;
       }
       return fileExplorer.getFolderFileCount(node);
-    }, [node, nodeType, nodeChildren, nodeLoadState]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [nodeType, nodeChildren, nodeLoadState]);
 
     const selectedCountInDir = useMemo(
       () =>

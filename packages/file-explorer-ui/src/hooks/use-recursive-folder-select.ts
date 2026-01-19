@@ -7,10 +7,10 @@
  * @module use-recursive-folder-select
  */
 
-import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
+import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, fileExplorer, isAbortError } from '@brainstrike/utils';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { FileSystemHandle } from '../utils/worker-node-conversion';
 import { rehydrateTree } from '../utils/worker-node-conversion';
@@ -18,7 +18,15 @@ import { rehydrateTree } from '../utils/worker-node-conversion';
 const logger = createLogger('RecursiveFolderSelect');
 
 /**
+ * WeakMap cache for isFolderFullyLoaded results.
+ * Using WeakMap ensures cache entries are garbage collected when nodes are no longer referenced.
+ * The cache is invalidated naturally when nodes are replaced (new object references).
+ */
+const folderLoadedCache = new WeakMap<IFileNode, boolean>();
+
+/**
  * Check if a folder is fully loaded (all descendants have loadState 'loaded').
+ * Results are cached per node reference for performance on large trees.
  */
 function isFolderFullyLoaded(node: IFileNode): boolean {
   if (node.type !== 'directory') {
@@ -30,7 +38,19 @@ function isFolderFullyLoaded(node: IFileNode): boolean {
   if (!node.children) {
     return false;
   }
-  return node.children.every((child) => child.type !== 'directory' || isFolderFullyLoaded(child));
+
+  // Check cache first
+  const cached = folderLoadedCache.get(node);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  // Compute and cache result
+  const result = node.children.every(
+    (child) => child.type !== 'directory' || isFolderFullyLoaded(child)
+  );
+  folderLoadedCache.set(node, result);
+  return result;
 }
 
 /**
@@ -103,7 +123,7 @@ function handleFastPathSelection(
  * Process loaded subtree and select files.
  */
 function processLoadedSubtree(
-  result: { tree: unknown[]; expandedPaths: string[]; loadedCount: number },
+  result: { tree: WorkerFileNode[]; expandedPaths: string[]; loadedCount: number },
   handleMap: Map<string, FileSystemHandle>,
   onTreeUpdate: (tree: IFileNode[]) => void,
   nodePath: string,
@@ -113,10 +133,7 @@ function processLoadedSubtree(
   currentSelectionSize: number
 ): SelectionResult {
   // Rehydrate tree with handles
-  const rehydratedTree = rehydrateTree(
-    result.tree as Parameters<typeof rehydrateTree>[0],
-    handleMap
-  );
+  const rehydratedTree = rehydrateTree(result.tree, handleMap);
 
   logger.debug('subtree load complete', {
     handleMapSize: handleMap.size,
@@ -257,6 +274,18 @@ export function useRecursiveFolderSelect(
     isStartingRef.current = false;
     isLoadingForSelectionRef.current = false;
     setState(RESET_STATE);
+  }, [workerPortRef]);
+
+  /**
+   * Cleanup on unmount - abort any in-progress operations.
+   */
+  useEffect(() => {
+    return () => {
+      if (isLoadingForSelectionRef.current) {
+        logger.debug('useRecursiveFolderSelect: cleaning up on unmount');
+        workerPortRef.current?.abort();
+      }
+    };
   }, [workerPortRef]);
 
   /**
