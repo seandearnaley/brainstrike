@@ -141,6 +141,20 @@ interface UseFileExplorerReturn {
    * When true, tab content loading can proceed even before the tree is loaded.
    */
   canLoadWithoutTree: boolean;
+  /** Select all files in a folder recursively, loading if needed */
+  selectFolderRecursively: (
+    node: IFileNode,
+    folderId: string,
+    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+    maxSelectionCount: number,
+    currentSelectionSize: number
+  ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
+  /** Cancel the current recursive selection operation */
+  cancelRecursiveSelect: () => void;
+  /** Whether a subtree is being loaded for selection */
+  isLoadingForSelection: boolean;
+  /** Path of the folder being loaded for selection (if any) */
+  loadingPathForSelection: string | null;
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -218,6 +232,10 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     isExpandingAll,
     expandAllProgress,
     loadSpecificPaths,
+    selectFolderRecursively,
+    cancelRecursiveSelect,
+    isLoadingForSelection,
+    loadingPathForSelection,
   } = sharedTreeContext ?? localTreeState;
 
   // storeClearFileContents is selected above to keep hook count constant
@@ -583,5 +601,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     restorationProgress,
     setAccessLoading,
     canLoadWithoutTree,
+    selectFolderRecursively,
+    cancelRecursiveSelect,
+    isLoadingForSelection,
+    loadingPathForSelection,
   };
 }

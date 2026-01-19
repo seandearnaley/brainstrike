@@ -31,6 +31,12 @@ interface OptimizedFileTreeRowProps {
   isChildrenLoading?: boolean | undefined;
   /** Callback to load children of a directory on expand (lazy loading) */
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
+  /** Select all files in a folder recursively, loading if needed */
+  onSelectFolderRecursively?:
+    | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
+    | undefined;
+  /** Whether THIS folder is being loaded for recursive selection */
+  isLoadingForSelection?: boolean | undefined;
 }
 
 const ROW_HEIGHT = 32;
@@ -48,6 +54,8 @@ const areOptimizedFileTreeRowPropsEqual = (
   // Compare critical props that affect rendering
   if (
     prevProps.node.path !== nextProps.node.path ||
+    prevProps.node.loadState !== nextProps.node.loadState ||
+    prevProps.node.children !== nextProps.node.children ||
     prevProps.depth !== nextProps.depth ||
     prevProps.isExpanded !== nextProps.isExpanded ||
     prevProps.isLoading !== nextProps.isLoading ||
@@ -78,6 +86,14 @@ const areOptimizedFileTreeRowPropsEqual = (
     return false;
   }
 
+  // Compare recursive selection props
+  if (prevProps.onSelectFolderRecursively !== nextProps.onSelectFolderRecursively) {
+    return false;
+  }
+  if (prevProps.isLoadingForSelection !== nextProps.isLoadingForSelection) {
+    return false;
+  }
+
   return true;
 };
 
@@ -94,6 +110,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     children,
     isChildrenLoading,
     onLoadChildren,
+    onSelectFolderRecursively,
+    isLoadingForSelection,
   }) => {
     const store = useFileExplorerStoreContext();
     const selectedFilePaths = store((s) => s.selectedFilePaths);
@@ -117,10 +135,12 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     }, [node.type, node.path, selectionModel.mode, selectionModel.materializedPaths]);
 
     // Memoize expensive calculations
+    // Note: we include node.children and node.loadState as dependencies so this
+    // recalculates when children are loaded (e.g., during recursive folder selection)
     const allFilePaths = useMemo(
       () =>
         node.type === 'directory' ? fileExplorer.getAllFilePathsInDirectory(node) : [node.path],
-      [node]
+      [node, node.children, node.loadState]
     );
 
     const folderInfo = useMemo(() => {
@@ -128,7 +148,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         return null;
       }
       return fileExplorer.getFolderFileCount(node);
-    }, [node]);
+    }, [node, node.children, node.loadState]);
 
     const selectedCountInDir = useMemo(
       () =>
@@ -186,6 +206,20 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         onToggleFileSelection(node.path);
         return;
       }
+
+      // For directories that aren't fully loaded, use recursive selection
+      // This will load all children first, then select them
+      const needsRecursiveLoad =
+        node.loadState !== 'loaded' ||
+        (node.children?.some((c) => c.type === 'directory' && c.loadState !== 'loaded') ?? false);
+
+      if (needsRecursiveLoad && onSelectFolderRecursively) {
+        // Use async recursive selection - the hook handles everything
+        void onSelectFolderRecursively(node);
+        return;
+      }
+
+      // Fast path: folder is fully loaded, use existing logic
       if (allFilePaths.length === 0) {
         return;
       }
@@ -203,8 +237,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         removeMultipleSelectedFiles(folderId, allFilePaths);
       }
     }, [
-      node.type,
-      node.path,
+      node,
       allFilePaths,
       selectedCountInDir,
       selectedFilePaths,
@@ -213,6 +246,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       folderId,
       addMultipleSelectedFiles,
       removeMultipleSelectedFiles,
+      onSelectFolderRecursively,
     ]);
 
     const handleExpansionClick = useCallback(
@@ -307,17 +341,28 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           <div
             className="mr-2 flex w-4 items-center justify-center"
             title={
-              wouldExceedLimit ? `Cannot select more than ${maxSelectionCount} files` : undefined
+              isLoadingForSelection
+                ? 'Loading folder contents...'
+                : wouldExceedLimit
+                  ? `Cannot select more than ${maxSelectionCount} files`
+                  : undefined
             }
           >
-            <LightweightCheckbox
-              aria-label={`Select ${node.name}`}
-              checked={checkboxState}
-              className="h-4 w-4"
-              disabled={wouldExceedLimit}
-              id={node.path}
-              onCheckedChange={handleCheckboxChange}
-            />
+            {isLoadingForSelection ? (
+              <Loader2
+                aria-label={`Loading ${node.name} for selection`}
+                className="h-4 w-4 animate-spin text-blue-500"
+              />
+            ) : (
+              <LightweightCheckbox
+                aria-label={`Select ${node.name}`}
+                checked={checkboxState}
+                className="h-4 w-4"
+                disabled={wouldExceedLimit}
+                id={node.path}
+                onCheckedChange={handleCheckboxChange}
+              />
+            )}
           </div>
 
           {/* File/folder icon with consistent sizing */}

@@ -62,6 +62,20 @@ export interface CancellableFileTreeHook {
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void
   ) => Promise<void>;
+  /** Select all files in a folder recursively, loading if needed */
+  selectFolderRecursively: (
+    node: IFileNode,
+    folderId: string,
+    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+    maxSelectionCount: number,
+    currentSelectionSize: number
+  ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
+  /** Cancel the current recursive selection operation */
+  cancelRecursiveSelect: () => void;
+  /** Whether a subtree is being loaded for selection */
+  isLoadingForSelection: boolean;
+  /** Path of the folder being loaded for selection (if any) */
+  loadingPathForSelection: string | null;
 }
 
 /**
@@ -87,6 +101,10 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     isExpandingAll,
     expandAllProgress,
     loadSpecificPaths,
+    selectFolderRecursively,
+    cancelRecursiveSelect,
+    isLoadingForSelection,
+    loadingPathForSelection,
   } = useLazyFileTree(rootDirectoryHandle);
 
   return {
@@ -110,5 +128,9 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     isExpandingAll,
     expandAllProgress,
     loadSpecificPaths,
+    selectFolderRecursively,
+    cancelRecursiveSelect,
+    isLoadingForSelection,
+    loadingPathForSelection,
   };
 }

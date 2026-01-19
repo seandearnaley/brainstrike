@@ -17,7 +17,12 @@ import type { DirectoryHandle, IFileNode } from '@brainstrike/types';
 import { canLoadNode, createLogger, isAbortError, sortTreeNodes } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useAbortControllers, useExpandAll, useFileTreeWorker } from './hooks';
+import {
+  useAbortControllers,
+  useExpandAll,
+  useFileTreeWorker,
+  useRecursiveFolderSelect,
+} from './hooks';
 import {
   needsLoading as checkNeedsLoading,
   findNodeByPath,
@@ -259,6 +264,22 @@ export interface UseLazyFileTreeReturn {
     paths: string[],
     onProgress?: (loaded: number, total: number, currentPath: string) => void
   ) => Promise<void>;
+  /** Select all files in a folder, loading unloaded children first if needed */
+  selectFolderRecursively: (
+    node: IFileNode,
+    folderId: string,
+    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+    maxSelectionCount: number,
+    currentSelectionSize: number
+  ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
+  /** Cancel the current recursive selection operation */
+  cancelRecursiveSelect: () => void;
+  /** Whether a subtree is being loaded for selection */
+  isLoadingForSelection: boolean;
+  /** Path of the folder being loaded for selection (if any) */
+  loadingPathForSelection: string | null;
+  /** Loading progress for recursive selection (if available) */
+  selectionLoadingProgress: { loaded: number; total: number } | null;
 }
 
 /**
@@ -343,6 +364,20 @@ export function useLazyFileTree(
     workerPortRef: portRef,
     handleMapRef,
     rootFolderId: rootDirectoryHandle?.name ?? '',
+    onTreeUpdate: handleTreeUpdate,
+    onError: handleWorkerError,
+  });
+
+  // Recursive folder selection management
+  const {
+    isLoadingForSelection,
+    loadingPath: loadingPathForSelection,
+    loadingProgress: selectionLoadingProgress,
+    selectFolderRecursively,
+    cancelRecursiveSelect,
+  } = useRecursiveFolderSelect({
+    workerPortRef: portRef,
+    handleMapRef,
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
   });
@@ -864,5 +899,10 @@ export function useLazyFileTree(
     isExpandingAll,
     expandAllProgress,
     loadSpecificPaths,
+    selectFolderRecursively,
+    cancelRecursiveSelect,
+    isLoadingForSelection,
+    loadingPathForSelection,
+    selectionLoadingProgress,
   };
 }

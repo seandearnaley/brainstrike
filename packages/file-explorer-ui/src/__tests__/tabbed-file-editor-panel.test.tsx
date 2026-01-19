@@ -164,6 +164,10 @@ describe('TabbedFileEditorPanel', () => {
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
       canLoadWithoutTree: false,
+      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelRecursiveSelect: vi.fn(),
+      isLoadingForSelection: false,
+      loadingPathForSelection: null,
     });
 
     const tabModule0 = await import('../hooks/use-tab-manager');
@@ -263,6 +267,10 @@ describe('TabbedFileEditorPanel', () => {
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
       canLoadWithoutTree: false,
+      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelRecursiveSelect: vi.fn(),
+      isLoadingForSelection: false,
+      loadingPathForSelection: null,
     });
 
     render(
@@ -356,6 +364,10 @@ describe('TabbedFileEditorPanel', () => {
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
       canLoadWithoutTree: false,
+      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelRecursiveSelect: vi.fn(),
+      isLoadingForSelection: false,
+      loadingPathForSelection: null,
     });
 
     render(

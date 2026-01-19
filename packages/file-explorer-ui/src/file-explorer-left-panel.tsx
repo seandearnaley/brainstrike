@@ -164,6 +164,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     isRestoringExpandedPaths,
     restorationProgress,
     setAccessLoading,
+    selectFolderRecursively,
+    isLoadingForSelection,
+    loadingPathForSelection,
   } = useFileExplorer();
 
   const {
@@ -195,6 +198,33 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     handleDirectorySelectError,
     handleSelectionLimitError,
   } = useToastManager();
+
+  // Get store actions for recursive folder selection
+  const addMultipleSelectedFiles = store((s) => s.addMultipleSelectedFiles);
+  const selectedFilePaths = store((s) => s.selectedFilePaths);
+
+  // Wrapper for recursive folder selection that binds store actions
+  // This allows FileExplorerSidebar to call with just the node
+  const handleSelectFolderRecursively = useCallback(
+    async (node: IFileNode) => {
+      const folderId = rootDirectoryHandle?.name ?? currentFolderId ?? '';
+      return selectFolderRecursively(
+        node,
+        folderId,
+        addMultipleSelectedFiles,
+        maxSelectionCount,
+        selectedFilePaths.size
+      );
+    },
+    [
+      selectFolderRecursively,
+      rootDirectoryHandle,
+      currentFolderId,
+      addMultipleSelectedFiles,
+      maxSelectionCount,
+      selectedFilePaths,
+    ]
+  );
 
   const { selectedFilesList, setSelectedFilesFromList } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitError,
@@ -520,9 +550,12 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
                 filterError={filterErrorAsError}
                 isInitialLoad={isInitialLoad}
                 isLoading={isLoading}
+                isLoadingForSelection={isLoadingForSelection}
                 loadingFiles={loadingFiles}
+                loadingPathForSelection={loadingPathForSelection}
                 loadingPaths={loadingPaths}
                 onLoadChildren={loadChildren}
+                onSelectFolderRecursively={handleSelectFolderRecursively}
                 quickFilteredTree={quickFilteredTree}
                 rootDirectoryHandle={rootDirectoryHandle}
                 treeError={error}

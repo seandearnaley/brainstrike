@@ -166,6 +166,10 @@ describe('FileExplorerMiddlePanel', () => {
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
       canLoadWithoutTree: false,
+      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelRecursiveSelect: vi.fn(),
+      isLoadingForSelection: false,
+      loadingPathForSelection: null,
     });
 
     handleSelectionChangeMock = vi.fn();
@@ -314,6 +318,10 @@ describe('FileExplorerMiddlePanel', () => {
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
       canLoadWithoutTree: false,
+      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelRecursiveSelect: vi.fn(),
+      isLoadingForSelection: false,
+      loadingPathForSelection: null,
     });
 
     vi.mocked(useSelectionManager).mockReturnValue({

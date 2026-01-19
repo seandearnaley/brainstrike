@@ -135,6 +135,13 @@ self.onmessage = async (event: MessageEvent<MainToWorkerMessage>) => {
         break;
       }
 
+      case 'loadSubtree': {
+        const { startPath } = message.payload;
+        log('info', 'starting loadSubtree', { startPath });
+        await engine.loadSubtree(startPath);
+        break;
+      }
+
       case 'collapseAll': {
         log('info', 'collapsing all');
         engine.collapseAll();

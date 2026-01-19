@@ -32,6 +32,7 @@ function createMockWorkerPort(overrides: Partial<FileTreeWorkerPort> = {}): File
     init: vi.fn(),
     expandAll: vi.fn().mockResolvedValue({ tree: [], expandedPaths: [], loadedCount: 0 }),
     loadPaths: vi.fn().mockResolvedValue({ tree: [], expandedPaths: [], loadedCount: 0 }),
+    loadSubtree: vi.fn().mockResolvedValue({ tree: [], filePaths: [], loadedCount: 0 }),
     collapseAll: vi.fn(),
     abort: vi.fn(),
     updateTree: vi.fn(),

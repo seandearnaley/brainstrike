@@ -201,6 +201,10 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
       canLoadWithoutTree: false,
+      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelRecursiveSelect: vi.fn(),
+      isLoadingForSelection: false,
+      loadingPathForSelection: null,
     });
 
     const previewPanelModule = await import('../preview-panel');
@@ -279,6 +283,10 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
       canLoadWithoutTree: false,
+      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelRecursiveSelect: vi.fn(),
+      isLoadingForSelection: false,
+      loadingPathForSelection: null,
     });
 
     const previewPanelModule = await import('../preview-panel');
