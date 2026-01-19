@@ -48,12 +48,20 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
         const status = tabStatuses.get(tab.compositeKey);
         // If tab needs permission, request it first (must be from user click)
         if (status?.status === 'needs-permission') {
-          const granted = await requestTabPermission(tab.compositeKey);
-          if (granted) {
-            // Permission granted - load the file content
-            void loadFileContent(tab.compositeKey);
+          try {
+            const granted = await requestTabPermission(tab.compositeKey);
+            if (granted) {
+              // Permission granted - load the file content
+              void loadFileContent(tab.compositeKey);
+            }
+            // If not granted, still select the tab to show the permission message
+          } catch (err) {
+            logger.error('Failed to request file permission', {
+              compositeKey: tab.compositeKey,
+              error: err instanceof Error ? err.message : String(err),
+            });
+            // Still select the tab to show the current status
           }
-          // If not granted, still select the tab to show the permission message
         }
 
         setActiveTab(tabId);

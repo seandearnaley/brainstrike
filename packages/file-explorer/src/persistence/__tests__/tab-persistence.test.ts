@@ -303,6 +303,108 @@ describe('tab-persistence', () => {
       expect(result.needsPermission).toHaveLength(0);
       expect(result.notFound).toHaveLength(0);
     });
+
+    it('should handle concurrent restoration of many tabs efficiently', async () => {
+      // Create 50 handles to test performance with many tabs
+      const handles = new Map<string, FileSystemFileHandle>();
+      for (let i = 0; i < 50; i++) {
+        handles.set(`folder1::file${i}.txt`, createMockFileHandle(`file${i}.txt`));
+      }
+      const cache = createMockHandleCache(handles);
+
+      const tabs = Array.from({ length: 50 }, (_, i) => ({
+        tabId: `tab-${i}`,
+        compositeKey: `folder1::file${i}.txt`,
+      }));
+
+      const startTime = Date.now();
+      const result = await restoreAllTabFileHandles(tabs, cache);
+      const duration = Date.now() - startTime;
+
+      expect(result.restored).toHaveLength(50);
+      expect(result.needsPermission).toHaveLength(0);
+      expect(result.notFound).toHaveLength(0);
+      // Should complete quickly due to parallel processing
+      expect(duration).toBeLessThan(5000);
+    });
+
+    it('should handle composite keys with special characters', async () => {
+      const handle = createMockFileHandle('file with spaces.txt');
+      // Test paths with special characters that might cause issues
+      const handles = new Map([
+        ['folder-1::path/to/file with spaces.txt', handle],
+        ['folder_2::path/to/file.test.spec.ts', createMockFileHandle('file.test.spec.ts')],
+      ]);
+      const cache = createMockHandleCache(handles);
+
+      const tabs = [
+        { tabId: 'tab-1', compositeKey: 'folder-1::path/to/file with spaces.txt' },
+        { tabId: 'tab-2', compositeKey: 'folder_2::path/to/file.test.spec.ts' },
+      ];
+
+      const result = await restoreAllTabFileHandles(tabs, cache);
+
+      expect(result.restored).toHaveLength(2);
+    });
+
+    it('should handle tabs from multiple folders', async () => {
+      const handles = new Map([
+        ['folder-A::src/index.ts', createMockFileHandle('index.ts')],
+        ['folder-B::lib/utils.ts', createMockFileHandle('utils.ts')],
+        ['folder-C::tests/app.test.ts', createMockFileHandle('app.test.ts')],
+      ]);
+      const cache = createMockHandleCache(handles);
+
+      const tabs = [
+        { tabId: 'tab-1', compositeKey: 'folder-A::src/index.ts' },
+        { tabId: 'tab-2', compositeKey: 'folder-B::lib/utils.ts' },
+        { tabId: 'tab-3', compositeKey: 'folder-C::tests/app.test.ts' },
+      ];
+
+      const result = await restoreAllTabFileHandles(tabs, cache);
+
+      expect(result.restored).toHaveLength(3);
+      expect(result.restored.map((r) => r.folderId)).toEqual(['folder-A', 'folder-B', 'folder-C']);
+    });
+
+    it('should handle mixed permission states across tabs', async () => {
+      const handles = new Map([
+        [
+          'folder1::granted.txt',
+          createMockFileHandle('granted.txt', { queryPermissionResult: 'granted' }),
+        ],
+        [
+          'folder1::prompt.txt',
+          createMockFileHandle('prompt.txt', { queryPermissionResult: 'prompt' }),
+        ],
+        [
+          'folder1::denied.txt',
+          createMockFileHandle('denied.txt', { queryPermissionResult: 'denied' }),
+        ],
+        [
+          'folder1::deleted.txt',
+          createMockFileHandle('deleted.txt', {
+            queryPermissionResult: 'granted',
+            getFileResult: 'throw',
+          }),
+        ],
+      ]);
+      const cache = createMockHandleCache(handles);
+
+      const tabs = [
+        { tabId: 'tab-1', compositeKey: 'folder1::granted.txt' },
+        { tabId: 'tab-2', compositeKey: 'folder1::prompt.txt' },
+        { tabId: 'tab-3', compositeKey: 'folder1::denied.txt' },
+        { tabId: 'tab-4', compositeKey: 'folder1::deleted.txt' },
+        { tabId: 'tab-5', compositeKey: 'folder1::missing.txt' },
+      ];
+
+      const result = await restoreAllTabFileHandles(tabs, cache);
+
+      expect(result.restored).toHaveLength(1);
+      expect(result.needsPermission).toHaveLength(2); // prompt and denied
+      expect(result.notFound).toHaveLength(2); // deleted and missing
+    });
   });
 
   describe('requestFilePermission', () => {

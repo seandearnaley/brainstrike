@@ -91,7 +91,11 @@ function buildContentNode(opts: {
   if (tabStatus?.status === 'needs-permission') {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center">
-        <LockKeyhole className="mb-4 h-12 w-12 text-amber-500" />
+        {/* ARIA live region for screen readers */}
+        <div aria-live="polite" className="sr-only">
+          File access required for {path}. Click the tab to restore access.
+        </div>
+        <LockKeyhole aria-hidden="true" className="mb-4 h-12 w-12 text-amber-500" />
         <p className="font-semibold text-lg">File Access Required</p>
         <p className="mt-2 max-w-md text-muted-foreground text-sm">
           Click the tab again to restore access to this file. Your browser requires permission to
@@ -108,7 +112,11 @@ function buildContentNode(opts: {
   if (tabStatus?.status === 'not-found') {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center">
-        <AlertCircle className="mb-4 h-12 w-12 text-destructive" />
+        {/* ARIA live region for screen readers */}
+        <div aria-live="polite" className="sr-only">
+          File not found: {path}. This file may have been moved, renamed, or deleted.
+        </div>
+        <AlertCircle aria-hidden="true" className="mb-4 h-12 w-12 text-destructive" />
         <p className="font-semibold text-lg">File Not Found</p>
         <p className="mt-2 max-w-md text-muted-foreground text-sm">
           This file could not be restored. It may have been moved, renamed, or deleted.

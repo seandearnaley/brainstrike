@@ -30,23 +30,42 @@ const RESTORATION_DELAY_MS = 300;
 
 /**
  * Check if a relative path is safe (no path traversal).
- * Returns false if the path contains '..' segments that could escape the root.
+ * Returns false if the path contains '..' segments that could escape the root
+ * or if it's an absolute path.
+ *
+ * Security measures:
+ * 1. Rejects absolute paths (starting with / or drive letter)
+ * 2. Rejects paths that escape root at any point during traversal
+ * 3. Rejects paths that start with '..' after normalization
  */
 function isPathSafe(relativePath: string): boolean {
+  // Reject absolute paths (Unix-style or Windows-style)
+  if (/^[/\\]/.test(relativePath) || /^[a-zA-Z]:/.test(relativePath)) {
+    return false;
+  }
+
   // Normalize path separators and split into segments
   const segments = relativePath.split(/[\\/]/);
 
-  // Track depth - going negative means we've escaped the root
+  // Track depth - going negative at ANY point means potential escape
   let depth = 0;
   for (const segment of segments) {
     if (segment === '..') {
       depth--;
+      // Immediately reject if depth ever goes negative
       if (depth < 0) {
         return false;
       }
     } else if (segment !== '' && segment !== '.') {
       depth++;
     }
+  }
+
+  // Additional check: after all processing, verify we haven't escaped
+  // This catches edge cases where normalization might differ
+  const normalizedSegments = segments.filter((s) => s !== '' && s !== '.');
+  if (normalizedSegments[0] === '..') {
+    return false;
   }
 
   return true;
@@ -184,15 +203,36 @@ function updateStatusesFromElectronResult(
   return next;
 }
 
-/** Store handle in ref map if present */
+/** Maximum number of file handles to keep in memory to prevent unbounded growth */
+const MAX_CACHED_HANDLES = 100;
+
+/**
+ * Store handle in ref map if present, with LRU eviction to prevent memory leaks.
+ * When the cache exceeds MAX_CACHED_HANDLES, the oldest entry is removed.
+ */
 function storeHandleIfPresent(
   handlesRef: React.RefObject<Map<string, FileSystemFileHandle>>,
   compositeKey: string,
   handle: FileSystemFileHandle | null
 ): void {
-  if (handle && handlesRef.current) {
-    handlesRef.current.set(compositeKey, handle);
+  if (!(handle && handlesRef.current)) {
+    return;
   }
+
+  // If key already exists, delete it first so it moves to end (most recent)
+  if (handlesRef.current.has(compositeKey)) {
+    handlesRef.current.delete(compositeKey);
+  }
+
+  // Evict oldest entry if at capacity
+  if (handlesRef.current.size >= MAX_CACHED_HANDLES) {
+    const firstKey = handlesRef.current.keys().next().value;
+    if (firstKey !== undefined) {
+      handlesRef.current.delete(firstKey);
+    }
+  }
+
+  handlesRef.current.set(compositeKey, handle);
 }
 
 /**
@@ -213,6 +253,8 @@ export function useTabFileRestoration(
   const restoredTabsRef = useRef<Set<string>>(new Set());
   // Track handles for permission requests (web platform only)
   const handlesRef = useRef<Map<string, FileSystemFileHandle>>(new Map());
+  // Track if a restoration is currently in progress to prevent race conditions
+  const restorationInProgressRef = useRef(false);
 
   // Detect platform once
   const platform = useMemo<Platform>(() => detectPlatform(), []);
@@ -365,6 +407,11 @@ export function useTabFileRestoration(
       return;
     }
 
+    // Prevent concurrent restorations (race condition protection)
+    if (restorationInProgressRef.current) {
+      return;
+    }
+
     // Check if any tabs need restoration
     const tabsNeedingRestore = tabs.filter((tab) => !restoredTabsRef.current.has(tab.compositeKey));
 
@@ -374,9 +421,17 @@ export function useTabFileRestoration(
 
     // Delay to allow Zustand hydration to complete
     const timer = setTimeout(() => {
-      void restoreTabsRef.current(
-        tabsNeedingRestore.map((t) => ({ tabId: t.id, compositeKey: t.compositeKey }))
-      );
+      // Double-check we're not already restoring (timer could fire after another restoration started)
+      if (restorationInProgressRef.current) {
+        return;
+      }
+      restorationInProgressRef.current = true;
+
+      void restoreTabsRef
+        .current(tabsNeedingRestore.map((t) => ({ tabId: t.id, compositeKey: t.compositeKey })))
+        .finally(() => {
+          restorationInProgressRef.current = false;
+        });
     }, RESTORATION_DELAY_MS);
 
     return () => clearTimeout(timer);
