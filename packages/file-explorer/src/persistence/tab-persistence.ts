@@ -31,8 +31,29 @@ interface FileSystemHandlePermissions {
   requestPermission?(descriptor?: FileSystemPermissionDescriptor): Promise<PermissionState>;
 }
 
-/** FileSystemFileHandle with optional permission methods */
-type FileHandleWithPermissions = FileSystemFileHandle & FileSystemHandlePermissions;
+/** FileSystemFileHandle with queryPermission method */
+type FileHandleWithQueryPermission = FileSystemFileHandle &
+  Required<Pick<FileSystemHandlePermissions, 'queryPermission'>>;
+
+/** FileSystemFileHandle with requestPermission method */
+type FileHandleWithRequestPermission = FileSystemFileHandle &
+  Required<Pick<FileSystemHandlePermissions, 'requestPermission'>>;
+
+/**
+ * Type guard to check if a FileSystemFileHandle has queryPermission method.
+ */
+function hasQueryPermission(handle: FileSystemFileHandle): handle is FileHandleWithQueryPermission {
+  return typeof (handle as unknown as FileSystemHandlePermissions).queryPermission === 'function';
+}
+
+/**
+ * Type guard to check if a FileSystemFileHandle has requestPermission method.
+ */
+function hasRequestPermission(
+  handle: FileSystemFileHandle
+): handle is FileHandleWithRequestPermission {
+  return typeof (handle as unknown as FileSystemHandlePermissions).requestPermission === 'function';
+}
 
 const logger = createLogger('TabPersistence');
 
@@ -100,16 +121,14 @@ function isValidFileHandle(handle: unknown): handle is FileSystemFileHandle {
 async function queryFilePermission(
   handle: FileSystemFileHandle
 ): Promise<PermissionState | 'unknown'> {
-  // Cast to access optional permission methods not in standard TypeScript types
-  const handleWithPerms = handle as FileHandleWithPermissions;
-
-  if (typeof handleWithPerms.queryPermission !== 'function') {
+  // Use type guard to safely access optional permission method
+  if (!hasQueryPermission(handle)) {
     // Browser doesn't support queryPermission, assume we need to try
     return 'unknown';
   }
 
   try {
-    return await handleWithPerms.queryPermission({ mode: 'read' });
+    return await handle.queryPermission({ mode: 'read' });
   } catch (err) {
     logger.debug('queryFilePermission failed', {
       error: err instanceof Error ? err.message : String(err),
@@ -348,16 +367,14 @@ export async function restoreAllTabFileHandles(
  * @returns Promise resolving to whether permission was granted
  */
 export async function requestFilePermission(handle: FileSystemFileHandle): Promise<boolean> {
-  // Cast to access optional permission methods not in standard TypeScript types
-  const handleWithPerms = handle as FileHandleWithPermissions;
-
-  if (typeof handleWithPerms.requestPermission !== 'function') {
+  // Use type guard to safely access optional permission method
+  if (!hasRequestPermission(handle)) {
     logger.warn('requestFilePermission: browser does not support requestPermission');
     return false;
   }
 
   try {
-    const result = await handleWithPerms.requestPermission({ mode: 'read' });
+    const result = await handle.requestPermission({ mode: 'read' });
     return result === 'granted';
   } catch (err) {
     const errorName = err instanceof Error ? err.name : '';

@@ -28,6 +28,30 @@ const logger = createLogger('useTabFileRestoration');
 /** Delay before attempting restoration to allow Zustand to hydrate */
 const RESTORATION_DELAY_MS = 300;
 
+/**
+ * Check if a relative path is safe (no path traversal).
+ * Returns false if the path contains '..' segments that could escape the root.
+ */
+function isPathSafe(relativePath: string): boolean {
+  // Normalize path separators and split into segments
+  const segments = relativePath.split(/[\\/]/);
+
+  // Track depth - going negative means we've escaped the root
+  let depth = 0;
+  for (const segment of segments) {
+    if (segment === '..') {
+      depth--;
+      if (depth < 0) {
+        return false;
+      }
+    } else if (segment !== '' && segment !== '.') {
+      depth++;
+    }
+  }
+
+  return true;
+}
+
 /** Status information for a tab's file handle */
 export interface TabFileStatus {
   compositeKey: string;
@@ -101,6 +125,17 @@ async function restoreElectronTabs(
 
         if (!(folderId && relativePath)) {
           notFound.push({ compositeKey: tab.compositeKey, error: 'Invalid composite key' });
+          onTabNotFound?.(tab.tabId);
+          return;
+        }
+
+        // Security: Validate path doesn't contain traversal sequences
+        if (!isPathSafe(relativePath)) {
+          logger.warn('restoreElectronTabs: path traversal detected', { relativePath });
+          notFound.push({
+            compositeKey: tab.compositeKey,
+            error: 'Invalid path: traversal not allowed',
+          });
           onTabNotFound?.(tab.tabId);
           return;
         }
@@ -232,13 +267,20 @@ export function useTabFileRestoration(
         }
       }
 
-      // Update statuses map
+      // Store handles first (side effect - must be outside state updater)
+      for (const info of result.restored) {
+        storeHandleIfPresent(handlesRef, info.compositeKey, info.handle);
+      }
+      for (const info of result.needsPermission) {
+        storeHandleIfPresent(handlesRef, info.compositeKey, info.handle);
+      }
+
+      // Update statuses map (pure function)
       setTabStatuses((prev) => {
         const next = new Map(prev);
 
         for (const info of result.restored) {
           next.set(info.compositeKey, createTabFileStatus(info.compositeKey, 'restored'));
-          storeHandleIfPresent(handlesRef, info.compositeKey, info.handle);
         }
 
         for (const info of result.needsPermission) {
@@ -246,7 +288,6 @@ export function useTabFileRestoration(
             info.compositeKey,
             createTabFileStatus(info.compositeKey, 'needs-permission', info.error)
           );
-          storeHandleIfPresent(handlesRef, info.compositeKey, info.handle);
         }
 
         for (const info of result.notFound) {
@@ -307,6 +348,10 @@ export function useTabFileRestoration(
     [platform, restoreElectronTabsWithStatus, restoreWebTabsWithStatus]
   );
 
+  // Store restoreTabs in a ref to avoid useEffect re-running when callback changes
+  const restoreTabsRef = useRef(restoreTabs);
+  restoreTabsRef.current = restoreTabs;
+
   // Auto-restore tabs on mount/when tabs change
   useEffect(() => {
     // On web, we need the handle cache; on Electron, we need the adapter
@@ -329,13 +374,13 @@ export function useTabFileRestoration(
 
     // Delay to allow Zustand hydration to complete
     const timer = setTimeout(() => {
-      void restoreTabs(
+      void restoreTabsRef.current(
         tabsNeedingRestore.map((t) => ({ tabId: t.id, compositeKey: t.compositeKey }))
       );
     }, RESTORATION_DELAY_MS);
 
     return () => clearTimeout(timer);
-  }, [platform, handleCache, fileSystemAdapter, tabs, restoreTabs]);
+  }, [platform, handleCache, fileSystemAdapter, tabs]);
 
   // Clean up in-memory state when tabs are closed
   // Note: We don't remove file handles from IndexedDB - LRU eviction handles that

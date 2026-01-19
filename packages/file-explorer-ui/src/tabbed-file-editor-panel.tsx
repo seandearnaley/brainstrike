@@ -31,18 +31,22 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     const handleTabClick = useCallback(
       async (tabId: string) => {
         const tab = tabs.find((t) => t.id === tabId);
-        if (tab) {
-          const status = tabStatuses.get(tab.compositeKey);
-          // If tab needs permission, request it first (must be from user click)
-          if (status?.status === 'needs-permission') {
-            const granted = await requestTabPermission(tab.compositeKey);
-            if (granted) {
-              // Permission granted - load the file content
-              void loadFileContent(tab.compositeKey);
-            }
-            // If not granted, still select the tab to show the permission message
-          }
+        if (!tab) {
+          // Tab not found - shouldn't happen in practice since click comes from rendered tab
+          return;
         }
+
+        const status = tabStatuses.get(tab.compositeKey);
+        // If tab needs permission, request it first (must be from user click)
+        if (status?.status === 'needs-permission') {
+          const granted = await requestTabPermission(tab.compositeKey);
+          if (granted) {
+            // Permission granted - load the file content
+            void loadFileContent(tab.compositeKey);
+          }
+          // If not granted, still select the tab to show the permission message
+        }
+
         setActiveTab(tabId);
       },
       [setActiveTab, tabs, tabStatuses, requestTabPermission, loadFileContent]
