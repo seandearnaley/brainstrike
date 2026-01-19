@@ -11,7 +11,7 @@ import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 // Track enabled models in a mutable Set for testing toggle functionality
 const testEnabledModels = new Set<string>([
   'gpt-4o', // OpenAI default
-  'claude-3-5-haiku-latest', // Anthropic default
+  'claude-sonnet-4-20250514', // Anthropic default
   'gemini-3-flash-preview', // Google default
   'openai/gpt-4o', // OpenRouter default
 ]);
@@ -34,9 +34,9 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
           },
           // Anthropic models
           {
-            id: 'claude-3-5-haiku-latest',
+            id: 'claude-sonnet-4-20250514',
             providerId: 'anthropic',
-            isEnabled: testEnabledModels.has('claude-3-5-haiku-latest'),
+            isEnabled: testEnabledModels.has('claude-sonnet-4-20250514'),
             capabilities: { type: 'llm' },
           },
           // Google models
@@ -124,7 +124,7 @@ vi.mock('@brainstrike/agent/client', () => {
       runtime: 'hosted',
       capabilities: { llm: true, embeddings: false, streaming: true },
       models: [
-        { id: 'claude-3-5-haiku-latest', type: 'llm', default: true, supportsStreaming: true },
+        { id: 'claude-sonnet-4-20250514', type: 'llm', default: true, supportsStreaming: true },
       ],
     },
     google: {
@@ -327,7 +327,7 @@ function resetTestEnabledModels() {
   // Default enabled models (those with default: true in the mock)
   testEnabledModels.add('gpt-4o'); // OpenAI default
   testEnabledModels.add('openai/gpt-4o'); // OpenRouter default
-  testEnabledModels.add('claude-3-5-haiku-latest'); // Anthropic default
+  testEnabledModels.add('claude-sonnet-4-20250514'); // Anthropic default
   testEnabledModels.add('gemini-3-flash-preview'); // Google default
 }
 
@@ -405,7 +405,7 @@ describe('AssistantUiPanelWrapper', () => {
     // Wait for model to update and panel to remain enabled
     await waitFor(() => {
       const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-      expect(modelSelect.value).toBe('claude-3-5-haiku-latest');
+      expect(modelSelect.value).toBe('claude-sonnet-4-20250514');
       expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
     });
   });
@@ -481,7 +481,7 @@ describe('AssistantUiPanelWrapper', () => {
           expect(providerSelect.value).toBe('anthropic');
 
           const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-          expect(modelSelect.value).toBe('claude-3-5-haiku-latest');
+          expect(modelSelect.value).toBe('claude-sonnet-4-20250514');
 
           expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
         },

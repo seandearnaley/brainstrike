@@ -283,7 +283,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('claude-3-5-haiku-latest');
+    expect(agent.model?.modelId).toBe('claude-sonnet-4-20250514');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('anthropic');
   });
@@ -317,13 +317,13 @@ describe('mastra streaming integration', () => {
   it('uses custom model when specified with provider', async () => {
     await createMastraAgentRuntime({
       runtime: { apiKey: 'test-key', provider: 'anthropic' },
-      model: 'claude-3-5-haiku-latest',
+      model: 'claude-sonnet-4-20250514',
     });
 
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('claude-3-5-haiku-latest');
+    expect(agent.model?.modelId).toBe('claude-sonnet-4-20250514');
   });
 
   it('throws when provider is unsupported', async () => {

@@ -338,7 +338,7 @@ describe('registerAgentIpcHandlers', () => {
       const runtime = {
         projectId: 'proj-123',
         provider: 'anthropic',
-        model: 'claude-3-5-haiku-latest',
+        model: 'claude-sonnet-4-20250514',
         mcpEnabled: false,
       };
 
@@ -348,7 +348,7 @@ describe('registerAgentIpcHandlers', () => {
         runtime: {
           projectId: 'proj-123',
           provider: 'anthropic',
-          model: 'claude-3-5-haiku-latest',
+          model: 'claude-sonnet-4-20250514',
           mcpEnabled: false,
           mcpConfig,
           apiKey: 'secret-key',

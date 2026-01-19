@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isMastraAgentError } from '../mastra/mastra-agent-error';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
+import { listProviderModels, listProviders } from '../providers/registry';
 
 describe('provider-factory', () => {
   describe('createProvider', () => {
@@ -19,15 +20,15 @@ describe('provider-factory', () => {
     it('creates Anthropic provider with default model', () => {
       const model = createProvider('anthropic', 'test-key') as { modelId: string };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('claude-3-5-haiku-latest');
+      expect(model.modelId).toBe('claude-sonnet-4-20250514');
     });
 
     it('creates Anthropic provider with custom model', () => {
-      const model = createProvider('anthropic', 'test-key', 'claude-3-5-haiku-latest') as {
+      const model = createProvider('anthropic', 'test-key', 'claude-sonnet-4-20250514') as {
         modelId: string;
       };
       expect(model).toBeDefined();
-      expect(model.modelId).toBe('claude-3-5-haiku-latest');
+      expect(model.modelId).toBe('claude-sonnet-4-20250514');
     });
 
     it('creates Google provider with default model', () => {
@@ -95,7 +96,7 @@ describe('provider-factory', () => {
     });
 
     it('returns correct default for Anthropic', () => {
-      expect(getDefaultModel('anthropic')).toBe('claude-3-5-haiku-latest');
+      expect(getDefaultModel('anthropic')).toBe('claude-sonnet-4-20250514');
     });
 
     it('returns correct default for Google', () => {
@@ -109,5 +110,16 @@ describe('provider-factory', () => {
     it('falls back to OpenAI default for unsupported provider', () => {
       expect(getDefaultModel('unsupported')).toBe('gpt-4o');
     });
+  });
+
+  it('exposes a single default model per provider and type', () => {
+    for (const provider of listProviders()) {
+      const llmDefaults = listProviderModels(provider.id, 'llm').filter((model) => model.default);
+      expect(llmDefaults.length).toBeLessThanOrEqual(1);
+      const embeddingDefaults = listProviderModels(provider.id, 'embedding').filter(
+        (model) => model.default
+      );
+      expect(embeddingDefaults.length).toBeLessThanOrEqual(1);
+    }
   });
 });

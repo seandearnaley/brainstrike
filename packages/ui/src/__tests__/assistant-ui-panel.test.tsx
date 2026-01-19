@@ -170,8 +170,8 @@ const providerGroups: ProviderGroupConfig[] = [
         },
         models: [
           {
-            id: 'claude-3-5-haiku-latest',
-            label: 'Claude 3.5 Haiku (Latest)',
+            id: 'claude-sonnet-4-20250514',
+            label: 'Claude Haiku 4.5',
             type: 'llm',
             enabled: true,
             supportsStreaming: true,
@@ -198,9 +198,9 @@ const pickerModels: ModelPickerModel[] = [
     capabilities: { type: 'llm', streaming: true },
   },
   {
-    id: 'claude-3-5-haiku-latest',
+    id: 'claude-sonnet-4-20250514',
     providerId: 'anthropic',
-    name: 'Claude 3.5 Haiku (Latest)',
+    name: 'Claude Haiku 4.5',
     description: null,
     capabilities: { type: 'llm', streaming: true },
   },
@@ -253,11 +253,11 @@ describe('AssistantUiPanel model picker', () => {
     fireEvent.click(trigger);
 
     // Wait for the popover to open and find the Claude model option
-    const option = await screen.findByText('Claude 3.5 Haiku (Latest)');
+    const option = await screen.findByText('Claude Haiku 4.5');
     fireEvent.click(option);
 
     // Should be called with composite key format: "provider::model"
-    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-3-5-haiku-latest');
+    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-sonnet-4-20250514');
   });
 
   it('shows placeholder when no models are enabled', () => {

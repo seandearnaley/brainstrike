@@ -154,20 +154,20 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     envKeys: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
     models: [
       {
-        id: 'claude-3-5-haiku-latest',
-        label: 'Claude 3.5 Haiku (Latest)',
+        id: 'claude-sonnet-4-20250514',
+        label: 'Claude Sonnet 4',
         type: 'llm',
         default: true,
         supportsStreaming: true,
       },
       {
-        id: 'claude-sonnet-4-0',
-        label: 'Claude Sonnet 4',
+        id: 'claude-3-5-haiku-20241022',
+        label: 'Claude 3.5 Haiku',
         type: 'llm',
         supportsStreaming: true,
       },
       {
-        id: 'claude-opus-4-1',
+        id: 'claude-opus-4-1-20250805',
         label: 'Claude Opus 4.1',
         type: 'llm',
         supportsStreaming: true,
@@ -200,7 +200,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       },
       {
         id: 'text-embedding-004',
-        label: 'Text Embedding 004 (Legacy)',
+        label: 'Text Embedding 004 (Deprecated)',
         type: 'embedding',
         defaultDimension: 768,
         availableDimensions: [768],

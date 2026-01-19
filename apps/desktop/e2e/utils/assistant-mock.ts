@@ -3,7 +3,7 @@ import { waitForAppReady } from './electron-helpers';
 
 const DEFAULT_MODELS: Record<string, string> = {
   openai: 'gpt-4o',
-  anthropic: 'claude-3-5-haiku-latest',
+  anthropic: 'claude-sonnet-4-20250514',
   google: 'gemini-3-flash-preview',
   openrouter: 'openai/gpt-4o',
 } as const;

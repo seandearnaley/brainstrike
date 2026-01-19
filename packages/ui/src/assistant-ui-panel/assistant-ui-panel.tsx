@@ -445,6 +445,7 @@ const ChatThreadUI: FC<{
   </ThreadPrimitive.Root>
 );
 
+// Pure UI layer: state management and data wiring live in app-shell wrapper(s).
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   className,
   providerGroups,

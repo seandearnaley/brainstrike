@@ -15,18 +15,18 @@ export const migration025UpdateProviderModels2026: Migration = {
       ('text-embedding-3-small', 'openai', 'Text Embedding 3 Small', 'Efficient embeddings', '["Search", "Clustering"]', '{"type":"embedding","defaultDimension":1536}', 4, true),
       ('text-embedding-3-large', 'openai', 'Text Embedding 3 Large', 'High-precision embeddings', '["Semantic search", "Knowledge retrieval"]', '{"type":"embedding","defaultDimension":3072}', 5, false);
 
-    -- Anthropic (Claude Sonnet 4 + Haiku 3.5 + Opus 4.1)
+    -- Anthropic (Claude 4 + 3.5 series)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('claude-sonnet-4-0', 'anthropic', 'Claude Sonnet 4', 'Advanced reasoning', '["Analysis", "Coding", "Writing"]', '{"type":"llm","streaming":true}', 1, true),
-      ('claude-3-5-haiku-latest', 'anthropic', 'Claude 3.5 Haiku (Latest)', 'Fastest Claude model', '["Quick responses", "Data extraction"]', '{"type":"llm","streaming":true}', 2, true),
-      ('claude-opus-4-1', 'anthropic', 'Claude Opus 4.1', 'Highest quality Claude model', '["Deep research", "Complex tasks"]', '{"type":"llm","streaming":true}', 3, false);
+      ('claude-sonnet-4-20250514', 'anthropic', 'Claude Sonnet 4', 'Advanced reasoning', '["Analysis", "Coding", "Writing"]', '{"type":"llm","streaming":true}', 1, true),
+      ('claude-3-5-haiku-20241022', 'anthropic', 'Claude 3.5 Haiku', 'Fastest Claude model', '["Quick responses", "Data extraction"]', '{"type":"llm","streaming":true}', 2, true),
+      ('claude-opus-4-1-20250805', 'anthropic', 'Claude Opus 4.1', 'Highest quality Claude model', '["Deep research", "Complex tasks"]', '{"type":"llm","streaming":true}', 3, false);
 
     -- Google (Gemini 3 preview + embeddings)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
       ('gemini-3-flash-preview', 'google', 'Gemini 3 Flash (Preview)', 'Low-latency preview model', '["Realtime apps", "High volume"]', '{"type":"llm","streaming":true}', 1, true),
       ('gemini-3-pro-preview', 'google', 'Gemini 3 Pro (Preview)', 'Advanced reasoning preview', '["Complex tasks", "Analysis"]', '{"type":"llm","streaming":true}', 2, true),
       ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Configurable embeddings', '["General purpose", "Retrieval"]', '{"type":"embedding","defaultDimension":3072}', 3, true),
-      ('text-embedding-004', 'google', 'Text Embedding 004 (Legacy)', 'Legacy 768D embeddings', '["Legacy collections"]', '{"type":"embedding","defaultDimension":768}', 4, false);
+      ('text-embedding-004', 'google', 'Text Embedding 004 (Deprecated)', 'Deprecated 768D embeddings (shutdown Jan 14, 2026)', '["Legacy collections"]', '{"type":"embedding","defaultDimension":768}', 4, false);
 
     -- OpenRouter (gateway, use provider-prefixed model IDs)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
@@ -50,8 +50,8 @@ export const migration025UpdateProviderModels2026: Migration = {
     -- Anthropic (previous catalog)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
       ('claude-3-5-haiku-latest', 'anthropic', 'Claude 3.5 Haiku', 'Fastest Claude model', '["Quick responses", "Data extraction"]', '{"type":"llm","streaming":true}', 1, true),
-      ('claude-sonnet-4-0', 'anthropic', 'Claude Sonnet 4', 'Advanced reasoning', '["Coding", "Analysis", "Writing"]', '{"type":"llm","streaming":true}', 2, true),
-      ('claude-opus-4-1', 'anthropic', 'Claude Opus 4.1', 'Highest quality Claude model', '["Complex tasks", "Research"]', '{"type":"llm","streaming":true}', 3, false);
+      ('claude-3-5-sonnet-latest', 'anthropic', 'Claude 3.5 Sonnet', 'Balanced intelligence & speed', '["Coding", "Analysis", "Writing"]', '{"type":"llm","streaming":true}', 2, true),
+      ('claude-3-opus-latest', 'anthropic', 'Claude 3 Opus', 'Most powerful Claude model', '["Complex tasks", "Research"]', '{"type":"llm","streaming":true}', 3, false);
 
     -- Google (previous catalog)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES

@@ -34,8 +34,8 @@ const providers: ModelPickerProvider[] = [
 const models: ModelPickerModel[] = [
   { id: 'gpt-4o', name: 'GPT-4o', providerId: 'openai', capabilities: { type: 'llm' } },
   {
-    id: 'claude-3-5-haiku-latest',
-    name: 'Claude 3.5 Haiku (Latest)',
+    id: 'claude-sonnet-4-20250514',
+    name: 'Claude Haiku 4.5',
     providerId: 'anthropic',
     capabilities: { type: 'llm' },
   },
@@ -78,7 +78,7 @@ describe('ModelPicker', () => {
       render(<ModelPicker models={models} providers={providers} />);
       fireEvent.click(screen.getByText('Select a model...'));
       expect(screen.getByText('GPT-4o')).toBeInTheDocument();
-      expect(screen.getByText('Claude 3.5 Haiku (Latest)')).toBeInTheDocument();
+      expect(screen.getByText('Claude Haiku 4.5')).toBeInTheDocument();
     });
 
     it('renders with custom className', () => {
@@ -130,8 +130,8 @@ describe('ModelPicker', () => {
         />
       );
       fireEvent.click(screen.getByRole('combobox'));
-      fireEvent.click(screen.getByText('Claude 3.5 Haiku (Latest)'));
-      expect(onChange).toHaveBeenCalledWith(['gpt-4o', 'claude-3-5-haiku-latest']);
+      fireEvent.click(screen.getByText('Claude Haiku 4.5'));
+      expect(onChange).toHaveBeenCalledWith(['gpt-4o', 'claude-sonnet-4-20250514']);
     });
 
     it('displays count for multiple selections', () => {
@@ -140,7 +140,7 @@ describe('ModelPicker', () => {
           mode="multi"
           models={models}
           providers={providers}
-          value={['gpt-4o', 'claude-3-5-haiku-latest']}
+          value={['gpt-4o', 'claude-sonnet-4-20250514']}
         />
       );
       expect(screen.getByText('GPT-4o')).toBeInTheDocument();
@@ -192,7 +192,7 @@ describe('ModelPicker', () => {
       fireEvent.change(searchInput, { target: { value: 'claude' } });
 
       await waitFor(() => {
-        expect(screen.getByText('Claude 3.5 Haiku (Latest)')).toBeInTheDocument();
+        expect(screen.getByText('Claude Haiku 4.5')).toBeInTheDocument();
         expect(screen.queryByText('GPT-4o')).not.toBeInTheDocument();
       });
     });

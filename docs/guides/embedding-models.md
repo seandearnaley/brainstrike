@@ -97,7 +97,7 @@ Hosted models require API keys and internet connectivity but offer cutting-edge 
 **text-embedding-004** (Legacy, deprecated)
 - **Dimensions**: 768 (fixed)
 - **Best for**: Existing collections created before Gemini embeddings
-- **Status**: Disabled by default for new collections; Google announced deprecation on January 14, 2026
+- **Status**: Disabled by default for new collections; deprecated and shut down on January 14, 2026
 
 #### Voyage AI
 
@@ -220,6 +220,7 @@ const config = {
 
 - [OpenAI Embeddings Announcement](https://openai.com/index/new-embedding-models-and-api-updates/)
 - [Google Gemini API Docs](https://ai.google.dev/gemini-api/docs/embeddings)
+- [Gemini API Release Notes](https://ai.google.dev/gemini-api/docs/changelog)
 - [Cohere Embed API](https://docs.cohere.com/reference/embed)
 - [Jina AI Models](https://jina.ai/embeddings)
 - [BGE Models (Hugging Face)](https://huggingface.co/BAAI)

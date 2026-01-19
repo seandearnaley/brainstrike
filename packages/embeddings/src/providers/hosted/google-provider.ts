@@ -286,8 +286,9 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
 
   private async requestBatchEmbedding(texts: string[], apiKey: string): Promise<Response> {
     const fetchImpl = this.fetchImpl.bind(globalThis);
+    const model = normalizeModelPath(this.modelId);
     const requests = texts.map((text) => ({
-      model: normalizeModelPath(this.modelId),
+      model,
       content: buildContent(text),
       ...(this.supportsOutputDimensionality ? { outputDimensionality: this.targetDimensions } : {}),
     }));
@@ -298,7 +299,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
-      body: JSON.stringify({ requests }),
+      body: JSON.stringify({ model, requests }),
     });
   }
 

@@ -129,7 +129,7 @@ const mockProviderDefinitions = [
     runtime: 'hosted',
     capabilities: { llm: true, embeddings: false, streaming: true },
     envKeys: ['ANTHROPIC_API_KEY'],
-    models: [{ id: 'claude-3-5-haiku-latest', type: 'llm' as const, default: true }],
+    models: [{ id: 'claude-sonnet-4-20250514', type: 'llm' as const, default: true }],
   },
   {
     id: 'google',
