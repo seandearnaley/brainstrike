@@ -272,6 +272,23 @@ export function registerIpcHandlers(
     }
     return fileSystem.readFile(handle);
   });
+
+  // BST-307: Direct path-based file reading for persisted tab restoration
+  registerHandler('fs:readFileByPath', async (_e: IpcMainInvokeEvent, absolutePath: string) => {
+    // Check for mock paths in test mode
+    if (absolutePath.startsWith(MOCK_PATH_PREFIX)) {
+      return 'Mock file content for testing purposes\nThis is a test file.\n';
+    }
+
+    // Basic path validation
+    const resolved = await resolveValidatedPath({ requestedPath: absolutePath });
+    if (!resolved.ok) {
+      throw new Error(`Invalid path: ${resolved.error}`);
+    }
+
+    return fileSystem.readFileByPath(resolved.path);
+  });
+
   registerHandler('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
     // Check for mock paths in test mode
     if (p.startsWith(MOCK_PATH_PREFIX)) {

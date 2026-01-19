@@ -1,7 +1,10 @@
 import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
 import { useIdeFileEditor } from '@brainstrike/ui';
-import { decodeFileSelection } from '@brainstrike/utils';
+import { createLogger, decodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect, useMemo } from 'react';
+
+const logger = createLogger('TabbedFileEditorPanel');
+
 import { useTabManager } from './hooks/use-tab-manager';
 import { TabbedFileEditor, type TabStripAction } from './tabbed-file-editor';
 import { useFileExplorer } from './use-file-explorer-context';
@@ -79,21 +82,45 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     );
 
     useEffect(() => {
+      logger.info('Active tab effect triggered', {
+        activeTabId,
+        canLoadWithoutTree,
+        treeLength: fileTree.length,
+        tabsCount: tabs.length,
+      });
+
       if (!activeTabId) {
+        logger.info('Bailing: no activeTabId');
         return;
       }
       // On Electron (canLoadWithoutTree), we can load files without the tree.
       // On web, we need the tree to get file handles.
       if (!canLoadWithoutTree && fileTree.length === 0) {
+        logger.info('Bailing: no tree and canLoadWithoutTree is false');
         return;
       }
       const activeTab = tabs.find((tab) => tab.id === activeTabId);
       if (!activeTab) {
+        logger.info('Bailing: activeTab not found in tabs', {
+          activeTabId,
+          tabs: tabs.map((t) => t.id),
+        });
         return;
       }
-      if (fileContents[activeTab.compositeKey] || loadingFiles.has(activeTab.compositeKey)) {
+      const alreadyLoaded = !!fileContents[activeTab.compositeKey];
+      const isLoading = loadingFiles.has(activeTab.compositeKey);
+      if (alreadyLoaded || isLoading) {
+        logger.info('Bailing: already loaded or loading', {
+          alreadyLoaded,
+          isLoading,
+          compositeKey: activeTab.compositeKey,
+        });
         return;
       }
+      logger.info('Loading file content for active tab', {
+        compositeKey: activeTab.compositeKey,
+        path: activeTab.path,
+      });
       void loadFileContent(activeTab.compositeKey);
     }, [
       activeTabId,

@@ -87,12 +87,22 @@ function shouldLoadFile(
 ): boolean {
   // On Electron (canLoadWithoutTree), we can load without the tree
   const hasTreeOrCanSkip = canLoadWithoutTree || fileTree.length > 0;
-  return !!(
-    folderId &&
-    hasTreeOrCanSkip &&
-    !loadingPathsRef.current.has(compositeKey) &&
-    !(compositeKey in fileContents)
-  );
+  const alreadyLoading = loadingPathsRef.current.has(compositeKey);
+  const alreadyLoaded = compositeKey in fileContents;
+  const shouldLoad = !!(folderId && hasTreeOrCanSkip && !alreadyLoading && !alreadyLoaded);
+
+  logger.info('shouldLoadFile check', {
+    compositeKey,
+    folderId,
+    canLoadWithoutTree,
+    treeLength: fileTree.length,
+    hasTreeOrCanSkip,
+    alreadyLoading,
+    alreadyLoaded,
+    shouldLoad,
+  });
+
+  return shouldLoad;
 }
 
 // File node retrieval with retry logic
@@ -138,8 +148,15 @@ function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
  * This is available on Electron where we have direct file system access.
  */
 function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
-  const adapter = fileSystemAdapter as { readFileByPath?: unknown };
-  return typeof adapter.readFileByPath === 'function';
+  const adapter = fileSystemAdapter as { readFileByPath?: unknown; platform?: string };
+  const hasReadByPath = typeof adapter.readFileByPath === 'function';
+  logger.info('supportsDirectPathRead check', {
+    hasReadByPath,
+    platform: adapter.platform,
+    adapterType: typeof fileSystemAdapter,
+    readFileByPathType: typeof adapter.readFileByPath,
+  });
+  return hasReadByPath;
 }
 
 function markFileLoading(
