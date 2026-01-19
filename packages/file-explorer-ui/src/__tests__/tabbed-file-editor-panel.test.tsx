@@ -161,6 +161,7 @@ describe('TabbedFileEditorPanel', () => {
       cancelChildLoading: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
     });
 
     const tabModule0 = await import('../hooks/use-tab-manager');
@@ -259,6 +260,7 @@ describe('TabbedFileEditorPanel', () => {
       cancelChildLoading: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
     });
 
     render(
@@ -351,6 +353,7 @@ describe('TabbedFileEditorPanel', () => {
       cancelChildLoading: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
     });
 
     render(

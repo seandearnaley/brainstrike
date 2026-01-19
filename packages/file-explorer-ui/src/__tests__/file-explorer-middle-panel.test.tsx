@@ -165,6 +165,7 @@ describe('FileExplorerMiddlePanel', () => {
       cancelChildLoading: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
     });
 
     handleSelectionChangeMock = vi.fn();
@@ -312,6 +313,7 @@ describe('FileExplorerMiddlePanel', () => {
       cancelChildLoading: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
     });
 
     vi.mocked(useSelectionManager).mockReturnValue({

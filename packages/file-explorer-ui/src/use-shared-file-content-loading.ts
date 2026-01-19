@@ -502,11 +502,16 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   // Use zustand selector to get fileContents with proper memoization
   const fileContents = store((state) => state.fileContents);
 
+  // Check if the adapter supports direct path reading (Electron)
+  const canLoadWithoutTree = supportsDirectPathRead(fileSystemAdapter);
+
   return {
     fileContents,
     isLoading,
     error,
     loadingFiles,
     handleFileContentLoading,
+    /** True if files can be loaded without a file tree (Electron with readFileByPath) */
+    canLoadWithoutTree,
   };
 }

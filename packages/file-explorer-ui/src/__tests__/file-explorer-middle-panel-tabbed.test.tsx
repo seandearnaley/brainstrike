@@ -200,6 +200,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       cancelChildLoading: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
     });
 
     const previewPanelModule = await import('../preview-panel');
@@ -277,6 +278,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       cancelChildLoading: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
     });
 
     const previewPanelModule = await import('../preview-panel');
