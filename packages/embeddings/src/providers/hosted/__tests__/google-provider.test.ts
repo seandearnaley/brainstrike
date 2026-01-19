@@ -64,12 +64,15 @@ describe('GoogleEmbeddingProvider', () => {
     expect(String(url)).toContain(':batchEmbedContents');
     const body = JSON.parse(String(init?.body ?? '{}')) as {
       requests?: Array<{
+        model?: string;
         content?: { parts?: Array<{ text?: string }> };
         output_dimensionality?: number;
       }>;
     };
     expect(body.requests?.length).toBe(2);
+    expect(body.requests?.[0]?.model).toBe('models/gemini-embedding-001');
     expect(body.requests?.[0]?.content?.parts?.[0]?.text).toBe('a');
+    expect(body.requests?.[1]?.model).toBe('models/gemini-embedding-001');
     expect(body.requests?.[1]?.content?.parts?.[0]?.text).toBe('b');
     expect(body.requests?.[0]?.output_dimensionality).toBe(2);
   });

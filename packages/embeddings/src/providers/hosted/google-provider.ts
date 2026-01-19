@@ -254,6 +254,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
   private async requestBatchEmbedding(texts: string[], apiKey: string): Promise<Response> {
     const fetchImpl = this.fetchImpl.bind(globalThis);
     const requests = texts.map((text) => ({
+      model: normalizeModelPath(this.modelId),
       content: buildContent(text),
       // biome-ignore lint/style/useNamingConvention: Google API expects snake_case key
       output_dimensionality: this.targetDimensions,
@@ -382,6 +383,13 @@ function resolveBatchEndpoint(embedEndpoint: string): string {
     return embedEndpoint.replace(':embedContent', ':batchEmbedContents');
   }
   return `${embedEndpoint}:batchEmbedContents`;
+}
+
+function normalizeModelPath(modelId: string): string {
+  if (modelId.startsWith('models/')) {
+    return modelId;
+  }
+  return `models/${modelId}`;
 }
 
 function buildEmbeddingOutput(
