@@ -68,6 +68,7 @@ export function useFileSystem() {
   const setCurrentFolderId = store((s) => s.setCurrentFolderId);
   const storedRootDirectoryHandle = store((s) => s.rootDirectoryHandle);
   const setRootDirectoryHandle = store((s) => s.setRootDirectoryHandle);
+  const setStoreIsAccessLoading = store((s) => s.setIsAccessLoading);
 
   const coreApi = useCoreFileSystem({ setCurrentFolderId });
 
@@ -103,6 +104,15 @@ export function useFileSystem() {
       setRootDirectoryHandle(coreApi.rootDirectoryHandle);
     }
   }, [storedRootDirectoryHandle, coreApi.rootDirectoryHandle, setRootDirectoryHandle]);
+
+  // CRITICAL: Sync isAccessLoading from core hook to store.
+  // The stale state clearing effect in use-file-explorer-context checks the STORE's
+  // isAccessLoading value. On Electron, restoreLastFolder sets the core hook's local
+  // isAccessLoading but not the store's. Without this sync, the stale clearing effect
+  // sees store.isAccessLoading=false and incorrectly clears selections/expansions.
+  useEffect(() => {
+    setStoreIsAccessLoading(coreApi.isAccessLoading);
+  }, [coreApi.isAccessLoading, setStoreIsAccessLoading]);
 
   // Memoize the return object with stable primitive/reference dependencies only
   // Functions are recreated each render but the object identity changes only when
