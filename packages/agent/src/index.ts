@@ -1,3 +1,8 @@
+import type {
+  JSONObject,
+  SharedV2ProviderOptions,
+  SharedV3ProviderOptions,
+} from '@ai-sdk/provider';
 import type { ToolsInput } from '@mastra/core/agent';
 import type { MastraAgentRuntimeOptions } from './mastra/agent-runtime';
 import { streamMastraAgent } from './mastra/agent-runtime';
@@ -261,6 +266,10 @@ export interface RuntimeData {
   selectionFolderId?: string;
   /** Optional token budget override for context packing. */
   tokenBudget?: number;
+  /** Optional model-level settings (e.g., max output tokens). */
+  modelSettings?: RuntimeModelSettings;
+  /** Optional provider-specific runtime options. */
+  providerOptions?: RuntimeProviderOptions;
   mcpEnabled?: boolean;
   signal?: AbortSignal;
   // Optional tool dispatcher provided by host (desktop main via IPC)
@@ -274,6 +283,41 @@ export interface RuntimeData {
   /** API key for the specified provider. Falls back to environment variables if not provided. */
   apiKey?: string;
 }
+
+export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type OpenAiReasoningSummary = 'auto' | 'detailed';
+
+export interface OpenAiProviderOptions extends JSONObject {
+  reasoningEffort?: OpenAiReasoningEffort;
+  reasoningSummary?: OpenAiReasoningSummary;
+}
+
+export type AnthropicEffort = 'low' | 'medium' | 'high';
+
+export interface AnthropicProviderOptions extends JSONObject {
+  effort?: AnthropicEffort;
+  thinking?: { type: 'enabled'; budgetTokens: number };
+}
+
+export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
+
+export interface GoogleProviderOptions extends JSONObject {
+  thinkingConfig?: {
+    thinkingLevel?: GoogleThinkingLevel;
+    thinkingBudget?: number;
+    includeThoughts?: boolean;
+  };
+}
+
+export interface RuntimeModelSettings {
+  maxOutputTokens?: number;
+}
+
+export type RuntimeProviderOptions = (SharedV2ProviderOptions | SharedV3ProviderOptions) & {
+  openai?: OpenAiProviderOptions & JSONObject;
+  anthropic?: AnthropicProviderOptions & JSONObject;
+  google?: GoogleProviderOptions & JSONObject;
+};
 
 export interface StreamChunkText {
   type: 'text-delta';

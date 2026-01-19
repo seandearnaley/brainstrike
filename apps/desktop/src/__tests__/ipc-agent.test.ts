@@ -145,7 +145,7 @@ describe('registerAgentIpcHandlers', () => {
       const runtime = {
         projectId: 'test-project',
         provider: 'openai',
-        model: 'gpt-4',
+        model: 'gpt-5.2',
         mcpEnabled: true,
       };
 
@@ -338,7 +338,7 @@ describe('registerAgentIpcHandlers', () => {
       const runtime = {
         projectId: 'proj-123',
         provider: 'anthropic',
-        model: 'claude-3',
+        model: 'claude-haiku-4-5',
         mcpEnabled: false,
       };
 
@@ -348,7 +348,7 @@ describe('registerAgentIpcHandlers', () => {
         runtime: {
           projectId: 'proj-123',
           provider: 'anthropic',
-          model: 'claude-3',
+          model: 'claude-haiku-4-5',
           mcpEnabled: false,
           mcpConfig,
           apiKey: 'secret-key',

@@ -63,7 +63,7 @@ export type EmbeddingProviderConfig =
   | {
       runtime: 'hosted';
       provider: 'google';
-      modelId: string; // e.g., 'text-embedding-004'
+      modelId: string; // e.g., 'gemini-embedding-001'
       outputDimensionality?: number; // Optional, defaults to model's native dimensions
     }
   | {

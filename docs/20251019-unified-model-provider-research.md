@@ -26,7 +26,7 @@
 ### 3.2 Aggregators & Gateways
 - **OpenRouter** – Already partially integrated; we can expand model metadata as their catalog grows.
 - **Vercel AI Gateway** – Single API surface with routing controls, credit tracking, and provider failover. Useful for browser-based deployments that cannot store multiple vendor secrets.
-- **Custom registries** – With AI SDK’s registry we can mint canonical identifiers like `remote/openai:gpt-4o-mini` or `remote/google:gemini-2.5-flash`, enabling the UI to display provider + model pairings without duplicating logic.
+- **Custom registries** – With AI SDK’s registry we can mint canonical identifiers like `remote/openai:gpt-5.2` or `remote/google:gemini-3-flash-preview`, enabling the UI to display provider + model pairings without duplicating logic.
 
 ### 3.3 Local / Edge Options
 - **Ollama** – Local LLM + embedding runner with simple HTTP API. Embedding dimensionality depends on the loaded model (e.g., `nomic-embed-text` defaults to 768).

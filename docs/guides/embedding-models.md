@@ -90,11 +90,8 @@ Hosted models require API keys and internet connectivity but offer cutting-edge 
 
 #### Google
 
-**text-embedding-004**
-- **Dimensions**: 768 (override via `outputDimensionality`)
-
 **gemini-embedding-001**
-- **Dimensions**: 3072 (override via `outputDimensionality`)
+- **Dimensions**: 3072 (override via `output_dimensionality`)
 
 #### Voyage AI
 
@@ -129,11 +126,11 @@ Hosted models require API keys and internet connectivity but offer cutting-edge 
 
 ### For Multilingual Content
 - **Local**: `jinaai/jina-embeddings-v3` (89 languages, experimental)
-- **Hosted**: `gemini-embedding-001` (requires downscaling to <= 2000) or `cohere embed-multilingual-v3.0` (not wired yet)
+- **Hosted**: `gemini-embedding-001` (configure `output_dimensionality` to 768) or `cohere embed-multilingual-v3.0` (not wired yet)
 
 ### For Production/Hosted
 - **Cost-effective**: OpenAI `text-embedding-3-small`
-- **Best performance**: OpenAI `text-embedding-3-large` or Google `gemini-embedding-001` (downscale dimensions to <= 2000)
+- **Best performance**: OpenAI `text-embedding-3-large` or Google `gemini-embedding-001` (set `output_dimensionality` to 768 for standard-size sets)
 - **Long context**: Voyage `voyage-3` (not wired yet)
 
 ## Flexible Dimensions
@@ -196,7 +193,7 @@ const config = {
 const config = {
   runtime: "hosted",
   provider: "google",
-  modelId: "text-embedding-004",
+  modelId: "gemini-embedding-001",
   outputDimensionality: 768,
 };
 ```

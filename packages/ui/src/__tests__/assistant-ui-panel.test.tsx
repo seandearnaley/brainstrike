@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type {
   ModelPickerModel,
@@ -143,18 +143,11 @@ const providerGroups: ProviderGroupConfig[] = [
         },
         models: [
           {
-            id: 'gpt-4o-mini',
-            label: 'GPT-4o Mini',
+            id: 'gpt-5.2',
+            label: 'GPT-5.2',
             type: 'llm',
             enabled: true,
             default: true,
-            supportsStreaming: true,
-          },
-          {
-            id: 'gpt-4o',
-            label: 'GPT-4o',
-            type: 'llm',
-            enabled: false,
             supportsStreaming: true,
           },
         ],
@@ -177,8 +170,8 @@ const providerGroups: ProviderGroupConfig[] = [
         },
         models: [
           {
-            id: 'claude-3-haiku',
-            label: 'Claude 3 Haiku',
+            id: 'claude-haiku-4-5',
+            label: 'Claude Haiku 4.5',
             type: 'llm',
             enabled: true,
             supportsStreaming: true,
@@ -198,16 +191,16 @@ const pickerProviders: ModelPickerProvider[] = [
 // ModelPicker-compatible models (only enabled models)
 const pickerModels: ModelPickerModel[] = [
   {
-    id: 'gpt-4o-mini',
+    id: 'gpt-5.2',
     providerId: 'openai',
-    name: 'GPT-4o Mini',
+    name: 'GPT-5.2',
     description: null,
     capabilities: { type: 'llm', streaming: true },
   },
   {
-    id: 'claude-3-haiku',
+    id: 'claude-haiku-4-5',
     providerId: 'anthropic',
-    name: 'Claude 3 Haiku',
+    name: 'Claude Haiku 4.5',
     description: null,
     capabilities: { type: 'llm', streaming: true },
   },
@@ -218,7 +211,7 @@ const baseProps = {
   pickerModels,
   pickerProviders,
   selectedProvider: 'openai',
-  selectedModel: 'openai::gpt-4o-mini',
+  selectedModel: 'openai::gpt-5.2',
 };
 
 describe('AssistantUiPanel model picker', () => {
@@ -237,7 +230,7 @@ describe('AssistantUiPanel model picker', () => {
     expect(screen.getAllByText('OpenAI').length).toBeGreaterThan(0);
 
     // The model name appears in both the summary badge and the ModelPicker trigger
-    const modelTexts = screen.getAllByText('GPT-4o Mini');
+    const modelTexts = screen.getAllByText('GPT-5.2');
     expect(modelTexts.length).toBeGreaterThan(0);
 
     // The dropdown container should be present
@@ -245,7 +238,7 @@ describe('AssistantUiPanel model picker', () => {
     expect(container).toBeInTheDocument();
 
     // Verify the ModelPicker trigger (combobox) exists
-    const trigger = screen.getByRole('combobox');
+    const trigger = within(container).getByRole('combobox');
     expect(trigger).toBeInTheDocument();
   });
 
@@ -255,15 +248,16 @@ describe('AssistantUiPanel model picker', () => {
     render(<AssistantUiPanel {...baseProps} onModelChange={onModelChange} />);
 
     // The ModelPicker uses a button trigger - click to open the popover
-    const trigger = screen.getByRole('combobox');
+    const container = screen.getByTestId('assistant-model-dropdown');
+    const trigger = within(container).getByRole('combobox');
     fireEvent.click(trigger);
 
     // Wait for the popover to open and find the Claude model option
-    const option = await screen.findByText('Claude 3 Haiku');
+    const option = await screen.findByText('Claude Haiku 4.5');
     fireEvent.click(option);
 
     // Should be called with composite key format: "provider::model"
-    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-3-haiku');
+    expect(onModelChange).toHaveBeenCalledWith('anthropic::claude-haiku-4-5');
   });
 
   it('shows placeholder when no models are enabled', () => {

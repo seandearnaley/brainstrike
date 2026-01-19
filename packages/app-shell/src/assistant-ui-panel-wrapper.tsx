@@ -1,3 +1,9 @@
+import type {
+  AnthropicProviderOptions,
+  GoogleProviderOptions,
+  OpenAiProviderOptions,
+  RuntimeData,
+} from '@brainstrike/agent';
 import {
   getProviderDefaultModel,
   getProviderDefinition,
@@ -18,6 +24,8 @@ import {
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
 import {
+  type AssistantProviderSettings,
+  type AssistantProviderSettingsUpdate,
   AssistantUiPanel,
   type ModelPickerModel,
   type ModelPickerProvider,
@@ -38,16 +46,141 @@ const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   browser: 'Browser',
 };
 
+function resolveModelNameFromComposite(composite: string | null | undefined): string | undefined {
+  if (!composite) {
+    return;
+  }
+  const parts = composite.split('::');
+  return parts.length === 2 ? parts[1] : composite;
+}
+
+function buildModelSettings(
+  settings: AssistantProviderSettings | undefined
+): RuntimeData['modelSettings'] | undefined {
+  if (!settings || typeof settings.maxOutputTokens !== 'number') {
+    return;
+  }
+  const value = Math.max(1, Math.floor(settings.maxOutputTokens));
+  return Number.isFinite(value) ? { maxOutputTokens: value } : undefined;
+}
+
+function resolveGoogleThinkingLevel(
+  modelName: string | undefined,
+  value: AssistantProviderSettings['googleThinkingLevel']
+): AssistantProviderSettings['googleThinkingLevel'] {
+  if (!value) {
+    return;
+  }
+  const isPro = Boolean(modelName?.includes('gemini-3-pro'));
+  const allowed: readonly NonNullable<AssistantProviderSettings['googleThinkingLevel']>[] = isPro
+    ? ['low', 'high']
+    : ['minimal', 'low', 'medium', 'high'];
+  return allowed.includes(value) ? value : undefined;
+}
+
+function buildOpenAiOptions(
+  providerId: SupportedProvider,
+  settings: AssistantProviderSettings
+): RuntimeData['providerOptions'] {
+  if (!(providerId === 'openai' || providerId === 'openrouter')) {
+    return;
+  }
+  const openaiOptions: OpenAiProviderOptions = {};
+  if (settings.reasoningEffort) {
+    openaiOptions['reasoningEffort'] = settings.reasoningEffort;
+  }
+  if (settings.reasoningSummary) {
+    openaiOptions['reasoningSummary'] = settings.reasoningSummary;
+  }
+  return Object.keys(openaiOptions).length > 0 ? { openai: openaiOptions } : undefined;
+}
+
+function buildAnthropicOptions(
+  providerId: SupportedProvider,
+  settings: AssistantProviderSettings
+): RuntimeData['providerOptions'] {
+  if (providerId !== 'anthropic') {
+    return;
+  }
+  const anthropicOptions: AnthropicProviderOptions = {};
+  if (settings.anthropicEffort) {
+    anthropicOptions['effort'] = settings.anthropicEffort;
+  }
+  if (typeof settings.anthropicThinkingBudgetTokens === 'number') {
+    anthropicOptions['thinking'] = {
+      type: 'enabled',
+      budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
+    };
+  }
+  return Object.keys(anthropicOptions).length > 0 ? { anthropic: anthropicOptions } : undefined;
+}
+
+function buildGoogleOptions(
+  providerId: SupportedProvider,
+  modelName: string | undefined,
+  settings: AssistantProviderSettings
+): RuntimeData['providerOptions'] {
+  if (providerId !== 'google') {
+    return;
+  }
+  const thinkingConfig: NonNullable<GoogleProviderOptions['thinkingConfig']> = {};
+  const resolvedLevel = resolveGoogleThinkingLevel(modelName, settings.googleThinkingLevel);
+  if (resolvedLevel) {
+    thinkingConfig['thinkingLevel'] = resolvedLevel;
+  }
+  if (typeof settings.googleIncludeThoughts === 'boolean') {
+    thinkingConfig['includeThoughts'] = settings.googleIncludeThoughts;
+  }
+  if (Object.keys(thinkingConfig).length === 0) {
+    return;
+  }
+  return { google: { thinkingConfig } };
+}
+
+function buildProviderOptions(
+  providerId: SupportedProvider | null,
+  modelName: string | undefined,
+  settings: AssistantProviderSettings | undefined
+): RuntimeData['providerOptions'] | undefined {
+  if (!(providerId && settings)) {
+    return;
+  }
+
+  const openai = buildOpenAiOptions(providerId, settings);
+  if (openai) {
+    return openai;
+  }
+
+  const anthropic = buildAnthropicOptions(providerId, settings);
+  if (anthropic) {
+    return anthropic;
+  }
+
+  const google = buildGoogleOptions(providerId, modelName, settings);
+  if (google) {
+    return google;
+  }
+
+  return;
+}
+
 export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ initialProviders }) => {
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
     () => initialProviders ?? []
   );
 
-  const { setModel, clearModel, getAvailableProviders, getSelectedModel, getSelectedProvider } =
-    useAssistantPreferencesStore();
+  const {
+    setModel,
+    clearModel,
+    getAvailableProviders,
+    getSelectedModel,
+    getSelectedProvider,
+    setProviderSettings,
+  } = useAssistantPreferencesStore();
   const enabledModelsByProvider = useAssistantPreferencesStore(
     (state) => state.enabledModelsByProvider
   );
+  const providerSettings = useAssistantPreferencesStore((state) => state.providerSettings);
 
   // Subscribe to secrets changes to re-check available providers when API keys change
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
@@ -103,6 +236,22 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   ]);
 
   const selectedProvider = getSelectedProvider();
+  const currentModel = getSelectedModel();
+  const resolvedModelName = useMemo(
+    () => resolveModelNameFromComposite(currentModel),
+    [currentModel]
+  );
+  const selectedProviderSettings = selectedProvider
+    ? providerSettings[selectedProvider]
+    : undefined;
+  const modelSettings = useMemo(
+    () => buildModelSettings(selectedProviderSettings),
+    [selectedProviderSettings]
+  );
+  const providerOptions = useMemo(
+    () => buildProviderOptions(selectedProvider, resolvedModelName, selectedProviderSettings),
+    [selectedProvider, resolvedModelName, selectedProviderSettings]
+  );
   const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const store = useFileExplorerStoreContext();
   const [tokenBudget, currentFolderId] = store((s) => [s.tokenBudget, s.currentFolderId] as const);
@@ -151,8 +300,14 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     if (typeof tokenBudget === 'number') {
       data['tokenBudget'] = tokenBudget;
     }
+    if (modelSettings) {
+      data['modelSettings'] = modelSettings;
+    }
+    if (providerOptions) {
+      data['providerOptions'] = providerOptions;
+    }
     return data;
-  }, [activeEmbeddingSetId, selectionData, tokenBudget]);
+  }, [activeEmbeddingSetId, selectionData, tokenBudget, modelSettings, providerOptions]);
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(
@@ -235,7 +390,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
     // Case 2: Current provider exists and has enabled models - nothing to do
     if (currentProvider && providerHasEnabledModels(currentProvider)) {
-      return;
+      const currentComposite = getSelectedModel();
+      const currentModelName = resolveModelNameFromComposite(currentComposite);
+      if (currentModelName && isModelEnabled(currentProvider, currentModelName)) {
+        return;
+      }
     }
 
     // Case 3: Find the first provider with enabled models
@@ -253,12 +412,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     configuredProviders,
     enabledModelIds,
     getSelectedProvider,
+    getSelectedModel,
     clearModel,
+    isModelEnabled,
     providerHasEnabledModels,
     selectModelForProvider,
   ]);
-
-  const currentModel = getSelectedModel();
 
   const handleModelChange = useCallback(
     (compositeKey: string) => {
@@ -280,6 +439,16 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       }
     },
     [db, toggleModelInDb]
+  );
+
+  const handleProviderSettingsChange = useCallback(
+    (providerId: string, updates: AssistantProviderSettingsUpdate) => {
+      if (!isSupportedProvider(providerId)) {
+        return;
+      }
+      setProviderSettings(providerId, updates);
+    },
+    [setProviderSettings]
   );
 
   const providerGroups = useMemo<ProviderGroupConfig[]>(() => {
@@ -405,9 +574,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   return (
     <AssistantUiPanel
+      onProviderSettingsChange={handleProviderSettingsChange}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       providerGroups={providerGroups}
+      providerSettings={providerSettings}
       requestData={requestData}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}

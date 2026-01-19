@@ -202,7 +202,7 @@ describe('EmbeddingProviderFactory', () => {
       const config: EmbeddingProviderConfig = {
         runtime: 'hosted',
         provider: 'google',
-        modelId: 'text-embedding-004',
+        modelId: 'gemini-embedding-001',
         outputDimensionality: targetDimensions,
       };
 
@@ -212,7 +212,7 @@ describe('EmbeddingProviderFactory', () => {
       if (result.ok) {
         const embedResult = await result.value.embed({
           text: 'Document passage',
-          modelId: 'text-embedding-004',
+          modelId: 'gemini-embedding-001',
         });
 
         expect(embedResult.ok).toBe(true);
@@ -227,7 +227,7 @@ describe('EmbeddingProviderFactory', () => {
         expect(callArgs).toBeDefined();
         const [url, init] = callArgs as [RequestInfo | URL, RequestInit | undefined];
         expect(url).toBe(
-          'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent'
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent'
         );
         const body = JSON.parse(String(init?.body));
         expect(body.output_dimensionality).toBe(targetDimensions);

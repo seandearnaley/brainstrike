@@ -106,14 +106,11 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     ],
     models: [
       {
-        id: 'gpt-4o-mini',
+        id: 'gpt-5.2',
         type: 'llm',
         default: true,
         supportsStreaming: true,
       },
-      { id: 'gpt-4o', type: 'llm', supportsStreaming: true },
-      { id: 'gpt-4-turbo', type: 'llm', supportsStreaming: true },
-      { id: 'gpt-3.5-turbo', type: 'llm', supportsStreaming: true },
       {
         id: 'text-embedding-3-small',
         type: 'embedding',
@@ -145,13 +142,11 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     envKeys: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
     models: [
       {
-        id: 'claude-3-5-haiku-latest',
+        id: 'claude-haiku-4-5',
         type: 'llm',
         default: true,
         supportsStreaming: true,
       },
-      { id: 'claude-3-5-sonnet-latest', type: 'llm', supportsStreaming: true },
-      { id: 'claude-3-opus-latest', type: 'llm', supportsStreaming: true },
     ],
   },
   {
@@ -166,29 +161,19 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
     models: [
       {
-        id: 'gemini-2.5-flash',
+        id: 'gemini-3-flash-preview',
         type: 'llm',
         default: true,
         supportsStreaming: true,
       },
-      { id: 'gemini-2.0-pro', type: 'llm', supportsStreaming: true },
-      { id: 'gemini-1.5-pro', type: 'llm', supportsStreaming: true },
-      {
-        id: 'text-embedding-004',
-        type: 'embedding',
-        default: true,
-        defaultDimension: 768,
-        availableDimensions: [768],
-        supportsStandardDimension: true,
-        dimensionParameter: 'output_dimensionality',
-      },
       {
         id: 'gemini-embedding-001',
         type: 'embedding',
+        default: true,
         defaultDimension: 3072,
         supportsCustomDimensions: true,
-        dimensionParameter: 'output_dimensionality',
         supportsStandardDimension: true,
+        dimensionParameter: 'output_dimensionality',
       },
     ],
   },
@@ -204,13 +189,24 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     envKeys: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
     models: [
       {
-        id: 'gpt-4o-mini',
+        id: 'openai/gpt-5.2',
+        label: 'GPT-5.2 (OpenRouter)',
         type: 'llm',
         default: true,
         supportsStreaming: true,
       },
-      { id: 'gpt-4o', type: 'llm', supportsStreaming: true },
-      { id: 'claude-3-5-sonnet', type: 'llm', supportsStreaming: true },
+      {
+        id: 'anthropic/claude-haiku-4.5',
+        label: 'Claude Haiku 4.5 (OpenRouter)',
+        type: 'llm',
+        supportsStreaming: true,
+      },
+      {
+        id: 'google/gemini-3-flash-preview',
+        label: 'Gemini 3 Flash (OpenRouter)',
+        type: 'llm',
+        supportsStreaming: true,
+      },
     ],
   },
   {

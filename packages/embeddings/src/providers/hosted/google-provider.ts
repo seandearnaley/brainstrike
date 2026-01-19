@@ -23,22 +23,12 @@ interface GoogleEmbeddingResponse {
 }
 
 const GOOGLE_MODELS: Record<string, ModelConfig> = {
-  'text-embedding-004': {
-    id: 'text-embedding-004',
-    name: 'Google text-embedding-004',
-    dimensions: 768,
-    quantized: false,
-    description: 'Google Vertex AI embedding model (768D).',
-    tags: ['google', 'hosted', 'embedding'],
-    origin: 'Google Vertex AI',
-    size: 'hosted',
-  },
   'gemini-embedding-001': {
     id: 'gemini-embedding-001',
     name: 'Gemini embedding-001',
     dimensions: 3072,
     quantized: false,
-    description: 'Gemini high-dimensional embedding model with configurable output.',
+    description: 'Gemini embedding model with configurable output dimensions.',
     tags: ['google', 'hosted', 'embedding'],
     origin: 'Google Gemini',
     size: 'hosted',

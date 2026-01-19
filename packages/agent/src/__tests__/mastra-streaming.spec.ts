@@ -270,7 +270,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('gpt-4o-mini');
+    expect(agent.model?.modelId).toBe('gpt-5.2');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('openai');
   });
@@ -283,7 +283,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('claude-3-5-haiku-latest');
+    expect(agent.model?.modelId).toBe('claude-haiku-4-5');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('anthropic');
   });
@@ -296,7 +296,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('gemini-2.5-flash');
+    expect(agent.model?.modelId).toBe('gemini-3-flash-preview');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('google');
   });
@@ -309,7 +309,7 @@ describe('mastra streaming integration', () => {
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('gpt-4o-mini');
+    expect(agent.model?.modelId).toBe('openai/gpt-5.2');
     // @ts-expect-error - accessing model for testing
     expect(agent.model?.provider).toBe('openrouter');
   });
@@ -317,13 +317,13 @@ describe('mastra streaming integration', () => {
   it('uses custom model when specified with provider', async () => {
     await createMastraAgentRuntime({
       runtime: { apiKey: 'test-key', provider: 'anthropic' },
-      model: 'claude-opus-4-1',
+      model: 'claude-haiku-4-5',
     });
 
     expect(agentInstances).toHaveLength(1);
     const agent = agentInstances[0];
     // @ts-expect-error - accessing model for testing
-    expect(agent.model?.modelId).toBe('claude-opus-4-1');
+    expect(agent.model?.modelId).toBe('claude-haiku-4-5');
   });
 
   it('throws when provider is unsupported', async () => {

@@ -12,10 +12,32 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 
 type EnabledModelsMap = Record<SupportedProvider, string[]>;
 
+export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type OpenAiReasoningSummary = 'auto' | 'detailed';
+export type AnthropicEffort = 'low' | 'medium' | 'high';
+export type GoogleThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
+
+export interface AssistantProviderSettings {
+  maxOutputTokens?: number;
+  reasoningEffort?: OpenAiReasoningEffort;
+  reasoningSummary?: OpenAiReasoningSummary;
+  anthropicEffort?: AnthropicEffort;
+  anthropicThinkingBudgetTokens?: number;
+  googleThinkingLevel?: GoogleThinkingLevel;
+  googleIncludeThoughts?: boolean;
+}
+
+export type AssistantProviderSettingsUpdate = {
+  [Key in keyof AssistantProviderSettings]?: AssistantProviderSettings[Key] | undefined;
+};
+
+type ProviderSettingsMap = Record<SupportedProvider, AssistantProviderSettings>;
+
 interface AssistantPreferencesData {
   selectedModel: string | null; // Composite key: "provider::model"
   modelsByProvider: Record<SupportedProvider, string>;
   enabledModelsByProvider: EnabledModelsMap;
+  providerSettings: ProviderSettingsMap;
 }
 
 interface AssistantPreferencesActions {
@@ -31,12 +53,17 @@ interface AssistantPreferencesActions {
   getSelectedProvider: () => SupportedProvider | null;
   getEnabledModels: (provider: SupportedProvider) => string[];
   getAvailableProviders: () => Promise<SupportedProvider[]>;
+  setProviderSettings: (
+    provider: SupportedProvider,
+    updates: AssistantProviderSettingsUpdate
+  ) => void;
+  getProviderSettings: (provider: SupportedProvider) => AssistantProviderSettings;
 }
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
 const STORE_NAME = 'assistant-preferences.v1' as const;
-const STORE_VERSION = 2;
+const STORE_VERSION = 3;
 
 const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_DEFAULT_MODELS) as SupportedProvider[];
 
@@ -50,6 +77,11 @@ const DEFAULT_ENABLED_MODELS = SUPPORTED_PROVIDERS.reduce((acc, provider) => {
   acc[provider] = cloneModelList(PROVIDER_DEFAULT_ENABLED_MODELS[provider]);
   return acc;
 }, {} as EnabledModelsMap);
+
+const DEFAULT_PROVIDER_SETTINGS = SUPPORTED_PROVIDERS.reduce((acc, provider) => {
+  acc[provider] = {};
+  return acc;
+}, {} as ProviderSettingsMap);
 
 function orderByProviderCanonicalList(
   provider: SupportedProvider,
@@ -243,6 +275,7 @@ export const useAssistantPreferencesStore = create<Store>()(
       selectedModel: null,
       modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
       enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
+      providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
 
       setModel: (compositeKey) =>
         set((state) => {
@@ -352,6 +385,23 @@ export const useAssistantPreferencesStore = create<Store>()(
           return noKeyProviders;
         }
       },
+
+      setProviderSettings: (provider, updates) =>
+        set((state) => {
+          const current = state.providerSettings[provider] ?? DEFAULT_PROVIDER_SETTINGS[provider];
+          return {
+            providerSettings: {
+              ...state.providerSettings,
+              [provider]: {
+                ...current,
+                ...updates,
+              },
+            },
+          };
+        }),
+
+      getProviderSettings: (provider) =>
+        get().providerSettings[provider] ?? DEFAULT_PROVIDER_SETTINGS[provider],
     }),
     {
       name: STORE_NAME,
@@ -361,6 +411,7 @@ export const useAssistantPreferencesStore = create<Store>()(
         selectedModel: s.selectedModel,
         modelsByProvider: s.modelsByProvider,
         enabledModelsByProvider: s.enabledModelsByProvider,
+        providerSettings: s.providerSettings,
       }),
       migrate: (persistedState, version) => {
         if (!persistedState) {
@@ -399,6 +450,10 @@ export const useAssistantPreferencesStore = create<Store>()(
             ...(base.modelsByProvider ?? {}),
           },
           enabledModelsByProvider: migratedEnabled,
+          providerSettings: {
+            ...DEFAULT_PROVIDER_SETTINGS,
+            ...('providerSettings' in base ? (base.providerSettings as ProviderSettingsMap) : {}),
+          },
         } satisfies Partial<Store>;
       },
     }
@@ -410,6 +465,7 @@ function resetStoreState() {
     selectedModel: null,
     modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
     enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
+    providerSettings: { ...DEFAULT_PROVIDER_SETTINGS },
   });
 }
 

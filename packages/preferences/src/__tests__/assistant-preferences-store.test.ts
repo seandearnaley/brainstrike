@@ -103,7 +103,7 @@ describe('assistant-preferences-store', () => {
 
     // Enable a second model for testing (from the full provider models list)
     const allGoogleModels = PROVIDER_MODELS.google as string[];
-    const secondModel = allGoogleModels.find((m) => m !== firstModel);
+    const secondModel = allGoogleModels.find((m) => m !== firstModel) ?? 'gemini-legacy';
     expect(secondModel).toBeDefined();
     store.setModelEnabled('google', secondModel!, true);
 
@@ -234,7 +234,7 @@ describe('assistant-preferences-store', () => {
     });
 
     const store = useAssistantPreferencesStore.getState();
-    const compositeKey = 'openrouter::gpt-4o-mini';
+    const compositeKey = 'openrouter::openai/gpt-5.2';
     store.setModel(compositeKey);
 
     const persistedValue = storage.getItem(options.name)!;
@@ -257,9 +257,9 @@ describe('assistant-preferences-store', () => {
     };
 
     expect(snapshot.state?.selectedModel).toBe(compositeKey);
-    expect(snapshot.state?.modelsByProvider.openrouter).toBe('gpt-4o-mini');
+    expect(snapshot.state?.modelsByProvider.openrouter).toBe('openai/gpt-5.2');
     // Only models with default: true are enabled by default, not all PROVIDER_MODELS
-    expect(snapshot.state?.enabledModelsByProvider.openrouter).toContain('gpt-4o-mini');
+    expect(snapshot.state?.enabledModelsByProvider.openrouter).toContain('openai/gpt-5.2');
 
     persistApi.clearStorage?.();
     const afterClear = storage.getItem(options.name)!;

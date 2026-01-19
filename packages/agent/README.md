@@ -62,7 +62,7 @@ const messages = convertAssistantUiMessages([
 
 // Stream agent responses
 const stream = await streamMastraAgent(messages, {
-  model: 'gpt-4o-mini',
+  model: 'gpt-5.2',
   runtime: {
     apiKey: process.env.OPENAI_API_KEY,
     provider: 'openai'
@@ -417,7 +417,7 @@ export async function POST(request: Request) {
   const { messages } = await request.json();
 
   const stream = await streamMastraAgent(messages, {
-    model: 'gpt-4o-mini',
+    model: 'gpt-5.2',
     runtime: { apiKey: process.env.OPENAI_API_KEY }
   });
 
