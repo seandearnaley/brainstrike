@@ -113,6 +113,11 @@ interface UseFileExplorerReturn {
    * while waiting for browser permission dialog.
    */
   setAccessLoading: (loading: boolean) => void;
+  /**
+   * Whether files can be loaded without a file tree (Electron with readFileByPath).
+   * When true, tab content loading can proceed even before the tree is loaded.
+   */
+  canLoadWithoutTree: boolean;
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -200,6 +205,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     error: contentError,
     loadingFiles: contentLoadingFiles,
     handleFileContentLoading,
+    canLoadWithoutTree,
   } = useSharedFileContentLoading(fileTree);
 
   const { applyFileFilters: applyFiltersUtil, filterError: localFilterError } = useFileFilters();
@@ -524,5 +530,6 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     isRestoringExpandedPaths,
     restorationProgress,
     setAccessLoading,
+    canLoadWithoutTree,
   };
 }

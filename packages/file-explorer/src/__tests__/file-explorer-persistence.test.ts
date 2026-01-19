@@ -132,6 +132,8 @@ describe('file-explorer-persistence', () => {
         folderStates: {
           'folder-123': {
             ...testDefaultFolderState, // Use defined default folder state
+            // Note: These will be overwritten by top-level state during serialization
+            // because folder-123 is the current folder
             selectedFilePaths: new Set(['file1', 'file2']),
             expandedDirectoryPaths: new Set(['dir1', 'dir2']),
             lastAccessed: 1_234_567_890, // Override specific test values
@@ -153,9 +155,11 @@ describe('file-explorer-persistence', () => {
       expect(result.expandedDirectoryPaths).toEqual(
         expect.arrayContaining(['dir-global', 'dir-another'])
       );
+      // During serialization, current folder's state is synced from top-level state
+      // to ensure selections are preserved when app closes without switching folders
       expect(Array.isArray(result.folderStates['folder-123']?.selectedFilePaths)).toBe(true);
       expect(result.folderStates['folder-123']?.selectedFilePaths).toEqual(
-        expect.arrayContaining(['file1', 'file2'])
+        expect.arrayContaining(['file-global', 'file-another'])
       );
     });
 
@@ -346,6 +350,9 @@ describe('file-explorer-persistence', () => {
     });
 
     it('should round-trip state via partialize and merge', () => {
+      // Note: During serialization, the current folder's state is synced from top-level state.
+      // This ensures that when the app closes without switching folders, the current folder's
+      // selections are preserved. The top-level state is always the "working copy".
       const state: FileExplorerState = {
         ...(DEFAULT_STATE as FileExplorerState),
         currentFolderId: 'rt-folder',
@@ -354,6 +361,7 @@ describe('file-explorer-persistence', () => {
         folderStates: {
           'rt-folder': {
             ...testDefaultFolderState,
+            // These will be overwritten by top-level state during serialization
             selectedFilePaths: new Set(['fs1']),
             expandedDirectoryPaths: new Set(['fd1']),
             lastActiveTab: 'files',
@@ -369,12 +377,14 @@ describe('file-explorer-persistence', () => {
       expect(Array.from(merged.selectedFilePaths)).toEqual(['s1', 's2']);
       expect(Array.from(merged.expandedDirectoryPaths)).toEqual(['d1']);
       expect(merged.folderStates['rt-folder']).toBeDefined();
+      // After serialization, the current folder's state is synced from top-level
       expect(Array.from(merged.folderStates['rt-folder']?.selectedFilePaths ?? new Set())).toEqual([
-        'fs1',
+        's1',
+        's2',
       ]);
       expect(
         Array.from(merged.folderStates['rt-folder']?.expandedDirectoryPaths ?? new Set())
-      ).toEqual(['fd1']);
+      ).toEqual(['d1']);
     });
 
     it('should retain folder states present only in the current state', () => {

@@ -33,6 +33,11 @@ export interface ElectronFileSystemAPI {
   requestDirectoryAccess: () => Promise<DirectoryHandle>;
   readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
   readFile: (handle: FileHandle) => Promise<string>;
+  /**
+   * Read a file directly by its absolute path.
+   * Useful for loading persisted file tabs before the file tree is available.
+   */
+  readFileByPath: (absolutePath: string) => Promise<string>;
   exists: (path: string) => Promise<boolean>;
   restoreLastFolder: () => Promise<DirectoryHandle | null>;
   saveLastFolder: (folderPath: string) => Promise<void>;

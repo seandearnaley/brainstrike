@@ -27,6 +27,9 @@ const createQueueStub = (): QueueAdapter => {
     pause: vi.fn(),
     resume: vi.fn(),
     drain: vi.fn(async () => {}),
+    cancel: vi.fn(),
+    isPaused: false,
+    isProcessing: false,
   };
 };
 
@@ -137,6 +140,33 @@ vi.mock('../../../renderer/components/home-page-content', () => ({
 
 vi.mock('../../../renderer/components/settings/page-content', () => ({
   default: () => <div data-testid="settings-page-content">Settings Page Content</div>,
+}));
+
+// Mock vector-management to avoid transitive dependencies
+vi.mock('@brainstrike/vector-management', () => ({
+  EmbeddingJobQueueTracker: () => <div data-testid="embedding-job-queue-tracker" />,
+}));
+
+// Mock embeddings to avoid worker initialization
+vi.mock('@brainstrike/embeddings', () => ({
+  startEmbeddingWorker: vi.fn(async () => ({ stop: vi.fn(async () => {}) })),
+}));
+
+// Mock preferences to avoid store initialization
+vi.mock('@brainstrike/preferences', () => ({
+  useModelRegistryStore: {
+    getState: vi.fn(() => ({
+      setDownloadProgress: vi.fn(),
+      setDownloading: vi.fn(),
+    })),
+  },
+}));
+
+// Mock the EmbeddingWorkerProvider to avoid async initialization
+vi.mock('../../../renderer/components/embedding-worker-provider', () => ({
+  EmbeddingWorkerProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="embedding-worker-provider">{children}</div>
+  ),
 }));
 
 describe('RootLayoutContent', () => {

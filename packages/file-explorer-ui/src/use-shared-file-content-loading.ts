@@ -82,14 +82,27 @@ function shouldLoadFile(
   loadingPathsRef: React.MutableRefObject<Set<string>>,
   fileContents: Record<string, string>,
   folderId: string,
-  fileTree: IFileNode[]
+  fileTree: IFileNode[],
+  canLoadWithoutTree: boolean
 ): boolean {
-  return !!(
-    folderId &&
-    fileTree.length &&
-    !loadingPathsRef.current.has(compositeKey) &&
-    !(compositeKey in fileContents)
-  );
+  // On Electron (canLoadWithoutTree), we can load without the tree
+  const hasTreeOrCanSkip = canLoadWithoutTree || fileTree.length > 0;
+  const alreadyLoading = loadingPathsRef.current.has(compositeKey);
+  const alreadyLoaded = compositeKey in fileContents;
+  const shouldLoad = !!(folderId && hasTreeOrCanSkip && !alreadyLoading && !alreadyLoaded);
+
+  logger.info('shouldLoadFile check', {
+    compositeKey,
+    folderId,
+    canLoadWithoutTree,
+    treeLength: fileTree.length,
+    hasTreeOrCanSkip,
+    alreadyLoading,
+    alreadyLoaded,
+    shouldLoad,
+  });
+
+  return shouldLoad;
 }
 
 // File node retrieval with retry logic
@@ -128,6 +141,22 @@ function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
     getHandleCache?: () => CachedHandleLookup;
   };
   return adapterWithCache.getHandleCache?.() ?? null;
+}
+
+/**
+ * Check if the adapter supports reading files directly by path.
+ * This is available on Electron where we have direct file system access.
+ */
+function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
+  const adapter = fileSystemAdapter as { readFileByPath?: unknown; platform?: string };
+  const hasReadByPath = typeof adapter.readFileByPath === 'function';
+  logger.info('supportsDirectPathRead check', {
+    hasReadByPath,
+    platform: adapter.platform,
+    adapterType: typeof fileSystemAdapter,
+    readFileByPathType: typeof adapter.readFileByPath,
+  });
+  return hasReadByPath;
 }
 
 function markFileLoading(
@@ -197,6 +226,7 @@ async function handleMissingFileNode(args: {
   setFileContent: (key: string, content: string) => void;
   loadingPathsRef: React.MutableRefObject<Set<string>>;
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
+  fileSystemAdapter: unknown;
 }): Promise<FileReadRequest | null> {
   const {
     fileTree,
@@ -208,7 +238,16 @@ async function handleMissingFileNode(args: {
     setFileContent,
     loadingPathsRef,
     setLoadingFiles,
+    fileSystemAdapter,
   } = args;
+
+  // On platforms with direct file access (Electron), we can read by path without a tree handle
+  if (supportsDirectPathRead(fileSystemAdapter)) {
+    logger.debug('Using direct path read for file not in tree', { path, folderId });
+    markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
+    // Return request without handle - worker will use readFileByPath
+    return { compositeKey, path };
+  }
 
   const cachedRequest = await buildCachedFileRequest({
     handleCache,
@@ -302,12 +341,22 @@ async function prepareFileReadRequest(
   store: ReturnType<typeof useFileExplorerStoreContext>,
   nodeCacheRef: React.MutableRefObject<Map<string, Map<string, IFileNode>>>,
   loadingPathsRef: React.MutableRefObject<Set<string>>,
-  setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>
+  setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>,
+  canLoadWithoutTree: boolean
 ): Promise<FileReadRequest | null> {
   const { setFileContent, fileContents } = store.getState();
   const { folderId, path } = decodeFileSelection(compositeKey);
 
-  if (!shouldLoadFile(compositeKey, loadingPathsRef, fileContents, folderId, fileTree)) {
+  if (
+    !shouldLoadFile(
+      compositeKey,
+      loadingPathsRef,
+      fileContents,
+      folderId,
+      fileTree,
+      canLoadWithoutTree
+    )
+  ) {
     return null;
   }
 
@@ -325,6 +374,7 @@ async function prepareFileReadRequest(
       setFileContent,
       loadingPathsRef,
       setLoadingFiles,
+      fileSystemAdapter,
     });
   }
 
@@ -409,6 +459,9 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     };
   }, [fileSystemAdapter]);
 
+  // Check if the adapter supports direct path reading (Electron)
+  const canLoadWithoutTree = supportsDirectPathRead(fileSystemAdapter);
+
   // Prepare a single file for reading - uses ref to get current tree
   const prepareFileRead = useCallback(
     async (compositeKey: string): Promise<FileReadRequest | null> =>
@@ -419,9 +472,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         store,
         nodeCacheRef,
         loadingPathsRef,
-        setLoadingFiles
+        setLoadingFiles,
+        canLoadWithoutTree
       ),
-    [fileSystemAdapter, store] // fileTree removed - using ref instead
+    [fileSystemAdapter, store, canLoadWithoutTree] // fileTree removed - using ref instead
   );
 
   const handleFileContentLoading = useCallback(
@@ -488,5 +542,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     error,
     loadingFiles,
     handleFileContentLoading,
+    /** True if files can be loaded without a file tree (Electron with readFileByPath) */
+    canLoadWithoutTree,
   };
 }

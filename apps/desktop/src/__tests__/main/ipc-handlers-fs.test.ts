@@ -47,6 +47,7 @@ describe('ipc-handlers filesystem endpoints', () => {
       ),
       readDirectory: vi.fn(async () => []),
       readFile: vi.fn(async () => 'ok'),
+      readFileByPath: vi.fn(async () => 'file content by path'),
       exists: vi.fn(async () => true),
       watchDirectory: vi.fn(),
     } as unknown as ElectronFileSystemAdapter;
@@ -197,5 +198,47 @@ describe('ipc-handlers filesystem endpoints', () => {
     const ok = await handler?.({} as unknown as IpcMainInvokeEvent, '/users/test/docs');
     expect(ok).toBe(true);
     expect(fsAdapter.exists).toHaveBeenCalledWith('/users/test/docs');
+  });
+
+  // BST-307: Tests for fs:readFileByPath endpoint
+  describe('fs:readFileByPath', () => {
+    it('returns canned content for mock paths', async () => {
+      const handler = handlers.get('fs:readFileByPath');
+      const content = await handler?.({} as unknown as IpcMainInvokeEvent, '/mock/test/file.txt');
+      expect(String(content)).toContain('Mock file content for testing');
+      expect(fsAdapter.readFileByPath).not.toHaveBeenCalled();
+    });
+
+    it('proxies to adapter for normal paths', async () => {
+      const handler = handlers.get('fs:readFileByPath');
+      const content = await handler?.({} as unknown as IpcMainInvokeEvent, '/users/test/file.txt');
+      expect(content).toBe('file content by path');
+      expect(fsAdapter.readFileByPath).toHaveBeenCalledWith('/users/test/file.txt');
+    });
+
+    it('rejects null bytes in path', async () => {
+      const handler = handlers.get('fs:readFileByPath');
+      await expect(
+        handler?.({} as unknown as IpcMainInvokeEvent, '/tmp/\0malicious.txt')
+      ).rejects.toThrow('Invalid path');
+      expect(fsAdapter.readFileByPath).not.toHaveBeenCalled();
+    });
+
+    it('rejects excessive traversal in path', async () => {
+      const handler = handlers.get('fs:readFileByPath');
+      const pathWithTraversal = `${'../../'.repeat(11)}secret.txt`;
+      await expect(
+        handler?.({} as unknown as IpcMainInvokeEvent, pathWithTraversal)
+      ).rejects.toThrow('Invalid path');
+      expect(fsAdapter.readFileByPath).not.toHaveBeenCalled();
+    });
+
+    it('rejects sensitive directories on Unix', async () => {
+      const handler = handlers.get('fs:readFileByPath');
+      await expect(handler?.({} as unknown as IpcMainInvokeEvent, '/etc/passwd')).rejects.toThrow(
+        'Invalid path'
+      );
+      expect(fsAdapter.readFileByPath).not.toHaveBeenCalled();
+    });
   });
 });

@@ -30,6 +30,14 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
     return requireElectronAPI().fileSystem.readFile(handle);
   }
 
+  /**
+   * Read a file directly by its absolute path.
+   * BST-307: Enables loading persisted file tabs before the file tree is available.
+   */
+  async readFileByPath(absolutePath: string): Promise<string> {
+    return requireElectronAPI().fileSystem.readFileByPath(absolutePath);
+  }
+
   async exists(path: string): Promise<boolean> {
     return requireElectronAPI().fileSystem.exists(path);
   }

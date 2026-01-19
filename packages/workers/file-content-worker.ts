@@ -10,7 +10,8 @@ import {
 
 export interface FileReadRequest {
   compositeKey: string;
-  handle: FileHandle;
+  /** File handle - optional if readFileByPath is available on the adapter */
+  handle?: FileHandle;
   path: string;
 }
 
@@ -79,7 +80,14 @@ export function createFileContentWorker({
   async function processRequest(req: FileReadRequest): Promise<{ key: string; content: string }> {
     let content: string;
     try {
-      content = await fileSystemAdapter.readFile(req.handle);
+      // Prefer readFileByPath when available (Electron) - allows reading without a tree handle
+      if (fileSystemAdapter.readFileByPath) {
+        content = await fileSystemAdapter.readFileByPath(req.path);
+      } else if (req.handle) {
+        content = await fileSystemAdapter.readFile(req.handle);
+      } else {
+        throw new Error('No handle available and readFileByPath not supported');
+      }
     } catch (error) {
       logger.warn('Failed to read file content via adapter', { error, path: req.path });
       throw new FileContentError('Error accessing file', req.path, 'LOADING_ERROR');

@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     requestDirectoryAccess: () => ipcRenderer.invoke('fs:requestDirectoryAccess'),
     readDirectory: (handle: DirectoryHandle) => ipcRenderer.invoke('fs:readDirectory', handle),
     readFile: (handle: FileHandle) => ipcRenderer.invoke('fs:readFile', handle),
+    readFileByPath: (absolutePath: string) => ipcRenderer.invoke('fs:readFileByPath', absolutePath),
     exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
     restoreLastFolder: () => ipcRenderer.invoke('fs:restoreLastFolder'),
     saveLastFolder: (folderPath: string) => ipcRenderer.invoke('fs:saveLastFolder', folderPath),

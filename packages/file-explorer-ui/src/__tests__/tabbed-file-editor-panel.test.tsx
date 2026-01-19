@@ -8,9 +8,11 @@ import { FileExplorerTestWrapper } from './test-helpers';
 // Mock the useFileExplorer hook
 vi.mock('../use-file-explorer-context', () => ({
   useFileExplorer: vi.fn(() => ({
+    fileTree: [],
     fileContents: {},
     loadingFiles: new Set<string>(),
     loadFileContent: vi.fn(),
+    canLoadWithoutTree: false,
   })),
 }));
 
@@ -161,6 +163,7 @@ describe('TabbedFileEditorPanel', () => {
       cancelChildLoading: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
     });
 
     const tabModule0 = await import('../hooks/use-tab-manager');
@@ -259,6 +262,7 @@ describe('TabbedFileEditorPanel', () => {
       cancelChildLoading: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
     });
 
     render(
@@ -351,6 +355,7 @@ describe('TabbedFileEditorPanel', () => {
       cancelChildLoading: vi.fn(),
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
     });
 
     render(
