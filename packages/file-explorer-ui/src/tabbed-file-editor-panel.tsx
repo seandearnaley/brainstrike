@@ -1,7 +1,7 @@
 import { useTabFileRestoration } from '@brainstrike/file-explorer-hooks';
 import { useIdeFileEditor } from '@brainstrike/ui';
 import { createLogger, decodeFileSelection } from '@brainstrike/utils';
-import { memo, useCallback, useEffect, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 
 const logger = createLogger('TabbedFileEditorPanel');
 
@@ -36,6 +36,9 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
       }
     );
 
+    // Track in-progress permission requests to prevent race conditions from double-clicks
+    const permissionRequestsInProgressRef = useRef<Set<string>>(new Set());
+
     // Handle tab click - also handles permission requests for tabs needing restoration
     const handleTabClick = useCallback(
       async (tabId: string) => {
@@ -48,6 +51,13 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
         const status = tabStatuses.get(tab.compositeKey);
         // If tab needs permission, request it first (must be from user click)
         if (status?.status === 'needs-permission') {
+          // Prevent duplicate permission requests (race condition from double-clicks)
+          if (permissionRequestsInProgressRef.current.has(tab.compositeKey)) {
+            setActiveTab(tabId);
+            return;
+          }
+
+          permissionRequestsInProgressRef.current.add(tab.compositeKey);
           try {
             const granted = await requestTabPermission(tab.compositeKey);
             if (granted) {
@@ -61,6 +71,8 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
               error: err instanceof Error ? err.message : String(err),
             });
             // Still select the tab to show the current status
+          } finally {
+            permissionRequestsInProgressRef.current.delete(tab.compositeKey);
           }
         }
 

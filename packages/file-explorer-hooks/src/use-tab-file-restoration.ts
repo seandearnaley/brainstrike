@@ -31,16 +31,64 @@ const RESTORATION_DELAY_MS = 300;
 /** Maximum concurrent file existence checks for Electron (prevents filesystem overload) */
 const ELECTRON_RESTORE_CONCURRENCY = 10;
 
+/** Circuit breaker state for tracking failures */
+interface CircuitBreakerState {
+  failures: number;
+  isOpen: boolean;
+  lastFailureTime: number;
+}
+
+/** Circuit breaker configuration */
+const CIRCUIT_BREAKER_THRESHOLD = 5; // Number of failures before opening
+const CIRCUIT_BREAKER_RESET_MS = 30_000; // Time before attempting to close circuit
+
 /**
- * Simple concurrency limiter for parallel async operations.
- * Limits concurrent executions to prevent overwhelming the filesystem.
+ * Concurrency limiter with circuit breaker pattern.
+ * Limits concurrent executions to prevent overwhelming the filesystem
+ * and stops processing entirely if too many failures occur.
  */
 function createConcurrencyLimiter(maxConcurrent: number) {
   let running = 0;
   const queue: Array<() => void> = [];
+  const circuitBreaker: CircuitBreakerState = {
+    failures: 0,
+    isOpen: false,
+    lastFailureTime: 0,
+  };
+
+  const checkCircuitBreaker = (): boolean => {
+    if (!circuitBreaker.isOpen) {
+      return false;
+    }
+    // Check if enough time has passed to try again (half-open state)
+    const timeSinceFailure = Date.now() - circuitBreaker.lastFailureTime;
+    if (timeSinceFailure >= CIRCUIT_BREAKER_RESET_MS) {
+      // Allow one request through to test if system is healthy
+      circuitBreaker.isOpen = false;
+      circuitBreaker.failures = 0;
+      return false;
+    }
+    return true;
+  };
+
+  const recordSuccess = () => {
+    // Reset failure count on success
+    circuitBreaker.failures = 0;
+  };
+
+  const recordFailure = () => {
+    circuitBreaker.failures++;
+    circuitBreaker.lastFailureTime = Date.now();
+    if (circuitBreaker.failures >= CIRCUIT_BREAKER_THRESHOLD) {
+      circuitBreaker.isOpen = true;
+      logger.warn('Circuit breaker opened due to repeated failures', {
+        failures: circuitBreaker.failures,
+      });
+    }
+  };
 
   const tryRun = () => {
-    while (running < maxConcurrent && queue.length > 0) {
+    while (running < maxConcurrent && queue.length > 0 && !checkCircuitBreaker()) {
       running++;
       const next = queue.shift();
       next?.();
@@ -48,11 +96,22 @@ function createConcurrencyLimiter(maxConcurrent: number) {
   };
 
   return async <T>(fn: () => Promise<T>): Promise<T> => {
+    // Fast-fail if circuit is open
+    if (checkCircuitBreaker()) {
+      return Promise.reject(new Error('Circuit breaker is open - too many failures'));
+    }
+
     return new Promise((resolve, reject) => {
       const run = () => {
         fn()
-          .then(resolve)
-          .catch(reject)
+          .then((result) => {
+            recordSuccess();
+            resolve(result);
+          })
+          .catch((error: unknown) => {
+            recordFailure();
+            reject(error);
+          })
           .finally(() => {
             running--;
             tryRun();
@@ -66,16 +125,24 @@ function createConcurrencyLimiter(maxConcurrent: number) {
 }
 
 /**
- * Check if a relative path is safe (no path traversal).
- * Returns false if the path contains '..' segments that could escape the root
- * or if it's an absolute path.
+ * Check if a relative path is safe (no path traversal or malicious content).
+ * Returns false if the path:
+ * - Contains null bytes (potential injection attack)
+ * - Is an absolute path (starting with / or drive letter)
+ * - Contains '..' segments that could escape the root
  *
  * Security measures:
- * 1. Rejects absolute paths (starting with / or drive letter)
- * 2. Rejects paths that escape root at any point during traversal
- * 3. Rejects paths that start with '..' after normalization
+ * 1. Rejects paths with null bytes (injection prevention)
+ * 2. Rejects absolute paths (starting with / or drive letter)
+ * 3. Rejects paths that escape root at any point during traversal
+ * 4. Rejects paths that start with '..' after normalization
  */
 function isPathSafe(relativePath: string): boolean {
+  // Reject paths with null bytes (injection prevention)
+  if (relativePath.includes('\0')) {
+    return false;
+  }
+
   // Reject absolute paths (Unix-style or Windows-style)
   if (/^[/\\]/.test(relativePath) || /^[a-zA-Z]:/.test(relativePath)) {
     return false;
@@ -106,6 +173,48 @@ function isPathSafe(relativePath: string): boolean {
   }
 
   return true;
+}
+
+/**
+ * Safely join a root path with a relative path.
+ * Normalizes path separators and removes redundant segments.
+ * Works in both browser and Node.js environments.
+ *
+ * @param rootPath - The root/base path (e.g., folder path)
+ * @param relativePath - The relative path to append
+ * @returns Normalized joined path, or null if the result escapes the root
+ */
+function safeJoinPath(rootPath: string, relativePath: string): string | null {
+  // Pre-validate the relative path
+  if (!isPathSafe(relativePath)) {
+    return null;
+  }
+
+  // Normalize separators to forward slashes for consistency
+  const normalizedRoot = rootPath.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalizedRelative = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
+
+  // Join with single separator
+  const joined = `${normalizedRoot}/${normalizedRelative}`;
+
+  // Normalize: collapse multiple slashes and resolve . segments
+  const segments = joined.split('/').filter((s) => s !== '' && s !== '.');
+
+  // Final validation: ensure no '..' segments remain (should have been caught by isPathSafe)
+  if (segments.some((s) => s === '..')) {
+    return null;
+  }
+
+  // Reconstruct the path
+  const result = segments.join('/');
+
+  // Verify the result still starts with the normalized root
+  // This catches edge cases where the relative path might escape via encoding tricks
+  if (!result.startsWith(normalizedRoot.replace(/\/+$/, ''))) {
+    return null;
+  }
+
+  return result;
 }
 
 /** Status information for a tab's file handle */
@@ -149,9 +258,33 @@ interface WebAdapterWithCache {
   getHandleCache?: () => FileHandleCache;
 }
 
+/**
+ * Type guard to check if an adapter has the getHandleCache method.
+ * Uses proper runtime checks with unknown intermediate type.
+ */
+function hasGetHandleCache(adapter: unknown): adapter is WebAdapterWithCache {
+  if (typeof adapter !== 'object' || adapter === null) {
+    return false;
+  }
+  const candidate = adapter as Record<string, unknown>;
+  return typeof candidate['getHandleCache'] === 'function';
+}
+
 /** Shape of file system adapter with exists method (Electron) */
 interface AdapterWithExists {
-  exists?: (path: string) => Promise<boolean>;
+  exists: (path: string) => Promise<boolean>;
+}
+
+/**
+ * Type guard to check if an adapter has the exists method.
+ * Uses proper runtime checks with unknown intermediate type.
+ */
+function hasExistsMethod(adapter: unknown): adapter is AdapterWithExists {
+  if (typeof adapter !== 'object' || adapter === null) {
+    return false;
+  }
+  const candidate = adapter as Record<string, unknown>;
+  return typeof candidate['exists'] === 'function';
 }
 
 /** Result of Electron tab restoration */
@@ -190,23 +323,27 @@ async function restoreElectronTabs(
             return;
           }
 
-          // Security: Validate path doesn't contain traversal sequences
-          if (!isPathSafe(relativePath)) {
-            logger.warn('restoreElectronTabs: path traversal detected', { relativePath });
+          // On Electron, folderId is typically the root folder path
+          // Construct full path safely with proper validation
+          const fullPath = safeJoinPath(folderId, relativePath);
+
+          if (fullPath === null) {
+            // Path validation failed (traversal attempt, null bytes, etc.)
+            // Log without exposing the raw path in production
+            logger.warn('restoreElectronTabs: path validation failed', {
+              folderId: folderId.slice(0, 50), // Truncate for safety
+              pathLength: relativePath.length,
+            });
             notFound.push({
               compositeKey: tab.compositeKey,
-              error: 'Invalid path: traversal not allowed',
+              error: 'Invalid path',
             });
             onTabNotFound?.(tab.tabId);
             return;
           }
 
-          // On Electron, folderId is typically the root folder path
-          // Construct full path: rootPath + relativePath
-          const fullPath = `${folderId}/${relativePath}`;
-
           // Check if file exists using the adapter
-          const exists = adapter.exists ? await adapter.exists(fullPath) : false;
+          const exists = await adapter.exists(fullPath);
 
           if (exists) {
             restored.push({ compositeKey: tab.compositeKey });
@@ -309,20 +446,21 @@ export function useTabFileRestoration(
     if (platform !== 'web') {
       return null;
     }
-    const adapter = fileSystemAdapter as WebAdapterWithCache | null;
-    return adapter?.getHandleCache?.() ?? null;
+    if (!hasGetHandleCache(fileSystemAdapter)) {
+      return null;
+    }
+    return fileSystemAdapter.getHandleCache?.() ?? null;
   }, [fileSystemAdapter, platform]);
 
   // Handle Electron restoration
   const restoreElectronTabsWithStatus = useCallback(
     async (newTabs: Array<{ tabId: string; compositeKey: string }>) => {
-      const adapter = fileSystemAdapter as AdapterWithExists | null;
-      if (!adapter?.exists) {
+      if (!hasExistsMethod(fileSystemAdapter)) {
         logger.warn('Electron adapter missing exists method');
         return;
       }
 
-      const result = await restoreElectronTabs(newTabs, adapter, onTabNotFound);
+      const result = await restoreElectronTabs(newTabs, fileSystemAdapter, onTabNotFound);
       setTabStatuses((prev) => updateStatusesFromElectronResult(prev, result));
 
       logger.info('Tab restoration completed (Electron)', {
@@ -565,13 +703,16 @@ export function useTabFileRestoration(
         return null;
       }
 
+      // Exhaustive switch for all TabRestoreStatus values
       switch (status.status) {
         case 'needs-permission':
           return 'Click to restore access';
         case 'not-found':
-          return status.error || 'File no longer available';
-        default:
+          return status.error ?? 'File no longer available';
+        case 'restored':
           return null;
+        case 'pending':
+          return 'Restoring...';
       }
     },
     [tabStatuses]
