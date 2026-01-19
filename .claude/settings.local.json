@@ -250,7 +250,8 @@
       "mcp__chrome-devtools__list_pages",
       "Bash(git diff:*)",
       "Skill(superpowers:systematic-debugging)",
-      "Skill(superpowers:systematic-debugging:*)"
+      "Skill(superpowers:systematic-debugging:*)",
+      "Bash(gh run watch:*)"
     ],
     "deny": [],
     "ask": []
