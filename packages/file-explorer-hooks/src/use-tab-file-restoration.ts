@@ -418,11 +418,12 @@ function storeHandleIfPresent(
 /**
  * Hook to manage file handle restoration for editor tabs.
  *
- * @param tabs - Current tabs from the tab manager store
+ * @param tabs - Current tabs from the tab manager store. Tabs with isLoading=true are
+ *               actively being opened and should not trigger restoration attempts.
  * @param onTabNotFound - Callback when a tab's file can't be restored (for cleanup)
  */
 export function useTabFileRestoration(
-  tabs: Array<{ id: string; compositeKey: string }>,
+  tabs: Array<{ id: string; compositeKey: string; isLoading?: boolean }>,
   onTabNotFound?: (tabId: string) => void
 ): UseTabFileRestorationReturn {
   const { fileSystemAdapter } = useAdapters();
@@ -591,7 +592,11 @@ export function useTabFileRestoration(
     }
 
     // Check if any tabs need restoration
-    const tabsNeedingRestore = tabs.filter((tab) => !restoredTabsRef.current.has(tab.compositeKey));
+    // Filter out tabs that are currently loading (newly opened tabs, not persisted ones)
+    // Only tabs with isLoading=false need restoration (they came from localStorage hydration)
+    const tabsNeedingRestore = tabs.filter(
+      (tab) => !(restoredTabsRef.current.has(tab.compositeKey) || tab.isLoading)
+    );
 
     if (tabsNeedingRestore.length === 0) {
       return;
