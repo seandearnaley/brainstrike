@@ -9,6 +9,7 @@
  * - Tracks restoration status per-tab for UI display
  * - Provides function to request permission for tabs that need it
  * - Cleans up stale tab entries when files no longer exist
+ * - Platform-aware: Works differently on web (IndexedDB handles) vs desktop (direct file paths)
  */
 
 import {
@@ -17,7 +18,8 @@ import {
   restoreAllTabFileHandles,
   type TabRestoreStatus,
 } from '@brainstrike/file-explorer';
-import { createLogger } from '@brainstrike/utils';
+import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
+import { createLogger, decodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
 
@@ -67,6 +69,97 @@ interface WebAdapterWithCache {
   getHandleCache?: () => FileHandleCache;
 }
 
+/** Shape of file system adapter with exists method (Electron) */
+interface AdapterWithExists {
+  exists?: (path: string) => Promise<boolean>;
+}
+
+/** Result of Electron tab restoration */
+interface ElectronRestoreResult {
+  restored: Array<{ compositeKey: string }>;
+  notFound: Array<{ compositeKey: string; error: string }>;
+}
+
+/**
+ * Restore tabs on Electron by checking if files exist directly.
+ * No permission handling needed - Electron has full file system access.
+ */
+async function restoreElectronTabs(
+  tabsToRestore: Array<{ tabId: string; compositeKey: string }>,
+  adapter: AdapterWithExists,
+  onTabNotFound?: (tabId: string) => void
+): Promise<ElectronRestoreResult> {
+  const restored: Array<{ compositeKey: string }> = [];
+  const notFound: Array<{ compositeKey: string; error: string }> = [];
+
+  // Process tabs in parallel
+  await Promise.all(
+    tabsToRestore.map(async (tab) => {
+      try {
+        // Decode the composite key to get folder ID (which is the root path on Electron) and relative path
+        const { folderId, path: relativePath } = decodeFileSelection(tab.compositeKey);
+
+        if (!(folderId && relativePath)) {
+          notFound.push({ compositeKey: tab.compositeKey, error: 'Invalid composite key' });
+          onTabNotFound?.(tab.tabId);
+          return;
+        }
+
+        // On Electron, folderId is typically the root folder path
+        // Construct full path: rootPath + relativePath
+        const fullPath = `${folderId}/${relativePath}`;
+
+        // Check if file exists using the adapter
+        const exists = adapter.exists ? await adapter.exists(fullPath) : false;
+
+        if (exists) {
+          restored.push({ compositeKey: tab.compositeKey });
+        } else {
+          notFound.push({ compositeKey: tab.compositeKey, error: 'File no longer exists' });
+          onTabNotFound?.(tab.tabId);
+        }
+      } catch (err) {
+        notFound.push({
+          compositeKey: tab.compositeKey,
+          error: err instanceof Error ? err.message : 'Unknown error',
+        });
+        onTabNotFound?.(tab.tabId);
+      }
+    })
+  );
+
+  return { restored, notFound };
+}
+
+/** Update tab statuses from Electron restoration result */
+function updateStatusesFromElectronResult(
+  prev: Map<string, TabFileStatus>,
+  result: ElectronRestoreResult
+): Map<string, TabFileStatus> {
+  const next = new Map(prev);
+
+  for (const info of result.restored) {
+    next.set(info.compositeKey, createTabFileStatus(info.compositeKey, 'restored'));
+  }
+
+  for (const info of result.notFound) {
+    next.set(info.compositeKey, createTabFileStatus(info.compositeKey, 'not-found', info.error));
+  }
+
+  return next;
+}
+
+/** Store handle in ref map if present */
+function storeHandleIfPresent(
+  handlesRef: React.RefObject<Map<string, FileSystemFileHandle>>,
+  compositeKey: string,
+  handle: FileSystemFileHandle | null
+): void {
+  if (handle && handlesRef.current) {
+    handlesRef.current.set(compositeKey, handle);
+  }
+}
+
 /**
  * Hook to manage file handle restoration for editor tabs.
  *
@@ -83,19 +176,102 @@ export function useTabFileRestoration(
 
   // Track which tabs we've already attempted to restore
   const restoredTabsRef = useRef<Set<string>>(new Set());
-  // Track handles for permission requests
+  // Track handles for permission requests (web platform only)
   const handlesRef = useRef<Map<string, FileSystemFileHandle>>(new Map());
+
+  // Detect platform once
+  const platform = useMemo<Platform>(() => detectPlatform(), []);
 
   // Get handle cache from adapter (web platform only)
   const handleCache = useMemo(() => {
+    if (platform !== 'web') {
+      return null;
+    }
     const adapter = fileSystemAdapter as WebAdapterWithCache | null;
     return adapter?.getHandleCache?.() ?? null;
-  }, [fileSystemAdapter]);
+  }, [fileSystemAdapter, platform]);
+
+  // Handle Electron restoration
+  const restoreElectronTabsWithStatus = useCallback(
+    async (newTabs: Array<{ tabId: string; compositeKey: string }>) => {
+      const adapter = fileSystemAdapter as AdapterWithExists | null;
+      if (!adapter?.exists) {
+        logger.warn('Electron adapter missing exists method');
+        return;
+      }
+
+      const result = await restoreElectronTabs(newTabs, adapter, onTabNotFound);
+      setTabStatuses((prev) => updateStatusesFromElectronResult(prev, result));
+
+      logger.info('Tab restoration completed (Electron)', {
+        restored: result.restored.length,
+        notFound: result.notFound.length,
+      });
+    },
+    [fileSystemAdapter, onTabNotFound]
+  );
+
+  // Handle Web restoration
+  const restoreWebTabsWithStatus = useCallback(
+    async (newTabs: Array<{ tabId: string; compositeKey: string }>) => {
+      if (!handleCache) {
+        logger.warn('Web platform but no handle cache available');
+        return;
+      }
+
+      const result = await restoreAllTabFileHandles(
+        newTabs.map((t) => ({ tabId: t.tabId, compositeKey: t.compositeKey })),
+        handleCache
+      );
+
+      // Notify for tabs whose files weren't found
+      for (const info of result.notFound) {
+        const tab = newTabs.find((t) => t.compositeKey === info.compositeKey);
+        if (tab && onTabNotFound) {
+          onTabNotFound(tab.tabId);
+        }
+      }
+
+      // Update statuses map
+      setTabStatuses((prev) => {
+        const next = new Map(prev);
+
+        for (const info of result.restored) {
+          next.set(info.compositeKey, createTabFileStatus(info.compositeKey, 'restored'));
+          storeHandleIfPresent(handlesRef, info.compositeKey, info.handle);
+        }
+
+        for (const info of result.needsPermission) {
+          next.set(
+            info.compositeKey,
+            createTabFileStatus(info.compositeKey, 'needs-permission', info.error)
+          );
+          storeHandleIfPresent(handlesRef, info.compositeKey, info.handle);
+        }
+
+        for (const info of result.notFound) {
+          next.set(
+            info.compositeKey,
+            createTabFileStatus(info.compositeKey, 'not-found', info.error)
+          );
+        }
+
+        return next;
+      });
+
+      logger.info('Tab restoration completed (Web)', {
+        restored: result.restored.length,
+        needsPermission: result.needsPermission.length,
+        notFound: result.notFound.length,
+      });
+    },
+    [handleCache, onTabNotFound]
+  );
 
   // Restore tabs that haven't been attempted yet
   const restoreTabs = useCallback(
     async (tabsToRestore: Array<{ tabId: string; compositeKey: string }>) => {
-      if (!handleCache || tabsToRestore.length === 0) {
+      if (tabsToRestore.length === 0) {
         return;
       }
 
@@ -114,58 +290,12 @@ export function useTabFileRestoration(
           restoredTabsRef.current.add(tab.compositeKey);
         }
 
-        const result = await restoreAllTabFileHandles(
-          newTabs.map((t) => ({ tabId: t.tabId, compositeKey: t.compositeKey })),
-          handleCache
-        );
-
-        // Store handles from restoration results
-        const storeHandle = (compositeKey: string, handle: FileSystemFileHandle | null) => {
-          if (handle) {
-            handlesRef.current.set(compositeKey, handle);
-          }
-        };
-
-        // Notify for tabs whose files weren't found
-        for (const info of result.notFound) {
-          const tab = newTabs.find((t) => t.compositeKey === info.compositeKey);
-          if (tab && onTabNotFound) {
-            onTabNotFound(tab.tabId);
-          }
+        // Platform-specific restoration
+        if (platform === 'electron') {
+          await restoreElectronTabsWithStatus(newTabs);
+        } else {
+          await restoreWebTabsWithStatus(newTabs);
         }
-
-        // Update statuses map
-        setTabStatuses((prev) => {
-          const next = new Map(prev);
-
-          for (const info of result.restored) {
-            next.set(info.compositeKey, createTabFileStatus(info.compositeKey, 'restored'));
-            storeHandle(info.compositeKey, info.handle);
-          }
-
-          for (const info of result.needsPermission) {
-            next.set(
-              info.compositeKey,
-              createTabFileStatus(info.compositeKey, 'needs-permission', info.error)
-            );
-            storeHandle(info.compositeKey, info.handle);
-          }
-
-          for (const info of result.notFound) {
-            next.set(
-              info.compositeKey,
-              createTabFileStatus(info.compositeKey, 'not-found', info.error)
-            );
-          }
-
-          return next;
-        });
-
-        logger.info('Tab restoration completed', {
-          restored: result.restored.length,
-          needsPermission: result.needsPermission.length,
-          notFound: result.notFound.length,
-        });
       } catch (err) {
         logger.warn('Tab restoration failed', {
           error: err instanceof Error ? err.message : String(err),
@@ -174,12 +304,19 @@ export function useTabFileRestoration(
         setIsRestoring(false);
       }
     },
-    [handleCache, onTabNotFound]
+    [platform, restoreElectronTabsWithStatus, restoreWebTabsWithStatus]
   );
 
   // Auto-restore tabs on mount/when tabs change
   useEffect(() => {
-    if (!handleCache || tabs.length === 0) {
+    // On web, we need the handle cache; on Electron, we need the adapter
+    if (platform === 'web' && !handleCache) {
+      return;
+    }
+    if (platform === 'electron' && !fileSystemAdapter) {
+      return;
+    }
+    if (tabs.length === 0) {
       return;
     }
 
@@ -198,7 +335,7 @@ export function useTabFileRestoration(
     }, RESTORATION_DELAY_MS);
 
     return () => clearTimeout(timer);
-  }, [handleCache, tabs, restoreTabs]);
+  }, [platform, handleCache, fileSystemAdapter, tabs, restoreTabs]);
 
   // Clean up in-memory state when tabs are closed
   // Note: We don't remove file handles from IndexedDB - LRU eviction handles that
@@ -228,26 +365,34 @@ export function useTabFileRestoration(
     });
   }, [tabs]);
 
-  // Request permission for a specific tab
-  const requestTabPermission = useCallback(async (compositeKey: string): Promise<boolean> => {
-    const handle = handlesRef.current.get(compositeKey);
-    if (!handle) {
-      logger.warn('requestTabPermission: no handle for tab', { compositeKey });
-      return false;
-    }
+  // Request permission for a specific tab (web platform only)
+  const requestTabPermission = useCallback(
+    async (compositeKey: string): Promise<boolean> => {
+      // On Electron, permission is always granted
+      if (platform === 'electron') {
+        return true;
+      }
 
-    const granted = await requestFilePermission(handle);
+      const handle = handlesRef.current.get(compositeKey);
+      if (!handle) {
+        logger.warn('requestTabPermission: no handle for tab', { compositeKey });
+        return false;
+      }
 
-    if (granted) {
-      setTabStatuses((prev) => {
-        const next = new Map(prev);
-        next.set(compositeKey, createTabFileStatus(compositeKey, 'restored'));
-        return next;
-      });
-    }
+      const granted = await requestFilePermission(handle);
 
-    return granted;
-  }, []);
+      if (granted) {
+        setTabStatuses((prev) => {
+          const next = new Map(prev);
+          next.set(compositeKey, createTabFileStatus(compositeKey, 'restored'));
+          return next;
+        });
+      }
+
+      return granted;
+    },
+    [platform]
+  );
 
   // Check if a tab needs user action
   const needsUserAction = useCallback(
