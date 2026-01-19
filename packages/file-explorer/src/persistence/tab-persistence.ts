@@ -41,22 +41,30 @@ type FileHandleWithRequestPermission = FileSystemFileHandle &
 
 /**
  * Type guard to check if a FileSystemFileHandle has queryPermission method.
- * Uses proper type narrowing instead of double casting.
+ * Uses proper type narrowing with unknown and runtime checks.
  */
 function hasQueryPermission(handle: FileSystemFileHandle): handle is FileHandleWithQueryPermission {
-  const candidate = handle as Partial<FileSystemHandlePermissions>;
-  return typeof candidate.queryPermission === 'function';
+  const candidate = handle as unknown;
+  if (typeof candidate !== 'object' || candidate === null) {
+    return false;
+  }
+  const withPermissions = candidate as Record<string, unknown>;
+  return typeof withPermissions['queryPermission'] === 'function';
 }
 
 /**
  * Type guard to check if a FileSystemFileHandle has requestPermission method.
- * Uses proper type narrowing instead of double casting.
+ * Uses proper type narrowing with unknown and runtime checks.
  */
 function hasRequestPermission(
   handle: FileSystemFileHandle
 ): handle is FileHandleWithRequestPermission {
-  const candidate = handle as Partial<FileSystemHandlePermissions>;
-  return typeof candidate.requestPermission === 'function';
+  const candidate = handle as unknown;
+  if (typeof candidate !== 'object' || candidate === null) {
+    return false;
+  }
+  const withPermissions = candidate as Record<string, unknown>;
+  return typeof withPermissions['requestPermission'] === 'function';
 }
 
 const logger = createLogger('TabPersistence');

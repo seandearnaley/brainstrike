@@ -8,6 +8,7 @@ import {
   type MetadataCacheConfig,
   type MetadataCacheStats,
 } from '../metadata-cache';
+import { resolveValidatedPath } from '../path-validation';
 import type {
   DirectoryHandle,
   DirectoryReadOptions,
@@ -424,13 +425,36 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
    * This method allows reading files without needing a handle from the file tree,
    * which is useful for restoring persisted file tabs before the tree is loaded.
    *
+   * Security: When rootPath is provided, the absolutePath is validated to ensure
+   * it doesn't escape the root directory via path traversal attacks.
+   *
    * @param absolutePath - The absolute path to the file
+   * @param rootPath - Optional root directory to validate against (for security)
    * @returns The file contents as a string
    */
-  async readFileByPath(absolutePath: string): Promise<string> {
+  async readFileByPath(absolutePath: string, rootPath?: string): Promise<string> {
     // Import config dynamically to avoid circular dependencies
     const { formatFileSize, getFileSizeConfig } = await import('../config.js');
     const { maxFileSize } = getFileSizeConfig();
+
+    // Validate path against root if provided (security check)
+    if (rootPath) {
+      const validated = await resolveValidatedPath({
+        rootDir: rootPath,
+        requestedPath: absolutePath,
+        allowMissing: false,
+        maxTraversal: 0, // Don't allow any .. segments
+        blockSensitiveDirectories: true,
+      });
+
+      if (!validated.ok) {
+        throw new AccessError(
+          `Path validation failed: ${validated.error.message}`,
+          absolutePath,
+          'read'
+        );
+      }
+    }
 
     try {
       // Check file size before reading

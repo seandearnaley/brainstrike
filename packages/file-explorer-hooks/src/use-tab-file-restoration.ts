@@ -28,6 +28,43 @@ const logger = createLogger('useTabFileRestoration');
 /** Delay before attempting restoration to allow Zustand to hydrate */
 const RESTORATION_DELAY_MS = 300;
 
+/** Maximum concurrent file existence checks for Electron (prevents filesystem overload) */
+const ELECTRON_RESTORE_CONCURRENCY = 10;
+
+/**
+ * Simple concurrency limiter for parallel async operations.
+ * Limits concurrent executions to prevent overwhelming the filesystem.
+ */
+function createConcurrencyLimiter(maxConcurrent: number) {
+  let running = 0;
+  const queue: Array<() => void> = [];
+
+  const tryRun = () => {
+    while (running < maxConcurrent && queue.length > 0) {
+      running++;
+      const next = queue.shift();
+      next?.();
+    }
+  };
+
+  return async <T>(fn: () => Promise<T>): Promise<T> => {
+    return new Promise((resolve, reject) => {
+      const run = () => {
+        fn()
+          .then(resolve)
+          .catch(reject)
+          .finally(() => {
+            running--;
+            tryRun();
+          });
+      };
+
+      queue.push(run);
+      tryRun();
+    });
+  };
+}
+
 /**
  * Check if a relative path is safe (no path traversal).
  * Returns false if the path contains '..' segments that could escape the root
@@ -126,6 +163,7 @@ interface ElectronRestoreResult {
 /**
  * Restore tabs on Electron by checking if files exist directly.
  * No permission handling needed - Electron has full file system access.
+ * Uses concurrency limiting to prevent overwhelming the filesystem with many tabs.
  */
 async function restoreElectronTabs(
   tabsToRestore: Array<{ tabId: string; compositeKey: string }>,
@@ -135,51 +173,56 @@ async function restoreElectronTabs(
   const restored: Array<{ compositeKey: string }> = [];
   const notFound: Array<{ compositeKey: string; error: string }> = [];
 
-  // Process tabs in parallel
+  // Create limiter to prevent overwhelming filesystem with concurrent checks
+  const limit = createConcurrencyLimiter(ELECTRON_RESTORE_CONCURRENCY);
+
+  // Process tabs with concurrency limiting
   await Promise.all(
-    tabsToRestore.map(async (tab) => {
-      try {
-        // Decode the composite key to get folder ID (which is the root path on Electron) and relative path
-        const { folderId, path: relativePath } = decodeFileSelection(tab.compositeKey);
+    tabsToRestore.map((tab) =>
+      limit(async () => {
+        try {
+          // Decode the composite key to get folder ID (which is the root path on Electron) and relative path
+          const { folderId, path: relativePath } = decodeFileSelection(tab.compositeKey);
 
-        if (!(folderId && relativePath)) {
-          notFound.push({ compositeKey: tab.compositeKey, error: 'Invalid composite key' });
-          onTabNotFound?.(tab.tabId);
-          return;
-        }
+          if (!(folderId && relativePath)) {
+            notFound.push({ compositeKey: tab.compositeKey, error: 'Invalid composite key' });
+            onTabNotFound?.(tab.tabId);
+            return;
+          }
 
-        // Security: Validate path doesn't contain traversal sequences
-        if (!isPathSafe(relativePath)) {
-          logger.warn('restoreElectronTabs: path traversal detected', { relativePath });
+          // Security: Validate path doesn't contain traversal sequences
+          if (!isPathSafe(relativePath)) {
+            logger.warn('restoreElectronTabs: path traversal detected', { relativePath });
+            notFound.push({
+              compositeKey: tab.compositeKey,
+              error: 'Invalid path: traversal not allowed',
+            });
+            onTabNotFound?.(tab.tabId);
+            return;
+          }
+
+          // On Electron, folderId is typically the root folder path
+          // Construct full path: rootPath + relativePath
+          const fullPath = `${folderId}/${relativePath}`;
+
+          // Check if file exists using the adapter
+          const exists = adapter.exists ? await adapter.exists(fullPath) : false;
+
+          if (exists) {
+            restored.push({ compositeKey: tab.compositeKey });
+          } else {
+            notFound.push({ compositeKey: tab.compositeKey, error: 'File no longer exists' });
+            onTabNotFound?.(tab.tabId);
+          }
+        } catch (err) {
           notFound.push({
             compositeKey: tab.compositeKey,
-            error: 'Invalid path: traversal not allowed',
+            error: err instanceof Error ? err.message : 'Unknown error',
           });
           onTabNotFound?.(tab.tabId);
-          return;
         }
-
-        // On Electron, folderId is typically the root folder path
-        // Construct full path: rootPath + relativePath
-        const fullPath = `${folderId}/${relativePath}`;
-
-        // Check if file exists using the adapter
-        const exists = adapter.exists ? await adapter.exists(fullPath) : false;
-
-        if (exists) {
-          restored.push({ compositeKey: tab.compositeKey });
-        } else {
-          notFound.push({ compositeKey: tab.compositeKey, error: 'File no longer exists' });
-          onTabNotFound?.(tab.tabId);
-        }
-      } catch (err) {
-        notFound.push({
-          compositeKey: tab.compositeKey,
-          error: err instanceof Error ? err.message : 'Unknown error',
-        });
-        onTabNotFound?.(tab.tabId);
-      }
-    })
+      })
+    )
   );
 
   return { restored, notFound };
@@ -255,6 +298,8 @@ export function useTabFileRestoration(
   const handlesRef = useRef<Map<string, FileSystemFileHandle>>(new Map());
   // Track if a restoration is currently in progress to prevent race conditions
   const restorationInProgressRef = useRef(false);
+  // Track the last set of tabs we attempted to restore (for stable key comparison)
+  const lastRestoredTabsKeyRef = useRef<string>('');
 
   // Detect platform once
   const platform = useMemo<Platform>(() => detectPlatform(), []);
@@ -407,11 +452,6 @@ export function useTabFileRestoration(
       return;
     }
 
-    // Prevent concurrent restorations (race condition protection)
-    if (restorationInProgressRef.current) {
-      return;
-    }
-
     // Check if any tabs need restoration
     const tabsNeedingRestore = tabs.filter((tab) => !restoredTabsRef.current.has(tab.compositeKey));
 
@@ -419,13 +459,26 @@ export function useTabFileRestoration(
       return;
     }
 
+    // Create a stable key from the tabs needing restoration to detect duplicate attempts
+    const tabsKey = tabsNeedingRestore
+      .map((t) => t.compositeKey)
+      .sort()
+      .join(',');
+
+    // Skip if we're already restoring the same set of tabs (race condition protection)
+    if (restorationInProgressRef.current && lastRestoredTabsKeyRef.current === tabsKey) {
+      return;
+    }
+
     // Delay to allow Zustand hydration to complete
     const timer = setTimeout(() => {
-      // Double-check we're not already restoring (timer could fire after another restoration started)
-      if (restorationInProgressRef.current) {
+      // Double-check we're not already restoring the same tabs
+      if (restorationInProgressRef.current && lastRestoredTabsKeyRef.current === tabsKey) {
         return;
       }
+
       restorationInProgressRef.current = true;
+      lastRestoredTabsKeyRef.current = tabsKey;
 
       void restoreTabsRef
         .current(tabsNeedingRestore.map((t) => ({ tabId: t.id, compositeKey: t.compositeKey })))
@@ -437,15 +490,16 @@ export function useTabFileRestoration(
     return () => clearTimeout(timer);
   }, [platform, handleCache, fileSystemAdapter, tabs]);
 
+  // Memoize tab keys to avoid unnecessary cleanup runs
+  const tabKeys = useMemo(() => new Set(tabs.map((t) => t.compositeKey)), [tabs]);
+
   // Clean up in-memory state when tabs are closed
   // Note: We don't remove file handles from IndexedDB - LRU eviction handles that
   // biome-ignore lint/plugin: This effect cleans up refs, not data fetching
   useEffect(() => {
-    const currentKeys = new Set(tabs.map((t) => t.compositeKey));
-
     // Clean up handles and statuses for closed tabs
     for (const key of handlesRef.current.keys()) {
-      if (!currentKeys.has(key)) {
+      if (!tabKeys.has(key)) {
         handlesRef.current.delete(key);
         restoredTabsRef.current.delete(key);
       }
@@ -456,14 +510,14 @@ export function useTabFileRestoration(
       let hasChanges = false;
       const next = new Map(prev);
       for (const key of next.keys()) {
-        if (!currentKeys.has(key)) {
+        if (!tabKeys.has(key)) {
           next.delete(key);
           hasChanges = true;
         }
       }
       return hasChanges ? next : prev;
     });
-  }, [tabs]);
+  }, [tabKeys]);
 
   // Request permission for a specific tab (web platform only)
   const requestTabPermission = useCallback(
