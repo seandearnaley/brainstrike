@@ -188,9 +188,23 @@ export interface FileSystemChange {
  * Platform-agnostic adapter contract implemented by web/electron shims.
  */
 export interface FileSystemAdapter {
+  /** Platform identifier for this adapter */
+  readonly platform?: 'web' | 'electron';
   requestDirectoryAccess(): Promise<DirectoryHandle>;
   readDirectory(handle: DirectoryHandle, options?: DirectoryReadOptions): Promise<IFileNode[]>;
   readFile(handle: FileHandle): Promise<string>;
+  /**
+   * Read a file directly by its absolute path.
+   *
+   * This method is available on platforms with direct file system access (Electron)
+   * and allows reading files without needing a handle from the file tree.
+   * Useful for restoring persisted file tabs before the tree is loaded.
+   *
+   * @param absolutePath - The absolute path to the file
+   * @returns The file contents as a string
+   * @throws Error if the file doesn't exist or cannot be read
+   */
+  readFileByPath?(absolutePath: string): Promise<string>;
   exists(path: string): Promise<boolean>;
   watchDirectory?(
     handle: DirectoryHandle,

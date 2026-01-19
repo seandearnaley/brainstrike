@@ -419,6 +419,45 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   }
 
   /**
+   * Read a file directly by its absolute path.
+   *
+   * This method allows reading files without needing a handle from the file tree,
+   * which is useful for restoring persisted file tabs before the tree is loaded.
+   *
+   * @param absolutePath - The absolute path to the file
+   * @returns The file contents as a string
+   */
+  async readFileByPath(absolutePath: string): Promise<string> {
+    // Import config dynamically to avoid circular dependencies
+    const { formatFileSize, getFileSizeConfig } = await import('../config.js');
+    const { maxFileSize } = getFileSizeConfig();
+
+    try {
+      // Check file size before reading
+      const stats = await fsPromises.stat(absolutePath);
+
+      if (stats.size > maxFileSize) {
+        throw new AccessError(
+          `File too large: ${formatFileSize(stats.size)} (max: ${formatFileSize(maxFileSize)})`,
+          absolutePath,
+          'read'
+        );
+      }
+
+      return await fsPromises.readFile(absolutePath, 'utf-8');
+    } catch (error) {
+      if (error instanceof AccessError) {
+        throw error;
+      }
+      throw new AccessError(
+        `Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        absolutePath,
+        'read'
+      );
+    }
+  }
+
+  /**
    * Watch a directory and emit high-level change events.
    *
    * 1. Try to use **chokidar** (preferred - cross-platform, debounced).

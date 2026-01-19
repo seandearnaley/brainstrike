@@ -130,6 +130,15 @@ function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
   return adapterWithCache.getHandleCache?.() ?? null;
 }
 
+/**
+ * Check if the adapter supports reading files directly by path.
+ * This is available on Electron where we have direct file system access.
+ */
+function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
+  const adapter = fileSystemAdapter as { readFileByPath?: unknown };
+  return typeof adapter.readFileByPath === 'function';
+}
+
 function markFileLoading(
   compositeKey: string,
   loadingPathsRef: React.MutableRefObject<Set<string>>,
@@ -197,6 +206,7 @@ async function handleMissingFileNode(args: {
   setFileContent: (key: string, content: string) => void;
   loadingPathsRef: React.MutableRefObject<Set<string>>;
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
+  fileSystemAdapter: unknown;
 }): Promise<FileReadRequest | null> {
   const {
     fileTree,
@@ -208,7 +218,16 @@ async function handleMissingFileNode(args: {
     setFileContent,
     loadingPathsRef,
     setLoadingFiles,
+    fileSystemAdapter,
   } = args;
+
+  // On platforms with direct file access (Electron), we can read by path without a tree handle
+  if (supportsDirectPathRead(fileSystemAdapter)) {
+    logger.debug('Using direct path read for file not in tree', { path, folderId });
+    markFileLoading(compositeKey, loadingPathsRef, setLoadingFiles);
+    // Return request without handle - worker will use readFileByPath
+    return { compositeKey, path };
+  }
 
   const cachedRequest = await buildCachedFileRequest({
     handleCache,
@@ -325,6 +344,7 @@ async function prepareFileReadRequest(
       setFileContent,
       loadingPathsRef,
       setLoadingFiles,
+      fileSystemAdapter,
     });
   }
 
