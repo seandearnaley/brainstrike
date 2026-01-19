@@ -62,12 +62,70 @@ interface AssistantPreferencesActions {
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
 const STORE_NAME = 'assistant-preferences.v1' as const;
-const STORE_VERSION = 3;
+const STORE_VERSION = 4;
 
 const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_DEFAULT_MODELS) as SupportedProvider[];
 
 function cloneModelList(models: readonly string[] | undefined): string[] {
   return Array.isArray(models) ? [...models] : [];
+}
+
+const MODEL_ID_MIGRATIONS: Record<SupportedProvider, Record<string, string>> = {
+  openai: {
+    'gpt-4o': 'gpt-5.2',
+    'gpt-4o-mini': 'gpt-5.2-chat-latest',
+    'gpt-4-turbo': 'gpt-5.2-pro',
+    'gpt-3.5-turbo': 'gpt-5.2-chat-latest',
+  },
+  anthropic: {
+    'claude-3-5-haiku-latest': 'claude-haiku-4-5',
+    'claude-3-5-sonnet-latest': 'claude-sonnet-4-5',
+    'claude-3-opus-latest': 'claude-opus-4-5',
+    'claude-sonnet-4-20250514': 'claude-sonnet-4-5',
+    'claude-3-5-haiku-20241022': 'claude-haiku-4-5',
+    'claude-opus-4-1-20250805': 'claude-opus-4-5',
+    'claude-sonnet-4-5-20250929': 'claude-sonnet-4-5',
+    'claude-opus-4-5-20251101': 'claude-opus-4-5',
+  },
+  google: {
+    'gemini-2.5-flash': 'gemini-3-flash-preview',
+    'gemini-2.5-pro': 'gemini-3-pro-preview',
+    'gemini-2.0-pro': 'gemini-3-pro-preview',
+    'gemini-1.5-pro': 'gemini-3-pro-preview',
+  },
+  openrouter: {
+    'openai/gpt-4o': 'openai/gpt-5.2',
+    'openai/gpt-4o-mini': 'openai/gpt-5.2',
+    'openai/gpt-4-turbo': 'openai/gpt-5.2',
+    'openai/gpt-3.5-turbo': 'openai/gpt-5.2',
+    'anthropic/claude-3.5-sonnet': 'anthropic/claude-sonnet-4.5',
+    'google/gemini-2.5-flash': 'google/gemini-3-flash-preview',
+    'google/gemini-2.5-pro': 'google/gemini-3-flash-preview',
+    'google/gemini-2.0-pro': 'google/gemini-3-flash-preview',
+    'google/gemini-1.5-pro': 'google/gemini-3-flash-preview',
+  },
+  local: {},
+  cohere: {},
+  voyage: {},
+};
+
+function migrateModelId(provider: SupportedProvider, modelId: string): string {
+  return MODEL_ID_MIGRATIONS[provider]?.[modelId] ?? modelId;
+}
+
+function migrateModelList(provider: SupportedProvider, models: Iterable<string>): string[] {
+  const seen = new Set<string>();
+  const migrated: string[] = [];
+
+  for (const model of models) {
+    const next = migrateModelId(provider, model);
+    if (!seen.has(next)) {
+      migrated.push(next);
+      seen.add(next);
+    }
+  }
+
+  return orderByProviderCanonicalList(provider, migrated);
 }
 
 // Enable all provider models by default so the UI exposes full model lists
@@ -120,6 +178,85 @@ function resolvePreferredModel(
     return defaultModel;
   }
   return enabledModels[0] ?? null;
+}
+
+function buildMigratedEnabledModels(base?: EnabledModelsMap): EnabledModelsMap {
+  const migrated: EnabledModelsMap = {
+    ...DEFAULT_ENABLED_MODELS,
+    ...(base ?? {}),
+  };
+
+  for (const provider of SUPPORTED_PROVIDERS) {
+    const existing = migrated[provider] ?? DEFAULT_ENABLED_MODELS[provider] ?? [];
+    migrated[provider] = migrateModelList(provider, existing);
+  }
+
+  return migrated;
+}
+
+function buildMigratedModelsByProvider(
+  base: Partial<Record<SupportedProvider, string>> | undefined,
+  enabled: EnabledModelsMap
+): Record<SupportedProvider, string> {
+  const migrated: Record<SupportedProvider, string> = {
+    ...PROVIDER_DEFAULT_MODELS,
+    ...(base ?? {}),
+  } as Record<SupportedProvider, string>;
+
+  for (const provider of SUPPORTED_PROVIDERS) {
+    const current = migrated[provider];
+    if (current) {
+      migrated[provider] = migrateModelId(provider, current);
+    }
+
+    const enabledModels = enabled[provider] ?? [];
+    if (enabledModels.length > 0 && !enabledModels.includes(migrated[provider])) {
+      const fallback = resolvePreferredModel(provider, enabledModels);
+      if (fallback) {
+        migrated[provider] = fallback;
+      }
+    }
+  }
+
+  return migrated;
+}
+
+function buildMigratedSelectedModel(
+  base: Partial<Store> & { selectedProvider?: SupportedProvider | null },
+  enabled: EnabledModelsMap
+): string | null {
+  let selectedModel: string | null = null;
+
+  if (base.selectedProvider && base.modelsByProvider?.[base.selectedProvider]) {
+    const migrated = migrateModelId(
+      base.selectedProvider,
+      base.modelsByProvider[base.selectedProvider]
+    );
+    selectedModel = `${base.selectedProvider}::${migrated}`;
+  } else if (typeof base.selectedModel === 'string') {
+    const [provider, model] = base.selectedModel.split('::');
+    if (provider && model && SUPPORTED_PROVIDERS.includes(provider as SupportedProvider)) {
+      const migrated = migrateModelId(provider as SupportedProvider, model);
+      selectedModel = `${provider}::${migrated}`;
+    }
+  }
+
+  if (!selectedModel) {
+    return null;
+  }
+
+  const [provider, model] = selectedModel.split('::');
+  if (!(provider && model && SUPPORTED_PROVIDERS.includes(provider as SupportedProvider))) {
+    return null;
+  }
+
+  const enabledModels = enabled[provider as SupportedProvider] ?? [];
+  if (enabledModels.includes(model)) {
+    return selectedModel;
+  }
+
+  const fallback = resolvePreferredModel(provider as SupportedProvider, enabledModels);
+  return fallback ? `${provider}::${fallback}` : null;
 }
 
 /**
@@ -424,30 +561,16 @@ export const useAssistantPreferencesStore = create<Store>()(
         const base = persistedState as Partial<Store> & {
           selectedProvider?: SupportedProvider | null;
         };
-        const migratedEnabled: EnabledModelsMap = {
-          ...DEFAULT_ENABLED_MODELS,
-          ...(base.enabledModelsByProvider ?? {}),
-        };
-
-        for (const provider of SUPPORTED_PROVIDERS) {
-          migratedEnabled[provider] = orderByProviderCanonicalList(
-            provider,
-            migratedEnabled[provider] ?? DEFAULT_ENABLED_MODELS[provider] ?? []
-          );
-        }
-
-        // Migrate from old selectedProvider format to new selectedModel composite key
-        let selectedModel: string | null = null;
-        if (base.selectedProvider && base.modelsByProvider?.[base.selectedProvider]) {
-          selectedModel = `${base.selectedProvider}::${base.modelsByProvider[base.selectedProvider]}`;
-        }
+        const migratedEnabled = buildMigratedEnabledModels(base.enabledModelsByProvider);
+        const migratedModelsByProvider = buildMigratedModelsByProvider(
+          base.modelsByProvider,
+          migratedEnabled
+        );
+        const selectedModel = buildMigratedSelectedModel(base, migratedEnabled);
 
         return {
           selectedModel,
-          modelsByProvider: {
-            ...PROVIDER_DEFAULT_MODELS,
-            ...(base.modelsByProvider ?? {}),
-          },
+          modelsByProvider: migratedModelsByProvider,
           enabledModelsByProvider: migratedEnabled,
           providerSettings: {
             ...DEFAULT_PROVIDER_SETTINGS,

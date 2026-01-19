@@ -4,6 +4,7 @@ import {
   type SupportedProvider,
 } from '@brainstrike/agent/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StorageValue } from 'zustand/middleware';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
@@ -20,6 +21,7 @@ type PersistApi<T> = T & {
       };
     };
     clearStorage?: () => void;
+    rehydrate?: () => Promise<void>;
   };
 };
 
@@ -177,6 +179,53 @@ describe('assistant-preferences-store', () => {
     expect(updated.getSelectedProvider()).toBe('anthropic');
     expect(updated.modelsByProvider.anthropic).toBe(defaultModel);
     expect(updated.getSelectedModel()).toBe(compositeKey);
+  });
+
+  it('migrates legacy model IDs to the new catalog', async () => {
+    const persistApi = storeWithPersist.persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const legacyState: StorageValue<unknown> = {
+      version: 3,
+      state: {
+        selectedModel: 'openai::gpt-4o',
+        modelsByProvider: {
+          openai: 'gpt-4o',
+          anthropic: 'claude-3-5-sonnet-latest',
+          google: 'gemini-2.0-pro',
+          openrouter: 'openai/gpt-4o',
+          local: 'local',
+          cohere: 'cohere',
+          voyage: 'voyage',
+        },
+        enabledModelsByProvider: {
+          openai: ['gpt-4o', 'gpt-4o-mini'],
+          anthropic: ['claude-3-5-sonnet-latest'],
+          google: ['gemini-2.0-pro'],
+          openrouter: ['openai/gpt-4o'],
+          local: [],
+          cohere: [],
+          voyage: [],
+        },
+        providerSettings: {},
+      },
+    };
+
+    options.storage.setItem(options.name, legacyState);
+    await persistApi.rehydrate?.();
+
+    const store = useAssistantPreferencesStore.getState();
+    expect(store.modelsByProvider.openai).toBe('gpt-5.2');
+    expect(store.modelsByProvider.anthropic).toBe('claude-sonnet-4-5');
+    expect(store.modelsByProvider.google).toBe('gemini-3-pro-preview');
+    expect(store.modelsByProvider.openrouter).toBe('openai/gpt-5.2');
+    expect(store.selectedModel).toBe('openai::gpt-5.2');
+    expect(store.enabledModelsByProvider.openai).toContain('gpt-5.2');
+    expect(store.enabledModelsByProvider.openai).toContain('gpt-5.2-chat-latest');
+    expect(store.enabledModelsByProvider.openai).not.toContain('gpt-4o');
   });
 
   it('switches between providers using composite keys', () => {

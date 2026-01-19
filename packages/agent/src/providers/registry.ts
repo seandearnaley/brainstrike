@@ -96,6 +96,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       embeddings: true,
       streaming: true,
     },
+    // Model IDs per OpenAI docs:
+    // https://platform.openai.com/docs/guides/latest-model
+    // https://platform.openai.com/docs/models
     envKeys: [
       'BRAINSTRIKE_OPENAI_API_KEY',
       'BS_OPENAI_API_KEY',
@@ -151,6 +154,10 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       embeddings: false,
       streaming: true,
     },
+    // Model aliases per Anthropic docs:
+    // https://www.anthropic.com/claude/sonnet
+    // https://www.anthropic.com/claude/haiku
+    // https://www.anthropic.com/claude/opus
     envKeys: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
     models: [
       {
@@ -183,6 +190,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       embeddings: true,
       streaming: true,
     },
+    // Gemini 3 model IDs + embeddings docs:
+    // https://ai.google.dev/gemini-api/docs/gemini-3
+    // https://ai.google.dev/gemini-api/docs/embeddings
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
     models: [
       {
@@ -205,6 +215,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         defaultDimension: 3072,
         supportsCustomDimensions: true,
         supportsStandardDimension: true,
+        // Gemini embeddings use outputDimensionality in JSON; this value is a UI hint.
         dimensionParameter: 'output_dimensionality',
       },
     ],
@@ -218,6 +229,8 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       embeddings: false,
       streaming: true,
     },
+    // OpenRouter uses provider-prefixed model slugs (examples in docs):
+    // https://openrouter.ai/docs/guides/routing/auto-model-selection
     envKeys: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
     models: [
       {

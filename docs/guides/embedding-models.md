@@ -179,6 +179,9 @@ If you previously used `text-embedding-004`, create a new collection with
 `gemini-embedding-001` and backfill. Avoid mixing embeddings from different models in
 the same set.
 
+If `text-embedding-004` was enabled in preferences, the UI will migrate the toggle to
+`gemini-embedding-001`, but existing collections still require a manual backfill.
+
 **Do not mix embeddings from different models in the same collection** - search quality will degrade significantly.
 
 ## Provider Configuration (Worker)

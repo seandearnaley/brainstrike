@@ -260,6 +260,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
       content: buildContent(text),
     };
     if (this.supportsOutputDimensionality) {
+      // Gemini embeddings use outputDimensionality (camelCase) in JSON requests.
       body.outputDimensionality = this.targetDimensions;
     }
 
@@ -279,6 +280,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     const requests = texts.map((text) => ({
       model,
       content: buildContent(text),
+      // Gemini embeddings use outputDimensionality (camelCase) in JSON requests.
       ...(this.supportsOutputDimensionality ? { outputDimensionality: this.targetDimensions } : {}),
     }));
 
@@ -288,7 +290,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
-      body: JSON.stringify({ requests }),
+      body: JSON.stringify({ model, requests }),
     });
   }
 

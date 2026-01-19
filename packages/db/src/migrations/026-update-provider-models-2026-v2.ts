@@ -5,6 +5,8 @@ export const migration026UpdateProviderModels2026V2: Migration = {
   name: 'update_provider_models_2026_v2',
   up: `
     -- Incremental catalog corrections for hosted providers
+    -- NOTE: 025 shipped a full catalog replacement. This migration updates existing installs
+    -- without wiping custom state or re-seeding identical rows.
     UPDATE providers SET name = 'Google AI Studio' WHERE id = 'google';
 
     -- Remove older-generation model IDs
