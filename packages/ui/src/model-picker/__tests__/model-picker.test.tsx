@@ -32,10 +32,10 @@ const providers: ModelPickerProvider[] = [
 ];
 
 const models: ModelPickerModel[] = [
-  { id: 'gpt-5.2', name: 'GPT-5.2', providerId: 'openai', capabilities: { type: 'llm' } },
+  { id: 'gpt-4o', name: 'GPT-4o', providerId: 'openai', capabilities: { type: 'llm' } },
   {
-    id: 'claude-haiku-4-5',
-    name: 'Claude Haiku 4.5',
+    id: 'claude-3-5-haiku-latest',
+    name: 'Claude 3.5 Haiku (Latest)',
     providerId: 'anthropic',
     capabilities: { type: 'llm' },
   },
@@ -77,8 +77,8 @@ describe('ModelPicker', () => {
     it('opens on click and shows options', () => {
       render(<ModelPicker models={models} providers={providers} />);
       fireEvent.click(screen.getByText('Select a model...'));
-      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
-      expect(screen.getByText('Claude Haiku 4.5')).toBeInTheDocument();
+      expect(screen.getByText('GPT-4o')).toBeInTheDocument();
+      expect(screen.getByText('Claude 3.5 Haiku (Latest)')).toBeInTheDocument();
     });
 
     it('renders with custom className', () => {
@@ -93,13 +93,13 @@ describe('ModelPicker', () => {
       const onChange = vi.fn();
       render(<ModelPicker models={models} onChange={onChange} providers={providers} />);
       fireEvent.click(screen.getByText('Select a model...'));
-      fireEvent.click(screen.getByText('GPT-5.2'));
-      expect(onChange).toHaveBeenCalledWith('gpt-5.2');
+      fireEvent.click(screen.getByText('GPT-4o'));
+      expect(onChange).toHaveBeenCalledWith('gpt-4o');
     });
 
     it('displays selected model in trigger', () => {
-      render(<ModelPicker models={models} providers={providers} value="gpt-5.2" />);
-      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
+      render(<ModelPicker models={models} providers={providers} value="gpt-4o" />);
+      expect(screen.getByText('GPT-4o')).toBeInTheDocument();
     });
 
     it('handles multi-select mode - adds selection', () => {
@@ -108,16 +108,14 @@ describe('ModelPicker', () => {
         <ModelPicker mode="multi" models={models} onChange={onChange} providers={providers} />
       );
       fireEvent.click(screen.getByRole('combobox'));
-      fireEvent.click(screen.getByText('GPT-5.2'));
-      expect(onChange).toHaveBeenCalledWith(['gpt-5.2']);
+      fireEvent.click(screen.getByText('GPT-4o'));
+      expect(onChange).toHaveBeenCalledWith(['gpt-4o']);
     });
 
     it('handles multi-select with existing value', () => {
-      render(
-        <ModelPicker mode="multi" models={models} providers={providers} value={['gpt-5.2']} />
-      );
+      render(<ModelPicker mode="multi" models={models} providers={providers} value={['gpt-4o']} />);
       // Trigger should show the selected model
-      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
+      expect(screen.getByText('GPT-4o')).toBeInTheDocument();
     });
 
     it('handles multi-select with multiple selections', () => {
@@ -128,12 +126,12 @@ describe('ModelPicker', () => {
           models={models}
           onChange={onChange}
           providers={providers}
-          value={['gpt-5.2']}
+          value={['gpt-4o']}
         />
       );
       fireEvent.click(screen.getByRole('combobox'));
-      fireEvent.click(screen.getByText('Claude Haiku 4.5'));
-      expect(onChange).toHaveBeenCalledWith(['gpt-5.2', 'claude-haiku-4-5']);
+      fireEvent.click(screen.getByText('Claude 3.5 Haiku (Latest)'));
+      expect(onChange).toHaveBeenCalledWith(['gpt-4o', 'claude-3-5-haiku-latest']);
     });
 
     it('displays count for multiple selections', () => {
@@ -142,10 +140,10 @@ describe('ModelPicker', () => {
           mode="multi"
           models={models}
           providers={providers}
-          value={['gpt-5.2', 'claude-haiku-4-5']}
+          value={['gpt-4o', 'claude-3-5-haiku-latest']}
         />
       );
-      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
+      expect(screen.getByText('GPT-4o')).toBeInTheDocument();
       expect(screen.getByText('(+1)')).toBeInTheDocument();
     });
   });
@@ -154,7 +152,7 @@ describe('ModelPicker', () => {
     it('filters models by type when modelType is llm', () => {
       render(<ModelPicker models={models} modelType="llm" providers={providers} />);
       fireEvent.click(screen.getByRole('combobox'));
-      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
+      expect(screen.getByText('GPT-4o')).toBeInTheDocument();
       expect(screen.queryByText('Text Embedding')).not.toBeInTheDocument();
     });
 
@@ -162,13 +160,13 @@ describe('ModelPicker', () => {
       render(<ModelPicker models={models} modelType="embedding" providers={providers} />);
       fireEvent.click(screen.getByRole('combobox'));
       expect(screen.getByText('Text Embedding')).toBeInTheDocument();
-      expect(screen.queryByText('GPT-5.2')).not.toBeInTheDocument();
+      expect(screen.queryByText('GPT-4o')).not.toBeInTheDocument();
     });
 
     it('shows all models when modelType is all', () => {
       render(<ModelPicker models={models} modelType="all" providers={providers} />);
       fireEvent.click(screen.getByRole('combobox'));
-      expect(screen.getByText('GPT-5.2')).toBeInTheDocument();
+      expect(screen.getByText('GPT-4o')).toBeInTheDocument();
       expect(screen.getByText('Text Embedding')).toBeInTheDocument();
     });
   });
@@ -194,8 +192,8 @@ describe('ModelPicker', () => {
       fireEvent.change(searchInput, { target: { value: 'claude' } });
 
       await waitFor(() => {
-        expect(screen.getByText('Claude Haiku 4.5')).toBeInTheDocument();
-        expect(screen.queryByText('GPT-5.2')).not.toBeInTheDocument();
+        expect(screen.getByText('Claude 3.5 Haiku (Latest)')).toBeInTheDocument();
+        expect(screen.queryByText('GPT-4o')).not.toBeInTheDocument();
       });
     });
   });
@@ -203,13 +201,13 @@ describe('ModelPicker', () => {
   describe('theme handling', () => {
     it('handles light theme', () => {
       mockTheme = 'light';
-      render(<ModelPicker models={models} providers={providers} value="gpt-5.2" />);
+      render(<ModelPicker models={models} providers={providers} value="gpt-4o" />);
       expect(screen.getByRole('combobox')).toBeInTheDocument();
     });
 
     it('handles dark theme', () => {
       mockTheme = 'dark';
-      render(<ModelPicker models={models} providers={providers} value="gpt-5.2" />);
+      render(<ModelPicker models={models} providers={providers} value="gpt-4o" />);
       expect(screen.getByRole('combobox')).toBeInTheDocument();
     });
 
@@ -222,7 +220,7 @@ describe('ModelPicker', () => {
       }));
       window.matchMedia = matchMedia;
 
-      render(<ModelPicker models={models} providers={providers} value="gpt-5.2" />);
+      render(<ModelPicker models={models} providers={providers} value="gpt-4o" />);
       expect(matchMedia).toHaveBeenCalledWith('(prefers-color-scheme: dark)');
     });
 
@@ -235,7 +233,7 @@ describe('ModelPicker', () => {
       }));
       window.matchMedia = matchMedia;
 
-      render(<ModelPicker models={models} providers={providers} value="gpt-5.2" />);
+      render(<ModelPicker models={models} providers={providers} value="gpt-4o" />);
       expect(matchMedia).toHaveBeenCalledWith('(prefers-color-scheme: dark)');
     });
   });
@@ -265,12 +263,12 @@ describe('ModelPicker', () => {
           placeholder="Select"
           providers={providers}
           renderTrigger={renderTrigger}
-          value="gpt-5.2"
+          value="gpt-4o"
         />
       );
       expect(renderTrigger).toHaveBeenCalledWith(
         expect.objectContaining({
-          value: 'gpt-5.2',
+          value: 'gpt-4o',
           placeholder: 'Select',
           disabled: true,
           models,

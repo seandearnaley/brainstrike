@@ -36,7 +36,7 @@ export function PromptEditor({
   const [categoryId, setCategoryId] = useState('general');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
-  const [model, setModel] = useState('gpt-5.2');
+  const [model, setModel] = useState('gpt-4o');
   const [temperature, setTemperature] = useState(0.7);
 
   // Reset form when prompt changes
@@ -53,7 +53,7 @@ export function PromptEditor({
       setContent('');
       setCategoryId('general');
       setTags([]);
-      setModel('gpt-5.2');
+      setModel('gpt-4o');
       setTemperature(0.7);
     }
   }, [prompt, isOpen]);

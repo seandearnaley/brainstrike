@@ -106,21 +106,20 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     ],
     models: [
       {
-        id: 'gpt-5.2',
+        id: 'gpt-4o',
         type: 'llm',
         default: true,
         supportsStreaming: true,
       },
       {
-        id: 'gpt-5.2-chat-latest',
-        label: 'GPT-5.2 Chat (Latest)',
+        id: 'gpt-4o-mini',
+        label: 'GPT-4o Mini',
         type: 'llm',
-        default: true,
         supportsStreaming: true,
       },
       {
-        id: 'gpt-5.2-pro',
-        label: 'GPT-5.2 Pro',
+        id: 'gpt-4-turbo',
+        label: 'GPT-4 Turbo',
         type: 'llm',
         supportsStreaming: true,
       },
@@ -155,19 +154,21 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     envKeys: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
     models: [
       {
-        id: 'claude-haiku-4-5',
+        id: 'claude-3-5-haiku-latest',
+        label: 'Claude 3.5 Haiku (Latest)',
         type: 'llm',
         default: true,
         supportsStreaming: true,
       },
       {
-        id: 'claude-sonnet-4-5',
+        id: 'claude-sonnet-4-0',
+        label: 'Claude Sonnet 4',
         type: 'llm',
-        default: true,
         supportsStreaming: true,
       },
       {
-        id: 'claude-opus-4-5',
+        id: 'claude-opus-4-1',
+        label: 'Claude Opus 4.1',
         type: 'llm',
         supportsStreaming: true,
       },
@@ -175,7 +176,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
   },
   {
     id: 'google',
-    displayName: 'Google',
+    displayName: 'Google AI Studio',
     runtime: 'hosted',
     capabilities: {
       llm: true,
@@ -186,6 +187,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     models: [
       {
         id: 'gemini-3-flash-preview',
+        label: 'Gemini 3 Flash (Preview)',
         type: 'llm',
         default: true,
         supportsStreaming: true,
@@ -194,8 +196,16 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
         id: 'gemini-3-pro-preview',
         label: 'Gemini 3 Pro (Preview)',
         type: 'llm',
-        default: true,
         supportsStreaming: true,
+      },
+      {
+        id: 'text-embedding-004',
+        label: 'Text Embedding 004 (Legacy)',
+        type: 'embedding',
+        defaultDimension: 768,
+        availableDimensions: [768],
+        supportsCustomDimensions: false,
+        supportsStandardDimension: true,
       },
       {
         id: 'gemini-embedding-001',
@@ -220,15 +230,15 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     envKeys: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
     models: [
       {
-        id: 'openai/gpt-5.2',
-        label: 'GPT-5.2 (OpenRouter)',
+        id: 'openai/gpt-4o',
+        label: 'GPT-4o (OpenRouter)',
         type: 'llm',
         default: true,
         supportsStreaming: true,
       },
       {
-        id: 'anthropic/claude-haiku-4.5',
-        label: 'Claude Haiku 4.5 (OpenRouter)',
+        id: 'anthropic/claude-3.5-sonnet',
+        label: 'Claude 3.5 Sonnet (OpenRouter)',
         type: 'llm',
         supportsStreaming: true,
       },

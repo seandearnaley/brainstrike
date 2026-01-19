@@ -234,7 +234,7 @@ describe('assistant-preferences-store', () => {
     });
 
     const store = useAssistantPreferencesStore.getState();
-    const compositeKey = 'openrouter::openai/gpt-5.2';
+    const compositeKey = 'openrouter::openai/gpt-4o';
     store.setModel(compositeKey);
 
     const persistedValue = storage.getItem(options.name)!;
@@ -257,9 +257,9 @@ describe('assistant-preferences-store', () => {
     };
 
     expect(snapshot.state?.selectedModel).toBe(compositeKey);
-    expect(snapshot.state?.modelsByProvider.openrouter).toBe('openai/gpt-5.2');
+    expect(snapshot.state?.modelsByProvider.openrouter).toBe('openai/gpt-4o');
     // Only models with default: true are enabled by default, not all PROVIDER_MODELS
-    expect(snapshot.state?.enabledModelsByProvider.openrouter).toContain('openai/gpt-5.2');
+    expect(snapshot.state?.enabledModelsByProvider.openrouter).toContain('openai/gpt-4o');
 
     persistApi.clearStorage?.();
     const afterClear = storage.getItem(options.name)!;

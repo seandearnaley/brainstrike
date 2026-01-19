@@ -2,10 +2,10 @@ import type { Page } from '@playwright/test';
 import { waitForAppReady } from './electron-helpers';
 
 const DEFAULT_MODELS: Record<string, string> = {
-  openai: 'gpt-5.2',
-  anthropic: 'claude-haiku-4-5',
+  openai: 'gpt-4o',
+  anthropic: 'claude-3-5-haiku-latest',
   google: 'gemini-3-flash-preview',
-  openrouter: 'openai/gpt-5.2',
+  openrouter: 'openai/gpt-4o',
 } as const;
 
 export interface AssistantMockOptions {

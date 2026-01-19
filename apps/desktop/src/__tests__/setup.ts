@@ -113,7 +113,7 @@ const mockProviderDefinitions = [
     capabilities: { llm: true, embeddings: true, streaming: true },
     envKeys: ['BRAINSTRIKE_OPENAI_API_KEY'],
     models: [
-      { id: 'gpt-5.2', type: 'llm' as const, default: true, supportsStreaming: true },
+      { id: 'gpt-4o', type: 'llm' as const, default: true, supportsStreaming: true },
       {
         id: 'text-embedding-3-small',
         type: 'embedding' as const,
@@ -129,7 +129,7 @@ const mockProviderDefinitions = [
     runtime: 'hosted',
     capabilities: { llm: true, embeddings: false, streaming: true },
     envKeys: ['ANTHROPIC_API_KEY'],
-    models: [{ id: 'claude-haiku-4-5', type: 'llm' as const, default: true }],
+    models: [{ id: 'claude-3-5-haiku-latest', type: 'llm' as const, default: true }],
   },
   {
     id: 'google',

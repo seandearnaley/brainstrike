@@ -4,46 +4,99 @@ export const migration026UpdateProviderModels2026V2: Migration = {
   version: 26,
   name: 'update_provider_models_2026_v2',
   up: `
-    -- Refresh hosted provider model catalogs with additional 2026 models
-    DELETE FROM models WHERE provider_id IN ('openai', 'anthropic', 'google');
+    -- Incremental catalog corrections for hosted providers
+    UPDATE providers SET name = 'Google AI Studio' WHERE id = 'google';
 
-    -- OpenAI (GPT-5.2 series + embeddings)
+    -- Remove deprecated or invalid model IDs introduced in earlier drafts
+    DELETE FROM models WHERE id IN (
+      'gpt-5.2',
+      'gpt-5.2-chat-latest',
+      'gpt-5.2-pro',
+      'claude-haiku-4-5',
+      'claude-sonnet-4-5',
+      'claude-opus-4-5',
+      'claude-3-5-sonnet-latest',
+      'gemini-3-flash-preview',
+      'gemini-3-pro-preview',
+      'gemini-2.5-flash',
+      'gemini-2.5-pro',
+      'gemini-1.5-pro',
+      'openai/gpt-5.2',
+      'openai/gpt-5.2-chat-latest',
+      'openai/gpt-5.2-pro',
+      'anthropic/claude-haiku-4.5',
+      'anthropic/claude-sonnet-4.5',
+      'anthropic/claude-opus-4.5',
+      'google/gemini-3-flash-preview',
+      'google/gemini-3-pro-preview',
+      'google/gemini-2.5-flash',
+      'google/gemini-2.5-pro'
+    );
+
+    -- OpenAI (GPT-4o family + embeddings)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('gpt-5.2', 'openai', 'GPT-5.2', 'Frontier reasoning model', '["Reasoning", "Coding", "Analysis"]', '{"type":"llm","streaming":true}', 1, true),
-      ('gpt-5.2-chat-latest', 'openai', 'GPT-5.2 Chat (Latest)', 'Chat-optimized GPT-5.2', '["Chat", "General assistance"]', '{"type":"llm","streaming":true}', 2, true),
-      ('gpt-5.2-pro', 'openai', 'GPT-5.2 Pro', 'Highest quality GPT-5.2', '["Complex reasoning", "Expert tasks"]', '{"type":"llm","streaming":true}', 3, false),
+      ('gpt-4o', 'openai', 'GPT-4o', 'Flagship multimodal model', '["Reasoning", "Coding", "Multimodal"]', '{"type":"llm","streaming":true}', 1, true),
+      ('gpt-4o-mini', 'openai', 'GPT-4o Mini', 'Fast & cost-effective', '["Chat", "High throughput"]', '{"type":"llm","streaming":true}', 2, true),
+      ('gpt-4-turbo', 'openai', 'GPT-4 Turbo', 'High-performance legacy model', '["Long context", "Instruction following"]', '{"type":"llm","streaming":true}', 3, false),
       ('text-embedding-3-small', 'openai', 'Text Embedding 3 Small', 'Efficient embeddings', '["Search", "Clustering"]', '{"type":"embedding","defaultDimension":1536}', 4, true),
-      ('text-embedding-3-large', 'openai', 'Text Embedding 3 Large', 'High-precision embeddings', '["Semantic search", "Knowledge retrieval"]', '{"type":"embedding","defaultDimension":3072}', 5, false);
+      ('text-embedding-3-large', 'openai', 'Text Embedding 3 Large', 'High-precision embeddings', '["Semantic search", "Knowledge retrieval"]', '{"type":"embedding","defaultDimension":3072}', 5, false)
+    ON CONFLICT (id) DO UPDATE SET
+      provider_id = EXCLUDED.provider_id,
+      name = EXCLUDED.name,
+      tagline = EXCLUDED.tagline,
+      best_for = EXCLUDED.best_for,
+      capabilities = EXCLUDED.capabilities,
+      sort_order = EXCLUDED.sort_order,
+      is_enabled = EXCLUDED.is_enabled;
 
-    -- Anthropic (Claude 4.5 series)
+    -- Anthropic (Claude Sonnet 4 + Haiku 3.5 + Opus 4.1)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('claude-haiku-4-5', 'anthropic', 'Claude Haiku 4.5', 'Fastest Claude 4.5', '["Quick responses", "Data extraction"]', '{"type":"llm","streaming":true}', 1, true),
-      ('claude-sonnet-4-5', 'anthropic', 'Claude Sonnet 4.5', 'Balanced Claude 4.5', '["Analysis", "Coding", "Writing"]', '{"type":"llm","streaming":true}', 2, true),
-      ('claude-opus-4-5', 'anthropic', 'Claude Opus 4.5', 'Highest quality Claude 4.5', '["Deep research", "Complex tasks"]', '{"type":"llm","streaming":true}', 3, false);
+      ('claude-sonnet-4-0', 'anthropic', 'Claude Sonnet 4', 'Advanced reasoning', '["Analysis", "Coding", "Writing"]', '{"type":"llm","streaming":true}', 1, true),
+      ('claude-3-5-haiku-latest', 'anthropic', 'Claude 3.5 Haiku (Latest)', 'Fastest Claude model', '["Quick responses", "Data extraction"]', '{"type":"llm","streaming":true}', 2, true),
+      ('claude-opus-4-1', 'anthropic', 'Claude Opus 4.1', 'Highest quality Claude model', '["Deep research", "Complex tasks"]', '{"type":"llm","streaming":true}', 3, false)
+    ON CONFLICT (id) DO UPDATE SET
+      provider_id = EXCLUDED.provider_id,
+      name = EXCLUDED.name,
+      tagline = EXCLUDED.tagline,
+      best_for = EXCLUDED.best_for,
+      capabilities = EXCLUDED.capabilities,
+      sort_order = EXCLUDED.sort_order,
+      is_enabled = EXCLUDED.is_enabled;
 
-    -- Google (Gemini 3 + embeddings)
+    -- Google (Gemini 3 preview + embeddings)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('gemini-3-flash-preview', 'google', 'Gemini 3 Flash', 'Low-latency, high throughput', '["Realtime apps", "High volume"]', '{"type":"llm","streaming":true}', 1, true),
-      ('gemini-3-pro-preview', 'google', 'Gemini 3 Pro (Preview)', 'Advanced reasoning', '["Complex tasks", "Analysis"]', '{"type":"llm","streaming":true}', 2, true),
-      ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Configurable embeddings', '["General purpose", "Retrieval"]', '{"type":"embedding","defaultDimension":3072}', 3, false);
+      ('gemini-3-flash-preview', 'google', 'Gemini 3 Flash (Preview)', 'Low-latency preview model', '["Realtime apps", "High volume"]', '{"type":"llm","streaming":true}', 1, true),
+      ('gemini-3-pro-preview', 'google', 'Gemini 3 Pro (Preview)', 'Advanced reasoning preview', '["Complex tasks", "Analysis"]', '{"type":"llm","streaming":true}', 2, true),
+      ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Configurable embeddings', '["General purpose", "Retrieval"]', '{"type":"embedding","defaultDimension":3072}', 3, true),
+      ('text-embedding-004', 'google', 'Text Embedding 004 (Legacy)', 'Legacy 768D embeddings', '["Legacy collections"]', '{"type":"embedding","defaultDimension":768}', 4, false)
+    ON CONFLICT (id) DO UPDATE SET
+      provider_id = EXCLUDED.provider_id,
+      name = EXCLUDED.name,
+      tagline = EXCLUDED.tagline,
+      best_for = EXCLUDED.best_for,
+      capabilities = EXCLUDED.capabilities,
+      sort_order = EXCLUDED.sort_order,
+      is_enabled = EXCLUDED.is_enabled;
+
+    -- OpenRouter (gateway, use provider-prefixed model IDs)
+    INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
+      ('openai/gpt-4o', 'openrouter', 'GPT-4o (OpenRouter)', 'Flagship OpenAI model', '["Reasoning", "Coding"]', '{"type":"llm","streaming":true}', 1, false),
+      ('anthropic/claude-3.5-sonnet', 'openrouter', 'Claude 3.5 Sonnet (OpenRouter)', 'Balanced Claude model', '["Analysis", "Writing"]', '{"type":"llm","streaming":true}', 2, false),
+      ('google/gemini-3-flash-preview', 'openrouter', 'Gemini 3 Flash (OpenRouter)', 'Low-latency Gemini preview', '["Realtime apps"]', '{"type":"llm","streaming":true}', 3, false)
+    ON CONFLICT (id) DO UPDATE SET
+      provider_id = EXCLUDED.provider_id,
+      name = EXCLUDED.name,
+      tagline = EXCLUDED.tagline,
+      best_for = EXCLUDED.best_for,
+      capabilities = EXCLUDED.capabilities,
+      sort_order = EXCLUDED.sort_order,
+      is_enabled = EXCLUDED.is_enabled;
+
+    -- Ensure deprecated embeddings remain disabled
+    UPDATE models SET is_enabled = false WHERE id = 'text-embedding-004';
   `,
   down: `
-    -- Revert to initial 2026 model refresh catalog
-    DELETE FROM models WHERE provider_id IN ('openai', 'anthropic', 'google');
-
-    -- OpenAI (GPT-5.2 + embeddings)
-    INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('gpt-5.2', 'openai', 'GPT-5.2', 'Frontier reasoning model', '["Reasoning", "Coding", "Analysis"]', '{"type":"llm","streaming":true}', 1, true),
-      ('text-embedding-3-small', 'openai', 'Text Embedding 3 Small', 'Efficient embeddings', '["Search", "Clustering"]', '{"type":"embedding","defaultDimension":1536}', 2, true),
-      ('text-embedding-3-large', 'openai', 'Text Embedding 3 Large', 'High-precision embeddings', '["Semantic search", "Knowledge retrieval"]', '{"type":"embedding","defaultDimension":3072}', 3, false);
-
-    -- Anthropic (Claude 4.5)
-    INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('claude-haiku-4-5', 'anthropic', 'Claude Haiku 4.5', 'Fastest Claude 4.5', '["Quick responses", "Data extraction"]', '{"type":"llm","streaming":true}', 1, true);
-
-    -- Google (Gemini 3 + embeddings)
-    INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('gemini-3-flash-preview', 'google', 'Gemini 3 Flash', 'Low-latency, high throughput', '["Realtime apps", "High volume"]', '{"type":"llm","streaming":true}', 1, true),
-      ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Configurable embeddings', '["General purpose", "Retrieval"]', '{"type":"embedding","defaultDimension":3072}', 2, false);
+    -- Revert provider display name
+    UPDATE providers SET name = 'Google' WHERE id = 'google';
   `,
 };

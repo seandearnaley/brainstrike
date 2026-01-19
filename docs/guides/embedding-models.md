@@ -91,7 +91,13 @@ Hosted models require API keys and internet connectivity but offer cutting-edge 
 #### Google
 
 **gemini-embedding-001**
-- **Dimensions**: 3072 (override via `output_dimensionality`)
+- **Dimensions**: 3072 (override via `outputDimensionality`)
+- **Best for**: General-purpose hosted embeddings with configurable dimensions
+
+**text-embedding-004** (Legacy, deprecated)
+- **Dimensions**: 768 (fixed)
+- **Best for**: Existing collections created before Gemini embeddings
+- **Status**: Disabled by default for new collections; Google announced deprecation on January 14, 2026
 
 #### Voyage AI
 
@@ -126,11 +132,11 @@ Hosted models require API keys and internet connectivity but offer cutting-edge 
 
 ### For Multilingual Content
 - **Local**: `jinaai/jina-embeddings-v3` (89 languages, experimental)
-- **Hosted**: `gemini-embedding-001` (configure `output_dimensionality` to 768) or `cohere embed-multilingual-v3.0` (not wired yet)
+- **Hosted**: `gemini-embedding-001` (configure `outputDimensionality` to 768) or `cohere embed-multilingual-v3.0` (not wired yet)
 
 ### For Production/Hosted
 - **Cost-effective**: OpenAI `text-embedding-3-small`
-- **Best performance**: OpenAI `text-embedding-3-large` or Google `gemini-embedding-001` (set `output_dimensionality` to 768 for standard-size sets)
+- **Best performance**: OpenAI `text-embedding-3-large` or Google `gemini-embedding-001` (set `outputDimensionality` to 768 for standard-size sets)
 - **Long context**: Voyage `voyage-3` (not wired yet)
 
 ## Flexible Dimensions
@@ -173,6 +179,10 @@ If switching models for existing data:
 1. Create a new Search Collection with the desired model
 2. Trigger backfill for your file set
 3. The old collection remains searchable until you're ready to delete it
+
+If you previously used `text-embedding-004`, keep that collection as-is and backfill to
+`gemini-embedding-001` in a new collection when you're ready to migrate. Avoid mixing
+legacy and Gemini embeddings in the same set.
 
 **Do not mix embeddings from different models in the same collection** - search quality will degrade significantly.
 

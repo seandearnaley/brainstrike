@@ -7,31 +7,32 @@ export const migration025UpdateProviderModels2026: Migration = {
     -- Replace hosted provider model catalogs (OpenAI, Anthropic, Google, OpenRouter)
     DELETE FROM models WHERE provider_id IN ('openai', 'anthropic', 'google', 'openrouter');
 
-    -- OpenAI (GPT-5.2 + embeddings)
+    -- OpenAI (GPT-4o family + embeddings)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('gpt-5.2', 'openai', 'GPT-5.2', 'Frontier reasoning model', '["Reasoning", "Coding", "Analysis"]', '{"type":"llm","streaming":true}', 1, true),
-      ('gpt-5.2-chat-latest', 'openai', 'GPT-5.2 Chat (Latest)', 'Chat-optimized GPT-5.2', '["Chat", "General assistance"]', '{"type":"llm","streaming":true}', 2, true),
-      ('gpt-5.2-pro', 'openai', 'GPT-5.2 Pro', 'Highest quality GPT-5.2', '["Complex reasoning", "Expert tasks"]', '{"type":"llm","streaming":true}', 3, false),
+      ('gpt-4o', 'openai', 'GPT-4o', 'Flagship multimodal model', '["Reasoning", "Coding", "Multimodal"]', '{"type":"llm","streaming":true}', 1, true),
+      ('gpt-4o-mini', 'openai', 'GPT-4o Mini', 'Fast & cost-effective', '["Chat", "High throughput"]', '{"type":"llm","streaming":true}', 2, true),
+      ('gpt-4-turbo', 'openai', 'GPT-4 Turbo', 'High-performance legacy model', '["Long context", "Instruction following"]', '{"type":"llm","streaming":true}', 3, false),
       ('text-embedding-3-small', 'openai', 'Text Embedding 3 Small', 'Efficient embeddings', '["Search", "Clustering"]', '{"type":"embedding","defaultDimension":1536}', 4, true),
       ('text-embedding-3-large', 'openai', 'Text Embedding 3 Large', 'High-precision embeddings', '["Semantic search", "Knowledge retrieval"]', '{"type":"embedding","defaultDimension":3072}', 5, false);
 
-    -- Anthropic (Claude 4.5)
+    -- Anthropic (Claude Sonnet 4 + Haiku 3.5 + Opus 4.1)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('claude-haiku-4-5', 'anthropic', 'Claude Haiku 4.5', 'Fastest Claude 4.5', '["Quick responses", "Data extraction"]', '{"type":"llm","streaming":true}', 1, true),
-      ('claude-sonnet-4-5', 'anthropic', 'Claude Sonnet 4.5', 'Balanced Claude 4.5', '["Analysis", "Coding", "Writing"]', '{"type":"llm","streaming":true}', 2, true),
-      ('claude-opus-4-5', 'anthropic', 'Claude Opus 4.5', 'Highest quality Claude 4.5', '["Deep research", "Complex tasks"]', '{"type":"llm","streaming":true}', 3, false);
+      ('claude-sonnet-4-0', 'anthropic', 'Claude Sonnet 4', 'Advanced reasoning', '["Analysis", "Coding", "Writing"]', '{"type":"llm","streaming":true}', 1, true),
+      ('claude-3-5-haiku-latest', 'anthropic', 'Claude 3.5 Haiku (Latest)', 'Fastest Claude model', '["Quick responses", "Data extraction"]', '{"type":"llm","streaming":true}', 2, true),
+      ('claude-opus-4-1', 'anthropic', 'Claude Opus 4.1', 'Highest quality Claude model', '["Deep research", "Complex tasks"]', '{"type":"llm","streaming":true}', 3, false);
 
-    -- Google (Gemini 3 + embeddings)
+    -- Google (Gemini 3 preview + embeddings)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('gemini-3-flash-preview', 'google', 'Gemini 3 Flash', 'Low-latency, high throughput', '["Realtime apps", "High volume"]', '{"type":"llm","streaming":true}', 1, true),
-      ('gemini-3-pro-preview', 'google', 'Gemini 3 Pro (Preview)', 'Advanced reasoning', '["Complex tasks", "Analysis"]', '{"type":"llm","streaming":true}', 2, true),
-      ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Configurable embeddings', '["General purpose", "Retrieval"]', '{"type":"embedding","defaultDimension":3072}', 3, false);
+      ('gemini-3-flash-preview', 'google', 'Gemini 3 Flash (Preview)', 'Low-latency preview model', '["Realtime apps", "High volume"]', '{"type":"llm","streaming":true}', 1, true),
+      ('gemini-3-pro-preview', 'google', 'Gemini 3 Pro (Preview)', 'Advanced reasoning preview', '["Complex tasks", "Analysis"]', '{"type":"llm","streaming":true}', 2, true),
+      ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Configurable embeddings', '["General purpose", "Retrieval"]', '{"type":"embedding","defaultDimension":3072}', 3, true),
+      ('text-embedding-004', 'google', 'Text Embedding 004 (Legacy)', 'Legacy 768D embeddings', '["Legacy collections"]', '{"type":"embedding","defaultDimension":768}', 4, false);
 
     -- OpenRouter (gateway, use provider-prefixed model IDs)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('openai/gpt-5.2', 'openrouter', 'GPT-5.2 (OpenRouter)', 'Frontier reasoning model', '["Reasoning", "Coding"]', '{"type":"llm","streaming":true}', 1, false),
-      ('anthropic/claude-haiku-4.5', 'openrouter', 'Claude Haiku 4.5 (OpenRouter)', 'Fast Claude model', '["Quick responses"]', '{"type":"llm","streaming":true}', 2, false),
-      ('google/gemini-3-flash-preview', 'openrouter', 'Gemini 3 Flash (OpenRouter)', 'Low-latency Gemini', '["Realtime apps"]', '{"type":"llm","streaming":true}', 3, false);
+      ('openai/gpt-4o', 'openrouter', 'GPT-4o (OpenRouter)', 'Flagship OpenAI model', '["Reasoning", "Coding"]', '{"type":"llm","streaming":true}', 1, false),
+      ('anthropic/claude-3.5-sonnet', 'openrouter', 'Claude 3.5 Sonnet (OpenRouter)', 'Balanced Claude model', '["Analysis", "Writing"]', '{"type":"llm","streaming":true}', 2, false),
+      ('google/gemini-3-flash-preview', 'openrouter', 'Gemini 3 Flash (OpenRouter)', 'Low-latency Gemini preview', '["Realtime apps"]', '{"type":"llm","streaming":true}', 3, false);
   `,
   down: `
     -- Restore previous hosted provider catalogs
@@ -49,20 +50,20 @@ export const migration025UpdateProviderModels2026: Migration = {
     -- Anthropic (previous catalog)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
       ('claude-3-5-haiku-latest', 'anthropic', 'Claude 3.5 Haiku', 'Fastest Claude model', '["Quick responses", "Data extraction"]', '{"type":"llm","streaming":true}', 1, true),
-      ('claude-3-5-sonnet-latest', 'anthropic', 'Claude 3.5 Sonnet', 'Balanced intelligence & speed', '["Coding", "Analysis", "Writing"]', '{"type":"llm","streaming":true}', 2, true),
-      ('claude-3-opus-latest', 'anthropic', 'Claude 3 Opus', 'Most powerful Claude model', '["Complex tasks", "Research"]', '{"type":"llm","streaming":true}', 3, false);
+      ('claude-sonnet-4-0', 'anthropic', 'Claude Sonnet 4', 'Advanced reasoning', '["Coding", "Analysis", "Writing"]', '{"type":"llm","streaming":true}', 2, true),
+      ('claude-opus-4-1', 'anthropic', 'Claude Opus 4.1', 'Highest quality Claude model', '["Complex tasks", "Research"]', '{"type":"llm","streaming":true}', 3, false);
 
     -- Google (previous catalog)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
       ('gemini-2.5-flash', 'google', 'Gemini 2.5 Flash', 'Next-gen speed & efficiency', '["Real-time apps", "High throughput"]', '{"type":"llm","streaming":true}', 1, true),
-      ('gemini-2.0-pro', 'google', 'Gemini 2.0 Pro', 'Best-in-class reasoning', '["Complex problem solving", "Multimodal"]', '{"type":"llm","streaming":true}', 2, true),
-      ('gemini-1.5-pro', 'google', 'Gemini 1.5 Pro', 'Long context window', '["Document analysis", "Large codebases"]', '{"type":"llm","streaming":true}', 3, false),
-      ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Legacy embeddings', '["Classification"]', '{"type":"embedding","defaultDimension":3072}', 4, false);
+      ('gemini-2.5-pro', 'google', 'Gemini 2.5 Pro', 'Advanced reasoning', '["Complex tasks", "Analysis"]', '{"type":"llm","streaming":true}', 2, true),
+      ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Legacy embeddings', '["Classification"]', '{"type":"embedding","defaultDimension":3072}', 3, true),
+      ('text-embedding-004', 'google', 'Text Embedding 004 (Legacy)', 'Legacy 768D embeddings', '["Legacy collections"]', '{"type":"embedding","defaultDimension":768}', 4, false);
 
     -- OpenRouter (previous catalog)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, sort_order, is_enabled) VALUES
-      ('openrouter/gpt-4o-mini', 'openrouter', 'GPT-4o Mini (OpenRouter)', 'Fast & cost-effective', '["Simple tasks"]', '{"type":"llm","streaming":true}', 1, false),
-      ('openrouter/gpt-4o', 'openrouter', 'GPT-4o (OpenRouter)', 'Most advanced multimodal model', '["Complex reasoning"]', '{"type":"llm","streaming":true}', 2, false),
-      ('openrouter/claude-3-5-sonnet', 'openrouter', 'Claude 3.5 Sonnet (OpenRouter)', 'Balanced intelligence', '["Coding", "Analysis"]', '{"type":"llm","streaming":true}', 3, false);
+      ('openai/gpt-4o-mini', 'openrouter', 'GPT-4o Mini (OpenRouter)', 'Fast & cost-effective', '["Simple tasks"]', '{"type":"llm","streaming":true}', 1, false),
+      ('openai/gpt-4o', 'openrouter', 'GPT-4o (OpenRouter)', 'Most advanced multimodal model', '["Complex reasoning"]', '{"type":"llm","streaming":true}', 2, false),
+      ('anthropic/claude-3.5-sonnet', 'openrouter', 'Claude 3.5 Sonnet (OpenRouter)', 'Balanced intelligence', '["Coding", "Analysis"]', '{"type":"llm","streaming":true}', 3, false);
   `,
 };

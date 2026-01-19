@@ -1196,7 +1196,12 @@ const GoogleThinkingSection: FC<GoogleThinkingSectionProps> = ({
   disabled,
   modelName,
 }) => {
-  const isGeminiPro = Boolean(modelName?.includes('gemini-3-pro'));
+  const isGeminiPro = Boolean(
+    modelName?.includes('gemini-3-pro-preview') ||
+      modelName?.includes('gemini-2.5-pro') ||
+      modelName?.includes('gemini-2.0-pro') ||
+      modelName?.includes('gemini-1.5-pro')
+  );
   const googleThinkingLevels = isGeminiPro
     ? GOOGLE_PRO_THINKING_LEVELS
     : GOOGLE_FLASH_THINKING_LEVELS;

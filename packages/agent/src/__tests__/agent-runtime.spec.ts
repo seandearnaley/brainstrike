@@ -336,7 +336,7 @@ describe('agent-runtime edge cases', () => {
 
       const runtime = await createMastraAgentRuntime({
         runtime: { apiKey: 'test-key', provider: 'openai' },
-        model: 'gpt-5.2',
+        model: 'gpt-4o',
       });
 
       expect(runtime.agent).toBeDefined();

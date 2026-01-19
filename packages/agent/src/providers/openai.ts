@@ -121,7 +121,7 @@ export async function toOpenAIStream(
   messages: AgentMessage[],
   runtime: OpenAIStreamRuntime
 ): Promise<StreamIterator> {
-  const modelId = runtime.model ?? 'gpt-5.2';
+  const modelId = runtime.model ?? 'gpt-4o';
   const chatMessages = toChatMessages(messages);
 
   const res = await fetch('https://api.openai.com/v1/chat/completions', {

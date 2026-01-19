@@ -36,7 +36,7 @@ export function ApiKeysSettings() {
     (): ProviderOption[] =>
       providerDefinitions.map((definition: ProviderDefinition) => ({
         id: definition.id,
-        name: definition.id === 'google' ? 'Google AI Studio' : definition.displayName,
+        name: definition.displayName,
       })),
     [providerDefinitions]
   );

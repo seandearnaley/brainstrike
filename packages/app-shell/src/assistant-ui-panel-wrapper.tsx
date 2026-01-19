@@ -39,6 +39,7 @@ export interface AssistantUiPanelWrapperProps {
   initialProviders?: SupportedProvider[];
 }
 
+// App-shell wrapper wires DB/preferences state into the shared UI-only AssistantUiPanel.
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   hosted: 'Hosted',
   gateway: 'Gateway',
@@ -71,7 +72,12 @@ function resolveGoogleThinkingLevel(
   if (!value) {
     return;
   }
-  const isPro = Boolean(modelName?.includes('gemini-3-pro'));
+  const isPro = Boolean(
+    modelName?.includes('gemini-3-pro-preview') ||
+      modelName?.includes('gemini-2.5-pro') ||
+      modelName?.includes('gemini-2.0-pro') ||
+      modelName?.includes('gemini-1.5-pro')
+  );
   const allowed: readonly NonNullable<AssistantProviderSettings['googleThinkingLevel']>[] = isPro
     ? ['low', 'high']
     : ['minimal', 'low', 'medium', 'high'];

@@ -22,7 +22,22 @@ interface GoogleEmbeddingResponse {
   error?: { message?: string };
 }
 
-const GOOGLE_MODELS: Record<string, ModelConfig> = {
+interface GoogleModelConfig extends ModelConfig {
+  supportsOutputDimensionality?: boolean;
+}
+
+const GOOGLE_MODELS: Record<string, GoogleModelConfig> = {
+  'text-embedding-004': {
+    id: 'text-embedding-004',
+    name: 'Text Embedding 004',
+    dimensions: 768,
+    quantized: false,
+    description: 'Legacy Google text embedding model (768D).',
+    tags: ['google', 'hosted', 'embedding'],
+    origin: 'Google',
+    size: 'hosted',
+    supportsOutputDimensionality: false,
+  },
   'gemini-embedding-001': {
     id: 'gemini-embedding-001',
     name: 'Gemini embedding-001',
@@ -32,6 +47,7 @@ const GOOGLE_MODELS: Record<string, ModelConfig> = {
     tags: ['google', 'hosted', 'embedding'],
     origin: 'Google Gemini',
     size: 'hosted',
+    supportsOutputDimensionality: true,
   },
 };
 
@@ -50,6 +66,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
   private apiKey: string | null;
   private readonly modelId: string;
   private readonly targetDimensions: number;
+  private readonly supportsOutputDimensionality: boolean;
   private readonly fetchImpl: FetchLike;
   private readonly endpoint: string;
   private readonly batchEndpoint: string;
@@ -58,7 +75,15 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     this.modelId = options.modelId;
     // Use model's native dimensions if outputDimensions not specified
     const modelInfo = GOOGLE_MODELS[options.modelId];
+    this.supportsOutputDimensionality = Boolean(modelInfo?.supportsOutputDimensionality);
     if (options.outputDimensions !== undefined) {
+      if (
+        !this.supportsOutputDimensionality &&
+        modelInfo?.dimensions !== undefined &&
+        options.outputDimensions !== modelInfo.dimensions
+      ) {
+        throw new Error(`Google model '${options.modelId}' does not support custom dimensions.`);
+      }
       this.targetDimensions = options.outputDimensions;
     } else if (modelInfo?.dimensions) {
       this.targetDimensions = modelInfo.dimensions;
@@ -100,7 +125,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     return {
       providerId: 'google',
       modelKey: modelId,
-      // Use configured targetDimensions (Google supports configurable output_dimensionality)
+      // Use configured targetDimensions (Google supports configurable outputDimensionality)
       dimensions: this.targetDimensions,
       distance: DEFAULT_DISTANCE_METRIC,
       displayName: modelConfig.name,
@@ -237,17 +262,25 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
 
   private async requestSingleEmbedding(text: string, apiKey: string): Promise<Response> {
     const fetchImpl = this.fetchImpl.bind(globalThis);
+    const body: {
+      model: string;
+      content: { parts: Array<{ text: string }> };
+      outputDimensionality?: number;
+    } = {
+      model: normalizeModelPath(this.modelId),
+      content: buildContent(text),
+    };
+    if (this.supportsOutputDimensionality) {
+      body.outputDimensionality = this.targetDimensions;
+    }
+
     return fetchImpl(this.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-goog-api-key': apiKey,
       },
-      body: JSON.stringify({
-        content: buildContent(text),
-        // biome-ignore lint/style/useNamingConvention: Google API expects snake_case key
-        output_dimensionality: this.targetDimensions,
-      }),
+      body: JSON.stringify(body),
     });
   }
 
@@ -256,8 +289,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     const requests = texts.map((text) => ({
       model: normalizeModelPath(this.modelId),
       content: buildContent(text),
-      // biome-ignore lint/style/useNamingConvention: Google API expects snake_case key
-      output_dimensionality: this.targetDimensions,
+      ...(this.supportsOutputDimensionality ? { outputDimensionality: this.targetDimensions } : {}),
     }));
 
     return fetchImpl(this.batchEndpoint, {
