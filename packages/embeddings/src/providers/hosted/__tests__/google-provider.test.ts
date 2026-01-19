@@ -1,0 +1,93 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { EmbeddingInput } from '../../../provider-types';
+import { GoogleEmbeddingProvider } from '../google-provider';
+
+const createMockFetch = (response: Response) => vi.fn(() => Promise.resolve(response));
+
+describe('GoogleEmbeddingProvider', () => {
+  it('uses embedContent for single inputs', async () => {
+    const payload = { embedding: { values: [0.1, 0.2] } };
+    const response = new Response(JSON.stringify(payload), { status: 200 });
+    const mockFetch = createMockFetch(response);
+
+    const provider = new GoogleEmbeddingProvider({
+      modelId: 'gemini-embedding-001',
+      apiKey: 'test-api-key',
+      fetch: mockFetch as typeof fetch,
+      outputDimensions: 2,
+    });
+
+    const input: EmbeddingInput = { text: 'hello', modelId: 'gemini-embedding-001' };
+    const result = await provider.embed(input);
+    expect(result.ok).toBe(true);
+
+    const call = mockFetch.mock.calls.at(0);
+    if (!call) {
+      throw new Error('Expected fetch to be called for single input.');
+    }
+    const [url, init] = call as unknown as [RequestInfo | URL, RequestInit | undefined];
+    expect(String(url)).toContain(':embedContent');
+    const body = JSON.parse(String(init?.body ?? '{}')) as {
+      content?: { parts?: Array<{ text?: string }> };
+      output_dimensionality?: number;
+    };
+    expect(body.content?.parts?.[0]?.text).toBe('hello');
+    expect(body.output_dimensionality).toBe(2);
+  });
+
+  it('uses batchEmbedContents for multiple inputs', async () => {
+    const payload = {
+      embeddings: [{ values: [0.1, 0.2] }, { values: [0.3, 0.4] }],
+    };
+    const response = new Response(JSON.stringify(payload), { status: 200 });
+    const mockFetch = createMockFetch(response);
+
+    const provider = new GoogleEmbeddingProvider({
+      modelId: 'gemini-embedding-001',
+      apiKey: 'test-api-key',
+      fetch: mockFetch as typeof fetch,
+      outputDimensions: 2,
+    });
+
+    const input: EmbeddingInput = { text: ['a', 'b'], modelId: 'gemini-embedding-001' };
+    const result = await provider.embed(input);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.embeddings).toHaveLength(2);
+    }
+
+    const call = mockFetch.mock.calls.at(0);
+    if (!call) {
+      throw new Error('Expected fetch to be called for batch input.');
+    }
+    const [url, init] = call as unknown as [RequestInfo | URL, RequestInit | undefined];
+    expect(String(url)).toContain(':batchEmbedContents');
+    const body = JSON.parse(String(init?.body ?? '{}')) as {
+      requests?: Array<{
+        content?: { parts?: Array<{ text?: string }> };
+        output_dimensionality?: number;
+      }>;
+    };
+    expect(body.requests?.length).toBe(2);
+    expect(body.requests?.[0]?.content?.parts?.[0]?.text).toBe('a');
+    expect(body.requests?.[1]?.content?.parts?.[0]?.text).toBe('b');
+    expect(body.requests?.[0]?.output_dimensionality).toBe(2);
+  });
+
+  it('returns a validation error for empty inputs', async () => {
+    const mockFetch = createMockFetch(new Response('{}', { status: 200 }));
+    const provider = new GoogleEmbeddingProvider({
+      modelId: 'gemini-embedding-001',
+      apiKey: 'test-api-key',
+      fetch: mockFetch as typeof fetch,
+      outputDimensions: 2,
+    });
+
+    const input: EmbeddingInput = { text: [], modelId: 'gemini-embedding-001' };
+    const result = await provider.embed(input);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.type).toBe('validation_error');
+    }
+  });
+});

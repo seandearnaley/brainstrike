@@ -36,7 +36,7 @@ export function ApiKeysSettings() {
     (): ProviderOption[] =>
       providerDefinitions.map((definition: ProviderDefinition) => ({
         id: definition.id,
-        name: definition.displayName,
+        name: definition.id === 'google' ? 'Google AI Studio' : definition.displayName,
       })),
     [providerDefinitions]
   );
@@ -56,6 +56,12 @@ export function ApiKeysSettings() {
     () => providerOptions.find((option) => option.id === provider)?.name ?? provider,
     [providerOptions, provider]
   );
+  const providerKeyHint = useMemo(() => {
+    if (provider === 'google') {
+      return 'Use a Gemini API key from Google AI Studio. Vertex AI keys are not supported yet.';
+    }
+    return null;
+  }, [provider]);
 
   const refreshProviders = useCallback(async () => {
     try {
@@ -155,6 +161,11 @@ export function ApiKeysSettings() {
                 type="password"
                 value={apiKey}
               />
+              {providerKeyHint ? (
+                <p className="text-muted-foreground text-xs" data-testid="provider-key-hint">
+                  {providerKeyHint}
+                </p>
+              ) : null}
             </div>
           </div>
 
