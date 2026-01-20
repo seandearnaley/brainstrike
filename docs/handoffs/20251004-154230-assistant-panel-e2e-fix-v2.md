@@ -74,7 +74,7 @@ await page.addInitScript(() => {
     JSON.stringify({
       state: {
         selectedProvider: 'openai',
-        modelsByProvider: { openai: 'gpt-4o-mini', /* ... */ },
+        modelsByProvider: { openai: 'gpt-4o', /* ... */ },
       },
       version: 1,
     })

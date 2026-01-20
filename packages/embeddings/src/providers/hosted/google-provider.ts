@@ -22,26 +22,21 @@ interface GoogleEmbeddingResponse {
   error?: { message?: string };
 }
 
-const GOOGLE_MODELS: Record<string, ModelConfig> = {
-  'text-embedding-004': {
-    id: 'text-embedding-004',
-    name: 'Google text-embedding-004',
-    dimensions: 768,
-    quantized: false,
-    description: 'Google Vertex AI embedding model (768D).',
-    tags: ['google', 'hosted', 'embedding'],
-    origin: 'Google Vertex AI',
-    size: 'hosted',
-  },
+interface GoogleModelConfig extends ModelConfig {
+  supportsOutputDimensionality?: boolean;
+}
+
+const GOOGLE_MODELS: Record<string, GoogleModelConfig> = {
   'gemini-embedding-001': {
     id: 'gemini-embedding-001',
     name: 'Gemini embedding-001',
     dimensions: 3072,
     quantized: false,
-    description: 'Gemini high-dimensional embedding model with configurable output.',
+    description: 'Gemini embedding model with configurable output dimensions.',
     tags: ['google', 'hosted', 'embedding'],
     origin: 'Google Gemini',
     size: 'hosted',
+    supportsOutputDimensionality: true,
   },
 };
 
@@ -60,14 +55,24 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
   private apiKey: string | null;
   private readonly modelId: string;
   private readonly targetDimensions: number;
+  private readonly supportsOutputDimensionality: boolean;
   private readonly fetchImpl: FetchLike;
   private readonly endpoint: string;
+  private readonly batchEndpoint: string;
 
   constructor(options: GoogleEmbeddingProviderOptions) {
     this.modelId = options.modelId;
     // Use model's native dimensions if outputDimensions not specified
     const modelInfo = GOOGLE_MODELS[options.modelId];
+    this.supportsOutputDimensionality = Boolean(modelInfo?.supportsOutputDimensionality);
     if (options.outputDimensions !== undefined) {
+      if (
+        !this.supportsOutputDimensionality &&
+        modelInfo?.dimensions !== undefined &&
+        options.outputDimensions !== modelInfo.dimensions
+      ) {
+        throw new Error(`Google model '${options.modelId}' does not support custom dimensions.`);
+      }
       this.targetDimensions = options.outputDimensions;
     } else if (modelInfo?.dimensions) {
       this.targetDimensions = modelInfo.dimensions;
@@ -76,9 +81,9 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     }
     this.apiKey = normalizeApiKey(options.apiKey);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
-    this.endpoint =
-      options.endpoint ??
-      `https://generativelanguage.googleapis.com/v1beta/models/${this.modelId}:embedContent`;
+    const defaultEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${this.modelId}:embedContent`;
+    this.endpoint = options.endpoint ?? defaultEndpoint;
+    this.batchEndpoint = resolveBatchEndpoint(this.endpoint);
   }
 
   setApiKey(apiKey: string): void {
@@ -109,7 +114,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     return {
       providerId: 'google',
       modelKey: modelId,
-      // Use configured targetDimensions (Google supports configurable output_dimensionality)
+      // Use configured targetDimensions (Google supports configurable outputDimensionality)
       dimensions: this.targetDimensions,
       distance: DEFAULT_DISTANCE_METRIC,
       displayName: modelConfig.name,
@@ -141,84 +146,17 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
       };
     }
 
+    const normalizedTexts = normalizeInputTexts(input.text);
+    if (!normalizedTexts.ok) {
+      return normalizedTexts;
+    }
+
     try {
-      const fetchImpl = this.fetchImpl.bind(globalThis);
-      const response = await fetchImpl(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey,
-        },
-        body: JSON.stringify({
-          content: {
-            parts: [{ text: input.text }],
-          },
-          // biome-ignore lint/style/useNamingConvention: Google API expects snake_case key
-          output_dimensionality: this.targetDimensions,
-        }),
-      });
-
+      const response = await this.requestEmbeddings(normalizedTexts.value, apiKey);
       if (!response.ok) {
-        if (response.status === 429) {
-          return {
-            ok: false,
-            error: {
-              type: 'rate_limit_exceeded',
-              provider: 'google',
-            },
-          };
-        }
-
-        const errPayload = (await safeJson(response)) as GoogleEmbeddingResponse | undefined;
-        const message =
-          (typeof errPayload?.error?.message === 'string' && errPayload.error.message) ||
-          `Google embeddings request failed with status ${response.status}`;
-
-        return {
-          ok: false,
-          error: {
-            type: 'api_error',
-            provider: 'google',
-            statusCode: response.status,
-            message,
-          },
-        };
+        return this.handleErrorResponse(response);
       }
-
-      const payload = (await response.json()) as GoogleEmbeddingResponse;
-      const embedding = extractEmbeddingValues(payload);
-
-      if (!Array.isArray(embedding)) {
-        return {
-          ok: false,
-          error: {
-            type: 'api_error',
-            provider: 'google',
-            statusCode: response.status,
-            message: 'Google response did not include embedding values.',
-          },
-        };
-      }
-
-      const validation = this.validateDimensions(embedding, this.targetDimensions);
-      if (!validation.ok) {
-        return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
-      }
-
-      const usageTokens = (payload as { usageMetadata?: { totalTokenCount?: number } })
-        .usageMetadata?.totalTokenCount;
-
-      const output: EmbeddingOutput = {
-        embedding,
-        dimensions: embedding.length,
-        modelId: input.modelId,
-        provider: 'google',
-      };
-      if (typeof usageTokens === 'number') {
-        output.usage = { inputTokens: usageTokens };
-      }
-
-      return { ok: true, value: output };
+      return await this.handleSuccessResponse(response, normalizedTexts.value, input.modelId);
     } catch (error) {
       return {
         ok: false,
@@ -229,6 +167,131 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
         },
       };
     }
+  }
+
+  private async requestEmbeddings(texts: string[], apiKey: string): Promise<Response> {
+    if (texts.length > 1) {
+      return this.requestBatchEmbedding(texts, apiKey);
+    }
+    return this.requestSingleEmbedding(texts[0] ?? '', apiKey);
+  }
+
+  private async handleErrorResponse(
+    response: Response
+  ): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
+    if (response.status === 429) {
+      return {
+        ok: false,
+        error: {
+          type: 'rate_limit_exceeded',
+          provider: 'google',
+        },
+      };
+    }
+
+    const errPayload = (await safeJson(response)) as GoogleEmbeddingResponse | undefined;
+    const message =
+      (typeof errPayload?.error?.message === 'string' && errPayload.error.message) ||
+      `Google embeddings request failed with status ${response.status}`;
+
+    return {
+      ok: false,
+      error: {
+        type: 'api_error',
+        provider: 'google',
+        statusCode: response.status,
+        message,
+      },
+    };
+  }
+
+  private async handleSuccessResponse(
+    response: Response,
+    texts: string[],
+    modelId: string
+  ): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
+    const payload = (await response.json()) as GoogleEmbeddingResponse;
+    const embeddings = extractEmbeddingVectors(payload);
+
+    if (!embeddings || embeddings.length === 0) {
+      return {
+        ok: false,
+        error: {
+          type: 'api_error',
+          provider: 'google',
+          statusCode: response.status,
+          message: 'Google response did not include embedding values.',
+        },
+      };
+    }
+
+    if (embeddings.length !== texts.length) {
+      return {
+        ok: false,
+        error: {
+          type: 'api_error',
+          provider: 'google',
+          statusCode: response.status,
+          message: `Google response returned ${embeddings.length} embeddings for ${texts.length} inputs.`,
+        },
+      };
+    }
+
+    for (const embedding of embeddings) {
+      const validation = this.validateDimensions(embedding, this.targetDimensions);
+      if (!validation.ok) {
+        return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
+      }
+    }
+
+    const usageTokens = (payload as { usageMetadata?: { totalTokenCount?: number } }).usageMetadata
+      ?.totalTokenCount;
+    return buildEmbeddingOutput(embeddings, modelId, usageTokens);
+  }
+
+  private async requestSingleEmbedding(text: string, apiKey: string): Promise<Response> {
+    const fetchImpl = this.fetchImpl.bind(globalThis);
+    const body: {
+      model: string;
+      content: { parts: Array<{ text: string }> };
+      outputDimensionality?: number;
+    } = {
+      model: normalizeModelPath(this.modelId),
+      content: buildContent(text),
+    };
+    if (this.supportsOutputDimensionality) {
+      // Gemini embeddings use outputDimensionality (camelCase) in JSON requests.
+      body.outputDimensionality = this.targetDimensions;
+    }
+
+    return fetchImpl(this.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  private async requestBatchEmbedding(texts: string[], apiKey: string): Promise<Response> {
+    const fetchImpl = this.fetchImpl.bind(globalThis);
+    const model = normalizeModelPath(this.modelId);
+    const requests = texts.map((text) => ({
+      model,
+      content: buildContent(text),
+      // Gemini embeddings use outputDimensionality (camelCase) in JSON requests.
+      ...(this.supportsOutputDimensionality ? { outputDimensionality: this.targetDimensions } : {}),
+    }));
+
+    return fetchImpl(this.batchEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: JSON.stringify({ model, requests }),
+    });
   }
 
   validateDimensions(
@@ -261,17 +324,59 @@ async function safeJson(response: Response): Promise<unknown | undefined> {
   }
 }
 
-function extractEmbeddingValues(payload: GoogleEmbeddingResponse): number[] | undefined {
+function normalizeApiKey(value: string | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeInputTexts(input: string | string[]): Result<string[], EmbeddingProviderError> {
+  const texts = Array.isArray(input) ? input : [input];
+  if (texts.length === 0) {
+    return {
+      ok: false,
+      error: {
+        type: 'validation_error',
+        field: 'text',
+        message: 'At least one input string is required for embeddings.',
+      },
+    };
+  }
+  if (!texts.every((text) => typeof text === 'string')) {
+    return {
+      ok: false,
+      error: {
+        type: 'validation_error',
+        field: 'text',
+        message: 'Embedding inputs must be strings.',
+      },
+    };
+  }
+  return { ok: true, value: texts };
+}
+
+function buildContent(text: string): { parts: Array<{ text: string }> } {
+  return {
+    parts: [{ text }],
+  };
+}
+
+function extractEmbeddingVectors(payload: GoogleEmbeddingResponse): number[][] | undefined {
   if (!payload) {
     return;
   }
 
-  if (Array.isArray(payload.embeddings) && payload.embeddings[0]?.values) {
-    return payload.embeddings[0].values;
+  if (Array.isArray(payload.embeddings)) {
+    const values = payload.embeddings
+      .map((embedding) => embedding.values)
+      .filter((embedding): embedding is number[] => Array.isArray(embedding));
+    return values.length > 0 ? values : undefined;
   }
 
-  if (payload.embedding?.values) {
-    return payload.embedding.values;
+  if (payload.embedding?.values && Array.isArray(payload.embedding.values)) {
+    return [payload.embedding.values];
   }
 
   if (Array.isArray(payload.predictions)) {
@@ -284,18 +389,61 @@ function extractEmbeddingValues(payload: GoogleEmbeddingResponse): number[] | un
       return;
     }
     if (Array.isArray(embeddings)) {
-      return embeddings[0]?.values;
+      const values = embeddings
+        .map((embedding) => embedding.values)
+        .filter((embedding): embedding is number[] => Array.isArray(embedding));
+      return values.length > 0 ? values : undefined;
     }
-    return embeddings.values;
+    if (Array.isArray(embeddings.values)) {
+      return [embeddings.values];
+    }
   }
 
   return;
 }
 
-function normalizeApiKey(value: string | undefined): string | null {
-  if (typeof value !== 'string') {
-    return null;
+function resolveBatchEndpoint(embedEndpoint: string): string {
+  if (embedEndpoint.includes(':embedContent')) {
+    return embedEndpoint.replace(':embedContent', ':batchEmbedContents');
   }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  return `${embedEndpoint}:batchEmbedContents`;
+}
+
+function normalizeModelPath(modelId: string): string {
+  if (modelId.startsWith('models/')) {
+    return modelId;
+  }
+  return `models/${modelId}`;
+}
+
+function buildEmbeddingOutput(
+  embeddings: number[][],
+  modelId: string,
+  usageTokens?: number
+): Result<EmbeddingOutput, EmbeddingProviderError> {
+  const primaryEmbedding = embeddings[0];
+  if (!primaryEmbedding) {
+    return {
+      ok: false,
+      error: {
+        type: 'api_error',
+        provider: 'google',
+        statusCode: 200,
+        message: 'Google response did not include embedding values.',
+      },
+    };
+  }
+
+  const output: EmbeddingOutput = {
+    embedding: primaryEmbedding,
+    embeddings,
+    dimensions: primaryEmbedding.length,
+    modelId,
+    provider: 'google',
+  };
+  if (typeof usageTokens === 'number') {
+    output.usage = { inputTokens: usageTokens };
+  }
+
+  return { ok: true, value: output };
 }

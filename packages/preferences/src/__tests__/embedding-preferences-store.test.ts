@@ -1,5 +1,6 @@
 import type { EmbeddingProviderType } from '@brainstrike/embeddings';
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { StorageValue } from 'zustand/middleware';
 import {
   __resetEmbeddingPreferencesStoreForTests,
   useEmbeddingPreferencesStore,
@@ -16,6 +17,7 @@ type PersistApi<T> = T & {
       };
     };
     clearStorage?: () => void;
+    rehydrate?: () => Promise<void>;
   };
 };
 
@@ -39,6 +41,8 @@ describe('embedding-preferences-store', () => {
       const store = useEmbeddingPreferencesStore.getState();
       const localModels = store.getEnabledModels('local');
       expect(localModels).toContain('jinaai/jina-embeddings-v2-base-code');
+      const transformerModels = store.getEnabledModels('transformers');
+      expect(transformerModels).toContain('jinaai/jina-embeddings-v2-base-code');
     });
 
     it('has hosted providers disabled by default', () => {
@@ -158,6 +162,36 @@ describe('embedding-preferences-store', () => {
       const store2 = useEmbeddingPreferencesStore.getState();
 
       expect(store2.preferredRuntime).toBe('hosted');
+    });
+
+    it('migrates legacy Google embedding model IDs', async () => {
+      const persistApi = storeWithPersist.persist;
+      const options = persistApi?.getOptions?.();
+      if (!(persistApi && options?.storage && options.name)) {
+        throw new Error('persist storage unavailable for test');
+      }
+
+      const legacyState: StorageValue<unknown> = {
+        version: 1,
+        state: {
+          enabledModelsByProvider: {
+            local: [],
+            transformers: [],
+            openai: [],
+            google: ['text-embedding-004'],
+            cohere: [],
+            voyage: [],
+          },
+          preferredRuntime: 'hosted',
+        },
+      };
+
+      options.storage.setItem(options.name, legacyState);
+      await persistApi.rehydrate?.();
+
+      const store = useEmbeddingPreferencesStore.getState();
+      expect(store.getEnabledModels('google')).toContain('gemini-embedding-001');
+      expect(store.getEnabledModels('google')).not.toContain('text-embedding-004');
     });
   });
 

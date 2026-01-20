@@ -64,9 +64,9 @@ const baseModels: DbModel[] = [
     sortOrder: 2,
   },
   {
-    id: 'gpt-3.5',
+    id: 'gpt-5.2',
     providerId: 'openai',
-    name: 'GPT Chat',
+    name: 'GPT-5.2',
     description: 'Chat model',
     tagline: null,
     bestFor: null,
@@ -140,7 +140,7 @@ describe('ModelList', () => {
     await userEvent.clear(searchInput);
     await userEvent.type(searchInput, 'gpt');
 
-    expect(screen.getByText('GPT Chat')).toBeTruthy();
+    expect(screen.getByText('GPT-5.2')).toBeTruthy();
     expect(screen.queryByText('Local Ready')).toBeNull();
 
     // Switch to embeddings tab -> no matches for GPT
@@ -205,13 +205,13 @@ describe('ModelList', () => {
 
     // Hosted provider should not render download controls
     await userEvent.click(screen.getByRole('tab', { name: 'Chat' }));
-    const gptRow = screen.getByTestId('model-row-gpt-3.5');
+    const gptRow = screen.getByTestId('model-row-gpt-5.2');
     expect(within(gptRow).queryByRole('button', { name: 'Download' })).toBeNull();
 
     // Toggle chat model on (was false)
     const gptSwitch = within(gptRow).getByRole('switch');
     await userEvent.click(gptSwitch);
-    expect(onToggleSpy).toHaveBeenCalledWith('gpt-3.5', true);
+    expect(onToggleSpy).toHaveBeenCalledWith('gpt-5.2', true);
 
     // Toggle enabled model off
     await userEvent.click(screen.getByRole('tab', { name: 'Embeddings' }));

@@ -457,12 +457,17 @@ async function createStreamIteratorFromRuntime({
     const streamInput = mastraMessages as unknown as Parameters<typeof runtime.agent.stream>[0];
 
     // Use streamLegacy for AI SDK V1 models, stream for V2+ models
-    const streamOptions = runtimeData?.signal ? { abortSignal: runtimeData.signal } : undefined;
+    const streamOptions = {
+      ...(runtimeData?.signal ? { abortSignal: runtimeData.signal } : {}),
+      ...(runtimeData?.modelSettings ? { modelSettings: runtimeData.modelSettings } : {}),
+      ...(runtimeData?.providerOptions ? { providerOptions: runtimeData.providerOptions } : {}),
+    };
+    const resolvedStreamOptions = Object.keys(streamOptions).length > 0 ? streamOptions : undefined;
     let streamResult: unknown;
 
     if (useLegacyStream && hasStreamLegacy(runtime.agent)) {
       logger.info('using streamLegacy for V1 model', { code: 'mastra_agent_stream_legacy_start' });
-      streamResult = await runtime.agent.streamLegacy(streamInput, streamOptions);
+      streamResult = await runtime.agent.streamLegacy(streamInput, resolvedStreamOptions);
       logger.info('mastra legacy stream started', { code: 'mastra_agent_stream_legacy_started' });
     } else {
       if (useLegacyStream) {
@@ -470,7 +475,7 @@ async function createStreamIteratorFromRuntime({
           code: 'mastra_agent_stream_legacy_unavailable',
         });
       }
-      const result = await runtime.agent.stream(streamInput, streamOptions);
+      const result = await runtime.agent.stream(streamInput, resolvedStreamOptions);
       logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
       streamResult = result;
     }

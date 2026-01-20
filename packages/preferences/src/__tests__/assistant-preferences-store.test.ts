@@ -4,6 +4,7 @@ import {
   type SupportedProvider,
 } from '@brainstrike/agent/client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { StorageValue } from 'zustand/middleware';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
@@ -20,6 +21,7 @@ type PersistApi<T> = T & {
       };
     };
     clearStorage?: () => void;
+    rehydrate?: () => Promise<void>;
   };
 };
 
@@ -103,7 +105,7 @@ describe('assistant-preferences-store', () => {
 
     // Enable a second model for testing (from the full provider models list)
     const allGoogleModels = PROVIDER_MODELS.google as string[];
-    const secondModel = allGoogleModels.find((m) => m !== firstModel);
+    const secondModel = allGoogleModels.find((m) => m !== firstModel) ?? 'gemini-legacy';
     expect(secondModel).toBeDefined();
     store.setModelEnabled('google', secondModel!, true);
 
@@ -179,6 +181,53 @@ describe('assistant-preferences-store', () => {
     expect(updated.getSelectedModel()).toBe(compositeKey);
   });
 
+  it('migrates legacy model IDs to the new catalog', async () => {
+    const persistApi = storeWithPersist.persist;
+    const options = persistApi?.getOptions?.();
+    if (!(persistApi && options?.storage && options.name)) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const legacyState: StorageValue<unknown> = {
+      version: 3,
+      state: {
+        selectedModel: 'openai::gpt-4o',
+        modelsByProvider: {
+          openai: 'gpt-4o',
+          anthropic: 'claude-3-5-sonnet-latest',
+          google: 'gemini-2.0-pro',
+          openrouter: 'openai/gpt-4o',
+          local: 'local',
+          cohere: 'cohere',
+          voyage: 'voyage',
+        },
+        enabledModelsByProvider: {
+          openai: ['gpt-4o', 'gpt-4o-mini'],
+          anthropic: ['claude-3-5-sonnet-latest'],
+          google: ['gemini-2.0-pro'],
+          openrouter: ['openai/gpt-4o'],
+          local: [],
+          cohere: [],
+          voyage: [],
+        },
+        providerSettings: {},
+      },
+    };
+
+    options.storage.setItem(options.name, legacyState);
+    await persistApi.rehydrate?.();
+
+    const store = useAssistantPreferencesStore.getState();
+    expect(store.modelsByProvider.openai).toBe('gpt-5.2');
+    expect(store.modelsByProvider.anthropic).toBe('claude-sonnet-4-5');
+    expect(store.modelsByProvider.google).toBe('gemini-3-pro-preview');
+    expect(store.modelsByProvider.openrouter).toBe('openai/gpt-5.2');
+    expect(store.selectedModel).toBe('openai::gpt-5.2');
+    expect(store.enabledModelsByProvider.openai).toContain('gpt-5.2');
+    expect(store.enabledModelsByProvider.openai).toContain('gpt-5.2-chat-latest');
+    expect(store.enabledModelsByProvider.openai).not.toContain('gpt-4o');
+  });
+
   it('switches between providers using composite keys', () => {
     const initialStore = useAssistantPreferencesStore.getState();
 
@@ -234,7 +283,7 @@ describe('assistant-preferences-store', () => {
     });
 
     const store = useAssistantPreferencesStore.getState();
-    const compositeKey = 'openrouter::gpt-4o-mini';
+    const compositeKey = 'openrouter::openai/gpt-5.2';
     store.setModel(compositeKey);
 
     const persistedValue = storage.getItem(options.name)!;
@@ -257,9 +306,9 @@ describe('assistant-preferences-store', () => {
     };
 
     expect(snapshot.state?.selectedModel).toBe(compositeKey);
-    expect(snapshot.state?.modelsByProvider.openrouter).toBe('gpt-4o-mini');
+    expect(snapshot.state?.modelsByProvider.openrouter).toBe('openai/gpt-5.2');
     // Only models with default: true are enabled by default, not all PROVIDER_MODELS
-    expect(snapshot.state?.enabledModelsByProvider.openrouter).toContain('gpt-4o-mini');
+    expect(snapshot.state?.enabledModelsByProvider.openrouter).toContain('openai/gpt-5.2');
 
     persistApi.clearStorage?.();
     const afterClear = storage.getItem(options.name)!;

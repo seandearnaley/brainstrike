@@ -30,7 +30,7 @@ describe('api-key-validation', () => {
 
     it('returns true for hosted providers', () => {
       expect(requiresApiKey('openai::text-embedding-3-small')).toBe(true);
-      expect(requiresApiKey('google::text-embedding-004')).toBe(true);
+      expect(requiresApiKey('google::gemini-embedding-001')).toBe(true);
       expect(requiresApiKey('cohere::embed-english-v3.0')).toBe(true);
       expect(requiresApiKey('voyage::voyage-3')).toBe(true);
     });
@@ -73,12 +73,12 @@ describe('api-key-validation', () => {
     it('returns available when Google API key is set', async () => {
       vi.stubEnv('GOOGLE_GENERATIVE_AI_API_KEY', 'test-google-key');
 
-      const result = await checkApiKeyAvailability('google::text-embedding-004');
+      const result = await checkApiKeyAvailability('google::gemini-embedding-001');
       expect(result.available).toBe(true);
     });
 
     it('returns not available with message when Google API key is missing', async () => {
-      const result = await checkApiKeyAvailability('google::text-embedding-004');
+      const result = await checkApiKeyAvailability('google::gemini-embedding-001');
 
       expect(result.available).toBe(false);
       if (!result.available) {

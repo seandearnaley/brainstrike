@@ -113,7 +113,7 @@ const mockProviderDefinitions = [
     capabilities: { llm: true, embeddings: true, streaming: true },
     envKeys: ['BRAINSTRIKE_OPENAI_API_KEY'],
     models: [
-      { id: 'gpt-4o-mini', type: 'llm' as const, default: true, supportsStreaming: true },
+      { id: 'gpt-5.2', type: 'llm' as const, default: true, supportsStreaming: true },
       {
         id: 'text-embedding-3-small',
         type: 'embedding' as const,
@@ -129,21 +129,21 @@ const mockProviderDefinitions = [
     runtime: 'hosted',
     capabilities: { llm: true, embeddings: false, streaming: true },
     envKeys: ['ANTHROPIC_API_KEY'],
-    models: [{ id: 'claude-3.5-sonnet', type: 'llm' as const, default: true }],
+    models: [{ id: 'claude-sonnet-4-5', type: 'llm' as const, default: true }],
   },
   {
     id: 'google',
-    displayName: 'Google',
+    displayName: 'Google AI Studio',
     runtime: 'hosted',
     capabilities: { llm: true, embeddings: true, streaming: true },
     envKeys: ['GOOGLE_GENERATIVE_AI_API_KEY'],
     models: [
-      { id: 'gemini-1.5-flash', type: 'llm' as const, default: true },
+      { id: 'gemini-3-flash-preview', type: 'llm' as const, default: true },
       {
-        id: 'text-embedding-004',
+        id: 'gemini-embedding-001',
         type: 'embedding' as const,
         default: true,
-        defaultDimension: 768,
+        defaultDimension: 3072,
         supportsStandardDimension: true,
       },
     ],

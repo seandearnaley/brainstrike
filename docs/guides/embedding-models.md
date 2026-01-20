@@ -90,11 +90,9 @@ Hosted models require API keys and internet connectivity but offer cutting-edge 
 
 #### Google
 
-**text-embedding-004**
-- **Dimensions**: 768 (override via `outputDimensionality`)
-
 **gemini-embedding-001**
 - **Dimensions**: 3072 (override via `outputDimensionality`)
+- **Best for**: General-purpose hosted embeddings with configurable dimensions
 
 #### Voyage AI
 
@@ -129,11 +127,11 @@ Hosted models require API keys and internet connectivity but offer cutting-edge 
 
 ### For Multilingual Content
 - **Local**: `jinaai/jina-embeddings-v3` (89 languages, experimental)
-- **Hosted**: `gemini-embedding-001` (requires downscaling to <= 2000) or `cohere embed-multilingual-v3.0` (not wired yet)
+- **Hosted**: `gemini-embedding-001` (configure `outputDimensionality` to 768) or `cohere embed-multilingual-v3.0` (not wired yet)
 
 ### For Production/Hosted
 - **Cost-effective**: OpenAI `text-embedding-3-small`
-- **Best performance**: OpenAI `text-embedding-3-large` or Google `gemini-embedding-001` (downscale dimensions to <= 2000)
+- **Best performance**: OpenAI `text-embedding-3-large` or Google `gemini-embedding-001` (set `outputDimensionality` to 768 for standard-size sets)
 - **Long context**: Voyage `voyage-3` (not wired yet)
 
 ## Flexible Dimensions
@@ -177,6 +175,13 @@ If switching models for existing data:
 2. Trigger backfill for your file set
 3. The old collection remains searchable until you're ready to delete it
 
+If you previously used `text-embedding-004`, create a new collection with
+`gemini-embedding-001` and backfill. Avoid mixing embeddings from different models in
+the same set.
+
+If `text-embedding-004` was enabled in preferences, the UI will migrate the toggle to
+`gemini-embedding-001`, but existing collections still require a manual backfill.
+
 **Do not mix embeddings from different models in the same collection** - search quality will degrade significantly.
 
 ## Provider Configuration (Worker)
@@ -196,7 +201,7 @@ const config = {
 const config = {
   runtime: "hosted",
   provider: "google",
-  modelId: "text-embedding-004",
+  modelId: "gemini-embedding-001",
   outputDimensionality: 768,
 };
 ```
@@ -213,6 +218,7 @@ const config = {
 
 - [OpenAI Embeddings Announcement](https://openai.com/index/new-embedding-models-and-api-updates/)
 - [Google Gemini API Docs](https://ai.google.dev/gemini-api/docs/embeddings)
+- [Gemini API Release Notes](https://ai.google.dev/gemini-api/docs/changelog)
 - [Cohere Embed API](https://docs.cohere.com/reference/embed)
 - [Jina AI Models](https://jina.ai/embeddings)
 - [BGE Models (Hugging Face)](https://huggingface.co/BAAI)

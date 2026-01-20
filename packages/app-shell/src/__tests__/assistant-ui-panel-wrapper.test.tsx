@@ -10,10 +10,10 @@ import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
 // Track enabled models in a mutable Set for testing toggle functionality
 const testEnabledModels = new Set<string>([
-  'gpt-4o-mini', // OpenAI default
-  'claude-3-5-haiku-latest', // Anthropic default
-  'gemini-2.5-flash', // Google default
-  'gpt-4o-mini', // OpenRouter default (same as OpenAI)
+  'gpt-5.2', // OpenAI default
+  'claude-sonnet-4-5', // Anthropic default
+  'gemini-3-flash-preview', // Google default
+  'openai/gpt-5.2', // OpenRouter default
 ]);
 
 // Mock the model registry store - this is the source of truth for enabled models
@@ -27,84 +27,42 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
         models: [
           // OpenAI models
           {
-            id: 'gpt-4o',
+            id: 'gpt-5.2',
             providerId: 'openai',
-            isEnabled: testEnabledModels.has('gpt-4o'),
-            capabilities: { type: 'llm' },
-          },
-          {
-            id: 'gpt-4o-mini',
-            providerId: 'openai',
-            isEnabled: testEnabledModels.has('gpt-4o-mini'),
-            capabilities: { type: 'llm' },
-          },
-          {
-            id: 'gpt-4-turbo',
-            providerId: 'openai',
-            isEnabled: testEnabledModels.has('gpt-4-turbo'),
-            capabilities: { type: 'llm' },
-          },
-          {
-            id: 'gpt-3.5-turbo',
-            providerId: 'openai',
-            isEnabled: testEnabledModels.has('gpt-3.5-turbo'),
+            isEnabled: testEnabledModels.has('gpt-5.2'),
             capabilities: { type: 'llm' },
           },
           // Anthropic models
           {
-            id: 'claude-3-5-sonnet-latest',
+            id: 'claude-sonnet-4-5',
             providerId: 'anthropic',
-            isEnabled: testEnabledModels.has('claude-3-5-sonnet-latest'),
-            capabilities: { type: 'llm' },
-          },
-          {
-            id: 'claude-3-5-haiku-latest',
-            providerId: 'anthropic',
-            isEnabled: testEnabledModels.has('claude-3-5-haiku-latest'),
-            capabilities: { type: 'llm' },
-          },
-          {
-            id: 'claude-3-opus-latest',
-            providerId: 'anthropic',
-            isEnabled: testEnabledModels.has('claude-3-opus-latest'),
+            isEnabled: testEnabledModels.has('claude-sonnet-4-5'),
             capabilities: { type: 'llm' },
           },
           // Google models
           {
-            id: 'gemini-2.5-flash',
+            id: 'gemini-3-flash-preview',
             providerId: 'google',
-            isEnabled: testEnabledModels.has('gemini-2.5-flash'),
-            capabilities: { type: 'llm' },
-          },
-          {
-            id: 'gemini-2.0-pro',
-            providerId: 'google',
-            isEnabled: testEnabledModels.has('gemini-2.0-pro'),
-            capabilities: { type: 'llm' },
-          },
-          {
-            id: 'gemini-1.5-pro',
-            providerId: 'google',
-            isEnabled: testEnabledModels.has('gemini-1.5-pro'),
+            isEnabled: testEnabledModels.has('gemini-3-flash-preview'),
             capabilities: { type: 'llm' },
           },
           // OpenRouter models
           {
-            id: 'gpt-4o',
+            id: 'openai/gpt-5.2',
             providerId: 'openrouter',
-            isEnabled: testEnabledModels.has('gpt-4o'),
+            isEnabled: testEnabledModels.has('openai/gpt-5.2'),
             capabilities: { type: 'llm' },
           },
           {
-            id: 'gpt-4o-mini',
+            id: 'anthropic/claude-sonnet-4.5',
             providerId: 'openrouter',
-            isEnabled: testEnabledModels.has('gpt-4o-mini'),
+            isEnabled: testEnabledModels.has('anthropic/claude-sonnet-4.5'),
             capabilities: { type: 'llm' },
           },
           {
-            id: 'claude-3-5-sonnet',
+            id: 'google/gemini-3-flash-preview',
             providerId: 'openrouter',
-            isEnabled: testEnabledModels.has('claude-3-5-sonnet'),
+            isEnabled: testEnabledModels.has('google/gemini-3-flash-preview'),
             capabilities: { type: 'llm' },
           },
         ],
@@ -158,33 +116,22 @@ vi.mock('@brainstrike/agent/client', () => {
       displayName: 'OpenAI',
       runtime: 'hosted',
       capabilities: { llm: true, embeddings: true, streaming: true },
-      models: [
-        { id: 'gpt-4o', type: 'llm', supportsStreaming: true },
-        { id: 'gpt-4o-mini', type: 'llm', default: true, supportsStreaming: true },
-        { id: 'gpt-4-turbo', type: 'llm', supportsStreaming: true },
-        { id: 'gpt-3.5-turbo', type: 'llm', supportsStreaming: true },
-      ],
+      models: [{ id: 'gpt-5.2', type: 'llm', default: true, supportsStreaming: true }],
     },
     anthropic: {
       id: 'anthropic',
       displayName: 'Anthropic',
       runtime: 'hosted',
       capabilities: { llm: true, embeddings: false, streaming: true },
-      models: [
-        { id: 'claude-3-5-sonnet-latest', type: 'llm', supportsStreaming: true },
-        { id: 'claude-3-5-haiku-latest', type: 'llm', default: true, supportsStreaming: true },
-        { id: 'claude-3-opus-latest', type: 'llm', supportsStreaming: true },
-      ],
+      models: [{ id: 'claude-sonnet-4-5', type: 'llm', default: true, supportsStreaming: true }],
     },
     google: {
       id: 'google',
-      displayName: 'Google',
+      displayName: 'Google AI Studio',
       runtime: 'hosted',
       capabilities: { llm: true, embeddings: true, streaming: true },
       models: [
-        { id: 'gemini-2.5-flash', type: 'llm', default: true, supportsStreaming: true },
-        { id: 'gemini-2.0-pro', type: 'llm', supportsStreaming: true },
-        { id: 'gemini-1.5-pro', type: 'llm', supportsStreaming: true },
+        { id: 'gemini-3-flash-preview', type: 'llm', default: true, supportsStreaming: true },
       ],
     },
     openrouter: {
@@ -193,9 +140,9 @@ vi.mock('@brainstrike/agent/client', () => {
       runtime: 'gateway',
       capabilities: { llm: true, embeddings: false, streaming: true },
       models: [
-        { id: 'gpt-4o', type: 'llm', supportsStreaming: true },
-        { id: 'gpt-4o-mini', type: 'llm', default: true, supportsStreaming: true },
-        { id: 'claude-3-5-sonnet', type: 'llm', supportsStreaming: true },
+        { id: 'openai/gpt-5.2', type: 'llm', default: true, supportsStreaming: true },
+        { id: 'anthropic/claude-sonnet-4.5', type: 'llm', supportsStreaming: true },
+        { id: 'google/gemini-3-flash-preview', type: 'llm', supportsStreaming: true },
       ],
     },
   } as const;
@@ -376,9 +323,10 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
 function resetTestEnabledModels() {
   testEnabledModels.clear();
   // Default enabled models (those with default: true in the mock)
-  testEnabledModels.add('gpt-4o-mini'); // OpenAI default
-  testEnabledModels.add('claude-3-5-haiku-latest'); // Anthropic default
-  testEnabledModels.add('gemini-2.5-flash'); // Google default
+  testEnabledModels.add('gpt-5.2'); // OpenAI default
+  testEnabledModels.add('openai/gpt-5.2'); // OpenRouter default
+  testEnabledModels.add('claude-sonnet-4-5'); // Anthropic default
+  testEnabledModels.add('gemini-3-flash-preview'); // Google default
 }
 
 beforeEach(() => {
@@ -413,7 +361,7 @@ describe('AssistantUiPanelWrapper', () => {
           const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
 
           expect(providerSelect.value).toBe('openai');
-          expect(modelSelect.value).toBe('gpt-4o-mini');
+          expect(modelSelect.value).toBe('gpt-5.2');
           expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
         },
         { timeout: 3000 }
@@ -455,7 +403,7 @@ describe('AssistantUiPanelWrapper', () => {
     // Wait for model to update and panel to remain enabled
     await waitFor(() => {
       const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-      expect(modelSelect.value).toBe('claude-3-5-haiku-latest');
+      expect(modelSelect.value).toBe('claude-sonnet-4-5');
       expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
     });
   });
@@ -464,13 +412,13 @@ describe('AssistantUiPanelWrapper', () => {
     const user = userEvent.setup();
 
     // Enable an additional model for testing model switching (via DB mock)
-    testEnabledModels.add('gpt-4o');
+    testEnabledModels.add('anthropic/claude-sonnet-4.5');
 
-    await renderAssistantPanel(['openai'], () =>
+    await renderAssistantPanel(['openrouter'], () =>
       waitFor(
         () => {
           const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-          expect(providerSelect.value).toBe('openai');
+          expect(providerSelect.value).toBe('openrouter');
         },
         { timeout: 3000 }
       )
@@ -478,14 +426,14 @@ describe('AssistantUiPanelWrapper', () => {
 
     // Change model
     const modelSelect = screen.getByTestId('model-select');
-    await user.selectOptions(modelSelect, 'gpt-4o');
+    await user.selectOptions(modelSelect, 'anthropic/claude-sonnet-4.5');
 
     // Verify model changed in store
     await waitFor(() => {
       const state = useAssistantPreferencesStore.getState();
-      expect(state.getSelectedProvider()).toBe('openai');
-      expect(state.getSelectedModel()).toBe('openai::gpt-4o');
-      expect(state.modelsByProvider.openai).toBe('gpt-4o');
+      expect(state.getSelectedProvider()).toBe('openrouter');
+      expect(state.getSelectedModel()).toBe('openrouter::anthropic/claude-sonnet-4.5');
+      expect(state.modelsByProvider.openrouter).toBe('anthropic/claude-sonnet-4.5');
     });
   });
 
@@ -531,7 +479,7 @@ describe('AssistantUiPanelWrapper', () => {
           expect(providerSelect.value).toBe('anthropic');
 
           const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-          expect(modelSelect.value).toBe('claude-3-5-haiku-latest');
+          expect(modelSelect.value).toBe('claude-sonnet-4-5');
 
           expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
         },
@@ -566,7 +514,7 @@ describe('AssistantUiPanelWrapper', () => {
     // Check OpenAI default model is available (only models with default: true are enabled)
     const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
     const options = Array.from(modelSelect.options).map((o) => o.value);
-    expect(options).toContain('gpt-4o-mini'); // default model for openai
+    expect(options).toContain('gpt-5.2'); // default model for openai
 
     // Switch to Google
     const user = userEvent.setup();
@@ -579,39 +527,39 @@ describe('AssistantUiPanelWrapper', () => {
 
       const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
       const options = Array.from(modelSelect.options).map((o) => o.value);
-      expect(options).toContain('gemini-2.5-flash'); // default model for google
-      expect(options).not.toContain('gpt-4o'); // openai model shouldn't be here
+      expect(options).toContain('gemini-3-flash-preview'); // default model for google
+      expect(options).not.toContain('gpt-5.2'); // openai model shouldn't be here
     });
   });
 
   test('persists provider and model selections in store', async () => {
     // Enable an additional model for testing model switching (via DB mock)
-    testEnabledModels.add('claude-3-5-sonnet-latest');
+    testEnabledModels.add('anthropic/claude-sonnet-4.5');
 
-    await renderAssistantPanel(['openai', 'anthropic'], () =>
+    await renderAssistantPanel(['openai', 'openrouter'], () =>
       waitFor(() => {
         const state = useAssistantPreferencesStore.getState();
         expect(state.getSelectedProvider()).toBe('openai');
-        expect(state.modelsByProvider.openai).toBe('gpt-4o-mini');
+        expect(state.modelsByProvider.openai).toBe('gpt-5.2');
       })
     );
 
     // Change provider
     const user = userEvent.setup();
-    await user.selectOptions(screen.getByTestId('provider-select'), 'anthropic');
+    await user.selectOptions(screen.getByTestId('provider-select'), 'openrouter');
 
     await waitFor(() => {
       const state = useAssistantPreferencesStore.getState();
-      expect(state.getSelectedProvider()).toBe('anthropic');
-      expect(state.modelsByProvider.anthropic).toBe('claude-3-5-haiku-latest');
+      expect(state.getSelectedProvider()).toBe('openrouter');
+      expect(state.modelsByProvider.openrouter).toBe('openai/gpt-5.2');
     });
 
     // Change model (to the model we enabled above)
-    await user.selectOptions(screen.getByTestId('model-select'), 'claude-3-5-sonnet-latest');
+    await user.selectOptions(screen.getByTestId('model-select'), 'anthropic/claude-sonnet-4.5');
 
     await waitFor(() => {
       const state = useAssistantPreferencesStore.getState();
-      expect(state.modelsByProvider.anthropic).toBe('claude-3-5-sonnet-latest');
+      expect(state.modelsByProvider.openrouter).toBe('anthropic/claude-sonnet-4.5');
     });
   });
 

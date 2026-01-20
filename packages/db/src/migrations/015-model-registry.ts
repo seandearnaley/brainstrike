@@ -67,8 +67,7 @@ export const migration015ModelRegistry: Migration = {
       ('gemini-2.5-flash', 'google', 'Gemini 2.5 Flash', 'Next-gen speed & efficiency', '["Real-time apps", "High throughput"]', '{"type":"llm","streaming":true}', 1, true),
       ('gemini-2.0-pro', 'google', 'Gemini 2.0 Pro', 'Best-in-class reasoning', '["Complex problem solving", "Multimodal"]', '{"type":"llm","streaming":true}', 2, true),
       ('gemini-1.5-pro', 'google', 'Gemini 1.5 Pro', 'Long context window', '["Document analysis", "Large codebases"]', '{"type":"llm","streaming":true}', 3, false),
-      ('text-embedding-004', 'google', 'Text Embedding 004', 'Versatile embeddings', '["General purpose", "Retrieval"]', '{"type":"embedding","defaultDimension":768}', 4, false),
-      ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Legacy embeddings', '["Classification"]', '{"type":"embedding","defaultDimension":3072}', 5, false);
+      ('gemini-embedding-001', 'google', 'Gemini Embedding 001', 'Legacy embeddings', '["Classification"]', '{"type":"embedding","defaultDimension":3072}', 4, false);
 
     -- Seed Models (Local / Transformers)
     INSERT INTO models (id, provider_id, name, tagline, best_for, capabilities, parameters, sort_order, is_enabled) VALUES

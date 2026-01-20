@@ -64,7 +64,7 @@ interface EmbeddingPreferencesActions {
 type Store = EmbeddingPreferencesData & EmbeddingPreferencesActions;
 
 const STORE_NAME = 'embedding-preferences.v1' as const;
-const STORE_VERSION = 1;
+const STORE_VERSION = 2;
 
 /**
  * Default enabled models per provider
@@ -73,11 +73,45 @@ const STORE_VERSION = 1;
  */
 const DEFAULT_ENABLED_MODELS: EnabledModelsMap = Object.freeze({
   local: Object.freeze(['jinaai/jina-embeddings-v2-base-code'] as string[]), // Default local model (HuggingFace ID)
+  transformers: Object.freeze(['jinaai/jina-embeddings-v2-base-code'] as string[]), // Alias for local provider
   openai: Object.freeze([] as string[]), // Requires API key, disabled by default
   google: Object.freeze([] as string[]), // Requires API key, disabled by default
   cohere: Object.freeze([] as string[]), // Requires API key, disabled by default
   voyage: Object.freeze([] as string[]), // Requires API key, disabled by default
 }) as EnabledModelsMap;
+
+const EMBEDDING_MODEL_MIGRATIONS: Record<EmbeddingProviderType, Record<string, string>> = {
+  local: {},
+  transformers: {},
+  openai: {},
+  google: {
+    'text-embedding-004': 'gemini-embedding-001',
+  },
+  cohere: {},
+  voyage: {},
+};
+
+function migrateEmbeddingModelId(provider: EmbeddingProviderType, modelId: string): string {
+  return EMBEDDING_MODEL_MIGRATIONS[provider]?.[modelId] ?? modelId;
+}
+
+function migrateEmbeddingModelList(
+  provider: EmbeddingProviderType,
+  models: Iterable<string>
+): string[] {
+  const migrated: string[] = [];
+  const seen = new Set<string>();
+
+  for (const model of models) {
+    const next = migrateEmbeddingModelId(provider, model);
+    if (!seen.has(next)) {
+      migrated.push(next);
+      seen.add(next);
+    }
+  }
+
+  return migrated;
+}
 
 // DEFAULT_SELECTED_MODEL removed - selection is per-collection/embedding-set
 
@@ -274,11 +308,18 @@ export const useEmbeddingPreferencesStore = create<Store>()(
           selectedModel?: string | null;
         };
 
+        const migratedEnabled: EnabledModelsMap = {
+          ...DEFAULT_ENABLED_MODELS,
+          ...(base.enabledModelsByProvider ?? {}),
+        };
+
+        (Object.keys(migratedEnabled) as EmbeddingProviderType[]).forEach((provider) => {
+          const existing = migratedEnabled[provider] ?? DEFAULT_ENABLED_MODELS[provider] ?? [];
+          migratedEnabled[provider] = migrateEmbeddingModelList(provider, existing);
+        });
+
         return {
-          enabledModelsByProvider: {
-            ...DEFAULT_ENABLED_MODELS,
-            ...(base.enabledModelsByProvider ?? {}),
-          },
+          enabledModelsByProvider: migratedEnabled,
           preferredRuntime: base.preferredRuntime ?? 'browser',
         } satisfies Partial<Store>;
       },
