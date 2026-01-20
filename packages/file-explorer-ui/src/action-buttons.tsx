@@ -6,19 +6,21 @@
  * the maximum selection limit while maintaining a good user experience.
  *
  * Key behaviors:
- * 1. When files are within max limit: Allows selecting all files at once
- * 2. When files exceed max limit: Allows selecting up to the max limit
- * 3. When files are selected: Provides option to deselect all files
+ * 1. Recursive selection: Loads all directories in the tree before selecting
+ * 2. When files are within max limit: Allows selecting all files at once
+ * 3. When files exceed max limit: Allows selecting up to the max limit
+ * 4. When files are selected: Provides option to deselect all files
  *
  * The button text dynamically updates to indicate:
- * - "Select All" when no files are selected and all can be selected
- * - "Select N" when files exceed the max limit (N = max limit)
+ * - "Select All" when no files are selected
+ * - "Selecting..." when loading tree for selection
  * - "Deselect All" when files are currently selected
  */
 
 import { Button } from '@brainstrike/ui';
 import * as React from 'react';
 import { useCallback } from 'react';
+import type { SelectAllResult } from './hooks/use-recursive-select-all';
 
 export interface ActionButtonsProps {
   displayedFiles: Set<string>;
@@ -27,7 +29,23 @@ export interface ActionButtonsProps {
   currentFolderId: string | null;
   setSelectedFiles: (files: Set<string>) => void;
   encodeFileSelection: (folderId: string, path: string) => string;
-  onSelectionLimitExceeded?: () => void;
+  onSelectionLimitExceeded?: (() => void) | undefined;
+  /** Whether the tree has any files (used to enable/disable Select All) */
+  hasFilesInTree?: boolean | undefined;
+  /** Recursively select all files in the entire tree, loading if needed */
+  selectAllRecursively?:
+    | ((
+        folderId: string,
+        addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+        maxSelectionCount: number
+      ) => Promise<SelectAllResult>)
+    | undefined;
+  /** Cancel the current recursive selection operation */
+  cancelSelectAll?: (() => void) | undefined;
+  /** Whether the tree is being loaded for select all */
+  isLoadingForSelectAll?: boolean | undefined;
+  /** Add multiple selected files (used by recursive selection) */
+  addMultipleSelectedFiles?: ((folderId: string, paths: string[]) => void) | undefined;
 }
 
 export const ActionButtons = React.memo(
@@ -39,27 +57,56 @@ export const ActionButtons = React.memo(
     setSelectedFiles,
     encodeFileSelection,
     onSelectionLimitExceeded,
+    hasFilesInTree = false,
+    selectAllRecursively,
+    cancelSelectAll,
+    isLoadingForSelectAll = false,
+    addMultipleSelectedFiles,
   }: ActionButtonsProps) => {
-    // Handles selecting files up to the max limit
-    const handleSelectAll = useCallback(() => {
+    /**
+     * Handles recursive selection of all files in the tree.
+     * Uses the new recursive selection API when available, falling back
+     * to selecting only displayed files when not.
+     */
+    const handleSelectAll = useCallback(async () => {
       if (!currentFolderId) {
         return;
       }
+
+      // Use recursive selection if available
+      if (selectAllRecursively && addMultipleSelectedFiles) {
+        const result = await selectAllRecursively(
+          currentFolderId,
+          addMultipleSelectedFiles,
+          maxSelectionCount
+        );
+
+        // Notify if limit was reached
+        if (result.limitReached && onSelectionLimitExceeded) {
+          onSelectionLimitExceeded();
+        }
+        return;
+      }
+
+      // Fallback to old behavior: select only displayed files
       const filesToSelect = Array.from(displayedFiles)
         .slice(0, maxSelectionCount)
         .map((path) => encodeFileSelection(currentFolderId, path))
-        .filter((v): v is string => typeof v === 'string'); // Guard: only strings
+        .filter((v): v is string => typeof v === 'string');
+
       if (displayedFiles.size > maxSelectionCount && onSelectionLimitExceeded) {
         onSelectionLimitExceeded();
       }
       setSelectedFiles(new Set(filesToSelect));
     }, [
-      displayedFiles,
-      setSelectedFiles,
-      maxSelectionCount,
       currentFolderId,
-      encodeFileSelection,
+      selectAllRecursively,
+      addMultipleSelectedFiles,
+      maxSelectionCount,
       onSelectionLimitExceeded,
+      displayedFiles,
+      encodeFileSelection,
+      setSelectedFiles,
     ]);
 
     // Clears all selected files
@@ -67,26 +114,43 @@ export const ActionButtons = React.memo(
       setSelectedFiles(new Set());
     }, [setSelectedFiles]);
 
+    // Handle cancel of recursive selection
+    const handleCancel = useCallback(() => {
+      cancelSelectAll?.();
+    }, [cancelSelectAll]);
+
     const hasDisplayedFiles = displayedFiles.size > 0;
     const hasSelectedFiles = selectedFilePaths.size > 0;
-    const canSelectAll = displayedFiles.size <= maxSelectionCount;
+
+    // Enable button if there are displayed files OR if tree has files (for recursive selection)
+    const canSelectFiles = hasDisplayedFiles || hasFilesInTree;
 
     const getButtonText = () => {
+      if (isLoadingForSelectAll) {
+        return 'Selecting...';
+      }
       if (hasSelectedFiles) {
         return 'Deselect All';
       }
-      if (!hasDisplayedFiles) {
-        return 'Select All';
+      return 'Select All';
+    };
+
+    const handleClick = () => {
+      if (isLoadingForSelectAll) {
+        handleCancel();
+      } else if (hasSelectedFiles) {
+        handleDeselectAll();
+      } else {
+        void handleSelectAll();
       }
-      return canSelectAll ? 'Select All' : `Select ${maxSelectionCount}`;
     };
 
     return (
       <div className="@container/buttons flex flex-wrap items-center gap-2">
         <Button
           className="flex h-8 items-center gap-1"
-          disabled={!hasDisplayedFiles}
-          onClick={hasSelectedFiles ? handleDeselectAll : handleSelectAll}
+          disabled={!(canSelectFiles || isLoadingForSelectAll)}
+          onClick={handleClick}
           variant="outline"
         >
           {getButtonText()}

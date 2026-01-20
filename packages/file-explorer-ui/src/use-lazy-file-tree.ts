@@ -22,6 +22,7 @@ import {
   useExpandAll,
   useFileTreeWorker,
   useRecursiveFolderSelect,
+  useRecursiveSelectAll,
 } from './hooks';
 import {
   needsLoading as checkNeedsLoading,
@@ -280,6 +281,25 @@ export interface UseLazyFileTreeReturn {
   loadingPathForSelection: string | null;
   /** Loading progress for recursive selection (if available) */
   selectionLoadingProgress: { loaded: number; total: number } | null;
+  /** Select all files in the entire tree, loading unloaded directories first if needed */
+  selectAllRecursively: (
+    folderId: string,
+    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+    maxSelectionCount: number
+  ) => Promise<{
+    success: boolean;
+    filePaths: string[];
+    totalAvailable?: number;
+    limitReached?: boolean;
+    cancelled?: boolean;
+    error?: string;
+  }>;
+  /** Cancel the current select all operation */
+  cancelSelectAll: () => void;
+  /** Whether the tree is being loaded for select all */
+  isLoadingForSelectAll: boolean;
+  /** Loading progress for select all (if available) */
+  selectAllLoadingProgress: { loaded: number; total: number } | null;
 }
 
 /**
@@ -378,6 +398,20 @@ export function useLazyFileTree(
   } = useRecursiveFolderSelect({
     workerPortRef: portRef,
     handleMapRef,
+    onTreeUpdate: handleTreeUpdate,
+    onError: handleWorkerError,
+  });
+
+  // Recursive select all management
+  const {
+    isLoadingForSelectAll,
+    loadingProgress: selectAllLoadingProgress,
+    selectAllRecursively,
+    cancelSelectAll,
+  } = useRecursiveSelectAll({
+    workerPortRef: portRef,
+    handleMapRef,
+    fileTree: state.fileTree,
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
   });
@@ -904,5 +938,9 @@ export function useLazyFileTree(
     isLoadingForSelection,
     loadingPathForSelection,
     selectionLoadingProgress,
+    selectAllRecursively,
+    cancelSelectAll,
+    isLoadingForSelectAll,
+    selectAllLoadingProgress,
   };
 }

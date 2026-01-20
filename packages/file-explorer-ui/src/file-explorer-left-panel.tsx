@@ -167,6 +167,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     selectFolderRecursively,
     isLoadingForSelection,
     loadingPathForSelection,
+    selectAllRecursively,
+    cancelSelectAll,
+    isLoadingForSelectAll,
   } = useFileExplorer();
 
   const {
@@ -568,11 +571,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent px-4 py-3">
           <div className="flex items-center justify-between gap-2">
             <ActionButtons
+              addMultipleSelectedFiles={addMultipleSelectedFiles}
+              cancelSelectAll={cancelSelectAll}
               currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
               displayedFiles={displayedFileList}
               encodeFileSelection={encodeFileSelection}
+              hasFilesInTree={fileTree.length > 0}
+              isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}
               onSelectionLimitExceeded={() => {}}
+              selectAllRecursively={selectAllRecursively}
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}
             />

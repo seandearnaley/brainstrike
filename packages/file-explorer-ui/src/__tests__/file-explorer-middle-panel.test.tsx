@@ -170,6 +170,9 @@ describe('FileExplorerMiddlePanel', () => {
       cancelRecursiveSelect: vi.fn(),
       isLoadingForSelection: false,
       loadingPathForSelection: null,
+      selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelSelectAll: vi.fn(),
+      isLoadingForSelectAll: false,
     });
 
     handleSelectionChangeMock = vi.fn();
@@ -322,6 +325,9 @@ describe('FileExplorerMiddlePanel', () => {
       cancelRecursiveSelect: vi.fn(),
       isLoadingForSelection: false,
       loadingPathForSelection: null,
+      selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelSelectAll: vi.fn(),
+      isLoadingForSelectAll: false,
     });
 
     vi.mocked(useSelectionManager).mockReturnValue({

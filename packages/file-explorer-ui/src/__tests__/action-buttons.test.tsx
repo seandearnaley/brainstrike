@@ -39,13 +39,14 @@ describe('ActionButtons', () => {
       expect(screen.getByRole('button', { name: 'Select All' })).toBeInTheDocument();
     });
 
-    it('should show max selection count when files exceed limit', () => {
+    it('should show "Select All" even when files exceed limit (recursive selection handles limits)', () => {
       const props = getProps({
         displayedFiles: new Set(['file1.txt', 'file2.txt', 'file3.txt']),
         maxSelectionCount: 2,
       });
       render(<ActionButtons {...props} />);
-      expect(screen.getByRole('button', { name: 'Select 2' })).toBeInTheDocument();
+      // Now always shows "Select All" since recursive selection handles the limit internally
+      expect(screen.getByRole('button', { name: 'Select All' })).toBeInTheDocument();
     });
 
     it('should show "Deselect All" when files are selected', () => {
@@ -74,22 +75,24 @@ describe('ActionButtons', () => {
       expect(props.setSelectedFiles).toHaveBeenCalledWith(expectedSelection);
     });
 
-    it('should select up to max selection limit when files exceed limit', async () => {
+    it('should select up to max selection limit when files exceed limit (fallback behavior)', async () => {
       const props = getProps({
         displayedFiles: new Set(['file1.txt', 'file2.txt', 'file3.txt']),
         maxSelectionCount: 2,
       });
       const user = userEvent.setup();
       render(<ActionButtons {...props} />);
+      // Button now always says "Select All" - limit is handled by selection logic
       const selectButton = screen.getByRole('button', {
-        name: 'Select 2',
+        name: 'Select All',
       });
       await user.click(selectButton);
+      // Fallback behavior (no selectAllRecursively): selects up to max from displayed files
       const expectedSelection = new Set(['test-folder:file1.txt', 'test-folder:file2.txt']);
       expect(props.setSelectedFiles).toHaveBeenCalledWith(expectedSelection);
     });
 
-    it('calls onSelectionLimitExceeded when selecting all exceeds limit', async () => {
+    it('calls onSelectionLimitExceeded when selecting all exceeds limit (fallback behavior)', async () => {
       const onSelectionLimitExceeded = vi.fn();
       const setSelectedFiles = vi.fn();
       const props = getProps({
@@ -100,8 +103,9 @@ describe('ActionButtons', () => {
       });
       const user = userEvent.setup();
       render(<ActionButtons {...props} />);
+      // Button now always says "Select All" - limit notification still works
       const selectButton = screen.getByRole('button', {
-        name: 'Select 2',
+        name: 'Select All',
       });
       await user.click(selectButton);
       const expectedSelection = new Set(['test-folder:file1.txt', 'test-folder:file2.txt']);
@@ -130,8 +134,9 @@ describe('ActionButtons', () => {
         maxSelectionCount: 2,
       });
       render(<ActionButtons {...props} />);
+      // Button now always says "Select All"
       const selectButton = screen.getByRole('button', {
-        name: 'Select 2',
+        name: 'Select All',
       });
       expect(selectButton).not.toBeDisabled();
     });

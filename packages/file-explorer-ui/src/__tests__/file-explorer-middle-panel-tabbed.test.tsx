@@ -205,6 +205,9 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       cancelRecursiveSelect: vi.fn(),
       isLoadingForSelection: false,
       loadingPathForSelection: null,
+      selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelSelectAll: vi.fn(),
+      isLoadingForSelectAll: false,
     });
 
     const previewPanelModule = await import('../preview-panel');
@@ -287,6 +290,9 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       cancelRecursiveSelect: vi.fn(),
       isLoadingForSelection: false,
       loadingPathForSelection: null,
+      selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelSelectAll: vi.fn(),
+      isLoadingForSelectAll: false,
     });
 
     const previewPanelModule = await import('../preview-panel');

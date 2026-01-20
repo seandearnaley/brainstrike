@@ -155,6 +155,23 @@ interface UseFileExplorerReturn {
   isLoadingForSelection: boolean;
   /** Path of the folder being loaded for selection (if any) */
   loadingPathForSelection: string | null;
+  /** Select all files in the entire tree, loading if needed */
+  selectAllRecursively: (
+    folderId: string,
+    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+    maxSelectionCount: number
+  ) => Promise<{
+    success: boolean;
+    filePaths: string[];
+    totalAvailable?: number;
+    limitReached?: boolean;
+    cancelled?: boolean;
+    error?: string;
+  }>;
+  /** Cancel the current select all operation */
+  cancelSelectAll: () => void;
+  /** Whether the tree is being loaded for select all */
+  isLoadingForSelectAll: boolean;
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -236,6 +253,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancelRecursiveSelect,
     isLoadingForSelection,
     loadingPathForSelection,
+    selectAllRecursively,
+    cancelSelectAll,
+    isLoadingForSelectAll,
   } = sharedTreeContext ?? localTreeState;
 
   // storeClearFileContents is selected above to keep hook count constant
@@ -605,5 +625,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancelRecursiveSelect,
     isLoadingForSelection,
     loadingPathForSelection,
+    selectAllRecursively,
+    cancelSelectAll,
+    isLoadingForSelectAll,
   };
 }
