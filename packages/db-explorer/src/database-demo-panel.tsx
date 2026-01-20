@@ -34,8 +34,10 @@ import { createLogger } from '@brainstrike/utils';
 import {
   CreateEmbeddingSetDialog,
   DeleteEmbeddingSetDialog,
-  EmbeddingControlsPanel,
+  EmbeddingActionsDropdown,
+  EmbeddingStatusBar,
   RenameEmbeddingSetDialog,
+  useEmbeddingControls,
 } from '@brainstrike/vector-management';
 import { Database, FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -152,6 +154,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const semanticSearchExecutor = useSemanticSearchExecutor({
     chunkRepository: dbChunkRepository,
     fileRepository: repository,
+  });
+
+  // Embedding controls state for inline dropdown and status bar
+  const { dropdownProps, statusBarProps } = useEmbeddingControls({
+    chunkRepository: dbChunkRepository,
+    toast,
   });
 
   const importFlowSettings = useMemo(
@@ -434,6 +442,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                     </TooltipContent>
                   </Tooltip>
 
+                  {/* Embedding Actions (inline with Import) */}
+                  <EmbeddingActionsDropdown {...dropdownProps} />
+
                   <div className="mx-1 h-4 w-px bg-border" />
 
                   <Tooltip>
@@ -455,12 +466,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               </div>
             </div>
 
-            {/* Embedding Controls - actions dropdown and status bar */}
-            <EmbeddingControlsPanel
-              chunkRepository={dbChunkRepository}
-              className="border-t"
-              embeddingQueue={embeddingQueue}
-            />
+            {/* Embedding Status Bar */}
+            <EmbeddingStatusBar {...statusBarProps} className="border-t" />
           </div>
         </Panel>
 

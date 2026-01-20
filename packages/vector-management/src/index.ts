@@ -29,6 +29,12 @@ export { EmbeddingStatusBar } from './embedding-status-bar';
 export { QueueDiagnosticsPanel } from './queue-diagnostics-panel';
 export { QueueHud } from './queue-hud';
 export { QueueStatusPopover } from './queue-status-popover';
+// Hook for embedding controls state (use with EmbeddingActionsDropdown and EmbeddingStatusBar)
+export type {
+  UseEmbeddingControlsOptions,
+  UseEmbeddingControlsResult,
+} from './use-embedding-controls';
+export { useEmbeddingControls } from './use-embedding-controls';
 export type {
   UseQueueHealthMetricsOptions,
   UseQueueHealthMetricsReturn,
