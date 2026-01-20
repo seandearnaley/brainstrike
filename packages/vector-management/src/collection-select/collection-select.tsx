@@ -264,10 +264,29 @@ export function useCollections(db: ReturnType<typeof usePGliteDatabase> | null |
     rows: rawCollections,
     loading,
     error,
+    refresh,
   } = usePGliteLiveQuery<CollectionRow>({
     query: COLLECTIONS_QUERY,
     enabled: liveQueryEnabled,
   });
+
+  // Listen for embedding set update events (create/delete/rename) and refresh live query
+  // This ensures UI updates on Electron where PGlite live query may not auto-detect changes
+  useEffect(() => {
+    if (typeof window === 'undefined' || !liveQueryEnabled) {
+      return;
+    }
+
+    const handleEmbeddingSetUpdated = () => {
+      void refresh();
+    };
+
+    window.addEventListener('brainstrike:embedding-set-updated', handleEmbeddingSetUpdated);
+
+    return () => {
+      window.removeEventListener('brainstrike:embedding-set-updated', handleEmbeddingSetUpdated);
+    };
+  }, [liveQueryEnabled, refresh]);
 
   const collections = useMemo<CollectionWithDocCount[]>(
     () => normalizeCollectionRows(rawCollections),

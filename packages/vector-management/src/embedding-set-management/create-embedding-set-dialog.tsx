@@ -151,6 +151,15 @@ export function CreateEmbeddingSetDialog({
 
       setActiveEmbeddingSetId(newSet.id);
 
+      // Emit event to notify other components (triggers live query refresh)
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:embedding-set-updated', {
+            detail: { id: newSet.id },
+          })
+        );
+      }
+
       toast({
         title: 'Success',
         description: `Created embedding set: ${formData.name}`,
