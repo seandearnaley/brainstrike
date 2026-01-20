@@ -111,6 +111,13 @@ export interface FileTreeWorkerPort {
     loadedCount: number;
   }>;
 
+  /** Load all descendants of a specific directory (for recursive folder selection) */
+  loadSubtree(startPath: string): Promise<{
+    tree: WorkerFileNode[];
+    expandedPaths: string[];
+    loadedCount: number;
+  }>;
+
   /** Collapse all directories */
   collapseAll(): void;
 
@@ -340,6 +347,26 @@ export function createFileTreeWorkerPort(worker: Worker): FileTreeWorkerPort {
         worker.postMessage({
           type: 'loadPaths',
           payload: { paths },
+        } satisfies MainToWorkerMessage);
+      });
+    },
+
+    loadSubtree(startPath) {
+      return new Promise((resolve, reject) => {
+        // Increment operation ID to invalidate any stale responses
+        operationIdCounter++;
+        const thisOperationId = operationIdCounter;
+
+        // Abort any existing operation
+        if (pending.operation) {
+          pending.operation.reject(new Error('Operation aborted by new request'));
+        }
+
+        pending.operation = { resolve, reject, operationId: thisOperationId };
+
+        worker.postMessage({
+          type: 'loadSubtree',
+          payload: { startPath },
         } satisfies MainToWorkerMessage);
       });
     },

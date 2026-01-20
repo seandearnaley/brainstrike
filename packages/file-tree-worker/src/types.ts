@@ -123,6 +123,18 @@ export interface LoadPathsMessage {
 }
 
 /**
+ * Load all descendants of a specific directory (for recursive folder selection).
+ * Like expandAll but scoped to a subtree starting from the given path.
+ */
+export interface LoadSubtreeMessage {
+  type: 'loadSubtree';
+  payload: {
+    /** Root path of the subtree to load */
+    startPath: string;
+  };
+}
+
+/**
  * Update the tree with new nodes (e.g., after single directory load).
  */
 export interface UpdateTreeMessage {
@@ -159,6 +171,7 @@ export type MainToWorkerMessage =
   | ToggleExpandMessage
   | AbortMessage
   | LoadPathsMessage
+  | LoadSubtreeMessage
   | UpdateTreeMessage
   | FlattenTreeMessage;
 

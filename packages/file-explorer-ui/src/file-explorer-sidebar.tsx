@@ -29,6 +29,14 @@ interface FileExplorerSidebarProps {
   onLoadChildren?: (path: string) => Promise<void>;
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: (path: string) => void;
+  /** Select all files in a folder recursively, loading if needed */
+  onSelectFolderRecursively?: (
+    node: IFileNode
+  ) => Promise<{ success: boolean; filePaths: string[] }>;
+  /** Whether a folder is being loaded for selection */
+  isLoadingForSelection?: boolean;
+  /** Path of the folder being loaded for selection */
+  loadingPathForSelection?: string | null;
 }
 
 const ErrorDisplay = ({
@@ -73,6 +81,9 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   loadingPaths,
   onLoadChildren,
   cancelChildLoading,
+  onSelectFolderRecursively,
+  isLoadingForSelection,
+  loadingPathForSelection,
 }) => {
   // React 19: useDeferredValue keeps showing the old tree while new one renders
   // This prevents "flash" during rapid tree updates (like expand-all)
@@ -91,10 +102,13 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
               cancelChildLoading={cancelChildLoading}
               fileTree={deferredTree}
               folderId={(rootDirectoryHandle?.name ?? currentFolderId ?? '') as string}
+              isLoadingForSelection={isLoadingForSelection}
               loadingFiles={loadingFiles}
+              loadingPathForSelection={loadingPathForSelection}
               loadingPaths={loadingPaths}
               onLoadChildren={onLoadChildren}
               onRender={onTreeRender || undefined}
+              onSelectFolderRecursively={onSelectFolderRecursively}
             />
           ) : (
             <EmptyStateComponent

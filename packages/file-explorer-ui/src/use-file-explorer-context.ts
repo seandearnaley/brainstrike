@@ -12,7 +12,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, decodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useFileExplorerStoreContext } from './file-explorer-provider';
@@ -34,11 +34,34 @@ const restorationLock = {
 };
 
 /**
+ * Reset the restoration lock state.
+ * @internal Exported only for test cleanup. Do not use in production code.
+ */
+export function __resetRestorationLock(): void {
+  restorationLock.inProgress = false;
+  restorationLock.folderId = null;
+}
+
+/**
  * Helper to get the depth of a path (number of path segments).
  * Used for sorting paths by depth (shallowest first) when restoring expanded directories.
  */
 function getPathDepth(path: string): number {
   return path.split('/').filter(Boolean).length;
+}
+
+/**
+ * Helper to get the parent directory of a file path.
+ * Returns the path without the last segment (the filename).
+ *
+ * @param filePath - Full path to a file
+ * @returns Parent directory path, or empty string for root-level files
+ */
+function getParentDirectory(filePath: string): string {
+  const segments = filePath.split('/').filter(Boolean);
+  // Remove the filename (last segment) to get the parent directory
+  segments.pop();
+  return segments.length > 0 ? segments.join('/') : '';
 }
 
 type UseFileExplorerProps = Record<string, never>;
@@ -118,6 +141,20 @@ interface UseFileExplorerReturn {
    * When true, tab content loading can proceed even before the tree is loaded.
    */
   canLoadWithoutTree: boolean;
+  /** Select all files in a folder recursively, loading if needed */
+  selectFolderRecursively: (
+    node: IFileNode,
+    folderId: string,
+    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+    maxSelectionCount: number,
+    currentSelectionSize: number
+  ) => Promise<{ success: boolean; filePaths: string[]; cancelled?: boolean; error?: string }>;
+  /** Cancel the current recursive selection operation */
+  cancelRecursiveSelect: () => void;
+  /** Whether a subtree is being loaded for selection */
+  isLoadingForSelection: boolean;
+  /** Path of the folder being loaded for selection (if any) */
+  loadingPathForSelection: string | null;
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -195,6 +232,10 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     isExpandingAll,
     expandAllProgress,
     loadSpecificPaths,
+    selectFolderRecursively,
+    cancelRecursiveSelect,
+    isLoadingForSelection,
+    loadingPathForSelection,
   } = sharedTreeContext ?? localTreeState;
 
   // storeClearFileContents is selected above to keep hook count constant
@@ -439,33 +480,62 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     restoredForFolderRef.current = currentFolderId;
     isRestoringRef.current = true;
 
-    // Get persisted expanded paths from store
+    // Get persisted expanded paths AND selected files from store
     const storeState = store.getState();
     const expandedPaths = storeState.expandedDirectoryPaths;
+    const selectedFiles = storeState.selectedFilePaths;
 
-    logger.debug('[Restoration Effect] Expanded paths from store', {
+    // BST-308: Include parent directories of selected files in restoration.
+    // When files are restored from persistence, their parent directories must be loaded
+    // so that file nodes (with handles and sizes) appear in the file tree.
+    // Without this, token counting and file size display fail for restored selections.
+    const parentDirectoriesOfSelectedFiles = new Set<string>();
+    for (const compositeKey of selectedFiles) {
+      try {
+        const { path } = decodeFileSelection(compositeKey);
+        const parentDir = getParentDirectory(path);
+        // Only add non-empty parent directories (empty means root-level file)
+        if (parentDir) {
+          parentDirectoriesOfSelectedFiles.add(parentDir);
+        }
+      } catch {
+        // Ignore invalid composite keys
+      }
+    }
+
+    // Merge expanded paths with parent directories of selected files
+    const allPathsToRestore = new Set([...expandedPaths, ...parentDirectoriesOfSelectedFiles]);
+
+    logger.debug('[Restoration Effect] Paths to restore', {
       folderId: currentFolderId,
-      pathCount: expandedPaths.size,
-      paths: [...expandedPaths].slice(0, 10),
+      expandedPathCount: expandedPaths.size,
+      selectedFileCount: selectedFiles.size,
+      parentDirsOfSelectedFiles: parentDirectoriesOfSelectedFiles.size,
+      totalPathsToRestore: allPathsToRestore.size,
+      expandedPaths: [...expandedPaths].slice(0, 5),
+      parentDirs: [...parentDirectoriesOfSelectedFiles].slice(0, 5),
     });
 
     // Skip if no paths to restore
-    if (expandedPaths.size === 0) {
+    if (allPathsToRestore.size === 0) {
       logger.debug('[Restoration Effect] Skipped - no paths to restore');
       isRestoringRef.current = false;
+      restorationLock.inProgress = false;
       return;
     }
 
     // Now safe to update state - we've locked restoration for this folder
     setIsRestoringExpandedPaths(true);
 
-    logger.info('Restoring expanded directories', {
+    logger.info('Restoring expanded directories and file parent directories', {
       folderId: currentFolderId,
-      pathCount: expandedPaths.size,
+      expandedPathCount: expandedPaths.size,
+      parentDirsOfSelectedFilesCount: parentDirectoriesOfSelectedFiles.size,
+      totalPathCount: allPathsToRestore.size,
     });
 
     // Sort paths by depth (shallowest first so parents load before children)
-    const sortedPaths = [...expandedPaths].sort((a, b) => getPathDepth(a) - getPathDepth(b));
+    const sortedPaths = [...allPathsToRestore].sort((a, b) => getPathDepth(a) - getPathDepth(b));
     const total = sortedPaths.length;
 
     // Initialize progress
@@ -531,5 +601,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     restorationProgress,
     setAccessLoading,
     canLoadWithoutTree,
+    selectFolderRecursively,
+    cancelRecursiveSelect,
+    isLoadingForSelection,
+    loadingPathForSelection,
   };
 }

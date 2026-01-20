@@ -76,6 +76,25 @@ function generateRequestId(): string {
 }
 
 /**
+ * State object for subtree loading operations.
+ * Tracks progress through BFS waves of directory loading.
+ */
+interface SubtreeLoadState {
+  /** Directories already processed (to avoid duplicates) */
+  processed: Set<string>;
+  /** Current wave of directories to process */
+  currentWave: Set<string>;
+  /** Total directories discovered so far */
+  totalDiscovered: number;
+  /** Number of directories successfully loaded */
+  loadedCount: number;
+  /** Whether depth limit was reached */
+  hitDepthLimit: boolean;
+  /** Whether directory count limit was reached */
+  hitDirectoryLimit: boolean;
+}
+
+/**
  * BFS Engine for tree expansion operations.
  */
 export class BFSEngine {
@@ -722,6 +741,261 @@ export class BFSEngine {
       `[loadPaths] Complete. Loaded ${counters.loadedCount}, skipped ${counters.skippedCount}`
     );
     this.sendComplete(counters.loadedCount);
+  }
+
+  /**
+   * Load all descendants of a specific directory (for recursive folder selection).
+   * Uses BFS like expandAll but scoped to a subtree starting from the given path.
+   *
+   * This is used when a user clicks a folder checkbox on an unloaded folder -
+   * we need to load all children first before we can collect file paths for selection.
+   *
+   * Safety limits:
+   * - MAX_EXPAND_DEPTH: Relative depth from startPath is capped
+   * - MAX_EXPAND_DIRECTORIES: Limits total directories to prevent memory exhaustion
+   */
+  async loadSubtree(startPath: string): Promise<void> {
+    this.resetAbort();
+
+    // Find and validate the start node
+    const startNode = this.findNode(startPath);
+    if (!this.validateSubtreeStart(startNode, startPath)) {
+      return;
+    }
+
+    const baseDepth = getPathDepth(startPath);
+    this.logInfo(`[loadSubtree] Starting from ${startPath} (base depth: ${baseDepth})`);
+
+    // Initialize the first wave of directories to load
+    const state = this.initializeSubtreeState(startNode as WorkerFileNode, startPath);
+
+    // Send initial progress
+    this.sendProgress(0, Math.max(state.totalDiscovered, 1), startPath);
+
+    // Process waves until complete or aborted
+    await this.processSubtreeWaves(state, baseDepth);
+
+    // Log completion
+    this.logSubtreeCompletion(state);
+    this.sendComplete(state.loadedCount);
+  }
+
+  /**
+   * Validate the start node for subtree loading.
+   */
+  private validateSubtreeStart(startNode: WorkerFileNode | null, startPath: string): boolean {
+    if (!startNode) {
+      this.logInfo(`[loadSubtree] Start path not found in tree: ${startPath}`);
+      this.sendComplete(0);
+      return false;
+    }
+
+    if (startNode.type !== 'directory') {
+      this.logInfo(`[loadSubtree] Start path is not a directory: ${startPath}`);
+      this.sendComplete(0);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Initialize state for subtree loading.
+   *
+   * Important: We need to discover ALL unloaded directories in the subtree,
+   * including those nested under already-loaded directories. This is done
+   * via recursive traversal so that clicking a parent folder selects all
+   * descendants even if some intermediate directories were previously expanded.
+   */
+  private initializeSubtreeState(startNode: WorkerFileNode, startPath: string): SubtreeLoadState {
+    const currentWave = new Set<string>();
+
+    // Add the start directory if unloaded
+    if (startNode.loadState !== 'loaded') {
+      currentWave.add(startPath);
+    }
+
+    // Recursively discover all unloaded directories in the subtree
+    // This handles the case where some directories are already loaded
+    // but have unloaded descendants
+    if (startNode.children) {
+      this.collectUnloadedDescendants(startNode.children, currentWave);
+    }
+
+    this.logDebug(`[loadSubtree] Starting with ${currentWave.size} directories to load`);
+
+    return {
+      processed: new Set<string>(),
+      currentWave,
+      totalDiscovered: currentWave.size,
+      loadedCount: 0,
+      hitDepthLimit: false,
+      hitDirectoryLimit: false,
+    };
+  }
+
+  /**
+   * Recursively collect all unloaded directory paths from nodes.
+   * Also traverses into loaded directories to find deeper unloaded descendants.
+   */
+  private collectUnloadedDescendants(nodes: WorkerFileNode[], result: Set<string>): void {
+    for (const node of nodes) {
+      if (node.type !== 'directory') {
+        continue;
+      }
+
+      if (node.loadState !== 'loaded') {
+        // Unloaded directory - add to wave
+        result.add(node.path);
+      } else if (node.children) {
+        // Loaded directory - traverse into it to find unloaded descendants
+        this.collectUnloadedDescendants(node.children, result);
+      }
+    }
+  }
+
+  /**
+   * Process BFS waves for subtree loading.
+   */
+  private async processSubtreeWaves(state: SubtreeLoadState, baseDepth: number): Promise<void> {
+    while (state.currentWave.size > 0 && !this.aborted) {
+      // Safety check: directory limit
+      if (state.loadedCount >= MAX_EXPAND_DIRECTORIES) {
+        state.hitDirectoryLimit = true;
+        this.logInfo(`[loadSubtree] Reached directory limit (${MAX_EXPAND_DIRECTORIES}), stopping`);
+        break;
+      }
+
+      // Filter directories to load in this wave
+      const { toLoad, hitDepth } = this.filterSubtreeWave(state, baseDepth);
+      if (hitDepth) {
+        state.hitDepthLimit = true;
+      }
+
+      if (toLoad.length === 0) {
+        // Discover next wave from current paths
+        state.currentWave = this.discoverSubtreeChildren(state);
+        continue;
+      }
+
+      // Process batches
+      const aborted = await this.processSubtreeBatches(toLoad, state);
+      if (aborted) {
+        break;
+      }
+
+      // Discover next wave
+      state.currentWave = this.discoverSubtreeChildren(state);
+    }
+  }
+
+  /**
+   * Filter the current wave to find directories that need loading.
+   */
+  private filterSubtreeWave(
+    state: SubtreeLoadState,
+    baseDepth: number
+  ): { toLoad: string[]; hitDepth: boolean } {
+    const toLoad: string[] = [];
+    let hitDepth = false;
+
+    for (const path of state.currentWave) {
+      if (state.processed.has(path)) {
+        continue;
+      }
+
+      const node = this.findNode(path);
+      if (!node || node.type !== 'directory') {
+        continue;
+      }
+      if (node.loadState === 'loaded' || node.loadState === 'loading') {
+        continue;
+      }
+
+      // Check relative depth from startPath
+      const relativeDepth = getPathDepth(path) - baseDepth;
+      if (relativeDepth > MAX_EXPAND_DEPTH) {
+        hitDepth = true;
+        continue;
+      }
+
+      toLoad.push(path);
+    }
+
+    return { toLoad, hitDepth };
+  }
+
+  /**
+   * Discover child directories from current wave for next iteration.
+   */
+  private discoverSubtreeChildren(state: SubtreeLoadState): Set<string> {
+    const nextWave = new Set<string>();
+
+    for (const path of state.currentWave) {
+      state.processed.add(path);
+      const node = this.findNode(path);
+      if (!node?.children) {
+        continue;
+      }
+
+      for (const child of node.children) {
+        if (
+          child.type === 'directory' &&
+          child.loadState !== 'loaded' &&
+          !state.processed.has(child.path)
+        ) {
+          nextWave.add(child.path);
+          state.totalDiscovered++;
+        }
+      }
+    }
+
+    return nextWave;
+  }
+
+  /**
+   * Process directory batches for subtree loading.
+   * Returns true if aborted.
+   */
+  private async processSubtreeBatches(toLoad: string[], state: SubtreeLoadState): Promise<boolean> {
+    for (let i = 0; i < toLoad.length && !this.aborted; i += BATCH_SIZE) {
+      const batch = toLoad.slice(i, i + BATCH_SIZE);
+
+      this.markBatchAsLoading(batch);
+      const results = await this.requestLoads(batch);
+
+      if (this.aborted) {
+        return true;
+      }
+
+      state.loadedCount += results.filter((r) => r.children).length;
+      this.sendProgress(state.loadedCount, state.totalDiscovered, batch[0] ?? '');
+
+      // Mark processed
+      for (const path of batch) {
+        state.processed.add(path);
+      }
+
+      await yieldControl();
+    }
+
+    return this.aborted;
+  }
+
+  /**
+   * Log completion info for subtree loading.
+   */
+  private logSubtreeCompletion(state: SubtreeLoadState): void {
+    const limitInfo = [];
+    if (state.hitDepthLimit) {
+      limitInfo.push(`depth limit ${MAX_EXPAND_DEPTH}`);
+    }
+    if (state.hitDirectoryLimit) {
+      limitInfo.push(`directory limit ${MAX_EXPAND_DIRECTORIES}`);
+    }
+    const limitMsg = limitInfo.length > 0 ? ` (hit ${limitInfo.join(', ')})` : '';
+
+    this.logInfo(`[loadSubtree] Complete. Loaded ${state.loadedCount} directories${limitMsg}`);
   }
 
   /**

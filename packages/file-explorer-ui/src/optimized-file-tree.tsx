@@ -16,6 +16,14 @@ interface IOptimizedFileTreeProps {
   onLoadChildren?: ((path: string) => Promise<void>) | undefined;
   /** Cancel loading for a directory (called on collapse) */
   cancelChildLoading?: ((path: string) => void) | undefined;
+  /** Select all files in a folder recursively, loading if needed */
+  onSelectFolderRecursively?:
+    | ((node: IFileNode) => Promise<{ success: boolean; filePaths: string[] }>)
+    | undefined;
+  /** Whether a folder is being loaded for selection */
+  isLoadingForSelection?: boolean | undefined;
+  /** Path of the folder being loaded for selection */
+  loadingPathForSelection?: string | null | undefined;
 }
 
 /**
@@ -43,6 +51,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     loadingPaths,
     onLoadChildren,
     cancelChildLoading,
+    onSelectFolderRecursively,
+    isLoadingForSelection,
+    loadingPathForSelection,
   }) => {
     const store = useFileExplorerStoreContext();
     const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
@@ -138,9 +149,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             isLoading={
               folderId ? loadingFiles.has(encodeFileSelection(folderId, node.path)) : false
             }
+            isLoadingForSelection={isLoadingForSelection && loadingPathForSelection === node.path}
             key={node.path}
             node={node}
             onLoadChildren={onLoadChildren}
+            onSelectFolderRecursively={onSelectFolderRecursively}
             onToggleDirectoryExpansion={handleToggleDirectoryExpansion}
             onToggleFileSelection={handleToggleFileSelection}
             style={{
@@ -165,6 +178,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       folderId,
       loadingPaths,
       onLoadChildren,
+      onSelectFolderRecursively,
+      isLoadingForSelection,
+      loadingPathForSelection,
     ]);
 
     // This effect will run if the onRender callback itself changes.
@@ -218,6 +234,16 @@ const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps)
     return false;
   }
   if (prevProps.cancelChildLoading !== nextProps.cancelChildLoading) {
+    return false;
+  }
+  // Include recursive selection props in comparison
+  if (prevProps.onSelectFolderRecursively !== nextProps.onSelectFolderRecursively) {
+    return false;
+  }
+  if (prevProps.isLoadingForSelection !== nextProps.isLoadingForSelection) {
+    return false;
+  }
+  if (prevProps.loadingPathForSelection !== nextProps.loadingPathForSelection) {
     return false;
   }
   return true;

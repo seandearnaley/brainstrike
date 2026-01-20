@@ -202,6 +202,10 @@ describe('FileExplorerLeftPanel', () => {
       setRootDirectoryHandle: vi.fn(),
       setAccessLoading: vi.fn(),
       canLoadWithoutTree: false,
+      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelRecursiveSelect: vi.fn(),
+      isLoadingForSelection: false,
+      loadingPathForSelection: null,
     } as ReturnType<typeof useFileExplorer>;
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 

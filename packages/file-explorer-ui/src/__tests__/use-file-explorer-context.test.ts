@@ -44,7 +44,7 @@ import {
   useFileContentLoading,
 } from '@brainstrike/file-explorer-hooks';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
-import { useFileExplorer } from '../use-file-explorer-context';
+import { __resetRestorationLock, useFileExplorer } from '../use-file-explorer-context';
 import { useFileSystem } from '../use-file-system-context';
 import { useFileTree } from '../use-file-tree-context';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
@@ -69,6 +69,8 @@ describe('useFileExplorer (context)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset the module-level restoration lock between tests
+    __resetRestorationLock();
 
     initialFileTree = [
       createFileNode({ name: 'file1.ts', path: '/file1.ts' }),
@@ -194,6 +196,10 @@ describe('useFileExplorer (context)', () => {
       expandAllProgress: null,
       loadSpecificPaths: vi.fn(),
       cancelChildLoading: vi.fn(),
+      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelRecursiveSelect: vi.fn(),
+      isLoadingForSelection: false,
+      loadingPathForSelection: null,
     });
 
     vi.mocked(useFileContentLoading).mockReturnValue({
@@ -511,12 +517,146 @@ describe('useFileExplorer (context)', () => {
         expandAllProgress: null,
         loadSpecificPaths: loadSpecificPathsMock,
         cancelChildLoading: vi.fn(),
+        selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelRecursiveSelect: vi.fn(),
+        isLoadingForSelection: false,
+        loadingPathForSelection: null,
       });
 
       renderHook(() => useFileExplorer());
 
       // loadSpecificPaths should NOT be called when there are no paths to restore
       expect(loadSpecificPathsMock).not.toHaveBeenCalled();
+    });
+
+    it('should include parent directories of selected files in restoration (BST-308)', async () => {
+      // BST-308: When files are restored from persistence, their parent directories
+      // must be loaded so that file nodes (with handles and sizes) appear in the file tree.
+      // Without this, token counting and file size display fail for restored selections.
+
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      // Setup: selected files in various directories, but those directories are NOT expanded
+      storeState.selectedFilePaths = new Set([
+        'root|@|src/components/Button.tsx',
+        'root|@|src/utils/helpers.ts',
+        'root|@|lib/api/client.ts',
+        'root|@|package.json', // root-level file - should not add empty parent dir
+      ]);
+      storeState.expandedDirectoryPaths = new Set(['src']); // Only 'src' is expanded
+
+      const loadSpecificPathsMock = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(useFileTree).mockReturnValue({
+        fileTree: initialFileTree,
+        isLoading: false,
+        error: null,
+        refreshTree: mockRefreshTree,
+        loadingProgress: { loadingCount: 0, isInitialLoading: false },
+        cancellable: false,
+        cancelOperation: vi.fn(),
+        isCancelling: false,
+        loadingPaths: new Set<string>(),
+        loadChildren: vi.fn(),
+        refreshDirectory: vi.fn(),
+        expandAllProgressively: vi.fn(),
+        cancelExpandAll: vi.fn(),
+        isExpandingAll: false,
+        expandAllProgress: null,
+        loadSpecificPaths: loadSpecificPathsMock,
+        cancelChildLoading: vi.fn(),
+        selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelRecursiveSelect: vi.fn(),
+        isLoadingForSelection: false,
+        loadingPathForSelection: null,
+      });
+
+      renderHook(() => useFileExplorer());
+
+      // Wait for the effect to run
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      // loadSpecificPaths should be called with merged paths:
+      // - 'src' (from expandedDirectoryPaths)
+      // - 'src/components' (parent of Button.tsx)
+      // - 'src/utils' (parent of helpers.ts)
+      // - 'lib/api' (parent of client.ts)
+      // - 'lib' is NOT needed because 'lib/api' implicitly requires 'lib' to be loaded first
+      // Note: package.json has no parent dir (root level), so nothing added for it
+      expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
+
+      const calledPaths = loadSpecificPathsMock.mock.calls[0]?.[0] as string[];
+      expect(calledPaths).toContain('src');
+      expect(calledPaths).toContain('src/components');
+      expect(calledPaths).toContain('src/utils');
+      expect(calledPaths).toContain('lib/api');
+      // Should NOT contain empty string (for root-level files)
+      expect(calledPaths).not.toContain('');
+    });
+
+    it('should not duplicate paths when parent dir is already in expanded paths', async () => {
+      // If a parent directory of a selected file is already in expandedDirectoryPaths,
+      // it should not be duplicated in the restoration call.
+
+      vi.mocked(useFileSystem).mockReturnValue({
+        rootDirectoryHandle: rootHandle,
+        isAccessLoading: false,
+        selectRootDirectory: mockSelectRootDirectory,
+        isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+        clearRootDirectory: vi.fn(),
+        setRootDirectoryHandle: vi.fn(),
+        setAccessLoading: vi.fn(),
+      });
+
+      // 'src/components' is both an expanded path AND parent of a selected file
+      storeState.selectedFilePaths = new Set(['root|@|src/components/Button.tsx']);
+      storeState.expandedDirectoryPaths = new Set(['src', 'src/components']);
+
+      const loadSpecificPathsMock = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(useFileTree).mockReturnValue({
+        fileTree: initialFileTree,
+        isLoading: false,
+        error: null,
+        refreshTree: mockRefreshTree,
+        loadingProgress: { loadingCount: 0, isInitialLoading: false },
+        cancellable: false,
+        cancelOperation: vi.fn(),
+        isCancelling: false,
+        loadingPaths: new Set<string>(),
+        loadChildren: vi.fn(),
+        refreshDirectory: vi.fn(),
+        expandAllProgressively: vi.fn(),
+        cancelExpandAll: vi.fn(),
+        isExpandingAll: false,
+        expandAllProgress: null,
+        loadSpecificPaths: loadSpecificPathsMock,
+        cancelChildLoading: vi.fn(),
+        selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+        cancelRecursiveSelect: vi.fn(),
+        isLoadingForSelection: false,
+        loadingPathForSelection: null,
+      });
+
+      renderHook(() => useFileExplorer());
+
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(loadSpecificPathsMock).toHaveBeenCalledTimes(1);
+
+      const calledPaths = loadSpecificPathsMock.mock.calls[0]?.[0] as string[];
+      // Using Set ensures no duplicates - 'src/components' should appear only once
+      expect(calledPaths.filter((p) => p === 'src/components').length).toBe(1);
     });
   });
 });
