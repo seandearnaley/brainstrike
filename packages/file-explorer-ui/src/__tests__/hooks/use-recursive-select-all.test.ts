@@ -494,7 +494,7 @@ describe('useRecursiveSelectAll', () => {
       const workerPortRef = { current: workerPort };
       const handleMapRef = { current: new Map<string, FileSystemHandle>() };
 
-      const { result } = renderHook(() =>
+      const { result, unmount } = renderHook(() =>
         useRecursiveSelectAll({
           workerPortRef,
           handleMapRef,
@@ -506,25 +506,30 @@ describe('useRecursiveSelectAll', () => {
 
       let selectResult: Awaited<ReturnType<typeof result.current.selectAllRecursively>> | undefined;
 
-      // Start the selection and immediately cancel
-      await act(async () => {
-        const promise = result.current.selectAllRecursively(
-          tree,
-          'folder-1',
-          mockAddMultipleSelectedFiles,
-          100
-        );
+      try {
+        // Start the selection and immediately cancel
+        await act(async () => {
+          const promise = result.current.selectAllRecursively(
+            tree,
+            'folder-1',
+            mockAddMultipleSelectedFiles,
+            100
+          );
 
-        // Small delay to let the operation start
-        await new Promise((resolve) => setTimeout(resolve, 10));
-        result.current.cancelSelectAll();
+          // Small delay to let the operation start
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          result.current.cancelSelectAll();
 
-        selectResult = await promise;
-      });
+          selectResult = await promise;
+        });
 
-      // The operation should detect cancellation and return appropriately
-      expect(selectResult?.cancelled).toBe(true);
-      expect(selectResult?.success).toBe(false);
+        // The operation should detect cancellation and return appropriately
+        expect(selectResult?.cancelled).toBe(true);
+        expect(selectResult?.success).toBe(false);
+      } finally {
+        // Ensure cleanup even if test assertions fail
+        unmount();
+      }
     });
   });
 

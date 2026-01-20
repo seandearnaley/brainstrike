@@ -32,6 +32,9 @@ import {
 
 const logger = createLogger('RecursiveSelectAll');
 
+/** Number of sample paths to include in log output for debugging */
+const LOG_SAMPLE_SIZE = 3;
+
 /**
  * Check if the entire tree is fully loaded (all directories have loadState 'loaded').
  */
@@ -61,6 +64,14 @@ function isTreeFullyLoaded(nodes: IFileNode[]): boolean {
  *
  * Example: For a tree with root files and subdirectories, breadth-first
  * collects all root-level files first, then files one level deep, etc.
+ *
+ * EDGE CASE NOTE: In the slow path (loadDirectoriesFromTree), workspace filters
+ * are applied AFTER tree loading via filterTreeFn. If filters restructure the tree
+ * by hiding root directories but exposing deep nested files, those deep files may
+ * appear earlier in the queue than expected. This is acceptable because:
+ * 1. The filtered tree represents what the user actually sees in the UI
+ * 2. Breadth-first still respects the structure of the filtered tree
+ * 3. The alternative (filtering during load) would require deep integration changes
  */
 function collectAllFilePaths(nodes: IFileNode[]): string[] {
   const paths: string[] = [];
@@ -108,7 +119,7 @@ function selectFilesWithLimit(
     totalFiles: allFilePaths.length,
     selectingCount: pathsToSelect.length,
     folderId,
-    samplePaths: pathsToSelect.slice(0, 3),
+    samplePaths: pathsToSelect.slice(0, LOG_SAMPLE_SIZE),
   });
 
   if (pathsToSelect.length > 0) {
@@ -167,22 +178,22 @@ function processLoadedTree(
 
 /**
  * Result of precondition checks for loading tree.
+ *
+ * Simplified from generic type - concrete types provide equivalent safety
+ * since we only use FileTreeWorkerPort and FileSystemHandle Map in practice.
  */
-type PreconditionResult<T extends FileTreeWorkerPort, U extends Map<string, FileSystemHandle>> =
-  | { ready: true; workerPort: T; handleMap: U }
+type PreconditionResult =
+  | { ready: true; workerPort: FileTreeWorkerPort; handleMap: Map<string, FileSystemHandle> }
   | { ready: false; result: SelectAllResult };
 
 /**
  * Check preconditions for loading tree (worker and handle map availability).
  */
-function checkLoadPreconditions<
-  T extends FileTreeWorkerPort,
-  U extends Map<string, FileSystemHandle>,
->(
-  workerPortRef: React.RefObject<T | null>,
-  handleMapRef: React.RefObject<U | null>,
-  isStartingRef: React.RefObject<boolean>
-): PreconditionResult<T, U> {
+function checkLoadPreconditions(
+  workerPortRef: React.RefObject<FileTreeWorkerPort | null>,
+  handleMapRef: React.RefObject<Map<string, FileSystemHandle> | null>,
+  isOperationInProgressRef: React.RefObject<boolean>
+): PreconditionResult {
   const workerPort = workerPortRef.current;
   const handleMap = handleMapRef.current;
 
@@ -197,7 +208,7 @@ function checkLoadPreconditions<
     };
   }
 
-  if (isStartingRef.current) {
+  if (isOperationInProgressRef.current) {
     logger.debug('selectAllRecursively: blocked by double-click guard');
     return {
       ready: false,
@@ -460,8 +471,8 @@ export function useRecursiveSelectAll(
   // State
   const [state, setState] = useState<RecursiveSelectAllState>(RESET_STATE);
 
-  // Guard against double-clicks
-  const isStartingRef = useRef(false);
+  // Guard against rapid clicks - prevents starting a new operation while one is initializing
+  const isOperationInProgressRef = useRef(false);
 
   // Ref for checking loading state in effects
   const isLoadingForSelectAllRef = useRef(false);
@@ -471,7 +482,7 @@ export function useRecursiveSelectAll(
    */
   const cancelSelectAll = useCallback(() => {
     workerPortRef.current?.abort();
-    isStartingRef.current = false;
+    isOperationInProgressRef.current = false;
     isLoadingForSelectAllRef.current = false;
     setState(RESET_STATE);
   }, [workerPortRef]);
@@ -601,7 +612,7 @@ export function useRecursiveSelectAll(
           folderId,
           nodeCount: filteredTree.length,
           fileCount: allFilePaths.length,
-          samplePaths: allFilePaths.slice(0, 3),
+          samplePaths: allFilePaths.slice(0, LOG_SAMPLE_SIZE),
         });
 
         const result = selectFilesWithLimit(
@@ -616,6 +627,11 @@ export function useRecursiveSelectAll(
         // so Zustand subscription updates alone don't trigger row re-renders.
         // Creating a shallow copy forces the tree state to change, which invalidates
         // the memo and causes rows to re-render with updated selection state.
+        //
+        // RACE CONDITION SAFETY: Zustand's setState is synchronous by default (no batching).
+        // The `addMultipleSelectedFiles` call in `selectFilesWithLimit` immediately updates
+        // the store state before this line executes, so the selection state is guaranteed
+        // to be committed before we trigger the tree re-render.
         if (result.success && result.filePaths.length > 0) {
           onTreeUpdate([...filteredTree]);
         }
@@ -624,7 +640,11 @@ export function useRecursiveSelectAll(
       }
 
       // Need to load tree first - check preconditions
-      const preconditions = checkLoadPreconditions(workerPortRef, handleMapRef, isStartingRef);
+      const preconditions = checkLoadPreconditions(
+        workerPortRef,
+        handleMapRef,
+        isOperationInProgressRef
+      );
       if (!preconditions.ready) {
         return preconditions.result;
       }
@@ -632,7 +652,7 @@ export function useRecursiveSelectAll(
       const { workerPort, handleMap } = preconditions;
 
       // Mark operation as starting
-      isStartingRef.current = true;
+      isOperationInProgressRef.current = true;
       isLoadingForSelectAllRef.current = true;
       setState({
         isLoadingForSelectAll: true,
@@ -656,7 +676,7 @@ export function useRecursiveSelectAll(
         setState(RESET_STATE);
         return handleSelectAllError(err, onError);
       } finally {
-        isStartingRef.current = false;
+        isOperationInProgressRef.current = false;
         isLoadingForSelectAllRef.current = false;
       }
     },
