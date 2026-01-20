@@ -324,6 +324,61 @@ describe('validation', () => {
       const result = validateSelectionRule('not-an-object');
       expect(result.success).toBe(false);
     });
+
+    // Mutation test coverage: .min(1) vs .max(1) boundary tests
+    it('should accept explicit rule with multiple paths', () => {
+      const ruleWithMultiplePaths = {
+        ...validExplicitRule,
+        paths: ['src/a.ts', 'src/b.ts', 'src/c.ts'],
+      };
+
+      const result = validateSelectionRule(ruleWithMultiplePaths);
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept glob rule with multiple patterns', () => {
+      const ruleWithMultiplePatterns = {
+        ...validGlobIncludeRule,
+        patterns: ['**/*.ts', '**/*.tsx', '**/*.js'],
+      };
+
+      const result = validateSelectionRule(ruleWithMultiplePatterns);
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept root-include rule with multiple roots', () => {
+      const ruleWithMultipleRoots = {
+        ...validRootIncludeRule,
+        roots: ['src', 'lib', 'test'],
+      };
+
+      const result = validateSelectionRule(ruleWithMultipleRoots);
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept root-exclude rule with multiple roots', () => {
+      const ruleWithMultipleRoots = {
+        id: 'root-exclude-multi',
+        type: 'root-exclude' as const,
+        roots: ['node_modules', 'dist', '.git'],
+        createdAt: '2026-01-02T00:00:00.000Z',
+      };
+
+      const result = validateSelectionRule(ruleWithMultipleRoots);
+      expect(result.success).toBe(true);
+    });
+
+    it('should accept glob-exclude rule with multiple patterns', () => {
+      const ruleWithMultiplePatterns = {
+        id: 'glob-exclude-multi',
+        type: 'glob-exclude' as const,
+        patterns: ['**/*.test.ts', '**/*.spec.ts', '**/__mocks__/**'],
+        createdAt: '2026-01-02T00:00:00.000Z',
+      };
+
+      const result = validateSelectionRule(ruleWithMultiplePatterns);
+      expect(result.success).toBe(true);
+    });
   });
 
   describe('validateSelectionRuleSet', () => {
