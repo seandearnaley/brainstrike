@@ -251,7 +251,10 @@
       "Bash(git diff:*)",
       "Skill(superpowers:systematic-debugging)",
       "Skill(superpowers:systematic-debugging:*)",
-      "Bash(gh run watch:*)"
+      "Bash(gh run watch:*)",
+      "Bash(bash:*)",
+      "Bash(do echo '=== $pkg ===' find packages/$pkg/src -name *.ts ! -name *.test.ts ! -name *.d.ts)",
+      "Skill(superpowers:brainstorming)"
     ],
     "deny": [],
     "ask": []

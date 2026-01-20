@@ -1437,6 +1437,15 @@ importers:
         specifier: ^4.3.5
         version: 4.3.5
     devDependencies:
+      '@stryker-mutator/core':
+        specifier: ^9.4.0
+        version: 9.4.0(@types/node@25.0.8)
+      '@stryker-mutator/typescript-checker':
+        specifier: ^9.4.0
+        version: 9.4.0(@stryker-mutator/core@9.4.0(@types/node@25.0.8))(typescript@5.9.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: ^9.4.0
+        version: 9.4.0(@stryker-mutator/core@9.4.0(@types/node@25.0.8))(vitest@4.0.17)
       '@swc/core':
         specifier: ^1.15.8
         version: 1.15.8(@swc/helpers@0.5.18)
@@ -14279,7 +14288,7 @@ snapshots:
   '@stryker-mutator/instrumenter@9.4.0':
     dependencies:
       '@babel/core': 7.28.6
-      '@babel/generator': 7.28.5
+      '@babel/generator': 7.28.6
       '@babel/parser': 7.28.6
       '@babel/plugin-proposal-decorators': 7.28.0(@babel/core@7.28.6)
       '@babel/plugin-transform-explicit-resource-management': 7.28.0(@babel/core@7.28.6)
@@ -15305,7 +15314,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vitest: 4.0.17(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@25.0.8)(@vitest/browser-playwright@4.0.17)(@vitest/ui@4.0.17)(happy-dom@20.1.0)(jiti@1.21.7)(jsdom@27.4.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.21.0)
+      vitest: 4.0.17(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@25.0.8)(@vitest/browser-playwright@4.0.17)(@vitest/ui@4.0.17)(happy-dom@20.1.0)(jiti@2.6.1)(jsdom@27.4.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.21.0)
 
   '@vitest/utils@4.0.17':
     dependencies:
@@ -15702,7 +15711,7 @@ snapshots:
     dependencies:
       ansi-align: 3.0.1
       camelcase: 7.0.1
-      chalk: 5.0.1
+      chalk: 5.6.2
       cli-boxes: 3.0.0
       string-width: 5.1.2
       type-fest: 2.19.0
