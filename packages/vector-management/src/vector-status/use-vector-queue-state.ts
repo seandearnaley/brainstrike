@@ -1,7 +1,7 @@
 import { usePGliteLiveQuery } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useEmbeddingQueue } from '../embedding-queue-provider';
+import { useEmbeddingQueueSafe } from '../embedding-queue-provider';
 import {
   calculateLatency,
   EMBEDDINGS_QUEUE,
@@ -146,6 +146,13 @@ interface CoverageRow {
   chunksWithEmbeddingsForSet: number | string | null;
 }
 
+// Default metrics when EmbeddingQueueProvider is not available
+const DEFAULT_METRICS = {
+  windowErrorCount: 0,
+  throughputPerMinute: 0,
+  latencyP95Ms: 0,
+} as const;
+
 export function useVectorQueueState(params: UseVectorQueueStateParams): UseVectorQueueStateResult {
   // shouldAutoBackfill is retained in the API for future use but currently has no effect
   const {
@@ -154,7 +161,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     isImporting = false,
     isEmbeddingActive = false,
   } = params;
-  const { metrics } = useEmbeddingQueue();
+  // Use safe version that returns null when no provider is present
+  const embeddingQueueContext = useEmbeddingQueueSafe();
+  const metrics = embeddingQueueContext?.metrics ?? DEFAULT_METRICS;
   const service = params.service;
 
   // Pause live queries during import to avoid performance degradation

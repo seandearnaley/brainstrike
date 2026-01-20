@@ -88,4 +88,8 @@ vi.mock('../embedding-queue-provider', () => ({
     queue: noopQueue,
     metrics: currentQueueMetrics,
   }),
+  useEmbeddingQueueSafe: () => ({
+    queue: noopQueue,
+    metrics: currentQueueMetrics,
+  }),
 }));
