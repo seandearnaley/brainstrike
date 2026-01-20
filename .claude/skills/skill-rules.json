@@ -72,6 +72,30 @@
           "(how do|how to).*?add.*?language"
         ]
       }
+    },
+    "stryker-mutation-testing": {
+      "type": "domain",
+      "enforcement": "suggest",
+      "priority": "medium",
+      "description": "Guide for setting up and using Stryker mutation testing",
+      "promptTriggers": {
+        "keywords": [
+          "stryker",
+          "mutation testing",
+          "mutation score",
+          "mutant",
+          "mutants",
+          "killed mutants",
+          "survived mutants",
+          "mutation coverage"
+        ],
+        "intentPatterns": [
+          "(setup|configure|run).*?(mutation|stryker)",
+          "(improve|increase).*?mutation.*?score",
+          "(what is|explain).*?mutation.*?testing",
+          "mutant.*?(survived|killed|coverage)"
+        ]
+      }
     }
   },
   "notes": {

@@ -154,6 +154,118 @@ describe('serialization', () => {
         'Invalid materialized selection'
       );
     });
+
+    // Type guard validation tests - each tests a specific condition
+    it('should throw when paths array contains non-strings', () => {
+      const invalidJson = JSON.stringify({
+        paths: ['valid.ts', 123, 'another.ts'], // 123 is not a string
+        appliedRules: [],
+        capped: false,
+        originalCount: 0,
+        warnings: [],
+        materializedAt: '2026-01-02T00:00:00.000Z',
+      });
+      expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
+        'Invalid materialized selection'
+      );
+    });
+
+    it('should throw when appliedRules is not an array', () => {
+      const invalidJson = JSON.stringify({
+        paths: [],
+        appliedRules: 'not-an-array',
+        capped: false,
+        originalCount: 0,
+        warnings: [],
+        materializedAt: '2026-01-02T00:00:00.000Z',
+      });
+      expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
+        'Invalid materialized selection'
+      );
+    });
+
+    it('should throw when capped is not a boolean', () => {
+      const invalidJson = JSON.stringify({
+        paths: [],
+        appliedRules: [],
+        capped: 'false', // string instead of boolean
+        originalCount: 0,
+        warnings: [],
+        materializedAt: '2026-01-02T00:00:00.000Z',
+      });
+      expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
+        'Invalid materialized selection'
+      );
+    });
+
+    it('should throw when originalCount is not a number', () => {
+      const invalidJson = JSON.stringify({
+        paths: [],
+        appliedRules: [],
+        capped: false,
+        originalCount: '0', // string instead of number
+        warnings: [],
+        materializedAt: '2026-01-02T00:00:00.000Z',
+      });
+      expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
+        'Invalid materialized selection'
+      );
+    });
+
+    it('should throw when warnings is not an array', () => {
+      const invalidJson = JSON.stringify({
+        paths: [],
+        appliedRules: [],
+        capped: false,
+        originalCount: 0,
+        warnings: {}, // object instead of array
+        materializedAt: '2026-01-02T00:00:00.000Z',
+      });
+      expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
+        'Invalid materialized selection'
+      );
+    });
+
+    it('should throw when materializedAt is not a string', () => {
+      const invalidJson = JSON.stringify({
+        paths: [],
+        appliedRules: [],
+        capped: false,
+        originalCount: 0,
+        warnings: [],
+        materializedAt: 12_345, // number instead of string
+      });
+      expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
+        'Invalid materialized selection'
+      );
+    });
+
+    it('should throw when paths property is missing', () => {
+      const invalidJson = JSON.stringify({
+        appliedRules: [],
+        capped: false,
+        originalCount: 0,
+        warnings: [],
+        materializedAt: '2026-01-02T00:00:00.000Z',
+      });
+      expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
+        'Invalid materialized selection'
+      );
+    });
+
+    it('should throw for null input after parsing', () => {
+      const invalidJson = 'null';
+      expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
+        'Invalid materialized selection'
+      );
+    });
+
+    it('should throw for primitive parsed value', () => {
+      const invalidJson = '"just a string"';
+      expect(() => deserializeMaterializedSelection(invalidJson)).toThrow(
+        'Invalid materialized selection'
+      );
+    });
   });
 
   describe('safeDeserializeMaterializedSelection', () => {
