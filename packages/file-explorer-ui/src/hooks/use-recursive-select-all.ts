@@ -30,6 +30,8 @@ import {
   selectUseRegex,
 } from '../utils/workspace-filter-selectors';
 
+// Logger respects VITE_LOG_LEVEL env var - debug/info logs are suppressed in production.
+// See @brainstrike/utils createLogger() for level configuration.
 const logger = createLogger('RecursiveSelectAll');
 
 /** Number of sample paths to include in log output for debugging */
@@ -77,8 +79,14 @@ function collectAllFilePaths(nodes: IFileNode[]): string[] {
   const paths: string[] = [];
   const queue: IFileNode[] = [...nodes];
 
-  while (queue.length > 0) {
-    const node = queue.shift();
+  // Use index-based iteration instead of shift() for O(1) dequeue performance.
+  // Array.shift() is O(n) due to re-indexing; index tracking avoids this overhead
+  // which matters for large trees (10k+ nodes).
+  let queueIndex = 0;
+
+  while (queueIndex < queue.length) {
+    const node = queue[queueIndex++];
+    // Type guard for undefined (shouldn't happen with index bounds)
     if (!node) {
       continue;
     }
@@ -471,10 +479,27 @@ export function useRecursiveSelectAll(
   // State
   const [state, setState] = useState<RecursiveSelectAllState>(RESET_STATE);
 
+  // LOADING STATE MANAGEMENT - Three complementary mechanisms:
+  //
+  // 1. isOperationInProgressRef: Guards against rapid clicks during the SYNC phase
+  //    before async loading starts. Set true immediately on entry, cleared on exit.
+  //    Used by checkLoadPreconditions() to reject overlapping operations.
+  //
+  // 2. isLoadingForSelectAllRef: Tracks the ASYNC loading phase for cancellation
+  //    detection. Checked inside the loading loop to detect if user cancelled.
+  //    Also used by cleanup effect to abort on unmount.
+  //
+  // 3. state.isLoadingForSelectAll: UI state for the button to show "Selecting..."
+  //    and enable cancel behavior. Triggers re-renders for user feedback.
+  //
+  // All three are necessary: refs for sync/cancellation checks (no re-render cost),
+  // state for UI updates. Consolidating would either add unnecessary renders or
+  // lose the cancellation capability.
+
   // Guard against rapid clicks - prevents starting a new operation while one is initializing
   const isOperationInProgressRef = useRef(false);
 
-  // Ref for checking loading state in effects
+  // Ref for checking loading state in effects and cancellation detection
   const isLoadingForSelectAllRef = useRef(false);
 
   /**
@@ -628,7 +653,8 @@ export function useRecursiveSelectAll(
         // Creating a shallow copy forces the tree state to change, which invalidates
         // the memo and causes rows to re-render with updated selection state.
         //
-        // RACE CONDITION SAFETY: Zustand's setState is synchronous by default (no batching).
+        // RACE CONDITION SAFETY: Zustand 5.x setState is synchronous by default (no batching).
+        // See: https://docs.pmnd.rs/zustand/guides/immutable-state-and-merging
         // The `addMultipleSelectedFiles` call in `selectFilesWithLimit` immediately updates
         // the store state before this line executes, so the selection state is guaranteed
         // to be committed before we trigger the tree re-render.

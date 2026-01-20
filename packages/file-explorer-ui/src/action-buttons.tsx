@@ -23,6 +23,8 @@ import * as React from 'react';
 import { useCallback } from 'react';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
 
+// NOTE: `| undefined` on optional props is required due to exactOptionalPropertyTypes: true in tsconfig.
+// This ensures type compatibility when passing potentially-undefined values from parent components.
 export interface ActionButtonsProps {
   displayedFiles: Set<string>;
   selectedFilePaths: Set<string>;
@@ -75,21 +77,15 @@ export const ActionButtons = React.memo(
     addMultipleSelectedFiles,
   }: ActionButtonsProps) => {
     /**
-     * Handles recursive selection of all files in the tree.
-     * Uses the new recursive selection API when available, falling back
-     * to selecting only displayed files when not.
+     * Performs recursive selection using the tree worker API.
+     * Loads all directories then selects files up to the limit.
      */
-    const handleSelectAll = useCallback(async () => {
-      if (!currentFolderId) {
-        return;
-      }
+    const performRecursiveSelection = useCallback(
+      async (folderId: string): Promise<void> => {
+        if (!(selectAllRecursively && addMultipleSelectedFiles && filteredTree)) {
+          return;
+        }
 
-      // Bind non-null folderId for use in closures (TypeScript narrowing)
-      const folderId = currentFolderId;
-
-      // Use recursive selection if available and we have a filtered tree
-      // The filtered tree ensures workspace include/exclude filters are respected
-      if (selectAllRecursively && addMultipleSelectedFiles && filteredTree) {
         const result = await selectAllRecursively(
           filteredTree,
           folderId,
@@ -97,33 +93,67 @@ export const ActionButtons = React.memo(
           maxSelectionCount
         );
 
-        // Notify if limit was reached
         if (result.limitReached && onSelectionLimitExceeded) {
           onSelectionLimitExceeded();
         }
+      },
+      [
+        selectAllRecursively,
+        addMultipleSelectedFiles,
+        filteredTree,
+        maxSelectionCount,
+        onSelectionLimitExceeded,
+      ]
+    );
+
+    /**
+     * Fallback selection for when recursive API is not available.
+     * Only selects from currently displayed files.
+     */
+    const performFallbackSelection = useCallback(
+      (folderId: string): void => {
+        const filesToSelect = Array.from(displayedFiles)
+          .slice(0, maxSelectionCount)
+          .map((path) => encodeFileSelection(folderId, path))
+          .filter((v): v is string => typeof v === 'string');
+
+        if (displayedFiles.size > maxSelectionCount && onSelectionLimitExceeded) {
+          onSelectionLimitExceeded();
+        }
+        setSelectedFiles(new Set(filesToSelect));
+      },
+      [
+        displayedFiles,
+        maxSelectionCount,
+        encodeFileSelection,
+        onSelectionLimitExceeded,
+        setSelectedFiles,
+      ]
+    );
+
+    /**
+     * Main selection handler - routes to recursive or fallback strategy.
+     */
+    const handleSelectAll = useCallback(async () => {
+      if (!currentFolderId) {
         return;
       }
 
-      // Fallback to old behavior: select only displayed files
-      const filesToSelect = Array.from(displayedFiles)
-        .slice(0, maxSelectionCount)
-        .map((path) => encodeFileSelection(folderId, path))
-        .filter((v): v is string => typeof v === 'string');
+      // Check if recursive selection is available
+      const canUseRecursive = selectAllRecursively && addMultipleSelectedFiles && filteredTree;
 
-      if (displayedFiles.size > maxSelectionCount && onSelectionLimitExceeded) {
-        onSelectionLimitExceeded();
+      if (canUseRecursive) {
+        await performRecursiveSelection(currentFolderId);
+      } else {
+        performFallbackSelection(currentFolderId);
       }
-      setSelectedFiles(new Set(filesToSelect));
     }, [
       currentFolderId,
       selectAllRecursively,
       addMultipleSelectedFiles,
       filteredTree,
-      maxSelectionCount,
-      onSelectionLimitExceeded,
-      displayedFiles,
-      encodeFileSelection,
-      setSelectedFiles,
+      performRecursiveSelection,
+      performFallbackSelection,
     ]);
 
     // Clears all selected files
