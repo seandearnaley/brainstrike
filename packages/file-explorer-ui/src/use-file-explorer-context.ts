@@ -51,17 +51,28 @@ function getPathDepth(path: string): number {
 }
 
 /**
- * Helper to get the parent directory of a file path.
- * Returns the path without the last segment (the filename).
+ * Helper to get ALL ancestor directories of a file path.
+ * For example, for "apps/web/src/App.tsx", returns ["apps", "apps/web", "apps/web/src"].
+ * For absolute paths like "/Users/foo/bar.ts", returns ["/Users", "/Users/foo"].
+ * All ancestors must be expanded for a nested file to be visible in the tree.
  *
- * @param filePath - Full path to a file
- * @returns Parent directory path, or empty string for root-level files
+ * @param filePath - Full path to a file (can be relative or absolute)
+ * @returns Array of all ancestor directory paths, from root to immediate parent
  */
-function getParentDirectory(filePath: string): string {
+function getAllAncestorDirectories(filePath: string): string[] {
+  // Check if path is absolute (starts with /)
+  const isAbsolute = filePath.startsWith('/');
   const segments = filePath.split('/').filter(Boolean);
-  // Remove the filename (last segment) to get the parent directory
+  // Remove the filename (last segment)
   segments.pop();
-  return segments.length > 0 ? segments.join('/') : '';
+
+  const ancestors: string[] = [];
+  for (let i = 1; i <= segments.length; i++) {
+    // Preserve leading slash for absolute paths
+    const prefix = isAbsolute ? '/' : '';
+    ancestors.push(prefix + segments.slice(0, i).join('/'));
+  }
+  return ancestors;
 }
 
 type UseFileExplorerProps = Record<string, never>;
@@ -521,18 +532,21 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     const expandedPaths = storeState.expandedDirectoryPaths;
     const selectedFiles = storeState.selectedFilePaths;
 
-    // BST-308: Include parent directories of selected files in restoration.
-    // When files are restored from persistence, their parent directories must be loaded
-    // so that file nodes (with handles and sizes) appear in the file tree.
+    // BST-308/BST-310: Include ALL ancestor directories of selected files in restoration.
+    // When files are restored from persistence, their ancestor directories must be loaded
+    // AND expanded so that file nodes (with handles and sizes) appear in the file tree.
     // Without this, token counting and file size display fail for restored selections.
+    // CRITICAL: We need ALL ancestors, not just the immediate parent. For a file at
+    // "apps/web/src/App.tsx", we need "apps", "apps/web", and "apps/web/src" to all be
+    // loaded and expanded, otherwise the nested file won't be visible in the tree.
     const parentDirectoriesOfSelectedFiles = new Set<string>();
     for (const compositeKey of selectedFiles) {
       try {
         const { path } = decodeFileSelection(compositeKey);
-        const parentDir = getParentDirectory(path);
-        // Only add non-empty parent directories (empty means root-level file)
-        if (parentDir) {
-          parentDirectoriesOfSelectedFiles.add(parentDir);
+        // Get ALL ancestor directories, not just the immediate parent
+        const ancestors = getAllAncestorDirectories(path);
+        for (const ancestor of ancestors) {
+          parentDirectoriesOfSelectedFiles.add(ancestor);
         }
       } catch {
         // Ignore invalid composite keys
@@ -584,6 +598,23 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
         await loadSpecificPaths(sortedPaths, (loaded, progressTotal, currentPath) => {
           setRestorationProgress({ loaded, total: progressTotal, currentPath });
         });
+
+        // BST-310 FIX: After loading completes, expand parent directories of selected files.
+        // This ensures checkboxes render correctly - without expansion, file nodes exist
+        // in the tree but aren't visible, so their selection state can't be displayed.
+        if (parentDirectoriesOfSelectedFiles.size > 0) {
+          const currentExpandedPaths = store.getState().expandedDirectoryPaths;
+          const newExpandedPaths = new Set([
+            ...currentExpandedPaths,
+            ...parentDirectoriesOfSelectedFiles,
+          ]);
+          logger.debug('[Restoration Effect] Expanding parent directories of selected files', {
+            count: parentDirectoriesOfSelectedFiles.size,
+            previouslyExpanded: currentExpandedPaths.size,
+            newTotal: newExpandedPaths.size,
+          });
+          setExpandedPaths(newExpandedPaths);
+        }
 
         logger.info('Restored expanded directories', {
           totalPaths: total,
