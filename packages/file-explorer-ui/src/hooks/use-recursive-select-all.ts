@@ -437,9 +437,8 @@ export function useRecursiveSelectAll(
           );
         }
 
-        // No directories needed loading - apply filtering to rootNodes
-        const treeForSelection = internalFilterTreeFn ? internalFilterTreeFn(rootNodes) : rootNodes;
-        const allFilePaths = collectAllFilePaths(treeForSelection);
+        // No directories needed loading - rootNodes is already filtered (passed in as filteredTree)
+        const allFilePaths = collectAllFilePaths(rootNodes);
 
         return selectFilesWithLimit(
           allFilePaths,

@@ -1,13 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { LightweightCheckbox } from '@brainstrike/ui';
-import {
-  createLogger,
-  memoizedFileExplorer as fileExplorer,
-  isPathSelectedInFolder,
-} from '@brainstrike/utils';
-
-const logger = createLogger('FileTreeRow');
+import { memoizedFileExplorer as fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
 
 import {
   ChevronDown,
@@ -176,26 +170,15 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       [allFilePaths, folderId, selectedFilePaths]
     );
 
-    const isFileSelected = useMemo(() => {
-      const selected =
+    const isFileSelected = useMemo(
+      () =>
         node.type === 'file'
           ? folderId
             ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path)
             : false
-          : false;
-
-      // Debug logging for first few files when selection changes
-      if (node.type === 'file' && selectedFilePaths.size > 0) {
-        logger.debug('isFileSelected check', {
-          path: node.path,
-          folderId,
-          selected,
-          totalSelected: selectedFilePaths.size,
-        });
-      }
-
-      return selected;
-    }, [node.type, node.path, folderId, selectedFilePaths]);
+          : false,
+      [node.type, node.path, folderId, selectedFilePaths]
+    );
 
     // Memoize checkbox state calculation
     const checkboxState = useMemo(() => {
