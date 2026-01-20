@@ -110,6 +110,7 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
     models: [
       {
         id: 'gpt-5.2',
+        label: 'GPT-5.2',
         type: 'llm',
         default: true,
         supportsStreaming: true,
