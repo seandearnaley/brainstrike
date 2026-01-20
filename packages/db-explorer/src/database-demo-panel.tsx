@@ -34,6 +34,7 @@ import { createLogger } from '@brainstrike/utils';
 import {
   CreateEmbeddingSetDialog,
   DeleteEmbeddingSetDialog,
+  EmbeddingControlsPanel,
   RenameEmbeddingSetDialog,
 } from '@brainstrike/vector-management';
 import { Database, FileText, HelpCircle, Pencil, Plus, RefreshCw, Settings2 } from 'lucide-react';
@@ -453,6 +454,13 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 </TooltipProvider>
               </div>
             </div>
+
+            {/* Embedding Controls - actions dropdown and status bar */}
+            <EmbeddingControlsPanel
+              chunkRepository={dbChunkRepository}
+              className="border-t"
+              embeddingQueue={embeddingQueue}
+            />
           </div>
         </Panel>
 

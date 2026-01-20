@@ -94,14 +94,10 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 }));
 
 // Mock the lazy-loaded tabs to avoid loading real dashboards in tests
-// Note: We mock the wrapper components (vectors-tab, database-tab) not the chunk files,
-// since tools-panel.tsx imports from the wrappers which use React.lazy internally.
+// Note: We mock the wrapper component (database-tab) not the chunk files,
+// since tools-panel.tsx imports from the wrapper which uses React.lazy internally.
 vi.mock('../database-tab', () => ({
   DatabaseTab: () => <div data-testid="mock-database-panel">Database mock</div>,
-}));
-
-vi.mock('../vectors-tab', () => ({
-  VectorsTab: () => <div data-testid="mock-vectors-panel">Vectors mock</div>,
 }));
 
 describe('ToolsPanel', () => {
@@ -111,7 +107,6 @@ describe('ToolsPanel', () => {
     // Check that all tab triggers are present
     expect(screen.getByRole('tab', { name: /assistant/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /embed/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /vectors/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /database/i })).toBeInTheDocument();
 
     // Wait for async state updates to complete
@@ -141,12 +136,6 @@ describe('ToolsPanel', () => {
       await screen.findByText('Test individual models and similarity (not tied to your vector DB)')
     ).toBeInTheDocument();
 
-    // Click on the vectors tab
-    await user.click(screen.getByRole('tab', { name: /vectors/i }));
-    const vectorsPanel = await screen.findByRole('tabpanel', { name: /vectors/i });
-    expect(vectorsPanel).toBeInTheDocument();
-    expect(await within(vectorsPanel).findByTestId('mock-vectors-panel')).toBeInTheDocument();
-
     // Click on the database tab
     await user.click(screen.getByRole('tab', { name: /database/i }));
     const dbPanel = await screen.findByRole('tabpanel', { name: /database/i });
@@ -171,13 +160,12 @@ describe('ToolsPanel', () => {
     expect(tabList).toBeInTheDocument();
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(4);
+    expect(tabs).toHaveLength(3);
 
     // Each tab should have text content
     expect(tabs[0]).toHaveTextContent('Assistant');
     expect(tabs[1]).toHaveTextContent('Embed');
-    expect(tabs[2]).toHaveTextContent('Vectors');
-    expect(tabs[3]).toHaveTextContent('DB');
+    expect(tabs[2]).toHaveTextContent('DB');
   });
 
   test('maintains content state when switching tabs', async () => {
@@ -194,10 +182,6 @@ describe('ToolsPanel', () => {
 
     await user.click(screen.getByRole('tab', { name: /embed/i }));
     expect(await screen.findByText('Embedding Playground')).toBeInTheDocument();
-
-    await user.click(screen.getByRole('tab', { name: /vectors/i }));
-    const vectorsPanel = await screen.findByRole('tabpanel', { name: /vectors/i });
-    expect(await within(vectorsPanel).findByTestId('mock-vectors-panel')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /database/i }));
     const dbPanel = await screen.findByRole('tabpanel', { name: /database/i });

@@ -2,7 +2,7 @@ import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type ToolsPanelTab = 'assistant' | 'embeddings' | 'vectors' | 'database';
+export type ToolsPanelTab = 'assistant' | 'embeddings' | 'database';
 
 interface ToolsPanelData {
   activeTab: ToolsPanelTab;

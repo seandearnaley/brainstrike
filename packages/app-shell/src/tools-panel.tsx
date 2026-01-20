@@ -1,6 +1,6 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
-import { Brain, Database, Layers, MessageCircle } from 'lucide-react';
+import { Brain, Database, MessageCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { AssistantTab } from './assistant-tab';
 import { DatabaseTab } from './database-tab';
@@ -10,25 +10,24 @@ import {
   toolsPanelSelectors,
   useToolsPanelStore,
 } from './stores/tools-panel-store';
-import { VectorsTab } from './vectors-tab';
 
 interface ToolsPanelProps {
   /**
    * CRITICAL: The app-specific embedding queue from RootLayoutContent.
    *
-   * This queue flows through: RootLayoutContent → ToolsPanel (HERE) → VectorsTab → VectorStatusWithDialog
+   * This queue flows through: RootLayoutContent → ToolsPanel (HERE) → DatabaseTab
    *
-   * MUST be passed through to VectorsTab and DatabaseTab! Without it, embedding
+   * MUST be passed through to DatabaseTab! Without it, embedding
    * management and import operations will fail.
    */
   embeddingQueue?: QueueAdapter | null;
 }
 
 /**
- * Tools panel containing Assistant, Embeddings, Vectors, and Database tabs.
+ * Tools panel containing Assistant, Embeddings, and Database tabs.
  *
- * IMPORTANT: The embeddingQueue prop must be forwarded to VectorsTab to ensure
- * the manage embedding sets button and embedding operations work correctly.
+ * IMPORTANT: The embeddingQueue prop must be forwarded to DatabaseTab to ensure
+ * embedding operations and import work correctly.
  */
 export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactElement {
   const activeTab = useToolsPanelStore(toolsPanelSelectors.activeTab);
@@ -59,14 +58,6 @@ export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactEle
             <span className="hidden sm:inline">Embed</span>
           </TabsTrigger>
           <TabsTrigger
-            aria-label="Vectors"
-            className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
-            value="vectors"
-          >
-            <Layers className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Vectors</span>
-          </TabsTrigger>
-          <TabsTrigger
             aria-label="Database"
             className="relative flex h-9 items-center gap-2 rounded-none border-transparent border-b-2 bg-transparent px-4 pt-2 pb-2 font-medium text-muted-foreground shadow-none transition-none data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
             value="database"
@@ -87,12 +78,6 @@ export function ToolsPanel({ embeddingQueue = null }: ToolsPanelProps): ReactEle
 
           <TabsContent className="mt-0 min-h-0 flex-1 overflow-y-auto" value="embeddings">
             <EmbeddingsTab />
-          </TabsContent>
-
-          <TabsContent className="mt-0 min-h-0 flex-1 overflow-y-auto" value="vectors">
-            {/* CRITICAL: Pass embeddingQueue to VectorsTab
-                This ensures VectorStatusWithDialog gets the app's embedding queue */}
-            <VectorsTab embeddingQueue={embeddingQueue} />
           </TabsContent>
 
           <TabsContent
