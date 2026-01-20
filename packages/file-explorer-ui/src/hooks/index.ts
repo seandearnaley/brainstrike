@@ -11,3 +11,4 @@ export * from './use-recursive-select-all';
 export * from './use-rule-materialization';
 export * from './use-tab-manager';
 export * from './use-worker-flattened-tree';
+export * from './use-workspace-filter-fn';

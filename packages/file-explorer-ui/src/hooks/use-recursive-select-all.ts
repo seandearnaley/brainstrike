@@ -8,18 +8,29 @@
  * This is similar to useRecursiveFolderSelect but operates on all root directories
  * instead of a single folder.
  *
+ * IMPORTANT: This hook automatically applies workspace include/exclude filters when
+ * used within a FileExplorerProvider context. If filterTreeFn is not explicitly
+ * provided, the hook will access the store context to create its own filter function.
+ *
  * @module use-recursive-select-all
  */
 
 import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
-import type { IFileNode } from '@brainstrike/types';
+import { useFileFilters } from '@brainstrike/hooks';
+import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger, isAbortError } from '@brainstrike/utils';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { useOptionalFileExplorerStoreContext } from '../file-explorer-provider';
 import type { FileSystemHandle } from '../utils/worker-node-conversion';
 import { rehydrateTree } from '../utils/worker-node-conversion';
 
 const logger = createLogger('RecursiveSelectAll');
+
+// Zustand selector functions - hoisted to avoid recreation on each render
+const selectIncludeFilters = (s: FileExplorerState) => s.includeFilters;
+const selectExcludeFilters = (s: FileExplorerState) => s.excludeFilters;
+const selectUseRegex = (s: FileExplorerState) => s.useRegex;
 
 /**
  * Check if the entire tree is fully loaded (all directories have loadState 'loaded').
@@ -39,22 +50,41 @@ function isTreeFullyLoaded(nodes: IFileNode[]): boolean {
 }
 
 /**
- * Collect all file paths from the tree.
+ * Collect all VISIBLE file paths from the tree using BREADTH-FIRST traversal.
+ *
+ * Key behaviors:
+ * 1. Respects `isVisible` property - skips files/directories where isVisible === false
+ *    (these are hidden by workspace include/exclude filters)
+ * 2. Breadth-first ensures files at shallower depths (like root-level files)
+ *    are collected first. This is important when a selection limit is applied
+ *    because users typically want to see visible/shallow files selected first.
+ *
+ * Example: For a tree with root files and subdirectories, breadth-first
+ * collects all root-level files first, then files one level deep, etc.
  */
 function collectAllFilePaths(nodes: IFileNode[]): string[] {
   const paths: string[] = [];
+  const queue: IFileNode[] = [...nodes];
 
-  function traverse(nodeList: IFileNode[]): void {
-    for (const node of nodeList) {
-      if (node.type === 'file') {
-        paths.push(node.path);
-      } else if (node.type === 'directory' && node.children) {
-        traverse(node.children);
-      }
+  while (queue.length > 0) {
+    const node = queue.shift();
+    if (!node) {
+      continue;
+    }
+
+    // Skip nodes hidden by workspace filters (isVisible === false)
+    if (node.isVisible === false) {
+      continue;
+    }
+
+    if (node.type === 'file') {
+      paths.push(node.path);
+    } else if (node.type === 'directory' && node.children) {
+      // Add children to the END of the queue (breadth-first)
+      queue.push(...node.children);
     }
   }
 
-  traverse(nodes);
   return paths;
 }
 
@@ -68,10 +98,18 @@ function selectFilesWithLimit(
   maxSelectionCount: number
 ): SelectAllResult {
   if (allFilePaths.length === 0) {
+    logger.debug('selectFilesWithLimit: no files to select');
     return { success: true, filePaths: [], totalAvailable: 0 };
   }
 
   const pathsToSelect = allFilePaths.slice(0, maxSelectionCount);
+
+  logger.debug('selectFilesWithLimit: selecting files', {
+    totalFiles: allFilePaths.length,
+    selectingCount: pathsToSelect.length,
+    folderId,
+    samplePaths: pathsToSelect.slice(0, 3),
+  });
 
   if (pathsToSelect.length > 0) {
     addMultipleSelectedFiles(folderId, pathsToSelect);
@@ -86,22 +124,11 @@ function selectFilesWithLimit(
 }
 
 /**
- * Handle fast path selection when tree is fully loaded.
- */
-function handleFastPathSelection(
-  nodes: IFileNode[],
-  folderId: string,
-  addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-  maxSelectionCount: number
-): SelectAllResult {
-  logger.debug('selectAllRecursively: using fast path (fully loaded)');
-
-  const allFilePaths = collectAllFilePaths(nodes);
-  return selectFilesWithLimit(allFilePaths, folderId, addMultipleSelectedFiles, maxSelectionCount);
-}
-
-/**
  * Process loaded subtree result and select files.
+ *
+ * Applies workspace filters to the loaded tree before collecting file paths.
+ * This ensures that include/exclude patterns are respected even in the slow path
+ * where the worker returns the full unfiltered tree.
  */
 function processLoadedTree(
   result: { tree: WorkerFileNode[]; expandedPaths: string[]; loadedCount: number },
@@ -109,7 +136,8 @@ function processLoadedTree(
   onTreeUpdate: (tree: IFileNode[]) => void,
   folderId: string,
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
-  maxSelectionCount: number
+  maxSelectionCount: number,
+  filterTreeFn?: (tree: IFileNode[]) => IFileNode[]
 ): SelectAllResult {
   // Rehydrate tree with handles
   const rehydratedTree = rehydrateTree(result.tree, handleMap);
@@ -121,12 +149,17 @@ function processLoadedTree(
 
   onTreeUpdate(rehydratedTree);
 
-  // Collect all file paths from the rehydrated tree
-  const allFilePaths = collectAllFilePaths(rehydratedTree);
+  // Apply workspace filters to the loaded tree before collecting file paths
+  // This ensures include/exclude patterns (e.g., *.ts, .turbo) are respected
+  const treeForSelection = filterTreeFn ? filterTreeFn(rehydratedTree) : rehydratedTree;
+
+  // Collect all file paths from the filtered tree
+  const allFilePaths = collectAllFilePaths(treeForSelection);
 
   logger.info('selectAllRecursively: complete', {
     fileCount: allFilePaths.length,
     loadedDirectories: result.loadedCount,
+    filtered: !!filterTreeFn,
   });
 
   return selectFilesWithLimit(allFilePaths, folderId, addMultipleSelectedFiles, maxSelectionCount);
@@ -206,12 +239,15 @@ export interface UseRecursiveSelectAllOptions {
   workerPortRef: React.RefObject<FileTreeWorkerPort | null>;
   /** Ref to handle map for rehydrating worker tree */
   handleMapRef: React.RefObject<Map<string, FileSystemHandle>>;
-  /** Current file tree */
-  fileTree: IFileNode[];
   /** Callback when tree is updated after subtree load */
   onTreeUpdate: (tree: IFileNode[]) => void;
   /** Callback when error occurs */
   onError?: (error: Error) => void;
+  /**
+   * Filter function to apply workspace include/exclude filters to a tree.
+   * Called on the loaded tree in the slow path to ensure workspace filters are respected.
+   */
+  filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
 }
 
 export interface SelectAllResult {
@@ -234,8 +270,19 @@ export interface UseRecursiveSelectAllReturn {
   isLoadingForSelectAll: boolean;
   /** Loading progress (if available) */
   loadingProgress: { loaded: number; total: number } | null;
-  /** Select all files in the entire tree, loading unloaded directories first if needed */
+  /**
+   * Select all files in the provided tree, loading unloaded directories first if needed.
+   *
+   * IMPORTANT: Pass the FILTERED tree (e.g., quickFilteredTree) to respect workspace
+   * include/exclude filters. The hook operates only on nodes in the provided tree.
+   *
+   * @param filteredTree - The filtered file tree to select from (pass quickFilteredTree)
+   * @param folderId - The folder ID for encoding file selections
+   * @param addMultipleSelectedFiles - Store action to add selected files
+   * @param maxSelectionCount - Maximum number of files to select
+   */
   selectAllRecursively: (
+    filteredTree: IFileNode[],
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number
@@ -264,7 +311,35 @@ const RESET_STATE: RecursiveSelectAllState = {
 export function useRecursiveSelectAll(
   options: UseRecursiveSelectAllOptions
 ): UseRecursiveSelectAllReturn {
-  const { workerPortRef, handleMapRef, fileTree, onTreeUpdate, onError } = options;
+  const { workerPortRef, handleMapRef, onTreeUpdate, onError, filterTreeFn } = options;
+
+  // Access store context for workspace filters (optional - may be null outside FileExplorerProvider)
+  const store = useOptionalFileExplorerStoreContext();
+
+  // Get filter settings from store if available
+  const includeFilters = store?.(selectIncludeFilters) ?? [];
+  const excludeFilters = store?.(selectExcludeFilters) ?? [];
+  const useRegex = store?.(selectUseRegex) ?? false;
+
+  // Get the filter implementation
+  const { applyFileFilters } = useFileFilters();
+
+  // Create internal filter function from store context if filterTreeFn not provided.
+  // This ensures workspace filters are applied in the slow path even when this hook
+  // is used via the shared FileTreeProvider (which doesn't pass filterTreeFn).
+  const internalFilterTreeFn = useMemo(() => {
+    if (filterTreeFn) {
+      // Use provided filterTreeFn (from use-file-explorer-context's local tree state)
+      return filterTreeFn;
+    }
+    if (store) {
+      // Create filter function from store context
+      return (tree: IFileNode[]) =>
+        applyFileFilters(tree, includeFilters, excludeFilters, useRegex);
+    }
+    // No filter available - return identity function
+    return undefined;
+  }, [filterTreeFn, store, applyFileFilters, includeFilters, excludeFilters, useRegex]);
 
   // State
   const [state, setState] = useState<RecursiveSelectAllState>(RESET_STATE);
@@ -299,6 +374,9 @@ export function useRecursiveSelectAll(
 
   /**
    * Load all directories and select files.
+   *
+   * Applies workspace filters to the loaded tree via internalFilterTreeFn to ensure
+   * include/exclude patterns are respected in the slow path.
    */
   const loadAndSelectAll = useCallback(
     async (
@@ -346,7 +424,7 @@ export function useRecursiveSelectAll(
           finalResult = result;
         }
 
-        // If we loaded anything, use the final result
+        // If we loaded anything, process with filtering
         if (finalResult && totalLoadedCount > 0) {
           return processLoadedTree(
             finalResult,
@@ -354,12 +432,15 @@ export function useRecursiveSelectAll(
             onTreeUpdate,
             folderId,
             addMultipleSelectedFiles,
-            maxSelectionCount
+            maxSelectionCount,
+            internalFilterTreeFn
           );
         }
 
-        // No directories needed loading - use fast path
-        const allFilePaths = collectAllFilePaths(rootNodes);
+        // No directories needed loading - apply filtering to rootNodes
+        const treeForSelection = internalFilterTreeFn ? internalFilterTreeFn(rootNodes) : rootNodes;
+        const allFilePaths = collectAllFilePaths(treeForSelection);
+
         return selectFilesWithLimit(
           allFilePaths,
           folderId,
@@ -370,31 +451,65 @@ export function useRecursiveSelectAll(
         unsubProgress();
       }
     },
-    [onTreeUpdate]
+    [onTreeUpdate, internalFilterTreeFn]
   );
 
   /**
-   * Select all files in the tree, loading unloaded directories first if needed.
+   * Select all files in the provided tree, loading unloaded directories first if needed.
+   *
+   * IMPORTANT: Pass the FILTERED tree (quickFilteredTree) to respect workspace filters.
+   * The function operates only on nodes in the provided tree, so excluded directories
+   * won't be traversed or loaded.
    */
   const selectAllRecursively = useCallback(
     async (
+      filteredTree: IFileNode[],
       folderId: string,
       addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
       maxSelectionCount: number
     ): Promise<SelectAllResult> => {
+      logger.info('selectAllRecursively: starting', {
+        folderId,
+        maxSelectionCount,
+        treeNodeCount: filteredTree.length,
+        isFullyLoaded: isTreeFullyLoaded(filteredTree),
+      });
+
       // Check if tree is empty
-      if (fileTree.length === 0) {
+      if (filteredTree.length === 0) {
+        logger.warn('selectAllRecursively: tree is empty');
         return { success: false, filePaths: [], error: 'No files in tree' };
       }
 
       // Check if tree is fully loaded → fast path
-      if (isTreeFullyLoaded(fileTree)) {
-        return handleFastPathSelection(
-          fileTree,
+      if (isTreeFullyLoaded(filteredTree)) {
+        // Collect all file paths from the filtered tree (already respects workspace filters)
+        const allFilePaths = collectAllFilePaths(filteredTree);
+
+        logger.info('selectAllRecursively: using fast path (fully loaded)', {
+          folderId,
+          nodeCount: filteredTree.length,
+          fileCount: allFilePaths.length,
+          samplePaths: allFilePaths.slice(0, 3),
+        });
+
+        const result = selectFilesWithLimit(
+          allFilePaths,
           folderId,
           addMultipleSelectedFiles,
           maxSelectionCount
         );
+
+        // CRITICAL: Force tree re-render by triggering a tree state update.
+        // The virtualized list's renderedRows memo doesn't depend on selectedFilePaths,
+        // so Zustand subscription updates alone don't trigger row re-renders.
+        // Creating a shallow copy forces the tree state to change, which invalidates
+        // the memo and causes rows to re-render with updated selection state.
+        if (result.success && result.filePaths.length > 0) {
+          onTreeUpdate([...filteredTree]);
+        }
+
+        return result;
       }
 
       // Need to load tree first - check preconditions
@@ -414,10 +529,11 @@ export function useRecursiveSelectAll(
       });
 
       try {
+        // Load and select from the filtered tree - only visible directories will be processed
         const result = await loadAndSelectAll(
           workerPort,
           handleMap,
-          fileTree,
+          filteredTree,
           folderId,
           addMultipleSelectedFiles,
           maxSelectionCount
@@ -433,7 +549,7 @@ export function useRecursiveSelectAll(
         isLoadingForSelectAllRef.current = false;
       }
     },
-    [fileTree, workerPortRef, handleMapRef, loadAndSelectAll, onError]
+    [workerPortRef, handleMapRef, loadAndSelectAll, onError, onTreeUpdate]
   );
 
   return {

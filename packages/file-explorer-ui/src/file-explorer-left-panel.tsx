@@ -63,6 +63,15 @@ function filterNodeByPatterns(
   includes: string[],
   excludes: string[]
 ): IFileNode | null {
+  // CRITICAL: Check if this node is excluded FIRST (before processing children)
+  // This ensures excluded directories like .turbo are completely removed
+  // even if they contain files that would otherwise match include filters
+  const nameText = node.name.toLowerCase();
+  const isExcluded = excludes.some((e) => nameText.includes(e.toLowerCase()));
+  if (isExcluded) {
+    return null;
+  }
+
   if (node.type === 'directory') {
     const children = node.children ?? [];
     const filteredChildren = children
@@ -71,12 +80,16 @@ function filterNodeByPatterns(
     if (filteredChildren.length > 0) {
       return { ...node, children: filteredChildren };
     }
+    // Empty directory - check if it passes include filter
     if (shouldIncludeNode(node, includes, excludes)) {
       return { ...node, children: [] };
     }
     return null;
   }
-  return shouldIncludeNode(node, includes, excludes) ? node : null;
+  // For files, check include filter (exclude already checked above)
+  return includes.length === 0 || includes.some((i) => nameText.includes(i.toLowerCase()))
+    ? node
+    : null;
 }
 
 function filterTreeByPatterns(
@@ -324,11 +337,19 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     } as const;
   }, [inlineFixtureAvailable, isInlineFixtureLoading]);
 
-  // Local filtering utility modeled after hooks/use-quick-filter
+  // Quick filter (search box) applies on top of workspace filters.
+  // Workspace filters are already applied in useFileExplorer() which returns
+  // fileTree with excluded directories (like .turbo) completely removed.
   const quickFilteredTree = useMemo(() => {
+    if (!stableFileTree) {
+      return null;
+    }
+
+    // Only apply quick filter (search box) if present
     if (!quickFilter.trim()) {
       return stableFileTree;
     }
+
     const { includes, excludes } = parseFilterString(quickFilter);
     return filterTreeByPatterns(stableFileTree, includes, excludes);
   }, [quickFilter, stableFileTree]);
@@ -553,6 +574,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
                 filterError={filterErrorAsError}
                 isInitialLoad={isInitialLoad}
                 isLoading={isLoading}
+                isLoadingForSelectAll={isLoadingForSelectAll}
                 isLoadingForSelection={isLoadingForSelection}
                 loadingFiles={loadingFiles}
                 loadingPathForSelection={loadingPathForSelection}
@@ -576,6 +598,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
               displayedFiles={displayedFileList}
               encodeFileSelection={encodeFileSelection}
+              filteredTree={quickFilteredTree ?? []}
               hasFilesInTree={fileTree.length > 0}
               isLoadingForSelectAll={isLoadingForSelectAll}
               maxSelectionCount={maxSelectionCount}

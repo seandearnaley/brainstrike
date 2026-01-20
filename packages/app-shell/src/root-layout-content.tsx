@@ -18,6 +18,10 @@ import type { NavigationItem } from './types';
  * This ensures that when expand-all completes in the left panel,
  * the middle panel and tabbed editor panel see the same updated tree
  * for file content loading.
+ *
+ * Note: The workspace filter function is handled internally by useFileExplorer
+ * which creates its own filterTreeFn. This wrapper just provides the shared
+ * tree state without the filter function since it can't access the store context.
  */
 function FileTreeWrapper({ children }: { children: ReactNode }): ReactElement {
   const { rootDirectoryHandle } = useFileSystem();

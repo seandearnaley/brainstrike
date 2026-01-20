@@ -33,6 +33,8 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
     isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
     clearRootDirectory: vi.fn(),
   }),
+  // Mock workspace filter function - returns identity function for tests
+  useWorkspaceFilterFn: () => (tree: unknown[]) => tree,
 }));
 
 // Create a stable object to hold the mock function.

@@ -6,6 +6,7 @@
  */
 
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { IFileNode } from '@brainstrike/types';
 import { createContext, type ReactNode, useContext } from 'react';
 import { type CancellableFileTreeHook, useFileTree } from './use-file-tree-context';
 
@@ -18,17 +19,30 @@ const FileTreeContext = createContext<FileTreeContextType | null>(null);
 export interface FileTreeProviderProps {
   children: ReactNode;
   rootDirectoryHandle: DirectoryHandle | null;
+  /**
+   * Filter function to apply workspace include/exclude filters to a tree.
+   * Called in the slow path when directories are loaded from the worker,
+   * ensuring workspace filters are respected before file selection.
+   */
+  filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
 }
 
 /**
  * Provider component that creates a single file tree state.
  * All child components can access the shared tree via useFileTreeContext.
+ *
+ * @param props.filterTreeFn - Optional filter function for workspace filters.
+ *   When provided, this is used in the slow path of selectAllRecursively
+ *   to ensure workspace include/exclude filters are applied to loaded directories.
  */
 export function FileTreeProvider({
   children,
   rootDirectoryHandle,
+  filterTreeFn,
 }: FileTreeProviderProps): React.ReactElement {
-  const fileTreeState = useFileTree(rootDirectoryHandle);
+  // Build options object conditionally to satisfy exactOptionalPropertyTypes
+  const options = filterTreeFn ? { filterTreeFn } : {};
+  const fileTreeState = useFileTree(rootDirectoryHandle, options);
 
   return (
     <FileTreeContext.Provider value={{ ...fileTreeState, rootDirectoryHandle }}>

@@ -17,6 +17,7 @@
  * - "Deselect All" when files are currently selected
  */
 
+import type { IFileNode } from '@brainstrike/types';
 import { Button } from '@brainstrike/ui';
 import * as React from 'react';
 import { useCallback } from 'react';
@@ -32,9 +33,18 @@ export interface ActionButtonsProps {
   onSelectionLimitExceeded?: (() => void) | undefined;
   /** Whether the tree has any files (used to enable/disable Select All) */
   hasFilesInTree?: boolean | undefined;
-  /** Recursively select all files in the entire tree, loading if needed */
+  /**
+   * The FILTERED file tree to select from.
+   * Pass quickFilteredTree to respect workspace include/exclude filters.
+   */
+  filteredTree?: IFileNode[] | undefined;
+  /**
+   * Recursively select all files in the provided tree, loading if needed.
+   * IMPORTANT: The first parameter is the filtered tree to operate on.
+   */
   selectAllRecursively?:
     | ((
+        filteredTree: IFileNode[],
         folderId: string,
         addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
         maxSelectionCount: number
@@ -58,6 +68,7 @@ export const ActionButtons = React.memo(
     encodeFileSelection,
     onSelectionLimitExceeded,
     hasFilesInTree = false,
+    filteredTree,
     selectAllRecursively,
     cancelSelectAll,
     isLoadingForSelectAll = false,
@@ -73,9 +84,11 @@ export const ActionButtons = React.memo(
         return;
       }
 
-      // Use recursive selection if available
-      if (selectAllRecursively && addMultipleSelectedFiles) {
+      // Use recursive selection if available and we have a filtered tree
+      // The filtered tree ensures workspace include/exclude filters are respected
+      if (selectAllRecursively && addMultipleSelectedFiles && filteredTree) {
         const result = await selectAllRecursively(
+          filteredTree,
           currentFolderId,
           addMultipleSelectedFiles,
           maxSelectionCount
@@ -102,6 +115,7 @@ export const ActionButtons = React.memo(
       currentFolderId,
       selectAllRecursively,
       addMultipleSelectedFiles,
+      filteredTree,
       maxSelectionCount,
       onSelectionLimitExceeded,
       displayedFiles,

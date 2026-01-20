@@ -1,3 +1,4 @@
+import type { IFileNode } from '@brainstrike/types';
 import * as React from 'react';
 import { ActionButtons } from './action-buttons';
 import type { SelectAllResult } from './hooks/use-recursive-select-all';
@@ -12,8 +13,17 @@ interface Props {
   onSelectionLimitExceeded: () => void | Promise<void>;
   /** Whether the tree has any files (used to enable/disable Select All) */
   hasFilesInTree?: boolean;
-  /** Recursively select all files in the entire tree, loading if needed */
+  /**
+   * The FILTERED file tree to select from.
+   * Pass quickFilteredTree to respect workspace include/exclude filters.
+   */
+  filteredTree?: IFileNode[];
+  /**
+   * Recursively select all files in the provided tree, loading if needed.
+   * IMPORTANT: The first parameter is the filtered tree to operate on.
+   */
   selectAllRecursively?: (
+    filteredTree: IFileNode[],
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number
@@ -53,6 +63,7 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
       currentFolderId={props.currentFolderId}
       displayedFiles={displayedSet}
       encodeFileSelection={props.encodeFileSelection}
+      filteredTree={props.filteredTree}
       hasFilesInTree={props.hasFilesInTree}
       isLoadingForSelectAll={props.isLoadingForSelectAll}
       maxSelectionCount={props.maxSelectionCount}

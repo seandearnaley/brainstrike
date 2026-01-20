@@ -281,8 +281,12 @@ export interface UseLazyFileTreeReturn {
   loadingPathForSelection: string | null;
   /** Loading progress for recursive selection (if available) */
   selectionLoadingProgress: { loaded: number; total: number } | null;
-  /** Select all files in the entire tree, loading unloaded directories first if needed */
+  /**
+   * Select all files in the provided tree, loading unloaded directories first if needed.
+   * IMPORTANT: Pass the FILTERED tree (quickFilteredTree) to respect workspace filters.
+   */
   selectAllRecursively: (
+    filteredTree: IFileNode[],
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number
@@ -302,6 +306,15 @@ export interface UseLazyFileTreeReturn {
   selectAllLoadingProgress: { loaded: number; total: number } | null;
 }
 
+export interface UseLazyFileTreeOptions {
+  /**
+   * Filter function to apply workspace include/exclude filters to a tree.
+   * Called in the slow path when directories are loaded from the worker,
+   * ensuring workspace filters are respected before file selection.
+   */
+  filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
+}
+
 /**
  * Hook for managing lazily-loaded file tree state.
  *
@@ -309,11 +322,14 @@ export interface UseLazyFileTreeReturn {
  * while keeping I/O operations on the main thread (FileSystemHandle access).
  *
  * @param rootDirectoryHandle - The root directory to load
+ * @param options - Optional configuration including filterTreeFn for workspace filters
  * @returns Lazy file tree state and operations
  */
 export function useLazyFileTree(
-  rootDirectoryHandle: DirectoryHandle | null
+  rootDirectoryHandle: DirectoryHandle | null,
+  options: UseLazyFileTreeOptions = {}
 ): UseLazyFileTreeReturn {
+  const { filterTreeFn } = options;
   const { fileSystemAdapter } = useAdapters();
 
   // Core state
@@ -403,18 +419,20 @@ export function useLazyFileTree(
   });
 
   // Recursive select all management
+  // Build options object conditionally to satisfy exactOptionalPropertyTypes
+  const selectAllOptions = {
+    workerPortRef: portRef,
+    handleMapRef,
+    onTreeUpdate: handleTreeUpdate,
+    onError: handleWorkerError,
+    ...(filterTreeFn ? { filterTreeFn } : {}),
+  };
   const {
     isLoadingForSelectAll,
     loadingProgress: selectAllLoadingProgress,
     selectAllRecursively,
     cancelSelectAll,
-  } = useRecursiveSelectAll({
-    workerPortRef: portRef,
-    handleMapRef,
-    fileTree: state.fileTree,
-    onTreeUpdate: handleTreeUpdate,
-    onError: handleWorkerError,
-  });
+  } = useRecursiveSelectAll(selectAllOptions);
 
   /**
    * Load root directory contents

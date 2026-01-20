@@ -155,8 +155,12 @@ interface UseFileExplorerReturn {
   isLoadingForSelection: boolean;
   /** Path of the folder being loaded for selection (if any) */
   loadingPathForSelection: string | null;
-  /** Select all files in the entire tree, loading if needed */
+  /**
+   * Select all files in the provided tree, loading if needed.
+   * IMPORTANT: Pass the FILTERED tree (quickFilteredTree) to respect workspace filters.
+   */
   selectAllRecursively: (
+    filteredTree: IFileNode[],
     folderId: string,
     addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
     maxSelectionCount: number
@@ -221,6 +225,18 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const isAccessLoading = storeIsAccessLoading;
   const setAccessLoading = setIsAccessLoading;
 
+  // Get file filters BEFORE useFileTree so we can pass filterTreeFn
+  // This is critical for the slow path in selectAllRecursively to respect workspace filters
+  const { applyFileFilters: applyFiltersUtil, filterError: localFilterError } = useFileFilters();
+
+  // Create a memoized filter function for the slow path in selectAllRecursively.
+  // This function is called when the worker returns an unfiltered tree after loading directories.
+  // It ensures workspace include/exclude filters are applied before file selection.
+  const filterTreeFn = useCallback(
+    (tree: IFileNode[]) => applyFiltersUtil(tree, includeFilters, excludeFilters, useRegex),
+    [applyFiltersUtil, includeFilters, excludeFilters, useRegex]
+  );
+
   // Try to get shared tree state from FileTreeProvider context.
   // This ensures all components using useFileExplorer share the same tree
   // after expand-all completes - fixing the "file not found" bug.
@@ -228,7 +244,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   // Always call useFileTree to maintain hook order (rules of hooks).
   // When sharedTreeContext is available, we use its values instead.
-  const localTreeState = useFileTree(rootDirectoryHandle);
+  // Pass filterTreeFn to ensure workspace filters are respected in the slow path.
+  const localTreeState = useFileTree(rootDirectoryHandle, { filterTreeFn });
 
   // Use shared context if available, otherwise use local tree state
   const {
@@ -269,9 +286,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     canLoadWithoutTree,
   } = useSharedFileContentLoading(fileTree);
 
-  const { applyFileFilters: applyFiltersUtil, filterError: localFilterError } = useFileFilters();
-
   // Unify filtered tree computation in useMemo to avoid state/effect complexity
+  // Note: applyFiltersUtil is now obtained earlier to pass filterTreeFn to useFileTree
   const filteredTree = useMemo(() => {
     if (fileTree.length > 0) {
       return applyFiltersUtil(fileTree, includeFilters, excludeFilters, useRegex);
