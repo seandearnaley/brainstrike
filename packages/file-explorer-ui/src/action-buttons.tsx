@@ -130,7 +130,9 @@ export const ActionButtons = React.memo(
 
     // Handle cancel of recursive selection
     const handleCancel = useCallback(() => {
-      cancelSelectAll?.();
+      if (cancelSelectAll) {
+        cancelSelectAll();
+      }
     }, [cancelSelectAll]);
 
     const hasDisplayedFiles = displayedFiles.size > 0;

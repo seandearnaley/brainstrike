@@ -9,9 +9,14 @@
  */
 
 import { useFileFilters } from '@brainstrike/hooks';
-import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import type { IFileNode } from '@brainstrike/types';
 import { useCallback } from 'react';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
+import {
+  selectExcludeFilters,
+  selectIncludeFilters,
+  selectUseRegex,
+} from '../utils/workspace-filter-selectors';
 
 /**
  * Hook that returns a memoized filter function for applying workspace filters.
@@ -24,11 +29,6 @@ import { useFileExplorerStoreContext } from '../file-explorer-provider';
  * @returns A function that takes a tree and returns the filtered tree
  */
 export function useWorkspaceFilterFn(): (tree: IFileNode[]) => IFileNode[] {
-  // Get filter settings from store
-  const selectIncludeFilters = (s: FileExplorerState) => s.includeFilters;
-  const selectExcludeFilters = (s: FileExplorerState) => s.excludeFilters;
-  const selectUseRegex = (s: FileExplorerState) => s.useRegex;
-
   const store = useFileExplorerStoreContext();
   const includeFilters = store(selectIncludeFilters);
   const excludeFilters = store(selectExcludeFilters);

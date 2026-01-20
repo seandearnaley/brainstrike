@@ -17,20 +17,20 @@
 
 import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
 import { useFileFilters } from '@brainstrike/hooks';
-import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import type { IFileNode } from '@brainstrike/types';
 import { createLogger, isAbortError } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useOptionalFileExplorerStoreContext } from '../file-explorer-provider';
 import type { FileSystemHandle } from '../utils/worker-node-conversion';
 import { rehydrateTree } from '../utils/worker-node-conversion';
+import {
+  selectExcludeFilters,
+  selectIncludeFilters,
+  selectUseRegex,
+} from '../utils/workspace-filter-selectors';
 
 const logger = createLogger('RecursiveSelectAll');
-
-// Zustand selector functions - hoisted to avoid recreation on each render
-const selectIncludeFilters = (s: FileExplorerState) => s.includeFilters;
-const selectExcludeFilters = (s: FileExplorerState) => s.excludeFilters;
-const selectUseRegex = (s: FileExplorerState) => s.useRegex;
 
 /**
  * Check if the entire tree is fully loaded (all directories have loadState 'loaded').
@@ -438,6 +438,19 @@ export function useRecursiveSelectAll(
         }
 
         // No directories needed loading - rootNodes is already filtered (passed in as filteredTree)
+        // This can happen when: (1) all root nodes are files, or (2) all directories were already loaded
+        const directoryCount = rootNodes.filter((n) => n.type === 'directory').length;
+        if (directoryCount === 0) {
+          logger.debug('selectAllRecursively: all root nodes are files, no directories to load', {
+            rootNodeCount: rootNodes.length,
+          });
+        } else {
+          logger.debug('selectAllRecursively: all directories already loaded', {
+            directoryCount,
+            rootNodeCount: rootNodes.length,
+          });
+        }
+
         const allFilePaths = collectAllFilePaths(rootNodes);
 
         return selectFilesWithLimit(
