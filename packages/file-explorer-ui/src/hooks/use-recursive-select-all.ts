@@ -209,6 +209,122 @@ function checkLoadPreconditions<
 }
 
 /**
+ * Result of loading directories for select all.
+ */
+interface DirectoryLoadResult {
+  /** The final loaded tree result (last successful load) */
+  finalResult: {
+    tree: WorkerFileNode[];
+    expandedPaths: string[];
+    loadedCount: number;
+  } | null;
+  /** Total count of loaded directories across all calls */
+  totalLoadedCount: number;
+  /** Number of directories successfully loaded */
+  loadedDirectories: number;
+  /** Total number of directories attempted */
+  totalDirectories: number;
+  /** Last error encountered (null if no errors) */
+  loadError: Error | null;
+  /** Whether the operation was cancelled */
+  cancelled: boolean;
+}
+
+/**
+ * Load all directories in the tree via the worker.
+ *
+ * Handles partial failures gracefully - continues loading other directories
+ * even if some fail. Returns aggregate results for further processing.
+ */
+async function loadDirectoriesFromTree(
+  rootNodes: IFileNode[],
+  workerPort: FileTreeWorkerPort,
+  isLoadingRef: React.RefObject<boolean>
+): Promise<DirectoryLoadResult> {
+  let finalResult: DirectoryLoadResult['finalResult'] = null;
+  let totalLoadedCount = 0;
+  let loadError: Error | null = null;
+  let loadedDirectories = 0;
+  const totalDirectories = rootNodes.filter((n) => n.type === 'directory').length;
+
+  for (const rootNode of rootNodes) {
+    if (rootNode.type !== 'directory') {
+      continue;
+    }
+
+    // Check if cancelled
+    if (!isLoadingRef.current) {
+      return {
+        finalResult,
+        totalLoadedCount,
+        loadedDirectories,
+        totalDirectories,
+        loadError,
+        cancelled: true,
+      };
+    }
+
+    logger.info('selectAllRecursively: loading subtree', { path: rootNode.path });
+
+    try {
+      const result = await workerPort.loadSubtree(rootNode.path);
+
+      // Check if cancelled after load
+      if (!isLoadingRef.current) {
+        return {
+          finalResult,
+          totalLoadedCount,
+          loadedDirectories,
+          totalDirectories,
+          loadError,
+          cancelled: true,
+        };
+      }
+
+      totalLoadedCount += result.loadedCount;
+      finalResult = result;
+      loadedDirectories++;
+    } catch (err) {
+      // Log error but continue with partial results
+      logger.warn('selectAllRecursively: failed to load subtree', {
+        path: rootNode.path,
+        error: err instanceof Error ? err.message : String(err),
+        loadedSoFar: loadedDirectories,
+        totalDirectories,
+      });
+      loadError = err instanceof Error ? err : new Error(String(err));
+      // Continue to next directory - we'll use partial results
+    }
+  }
+
+  return {
+    finalResult,
+    totalLoadedCount,
+    loadedDirectories,
+    totalDirectories,
+    loadError,
+    cancelled: false,
+  };
+}
+
+/**
+ * Log why no loading was needed.
+ */
+function logNoLoadingNeeded(rootNodes: IFileNode[]): void {
+  const directoryCount = rootNodes.filter((n) => n.type === 'directory').length;
+  if (directoryCount === 0) {
+    logger.debug('selectAllRecursively: all root nodes are files, no directories to load', {
+      rootNodeCount: rootNodes.length,
+    });
+  } else {
+    logger.debug('selectAllRecursively: all directories already loaded', {
+      directoryCount,
+      rootNodeCount: rootNodes.length,
+    });
+  }
+}
+
+/**
  * Handle error in select all operation.
  */
 function handleSelectAllError(err: unknown, onError?: (error: Error) => void): SelectAllResult {
@@ -393,35 +509,28 @@ export function useRecursiveSelectAll(
       });
 
       try {
-        let finalResult: {
-          tree: WorkerFileNode[];
-          expandedPaths: string[];
-          loadedCount: number;
-        } | null = null;
-        let totalLoadedCount = 0;
+        // Load directories using extracted helper
+        const loadResult = await loadDirectoriesFromTree(
+          rootNodes,
+          workerPort,
+          isLoadingForSelectAllRef
+        );
 
-        // Load each root directory's subtree
-        for (const rootNode of rootNodes) {
-          if (rootNode.type !== 'directory') {
-            continue;
-          }
+        // Handle cancellation
+        if (loadResult.cancelled) {
+          return { success: false, filePaths: [], cancelled: true };
+        }
 
-          // Check if cancelled
-          if (!isLoadingForSelectAllRef.current) {
-            return { success: false, filePaths: [], cancelled: true };
-          }
+        const { finalResult, totalLoadedCount, loadedDirectories, totalDirectories, loadError } =
+          loadResult;
 
-          logger.info('selectAllRecursively: loading subtree', { path: rootNode.path });
-
-          const result = await workerPort.loadSubtree(rootNode.path);
-
-          // Check if cancelled after load
-          if (!isLoadingForSelectAllRef.current) {
-            return { success: false, filePaths: [], cancelled: true };
-          }
-
-          totalLoadedCount += result.loadedCount;
-          finalResult = result;
+        // Log if we had partial failures
+        if (loadError && loadedDirectories > 0) {
+          logger.info('selectAllRecursively: proceeding with partial results', {
+            loadedDirectories,
+            totalDirectories,
+            failedCount: totalDirectories - loadedDirectories,
+          });
         }
 
         // If we loaded anything, process with filtering
@@ -438,18 +547,8 @@ export function useRecursiveSelectAll(
         }
 
         // No directories needed loading - rootNodes is already filtered (passed in as filteredTree)
-        // This can happen when: (1) all root nodes are files, or (2) all directories were already loaded
-        const directoryCount = rootNodes.filter((n) => n.type === 'directory').length;
-        if (directoryCount === 0) {
-          logger.debug('selectAllRecursively: all root nodes are files, no directories to load', {
-            rootNodeCount: rootNodes.length,
-          });
-        } else {
-          logger.debug('selectAllRecursively: all directories already loaded', {
-            directoryCount,
-            rootNodeCount: rootNodes.length,
-          });
-        }
+        // Log why we're falling through to direct selection
+        logNoLoadingNeeded(rootNodes);
 
         const allFilePaths = collectAllFilePaths(rootNodes);
 

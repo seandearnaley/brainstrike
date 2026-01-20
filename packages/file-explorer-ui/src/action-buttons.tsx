@@ -84,12 +84,15 @@ export const ActionButtons = React.memo(
         return;
       }
 
+      // Bind non-null folderId for use in closures (TypeScript narrowing)
+      const folderId = currentFolderId;
+
       // Use recursive selection if available and we have a filtered tree
       // The filtered tree ensures workspace include/exclude filters are respected
       if (selectAllRecursively && addMultipleSelectedFiles && filteredTree) {
         const result = await selectAllRecursively(
           filteredTree,
-          currentFolderId,
+          folderId,
           addMultipleSelectedFiles,
           maxSelectionCount
         );
@@ -104,7 +107,7 @@ export const ActionButtons = React.memo(
       // Fallback to old behavior: select only displayed files
       const filesToSelect = Array.from(displayedFiles)
         .slice(0, maxSelectionCount)
-        .map((path) => encodeFileSelection(currentFolderId, path))
+        .map((path) => encodeFileSelection(folderId, path))
         .filter((v): v is string => typeof v === 'string');
 
       if (displayedFiles.size > maxSelectionCount && onSelectionLimitExceeded) {
