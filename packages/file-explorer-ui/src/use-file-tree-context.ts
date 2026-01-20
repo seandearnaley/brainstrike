@@ -76,6 +76,36 @@ export interface CancellableFileTreeHook {
   isLoadingForSelection: boolean;
   /** Path of the folder being loaded for selection (if any) */
   loadingPathForSelection: string | null;
+  /**
+   * Select all files in the provided tree, loading if needed.
+   * IMPORTANT: Pass the FILTERED tree (quickFilteredTree) to respect workspace filters.
+   */
+  selectAllRecursively: (
+    filteredTree: IFileNode[],
+    folderId: string,
+    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+    maxSelectionCount: number
+  ) => Promise<{
+    success: boolean;
+    filePaths: string[];
+    totalAvailable?: number;
+    limitReached?: boolean;
+    cancelled?: boolean;
+    error?: string;
+  }>;
+  /** Cancel the current select all operation */
+  cancelSelectAll: () => void;
+  /** Whether the tree is being loaded for select all */
+  isLoadingForSelectAll: boolean;
+}
+
+export interface UseFileTreeOptions {
+  /**
+   * Filter function to apply workspace include/exclude filters to a tree.
+   * Called in the slow path when directories are loaded from the worker,
+   * ensuring workspace filters are respected before file selection.
+   */
+  filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
 }
 
 /**
@@ -84,8 +114,14 @@ export interface CancellableFileTreeHook {
  * Only loads root-level contents on mount. Subdirectories load their children
  * on-demand when expanded, providing instant initial display regardless of
  * tree size.
+ *
+ * @param rootDirectoryHandle - The root directory to load
+ * @param options - Optional configuration including filterTreeFn for workspace filters
  */
-export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): CancellableFileTreeHook {
+export function useFileTree(
+  rootDirectoryHandle: DirectoryHandle | null,
+  options: UseFileTreeOptions = {}
+): CancellableFileTreeHook {
   const {
     fileTree,
     isLoading,
@@ -105,7 +141,10 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     cancelRecursiveSelect,
     isLoadingForSelection,
     loadingPathForSelection,
-  } = useLazyFileTree(rootDirectoryHandle);
+    selectAllRecursively,
+    cancelSelectAll,
+    isLoadingForSelectAll,
+  } = useLazyFileTree(rootDirectoryHandle, options);
 
   return {
     fileTree,
@@ -132,5 +171,8 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     cancelRecursiveSelect,
     isLoadingForSelection,
     loadingPathForSelection,
+    selectAllRecursively,
+    cancelSelectAll,
+    isLoadingForSelectAll,
   };
 }

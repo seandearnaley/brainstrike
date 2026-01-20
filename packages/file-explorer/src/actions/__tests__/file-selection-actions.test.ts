@@ -5,6 +5,12 @@ import { createFileSelectionActions } from '../file-selection-actions';
 // Mock the file-selection-utils module
 vi.mock('@brainstrike/utils', () => ({
   encodeFileSelection: (folderId: string, path: string) => `${folderId}|@|${path}`,
+  createLogger: () => ({
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  }),
 }));
 
 describe('file-selection-actions', () => {

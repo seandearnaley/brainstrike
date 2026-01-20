@@ -2,6 +2,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { LightweightCheckbox } from '@brainstrike/ui';
 import { memoizedFileExplorer as fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
+
 import {
   ChevronDown,
   ChevronRight,

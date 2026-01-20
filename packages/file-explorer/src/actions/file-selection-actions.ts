@@ -1,6 +1,8 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
+import { createLogger, encodeFileSelection } from '@brainstrike/utils';
 import type { StoreApi, UseBoundStore } from 'zustand';
+
+const logger = createLogger('FileSelectionActions');
 
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
@@ -78,9 +80,17 @@ export const createFileSelectionActions = (
   },
 
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => {
+    logger.info('addMultipleSelectedFiles called', {
+      folderId,
+      pathCount: paths.length,
+      samplePaths: paths.slice(0, 3),
+    });
+
     set((state) => {
       const newSelectedFiles = new Set(state.selectedFilePaths);
-      let currentSize = newSelectedFiles.size;
+      const previousSize = newSelectedFiles.size;
+      let currentSize = previousSize;
+
       for (const path of paths) {
         if (currentSize >= state.maxSelectionCount) {
           break; // Stop if max selection count is reached
@@ -91,6 +101,14 @@ export const createFileSelectionActions = (
           currentSize++;
         }
       }
+
+      logger.info('addMultipleSelectedFiles complete', {
+        previousSize,
+        newSize: newSelectedFiles.size,
+        addedCount: newSelectedFiles.size - previousSize,
+        sampleKeys: [...newSelectedFiles].slice(0, 3),
+      });
+
       return { selectedFilePaths: newSelectedFiles };
     });
   },

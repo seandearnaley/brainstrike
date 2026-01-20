@@ -33,3 +33,14 @@ export function useFileExplorerStoreContext(): UseBoundStoreWithEqualityFn<
   }
   return context;
 }
+
+/**
+ * Optional hook to access the file explorer store context.
+ * Returns null when used outside of FileExplorerProvider.
+ * Use this when the hook may be called outside the provider and should gracefully handle that case.
+ */
+export function useOptionalFileExplorerStoreContext(): UseBoundStoreWithEqualityFn<
+  StoreApi<FileExplorerState>
+> | null {
+  return useContext(FileExplorerStoreContext);
+}

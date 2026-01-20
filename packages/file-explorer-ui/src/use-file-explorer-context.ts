@@ -51,17 +51,28 @@ function getPathDepth(path: string): number {
 }
 
 /**
- * Helper to get the parent directory of a file path.
- * Returns the path without the last segment (the filename).
+ * Helper to get ALL ancestor directories of a file path.
+ * For example, for "apps/web/src/App.tsx", returns ["apps", "apps/web", "apps/web/src"].
+ * For absolute paths like "/Users/foo/bar.ts", returns ["/Users", "/Users/foo"].
+ * All ancestors must be expanded for a nested file to be visible in the tree.
  *
- * @param filePath - Full path to a file
- * @returns Parent directory path, or empty string for root-level files
+ * @param filePath - Full path to a file (can be relative or absolute)
+ * @returns Array of all ancestor directory paths, from root to immediate parent
  */
-function getParentDirectory(filePath: string): string {
+function getAllAncestorDirectories(filePath: string): string[] {
+  // Check if path is absolute (starts with /)
+  const isAbsolute = filePath.startsWith('/');
   const segments = filePath.split('/').filter(Boolean);
-  // Remove the filename (last segment) to get the parent directory
+  // Remove the filename (last segment)
   segments.pop();
-  return segments.length > 0 ? segments.join('/') : '';
+
+  const ancestors: string[] = [];
+  for (let i = 1; i <= segments.length; i++) {
+    // Preserve leading slash for absolute paths
+    const prefix = isAbsolute ? '/' : '';
+    ancestors.push(prefix + segments.slice(0, i).join('/'));
+  }
+  return ancestors;
 }
 
 type UseFileExplorerProps = Record<string, never>;
@@ -155,6 +166,27 @@ interface UseFileExplorerReturn {
   isLoadingForSelection: boolean;
   /** Path of the folder being loaded for selection (if any) */
   loadingPathForSelection: string | null;
+  /**
+   * Select all files in the provided tree, loading if needed.
+   * IMPORTANT: Pass the FILTERED tree (quickFilteredTree) to respect workspace filters.
+   */
+  selectAllRecursively: (
+    filteredTree: IFileNode[],
+    folderId: string,
+    addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
+    maxSelectionCount: number
+  ) => Promise<{
+    success: boolean;
+    filePaths: string[];
+    totalAvailable?: number;
+    limitReached?: boolean;
+    cancelled?: boolean;
+    error?: string;
+  }>;
+  /** Cancel the current select all operation */
+  cancelSelectAll: () => void;
+  /** Whether the tree is being loaded for select all */
+  isLoadingForSelectAll: boolean;
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -204,6 +236,18 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   const isAccessLoading = storeIsAccessLoading;
   const setAccessLoading = setIsAccessLoading;
 
+  // Get file filters BEFORE useFileTree so we can pass filterTreeFn
+  // This is critical for the slow path in selectAllRecursively to respect workspace filters
+  const { applyFileFilters: applyFiltersUtil, filterError: localFilterError } = useFileFilters();
+
+  // Create a memoized filter function for the slow path in selectAllRecursively.
+  // This function is called when the worker returns an unfiltered tree after loading directories.
+  // It ensures workspace include/exclude filters are applied before file selection.
+  const filterTreeFn = useCallback(
+    (tree: IFileNode[]) => applyFiltersUtil(tree, includeFilters, excludeFilters, useRegex),
+    [applyFiltersUtil, includeFilters, excludeFilters, useRegex]
+  );
+
   // Try to get shared tree state from FileTreeProvider context.
   // This ensures all components using useFileExplorer share the same tree
   // after expand-all completes - fixing the "file not found" bug.
@@ -211,7 +255,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   // Always call useFileTree to maintain hook order (rules of hooks).
   // When sharedTreeContext is available, we use its values instead.
-  const localTreeState = useFileTree(rootDirectoryHandle);
+  // Pass filterTreeFn to ensure workspace filters are respected in the slow path.
+  const localTreeState = useFileTree(rootDirectoryHandle, { filterTreeFn });
 
   // Use shared context if available, otherwise use local tree state
   const {
@@ -236,6 +281,9 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancelRecursiveSelect,
     isLoadingForSelection,
     loadingPathForSelection,
+    selectAllRecursively,
+    cancelSelectAll,
+    isLoadingForSelectAll,
   } = sharedTreeContext ?? localTreeState;
 
   // storeClearFileContents is selected above to keep hook count constant
@@ -249,9 +297,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     canLoadWithoutTree,
   } = useSharedFileContentLoading(fileTree);
 
-  const { applyFileFilters: applyFiltersUtil, filterError: localFilterError } = useFileFilters();
-
   // Unify filtered tree computation in useMemo to avoid state/effect complexity
+  // Note: applyFiltersUtil is now obtained earlier to pass filterTreeFn to useFileTree
   const filteredTree = useMemo(() => {
     if (fileTree.length > 0) {
       return applyFiltersUtil(fileTree, includeFilters, excludeFilters, useRegex);
@@ -485,18 +532,21 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     const expandedPaths = storeState.expandedDirectoryPaths;
     const selectedFiles = storeState.selectedFilePaths;
 
-    // BST-308: Include parent directories of selected files in restoration.
-    // When files are restored from persistence, their parent directories must be loaded
-    // so that file nodes (with handles and sizes) appear in the file tree.
+    // BST-308/BST-310: Include ALL ancestor directories of selected files in restoration.
+    // When files are restored from persistence, their ancestor directories must be loaded
+    // AND expanded so that file nodes (with handles and sizes) appear in the file tree.
     // Without this, token counting and file size display fail for restored selections.
+    // CRITICAL: We need ALL ancestors, not just the immediate parent. For a file at
+    // "apps/web/src/App.tsx", we need "apps", "apps/web", and "apps/web/src" to all be
+    // loaded and expanded, otherwise the nested file won't be visible in the tree.
     const parentDirectoriesOfSelectedFiles = new Set<string>();
     for (const compositeKey of selectedFiles) {
       try {
         const { path } = decodeFileSelection(compositeKey);
-        const parentDir = getParentDirectory(path);
-        // Only add non-empty parent directories (empty means root-level file)
-        if (parentDir) {
-          parentDirectoriesOfSelectedFiles.add(parentDir);
+        // Get ALL ancestor directories, not just the immediate parent
+        const ancestors = getAllAncestorDirectories(path);
+        for (const ancestor of ancestors) {
+          parentDirectoriesOfSelectedFiles.add(ancestor);
         }
       } catch {
         // Ignore invalid composite keys
@@ -548,6 +598,23 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
         await loadSpecificPaths(sortedPaths, (loaded, progressTotal, currentPath) => {
           setRestorationProgress({ loaded, total: progressTotal, currentPath });
         });
+
+        // BST-310 FIX: After loading completes, expand parent directories of selected files.
+        // This ensures checkboxes render correctly - without expansion, file nodes exist
+        // in the tree but aren't visible, so their selection state can't be displayed.
+        if (parentDirectoriesOfSelectedFiles.size > 0) {
+          const currentExpandedPaths = store.getState().expandedDirectoryPaths;
+          const newExpandedPaths = new Set([
+            ...currentExpandedPaths,
+            ...parentDirectoriesOfSelectedFiles,
+          ]);
+          logger.debug('[Restoration Effect] Expanding parent directories of selected files', {
+            count: parentDirectoriesOfSelectedFiles.size,
+            previouslyExpanded: currentExpandedPaths.size,
+            newTotal: newExpandedPaths.size,
+          });
+          setExpandedPaths(newExpandedPaths);
+        }
 
         logger.info('Restored expanded directories', {
           totalPaths: total,
@@ -605,5 +672,8 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancelRecursiveSelect,
     isLoadingForSelection,
     loadingPathForSelection,
+    selectAllRecursively,
+    cancelSelectAll,
+    isLoadingForSelectAll,
   };
 }

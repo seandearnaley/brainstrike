@@ -1,7 +1,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { EmptyState } from '@brainstrike/ui';
-import { FolderOpen } from 'lucide-react';
+import { FolderOpen, Loader2 } from 'lucide-react';
 import { useDeferredValue } from 'react';
 import OptimizedFileTree from './optimized-file-tree';
 
@@ -11,6 +11,23 @@ const NoFilesSelected = () => (
     icon={<FolderOpen />}
     title="No directory selected"
   />
+);
+
+/**
+ * Loading indicator shown during Select All operations.
+ * Uses a subtle overlay with spinner to indicate work in progress
+ * without being too intrusive.
+ */
+const SelectAllLoadingIndicator = () => (
+  <div
+    className="absolute inset-0 z-30 flex items-center justify-center bg-background/50"
+    data-testid="select-all-loading-overlay"
+  >
+    <div className="flex items-center gap-2 rounded-md bg-background/90 px-3 py-2 shadow-sm">
+      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+      <span className="text-muted-foreground text-xs">Selecting files...</span>
+    </div>
+  </div>
 );
 
 interface FileExplorerSidebarProps {
@@ -37,6 +54,8 @@ interface FileExplorerSidebarProps {
   isLoadingForSelection?: boolean;
   /** Path of the folder being loaded for selection */
   loadingPathForSelection?: string | null;
+  /** Whether the entire tree is being loaded for select all */
+  isLoadingForSelectAll?: boolean;
 }
 
 const ErrorDisplay = ({
@@ -84,6 +103,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   onSelectFolderRecursively,
   isLoadingForSelection,
   loadingPathForSelection,
+  isLoadingForSelectAll = false,
 }) => {
   // React 19: useDeferredValue keeps showing the old tree while new one renders
   // This prevents "flash" during rapid tree updates (like expand-all)
@@ -96,7 +116,9 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
     <div className="flex h-full w-full flex-col overflow-hidden bg-linear-to-b from-[#fdfcfb] to-[#f2f0ef] dark:from-[#1a1816] dark:to-[#0a0a0a]">
       {showError && <ErrorDisplay filterError={filterError} treeError={treeError} />}
       {rootDirectoryHandle ? (
-        <div className="flex min-h-0 flex-1 flex-col pt-2">
+        <div className="relative flex min-h-0 flex-1 flex-col pt-2">
+          {/* Subtle loading overlay during Select All operation */}
+          {isLoadingForSelectAll && <SelectAllLoadingIndicator />}
           {hasContent ? (
             <OptimizedFileTree
               cancelChildLoading={cancelChildLoading}
