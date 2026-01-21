@@ -1825,6 +1825,9 @@ importers:
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui

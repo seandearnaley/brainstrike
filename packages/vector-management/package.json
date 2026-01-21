@@ -36,6 +36,7 @@
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/queue": "workspace:*",
+    "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "^0.3.14",

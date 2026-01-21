@@ -1,5 +1,7 @@
 import { JobQueue, usePGliteDatabase, useVectorEnabled } from '@brainstrike/db';
 import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+// Import types to ensure global Window augmentation is available
+import '@brainstrike/types';
 import { useCallback, useMemo, useRef } from 'react';
 import type { EmbeddingActionsDropdownProps } from './embedding-actions-dropdown';
 import type { EmbeddingStatusBarProps } from './embedding-status-bar';
@@ -30,18 +32,16 @@ export interface UseEmbeddingControlsResult {
 }
 
 /**
- * Detect if running in Electron renderer
+ * Detect if running in Electron renderer.
+ * Uses the global Window augmentation from @brainstrike/types.
  */
 function isElectronRenderer(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const w = window as unknown as { electronAPI?: unknown };
-  return !!w.electronAPI;
+  return typeof window !== 'undefined' && window.electronAPI !== undefined;
 }
 
 /**
- * Determine worker status from various state flags
+ * Determine worker status from various state flags.
+ * Uses the global Window augmentation from @brainstrike/types.
  */
 function getWorkerStatus(
   queueCounts: { failed: number; running: number },
@@ -50,8 +50,7 @@ function getWorkerStatus(
   workerLocalRunning: boolean,
   throughput: number
 ): 'running' | 'error' | 'disabled' | 'initializing' {
-  const isWeb =
-    typeof window !== 'undefined' && !(window as { electronAPI?: unknown })?.electronAPI;
+  const isWeb = typeof window !== 'undefined' && window.electronAPI === undefined;
   if (queueCounts.failed > 0 || startWorkerError) {
     return 'error';
   }

@@ -8,6 +8,10 @@
  * are validated before being used in SQL strings.
  */
 
+import { createLogger } from '@brainstrike/utils';
+
+const logger = createLogger('DimensionIndexHelpers');
+
 interface HnswParams {
   m: number;
   ef: number;
@@ -140,6 +144,11 @@ export async function createDimensionIndex(
   // pgvector's HNSW index only supports up to 2000 dimensions.
   // Vectors with more dimensions can still be stored and queried via sequential scan.
   if (dimension > MAX_HNSW_DIMENSION) {
+    logger.warn(
+      `Skipping HNSW index creation for ${dimension}D vectors: ` +
+        `pgvector HNSW limit is ${MAX_HNSW_DIMENSION}. ` +
+        'Queries will use sequential scan (slower for large datasets).'
+    );
     return;
   }
 
