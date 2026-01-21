@@ -124,6 +124,23 @@ export const CollectionPickerItem = memo(function CollectionPickerItem({
               </span>{' '}
               {collection.chunkCount === 1 ? 'chunk' : 'chunks'}
             </span>
+            {/* Embedding coverage display */}
+            <span className="h-1 w-1 rounded-full bg-border" />
+            <span
+              className={cn(
+                'flex items-center gap-1',
+                collection.embeddingCount >= collection.chunkCount && collection.chunkCount > 0
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : ''
+              )}
+              title={`${collection.embeddingCount} of ${collection.chunkCount} chunks embedded`}
+            >
+              <span className="font-medium text-foreground/60">
+                {collection.embeddingCount.toLocaleString()}/
+                {collection.chunkCount.toLocaleString()}
+              </span>
+              <span>embedded</span>
+            </span>
           </div>
         </div>
 

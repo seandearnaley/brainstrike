@@ -138,7 +138,7 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 
 ## Performance tips (battle-tested)
 
-* **Defer heavy components:** Keep `DatabaseTab`, `VectorsTab`, and `AssistantUiPanel` behind `lazy()` and flags. Don’t “accidentally” import them in top-level modules.
+* **Defer heavy components:** Keep `DatabaseTab` and `AssistantUiPanel` behind `lazy()` and flags. Don't "accidentally" import them in top-level modules.
 * **WebGPU first, WASM second:** for local models, choose WebGPU when available; fall back gracefully. Avoid device thrashing—reinitialize models only every N chunks (user-tunable). ([ONNX Runtime][7])
 * **App-Shell first paint:** Keep the shell static CSS and icons small; don’t let the tools panel pull big deps until opened. (This echoes modern App-Shell guidance.) ([Medium][13])
 * **Zustand selectors:** Always destructure selectors outside render loops; prefer tuple selectors to minimize render churn. (Matches official persistence guidance.) ([Zustand Documentation][6])

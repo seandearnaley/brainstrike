@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const LEGACY_STORE_NAME = 'right-panel.v1' as const;
 const STORE_NAME = 'tools-panel.v1' as const;
-const legacyState = JSON.stringify({ state: { activeTab: 'vectors' }, version: 1 });
+const legacyState = JSON.stringify({ state: { activeTab: 'database' }, version: 1 });
 
 function setLocalStorageItem(key: string, value: string): void {
   localStorage.setItem(key, value);
@@ -53,7 +53,7 @@ describe('tools-panel-store migration', () => {
       './tools-panel-store'
     );
 
-    useToolsPanelStore.setState({ activeTab: 'vectors' });
+    useToolsPanelStore.setState({ activeTab: 'database' });
     setLocalStorageItem(STORE_NAME, legacyState);
     setLocalStorageItem(LEGACY_STORE_NAME, legacyState);
 

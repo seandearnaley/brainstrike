@@ -103,6 +103,7 @@ vi.mock('@brainstrike/db', async (importOriginal) => {
     useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
     useDbProviderError: () => null,
     useFactoryReset: () => null,
+    useVectorEnabled: () => true,
     MigrationRunner: class MockMigrationRunner {
       async initialize() {
         return Promise.resolve();
@@ -164,6 +165,43 @@ vi.mock('@brainstrike/ui', async () => {
         ))}
       </div>
     ),
+  };
+});
+
+// Mock useEmbeddingControls hook to avoid provider requirements in tests
+vi.mock('@brainstrike/vector-management', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/vector-management')>();
+  return {
+    ...actual,
+    useEmbeddingControls: () => ({
+      dropdownProps: {
+        backfilling: false,
+        backfillProgress: null,
+        coverage: null,
+        disabled: true,
+        disabledReason: 'No collection selected',
+        failedCount: 0,
+        hasDb: true,
+        onBackfill: vi.fn(),
+        onClearQueue: vi.fn(),
+        onRetryFailed: vi.fn(),
+        onWipeQueue: vi.fn(),
+        queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+        startingWorker: false,
+        willAutoStartWorker: false,
+      },
+      statusBarProps: {
+        latencyStats: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+        queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+        telemetryTrend: [],
+        throughput: 0,
+        vectorEnabled: true,
+        workerStatus: 'disabled' as const,
+      },
+      hasDb: true,
+    }),
+    EmbeddingActionsDropdown: () => <div data-testid="mock-embedding-actions-dropdown" />,
+    EmbeddingStatusBar: () => <div data-testid="mock-embedding-status-bar" />,
   };
 });
 

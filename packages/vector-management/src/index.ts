@@ -8,6 +8,12 @@ export type {
   CollectionWithDocCount,
 } from './collection-select';
 export { CollectionSelect, formatCollectionLabel, useCollections } from './collection-select';
+// Embedding actions dropdown (split button for backfill/retry/clear/wipe)
+export type { EmbeddingActionsDropdownProps } from './embedding-actions-dropdown';
+export { EmbeddingActionsDropdown } from './embedding-actions-dropdown';
+// Embedding controls panel (self-contained controls with status bar)
+export type { EmbeddingControlsPanelProps } from './embedding-controls-panel';
+export { EmbeddingControlsPanel } from './embedding-controls-panel';
 export { EmbeddingJobQueueTracker } from './embedding-job-queue-tracker';
 export {
   EmbeddingQueueProvider,
@@ -16,10 +22,19 @@ export {
 } from './embedding-queue-provider';
 // Embedding set management
 export * from './embedding-set-management';
+// Embedding status bar (compact metrics display)
+export type { EmbeddingStatusBarProps } from './embedding-status-bar';
+export { EmbeddingStatusBar } from './embedding-status-bar';
 // Queue HUD and Diagnostics (BST-166)
 export { QueueDiagnosticsPanel } from './queue-diagnostics-panel';
 export { QueueHud } from './queue-hud';
 export { QueueStatusPopover } from './queue-status-popover';
+// Hook for embedding controls state (use with EmbeddingActionsDropdown and EmbeddingStatusBar)
+export type {
+  UseEmbeddingControlsOptions,
+  UseEmbeddingControlsResult,
+} from './use-embedding-controls';
+export { useEmbeddingControls } from './use-embedding-controls';
 export type {
   UseQueueHealthMetricsOptions,
   UseQueueHealthMetricsReturn,

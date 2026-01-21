@@ -3,7 +3,11 @@ import { HomePage } from './page-objects/home-page';
 import { ensureRightPanelVisible } from './utils/layout-helpers';
 
 test.describe('Embedding Worker Telemetry', () => {
-  test('surfaces queue metrics and vector trends in the vectors tab', async ({ page }) => {
+  /**
+   * BST-311: Vector Status was merged into the Database tab as EmbeddingStatusBar.
+   * This test verifies the compact embedding telemetry UI in the Database tab toolbar.
+   */
+  test('surfaces queue metrics and trends in the database tab toolbar', async ({ page }) => {
     const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
     const panelTimeout = isCI ? 20_000 : 8000;
     const home = new HomePage(page);
@@ -11,35 +15,28 @@ test.describe('Embedding Worker Telemetry', () => {
     await home.goto();
     await ensureRightPanelVisible(page);
 
-    const vectorsTab = page.getByRole('tab', { name: /vectors/i });
-    await expect(vectorsTab).toBeVisible({ timeout: panelTimeout });
-    await vectorsTab.click();
+    // Navigate to Database tab (BST-311: Vectors tab merged into Database)
+    const databaseTab = page.getByRole('tab', { name: /database/i });
+    await expect(databaseTab).toBeVisible({ timeout: panelTimeout });
+    await databaseTab.click();
 
-    const vectorsPanel = page.getByRole('tabpanel', { name: /vectors/i });
-    await expect(vectorsPanel).toBeVisible({ timeout: panelTimeout });
+    const databasePanel = page.getByRole('tabpanel', { name: /database/i });
+    await expect(databasePanel).toBeVisible({ timeout: panelTimeout });
 
-    const vectorStatusHeading = vectorsPanel.getByRole('heading', { name: 'Vector Status' });
-    const loadingVectors = vectorsPanel.getByText(/loading vectors/i);
-    if ((await loadingVectors.count()) > 0) {
-      await Promise.race([
-        loadingVectors.first().waitFor({ state: 'hidden', timeout: panelTimeout }),
-        vectorStatusHeading.waitFor({ state: 'visible', timeout: panelTimeout }),
-      ]);
-    }
+    // BST-311: EmbeddingStatusBar is now in the Database tab footer
+    // Verify the embedding status bar is visible
+    const embeddingStatusBar = page.getByTestId('embedding-status-bar');
+    await expect(embeddingStatusBar).toBeVisible({ timeout: panelTimeout });
 
-    await expect(vectorStatusHeading).toBeVisible({ timeout: panelTimeout });
-    await expect(vectorsPanel.getByText(/Jobs\/min/i)).toBeVisible();
-    await expect(vectorsPanel.getByRole('img', { name: 'Queue throughput trend' })).toBeVisible();
-    await expect(vectorsPanel.getByRole('img', { name: 'Queue error trend' })).toBeVisible();
-    await expect(vectorsPanel.getByRole('img', { name: 'Queue latency trend' })).toBeVisible();
+    // Verify queue metrics are displayed in the compact status bar
+    // Throughput and latency sparklines
+    await expect(embeddingStatusBar.getByRole('img', { name: 'Throughput trend' })).toBeVisible();
+    await expect(embeddingStatusBar.getByRole('img', { name: 'Latency trend' })).toBeVisible();
 
-    // BST-166: QueueStatusPopover now uses a different testid and doesn't have a retry button
-    // visible in the compact status bar view. The retry functionality is in the popover content.
-    const queueStatusPopover = page.getByTestId('queue-status-popover-trigger');
-    await expect(queueStatusPopover).toBeVisible();
-    // Verify the compact status shows queue metrics (Q, R, F indicators)
-    await expect(queueStatusPopover.getByText('Q')).toBeVisible();
-    await expect(queueStatusPopover.getByText('R')).toBeVisible();
-    await expect(queueStatusPopover.getByText('F')).toBeVisible();
+    // Jobs/min indicator
+    await expect(embeddingStatusBar.getByText(/jobs\/min/i)).toBeVisible();
+
+    // Queue counts (Q: for queued, showing queued/running)
+    await expect(embeddingStatusBar.getByText('Q:')).toBeVisible();
   });
 });
