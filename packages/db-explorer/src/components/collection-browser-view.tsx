@@ -15,6 +15,7 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
 import {
   type BrowserNodeData,
+  Button,
   CollectionBrowser,
   type CollectionBrowserFilters,
   type CollectionNodeType,
@@ -28,6 +29,7 @@ import {
   type SearchMode,
   SearchModeBar,
 } from '@brainstrike/ui';
+import { ChevronLeft } from 'lucide-react';
 import { useCallback, useMemo, useRef } from 'react';
 import { Group, Panel, type PanelImperativeHandle, Separator } from 'react-resizable-panels';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
@@ -557,7 +559,22 @@ export function CollectionBrowserView({
       )}
 
       {/* Main content area */}
-      <div className="flex min-h-0 flex-1 border-t">
+      <div className="relative flex min-h-0 flex-1 border-t">
+        {/* Chip handle for collapsed inspector panel */}
+        {isInspectorCollapsed && (
+          <div className="absolute top-1/2 right-0 z-10 -translate-y-1/2">
+            <Button
+              aria-label="Show inspector panel"
+              className="h-8 w-6 rounded-r-none rounded-l-md border border-border border-r-0 bg-muted/90 shadow-sm"
+              onClick={() => handleInspectorCollapse(false)}
+              size="icon"
+              variant="ghost"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+
         <Group onLayoutChange={handleLayoutChange} orientation="horizontal">
           {/* Main browser */}
           <Panel
@@ -598,6 +615,12 @@ export function CollectionBrowserView({
                 defaultSize={`${inspectorWidth}%`}
                 id="inspector-panel"
                 minSize="15%"
+                onResize={(panelSize) => {
+                  // Detect drag-to-collapse and sync state
+                  if (panelSize.asPercentage === 0) {
+                    handleInspectorCollapse(true);
+                  }
+                }}
                 panelRef={inspectorPanelRef}
               >
                 <NodeInspector
@@ -611,17 +634,6 @@ export function CollectionBrowserView({
             </>
           )}
         </Group>
-
-        {isInspectorCollapsed && (
-          <NodeInspector
-            className="border-t-0"
-            isCollapsed={true}
-            nodeData={actualSelectedNodeData}
-            nodeType={selectedNodeType ?? null}
-            onCollapseChange={handleInspectorCollapse}
-            {...(selectedNodeId ? { nodeId: selectedNodeId } : {})}
-          />
-        )}
       </div>
     </div>
   );

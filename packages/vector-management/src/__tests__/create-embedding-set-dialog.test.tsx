@@ -46,6 +46,7 @@ describe('CreateEmbeddingSetDialog', () => {
   const mockOnSetCreated = vi.fn();
   const mockRepository = {
     getOrCreateSet: vi.fn(),
+    findAll: vi.fn().mockResolvedValue([]),
   } as unknown as IEmbeddingSetsRepository;
 
   const mockModels: ModelPickerModel[] = [
@@ -138,8 +139,15 @@ describe('CreateEmbeddingSetDialog', () => {
         </>
       );
 
-      // Fill out form
-      await user.type(screen.getByLabelText(/Name/i), 'My Collection');
+      // Wait for async initialization to complete (auto-fills name from model)
+      const nameInput = screen.getByLabelText(/Name/i);
+      await waitFor(() => {
+        expect(nameInput).toHaveValue('text-embedding-3-small');
+      });
+
+      // Clear auto-filled name and type custom name
+      await user.clear(nameInput);
+      await user.type(nameInput, 'My Collection');
 
       // Select model (using our mock select)
       await user.selectOptions(
@@ -185,10 +193,87 @@ describe('CreateEmbeddingSetDialog', () => {
       </>
     );
 
-    // Try to submit without name
-    await user.click(screen.getByText('Create Collection'));
+    // Wait for async initialization to complete (auto-fills name from model)
+    const nameInput = screen.getByLabelText(/Name/i);
+    await waitFor(() => {
+      expect(nameInput).toHaveValue('text-embedding-3-small');
+    });
 
+    // Clear the auto-filled name to test validation
+    await user.clear(nameInput);
+
+    // Verify the name is now empty
+    expect(nameInput).toHaveValue('');
+
+    // Try to submit without name - button should be disabled
+    const submitButton = screen.getByText('Create Collection');
+    expect(submitButton).toBeDisabled();
+
+    // Even if we try to click, it shouldn't call the repository
     expect(mockRepository.getOrCreateSet).not.toHaveBeenCalled();
-    // Toast should appear (difficult to test exact toast content without more setup, but we verify no call)
+  });
+
+  it('auto-generates unique name when existing collection has same name', async () => {
+    // Mock repository returns an existing collection with the same name as the first model
+    const mockRepositoryWithExisting = {
+      getOrCreateSet: vi.fn(),
+      findAll: vi.fn().mockResolvedValue([
+        { name: 'text-embedding-3-small' }, // Same as first model's name
+      ]),
+    } as unknown as IEmbeddingSetsRepository;
+
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepositoryWithExisting}
+        />
+      </>
+    );
+
+    // Wait for async initialization - should auto-fill with "(2)" suffix due to collision
+    const nameInput = screen.getByLabelText(/Name/i);
+    await waitFor(() => {
+      expect(nameInput).toHaveValue('text-embedding-3-small (2)');
+    });
+  });
+
+  it('auto-generates incremented unique name with multiple collisions', async () => {
+    // Mock repository returns multiple existing collections with incrementing names
+    const mockRepositoryWithMultiple = {
+      getOrCreateSet: vi.fn(),
+      findAll: vi
+        .fn()
+        .mockResolvedValue([
+          { name: 'text-embedding-3-small' },
+          { name: 'text-embedding-3-small (2)' },
+          { name: 'text-embedding-3-small (3)' },
+        ]),
+    } as unknown as IEmbeddingSetsRepository;
+
+    render(
+      <>
+        <Toaster />
+        <CreateEmbeddingSetDialog
+          models={mockModels}
+          onOpenChange={mockOnOpenChange}
+          onSetCreated={mockOnSetCreated}
+          open={true}
+          providers={mockProviders}
+          repository={mockRepositoryWithMultiple}
+        />
+      </>
+    );
+
+    // Wait for async initialization - should auto-fill with "(4)" suffix
+    const nameInput = screen.getByLabelText(/Name/i);
+    await waitFor(() => {
+      expect(nameInput).toHaveValue('text-embedding-3-small (4)');
+    });
   });
 });
