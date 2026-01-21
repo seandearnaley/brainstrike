@@ -2,6 +2,14 @@ import { Badge, StatusBar } from '@brainstrike/ui';
 import { useMemo } from 'react';
 import type { TelemetryTrendPoint } from './vector-status/use-vector-queue-state';
 
+/**
+ * Default dimensions for mini sparkline charts.
+ * These values are optimized for the compact status bar layout.
+ */
+const SPARKLINE_DEFAULT_WIDTH = 40;
+const SPARKLINE_DEFAULT_HEIGHT = 12;
+const SPARKLINE_STROKE_WIDTH = 1;
+
 export interface EmbeddingStatusBarProps {
   /** Whether PGlite with pgvector is enabled */
   vectorEnabled: boolean;
@@ -48,8 +56,8 @@ function formatLatencyMs(value: number): string {
 function MiniSparkline({
   values,
   ariaLabel,
-  width = 40,
-  height = 12,
+  width = SPARKLINE_DEFAULT_WIDTH,
+  height = SPARKLINE_DEFAULT_HEIGHT,
   className,
 }: {
   readonly values: readonly number[];
@@ -99,7 +107,7 @@ function MiniSparkline({
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"
-        strokeWidth={1}
+        strokeWidth={SPARKLINE_STROKE_WIDTH}
       />
     </svg>
   );
@@ -108,12 +116,27 @@ function MiniSparkline({
 /**
  * EmbeddingStatusBar - Compact status bar for embedding queue metrics.
  *
- * Displays:
- * - Left: PG status badge, worker status badge
- * - Center: Jobs/min with sparkline, latency
- * - Right: Queue counts (queued/running/failed)
+ * Displays real-time embedding queue telemetry in a three-section layout:
+ * - **Left**: PG status badge (database connectivity), worker status badge
+ * - **Center**: Jobs/min throughput with sparkline, P50 latency with sparkline
+ * - **Right**: Queue counts (queued/running/failed/succeeded)
  *
- * Designed to sit below the DB panel footer toolbar.
+ * Designed to sit below the DB panel footer toolbar and provide at-a-glance
+ * visibility into embedding pipeline health.
+ *
+ * @example
+ * ```tsx
+ * <EmbeddingStatusBar
+ *   vectorEnabled={true}
+ *   workerStatus="running"
+ *   throughput={10.5}
+ *   latencyStats={{ avgMs: 100, p50Ms: 95, p95Ms: 150 }}
+ *   queueCounts={{ queued: 5, running: 2, failed: 0, succeeded: 100 }}
+ *   telemetryTrend={trendData}
+ * />
+ * ```
+ *
+ * @see useEmbeddingControls - Hook that provides props for this component
  */
 export function EmbeddingStatusBar({
   vectorEnabled,

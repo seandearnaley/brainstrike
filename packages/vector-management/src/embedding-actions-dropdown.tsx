@@ -79,6 +79,24 @@ function getBackfillButtonText(
  *
  * The split button pattern keeps the most common action (Backfill) immediately
  * accessible while hiding destructive/less common actions in a dropdown.
+ *
+ * @example
+ * ```tsx
+ * <EmbeddingActionsDropdown
+ *   onBackfill={handleBackfill}
+ *   onRetryFailed={handleRetry}
+ *   onClearQueue={handleClear}
+ *   onWipeQueue={handleWipe}
+ *   hasDb={true}
+ *   backfilling={false}
+ *   backfillProgress={null}
+ *   failedCount={0}
+ *   coverage={{ total: 100, withSet: 50 }}
+ *   queueCounts={{ queued: 5, running: 2 }}
+ * />
+ * ```
+ *
+ * @see useEmbeddingControls - Hook that provides props for this component
  */
 export function EmbeddingActionsDropdown({
   onBackfill,

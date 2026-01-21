@@ -7,6 +7,8 @@ import {
 import { TransformersBackend } from '@brainstrike/embeddings';
 import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
+// Import types to ensure global Window augmentation is available
+import '@brainstrike/types';
 import {
   Badge,
   Button,
@@ -437,8 +439,7 @@ function getWorkerStatus(
   workerLocalRunning: boolean,
   throughput: number
 ): 'disabled' | 'initializing' | 'running' | 'error' {
-  const isWeb =
-    typeof window !== 'undefined' && !(window as { electronAPI?: unknown })?.electronAPI;
+  const isWeb = typeof window !== 'undefined' && window.electronAPI === undefined;
   if (!queueEnabled) {
     return 'disabled';
   }
@@ -471,11 +472,7 @@ function isQueueEnabled(): boolean {
   }
 }
 function isElectronRenderer(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const w = window as unknown as { electronAPI?: unknown };
-  return !!w.electronAPI;
+  return typeof window !== 'undefined' && window.electronAPI !== undefined;
 }
 
 export function formatRelativeTimeFromNow(input: string | null): string {
