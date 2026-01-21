@@ -10,6 +10,8 @@ export interface StatusBarProps {
   rightContent?: React.ReactNode;
   /** Additional CSS classes */
   className?: string;
+  /** Custom test ID for distinguishing multiple status bars (default: "status-bar") */
+  testId?: string;
 }
 
 /**
@@ -21,6 +23,7 @@ export function StatusBar({
   centerContent,
   rightContent,
   className,
+  testId = 'status-bar',
 }: StatusBarProps): React.ReactElement {
   return (
     <output
@@ -31,17 +34,17 @@ export function StatusBar({
         'text-muted-foreground text-xs',
         className
       )}
-      data-testid="status-bar"
+      data-testid={testId}
     >
-      <div className="flex items-center gap-2" data-testid="status-bar-left">
+      <div className="flex items-center gap-2" data-testid={`${testId}-left`}>
         {leftContent}
       </div>
       {centerContent && (
-        <div className="flex items-center gap-2" data-testid="status-bar-center">
+        <div className="flex items-center gap-2" data-testid={`${testId}-center`}>
           {centerContent}
         </div>
       )}
-      <div className="flex items-center gap-2" data-testid="status-bar-right">
+      <div className="flex items-center gap-2" data-testid={`${testId}-right`}>
         {rightContent}
       </div>
     </output>

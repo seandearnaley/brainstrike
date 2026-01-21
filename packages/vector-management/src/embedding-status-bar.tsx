@@ -208,6 +208,7 @@ export function EmbeddingStatusBar({
       centerContent={centerContent}
       leftContent={leftContent}
       rightContent={rightContent}
+      testId="embedding-status-bar"
       {...(className ? { className } : {})}
     />
   );
