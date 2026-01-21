@@ -14,10 +14,17 @@ interface HnswParams {
 }
 
 /**
- * Maximum allowed dimension for HNSW indexes.
- * pgvector supports up to 2000 dimensions by default.
+ * Maximum dimension for validation (theoretical limit for vector storage).
  */
 const MAX_DIMENSION = 65_535;
+
+/**
+ * Maximum dimension supported by pgvector's HNSW index.
+ * Vectors with more dimensions can still be stored and queried,
+ * but without HNSW index acceleration (falls back to sequential scan).
+ * @see https://github.com/pgvector/pgvector#hnsw
+ */
+export const MAX_HNSW_DIMENSION = 2000;
 
 /**
  * Maximum allowed value for HNSW M parameter.
@@ -129,6 +136,12 @@ export async function createDimensionIndex(
   // This prevents SQL injection even if callers pass malicious input
   validateDimensionForSql(dimension, 'createDimensionIndex');
   validateHnswParamsForSql(params, 'createDimensionIndex');
+
+  // pgvector's HNSW index only supports up to 2000 dimensions.
+  // Vectors with more dimensions can still be stored and queried via sequential scan.
+  if (dimension > MAX_HNSW_DIMENSION) {
+    return;
+  }
 
   const name = indexName(dimension);
 
