@@ -461,6 +461,7 @@ export function useBackgroundTokenIndexerIntegration({
   // Uses refs to avoid re-render loops while still accessing latest values
   const backgroundIndexerIsReady = backgroundIndexer.isReady;
   const tokenCacheIsOperational = tokenCache?.isOperational ?? false;
+  const tokenCacheIsPersisted = tokenCache?.isPersisted ?? false;
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
     const cache = tokenCacheRef.current;
@@ -556,6 +557,7 @@ export function useBackgroundTokenIndexerIntegration({
     if (!cache?.isOperational || selectedFiles.size === 0) {
       logger.debug('Warm cache effect skipped', {
         cacheOperational: cache?.isOperational ?? false,
+        cachePersisted: cache?.isPersisted ?? false,
         selectedCount: selectedFiles.size,
       });
       return;
@@ -579,6 +581,7 @@ export function useBackgroundTokenIndexerIntegration({
     logger.info('Warm cache effect: preloading folders', {
       folderCount: folderIds.size,
       totalFiles: selectedFiles.size,
+      isPersisted: cache?.isPersisted ?? false,
     });
 
     for (const folderId of folderIds) {
@@ -624,7 +627,10 @@ export function useBackgroundTokenIndexerIntegration({
           logger.warn('Failed to hydrate hot cache from store', { folderId, error });
         });
     }
-  }, [selectedFiles, tokenCacheIsOperational, isFileImporting]);
+    // NOTE: tokenCacheIsPersisted is included to re-run when persistence becomes available.
+    // This handles the case where isOperational=true (worker ready) but DB isn't ready yet.
+    // When the DB initializes later, isPersisted changes → effect re-runs → preloads from store.
+  }, [selectedFiles, tokenCacheIsOperational, tokenCacheIsPersisted, isFileImporting]);
 
   // Diagnostic function to force re-indexing by clearing the tracked files
   const clearIndexedCache = useCallback(() => {
