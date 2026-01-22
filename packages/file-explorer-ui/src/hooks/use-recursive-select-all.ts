@@ -15,6 +15,11 @@
  * @module use-recursive-select-all
  */
 
+import {
+  CHUNKED_SELECTION_THRESHOLD,
+  DEFAULT_SELECTION_CHUNK_SIZE,
+  LOG_SAMPLE_SIZE,
+} from '@brainstrike/file-explorer';
 import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
@@ -33,15 +38,6 @@ import {
 // Logger respects VITE_LOG_LEVEL env var - debug/info logs are suppressed in production.
 // See @brainstrike/utils createLogger() for level configuration.
 const logger = createLogger('RecursiveSelectAll');
-
-/** Number of sample paths to include in log output for debugging */
-const LOG_SAMPLE_SIZE = 3;
-
-/** Threshold above which to use chunked selection to avoid blocking main thread */
-const CHUNKED_SELECTION_THRESHOLD = 100;
-
-/** Number of files to process per chunk during selection */
-const SELECTION_CHUNK_SIZE = 50;
 
 /**
  * Check if the entire tree is fully loaded (all directories have loadState 'loaded').
@@ -156,16 +152,16 @@ async function selectFilesWithLimit(
     if (pathsToSelect.length > CHUNKED_SELECTION_THRESHOLD) {
       logger.debug('selectFilesWithLimit: using chunked selection', {
         totalPaths: pathsToSelect.length,
-        chunkSize: SELECTION_CHUNK_SIZE,
-        estimatedChunks: Math.ceil(pathsToSelect.length / SELECTION_CHUNK_SIZE),
+        chunkSize: DEFAULT_SELECTION_CHUNK_SIZE,
+        estimatedChunks: Math.ceil(pathsToSelect.length / DEFAULT_SELECTION_CHUNK_SIZE),
       });
 
-      for (let i = 0; i < pathsToSelect.length; i += SELECTION_CHUNK_SIZE) {
-        const chunk = pathsToSelect.slice(i, i + SELECTION_CHUNK_SIZE);
+      for (let i = 0; i < pathsToSelect.length; i += DEFAULT_SELECTION_CHUNK_SIZE) {
+        const chunk = pathsToSelect.slice(i, i + DEFAULT_SELECTION_CHUNK_SIZE);
         addMultipleSelectedFiles(folderId, chunk);
 
         // Yield to browser between chunks (except for last chunk)
-        if (i + SELECTION_CHUNK_SIZE < pathsToSelect.length) {
+        if (i + DEFAULT_SELECTION_CHUNK_SIZE < pathsToSelect.length) {
           await yieldToBrowser();
         }
       }

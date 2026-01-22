@@ -19,10 +19,10 @@ import {
   isBinaryFile,
 } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
-const INDEX_BATCH_SIZE = 200;
 
 /**
  * Maximum file size for token indexing (750KB).
@@ -601,12 +601,7 @@ export function useBackgroundTokenIndexerIntegration({
     // Phase 4 optimization: Adaptive debounce based on batch size
     // Larger batches get longer debounce to allow selection to stabilize
     // This prevents thrashing during "select all" operations
-    const debounceMs =
-      newFiles.length > 500
-        ? 500 // Large batch: wait for chunked selection to complete
-        : newFiles.length > 100
-          ? 300 // Medium batch: moderate wait
-          : 100; // Small batch: quick response
+    const debounceMs = getAdaptiveDebounceMs(newFiles.length);
 
     logger.debug('Selection debounce configured', {
       newFileCount: newFiles.length,

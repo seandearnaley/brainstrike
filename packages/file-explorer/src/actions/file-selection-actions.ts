@@ -1,6 +1,10 @@
 import type { FileExplorerState } from '@brainstrike/types';
 import { createLogger, encodeFileSelection } from '@brainstrike/utils';
 import type { StoreApi, UseBoundStore } from 'zustand';
+import {
+  DEFAULT_SELECTION_CHUNK_SIZE,
+  IDLE_CALLBACK_TIMEOUT_MS,
+} from '../constants/selection-constants';
 
 const logger = createLogger('FileSelectionActions');
 
@@ -8,7 +12,7 @@ type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
 
 export interface ChunkedSelectionOptions {
-  /** Number of files to process per chunk (default: 100) */
+  /** Number of files to process per chunk (default: DEFAULT_SELECTION_CHUNK_SIZE = 100) */
   chunkSize?: number;
   /** AbortSignal for cancellation */
   signal?: AbortSignal;
@@ -37,6 +41,17 @@ export interface FileSelectionActions {
    * Add multiple files with chunked processing to avoid blocking the main thread.
    * Uses requestIdleCallback to process files in batches, keeping the UI responsive.
    * Best for selecting 100+ files at once.
+   *
+   * **Cancellation Strategy:**
+   * Pass an AbortSignal via options.signal to cancel in-flight operations.
+   * The function checks for cancellation before each chunk and after yielding.
+   * When cancelled, returns { cancelled: true } with partial progress.
+   *
+   * **Race Condition Handling:**
+   * If multiple chunked selections are triggered rapidly, callers should:
+   * 1. Cancel any in-flight operation via AbortController.abort()
+   * 2. Start the new operation with a fresh AbortController
+   * This prevents interleaved updates from concurrent operations.
    */
   addMultipleSelectedFilesChunked: (
     folderId: string,
@@ -178,7 +193,7 @@ export const createFileSelectionActions = (
     paths: string[],
     options: ChunkedSelectionOptions = {}
   ): Promise<ChunkedSelectionResult> => {
-    const { chunkSize = 100, signal, onProgress } = options;
+    const { chunkSize = DEFAULT_SELECTION_CHUNK_SIZE, signal, onProgress } = options;
 
     logger.debug('addMultipleSelectedFilesChunked started', {
       folderId,
@@ -227,14 +242,31 @@ export const createFileSelectionActions = (
     let limitReached = false;
     let cancelled = false;
 
-    // Helper to schedule work during idle time
+    // Helper to schedule work during idle time with error handling
     const scheduleChunk = (): Promise<void> => {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         // Use requestIdleCallback if available, otherwise fall back to setTimeout
         const scheduleCallback =
           typeof requestIdleCallback !== 'undefined'
-            ? (cb: () => void) => requestIdleCallback(() => cb(), { timeout: 50 })
-            : (cb: () => void) => setTimeout(cb, 0);
+            ? (cb: () => void) =>
+                requestIdleCallback(
+                  () => {
+                    try {
+                      cb();
+                    } catch (error) {
+                      reject(error);
+                    }
+                  },
+                  { timeout: IDLE_CALLBACK_TIMEOUT_MS }
+                )
+            : (cb: () => void) =>
+                setTimeout(() => {
+                  try {
+                    cb();
+                  } catch (error) {
+                    reject(error);
+                  }
+                }, 0);
 
         scheduleCallback(resolve);
       });
