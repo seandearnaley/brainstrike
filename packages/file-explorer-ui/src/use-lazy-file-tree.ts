@@ -405,18 +405,21 @@ export function useLazyFileTree(
   });
 
   // Recursive folder selection management
+  // Build options object conditionally to satisfy exactOptionalPropertyTypes
+  const folderSelectOptions = {
+    workerPortRef: portRef,
+    handleMapRef,
+    onTreeUpdate: handleTreeUpdate,
+    onError: handleWorkerError,
+    ...(filterTreeFn ? { filterTreeFn } : {}),
+  };
   const {
     isLoadingForSelection,
     loadingPath: loadingPathForSelection,
     loadingProgress: selectionLoadingProgress,
     selectFolderRecursively,
     cancelRecursiveSelect,
-  } = useRecursiveFolderSelect({
-    workerPortRef: portRef,
-    handleMapRef,
-    onTreeUpdate: handleTreeUpdate,
-    onError: handleWorkerError,
-  });
+  } = useRecursiveFolderSelect(folderSelectOptions);
 
   // Recursive select all management
   // Build options object conditionally to satisfy exactOptionalPropertyTypes
