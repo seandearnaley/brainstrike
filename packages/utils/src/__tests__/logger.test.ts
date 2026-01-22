@@ -65,9 +65,9 @@ describe('logger', () => {
       ]);
     });
 
-    it('enables debug logging in production when configured', () => {
+    it('enables debug logging in production when configured with explicit level', () => {
       setEnvironment(false);
-      configureLogger({ enableInProduction: true });
+      configureLogger({ enableInProduction: true, level: LogLevel.DEBUG });
 
       const records = collectLogs(() => {
         debug('debug message');
@@ -129,7 +129,7 @@ describe('logger', () => {
     });
 
     it('uses custom scope keys for scoped loggers', () => {
-      configureLogger({ scopeKey: 'component' });
+      configureLogger({ scopeKey: 'component', level: LogLevel.DEBUG });
       const scopedLogger = createLogger('Importer');
 
       const [record] = collectLogs(() => {
@@ -184,19 +184,31 @@ describe('logger', () => {
     });
 
     it('continues to emit records for legacy helpers', () => {
+      // Note: log() is an alias for debug(), which requires DEBUG level
+      // With default INFO level, only info/warn/error are captured
       const records = collectLogs(() => {
-        log('debug via log');
+        log('debug via log'); // Not captured at INFO level
         logInfo('info via logInfo');
         logWarn('warn via logWarn');
         logError('error via logError');
       });
 
       expect(records.map((record) => record.level)).toEqual([
-        LogLevel.DEBUG,
         LogLevel.INFO,
         LogLevel.WARN,
         LogLevel.ERROR,
       ]);
+    });
+
+    it('emits debug logs via log() when level is DEBUG', () => {
+      setLogLevel(LogLevel.DEBUG);
+
+      const records = collectLogs(() => {
+        log('debug via log');
+      });
+
+      expect(records).toHaveLength(1);
+      expect(records[0]?.level).toBe(LogLevel.DEBUG);
     });
   });
 
@@ -307,10 +319,12 @@ describe('logger', () => {
       resetLogger();
 
       const records = collectLogs(() => {
-        debug('should appear with default level');
+        info('should appear with default level');
+        debug('should not appear - below default INFO level');
       });
 
       expect(records).toHaveLength(1);
+      expect(records[0]?.level).toBe(LogLevel.INFO);
     });
   });
 

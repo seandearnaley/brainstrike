@@ -28,7 +28,8 @@ const fileSystemAdapter = createFixtureCapableAdapter(baseFileSystemAdapter, {
 });
 const storageAdapter = new ElectronRendererStorageAdapter();
 
-const rendererLevel = import.meta.env.DEV ? LogLevel.DEBUG : LogLevel.INFO;
+// Default to INFO - use LOG_LEVEL=DEBUG env var for verbose debugging
+const rendererLevel = LogLevel.INFO;
 const rendererLogger = createLogger('DesktopRenderer');
 let flushQueueTelemetry: (() => void) | null = null;
 

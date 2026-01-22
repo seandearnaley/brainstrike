@@ -26,7 +26,8 @@ const baseFileSystemAdapter = createFileSystemAdapter('web');
 const fileSystemAdapter = createFixtureCapableAdapter(baseFileSystemAdapter, { platform: 'web' });
 const storageAdapter = createStorageAdapter('web');
 
-const defaultLevel = import.meta.env.DEV ? LogLevel.DEBUG : LogLevel.INFO;
+// Default to INFO in development - use LOG_LEVEL=DEBUG env var for verbose debugging
+const defaultLevel = LogLevel.INFO;
 let flushQueueTelemetry: (() => void) | null = null;
 
 if (typeof window !== 'undefined') {

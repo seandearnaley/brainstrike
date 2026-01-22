@@ -102,7 +102,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     );
 
     useEffect(() => {
-      logger.info('Active tab effect triggered', {
+      logger.debug('Active tab effect triggered', {
         activeTabId,
         canLoadWithoutTree,
         treeLength: fileTree.length,
@@ -110,18 +110,18 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
       });
 
       if (!activeTabId) {
-        logger.info('Bailing: no activeTabId');
+        logger.debug('Bailing: no activeTabId');
         return;
       }
       // On Electron (canLoadWithoutTree), we can load files without the tree.
       // On web, we need the tree to get file handles.
       if (!canLoadWithoutTree && fileTree.length === 0) {
-        logger.info('Bailing: no tree and canLoadWithoutTree is false');
+        logger.debug('Bailing: no tree and canLoadWithoutTree is false');
         return;
       }
       const activeTab = tabs.find((tab) => tab.id === activeTabId);
       if (!activeTab) {
-        logger.info('Bailing: activeTab not found in tabs', {
+        logger.debug('Bailing: activeTab not found in tabs', {
           activeTabId,
           tabs: tabs.map((t) => t.id),
         });
@@ -130,14 +130,14 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
       const alreadyLoaded = !!fileContents[activeTab.compositeKey];
       const isLoading = loadingFiles.has(activeTab.compositeKey);
       if (alreadyLoaded || isLoading) {
-        logger.info('Bailing: already loaded or loading', {
+        logger.debug('Bailing: already loaded or loading', {
           alreadyLoaded,
           isLoading,
           compositeKey: activeTab.compositeKey,
         });
         return;
       }
-      logger.info('Loading file content for active tab', {
+      logger.debug('Loading file content for active tab', {
         compositeKey: activeTab.compositeKey,
         path: activeTab.path,
       });

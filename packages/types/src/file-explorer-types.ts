@@ -178,6 +178,13 @@ export interface FileExplorerData {
    * This is ephemeral state (not persisted).
    */
   isAccessLoading: boolean;
+  /**
+   * Version counter for selection changes.
+   * Increments on every selection mutation, enabling efficient selectors
+   * that only recompute when selection actually changes.
+   * This is ephemeral state (not persisted).
+   */
+  selectionVersion: number;
 }
 
 export interface CacheStats {
@@ -292,4 +299,5 @@ export const DEFAULT_STATE = {
   devInlineFixtureEnabled: false,
   selectionModel: createEmptySelectionModel(),
   isAccessLoading: false,
+  selectionVersion: 0,
 } as const;

@@ -152,6 +152,7 @@ describe('useFileExplorer (context)', () => {
       commitRulesToExplicit: vi.fn(),
       setMaterializedPaths: vi.fn(),
       isAccessLoading: false,
+      selectionVersion: 0,
       setIsAccessLoading: vi.fn(),
     };
     // Mock store function to handle individual selector calls (split selector pattern)

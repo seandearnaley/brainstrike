@@ -452,7 +452,7 @@ export function useTokenCache({
         return;
       }
       hotCache.current.set(key, tokenCount);
-      logger.info('Hot cache updated', { key, tokenCount, cacheSize: hotCache.current.size });
+      logger.debug('Hot cache updated', { key, tokenCount, cacheSize: hotCache.current.size });
       debouncedSetVersion();
     },
     [debouncedSetVersion]
