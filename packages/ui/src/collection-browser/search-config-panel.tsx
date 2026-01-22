@@ -1,7 +1,7 @@
 /**
  * SearchConfigPanel Component
  *
- * Collapsible panel for configuring semantic search parameters:
+ * Compact collapsible panel for configuring semantic search parameters:
  * - Retrieval mode (vector-only or hybrid with RRF fusion)
  * - Weight sliders for vector/FTS balance (hybrid mode only)
  * - Similarity threshold (0.0-1.0)
@@ -12,18 +12,18 @@
 import { ChevronDown, ChevronUp, Settings, Sparkles, Zap } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '../button';
-import { Label } from '../label';
 import { cn } from '../lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../tooltip';
 import type { DistanceMetric, RetrievalMode, SearchConfigPanelProps } from './types';
 
 /**
- * Distance metric options with display labels
+ * Distance metric options - single line with tooltip for description
  */
-const DISTANCE_METRICS: Array<{ value: DistanceMetric; label: string; description: string }> = [
-  { value: 'cosine', label: 'Cosine', description: 'Best for normalized embeddings' },
-  { value: 'l2', label: 'Euclidean (L2)', description: 'Geometric distance' },
-  { value: 'ip', label: 'Inner Product', description: 'Dot product similarity' },
+const DISTANCE_METRICS: Array<{ value: DistanceMetric; label: string; tooltip: string }> = [
+  { value: 'cosine', label: 'Cosine', tooltip: 'Best for normalized embeddings' },
+  { value: 'l2', label: 'Euclidean (L2)', tooltip: 'Geometric distance' },
+  { value: 'ip', label: 'Inner Product', tooltip: 'Dot product similarity' },
 ];
 
 /**
@@ -32,25 +32,25 @@ const DISTANCE_METRICS: Array<{ value: DistanceMetric; label: string; descriptio
 const RESULT_LIMITS = [5, 10, 20, 50, 100];
 
 /**
- * Retrieval mode options with descriptions
+ * Retrieval mode options
  */
 const RETRIEVAL_MODES: Array<{
   value: RetrievalMode;
   label: string;
-  description: string;
+  tooltip: string;
   icon: 'Zap' | 'Sparkles';
 }> = [
-  { value: 'vector', label: 'Vector', description: 'Fast semantic similarity', icon: 'Zap' },
+  { value: 'vector', label: 'Vector', tooltip: 'Fast semantic similarity search', icon: 'Zap' },
   {
     value: 'hybrid',
     label: 'Hybrid',
-    description: 'Vector + keyword fusion',
+    tooltip: 'Combines vector similarity with keyword matching',
     icon: 'Sparkles',
   },
 ];
 
 /**
- * SearchConfigPanel - Collapsible advanced search options
+ * SearchConfigPanel - Compact collapsible advanced search options
  */
 export const SearchConfigPanel = React.memo(function SearchConfigPanel({
   config,
@@ -125,9 +125,13 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
     [config, onConfigChange]
   );
 
-  // Current retrieval mode (default to 'vector')
-  const retrievalMode = config.retrievalMode ?? 'vector';
+  // Current retrieval mode (default to 'hybrid')
+  const retrievalMode = config.retrievalMode ?? 'hybrid';
   const isHybridMode = retrievalMode === 'hybrid';
+
+  // Check if collection metric differs from selected
+  const metricMismatch =
+    collectionDistanceMetric && collectionDistanceMetric !== config.distanceMetric;
 
   return (
     <div className={cn('border-border border-t', className)}>
@@ -152,179 +156,154 @@ export const SearchConfigPanel = React.memo(function SearchConfigPanel({
         )}
       </Button>
 
-      {/* Collapsible content */}
+      {/* Collapsible content - compact layout */}
       <div
         className={cn(
           'overflow-hidden transition-all duration-200 ease-out',
-          isExpanded ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+          isExpanded ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'
         )}
         id="search-config-content"
       >
-        <div className="space-y-3 p-3 pt-1.5">
-          {/* Retrieval Mode Toggle */}
-          <div className="space-y-1">
-            <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-              Retrieval Mode
-            </Label>
-            <div className="flex gap-1.5">
+        <div className="space-y-2 p-3 pt-1.5">
+          {/* Row 1: Retrieval Mode Toggle */}
+          <div className="flex items-center gap-2">
+            <span className="min-w-[52px] text-[10px] text-muted-foreground">Mode</span>
+            <div className="flex flex-1 gap-1">
               {RETRIEVAL_MODES.map((mode) => {
                 const Icon = mode.icon === 'Zap' ? Zap : Sparkles;
                 const isActive = retrievalMode === mode.value;
                 return (
-                  <button
-                    className={cn(
-                      'flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] transition-all',
-                      isActive
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                    )}
-                    key={mode.value}
-                    onClick={() => handleRetrievalModeChange(mode.value)}
-                    title={mode.description}
-                    type="button"
-                  >
-                    <Icon className="h-3 w-3" />
-                    {mode.label}
-                  </button>
+                  <Tooltip key={mode.value}>
+                    <TooltipTrigger asChild>
+                      <button
+                        className={cn(
+                          'flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] transition-all',
+                          isActive
+                            ? 'bg-primary text-primary-foreground'
+                            : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                        )}
+                        onClick={() => handleRetrievalModeChange(mode.value)}
+                        type="button"
+                      >
+                        <Icon className="h-3 w-3" />
+                        {mode.label}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <p className="text-xs">{mode.tooltip}</p>
+                    </TooltipContent>
+                  </Tooltip>
                 );
               })}
             </div>
           </div>
 
-          {/* Hybrid Mode Weight Sliders (only shown in hybrid mode) */}
+          {/* Row 2: Hybrid Mode Weight Sliders (only shown in hybrid mode) */}
           {isHybridMode && (
-            <div className="space-y-2 rounded-md bg-muted/30 p-2">
-              <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                Result Weighting
-              </Label>
-              <div className="grid grid-cols-2 gap-3">
-                {/* Vector weight */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <Zap className="h-2.5 w-2.5" />
-                      Semantic
-                    </span>
-                    <span className="font-mono text-[10px] text-primary">
-                      {(config.vectorWeight ?? 1.0).toFixed(1)}
-                    </span>
-                  </div>
-                  <input
-                    aria-label="Vector search weight"
-                    className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
-                    max="2"
-                    min="0"
-                    onChange={handleVectorWeightChange}
-                    step="0.1"
-                    type="range"
-                    value={config.vectorWeight ?? 1.0}
-                  />
-                </div>
-                {/* FTS weight */}
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                      <Sparkles className="h-2.5 w-2.5" />
-                      Keyword
-                    </span>
-                    <span className="font-mono text-[10px] text-primary">
-                      {(config.ftsWeight ?? 1.0).toFixed(1)}
-                    </span>
-                  </div>
-                  <input
-                    aria-label="Full-text search weight"
-                    className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
-                    max="2"
-                    min="0"
-                    onChange={handleFtsWeightChange}
-                    step="0.1"
-                    type="range"
-                    value={config.ftsWeight ?? 1.0}
-                  />
-                </div>
+            <div className="flex items-center gap-3 rounded-md bg-muted/30 px-2 py-1.5">
+              {/* Vector weight */}
+              <div className="flex flex-1 items-center gap-2">
+                <Zap className="h-3 w-3 text-muted-foreground" />
+                <input
+                  aria-label="Semantic search weight"
+                  className="h-1 flex-1 cursor-pointer appearance-none rounded-lg bg-muted accent-primary"
+                  max="2"
+                  min="0"
+                  onChange={handleVectorWeightChange}
+                  step="0.1"
+                  title={`Semantic: ${(config.vectorWeight ?? 1.0).toFixed(1)}`}
+                  type="range"
+                  value={config.vectorWeight ?? 1.0}
+                />
+                <span className="w-6 font-mono text-[10px] text-primary">
+                  {(config.vectorWeight ?? 1.0).toFixed(1)}
+                </span>
+              </div>
+              {/* FTS weight */}
+              <div className="flex flex-1 items-center gap-2">
+                <Sparkles className="h-3 w-3 text-muted-foreground" />
+                <input
+                  aria-label="Keyword search weight"
+                  className="h-1 flex-1 cursor-pointer appearance-none rounded-lg bg-muted accent-primary"
+                  max="2"
+                  min="0"
+                  onChange={handleFtsWeightChange}
+                  step="0.1"
+                  title={`Keyword: ${(config.ftsWeight ?? 1.0).toFixed(1)}`}
+                  type="range"
+                  value={config.ftsWeight ?? 1.0}
+                />
+                <span className="w-6 font-mono text-[10px] text-primary">
+                  {(config.ftsWeight ?? 1.0).toFixed(1)}
+                </span>
               </div>
             </div>
           )}
 
-          {/* Threshold slider */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label
-                className="text-[10px] text-muted-foreground uppercase tracking-wider"
-                htmlFor="threshold"
-              >
-                Similarity Threshold
-              </Label>
-              <span className="font-mono text-[10px] text-primary">
-                {config.threshold.toFixed(2)}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[9px] text-muted-foreground/50 uppercase">Broad</span>
-              <input
-                aria-label="Similarity threshold"
-                className="h-1.5 flex-1 cursor-pointer appearance-none rounded-lg bg-muted accent-primary transition-all hover:bg-muted/80"
-                id="threshold"
-                max="1"
-                min="0"
-                onChange={handleThresholdChange}
-                step="0.05"
-                type="range"
-                value={config.threshold}
-              />
-              <span className="text-[9px] text-muted-foreground/50 uppercase">Precise</span>
-            </div>
+          {/* Row 3: Threshold slider - inline */}
+          <div className="flex items-center gap-2">
+            <span className="min-w-[52px] text-[10px] text-muted-foreground">Threshold</span>
+            <input
+              aria-label="Similarity threshold"
+              className="h-1 flex-1 cursor-pointer appearance-none rounded-lg bg-muted accent-primary"
+              id="threshold"
+              max="1"
+              min="0"
+              onChange={handleThresholdChange}
+              step="0.05"
+              type="range"
+              value={config.threshold}
+            />
+            <span className="w-8 font-mono text-[10px] text-primary">
+              {config.threshold.toFixed(2)}
+            </span>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* Result limit */}
-            <div className="space-y-1">
-              <Label
-                className="text-[10px] text-muted-foreground uppercase tracking-wider"
-                htmlFor="limit"
-              >
-                Max Results
-              </Label>
+          {/* Row 4: Max Results & Distance Metric - inline with dropdowns */}
+          <div className="flex items-center gap-3">
+            {/* Max Results */}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground">Results</span>
               <Select onValueChange={handleLimitChange} value={String(config.resultLimit)}>
-                <SelectTrigger className="h-7 text-[11px]" id="limit">
-                  <SelectValue placeholder="Limit" />
+                <SelectTrigger className="h-6 w-16 text-[11px]" id="limit">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {RESULT_LIMITS.map((limit) => (
                     <SelectItem className="text-[11px]" key={limit} value={String(limit)}>
-                      {limit} results
+                      {limit}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            {/* Distance metric */}
-            <div className="space-y-1">
-              <Label
-                className="text-[10px] text-muted-foreground uppercase tracking-wider"
-                htmlFor="metric"
-              >
-                Distance Metric
-                {collectionDistanceMetric && collectionDistanceMetric !== config.distanceMetric && (
-                  <span className="ml-1 text-amber-500/80 lowercase">
-                    ({collectionDistanceMetric})
+            {/* Distance Metric */}
+            <div className="flex flex-1 items-center gap-2">
+              <span className="text-[10px] text-muted-foreground">
+                Metric
+                {metricMismatch && (
+                  <span
+                    className="ml-1 text-amber-500"
+                    title={`Collection uses ${collectionDistanceMetric}`}
+                  >
+                    ⚠
                   </span>
                 )}
-              </Label>
+              </span>
               <Select onValueChange={handleMetricChange} value={config.distanceMetric}>
-                <SelectTrigger className="h-7 text-[11px]" id="metric">
-                  <SelectValue placeholder="Metric" />
+                <SelectTrigger className="h-6 flex-1 text-[11px]" id="metric">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {DISTANCE_METRICS.map((metric) => (
-                    <SelectItem className="text-[11px]" key={metric.value} value={metric.value}>
-                      <div className="flex flex-col">
-                        <span>{metric.label}</span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {metric.description}
-                        </span>
-                      </div>
+                    <SelectItem
+                      className="text-[11px]"
+                      key={metric.value}
+                      title={metric.tooltip}
+                      value={metric.value}
+                    >
+                      {metric.label}
                     </SelectItem>
                   ))}
                 </SelectContent>

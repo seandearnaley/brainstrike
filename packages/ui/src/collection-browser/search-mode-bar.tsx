@@ -38,11 +38,8 @@ export const SearchModeBar = React.memo(function SearchModeBar({
   isFilterVisible,
   onFilterVisibleChange,
   filters,
-  onResetFilters,
   onExpandAll,
   onCollapseAll,
-  resultCount,
-  totalCount,
   hasSearched,
   className,
 }: SearchModeBarProps) {
@@ -93,26 +90,19 @@ export const SearchModeBar = React.memo(function SearchModeBar({
     );
   }, [filters]);
 
-  const resultInfo = React.useMemo(() => {
-    if (resultCount === undefined || totalCount === undefined || !hasSearched) {
-      return null;
-    }
-    return mode === 'semantic'
-      ? `${resultCount} match${resultCount !== 1 ? 'es' : ''}`
-      : `${resultCount} of ${totalCount}`;
-  }, [resultCount, totalCount, hasSearched, mode]);
-
   return (
     <div className={cn('bg-background', className)}>
-      <div className="flex flex-col gap-1.5 p-1.5 px-2">
-        <div className="flex items-start gap-2">
+      <div className="flex flex-col p-2">
+        {/* Main search row - all elements aligned to 36px height */}
+        <div className="flex items-start gap-1.5">
           <div className="relative flex-1">
             <ExpandableTextarea
               aria-label="Semantic search query"
-              className="min-h-[36px] pr-8 text-xs"
+              className="py-[7px] pr-8 text-xs leading-5"
               disabled={isSearching}
               maxLength={10_000}
               maxRows={6}
+              minHeight={36}
               minRows={1}
               onChange={handleSemanticQueryChange}
               onKeyDown={handleSemanticKeyDown}
@@ -122,126 +112,92 @@ export const SearchModeBar = React.memo(function SearchModeBar({
             {semanticQuery && !isSearching && (
               <Button
                 aria-label="Clear query"
-                className="absolute top-1.5 right-1 h-5 w-5 p-0"
+                className="absolute top-1.5 right-1.5 h-6 w-6 p-0"
                 onClick={handleClearSemanticQuery}
                 size="sm"
                 variant="ghost"
               >
-                <X className="h-3 w-3" />
+                <X className="h-3.5 w-3.5" />
               </Button>
             )}
           </div>
 
-          <div className="flex items-center gap-1">
-            <Button
-              className="h-[36px] gap-1.5 px-3"
-              disabled={isSearching || !semanticQuery.trim()}
-              onClick={onSemanticSearch}
-              size="sm"
-            >
-              {isSearching ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-              <span className="hidden sm:inline">Query</span>
-            </Button>
+          {/* All buttons use h-9 (36px) for consistent height */}
+          <Button
+            className="h-9 gap-1.5 px-3"
+            disabled={isSearching || !semanticQuery.trim()}
+            onClick={onSemanticSearch}
+            size="sm"
+          >
+            {isSearching ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">Query</span>
+          </Button>
 
-            <div className="ml-1 flex items-center gap-1 border-l pl-1">
-              {(onExpandAll || onCollapseAll) && (
-                <div className="mr-0.5 flex items-center gap-0.5 border-r pr-1">
-                  {onExpandAll && (
-                    <Button
-                      aria-label="Expand all"
-                      className="h-7 w-7 p-0"
-                      onClick={onExpandAll}
-                      size="sm"
-                      title="Expand all"
-                      variant="ghost"
-                    >
-                      <ChevronsUpDown className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                  {onCollapseAll && (
-                    <Button
-                      aria-label="Collapse all"
-                      className="h-7 w-7 p-0"
-                      onClick={onCollapseAll}
-                      size="sm"
-                      title="Collapse all"
-                      variant="ghost"
-                    >
-                      <ChevronsDownUp className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </div>
-              )}
-
-              <div className="relative">
-                <Button
-                  aria-label="Toggle filters"
-                  className={cn(
-                    'h-7 w-7 p-0',
-                    (isFilterVisible || hasActiveFilters) && 'bg-accent text-accent-foreground'
-                  )}
-                  onClick={() => onFilterVisibleChange?.(!isFilterVisible)}
-                  size="sm"
-                  title="Filters"
-                  variant="ghost"
-                >
-                  <Filter className="h-3.5 w-3.5" />
-                </Button>
-                {hasActiveFilters && (
-                  <span className="absolute top-1 right-1 h-1 w-1 rounded-full bg-primary" />
+          <div className="flex items-center gap-0.5 border-l pl-1.5">
+            {(onExpandAll || onCollapseAll) && (
+              <>
+                {onExpandAll && (
+                  <Button
+                    aria-label="Expand all"
+                    className="h-9 w-9 p-0"
+                    onClick={onExpandAll}
+                    size="sm"
+                    title="Expand all"
+                    variant="ghost"
+                  >
+                    <ChevronsUpDown className="h-4 w-4" />
+                  </Button>
                 )}
-              </div>
+                {onCollapseAll && (
+                  <Button
+                    aria-label="Collapse all"
+                    className="h-9 w-9 p-0"
+                    onClick={onCollapseAll}
+                    size="sm"
+                    title="Collapse all"
+                    variant="ghost"
+                  >
+                    <ChevronsDownUp className="h-4 w-4" />
+                  </Button>
+                )}
+                <div className="mx-0.5 h-5 w-px bg-border" />
+              </>
+            )}
 
+            <div className="relative">
               <Button
-                aria-label="Toggle search settings"
+                aria-label="Toggle filters"
                 className={cn(
-                  'h-7 w-7 p-0',
-                  isConfigExpanded && 'bg-accent text-accent-foreground'
+                  'h-9 w-9 p-0',
+                  (isFilterVisible || hasActiveFilters) && 'bg-accent text-accent-foreground'
                 )}
-                onClick={() => onConfigExpandedChange(!isConfigExpanded)}
+                onClick={() => onFilterVisibleChange?.(!isFilterVisible)}
                 size="sm"
-                title="Search Settings"
+                title="Filters"
                 variant="ghost"
               >
-                <Settings className="h-3.5 w-3.5" />
+                <Filter className="h-4 w-4" />
               </Button>
+              {hasActiveFilters && (
+                <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
+              )}
             </div>
+
+            <Button
+              aria-label="Toggle search settings"
+              className={cn('h-9 w-9 p-0', isConfigExpanded && 'bg-accent text-accent-foreground')}
+              onClick={() => onConfigExpandedChange(!isConfigExpanded)}
+              size="sm"
+              title="Search Settings"
+              variant="ghost"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
           </div>
-        </div>
-
-        <div className="flex items-center justify-between px-0.5">
-          <div className="flex items-center gap-2">
-            {resultInfo && (
-              <div className="font-medium text-[10px] text-muted-foreground uppercase tracking-wider">
-                {resultInfo}
-              </div>
-            )}
-
-            {hasActiveFilters && (
-              <div className={cn('flex items-center gap-1.5', resultInfo && 'border-l pl-2')}>
-                <span className="text-[10px] text-muted-foreground/70 uppercase tracking-tighter">
-                  Filtered
-                </span>
-                <button
-                  className="rounded-sm px-1 text-[10px] text-primary transition-colors hover:bg-primary/10"
-                  onClick={onResetFilters}
-                  type="button"
-                >
-                  Reset
-                </button>
-              </div>
-            )}
-          </div>
-
-          {!isSearching && semanticQuery.trim() && (
-            <span className="text-[9px] text-muted-foreground/40 uppercase tracking-widest">
-              Cmd+Enter to query
-            </span>
-          )}
         </div>
       </div>
     </div>

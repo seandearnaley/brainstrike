@@ -19,6 +19,8 @@ export interface ExpandableTextareaProps {
   minRows?: number;
   /** Maximum number of rows (default: 6) */
   maxRows?: number;
+  /** Fixed minimum height in pixels (overrides minRows calculation) */
+  minHeight?: number;
   /** Keyboard event handler */
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   /** Maximum input length */
@@ -48,6 +50,7 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
   placeholder = 'Enter search query...',
   minRows = 1,
   maxRows = 6,
+  minHeight,
   onKeyDown,
   maxLength,
   className,
@@ -81,17 +84,26 @@ export const ExpandableTextarea = React.memo(function ExpandableTextarea({
     const verticalPadding = paddingTop + paddingBottom;
 
     // Calculate min and max heights
-    const minHeight = lineHeightRef.current * minRows + verticalPadding;
-    const maxHeight = lineHeightRef.current * maxRows + verticalPadding;
+    // Use provided minHeight prop if available, otherwise calculate from minRows
+    const calculatedMinHeight = minHeight ?? lineHeightRef.current * minRows + verticalPadding;
+    const calculatedMaxHeight = lineHeightRef.current * maxRows + verticalPadding;
 
     // Reset height to auto to get accurate scrollHeight
     textarea.style.height = 'auto';
     const scrollHeight = textarea.scrollHeight;
 
+    // When minHeight is explicitly set and content fits in single line, use minHeight
+    // This ensures the textarea matches adjacent elements like buttons
+    const isSingleLine = !value.includes('\n');
+    const useFixedMin =
+      minHeight && isSingleLine && scrollHeight <= calculatedMinHeight + lineHeightRef.current;
+
     // Clamp to min/max
-    const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+    const newHeight = useFixedMin
+      ? calculatedMinHeight
+      : Math.min(Math.max(scrollHeight, calculatedMinHeight), calculatedMaxHeight);
     setHeight(newHeight);
-  }, [value, minRows, maxRows]);
+  }, [value, minRows, maxRows, minHeight]);
 
   // Handle change
   const handleChange = React.useCallback(

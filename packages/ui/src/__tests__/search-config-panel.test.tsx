@@ -2,6 +2,21 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { SearchConfigPanel } from '../collection-browser/search-config-panel';
 import type { SearchConfig, SearchConfigPanelProps } from '../collection-browser/types';
+import { TooltipProvider } from '../tooltip';
+
+/**
+ * Wrapper component that provides TooltipProvider context
+ */
+function TestWrapper({ children }: { children: React.ReactNode }) {
+  return <TooltipProvider>{children}</TooltipProvider>;
+}
+
+/**
+ * Custom render function that wraps component with necessary providers
+ */
+function renderWithProviders(ui: React.ReactElement) {
+  return render(ui, { wrapper: TestWrapper });
+}
 
 describe('SearchConfigPanel', () => {
   const createDefaultConfig = (): SearchConfig => ({
@@ -21,20 +36,20 @@ describe('SearchConfigPanel', () => {
   });
 
   it('renders toggle button', () => {
-    render(<SearchConfigPanel {...createProps()} />);
+    renderWithProviders(<SearchConfigPanel {...createProps()} />);
 
     expect(screen.getByText('Advanced Options')).toBeInTheDocument();
   });
 
   it('shows chevron down when collapsed', () => {
-    render(<SearchConfigPanel {...createProps({ isExpanded: false })} />);
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: false })} />);
 
     const button = screen.getByRole('button', { name: /advanced options/i });
     expect(button).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('shows chevron up when expanded', () => {
-    render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
     const button = screen.getByRole('button', { name: /advanced options/i });
     expect(button).toHaveAttribute('aria-expanded', 'true');
@@ -42,7 +57,9 @@ describe('SearchConfigPanel', () => {
 
   it('calls onExpandedChange when toggle button is clicked', () => {
     const onExpandedChange = vi.fn();
-    render(<SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: false })} />);
+    renderWithProviders(
+      <SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: false })} />
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /advanced options/i }));
 
@@ -51,7 +68,9 @@ describe('SearchConfigPanel', () => {
 
   it('toggles from expanded to collapsed', () => {
     const onExpandedChange = vi.fn();
-    render(<SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: true })} />);
+    renderWithProviders(
+      <SearchConfigPanel {...createProps({ onExpandedChange, isExpanded: true })} />
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /advanced options/i }));
 
@@ -59,15 +78,16 @@ describe('SearchConfigPanel', () => {
   });
 
   it('shows content when expanded', () => {
-    render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
-    expect(screen.getByText('Similarity Threshold')).toBeInTheDocument();
-    expect(screen.getByText('Max Results')).toBeInTheDocument();
-    expect(screen.getByText('Distance Metric')).toBeInTheDocument();
+    // Compact layout uses inline labels
+    expect(screen.getByText('Threshold')).toBeInTheDocument();
+    expect(screen.getByText('Results')).toBeInTheDocument();
+    expect(screen.getByText('Metric')).toBeInTheDocument();
   });
 
   it('displays current threshold value', () => {
-    render(
+    renderWithProviders(
       <SearchConfigPanel
         {...createProps({
           config: { ...createDefaultConfig(), threshold: 0.75 },
@@ -81,9 +101,11 @@ describe('SearchConfigPanel', () => {
 
   it('calls onConfigChange when threshold slider changes', () => {
     const onConfigChange = vi.fn();
-    render(<SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />);
+    renderWithProviders(
+      <SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />
+    );
 
-    const slider = screen.getByRole('slider');
+    const slider = screen.getByLabelText('Similarity threshold');
     fireEvent.change(slider, { target: { value: '0.8' } });
 
     expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ threshold: 0.8 }));
@@ -91,30 +113,32 @@ describe('SearchConfigPanel', () => {
 
   it('ignores invalid threshold values', () => {
     const onConfigChange = vi.fn();
-    render(<SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />);
+    renderWithProviders(
+      <SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />
+    );
 
-    const slider = screen.getByRole('slider');
+    const slider = screen.getByLabelText('Similarity threshold');
     fireEvent.change(slider, { target: { value: 'not-a-number' } });
 
     expect(onConfigChange).not.toHaveBeenCalled();
   });
 
-  it('displays result limit options', () => {
-    render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+  it('displays result limit dropdown', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
-    // The trigger should show the current value
-    expect(screen.getByText('20 results')).toBeInTheDocument();
+    // The trigger should show the current value (just the number in compact layout)
+    expect(screen.getByText('20')).toBeInTheDocument();
   });
 
-  it('displays distance metric options', () => {
-    render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+  it('displays distance metric dropdown', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
     // Should show current metric
     expect(screen.getByText('Cosine')).toBeInTheDocument();
   });
 
   it('shows warning when collection metric differs from selected', () => {
-    render(
+    renderWithProviders(
       <SearchConfigPanel
         {...createProps({
           isExpanded: true,
@@ -124,11 +148,12 @@ describe('SearchConfigPanel', () => {
       />
     );
 
-    expect(screen.getByText(/l2/)).toBeInTheDocument();
+    // Compact layout shows ⚠ icon with title attribute
+    expect(screen.getByText('⚠')).toBeInTheDocument();
   });
 
   it('does not show warning when collection metric matches selected', () => {
-    render(
+    renderWithProviders(
       <SearchConfigPanel
         {...createProps({
           isExpanded: true,
@@ -138,11 +163,11 @@ describe('SearchConfigPanel', () => {
       />
     );
 
-    expect(screen.queryByText(/collection uses/)).not.toBeInTheDocument();
+    expect(screen.queryByText('⚠')).not.toBeInTheDocument();
   });
 
   it('does not show warning when no collection metric provided', () => {
-    render(
+    renderWithProviders(
       <SearchConfigPanel
         {...createProps({
           isExpanded: true,
@@ -150,11 +175,11 @@ describe('SearchConfigPanel', () => {
       />
     );
 
-    expect(screen.queryByText(/collection uses/)).not.toBeInTheDocument();
+    expect(screen.queryByText('⚠')).not.toBeInTheDocument();
   });
 
   it('applies custom className', () => {
-    const { container } = render(
+    const { container } = renderWithProviders(
       <SearchConfigPanel {...createProps({ className: 'custom-class' })} />
     );
 
@@ -162,22 +187,15 @@ describe('SearchConfigPanel', () => {
     expect(wrapper).toHaveClass('custom-class');
   });
 
-  it('shows broad/precise labels for threshold', () => {
-    render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
-
-    expect(screen.getByText('Broad')).toBeInTheDocument();
-    expect(screen.getByText('Precise')).toBeInTheDocument();
-  });
-
   it('renders all distance metric options', () => {
-    render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
     // Cosine is selected by default
     expect(screen.getByText('Cosine')).toBeInTheDocument();
   });
 
   it('has correct aria controls on toggle button', () => {
-    render(<SearchConfigPanel {...createProps()} />);
+    renderWithProviders(<SearchConfigPanel {...createProps()} />);
 
     const button = screen.getByRole('button', { name: /advanced options/i });
     expect(button).toHaveAttribute('aria-controls', 'search-config-content');
@@ -186,33 +204,35 @@ describe('SearchConfigPanel', () => {
   // === Hybrid Search Tests (BST-294) ===
 
   it('shows retrieval mode toggle when expanded', () => {
-    render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
-    expect(screen.getByText('Retrieval Mode')).toBeInTheDocument();
+    expect(screen.getByText('Mode')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /vector/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /hybrid/i })).toBeInTheDocument();
   });
 
-  it('defaults to vector mode', () => {
-    render(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
+  it('defaults to hybrid mode', () => {
+    renderWithProviders(<SearchConfigPanel {...createProps({ isExpanded: true })} />);
 
-    const vectorButton = screen.getByRole('button', { name: /vector/i });
-    expect(vectorButton).toHaveClass('bg-primary');
+    const hybridButton = screen.getByRole('button', { name: /hybrid/i });
+    expect(hybridButton).toHaveClass('bg-primary');
   });
 
-  it('calls onConfigChange when switching to hybrid mode', () => {
+  it('calls onConfigChange when switching to vector mode', () => {
     const onConfigChange = vi.fn();
-    render(<SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />);
+    renderWithProviders(
+      <SearchConfigPanel {...createProps({ onConfigChange, isExpanded: true })} />
+    );
 
-    fireEvent.click(screen.getByRole('button', { name: /hybrid/i }));
+    fireEvent.click(screen.getByRole('button', { name: /vector/i }));
 
     expect(onConfigChange).toHaveBeenCalledWith(
-      expect.objectContaining({ retrievalMode: 'hybrid' })
+      expect.objectContaining({ retrievalMode: 'vector' })
     );
   });
 
   it('shows weight sliders only in hybrid mode', () => {
-    const { rerender } = render(
+    const { rerender } = renderWithProviders(
       <SearchConfigPanel
         {...createProps({
           isExpanded: true,
@@ -222,25 +242,26 @@ describe('SearchConfigPanel', () => {
     );
 
     // Vector mode: no weight sliders
-    expect(screen.queryByText('Result Weighting')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Semantic search weight')).not.toBeInTheDocument();
 
     // Hybrid mode: show weight sliders
     rerender(
-      <SearchConfigPanel
-        {...createProps({
-          isExpanded: true,
-          config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
-        })}
-      />
+      <TestWrapper>
+        <SearchConfigPanel
+          {...createProps({
+            isExpanded: true,
+            config: { ...createDefaultConfig(), retrievalMode: 'hybrid' },
+          })}
+        />
+      </TestWrapper>
     );
 
-    expect(screen.getByText('Result Weighting')).toBeInTheDocument();
-    expect(screen.getByText('Semantic')).toBeInTheDocument();
-    expect(screen.getByText('Keyword')).toBeInTheDocument();
+    expect(screen.getByLabelText('Semantic search weight')).toBeInTheDocument();
+    expect(screen.getByLabelText('Keyword search weight')).toBeInTheDocument();
   });
 
   it('displays default weight values in hybrid mode', () => {
-    render(
+    renderWithProviders(
       <SearchConfigPanel
         {...createProps({
           isExpanded: true,
@@ -256,7 +277,7 @@ describe('SearchConfigPanel', () => {
 
   it('calls onConfigChange when vector weight changes', () => {
     const onConfigChange = vi.fn();
-    render(
+    renderWithProviders(
       <SearchConfigPanel
         {...createProps({
           onConfigChange,
@@ -266,8 +287,7 @@ describe('SearchConfigPanel', () => {
       />
     );
 
-    // Use aria-label to find the specific slider
-    const vectorWeightSlider = screen.getByLabelText('Vector search weight');
+    const vectorWeightSlider = screen.getByLabelText('Semantic search weight');
     fireEvent.change(vectorWeightSlider, { target: { value: '1.5' } });
 
     expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ vectorWeight: 1.5 }));
@@ -275,7 +295,7 @@ describe('SearchConfigPanel', () => {
 
   it('calls onConfigChange when FTS weight changes', () => {
     const onConfigChange = vi.fn();
-    render(
+    renderWithProviders(
       <SearchConfigPanel
         {...createProps({
           onConfigChange,
@@ -285,8 +305,7 @@ describe('SearchConfigPanel', () => {
       />
     );
 
-    // Use aria-label to find the specific slider
-    const ftsWeightSlider = screen.getByLabelText('Full-text search weight');
+    const ftsWeightSlider = screen.getByLabelText('Keyword search weight');
     fireEvent.change(ftsWeightSlider, { target: { value: '0.8' } });
 
     expect(onConfigChange).toHaveBeenCalledWith(expect.objectContaining({ ftsWeight: 0.8 }));

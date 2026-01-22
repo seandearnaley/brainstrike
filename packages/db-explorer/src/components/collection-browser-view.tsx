@@ -547,8 +547,6 @@ export function CollectionBrowserView({
         isExpanded={isFilterVisible}
         onExpandedChange={setIsFilterVisible}
         onFiltersChange={handleFiltersChange}
-        resultCount={searchResults.length || records.length} // Simplified count display
-        totalCount={records.length}
       />
 
       {/* Error message display */}

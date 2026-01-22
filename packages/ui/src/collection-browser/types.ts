@@ -116,10 +116,6 @@ export interface FilterBarProps {
   onExpandedChange: (expanded: boolean) => void;
   /** Custom class name */
   className?: string;
-  /** Number of visible results (for display) */
-  resultCount?: number;
-  /** Total number of nodes */
-  totalCount?: number;
 }
 
 /**
@@ -263,6 +259,7 @@ export const DEFAULT_SEARCH_CONFIG: SearchConfig = {
   threshold: 0.5,
   resultLimit: 20,
   distanceMetric: 'cosine',
+  retrievalMode: 'hybrid',
 };
 
 /**

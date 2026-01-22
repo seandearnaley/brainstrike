@@ -42,6 +42,13 @@ export interface UsePersistentTokenCacheReturn {
   getTokenCount: (compositeKey: string) => number | undefined;
 
   /**
+   * Get file size from persistent cache.
+   * Returns cached value or undefined if not available.
+   * This is useful as a fallback when fileNodeCache hasn't loaded yet.
+   */
+  getFileSize: (compositeKey: string) => number | undefined;
+
+  /**
    * Check if any token counting is in progress
    */
   isAnyLoading: boolean;
@@ -160,8 +167,28 @@ export function usePersistentTokenCache({
     [fileContents, persistentCache, tokenCounting, decodeFileSelection, onTokenResolved]
   );
 
+  /**
+   * Get file size using persistent cache if available.
+   * This is useful as a fallback when fileNodeCache hasn't loaded yet.
+   */
+  const getFileSize = useCallback(
+    (compositeKey: string): number | undefined => {
+      const { folderId, path } = decodeFileSelection(compositeKey);
+
+      // Use persistent cache if available
+      if (persistentCache?.isOperational) {
+        return persistentCache.getFileSize(folderId, path);
+      }
+
+      // No fallback for file size in in-memory mode
+      return undefined;
+    },
+    [persistentCache, decodeFileSelection]
+  );
+
   return {
     getTokenCount,
+    getFileSize,
     isAnyLoading: persistentCache?.isAnyLoading ?? pendingRequestsRef.current.size > 0,
     pendingRequestsRef,
     tokenCacheRef,

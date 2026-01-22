@@ -50,6 +50,17 @@ export interface UseTokenCacheReturn {
   getTokenCount: (folderId: string, filePath: string, content?: string) => number | null;
 
   /**
+   * Get file size from persistent cache.
+   * Returns cached value if available, otherwise undefined.
+   * This is useful as a fallback when fileNodeCache hasn't loaded yet.
+   *
+   * @param folderId - Root folder identifier
+   * @param filePath - Relative file path
+   * @returns File size in bytes or undefined if not cached
+   */
+  getFileSize: (folderId: string, filePath: string) => number | undefined;
+
+  /**
    * Get aggregated token count for multiple files.
    * Uses SQL SUM for efficiency.
    */
@@ -133,6 +144,9 @@ export function useTokenCache({
 }: UseTokenCacheOptions): UseTokenCacheReturn {
   // Hot cache: in-memory for instant access
   const hotCache = useRef(new Map<string, number>());
+
+  // File size cache: in-memory for instant access (populated alongside token cache)
+  const fileSizeCache = useRef(new Map<string, number>());
 
   // Pending requests: track what's currently being processed
   const pendingRequests = useRef(new Set<string>());
@@ -224,6 +238,7 @@ export function useTokenCache({
           if (cached.contentHash === contentHash && cached.countingMode === countingMode) {
             // Cache hit - content unchanged
             hotCache.current.set(key, cached.tokenCount);
+            fileSizeCache.current.set(key, cached.fileSize);
             debouncedSetVersion();
             onTokenResolved?.(folderId, filePath, cached.tokenCount);
             return;
@@ -253,8 +268,9 @@ export function useTokenCache({
 
         await store.set(entry);
 
-        // Update hot cache
+        // Update hot cache and file size cache
         hotCache.current.set(key, result.tokenCount);
+        fileSizeCache.current.set(key, entry.fileSize);
         debouncedSetVersion();
         onTokenResolved?.(folderId, filePath, result.tokenCount);
       } catch (error) {
@@ -328,6 +344,14 @@ export function useTokenCache({
   );
 
   /**
+   * Get file size (synchronous, returns cached or undefined)
+   */
+  const getFileSize = useCallback((folderId: string, filePath: string): number | undefined => {
+    const key = createCacheKey(folderId, filePath);
+    return fileSizeCache.current.get(key);
+  }, []);
+
+  /**
    * Get total tokens for selection (async, uses SQL)
    */
   const getTotalTokens = useCallback(
@@ -372,9 +396,11 @@ export function useTokenCache({
     async (folderId: string) => {
       const entries = await store.getAllForFolder(folderId);
       for (const entry of entries) {
-        // Only use cache if counting mode matches
+        const key = createCacheKey(entry.folderId, entry.filePath);
+        // Always cache file size (doesn't depend on counting mode)
+        fileSizeCache.current.set(key, entry.fileSize);
+        // Only use token cache if counting mode matches
         if (entry.countingMode === countingMode) {
-          const key = createCacheKey(entry.folderId, entry.filePath);
           hotCache.current.set(key, entry.tokenCount);
         }
       }
@@ -384,21 +410,23 @@ export function useTokenCache({
   );
 
   /**
-   * Clear hot cache
+   * Clear hot cache (token counts and file sizes)
    */
   const clearHotCache = useCallback(() => {
     hotCache.current.clear();
+    fileSizeCache.current.clear();
     debouncedSetVersion();
   }, [debouncedSetVersion]);
 
   /**
-   * Invalidate specific files
+   * Invalidate specific files (token counts and file sizes)
    */
   const invalidate = useCallback(
     (folderId: string, filePaths: string[]) => {
       for (const filePath of filePaths) {
         const key = createCacheKey(folderId, filePath);
         hotCache.current.delete(key);
+        fileSizeCache.current.delete(key);
       }
       debouncedSetVersion();
     },
@@ -434,6 +462,7 @@ export function useTokenCache({
   return useMemo(
     () => ({
       getTokenCount,
+      getFileSize,
       getTotalTokens,
       isLoading,
       isAnyLoading: loadingCount > 0,
@@ -446,6 +475,7 @@ export function useTokenCache({
     }),
     [
       getTokenCount,
+      getFileSize,
       getTotalTokens,
       isLoading,
       loadingCount,
