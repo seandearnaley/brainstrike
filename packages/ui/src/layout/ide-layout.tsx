@@ -671,14 +671,28 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
     toggleConsole();
   }, [toggleConsole, isInitialRenderRef]);
 
-  // Handle panel collapse/expand via drag (onCollapse callback from react-resizable-panels)
-  // These sync the visibility state when panels are dragged past their minimum size
+  /**
+   * Handle panel collapse/expand triggered by drag (onResize callback from react-resizable-panels).
+   *
+   * This syncs React state with the panel's collapsed/expanded status when users drag
+   * panels past their minimum size. The conditional logic prevents redundant state updates:
+   *
+   * - collapsed && showLeftPanel: Panel was dragged to 0% but state still shows visible
+   *   → Update state to hidden (collapsed = true)
+   *
+   * - !(collapsed || showLeftPanel) which is (!collapsed && !showLeftPanel):
+   *   Panel has size > 0% but state shows hidden → Update state to visible
+   *   Uses effectiveLeftSize to ensure minimum 25% if previous size was too small
+   *
+   * The isInitialRenderRef guard prevents state updates during hydration when
+   * the layout is being restored from persistence.
+   */
   const handleLeftPanelCollapse = useCallback(
     (collapsed: boolean) => {
       if (isInitialRenderRef.current) {
         return;
       }
-      // Only update if state doesn't match the collapsed status
+      // Case 1: Panel dragged closed but state says visible → hide it
       if (collapsed && showLeftPanel) {
         saveLayout(
           [safeLeftSize, safeRightSize, safeConsoleSize],
@@ -686,7 +700,10 @@ function usePanelToggleHandlers(config: PanelToggleConfig) {
           false,
           showRightPanel
         );
-      } else if (!(collapsed || showLeftPanel)) {
+      }
+      // Case 2: Panel dragged open but state says hidden → show it
+      // (!collapsed && !showLeftPanel) - panel has size but state shows hidden
+      else if (!(collapsed || showLeftPanel)) {
         const effectiveLeftSize = safeLeftSize < 10 ? 25 : safeLeftSize;
         saveLayout(
           [effectiveLeftSize, safeRightSize, safeConsoleSize],

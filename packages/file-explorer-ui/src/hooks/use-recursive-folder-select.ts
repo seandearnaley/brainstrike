@@ -359,10 +359,26 @@ export function useRecursiveFolderSelect(
   // State
   const [state, setState] = useState<RecursiveFolderSelectState>(RESET_STATE);
 
-  // Guard against double-clicks
+  /**
+   * Synchronization guards using refs for immediate mutation.
+   *
+   * Thread Safety Model:
+   * These refs act as synchronization primitives for async operations in React's
+   * event-driven model. While JavaScript is single-threaded, multiple invocations
+   * can interleave at await points. Refs provide immediate mutation/read (unlike
+   * state which batches), ensuring guards are effective:
+   *
+   * 1. isStartingRef: Prevents double-click race conditions by blocking concurrent
+   *    invocations of selectFolderRecursively. Set before any async work, cleared
+   *    after completion or cancellation.
+   *
+   * 2. isLoadingForSelectionRef: Tracks active loading for cleanup on unmount.
+   *    Read in useEffect cleanup to determine if abort is needed.
+   *
+   * Both refs are reset in cancelRecursiveSelect() and cleanup effect to ensure
+   * consistent state after operations complete, error, or component unmounts.
+   */
   const isStartingRef = useRef(false);
-
-  // Ref for checking loading state in effects
   const isLoadingForSelectionRef = useRef(false);
 
   /**

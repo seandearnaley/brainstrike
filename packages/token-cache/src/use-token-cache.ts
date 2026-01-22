@@ -281,8 +281,7 @@ export function useTokenCache({
         onTokenResolved?.(folderId, filePath, result.tokenCount);
       } catch (error) {
         // Log error but don't crash - token count will show as loading
-        // biome-ignore lint/suspicious/noConsole: Error logging in cache
-        console.error('[TokenCache] Failed to count tokens:', { folderId, filePath, error });
+        logger.error('Failed to count tokens', { folderId, filePath, error });
       } finally {
         pendingRequests.current.delete(key);
         setLoadingCount((c) => c - 1);
