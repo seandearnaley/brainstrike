@@ -61,6 +61,7 @@ const textFileExtensions = new Set([
 ]);
 
 const binaryFileExtensions = new Set([
+  // Images
   'jpg',
   'jpeg',
   'png',
@@ -70,15 +71,18 @@ const binaryFileExtensions = new Set([
   'webp',
   'tiff',
   'psd',
+  // Audio
   'mp3',
   'wav',
   'ogg',
+  // Video
   'mp4',
   'avi',
   'mov',
   'wmv',
   'flv',
   'webm',
+  // Documents (binary formats)
   'pdf',
   'doc',
   'docx',
@@ -86,20 +90,38 @@ const binaryFileExtensions = new Set([
   'xlsx',
   'ppt',
   'pptx',
+  // Archives
   'zip',
   'rar',
   'tar',
   'gz',
   '7z',
+  // Executables/Libraries
   'exe',
   'dll',
   'so',
   'dylib',
+  // Fonts
   'ttf',
   'otf',
   'woff',
   'woff2',
   'eot',
+  // Tantivy search index files
+  'store',
+  'term',
+  'fast',
+  'fieldnorm',
+  'idx',
+  'pos',
+  // Database files
+  'db',
+  'sqlite',
+  'sqlite3',
+  // Other binary formats
+  'bin',
+  'dat',
+  'lock',
 ]);
 
 export function isTextExtension(extension: string): boolean {

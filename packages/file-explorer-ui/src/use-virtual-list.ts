@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export interface VirtualRange {
   start: number;
@@ -25,6 +25,8 @@ export interface UseVirtualListReturn {
  * - Uses requestAnimationFrame to batch scroll updates
  * - Default overscan of 5 rows provides buffer for smooth scrolling
  * - Avoids unnecessary re-renders by comparing previous range values
+ * - Uses useEffect instead of useLayoutEffect to avoid blocking the browser
+ *   during heavy state updates (e.g., select all with 1000+ files)
  */
 export function useVirtualList(
   itemCount: number,
@@ -43,7 +45,13 @@ export function useVirtualList(
   const prevRangeRef = useRef<VirtualRange>({ start: 0, end: 0 });
   const prevOffsetRef = useRef(0);
 
-  useLayoutEffect(() => {
+  // NOTE: Using useEffect instead of useLayoutEffect is intentional.
+  // useLayoutEffect runs synchronously after DOM mutations, which forces
+  // the browser to recalculate layout when reading scrollTop/clientHeight.
+  // During rapid state updates (like selecting 1000+ files), this causes
+  // layout thrashing. useEffect defers these reads to after paint, allowing
+  // the browser to batch layout calculations.
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;

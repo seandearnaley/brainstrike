@@ -19,7 +19,7 @@ import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, isAbortError } from '@brainstrike/utils';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useOptionalFileExplorerStoreContext } from '../file-explorer-provider';
 import type { FileSystemHandle } from '../utils/worker-node-conversion';
@@ -36,6 +36,12 @@ const logger = createLogger('RecursiveSelectAll');
 
 /** Number of sample paths to include in log output for debugging */
 const LOG_SAMPLE_SIZE = 3;
+
+/** Threshold above which to use chunked selection to avoid blocking main thread */
+const CHUNKED_SELECTION_THRESHOLD = 100;
+
+/** Number of files to process per chunk during selection */
+const SELECTION_CHUNK_SIZE = 50;
 
 /**
  * Check if the entire tree is fully loaded (all directories have loadState 'loaded').
@@ -108,14 +114,29 @@ function collectAllFilePaths(nodes: IFileNode[]): string[] {
 }
 
 /**
- * Select files from paths with limit enforcement.
+ * Yield to the browser to keep UI responsive during large operations.
+ * Uses requestAnimationFrame for smooth visual updates.
  */
-function selectFilesWithLimit(
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame !== 'undefined') {
+      requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+/**
+ * Select files from paths with limit enforcement.
+ * Uses chunked processing for large selections to avoid blocking the main thread.
+ */
+async function selectFilesWithLimit(
   allFilePaths: string[],
   folderId: string,
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
   maxSelectionCount: number
-): SelectAllResult {
+): Promise<SelectAllResult> {
   if (allFilePaths.length === 0) {
     logger.debug('selectFilesWithLimit: no files to select');
     return { success: true, filePaths: [], totalAvailable: 0 };
@@ -131,7 +152,27 @@ function selectFilesWithLimit(
   });
 
   if (pathsToSelect.length > 0) {
-    addMultipleSelectedFiles(folderId, pathsToSelect);
+    // Use chunked processing for large selections to avoid blocking main thread
+    if (pathsToSelect.length > CHUNKED_SELECTION_THRESHOLD) {
+      logger.debug('selectFilesWithLimit: using chunked selection', {
+        totalPaths: pathsToSelect.length,
+        chunkSize: SELECTION_CHUNK_SIZE,
+        estimatedChunks: Math.ceil(pathsToSelect.length / SELECTION_CHUNK_SIZE),
+      });
+
+      for (let i = 0; i < pathsToSelect.length; i += SELECTION_CHUNK_SIZE) {
+        const chunk = pathsToSelect.slice(i, i + SELECTION_CHUNK_SIZE);
+        addMultipleSelectedFiles(folderId, chunk);
+
+        // Yield to browser between chunks (except for last chunk)
+        if (i + SELECTION_CHUNK_SIZE < pathsToSelect.length) {
+          await yieldToBrowser();
+        }
+      }
+    } else {
+      // Small selection - process synchronously
+      addMultipleSelectedFiles(folderId, pathsToSelect);
+    }
   }
 
   return {
@@ -149,7 +190,7 @@ function selectFilesWithLimit(
  * This ensures that include/exclude patterns are respected even in the slow path
  * where the worker returns the full unfiltered tree.
  */
-function processLoadedTree(
+async function processLoadedTree(
   result: { tree: WorkerFileNode[]; expandedPaths: string[]; loadedCount: number },
   handleMap: Map<string, FileSystemHandle>,
   onTreeUpdate: (tree: IFileNode[]) => void,
@@ -157,7 +198,7 @@ function processLoadedTree(
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
   maxSelectionCount: number,
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[]
-): SelectAllResult {
+): Promise<SelectAllResult> {
   // Rehydrate tree with handles
   const rehydratedTree = rehydrateTree(result.tree, handleMap);
 
@@ -166,7 +207,11 @@ function processLoadedTree(
     loadedCount: result.loadedCount,
   });
 
-  onTreeUpdate(rehydratedTree);
+  // Use startTransition to make tree update non-urgent - React can interrupt
+  // and yield to browser for user input during large tree renders
+  startTransition(() => {
+    onTreeUpdate(rehydratedTree);
+  });
 
   // Apply workspace filters to the loaded tree before collecting file paths
   // This ensures include/exclude patterns (e.g., *.ts, .turbo) are respected
@@ -181,7 +226,12 @@ function processLoadedTree(
     filtered: !!filterTreeFn,
   });
 
-  return selectFilesWithLimit(allFilePaths, folderId, addMultipleSelectedFiles, maxSelectionCount);
+  return await selectFilesWithLimit(
+    allFilePaths,
+    folderId,
+    addMultipleSelectedFiles,
+    maxSelectionCount
+  );
 }
 
 /**
@@ -571,7 +621,7 @@ export function useRecursiveSelectAll(
 
         // If we loaded anything, process with filtering
         if (finalResult && totalLoadedCount > 0) {
-          return processLoadedTree(
+          return await processLoadedTree(
             finalResult,
             handleMap,
             onTreeUpdate,
@@ -588,7 +638,7 @@ export function useRecursiveSelectAll(
 
         const allFilePaths = collectAllFilePaths(rootNodes);
 
-        return selectFilesWithLimit(
+        return await selectFilesWithLimit(
           allFilePaths,
           folderId,
           addMultipleSelectedFiles,
@@ -640,7 +690,7 @@ export function useRecursiveSelectAll(
           samplePaths: allFilePaths.slice(0, LOG_SAMPLE_SIZE),
         });
 
-        const result = selectFilesWithLimit(
+        const result = await selectFilesWithLimit(
           allFilePaths,
           folderId,
           addMultipleSelectedFiles,
@@ -653,13 +703,15 @@ export function useRecursiveSelectAll(
         // Creating a shallow copy forces the tree state to change, which invalidates
         // the memo and causes rows to re-render with updated selection state.
         //
-        // RACE CONDITION SAFETY: Zustand 5.x setState is synchronous by default (no batching).
-        // See: https://docs.pmnd.rs/zustand/guides/immutable-state-and-merging
-        // The `addMultipleSelectedFiles` call in `selectFilesWithLimit` immediately updates
-        // the store state before this line executes, so the selection state is guaranteed
-        // to be committed before we trigger the tree re-render.
+        // NOTE: Using startTransition makes this update non-urgent, allowing React to
+        // interrupt and yield to browser for user input during large tree renders.
+        // This prevents the UI from freezing when selecting 1000+ files.
         if (result.success && result.filePaths.length > 0) {
-          onTreeUpdate([...filteredTree]);
+          // Yield to browser before triggering final tree re-render
+          await yieldToBrowser();
+          startTransition(() => {
+            onTreeUpdate([...filteredTree]);
+          });
         }
 
         return result;
@@ -696,9 +748,18 @@ export function useRecursiveSelectAll(
           maxSelectionCount
         );
 
+        // Wait for deferred renders to settle before hiding the indicator.
+        // The tree update uses startTransition which defers rendering - we need to
+        // ensure at least 2 paint cycles have occurred so the virtual list has
+        // time to render with the new content before the indicator disappears.
+        await yieldToBrowser();
+        await yieldToBrowser();
+
         setState(RESET_STATE);
         return result;
       } catch (err) {
+        // Allow any partial renders to settle before hiding indicator
+        await yieldToBrowser();
         setState(RESET_STATE);
         return handleSelectAllError(err, onError);
       } finally {

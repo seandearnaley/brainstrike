@@ -8,15 +8,27 @@
  * requiring file content to be loaded first.
  */
 
+import { DEFAULT_MAX_FILE_SIZE } from '@brainstrike/file-system';
 import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { type FileToIndex, useBackgroundTokenIndexer } from '@brainstrike/token-cache';
 import type { IFileNode } from '@brainstrike/types';
-import { createLogger, decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
+import {
+  createLogger,
+  decodeFileSelection,
+  encodeFileSelection,
+  isBinaryFile,
+} from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
 const INDEX_BATCH_SIZE = 200;
+
+/**
+ * Maximum file size for token indexing (750KB).
+ * Files larger than this are skipped to prevent memory issues and processing delays.
+ */
+const MAX_INDEXABLE_FILE_SIZE = DEFAULT_MAX_FILE_SIZE;
 
 /**
  * Helper hook to check if file import is in progress.
@@ -111,11 +123,16 @@ function isWebFileHandle(handle: unknown): handle is FileSystemFileHandle {
 }
 
 /**
- * Combined handle info for indexing
+ * Combined handle info for indexing.
+ * Includes file metadata for upfront filtering before queuing.
  */
 interface HandleInfo {
   webHandle?: FileSystemFileHandle;
   electronHandle?: ElectronFileHandle;
+  /** File name for binary detection */
+  fileName: string;
+  /** File size in bytes (if known) for large file filtering */
+  fileSize: number | undefined;
 }
 
 /**
@@ -123,7 +140,7 @@ interface HandleInfo {
  */
 function logFirstFileNode(node: IFileNode): void {
   const handle = node.handle as unknown as Record<string, unknown> | undefined;
-  logger.info('buildFileHandleMap first file node', {
+  logger.debug('buildFileHandleMap first file node', {
     nodeName: node.name,
     nodePath: node.path,
     nodeType: node.type,
@@ -159,9 +176,17 @@ function buildFileHandleMap(
       const compositeKey = encodeFileSelection(node.rootFolderId, node.path);
 
       if (isWebFileHandle(handle)) {
-        map.set(compositeKey, { webHandle: handle });
+        map.set(compositeKey, {
+          webHandle: handle,
+          fileName: node.name,
+          fileSize: node.size,
+        });
       } else if (isElectronHandle(handle)) {
-        map.set(compositeKey, { electronHandle: handle });
+        map.set(compositeKey, {
+          electronHandle: handle,
+          fileName: node.name,
+          fileSize: node.size,
+        });
       }
     }
     if (node.children) {
@@ -208,6 +233,9 @@ export function useBackgroundTokenIndexerIntegration({
   const fileHandleMapRef = useRef<Map<string, HandleInfo>>(new Map());
   const previousRootIdsRef = useRef<string>('');
   const rebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Phase 4 optimization: Track staleness to enable lazy rebuilds
+  const fileHandleMapStaleRef = useRef(false);
+
   // Side-effectful map construction on tree change is intentional
   useEffect(() => {
     // Cancel any pending rebuild
@@ -215,8 +243,21 @@ export function useBackgroundTokenIndexerIntegration({
       clearTimeout(rebuildTimeoutRef.current);
     }
 
+    // Mark map as stale immediately
+    fileHandleMapStaleRef.current = true;
+
     // Debounce the expensive rebuild - wait for tree to stabilize
     rebuildTimeoutRef.current = setTimeout(() => {
+      // Phase 4 optimization: Skip rebuild if no files selected and no pending operations
+      // This avoids expensive tree traversal when the map won't be used
+      if (selectedFiles.size === 0 && inFlightRef.current.size === 0) {
+        logger.debug('Skipping handle map rebuild - no active operations', {
+          selectedCount: selectedFiles.size,
+          inFlightCount: inFlightRef.current.size,
+        });
+        return;
+      }
+
       const map = new Map<string, HandleInfo>();
       const rootIds = new Set<string>();
       buildFileHandleMap(fileTree, map);
@@ -227,6 +268,7 @@ export function useBackgroundTokenIndexerIntegration({
         }
       }
       fileHandleMapRef.current = map;
+      fileHandleMapStaleRef.current = false;
       // Update state to trigger selection effect re-run when map is populated
       setFileHandleMapSize(map.size);
 
@@ -235,14 +277,14 @@ export function useBackgroundTokenIndexerIntegration({
         indexedFilesRef.current.clear();
         inFlightRef.current.clear();
         bumpInFlightPulse((value) => value + 1);
-        logger.info('Cleared indexedFiles cache due to root folder change', {
+        logger.debug('Cleared indexedFiles cache due to root folder change', {
           previousRootIds: previousRootIdsRef.current,
           nextRootIds: rootFingerprint,
         });
       }
       previousRootIdsRef.current = rootFingerprint;
 
-      logger.info('File handle map built', {
+      logger.debug('File handle map built', {
         size: map.size,
         hasElectron: [...map.values()].some((h) => h.electronHandle),
         hasWeb: [...map.values()].some((h) => h.webHandle),
@@ -254,7 +296,7 @@ export function useBackgroundTokenIndexerIntegration({
         clearTimeout(rebuildTimeoutRef.current);
       }
     };
-  }, [fileTree]);
+  }, [fileTree, selectedFiles.size]);
 
   // Stable ref for onTokenResolved to avoid callback instability
   const onTokenResolvedRef = useRef(onTokenResolved);
@@ -326,7 +368,7 @@ export function useBackgroundTokenIndexerIntegration({
         return;
       }
 
-      logger.info('triggerIndexing started', { fileCount: compositeKeys.length });
+      logger.debug('triggerIndexing started', { fileCount: compositeKeys.length });
 
       const filesToIndex: FileToIndex[] = [];
       const electronFilesToRead: Array<{
@@ -336,11 +378,13 @@ export function useBackgroundTokenIndexerIntegration({
         handle: ElectronFileHandle;
       }> = [];
       let skippedNoHandle = 0;
+      let skippedBinary = 0;
+      let skippedTooLarge = 0;
 
       // DEBUG: Log sample keys from map and selection to diagnose mismatch
       const mapKeys = Array.from(fileHandleMapRef.current.keys()).slice(0, 3);
       const selectionKeys = compositeKeys.slice(0, 3);
-      logger.info('triggerIndexing key comparison', {
+      logger.debug('triggerIndexing key comparison', {
         mapKeysSample: mapKeys,
         selectionKeysSample: selectionKeys,
         mapSize: fileHandleMapRef.current.size,
@@ -360,6 +404,24 @@ export function useBackgroundTokenIndexerIntegration({
         const handleInfo = fileHandleMapRef.current.get(compositeKey);
         if (!handleInfo) {
           skippedNoHandle++;
+          continue;
+        }
+
+        // Filter out binary files BEFORE attempting to read/index
+        // This avoids IPC overhead for files that would fail anyway
+        if (isBinaryFile(handleInfo.fileName)) {
+          skippedBinary++;
+          // Mark as "indexed" to prevent re-queuing (it will never succeed)
+          indexedFilesRef.current.add(compositeKey);
+          continue;
+        }
+
+        // Filter out large files BEFORE attempting to read/index
+        // This avoids AccessError exceptions and IPC overhead
+        if (handleInfo.fileSize !== undefined && handleInfo.fileSize > MAX_INDEXABLE_FILE_SIZE) {
+          skippedTooLarge++;
+          // Mark as "indexed" to prevent re-queuing (it will never succeed)
+          indexedFilesRef.current.add(compositeKey);
           continue;
         }
 
@@ -441,12 +503,24 @@ export function useBackgroundTokenIndexerIntegration({
         }
       }
 
-      logger.info('triggerIndexing prepared', {
+      logger.debug('triggerIndexing prepared', {
         toIndex: filesToIndex.length,
         skippedNoHandle,
+        skippedBinary,
+        skippedTooLarge,
         electronFiles: electronFilesToRead.length,
         webFiles: filesToIndex.filter((f) => f.fileHandle).length,
       });
+
+      // Log upfront filtering summary at info level when files are skipped
+      if (skippedBinary > 0 || skippedTooLarge > 0) {
+        logger.info('Upfront filtering applied', {
+          skippedBinary,
+          skippedTooLarge,
+          totalSkipped: skippedBinary + skippedTooLarge,
+          remaining: filesToIndex.length,
+        });
+      }
 
       if (filesToIndex.length === 0) {
         return;
@@ -469,8 +543,7 @@ export function useBackgroundTokenIndexerIntegration({
   useEffect(() => {
     const indexer = backgroundIndexerRef.current;
     const cache = tokenCacheRef.current;
-    // Use INFO for critical diagnostic visibility
-    logger.info('Selection effect triggered', {
+    logger.debug('Selection effect triggered', {
       selectedFilesCount: selectedFiles.size,
       isReady: indexer.isReady,
       tokenCacheOperational: cache?.isOperational ?? false,
@@ -482,7 +555,7 @@ export function useBackgroundTokenIndexerIntegration({
     // Skip background indexing during file import to avoid database contention
     // File import writes many records; concurrent token cache reads/writes cause PGlite serialization delays
     if (isFileImporting) {
-      logger.info('Selection effect skipped - file import in progress');
+      logger.debug('Selection effect skipped - file import in progress');
       return;
     }
 
@@ -492,7 +565,7 @@ export function useBackgroundTokenIndexerIntegration({
       indexer.cancelIndexing();
       inFlightRef.current.clear();
       bumpInFlightPulse((value) => value + 1);
-      logger.info('Cleared in-flight queue due to selection shrink', {
+      logger.debug('Cleared in-flight queue due to selection shrink', {
         previousSize,
         nextSize: selectedFiles.size,
       });
@@ -507,7 +580,7 @@ export function useBackgroundTokenIndexerIntegration({
     // Exit early if no files selected, indexer not ready, or no file handles available yet.
     // During startup, selection may be restored from storage before file tree has handles.
     if (selectedFiles.size === 0 || !indexer.isReady || fileHandleMapRef.current.size === 0) {
-      logger.info('Selection effect exiting early', {
+      logger.debug('Selection effect exiting early', {
         noFiles: selectedFiles.size === 0,
         notReady: !indexer.isReady,
         noHandles: fileHandleMapRef.current.size === 0,
@@ -519,16 +592,30 @@ export function useBackgroundTokenIndexerIntegration({
     const newFiles = Array.from(selectedFiles).filter(
       (key) => !(indexedFilesRef.current.has(key) || inFlightRef.current.has(key))
     );
-    logger.info('New files to index', { count: newFiles.length, first3: newFiles.slice(0, 3) });
+    logger.debug('New files to index', { count: newFiles.length, first3: newFiles.slice(0, 3) });
 
     if (newFiles.length === 0) {
       return;
     }
 
-    // Debounce to avoid rapid re-indexing during fast selection changes
+    // Phase 4 optimization: Adaptive debounce based on batch size
+    // Larger batches get longer debounce to allow selection to stabilize
+    // This prevents thrashing during "select all" operations
+    const debounceMs =
+      newFiles.length > 500
+        ? 500 // Large batch: wait for chunked selection to complete
+        : newFiles.length > 100
+          ? 300 // Medium batch: moderate wait
+          : 100; // Small batch: quick response
+
+    logger.debug('Selection debounce configured', {
+      newFileCount: newFiles.length,
+      debounceMs,
+    });
+
     const timeoutId = setTimeout(() => {
       void triggerIndexing(newFiles);
-    }, 100);
+    }, debounceMs);
 
     return () => clearTimeout(timeoutId);
   }, [
@@ -582,7 +669,7 @@ export function useBackgroundTokenIndexerIntegration({
       keysByFolder.set(folderId, arr);
     }
 
-    logger.info('Warm cache effect: preloading folders', {
+    logger.debug('Warm cache effect: preloading folders', {
       folderCount: folderIds.size,
       totalFiles: selectedFiles.size,
       isPersisted: cache?.isPersisted ?? false,
@@ -618,7 +705,7 @@ export function useBackgroundTokenIndexerIntegration({
             }
           }
           if (hydrated > 0 || entries.size > 0) {
-            logger.info('Warm cache: hydrated from store', {
+            logger.debug('Warm cache: hydrated from store', {
               folderId,
               requested: paths.length,
               foundInStore: entries.size,
@@ -642,7 +729,7 @@ export function useBackgroundTokenIndexerIntegration({
     indexedFilesRef.current.clear();
     inFlightRef.current.clear();
     bumpInFlightPulse((v) => v + 1);
-    logger.info('Manually cleared indexed cache', { previousSize });
+    logger.debug('Manually cleared indexed cache', { previousSize });
   }, []);
 
   return {
