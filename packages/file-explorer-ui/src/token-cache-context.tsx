@@ -407,6 +407,7 @@ export function TokenCacheProvider({
       clearHotCache: () => {},
       invalidate: () => {},
       updateHotCache: () => {},
+      updateFileSizeCache: () => {},
       cacheVersion: 0,
     }),
     []

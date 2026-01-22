@@ -262,20 +262,24 @@ export function useBackgroundTokenIndexerIntegration({
 
   /**
    * Callback when background indexer resolves a token count.
-   * Updates the hot cache to trigger React re-render.
+   * Updates both hot cache (tokens) and file size cache to trigger React re-render.
    * Uses refs to maintain stable callback identity and avoid re-render loops.
    */
-  const handleFileIndexed = useCallback((compositeKey: string, tokenCount: number) => {
-    const { folderId, path } = decodeFileSelection(compositeKey);
-    inFlightRef.current.delete(compositeKey);
-    if (inFlightRef.current.size === 0) {
-      bumpInFlightPulse((value) => value + 1);
-    }
-    tokenCacheRef.current?.updateHotCache(folderId, path, tokenCount);
-    indexedFilesRef.current.add(compositeKey);
-    logger.debug('File indexed', { compositeKey, tokenCount });
-    onTokenResolvedRef.current?.(compositeKey, tokenCount);
-  }, []);
+  const handleFileIndexed = useCallback(
+    (compositeKey: string, tokenCount: number, fileSize: number) => {
+      const { folderId, path } = decodeFileSelection(compositeKey);
+      inFlightRef.current.delete(compositeKey);
+      if (inFlightRef.current.size === 0) {
+        bumpInFlightPulse((value) => value + 1);
+      }
+      tokenCacheRef.current?.updateHotCache(folderId, path, tokenCount);
+      tokenCacheRef.current?.updateFileSizeCache(folderId, path, fileSize);
+      indexedFilesRef.current.add(compositeKey);
+      logger.debug('File indexed', { compositeKey, tokenCount, fileSize });
+      onTokenResolvedRef.current?.(compositeKey, tokenCount);
+    },
+    []
+  );
 
   const handleFileError = useCallback((compositeKey: string, error: string) => {
     inFlightRef.current.delete(compositeKey);

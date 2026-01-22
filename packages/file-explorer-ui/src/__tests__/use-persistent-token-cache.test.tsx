@@ -79,6 +79,7 @@ describe('usePersistentTokenCache', () => {
         clearHotCache: vi.fn(),
         invalidate: vi.fn(),
         updateHotCache: vi.fn(),
+        updateFileSizeCache: vi.fn(),
         store: {} as TokenCacheContextValue['store'],
       };
     });

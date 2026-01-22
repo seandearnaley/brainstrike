@@ -114,6 +114,12 @@ export interface UseTokenCacheReturn {
   updateHotCache: (folderId: string, filePath: string, tokenCount: number) => void;
 
   /**
+   * Update file size cache directly.
+   * Used by background indexer to populate cache without re-counting.
+   */
+  updateFileSizeCache: (folderId: string, filePath: string, fileSize: number) => void;
+
+  /**
    * Version counter that increments when cache updates.
    * Use as a dependency in useMemo/useEffect to trigger re-renders on cache changes.
    */
@@ -452,6 +458,29 @@ export function useTokenCache({
     [debouncedSetVersion]
   );
 
+  /**
+   * Update file size cache directly (for background indexer integration).
+   * Skips update if value is already cached to avoid unnecessary UI churn and log noise.
+   */
+  const updateFileSizeCache = useCallback(
+    (folderId: string, filePath: string, fileSize: number) => {
+      const key = createCacheKey(folderId, filePath);
+      const existing = fileSizeCache.current.get(key);
+      if (existing === fileSize) {
+        // Already cached with same value - no update needed
+        return;
+      }
+      fileSizeCache.current.set(key, fileSize);
+      logger.debug('File size cache updated', {
+        key,
+        fileSize,
+        cacheSize: fileSizeCache.current.size,
+      });
+      debouncedSetVersion();
+    },
+    [debouncedSetVersion]
+  );
+
   // Clear hot cache when counting mode changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: countingMode triggers cache clear on mode switch
   useEffect(() => {
@@ -471,6 +500,7 @@ export function useTokenCache({
       clearHotCache,
       invalidate,
       updateHotCache,
+      updateFileSizeCache,
       cacheVersion: version,
     }),
     [
@@ -484,6 +514,7 @@ export function useTokenCache({
       clearHotCache,
       invalidate,
       updateHotCache,
+      updateFileSizeCache,
       version,
     ]
   );

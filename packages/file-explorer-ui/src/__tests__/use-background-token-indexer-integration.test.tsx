@@ -69,6 +69,7 @@ const createTokenCacheContext = (): TokenCacheContextValue => ({
   clearHotCache: vi.fn(),
   invalidate: vi.fn(),
   updateHotCache: vi.fn(),
+  updateFileSizeCache: vi.fn(),
   cacheVersion: 0,
 });
 
