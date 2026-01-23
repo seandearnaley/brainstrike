@@ -398,6 +398,7 @@ export function TokenCacheProvider({
   const disabledTokenCache = useMemo<UseTokenCacheReturn>(
     () => ({
       getTokenCount: () => null,
+      getFileSize: () => undefined,
       getTotalTokens: async () => 0,
       isLoading: () => false,
       isAnyLoading: false,
@@ -406,6 +407,7 @@ export function TokenCacheProvider({
       clearHotCache: () => {},
       invalidate: () => {},
       updateHotCache: () => {},
+      updateFileSizeCache: () => {},
       cacheVersion: 0,
     }),
     []

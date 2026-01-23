@@ -257,7 +257,10 @@
       "Skill(superpowers:brainstorming)",
       "mcp__plugin_codanna_codanna__find_symbol",
       "mcp__plugin_codanna_codanna__get_calls",
-      "Bash(EmbeddingQueueProvider\" when using the hook outside the provider context.\n\n- Switch from useEmbeddingQueue to useEmbeddingQueueSafe in hook\n- Add DEFAULT_METRICS fallback for when provider is not present\n- Add useEmbeddingQueueSafe mock to test setup\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(EmbeddingQueueProvider\" when using the hook outside the provider context.\n\n- Switch from useEmbeddingQueue to useEmbeddingQueueSafe in hook\n- Add DEFAULT_METRICS fallback for when provider is not present\n- Add useEmbeddingQueueSafe mock to test setup\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Skill(brainstorming)",
+      "mcp__plugin_codanna_codanna__analyze_impact",
+      "mcp__plugin_codanna_codanna__find_callers"
     ],
     "deny": [],
     "ask": []

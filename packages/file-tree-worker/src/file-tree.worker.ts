@@ -23,7 +23,25 @@ import type { MainToWorkerMessage, WorkerToMainMessage } from './types';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
+// Log level priority (higher = more severe)
+const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
+  debug: 0,
+  info: 1,
+  warn: 2,
+  error: 3,
+};
+
+// Default to 'info' to suppress debug logs - set WORKER_LOG_LEVEL=debug for verbose output
+const WORKER_LOG_LEVEL: LogLevel = 'info';
+
+function shouldLog(level: LogLevel): boolean {
+  return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[WORKER_LOG_LEVEL];
+}
+
 function postLog(level: LogLevel, message: string, data?: Record<string, unknown>): void {
+  if (!shouldLog(level)) {
+    return;
+  }
   try {
     const payload: WorkerToMainMessage = data
       ? { type: 'log', level, message, data }
@@ -35,6 +53,9 @@ function postLog(level: LogLevel, message: string, data?: Record<string, unknown
 }
 
 function log(level: LogLevel, message: string, data?: Record<string, unknown>): void {
+  if (!shouldLog(level)) {
+    return;
+  }
   // biome-ignore lint/suspicious/noConsole: worker diagnostics must surface via console
   const fn = level === 'error' ? console.error : level === 'warn' ? console.warn : console.log;
   fn('[FileTreeWorker]', message, data ?? '');

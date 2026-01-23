@@ -170,7 +170,7 @@ function handleLoadRootSuccess(
 ): void {
   // Build handle map from root children
   handleMapRef.current = buildHandleMap(children);
-  logger.info('loadRoot completed - handle map built', {
+  logger.debug('loadRoot completed - handle map built', {
     handleMapSize: handleMapRef.current.size,
     childrenCount: children.length,
   });
@@ -405,18 +405,21 @@ export function useLazyFileTree(
   });
 
   // Recursive folder selection management
+  // Build options object conditionally to satisfy exactOptionalPropertyTypes
+  const folderSelectOptions = {
+    workerPortRef: portRef,
+    handleMapRef,
+    onTreeUpdate: handleTreeUpdate,
+    onError: handleWorkerError,
+    ...(filterTreeFn ? { filterTreeFn } : {}),
+  };
   const {
     isLoadingForSelection,
     loadingPath: loadingPathForSelection,
     loadingProgress: selectionLoadingProgress,
     selectFolderRecursively,
     cancelRecursiveSelect,
-  } = useRecursiveFolderSelect({
-    workerPortRef: portRef,
-    handleMapRef,
-    onTreeUpdate: handleTreeUpdate,
-    onError: handleWorkerError,
-  });
+  } = useRecursiveFolderSelect(folderSelectOptions);
 
   // Recursive select all management
   // Build options object conditionally to satisfy exactOptionalPropertyTypes
@@ -472,7 +475,7 @@ export function useLazyFileTree(
 
     try {
       // Log when we're about to reinitialize (this would reset the worker tree!)
-      logger.info('loadRoot running - will reinitialize worker', {
+      logger.debug('loadRoot running - will reinitialize worker', {
         rootPath,
         initializedRoot: initializedRootRef.current,
         fileTreeLength: fileTreeRef.current.length,
@@ -805,7 +808,7 @@ export function useLazyFileTree(
       // Use the expand-all hook's implementation
       try {
         await expandAllFromHook(setExpandedPaths);
-        logger.info('expandAllProgressively: expandAllFromHook completed');
+        logger.debug('expandAllProgressively: expandAllFromHook completed');
       } catch (err) {
         logger.error('expandAllProgressively: expandAllFromHook threw', {
           error: err instanceof Error ? err.message : String(err),
@@ -856,7 +859,7 @@ export function useLazyFileTree(
         // Delegate to worker
         const result = await portRef.current.loadPaths(paths);
 
-        logger.info('loadSpecificPaths complete', {
+        logger.debug('loadSpecificPaths complete', {
           handleMapSize: handleMapRef.current.size,
           loadedCount: result.loadedCount,
         });
@@ -889,7 +892,7 @@ export function useLazyFileTree(
       // This prevents race condition where switching folders leaves new folder empty
       const rootPath = rootDirectoryHandle.path;
       if (isExpandingAllRef.current && initializedRootRef.current !== rootPath) {
-        logger.info('loadRoot: cancelling expand-all for different root', {
+        logger.debug('loadRoot: cancelling expand-all for different root', {
           oldRoot: initializedRootRef.current,
           newRoot: rootPath,
         });

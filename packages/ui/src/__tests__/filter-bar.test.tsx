@@ -1,7 +1,11 @@
 /**
  * Tests for FilterBar component
+ *
+ * The FilterBar provides a streamlined filtering interface with:
+ * - Text search input
+ * - Embedded status toggle
  */
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FilterBar } from '../collection-browser/filter-bar';
 import type { CollectionBrowserFilters } from '../collection-browser/types';
@@ -34,7 +38,7 @@ describe('FilterBar', () => {
       expect(screen.getByPlaceholderText(/filter by name/i)).toBeInTheDocument();
     });
 
-    it('renders node type filter chips', () => {
+    it('renders embedded status toggle', () => {
       render(
         <FilterBar
           filters={createFilters()}
@@ -44,54 +48,7 @@ describe('FilterBar', () => {
         />
       );
 
-      expect(screen.getByText('All')).toBeInTheDocument();
-      expect(screen.getByText('Collections')).toBeInTheDocument();
-      expect(screen.getByText('Files')).toBeInTheDocument();
-      expect(screen.getByText('Chunks')).toBeInTheDocument();
-      expect(screen.getByText('Embeddings')).toBeInTheDocument();
-    });
-
-    it('renders embedding status dropdown', () => {
-      render(
-        <FilterBar
-          filters={createFilters()}
-          isExpanded={true}
-          onExpandedChange={() => {}}
-          onFiltersChange={() => {}}
-        />
-      );
-
-      expect(screen.getByRole('combobox')).toBeInTheDocument();
-    });
-
-    it('renders result count when provided', () => {
-      render(
-        <FilterBar
-          filters={createFilters()}
-          isExpanded={true}
-          onExpandedChange={() => {}}
-          onFiltersChange={() => {}}
-          resultCount={50}
-          totalCount={100}
-        />
-      );
-
-      expect(screen.getByText('50 of 100')).toBeInTheDocument();
-    });
-
-    it('renders total count when result equals total', () => {
-      render(
-        <FilterBar
-          filters={createFilters()}
-          isExpanded={true}
-          onExpandedChange={() => {}}
-          onFiltersChange={() => {}}
-          resultCount={100}
-          totalCount={100}
-        />
-      );
-
-      expect(screen.getByText('100 items')).toBeInTheDocument();
+      expect(screen.getByText('Embedded')).toBeInTheDocument();
     });
 
     it('applies custom className', () => {
@@ -201,107 +158,22 @@ describe('FilterBar', () => {
     });
   });
 
-  describe('node type filtering', () => {
-    it('shows All chip as active when all types selected', () => {
+  describe('embedded status toggle', () => {
+    it('shows toggle as inactive when status is "all"', () => {
       render(
         <FilterBar
-          filters={createFilters()}
+          filters={createFilters({ embeddingStatus: 'all' })}
           isExpanded={true}
           onExpandedChange={() => {}}
           onFiltersChange={() => {}}
         />
       );
 
-      const allChip = screen.getByText('All').closest('button');
-      expect(allChip).toHaveAttribute('aria-pressed', 'true');
+      const embeddedChip = screen.getByText('Embedded').closest('button');
+      expect(embeddedChip).toHaveAttribute('aria-pressed', 'false');
     });
 
-    it('shows individual chips as active based on filter state', () => {
-      render(
-        <FilterBar
-          filters={createFilters({
-            nodeTypes: new Set(['file', 'chunk']),
-          })}
-          isExpanded={true}
-          onExpandedChange={() => {}}
-          onFiltersChange={() => {}}
-        />
-      );
-
-      expect(screen.getByText('Files').closest('button')).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByText('Chunks').closest('button')).toHaveAttribute('aria-pressed', 'true');
-      expect(screen.getByText('Collections').closest('button')).toHaveAttribute(
-        'aria-pressed',
-        'false'
-      );
-      expect(screen.getByText('Embeddings').closest('button')).toHaveAttribute(
-        'aria-pressed',
-        'false'
-      );
-    });
-
-    it('toggles node type when chip clicked', () => {
-      const handleChange = vi.fn();
-      render(
-        <FilterBar
-          filters={createFilters({
-            nodeTypes: new Set(['collection', 'file', 'chunk', 'embedding']),
-          })}
-          isExpanded={true}
-          onExpandedChange={() => {}}
-          onFiltersChange={handleChange}
-        />
-      );
-
-      fireEvent.click(screen.getByText('Files'));
-
-      expect(handleChange).toHaveBeenCalled();
-      const newFilters = handleChange.mock.calls[0]?.[0] as CollectionBrowserFilters;
-      expect(newFilters.nodeTypes.has('file')).toBe(false);
-    });
-
-    it('does not allow deselecting last node type', () => {
-      const handleChange = vi.fn();
-      render(
-        <FilterBar
-          filters={createFilters({
-            nodeTypes: new Set(['file']),
-          })}
-          isExpanded={true}
-          onExpandedChange={() => {}}
-          onFiltersChange={handleChange}
-        />
-      );
-
-      fireEvent.click(screen.getByText('Files'));
-
-      // Should not call change since it's the last selected type
-      expect(handleChange).not.toHaveBeenCalled();
-    });
-
-    it('selects all node types when All chip clicked', () => {
-      const handleChange = vi.fn();
-      render(
-        <FilterBar
-          filters={createFilters({
-            nodeTypes: new Set(['file']),
-          })}
-          isExpanded={true}
-          onExpandedChange={() => {}}
-          onFiltersChange={handleChange}
-        />
-      );
-
-      fireEvent.click(screen.getByText('All'));
-
-      expect(handleChange).toHaveBeenCalled();
-      const newFilters = handleChange.mock.calls[0]?.[0] as CollectionBrowserFilters;
-      expect(newFilters.nodeTypes.size).toBe(4);
-    });
-  });
-
-  describe('embedding status filtering', () => {
-    it('displays current embedding status', () => {
+    it('shows toggle as active when status is "complete"', () => {
       render(
         <FilterBar
           filters={createFilters({ embeddingStatus: 'complete' })}
@@ -311,11 +183,11 @@ describe('FilterBar', () => {
         />
       );
 
-      // The select trigger should show the selected value
-      expect(screen.getByRole('combobox')).toBeInTheDocument();
+      const embeddedChip = screen.getByText('Embedded').closest('button');
+      expect(embeddedChip).toHaveAttribute('aria-pressed', 'true');
     });
 
-    it('calls onFiltersChange when status changes', async () => {
+    it('toggles from "all" to "complete" when clicked', () => {
       const handleChange = vi.fn();
       render(
         <FilterBar
@@ -326,16 +198,28 @@ describe('FilterBar', () => {
         />
       );
 
-      // Open the dropdown
-      fireEvent.click(screen.getByRole('combobox'));
-
-      // Select a new status (using role listbox to find options)
-      const listbox = screen.getByRole('listbox');
-      const completeOption = within(listbox).getByText('Complete');
-      fireEvent.click(completeOption);
+      fireEvent.click(screen.getByText('Embedded'));
 
       expect(handleChange).toHaveBeenCalledWith(
         expect.objectContaining({ embeddingStatus: 'complete' })
+      );
+    });
+
+    it('toggles from "complete" to "all" when clicked', () => {
+      const handleChange = vi.fn();
+      render(
+        <FilterBar
+          filters={createFilters({ embeddingStatus: 'complete' })}
+          isExpanded={true}
+          onExpandedChange={() => {}}
+          onFiltersChange={handleChange}
+        />
+      );
+
+      fireEvent.click(screen.getByText('Embedded'));
+
+      expect(handleChange).toHaveBeenCalledWith(
+        expect.objectContaining({ embeddingStatus: 'all' })
       );
     });
   });

@@ -11,7 +11,7 @@
 import type { FileTreeWorkerPort } from '@brainstrike/file-tree-worker';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, isAbortError } from '@brainstrike/utils';
-import { useCallback, useRef, useState } from 'react';
+import { startTransition, useCallback, useRef, useState } from 'react';
 
 import type { FileSystemHandle } from '../utils/worker-node-conversion';
 import { rehydrateTree } from '../utils/worker-node-conversion';
@@ -71,6 +71,9 @@ function logRehydrationResult(
  * Process expand-all result - handle rehydration if needed.
  * Extracted to reduce complexity of main function.
  *
+ * Uses startTransition to make tree update non-urgent, allowing React to
+ * yield to browser for user input during large tree renders.
+ *
  * @param result - The result from worker.expandAll()
  * @param handleMap - Map of path to FileSystemHandle
  * @param setExpandedPaths - Function to update expanded paths
@@ -87,7 +90,10 @@ function processExpandResult(
     logger.debug('expandAllProgressively: skipping rehydration (all cached)', {
       expandedPathsCount: result.expandedPaths.length,
     });
-    setExpandedPaths(() => new Set(result.expandedPaths));
+    // Use startTransition even for cached case - expanding many paths triggers re-renders
+    startTransition(() => {
+      setExpandedPaths(() => new Set(result.expandedPaths));
+    });
     return;
   }
 
@@ -103,8 +109,12 @@ function processExpandResult(
     countNodes(rehydratedTree),
     rehydratedTree
   );
-  onTreeUpdate(rehydratedTree);
-  setExpandedPaths(() => new Set(result.expandedPaths));
+  // Use startTransition to make tree update non-urgent - React can interrupt
+  // and yield to browser for user input during large tree renders
+  startTransition(() => {
+    onTreeUpdate(rehydratedTree);
+    setExpandedPaths(() => new Set(result.expandedPaths));
+  });
 }
 
 /**

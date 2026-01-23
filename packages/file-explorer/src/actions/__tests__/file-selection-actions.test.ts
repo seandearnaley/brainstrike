@@ -28,6 +28,7 @@ describe('file-selection-actions', () => {
     currentFolderId: 'folder1',
     folderStates: {},
     selectedFilePaths: new Set<string>(),
+    selectionVersion: 0,
     expandedDirectoryPaths: new Set<string>(),
     includeFilters: [],
     excludeFilters: [],
@@ -47,6 +48,7 @@ describe('file-selection-actions', () => {
     clearSelectedFiles: vi.fn(),
     addMultipleSelectedFiles: vi.fn(),
     removeMultipleSelectedFiles: vi.fn(),
+    addMultipleSelectedFilesChunked: vi.fn(),
     setExpandedPaths: vi.fn(),
     toggleDirectoryExpansion: vi.fn(),
     setFilters: vi.fn(),
@@ -409,6 +411,10 @@ describe('file-selection-actions', () => {
   describe('clearSelectedFiles', () => {
     it('should clear all selected files', () => {
       // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|file.ts']),
+        selectionVersion: 5,
+      });
       const fileSelectionActions = createFileSelectionActions(mockSet, vi.fn());
 
       // Act
@@ -416,8 +422,14 @@ describe('file-selection-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
-      // Check that set was called with the correct object
-      expect(mockSet).toHaveBeenCalledWith({ selectedFilePaths: new Set() });
+      // Check that set was called with a function that clears files and increments version
+      const setCallback = mockSet.mock.calls[0][0] as (state: typeof mockState) => {
+        selectedFilePaths: Set<string>;
+        selectionVersion: number;
+      };
+      const result = setCallback(mockState);
+      expect(result.selectedFilePaths).toEqual(new Set());
+      expect(result.selectionVersion).toBe(6);
     });
   });
 
@@ -787,6 +799,252 @@ describe('file-selection-actions', () => {
       expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(false);
       expect(updatedState.selectedFilePaths?.has('folder2|@|file1.ts')).toBe(true);
       expect(updatedState.selectedFilePaths?.has('folder2|@|file2.ts')).toBe(true);
+    });
+  });
+
+  describe('addMultipleSelectedFilesChunked', () => {
+    it('should add files for small selections (under chunk size)', async () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set<string>(),
+        maxSelectionCount: 1000,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = ['file1.ts', 'file2.ts', 'file3.ts'];
+
+      // Simulate state updates
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(mockState);
+          mockState.selectedFilePaths = result.selectedFilePaths;
+          mockState.selectionVersion = result.selectionVersion;
+        }
+      });
+
+      // Act
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked(
+        'folder1',
+        pathsToAdd
+      );
+
+      // Assert
+      expect(result.addedCount).toBe(3);
+      expect(result.cancelled).toBe(false);
+      expect(result.limitReached).toBe(false);
+      expect(mockSet).toHaveBeenCalled();
+    });
+
+    it('should process large selections in chunks', async () => {
+      // Arrange
+      let currentState = createMockState({
+        selectedFilePaths: new Set<string>(),
+        maxSelectionCount: 1000,
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = Array.from({ length: 250 }, (_, i) => `file${i}.ts`);
+
+      // Track chunk processing
+      let chunkCount = 0;
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState);
+          currentState = {
+            ...currentState,
+            selectedFilePaths: result.selectedFilePaths,
+            selectionVersion: result.selectionVersion,
+          };
+          chunkCount++;
+        }
+      });
+
+      // Act
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked(
+        'folder1',
+        pathsToAdd,
+        {
+          chunkSize: 100,
+        }
+      );
+
+      // Assert
+      expect(result.addedCount).toBe(250);
+      expect(result.cancelled).toBe(false);
+      expect(result.limitReached).toBe(false);
+      // Should have processed in multiple chunks (250 files / 100 chunk size = 3 chunks)
+      expect(chunkCount).toBeGreaterThanOrEqual(3);
+    });
+
+    it('should respect max selection count limit', async () => {
+      // Arrange
+      let currentState = createMockState({
+        selectedFilePaths: new Set<string>(),
+        maxSelectionCount: 50,
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = Array.from({ length: 100 }, (_, i) => `file${i}.ts`);
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState);
+          currentState = {
+            ...currentState,
+            selectedFilePaths: result.selectedFilePaths,
+            selectionVersion: result.selectionVersion,
+          };
+        }
+      });
+
+      // Act
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked(
+        'folder1',
+        pathsToAdd,
+        {
+          chunkSize: 25,
+        }
+      );
+
+      // Assert
+      expect(result.addedCount).toBe(50);
+      expect(result.limitReached).toBe(true);
+      expect(currentState.selectedFilePaths.size).toBe(50);
+    });
+
+    it('should support cancellation via AbortSignal', async () => {
+      // Arrange
+      let currentState = createMockState({
+        selectedFilePaths: new Set<string>(),
+        maxSelectionCount: 1000,
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = Array.from({ length: 500 }, (_, i) => `file${i}.ts`);
+
+      const abortController = new AbortController();
+      let processedChunks = 0;
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState);
+          currentState = {
+            ...currentState,
+            selectedFilePaths: result.selectedFilePaths,
+            selectionVersion: result.selectionVersion,
+          };
+          processedChunks++;
+
+          // Cancel after first chunk
+          if (processedChunks === 1) {
+            abortController.abort();
+          }
+        }
+      });
+
+      // Act
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked(
+        'folder1',
+        pathsToAdd,
+        {
+          chunkSize: 50,
+          signal: abortController.signal,
+        }
+      );
+
+      // Assert
+      expect(result.cancelled).toBe(true);
+      // Should have stopped early (not all 500 files)
+      expect(result.addedCount).toBeLessThan(500);
+    });
+
+    it('should call onProgress callback with progress updates', async () => {
+      // Arrange
+      let currentState = createMockState({
+        selectedFilePaths: new Set<string>(),
+        maxSelectionCount: 1000,
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = Array.from({ length: 150 }, (_, i) => `file${i}.ts`);
+      const progressUpdates: Array<{ processed: number; total: number }> = [];
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState);
+          currentState = {
+            ...currentState,
+            selectedFilePaths: result.selectedFilePaths,
+            selectionVersion: result.selectionVersion,
+          };
+        }
+      });
+
+      // Act
+      await fileSelectionActions.addMultipleSelectedFilesChunked('folder1', pathsToAdd, {
+        chunkSize: 50,
+        onProgress: (processed, total) => {
+          progressUpdates.push({ processed, total });
+        },
+      });
+
+      // Assert
+      expect(progressUpdates.length).toBeGreaterThan(0);
+      // Last progress update should show all files processed
+      const lastUpdate = progressUpdates.at(-1);
+      expect(lastUpdate?.processed).toBe(150);
+      expect(lastUpdate?.total).toBe(150);
+    });
+
+    it('should not add duplicate files', async () => {
+      // Arrange
+      let currentState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|file0.ts', 'folder1|@|file1.ts']),
+        maxSelectionCount: 1000,
+      });
+      const get = vi.fn(() => currentState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      // Try to add files that already exist plus some new ones
+      const pathsToAdd = ['file0.ts', 'file1.ts', 'file2.ts', 'file3.ts'];
+
+      mockSet.mockImplementation((updater) => {
+        if (typeof updater === 'function') {
+          const result = updater(currentState);
+          currentState = {
+            ...currentState,
+            selectedFilePaths: result.selectedFilePaths,
+            selectionVersion: result.selectionVersion,
+          };
+        }
+      });
+
+      // Act
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked(
+        'folder1',
+        pathsToAdd
+      );
+
+      // Assert
+      expect(result.addedCount).toBe(2); // Only file2.ts and file3.ts should be added
+      expect(currentState.selectedFilePaths.size).toBe(4);
+    });
+
+    it('should handle empty paths array', async () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|existing.ts']),
+        maxSelectionCount: 1000,
+      });
+      const get = vi.fn(() => mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      // Act
+      const result = await fileSelectionActions.addMultipleSelectedFilesChunked('folder1', []);
+
+      // Assert
+      expect(result.addedCount).toBe(0);
+      expect(result.cancelled).toBe(false);
+      expect(result.limitReached).toBe(false);
     });
   });
 });

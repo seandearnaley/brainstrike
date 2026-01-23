@@ -4,16 +4,27 @@
  * Handles selecting all files within a folder, including loading unloaded children first.
  * Works with the file tree worker to progressively load directories before selection.
  *
+ * IMPORTANT: This hook automatically applies workspace include/exclude filters when
+ * used within a FileExplorerProvider context. If filterTreeFn is not explicitly
+ * provided, the hook will access the store context to create its own filter function.
+ *
  * @module use-recursive-folder-select
  */
 
 import type { FileTreeWorkerPort, WorkerFileNode } from '@brainstrike/file-tree-worker';
+import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger, fileExplorer, isAbortError } from '@brainstrike/utils';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { useOptionalFileExplorerStoreContext } from '../file-explorer-provider';
 import type { FileSystemHandle } from '../utils/worker-node-conversion';
 import { rehydrateTree } from '../utils/worker-node-conversion';
+import {
+  selectExcludeFilters,
+  selectIncludeFilters,
+  selectUseRegex,
+} from '../utils/workspace-filter-selectors';
 
 const logger = createLogger('RecursiveFolderSelect');
 
@@ -72,6 +83,53 @@ function findNodeByPath(nodes: IFileNode[], path: string): IFileNode | null {
 }
 
 /**
+ * Collect all file paths from a node, optionally applying a filter function first.
+ *
+ * If filterTreeFn is provided, it filters the node's subtree before collecting paths.
+ * This ensures workspace include/exclude filters are respected during folder selection.
+ *
+ * Uses iterative approach for performance on large trees.
+ */
+function collectFilteredFilePaths(
+  node: IFileNode,
+  filterTreeFn?: (tree: IFileNode[]) => IFileNode[]
+): string[] {
+  // If no filter, use the optimized utility
+  if (!filterTreeFn) {
+    return fileExplorer.getAllFilePathsInDirectory(node);
+  }
+
+  // Apply filter to the node's subtree
+  // Wrap node in array since filterTreeFn expects array of nodes
+  const filteredNodes = filterTreeFn([node]);
+
+  // If the node itself was filtered out, return empty
+  if (filteredNodes.length === 0) {
+    return [];
+  }
+
+  // Collect all file paths from the filtered tree using iterative BFS
+  const paths: string[] = [];
+  const queue: IFileNode[] = [...filteredNodes];
+  let queueIndex = 0;
+
+  while (queueIndex < queue.length) {
+    const current = queue[queueIndex++];
+    if (!current) {
+      continue;
+    }
+
+    if (current.type === 'file') {
+      paths.push(current.path);
+    } else if (current.type === 'directory' && current.children) {
+      queue.push(...current.children);
+    }
+  }
+
+  return paths;
+}
+
+/**
  * Select files from paths with limit enforcement.
  */
 function selectFilesWithLimit(
@@ -103,13 +161,15 @@ function handleFastPathSelection(
   folderId: string,
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
   maxSelectionCount: number,
-  currentSelectionSize: number
+  currentSelectionSize: number,
+  filterTreeFn?: (tree: IFileNode[]) => IFileNode[]
 ): SelectionResult {
   logger.debug('selectFolderRecursively: using fast path (fully loaded)', {
     path: node.path,
+    hasFilter: !!filterTreeFn,
   });
 
-  const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
+  const allFilePaths = collectFilteredFilePaths(node, filterTreeFn);
   return selectFilesWithLimit(
     allFilePaths,
     folderId,
@@ -121,6 +181,9 @@ function handleFastPathSelection(
 
 /**
  * Process loaded subtree and select files.
+ *
+ * Applies workspace filters to the loaded tree via filterTreeFn before collecting
+ * file paths. This ensures include/exclude patterns are respected in the slow path.
  */
 function processLoadedSubtree(
   result: { tree: WorkerFileNode[]; expandedPaths: string[]; loadedCount: number },
@@ -130,7 +193,8 @@ function processLoadedSubtree(
   folderId: string,
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
   maxSelectionCount: number,
-  currentSelectionSize: number
+  currentSelectionSize: number,
+  filterTreeFn?: (tree: IFileNode[]) => IFileNode[]
 ): SelectionResult {
   // Rehydrate tree with handles
   const rehydratedTree = rehydrateTree(result.tree, handleMap);
@@ -148,13 +212,14 @@ function processLoadedSubtree(
     return { success: false, filePaths: [], error: 'Node not found after loading' };
   }
 
-  // Now get all file paths from the loaded tree
-  const allFilePaths = fileExplorer.getAllFilePathsInDirectory(updatedNode);
+  // Get all file paths from the loaded tree, applying filter if provided
+  const allFilePaths = collectFilteredFilePaths(updatedNode, filterTreeFn);
 
   logger.info('selectFolderRecursively: subtree loaded', {
     path: nodePath,
     fileCount: allFilePaths.length,
     loadedDirectories: result.loadedCount,
+    hasFilter: !!filterTreeFn,
   });
 
   return selectFilesWithLimit(
@@ -202,6 +267,12 @@ export interface UseRecursiveFolderSelectOptions {
   onTreeUpdate: (tree: IFileNode[]) => void;
   /** Callback when error occurs */
   onError?: (error: Error) => void;
+  /**
+   * Filter function to apply workspace include/exclude filters to a tree.
+   * Called before collecting file paths to ensure only filtered files are selected.
+   * This ensures that selecting a folder respects the current workspace filters.
+   */
+  filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
 }
 
 export interface SelectionResult {
@@ -255,15 +326,59 @@ const RESET_STATE: RecursiveFolderSelectState = {
 export function useRecursiveFolderSelect(
   options: UseRecursiveFolderSelectOptions
 ): UseRecursiveFolderSelectReturn {
-  const { workerPortRef, handleMapRef, onTreeUpdate, onError } = options;
+  const { workerPortRef, handleMapRef, onTreeUpdate, onError, filterTreeFn } = options;
+
+  // Access store context for workspace filters (optional - may be null outside FileExplorerProvider)
+  const store = useOptionalFileExplorerStoreContext();
+
+  // Get filter settings from store if available
+  const includeFilters = store?.(selectIncludeFilters) ?? [];
+  const excludeFilters = store?.(selectExcludeFilters) ?? [];
+  const useRegex = store?.(selectUseRegex) ?? false;
+
+  // Get the filter implementation
+  const { applyFileFilters } = useFileFilters();
+
+  // Create internal filter function from store context if filterTreeFn not provided.
+  // This ensures workspace filters are applied in the slow path even when this hook
+  // is used via the shared FileTreeProvider (which doesn't pass filterTreeFn).
+  const internalFilterTreeFn = useMemo(() => {
+    if (filterTreeFn) {
+      // Use provided filterTreeFn (from use-file-explorer-context's local tree state)
+      return filterTreeFn;
+    }
+    if (store) {
+      // Create filter function from store context
+      return (tree: IFileNode[]) =>
+        applyFileFilters(tree, includeFilters, excludeFilters, useRegex);
+    }
+    // No filter available - return undefined
+    return undefined;
+  }, [filterTreeFn, store, applyFileFilters, includeFilters, excludeFilters, useRegex]);
 
   // State
   const [state, setState] = useState<RecursiveFolderSelectState>(RESET_STATE);
 
-  // Guard against double-clicks
+  /**
+   * Synchronization guards using refs for immediate mutation.
+   *
+   * Thread Safety Model:
+   * These refs act as synchronization primitives for async operations in React's
+   * event-driven model. While JavaScript is single-threaded, multiple invocations
+   * can interleave at await points. Refs provide immediate mutation/read (unlike
+   * state which batches), ensuring guards are effective:
+   *
+   * 1. isStartingRef: Prevents double-click race conditions by blocking concurrent
+   *    invocations of selectFolderRecursively. Set before any async work, cleared
+   *    after completion or cancellation.
+   *
+   * 2. isLoadingForSelectionRef: Tracks active loading for cleanup on unmount.
+   *    Read in useEffect cleanup to determine if abort is needed.
+   *
+   * Both refs are reset in cancelRecursiveSelect() and cleanup effect to ensure
+   * consistent state after operations complete, error, or component unmounts.
+   */
   const isStartingRef = useRef(false);
-
-  // Ref for checking loading state in effects
   const isLoadingForSelectionRef = useRef(false);
 
   /**
@@ -324,7 +439,8 @@ export function useRecursiveFolderSelect(
           folderId,
           addMultipleSelectedFiles,
           maxSelectionCount,
-          currentSelectionSize
+          currentSelectionSize,
+          internalFilterTreeFn
         );
 
         setState(RESET_STATE);
@@ -338,7 +454,7 @@ export function useRecursiveFolderSelect(
         isLoadingForSelectionRef.current = false;
       }
     },
-    [onTreeUpdate, onError]
+    [onTreeUpdate, onError, internalFilterTreeFn]
   );
 
   /**
@@ -364,7 +480,8 @@ export function useRecursiveFolderSelect(
           folderId,
           addMultipleSelectedFiles,
           maxSelectionCount,
-          currentSelectionSize
+          currentSelectionSize,
+          internalFilterTreeFn
         );
       }
 
@@ -405,7 +522,7 @@ export function useRecursiveFolderSelect(
         currentSelectionSize
       );
     },
-    [workerPortRef, handleMapRef, loadAndSelectSubtree]
+    [workerPortRef, handleMapRef, loadAndSelectSubtree, internalFilterTreeFn]
   );
 
   return {

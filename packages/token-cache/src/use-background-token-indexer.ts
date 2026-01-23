@@ -40,12 +40,12 @@ function formatErrorMessage(error: unknown): string {
 async function persistResultToStore(
   result: IndexerResult,
   store: TokenCacheStoreLike,
-  onFileIndexed?: (compositeKey: string, tokenCount: number) => void
+  onFileIndexed?: (compositeKey: string, tokenCount: number, fileSize: number) => void
 ): Promise<void> {
   if (result.skipped) {
     const cached = await store.get(result.folderId, result.filePath);
     if (cached) {
-      onFileIndexed?.(result.compositeKey, cached.tokenCount);
+      onFileIndexed?.(result.compositeKey, cached.tokenCount, cached.fileSize);
     }
     return;
   }
@@ -62,7 +62,7 @@ async function persistResultToStore(
   };
 
   await store.set(entry);
-  onFileIndexed?.(result.compositeKey, result.tokenCount);
+  onFileIndexed?.(result.compositeKey, result.tokenCount, entry.fileSize);
 }
 
 /**
@@ -101,8 +101,8 @@ export interface UseBackgroundTokenIndexerOptions {
   store: TokenCacheStoreLike | null;
   /** Token counting mode */
   mode: TokenCountingMode;
-  /** Callback when a file's token count is resolved */
-  onFileIndexed?: (compositeKey: string, tokenCount: number) => void;
+  /** Callback when a file's token count is resolved (includes file size for cache updates) */
+  onFileIndexed?: (compositeKey: string, tokenCount: number, fileSize: number) => void;
   /** Callback for progress updates */
   onProgress?: (progress: IndexingProgress) => void;
   /** Callback when a file fails to index */
@@ -368,7 +368,7 @@ export function useBackgroundTokenIndexer({
 
       // If store is null, just notify without caching
       if (!currentStore) {
-        currentOnFileIndexed?.(result.compositeKey, result.tokenCount);
+        currentOnFileIndexed?.(result.compositeKey, result.tokenCount, result.fileSize);
         return;
       }
 

@@ -70,6 +70,7 @@ describe('usePersistentTokenCache', () => {
         countTextTokens: vi.fn(async () => 0),
         cacheVersion: 3,
         getTokenCount: vi.fn(() => 42),
+        getFileSize: vi.fn(() => 1024),
         getTotalTokens: vi.fn(async () => 0),
         isLoading: vi.fn(() => false),
         isAnyLoading: false,
@@ -78,6 +79,7 @@ describe('usePersistentTokenCache', () => {
         clearHotCache: vi.fn(),
         invalidate: vi.fn(),
         updateHotCache: vi.fn(),
+        updateFileSizeCache: vi.fn(),
         store: {} as TokenCacheContextValue['store'],
       };
     });

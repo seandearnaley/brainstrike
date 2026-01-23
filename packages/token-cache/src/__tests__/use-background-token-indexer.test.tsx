@@ -99,7 +99,7 @@ describe('useBackgroundTokenIndexer', () => {
       } as MessageEvent);
     });
 
-    expect(onFileIndexed).toHaveBeenCalledWith('folder|@|file.txt', 42);
+    expect(onFileIndexed).toHaveBeenCalledWith('folder|@|file.txt', 42, 128);
     await waitFor(() => expect(result.current.isIndexing).toBe(false));
     expect(result.current.progress).toBeNull();
   });

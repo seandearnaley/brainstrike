@@ -18,6 +18,28 @@ import { createLogger } from '@brainstrike/utils';
 import { useEffect, useState } from 'react';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
+/**
+ * Generates a unique collection name by appending a counter suffix if needed.
+ *
+ * Examples:
+ * - "text-embedding-3-small" → "text-embedding-3-small" (if unique)
+ * - "text-embedding-3-small" → "text-embedding-3-small (2)" (if collision)
+ * - "text-embedding-3-small" → "text-embedding-3-small (3)" (if 2 also taken)
+ */
+function generateUniqueName(baseName: string, existingNames: Set<string>): string {
+  if (!existingNames.has(baseName)) {
+    return baseName;
+  }
+
+  let counter = 2;
+  let candidateName = `${baseName} (${counter})`;
+  while (existingNames.has(candidateName)) {
+    counter++;
+    candidateName = `${baseName} (${counter})`;
+  }
+  return candidateName;
+}
+
 interface CreateEmbeddingSetDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -88,21 +110,79 @@ export function CreateEmbeddingSetDialog({
     selectedModel: '',
   });
 
+  // Track existing collection names for collision detection
+  const [existingNames, setExistingNames] = useState<Set<string>>(new Set());
+  // Track whether we've done the initial form setup (to avoid re-running after user interaction)
+  const [hasInitialized, setHasInitialized] = useState(false);
+
   const selectedModelInfo = models.find((m) => m.id === formData.selectedModel);
   const hasModelOptions = models.length > 0;
 
+  // Handle dialog open/close and reset state when closing
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      // Reset initialization state when dialog closes
+      setHasInitialized(false);
+      setExistingNames(new Set());
+    }
+    onOpenChange(newOpen);
+  };
+
+  // Fetch existing names AND auto-fill form when dialog opens
+  // Combined into single effect to avoid race conditions
   useEffect(() => {
-    if (!open) {
+    if (!(open && hasModelOptions) || hasInitialized) {
       return;
     }
-    if (formData.selectedModel) {
+
+    const firstModel = models[0];
+    if (!firstModel) {
       return;
     }
-    if (!hasModelOptions) {
-      return;
-    }
-    setFormData((prev) => ({ ...prev, selectedModel: models[0]?.id ?? '' }));
-  }, [open, hasModelOptions, models, formData.selectedModel]);
+
+    let cancelled = false;
+
+    const initializeForm = async () => {
+      // Fetch existing collection names for collision detection
+      let collectionNames = new Set<string>();
+      if (repository) {
+        try {
+          const collections = await repository.findAll();
+          collectionNames = new Set(
+            collections.map((c) => c.name).filter((n): n is string => n !== null)
+          );
+        } catch (error) {
+          // Gracefully handle errors - collision detection is a nice-to-have
+          logger.warn('Failed to fetch existing collection names', { error });
+        }
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      // Update state with both existing names and auto-filled form
+      setExistingNames(collectionNames);
+
+      // Generate unique name using the model's display name
+      const baseName = firstModel.name;
+      const uniqueName = generateUniqueName(baseName, collectionNames);
+
+      setFormData((prev) => ({
+        ...prev,
+        selectedModel: firstModel.id,
+        name: uniqueName,
+      }));
+
+      setHasInitialized(true);
+    };
+
+    void initializeForm();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, hasModelOptions, models, repository, hasInitialized]);
 
   const validateCreateInputs = (): boolean => {
     if (!(repository && selectedModelInfo)) {
@@ -174,7 +254,7 @@ export function CreateEmbeddingSetDialog({
         selectedModel: '',
       });
 
-      onOpenChange(false);
+      handleOpenChange(false);
       onSetCreated?.(newSet.id);
     } catch (error) {
       logger.error('Failed to create embedding set', { error });
@@ -207,7 +287,7 @@ export function CreateEmbeddingSetDialog({
   };
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
+    <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Create Search Collection</DialogTitle>
@@ -231,14 +311,28 @@ export function CreateEmbeddingSetDialog({
                 modelType="embedding"
                 onChange={(value: string | string[]) => {
                   const modelKey = value as string;
-                  setFormData((prev) => ({
-                    ...prev,
-                    selectedModel: modelKey,
-                    name:
-                      prev.name === ''
-                        ? (models.find((m) => m.id === modelKey)?.name ?? '')
-                        : prev.name,
-                  }));
+                  const selectedModel = models.find((m) => m.id === modelKey);
+
+                  setFormData((prev) => {
+                    // Only auto-fill name if it's empty or was auto-generated
+                    // (user hasn't manually typed a custom name)
+                    const shouldAutoFillName = prev.name === '';
+
+                    if (shouldAutoFillName && selectedModel) {
+                      const baseName = selectedModel.name;
+                      const uniqueName = generateUniqueName(baseName, existingNames);
+                      return {
+                        ...prev,
+                        selectedModel: modelKey,
+                        name: uniqueName,
+                      };
+                    }
+
+                    return {
+                      ...prev,
+                      selectedModel: modelKey,
+                    };
+                  });
                 }}
                 placeholder={isLoading ? 'Loading models...' : 'Select an embedding model'}
                 providers={providers}
@@ -314,7 +408,7 @@ export function CreateEmbeddingSetDialog({
         <DialogFooter>
           <Button
             disabled={creating}
-            onClick={() => onOpenChange(false)}
+            onClick={() => handleOpenChange(false)}
             type="button"
             variant="outline"
           >

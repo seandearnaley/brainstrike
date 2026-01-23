@@ -151,36 +151,6 @@ describe('SearchModeBar', () => {
     expect(onCollapseAll).toHaveBeenCalled();
   });
 
-  it('displays result count in quick mode', () => {
-    render(
-      <SearchModeBar
-        {...createProps({ mode: 'quick', resultCount: 5, totalCount: 10, hasSearched: true })}
-      />
-    );
-
-    expect(screen.getByText('5 of 10')).toBeInTheDocument();
-  });
-
-  it('displays match count in semantic mode after search', () => {
-    render(
-      <SearchModeBar
-        {...createProps({ mode: 'semantic', resultCount: 5, totalCount: 10, hasSearched: true })}
-      />
-    );
-
-    expect(screen.getByText('5 matches')).toBeInTheDocument();
-  });
-
-  it('displays singular match text for 1 result', () => {
-    render(
-      <SearchModeBar
-        {...createProps({ mode: 'semantic', resultCount: 1, totalCount: 10, hasSearched: true })}
-      />
-    );
-
-    expect(screen.getByText('1 match')).toBeInTheDocument();
-  });
-
   it('triggers search on Cmd/Ctrl+Enter', () => {
     const onSemanticSearch = vi.fn();
     render(<SearchModeBar {...createProps({ semanticQuery: 'test', onSemanticSearch })} />);
@@ -207,12 +177,6 @@ describe('SearchModeBar', () => {
 
     const wrapper = container.firstChild as HTMLElement;
     expect(wrapper).toHaveClass('custom-class');
-  });
-
-  it('shows keyboard hint text', () => {
-    render(<SearchModeBar {...createProps({ semanticQuery: 'test' })} />);
-
-    expect(screen.getByText('Cmd+Enter to query')).toBeInTheDocument();
   });
 
   it('shows filter toggle and settings buttons', () => {

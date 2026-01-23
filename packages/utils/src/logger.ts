@@ -181,7 +181,8 @@ function resolveEffectiveLevel(config: InternalLoggerConfig): LogLevel {
   }
 
   if (isDevEnv() || config.enableInProduction) {
-    return LogLevel.DEBUG;
+    // Default to INFO in development - use LOG_LEVEL=DEBUG for verbose logs
+    return LogLevel.INFO;
   }
 
   return LogLevel.INFO;

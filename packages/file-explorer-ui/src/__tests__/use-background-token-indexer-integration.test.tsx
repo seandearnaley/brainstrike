@@ -59,6 +59,7 @@ const createTokenCacheContext = (): TokenCacheContextValue => ({
   countingMode: 'accurate',
   countTextTokens: vi.fn(async () => 0),
   getTokenCount: vi.fn(),
+  getFileSize: vi.fn(),
   getTotalTokens: vi.fn(async () => 0),
   isLoading: vi.fn(() => false),
   isAnyLoading: false,
@@ -68,6 +69,7 @@ const createTokenCacheContext = (): TokenCacheContextValue => ({
   clearHotCache: vi.fn(),
   invalidate: vi.fn(),
   updateHotCache: vi.fn(),
+  updateFileSizeCache: vi.fn(),
   cacheVersion: 0,
 });
 

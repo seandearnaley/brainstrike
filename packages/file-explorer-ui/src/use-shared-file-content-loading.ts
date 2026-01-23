@@ -91,7 +91,7 @@ function shouldLoadFile(
   const alreadyLoaded = compositeKey in fileContents;
   const shouldLoad = !!(folderId && hasTreeOrCanSkip && !alreadyLoading && !alreadyLoaded);
 
-  logger.info('shouldLoadFile check', {
+  logger.debug('shouldLoadFile check', {
     compositeKey,
     folderId,
     canLoadWithoutTree,
@@ -150,7 +150,7 @@ function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
 function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
   const adapter = fileSystemAdapter as { readFileByPath?: unknown; platform?: string };
   const hasReadByPath = typeof adapter.readFileByPath === 'function';
-  logger.info('supportsDirectPathRead check', {
+  logger.debug('supportsDirectPathRead check', {
     hasReadByPath,
     platform: adapter.platform,
     adapterType: typeof fileSystemAdapter,
@@ -438,7 +438,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       for (const folderMap of nodeCacheRef.current.values()) {
         totalCached += folderMap.size;
       }
-      logger.info('Cache rebuilt', {
+      logger.debug('Cache rebuilt', {
         folders: nodeCacheRef.current.size,
         totalCached,
         treeNodeCount,
@@ -486,7 +486,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       }
 
       const treeNodeCount = countTreeNodes(fileTreeRef.current);
-      logger.info('handleFileContentLoading called', {
+      logger.debug('handleFileContentLoading called', {
         requestedFiles: compositeKeys.length,
         treeNodeCount,
         fileTreeLength: fileTreeRef.current.length,
@@ -505,7 +505,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
           }
         }
 
-        logger.info('Prepared file read requests', {
+        logger.debug('Prepared file read requests', {
           requestedFiles: compositeKeys.length,
           successfulRequests: requests.length,
           failedRequests: compositeKeys.length - requests.length,

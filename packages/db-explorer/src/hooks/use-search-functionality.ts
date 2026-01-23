@@ -426,6 +426,10 @@ export function useSearchFunctionality(
   };
 }
 
+/**
+ * Tokenizes text into a set of lowercase alphanumeric tokens.
+ * Filters out single-character tokens to reduce noise.
+ */
 function tokenize(text: string): Set<string> {
   return new Set(
     String(text)

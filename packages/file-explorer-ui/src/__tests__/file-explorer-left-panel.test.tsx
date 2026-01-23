@@ -1,4 +1,5 @@
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
+import type { FileExplorerState } from '@brainstrike/types';
 import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -522,7 +523,7 @@ describe('FileExplorerLeftPanel', () => {
     };
 
     const mockStore = Object.assign(
-      (selector?: (s: any) => unknown) =>
+      (selector?: (s: Partial<FileExplorerState>) => unknown) =>
         typeof selector === 'function' ? selector(storeState) : storeState,
       { getState: () => storeState }
     );
@@ -584,7 +585,7 @@ describe('FileExplorerLeftPanel', () => {
     };
 
     const mockStore = Object.assign(
-      (selector?: (s: any) => unknown) =>
+      (selector?: (s: Partial<FileExplorerState>) => unknown) =>
         typeof selector === 'function' ? selector(storeState) : storeState,
       { getState: () => storeState }
     );
@@ -735,7 +736,7 @@ describe('FileExplorerLeftPanel', () => {
     };
 
     const mockStore = Object.assign(
-      (selector?: (s: any) => unknown) =>
+      (selector?: (s: Partial<FileExplorerState>) => unknown) =>
         typeof selector === 'function' ? selector(storeState) : storeState,
       { getState: () => storeState }
     );
@@ -792,7 +793,7 @@ describe('FileExplorerLeftPanel', () => {
     };
 
     const mockStore = Object.assign(
-      (selector?: (s: any) => unknown) =>
+      (selector?: (s: Partial<FileExplorerState>) => unknown) =>
         typeof selector === 'function' ? selector(storeState) : storeState,
       { getState: () => storeState }
     );

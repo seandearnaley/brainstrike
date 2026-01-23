@@ -108,6 +108,7 @@ const createMockChunkRepository = (chunks: FileChunk[] = []): DrizzleFileChunkRe
 
   return {
     searchSimilar: vi.fn().mockResolvedValue(searchResults),
+    fullTextSearch: vi.fn().mockResolvedValue(searchResults),
     findAll: vi.fn().mockResolvedValue(chunks),
     findById: vi.fn((id: string) => Promise.resolve(chunks.find((c) => c.id === id) ?? null)),
   } as unknown as DrizzleFileChunkRepository;
@@ -272,7 +273,7 @@ describe('useSemanticSearchExecutor', () => {
     );
   });
 
-  it('passes search config to repository', async () => {
+  it('passes search config to repository (vector mode)', async () => {
     const chunk = createMockChunk('chunk-1', 'file-1');
     const chunkRepo = createMockChunkRepository([chunk]);
     const fileRepo = createMockFileRepository([createMockFileRecord('file-1')]);
@@ -286,7 +287,7 @@ describe('useSemanticSearchExecutor', () => {
 
     await result.current!(
       'test query',
-      createSearchConfig({ resultLimit: 5, threshold: 0.8 }),
+      createSearchConfig({ resultLimit: 5, threshold: 0.8, retrievalMode: 'vector' }),
       'set-1'
     );
 
@@ -300,7 +301,7 @@ describe('useSemanticSearchExecutor', () => {
     );
   });
 
-  describe('retrieval filters (BST-172)', () => {
+  describe('retrieval filters (BST-172) - vector mode', () => {
     it('passes filePaths filter to repository when provided', async () => {
       const chunk = createMockChunk('chunk-1', 'file-1');
       const chunkRepo = createMockChunkRepository([chunk]);
@@ -314,7 +315,11 @@ describe('useSemanticSearchExecutor', () => {
       );
 
       const filePaths = ['/path/to/file1.ts', '/path/to/file2.ts'];
-      await result.current!('test query', createSearchConfig({ filePaths }), 'set-1');
+      await result.current!(
+        'test query',
+        createSearchConfig({ filePaths, retrievalMode: 'vector' }),
+        'set-1'
+      );
 
       expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
         expect.any(Array),
@@ -338,7 +343,11 @@ describe('useSemanticSearchExecutor', () => {
       );
 
       const selectionSnapshotId = 'snapshot-uuid-123';
-      await result.current!('test query', createSearchConfig({ selectionSnapshotId }), 'set-1');
+      await result.current!(
+        'test query',
+        createSearchConfig({ selectionSnapshotId, retrievalMode: 'vector' }),
+        'set-1'
+      );
 
       expect(chunkRepo.searchSimilar).toHaveBeenCalledWith(
         expect.any(Array),
@@ -367,7 +376,7 @@ describe('useSemanticSearchExecutor', () => {
       const selectionSnapshotId = 'snapshot-uuid-456';
       await result.current!(
         'test query',
-        createSearchConfig({ filePaths, selectionSnapshotId }),
+        createSearchConfig({ filePaths, selectionSnapshotId, retrievalMode: 'vector' }),
         'set-1'
       );
 
@@ -400,7 +409,11 @@ describe('useSemanticSearchExecutor', () => {
         })
       );
 
-      await result.current!('test query', createSearchConfig({ filePaths: [] }), 'set-1');
+      await result.current!(
+        'test query',
+        createSearchConfig({ filePaths: [], retrievalMode: 'vector' }),
+        'set-1'
+      );
 
       const mockCalls = (chunkRepo.searchSimilar as ReturnType<typeof vi.fn>).mock.calls;
       expect(mockCalls.length).toBeGreaterThan(0);
@@ -420,8 +433,8 @@ describe('useSemanticSearchExecutor', () => {
         })
       );
 
-      // Use default config without selectionSnapshotId
-      await result.current!('test query', createSearchConfig(), 'set-1');
+      // Use default config without selectionSnapshotId (but with vector mode)
+      await result.current!('test query', createSearchConfig({ retrievalMode: 'vector' }), 'set-1');
 
       const mockCalls = (chunkRepo.searchSimilar as ReturnType<typeof vi.fn>).mock.calls;
       expect(mockCalls.length).toBeGreaterThan(0);

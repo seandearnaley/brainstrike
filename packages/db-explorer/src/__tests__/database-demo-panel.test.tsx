@@ -3,12 +3,17 @@ import {
   __resetTokenPreferencesStoreForTests,
   __resetVectorStatusUIStoreForTests,
 } from '@brainstrike/preferences';
+import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseDemoPanel } from '../database-demo-panel';
 import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
+
+// Helper to wrap renders with TooltipProvider
+const renderWithProviders = (ui: React.ReactElement) =>
+  render(<TooltipProvider>{ui}</TooltipProvider>);
 
 // Mock all external dependencies at the top level
 const mockRepository = {
@@ -365,7 +370,7 @@ describe('DatabaseDemoPanel', () => {
 
   describe('Basic Rendering', () => {
     it('renders database demo panel', async () => {
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
@@ -373,7 +378,7 @@ describe('DatabaseDemoPanel', () => {
     });
 
     it('renders the collection browser view', async () => {
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
@@ -381,7 +386,7 @@ describe('DatabaseDemoPanel', () => {
     });
 
     it('fetches model registry on mount', async () => {
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(mockEnsureModelRegistry).toHaveBeenCalledWith(
@@ -394,7 +399,7 @@ describe('DatabaseDemoPanel', () => {
   describe('Settings Panel', () => {
     it('shows settings panel when settings button is clicked', async () => {
       const user = userEvent.setup();
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Import Settings/ })).toBeInTheDocument();
@@ -412,7 +417,7 @@ describe('DatabaseDemoPanel', () => {
 
     it('toggles chunking setting', async () => {
       const user = userEvent.setup();
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       // Wait for settings button to be available
       await waitFor(() => {
@@ -444,7 +449,7 @@ describe('DatabaseDemoPanel', () => {
   describe('File Import', () => {
     it('attempts to call import function when import button is clicked', async () => {
       const user = userEvent.setup();
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
@@ -464,7 +469,7 @@ describe('DatabaseDemoPanel', () => {
 
     it('shows toast when import fails due to missing adapters', async () => {
       const user = userEvent.setup();
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /^Import\s*\(/ })).toBeInTheDocument();
@@ -503,7 +508,7 @@ describe('DatabaseDemoPanel', () => {
       mockRepository.findAll.mockResolvedValue(mockRecords);
       mockRecordLiveQueryResult.rows = mockRecords;
 
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       // The panel renders and provides data to CollectionBrowserView
       await waitFor(() => {
@@ -513,7 +518,7 @@ describe('DatabaseDemoPanel', () => {
 
     it('handles refresh button click', async () => {
       const user = userEvent.setup();
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         expect(screen.getByRole('button', { name: /Refresh/ })).toBeInTheDocument();
@@ -529,7 +534,7 @@ describe('DatabaseDemoPanel', () => {
 
   describe('Export Functionality', () => {
     it('shows export dropdown', async () => {
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       await waitFor(() => {
         // The export dropdown should be visible
@@ -549,7 +554,7 @@ describe('DatabaseDemoPanel', () => {
         isLoading: true,
       });
 
-      render(<DatabaseDemoPanel />);
+      renderWithProviders(<DatabaseDemoPanel />);
 
       // Open create collection dialog (use getAllByTitle since both header and picker have create buttons)
       const user = userEvent.setup();

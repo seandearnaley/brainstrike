@@ -58,12 +58,19 @@ export interface UsePreviewPanelStateProps {
   ) => void;
 }
 
-// Helper function to get file size from metadata (no content loading required)
+// Helper function to get file size from metadata with fallback to persistent cache
 function getFileSizeFromMetadata(
   compositeKey: string,
-  fileSizes?: Record<string, number>
+  fileSizes: Record<string, number> | undefined,
+  persistentCacheGetFileSize: (compositeKey: string) => number | undefined
 ): number | undefined {
-  return fileSizes?.[compositeKey];
+  // Try primary source first (from fileNodeCache via fileSizes prop)
+  const fromMetadata = fileSizes?.[compositeKey];
+  if (fromMetadata !== undefined) {
+    return fromMetadata;
+  }
+  // Fallback to persistent cache (available even when fileTree hasn't loaded)
+  return persistentCacheGetFileSize(compositeKey);
 }
 
 // Helper function to sort files
@@ -186,8 +193,13 @@ export function usePreviewPanelState({
       // Get token count from persistent cache (returns undefined if loading)
       const tokenCount = persistentCache.getTokenCount(compositeKey);
 
-      // Get file size from metadata (no content loading required)
-      const fileSize = getFileSizeFromMetadata(compositeKey, fileSizes);
+      // Get file size from metadata with fallback to persistent cache
+      // This fixes the race condition where fileSizes (from fileNodeCache) is empty on app restore
+      const fileSize = getFileSizeFromMetadata(
+        compositeKey,
+        fileSizes,
+        persistentCache.getFileSize
+      );
 
       const fileItem: FileItem = {
         compositeKey,

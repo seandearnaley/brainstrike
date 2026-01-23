@@ -18,6 +18,19 @@ import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { FileSystemHandle } from '../../utils/worker-node-conversion';
 import { useRecursiveFolderSelect } from '../use-recursive-folder-select';
 
+// Mock the hooks module for filter fallback
+vi.mock('@brainstrike/hooks', () => ({
+  useFileFilters: () => ({
+    applyFileFilters: vi.fn((tree: IFileNode[]) => tree),
+  }),
+}));
+
+// Mock the file explorer provider - optional context returns null by default
+// Tests can override this to test the store context fallback
+vi.mock('../../file-explorer-provider', () => ({
+  useOptionalFileExplorerStoreContext: () => null,
+}));
+
 // Mock utilities
 vi.mock('@brainstrike/utils', async (importOriginal) => {
   const original = (await importOriginal()) as Record<string, unknown>;
@@ -718,6 +731,182 @@ describe('useRecursiveFolderSelect', () => {
 
       // Should call worker to load the unloaded child
       expect(mockWorkerPort.loadSubtree).toHaveBeenCalled();
+    });
+  });
+
+  describe('selectFolderRecursively - filter support', () => {
+    it('should respect filterTreeFn in fast path - only select files that match filter', async () => {
+      const workerPortRef = { current: mockWorkerPort as unknown as FileTreeWorkerPort };
+      const handleMapRef = { current: mockHandleMap };
+
+      // Filter function that only includes .ts files
+      const filterTreeFn = (nodes: IFileNode[]): IFileNode[] => {
+        return nodes
+          .map((node) => {
+            if (node.type === 'file') {
+              return node.name.endsWith('.ts') ? node : null;
+            }
+            if (node.type === 'directory' && node.children) {
+              const filtered = filterTreeFn(node.children);
+              return { ...node, children: filtered };
+            }
+            return node;
+          })
+          .filter((n): n is IFileNode => n !== null);
+      };
+
+      const { result } = renderHook(() =>
+        useRecursiveFolderSelect({
+          workerPortRef,
+          handleMapRef,
+          onTreeUpdate: mockOnTreeUpdate,
+          onError: mockOnError,
+          filterTreeFn,
+        })
+      );
+
+      // Fully loaded folder with mixed file types
+      const fullyLoadedDir = createDirectoryNode({
+        path: '/root/loaded',
+        loadState: 'loaded',
+        children: [
+          createFileNode({ name: 'file1.ts', path: '/root/loaded/file1.ts' }),
+          createFileNode({ name: 'file2.md', path: '/root/loaded/file2.md' }),
+          createFileNode({ name: 'file3.ts', path: '/root/loaded/file3.ts' }),
+          createFileNode({ name: 'readme.txt', path: '/root/loaded/readme.txt' }),
+        ],
+      });
+
+      const mockAddMultipleSelectedFiles = vi.fn();
+
+      const selectionResult = await act(async () => {
+        return result.current.selectFolderRecursively(
+          fullyLoadedDir,
+          'folder-id',
+          mockAddMultipleSelectedFiles,
+          10,
+          0
+        );
+      });
+
+      expect(selectionResult.success).toBe(true);
+      // Should only select the 2 .ts files, not .md or .txt
+      expect(selectionResult.filePaths).toHaveLength(2);
+      expect(mockAddMultipleSelectedFiles).toHaveBeenCalledTimes(1);
+      const calledPaths = mockAddMultipleSelectedFiles.mock.calls[0]?.[1] as string[];
+      expect(calledPaths).toContain('/root/loaded/file1.ts');
+      expect(calledPaths).toContain('/root/loaded/file3.ts');
+      expect(calledPaths).not.toContain('/root/loaded/file2.md');
+      expect(calledPaths).not.toContain('/root/loaded/readme.txt');
+    });
+
+    it('should respect filterTreeFn with nested directories', async () => {
+      const workerPortRef = { current: mockWorkerPort as unknown as FileTreeWorkerPort };
+      const handleMapRef = { current: mockHandleMap };
+
+      // Filter that excludes node_modules directory
+      const filterTreeFn = (nodes: IFileNode[]): IFileNode[] => {
+        return nodes
+          .filter((node) => node.name !== 'node_modules')
+          .map((node) => {
+            if (node.type === 'directory' && node.children) {
+              return { ...node, children: filterTreeFn(node.children) };
+            }
+            return node;
+          });
+      };
+
+      const { result } = renderHook(() =>
+        useRecursiveFolderSelect({
+          workerPortRef,
+          handleMapRef,
+          onTreeUpdate: mockOnTreeUpdate,
+          onError: mockOnError,
+          filterTreeFn,
+        })
+      );
+
+      const fullyLoadedDir = createDirectoryNode({
+        path: '/root/project',
+        loadState: 'loaded',
+        children: [
+          createFileNode({ name: 'index.ts', path: '/root/project/index.ts' }),
+          createDirectoryNode({
+            name: 'src',
+            path: '/root/project/src',
+            loadState: 'loaded',
+            children: [createFileNode({ name: 'app.ts', path: '/root/project/src/app.ts' })],
+          }),
+          createDirectoryNode({
+            name: 'node_modules',
+            path: '/root/project/node_modules',
+            loadState: 'loaded',
+            children: [
+              createFileNode({ name: 'dep.js', path: '/root/project/node_modules/dep.js' }),
+            ],
+          }),
+        ],
+      });
+
+      const mockAddMultipleSelectedFiles = vi.fn();
+
+      const selectionResult = await act(async () => {
+        return result.current.selectFolderRecursively(
+          fullyLoadedDir,
+          'folder-id',
+          mockAddMultipleSelectedFiles,
+          10,
+          0
+        );
+      });
+
+      expect(selectionResult.success).toBe(true);
+      // Should select index.ts and app.ts, but NOT node_modules/dep.js
+      expect(selectionResult.filePaths).toHaveLength(2);
+      const calledPaths = mockAddMultipleSelectedFiles.mock.calls[0]?.[1] as string[];
+      expect(calledPaths).toContain('/root/project/index.ts');
+      expect(calledPaths).toContain('/root/project/src/app.ts');
+      expect(calledPaths).not.toContain('/root/project/node_modules/dep.js');
+    });
+
+    it('should work without filterTreeFn for backwards compatibility', async () => {
+      const workerPortRef = { current: mockWorkerPort as unknown as FileTreeWorkerPort };
+      const handleMapRef = { current: mockHandleMap };
+
+      // No filterTreeFn provided
+      const { result } = renderHook(() =>
+        useRecursiveFolderSelect({
+          workerPortRef,
+          handleMapRef,
+          onTreeUpdate: mockOnTreeUpdate,
+          onError: mockOnError,
+        })
+      );
+
+      const fullyLoadedDir = createDirectoryNode({
+        path: '/root/loaded',
+        loadState: 'loaded',
+        children: [
+          createFileNode({ name: 'file1.ts', path: '/root/loaded/file1.ts' }),
+          createFileNode({ name: 'file2.md', path: '/root/loaded/file2.md' }),
+        ],
+      });
+
+      const mockAddMultipleSelectedFiles = vi.fn();
+
+      const selectionResult = await act(async () => {
+        return result.current.selectFolderRecursively(
+          fullyLoadedDir,
+          'folder-id',
+          mockAddMultipleSelectedFiles,
+          10,
+          0
+        );
+      });
+
+      expect(selectionResult.success).toBe(true);
+      // Should select all files when no filter is provided
+      expect(selectionResult.filePaths).toHaveLength(2);
     });
   });
 });

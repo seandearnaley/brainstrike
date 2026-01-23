@@ -105,7 +105,7 @@ export function SearchCollectionSelector({
       <CollectionPicker
         collections={collections}
         loading={isLoading}
-        maxHeight="260px"
+        maxHeight="none"
         onCreate={onCreateCollection}
         onDelete={handleDelete}
         onEdit={handleEdit}

@@ -565,7 +565,7 @@ export function useSemanticSearchExecutor({
 
       // Build retrieval filter options (BST-172, BST-175)
       const filterOptions = buildRetrievalFilterOptions(config);
-      const retrievalMode = config.retrievalMode ?? 'vector';
+      const retrievalMode = config.retrievalMode ?? 'hybrid';
 
       logger.info('Searching for similar chunks...', {
         retrievalMode,

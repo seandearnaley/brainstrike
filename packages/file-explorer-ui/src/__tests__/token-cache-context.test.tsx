@@ -26,6 +26,7 @@ vi.mock('@brainstrike/token-cache', () => ({
   },
   useTokenCache: vi.fn(() => ({
     getTokenCount: (_folderId: string, _filePath: string) => 100,
+    getFileSize: (_folderId: string, _filePath: string) => 1024,
     getTotalTokens: async () => 100,
     isLoading: () => false,
     isAnyLoading: false,
@@ -34,6 +35,7 @@ vi.mock('@brainstrike/token-cache', () => ({
     clearHotCache: vi.fn(),
     invalidate: vi.fn(),
     updateHotCache: vi.fn(),
+    updateFileSizeCache: vi.fn(),
     cacheVersion: 1,
   })),
 }));
