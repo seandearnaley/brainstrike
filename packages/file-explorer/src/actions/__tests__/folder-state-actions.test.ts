@@ -63,6 +63,7 @@ describe('folder-state-actions hydrateFolderState', () => {
       maxSelectionCount: 10,
       lastActiveTab: 'settings',
       lastAccessed: Date.now(),
+      viewFilterPresetId: null,
     };
     const state = createMockState({ folderStates: { foo: folderState } });
     const actions = createFolderStateActions(mockSet, mockGet);

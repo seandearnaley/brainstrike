@@ -1,3 +1,8 @@
+import type {
+  CreateViewFilterPresetInput,
+  UpdateViewFilterPresetInput,
+  ViewFilterPreset,
+} from '@brainstrike/types';
 import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
 import type { FileImportRequest, FileImportResult, FileRecord } from '../models/file-record';
 
@@ -57,4 +62,18 @@ export interface IFileRecordRepository {
 export interface IDatabase {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
   transaction?<T>(fn: (tx: IDatabase) => Promise<T>): Promise<T>;
+}
+
+/**
+ * Common interface for view filter presets repositories
+ *
+ * Uses types from @brainstrike/types for consistency across implementations.
+ */
+export interface IViewFilterPresetsRepository {
+  findAll(): Promise<ViewFilterPreset[]>;
+  getById(id: string): Promise<ViewFilterPreset | null>;
+  getDefaults(): Promise<ViewFilterPreset[]>;
+  create(input: CreateViewFilterPresetInput): Promise<ViewFilterPreset>;
+  update(id: string, input: UpdateViewFilterPresetInput): Promise<ViewFilterPreset | null>;
+  delete(id: string): Promise<boolean>;
 }

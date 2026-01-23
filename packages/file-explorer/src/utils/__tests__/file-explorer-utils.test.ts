@@ -24,11 +24,13 @@ describe('file-explorer-utils', () => {
         excludeFilters: ['*.txt'],
         useRegex: true,
         includeProjectTree: true,
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         folderSummaryThreshold: 100,
         maxSelectionCount: 50,
         lastActiveTab: 'files',
         folderAccessOrder: [],
         fileContents: {},
+        viewFilterPresetId: null,
         folderStates: {
           folder1: {
             selectedFilePaths: new Set(['oldFile']),
@@ -37,10 +39,12 @@ describe('file-explorer-utils', () => {
             excludeFilters: [],
             useRegex: false,
             includeProjectTree: false,
+            tokenBudget: DEFAULT_TOKEN_BUDGET,
             folderSummaryThreshold: 10,
             maxSelectionCount: 10,
             lastActiveTab: 'git',
             lastAccessed: 1000,
+            viewFilterPresetId: null,
           },
         },
       };
@@ -59,10 +63,12 @@ describe('file-explorer-utils', () => {
           excludeFilters: [],
           useRegex: false,
           includeProjectTree: false,
+          tokenBudget: DEFAULT_TOKEN_BUDGET,
           folderSummaryThreshold: 10,
           maxSelectionCount: 10,
           lastActiveTab: 'git',
           lastAccessed: 1000,
+          viewFilterPresetId: null,
         },
         folder2: {
           selectedFilePaths: new Set(['file1', 'file2']),
@@ -71,10 +77,12 @@ describe('file-explorer-utils', () => {
           excludeFilters: ['*.txt'],
           useRegex: true,
           includeProjectTree: true,
+          tokenBudget: DEFAULT_TOKEN_BUDGET,
           folderSummaryThreshold: 100,
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 2000,
+          viewFilterPresetId: null,
         },
       });
     });
@@ -90,11 +98,13 @@ describe('file-explorer-utils', () => {
         excludeFilters: ['*.md'],
         useRegex: false,
         includeProjectTree: true,
+        tokenBudget: DEFAULT_TOKEN_BUDGET,
         folderSummaryThreshold: 200,
         maxSelectionCount: 75,
         lastActiveTab: 'search',
         folderAccessOrder: [],
         fileContents: {},
+        viewFilterPresetId: null,
         folderStates: {
           folder1: {
             selectedFilePaths: new Set(['oldFile']),
@@ -103,10 +113,12 @@ describe('file-explorer-utils', () => {
             excludeFilters: [],
             useRegex: true,
             includeProjectTree: false,
+            tokenBudget: DEFAULT_TOKEN_BUDGET,
             folderSummaryThreshold: 10,
             maxSelectionCount: 10,
             lastActiveTab: 'git',
             lastAccessed: 1000,
+            viewFilterPresetId: null,
           },
         },
       };
@@ -124,10 +136,12 @@ describe('file-explorer-utils', () => {
           excludeFilters: ['*.md'],
           useRegex: false,
           includeProjectTree: true,
+          tokenBudget: DEFAULT_TOKEN_BUDGET,
           folderSummaryThreshold: 200,
           maxSelectionCount: 75,
           lastActiveTab: 'search',
           lastAccessed: 3000,
+          viewFilterPresetId: null,
         },
       });
     });
@@ -144,10 +158,12 @@ describe('file-explorer-utils', () => {
           excludeFilters: [],
           useRegex: false,
           includeProjectTree: true,
+          tokenBudget: DEFAULT_TOKEN_BUDGET,
           folderSummaryThreshold: 100,
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 1000,
+          viewFilterPresetId: null,
         },
         folder2: {
           selectedFilePaths: new Set(),
@@ -156,10 +172,12 @@ describe('file-explorer-utils', () => {
           excludeFilters: [],
           useRegex: false,
           includeProjectTree: true,
+          tokenBudget: DEFAULT_TOKEN_BUDGET,
           folderSummaryThreshold: 100,
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 2000,
+          viewFilterPresetId: null,
         },
       };
       const order = ['folder1', 'folder2'];
@@ -185,10 +203,12 @@ describe('file-explorer-utils', () => {
           excludeFilters: [],
           useRegex: false,
           includeProjectTree: true,
+          tokenBudget: DEFAULT_TOKEN_BUDGET,
           folderSummaryThreshold: 100,
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: i * 1000, // Increasing timestamps
+          viewFilterPresetId: null,
         };
         order.push(`folder${i}`);
       }
@@ -224,10 +244,12 @@ describe('file-explorer-utils', () => {
           excludeFilters: [],
           useRegex: false,
           includeProjectTree: true,
+          tokenBudget: DEFAULT_TOKEN_BUDGET,
           folderSummaryThreshold: 100,
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 1000,
+          viewFilterPresetId: null,
         },
         folder2: {
           selectedFilePaths: new Set(),
@@ -236,10 +258,12 @@ describe('file-explorer-utils', () => {
           excludeFilters: [],
           useRegex: false,
           includeProjectTree: true,
+          tokenBudget: DEFAULT_TOKEN_BUDGET,
           folderSummaryThreshold: 100,
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 2000,
+          viewFilterPresetId: null,
         },
       };
       const order = ['folder1', 'orphan', 'folder2'];
@@ -274,6 +298,7 @@ describe('file-explorer-utils', () => {
         maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
         lastActiveTab: 'files',
         lastAccessed: 5000,
+        viewFilterPresetId: null,
       });
     });
 

@@ -1,4 +1,3 @@
-import type { DirectoryHandle } from '@brainstrike/file-system';
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { screen } from '@testing-library/react';
@@ -17,16 +16,7 @@ function getProps(overrides: Partial<React.ComponentProps<typeof FileExplorerToo
     onDirectorySelect: vi.fn().mockResolvedValue(undefined),
     onFilterChange: vi.fn(),
     filterError: null,
-    quickFilter: '',
-    setQuickFilter: vi.fn(),
-    clearQuickFilter: vi.fn(),
     isLoading: false,
-    rootDirectoryHandle: {
-      kind: 'directory',
-      name: 'root',
-      path: '/test/root',
-      platform: 'web',
-    } as DirectoryHandle,
     ...overrides,
   };
 }
@@ -36,20 +26,12 @@ describe('FileExplorerToolbar', () => {
     vi.clearAllMocks();
   });
 
-  it('renders select root button and filter bar when root directory is present', () => {
+  it('renders select root button', () => {
     const props = getProps();
     renderWithProviders(<FileExplorerToolbar {...props} />);
     expect(
       screen.getByRole('button', { name: FileExplorerStrings.selectRoot })
     ).toBeInTheDocument();
-    // Filter bar should appear when root directory handle exists
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
-  });
-
-  it('does not show filter bar without a root directory', () => {
-    const props = getProps({ rootDirectoryHandle: null });
-    renderWithProviders(<FileExplorerToolbar {...props} />);
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 
   it('disables select root button based on loading state', () => {

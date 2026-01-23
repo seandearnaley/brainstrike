@@ -100,6 +100,12 @@ interface SubtreeLoadState {
 export class BFSEngine {
   private tree: WorkerFileNode[] = [];
   private aborted = false;
+  /**
+   * Path index for O(1) node lookups.
+   * Maps path strings to their corresponding nodes in the tree.
+   * Rebuilt when tree structure changes (setTree, handleLoadResult).
+   */
+  private readonly pathIndex = new Map<string, WorkerFileNode>();
   // Track results per path to avoid race condition with mutated paths array
   private readonly pendingLoads = new Map<
     string,
@@ -113,16 +119,40 @@ export class BFSEngine {
   constructor(private readonly postMessage: (msg: WorkerToMainMessage) => void) {}
 
   /**
+   * Build path index from tree nodes.
+   * Uses iterative BFS to avoid stack overflow on deep trees.
+   */
+  private buildPathIndex(nodes: WorkerFileNode[]): void {
+    this.pathIndex.clear();
+    const queue: WorkerFileNode[] = [...nodes];
+    let head = 0;
+    while (head < queue.length) {
+      const node = queue[head++];
+      if (!node) {
+        continue;
+      }
+      this.pathIndex.set(node.path, node);
+      if (node.children) {
+        for (const child of node.children) {
+          queue.push(child);
+        }
+      }
+    }
+  }
+
+  /**
    * Set the current tree state.
    */
   setTree(nodes: WorkerFileNode[], _folderId: string): void {
     const prevNodeCount = this.countTreeNodes(this.tree);
     const prevLoadedDirs = this.countLoadedDirectories(this.tree);
     this.tree = nodes;
+    // Rebuild path index for O(1) lookups
+    this.buildPathIndex(nodes);
     const newNodeCount = this.countTreeNodes(this.tree);
     const newLoadedDirs = this.countLoadedDirectories(this.tree);
     this.logInfo(
-      `[setTree] Tree replaced: ${prevNodeCount} nodes (${prevLoadedDirs} loaded) → ${newNodeCount} nodes (${newLoadedDirs} loaded)`
+      `[setTree] Tree replaced: ${prevNodeCount} nodes (${prevLoadedDirs} loaded) → ${newNodeCount} nodes (${newLoadedDirs} loaded), index size: ${this.pathIndex.size}`
     );
     // folderId is passed for future use (e.g., multi-root support)
   }
@@ -140,6 +170,11 @@ export class BFSEngine {
   handleLoadResult(path: string, children: WorkerFileNode[]): void {
     // Update tree with loaded children
     this.tree = applyBatchResultsToTree(this.tree, [{ path, children }]);
+
+    // Rebuild path index since applyBatchResultsToTree creates new node objects.
+    // This is more correct than adding original children (which would be stale refs).
+    // Still a win: rebuild once per batch vs O(n) search on every findNode call.
+    this.buildPathIndex(this.tree);
 
     // Check all pending loads to see if any batch is complete
     for (const [requestId, pending] of this.pendingLoads) {
@@ -1000,23 +1035,10 @@ export class BFSEngine {
 
   /**
    * Find a node by path in the tree.
+   * Uses O(1) index lookup instead of O(n) recursive search.
    */
   private findNode(targetPath: string): WorkerFileNode | null {
-    function search(nodes: WorkerFileNode[]): WorkerFileNode | null {
-      for (const node of nodes) {
-        if (node.path === targetPath) {
-          return node;
-        }
-        if (targetPath.startsWith(`${node.path}/`) && node.children) {
-          const found = search(node.children);
-          if (found) {
-            return found;
-          }
-        }
-      }
-      return null;
-    }
-    return search(this.tree);
+    return this.pathIndex.get(targetPath) ?? null;
   }
 
   /**

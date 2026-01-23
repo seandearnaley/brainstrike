@@ -26,15 +26,19 @@ export const DirectoryStatus: React.FC<{
 const FilterChip: React.FC<{
   label: string;
   value: string;
-  icon?: React.ReactNode;
-  variant?: 'include' | 'exclude' | 'search' | 'regex';
-}> = React.memo(({ label, value, icon, variant = 'include' }) => {
+  icon?: React.ReactNode | undefined;
+  variant?: 'include' | 'exclude' | 'search' | 'regex' | undefined;
+  disabled?: boolean | undefined;
+  onToggle?: (() => void) | undefined;
+}> = React.memo(({ label, value, icon, variant = 'include', disabled = false, onToggle }) => {
+  const isToggleable = !!onToggle;
+
   return (
     <Tooltip>
       <TooltipTrigger
         className={cn(
           'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium text-xs',
-          'cursor-help transition-colors duration-150',
+          'transition-colors duration-150',
           // Include filters: primary style (active)
           variant === 'include' && 'bg-primary text-primary-foreground',
           // Exclude filters: dark outline with ring in dark mode, muted in light
@@ -43,14 +47,23 @@ const FilterChip: React.FC<{
           // Search/quick filter: outline style
           variant === 'search' && 'bg-muted/50 text-muted-foreground ring-1 ring-border ring-inset',
           // Regex mode indicator
-          variant === 'regex' && 'bg-secondary text-secondary-foreground'
+          variant === 'regex' && 'bg-secondary text-secondary-foreground',
+          // Disabled state: reduced opacity and strikethrough
+          disabled && 'opacity-50',
+          // Interactive state for toggleable chips
+          isToggleable ? 'cursor-pointer hover:ring-2 hover:ring-primary/50' : 'cursor-help'
         )}
+        onClick={onToggle}
+        type="button"
       >
         {icon}
-        <span>{value}</span>
+        <span className={cn(disabled && 'line-through')}>{value}</span>
       </TooltipTrigger>
       <TooltipContent>
-        <p>{`${label}: ${value}`}</p>
+        <p>
+          {`${label}: ${value}`}
+          {isToggleable && (disabled ? ' (click to enable)' : ' (click to disable)')}
+        </p>
       </TooltipContent>
     </Tooltip>
   );
@@ -61,49 +74,66 @@ export const FilterStatus: React.FC<{
   excludeFilters: string[];
   useRegex: boolean;
   quickFilter: string;
-}> = React.memo(({ includeFilters, excludeFilters, useRegex, quickFilter }) => {
-  const hasFilters = includeFilters.length > 0 || excludeFilters.length > 0 || quickFilter;
+  disabledIncludeFilters?: ReadonlySet<string>;
+  disabledExcludeFilters?: ReadonlySet<string>;
+  onToggleFilter?: (filter: string, type: 'include' | 'exclude') => void;
+}> = React.memo(
+  ({
+    includeFilters,
+    excludeFilters,
+    useRegex,
+    quickFilter,
+    disabledIncludeFilters,
+    disabledExcludeFilters,
+    onToggleFilter,
+  }) => {
+    const hasFilters = includeFilters.length > 0 || excludeFilters.length > 0 || quickFilter;
 
-  if (!hasFilters) {
-    return null;
+    if (!hasFilters) {
+      return null;
+    }
+
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 px-2 py-2">
+        {includeFilters.map((filter) => (
+          <FilterChip
+            disabled={disabledIncludeFilters?.has(filter) ?? false}
+            icon={<Check className="h-3 w-3" />}
+            key={`include-${filter}`}
+            label={FileExplorerStrings.status.includeFilters}
+            onToggle={onToggleFilter ? () => onToggleFilter(filter, 'include') : undefined}
+            value={filter}
+            variant="include"
+          />
+        ))}
+        {excludeFilters.map((filter) => (
+          <FilterChip
+            disabled={disabledExcludeFilters?.has(filter) ?? false}
+            icon={<X className="h-3 w-3" />}
+            key={`exclude-${filter}`}
+            label={FileExplorerStrings.status.excludeFilters}
+            onToggle={onToggleFilter ? () => onToggleFilter(filter, 'exclude') : undefined}
+            value={filter}
+            variant="exclude"
+          />
+        ))}
+        {quickFilter && (
+          <FilterChip
+            icon={<Search className="h-3 w-3" />}
+            label={FileExplorerStrings.status.quickFilter}
+            value={quickFilter}
+            variant="search"
+          />
+        )}
+        {useRegex && (
+          <FilterChip
+            icon={<Code className="h-3 w-3" />}
+            label={FileExplorerStrings.status.regexMode}
+            value="regex"
+            variant="regex"
+          />
+        )}
+      </div>
+    );
   }
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b px-2 py-2">
-      {includeFilters.map((filter) => (
-        <FilterChip
-          icon={<Check className="h-3 w-3" />}
-          key={`include-${filter}`}
-          label={FileExplorerStrings.status.includeFilters}
-          value={filter}
-          variant="include"
-        />
-      ))}
-      {excludeFilters.map((filter) => (
-        <FilterChip
-          icon={<X className="h-3 w-3" />}
-          key={`exclude-${filter}`}
-          label={FileExplorerStrings.status.excludeFilters}
-          value={filter}
-          variant="exclude"
-        />
-      ))}
-      {quickFilter && (
-        <FilterChip
-          icon={<Search className="h-3 w-3" />}
-          label={FileExplorerStrings.status.quickFilter}
-          value={quickFilter}
-          variant="search"
-        />
-      )}
-      {useRegex && (
-        <FilterChip
-          icon={<Code className="h-3 w-3" />}
-          label={FileExplorerStrings.status.regexMode}
-          value="regex"
-          variant="regex"
-        />
-      )}
-    </div>
-  );
-});
+);

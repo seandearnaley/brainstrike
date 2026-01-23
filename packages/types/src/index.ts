@@ -16,6 +16,7 @@ export * from './file-explorer-strings';
 export * from './file-explorer-types';
 // export * from "./git-types"; // Removed as git-types.ts is deleted
 export * from './file-system'; // Added export for file system types
+export * from './view-filter-preset-types';
 
 // Explicitly re-export the classes as values
 export {

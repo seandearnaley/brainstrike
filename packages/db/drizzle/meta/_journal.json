@@ -43,6 +43,13 @@
       "when": 1767873074498,
       "tag": "0005_lazy_ghost_rider",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1769187466586,
+      "tag": "0006_new_speed",
+      "breakpoints": true
     }
   ]
 }

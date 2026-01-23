@@ -1,6 +1,6 @@
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { FileExplorerStrings } from '@brainstrike/types';
-import { act, fireEvent, screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import WorkspaceSettings from '../workspace-settings';
@@ -28,7 +28,7 @@ describe('WorkspaceSettings', () => {
     expect(screen.getByRole('button')).toBeInTheDocument();
   });
 
-  it('opens popover on button click', async () => {
+  it('opens dialog on button click', async () => {
     act(() => {
       renderWithProviders(<WorkspaceSettings {...defaultProps} />);
     });
@@ -37,35 +37,18 @@ describe('WorkspaceSettings', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('displays filter error when present', () => {
-    const props = {
-      ...defaultProps,
-      filterError: 'Invalid regex pattern',
-    };
-    act(() => {
-      renderWithProviders(<WorkspaceSettings {...props} />);
-    });
-    const button = screen.getByRole('button');
-    fireEvent.click(button);
-    expect(screen.getByText('Invalid regex pattern')).toBeInTheDocument();
-  });
-
-  it('handles regex toggle', async () => {
+  it('shows workspace settings title in dialog', async () => {
     act(() => {
       renderWithProviders(<WorkspaceSettings {...defaultProps} />);
     });
     const button = screen.getByRole('button');
     await userEvent.click(button);
 
-    const regexSwitch = screen.getByRole('switch', { name: /Use Regex/i });
-    await userEvent.click(regexSwitch);
-
-    const applyButton = screen.getByRole('button', { name: /Apply Settings/i });
-    await userEvent.click(applyButton);
-
-    // Just verify the callback was called (integration test would verify state changes)
-    expect(defaultProps.onFilterChange).toHaveBeenCalled();
+    expect(screen.getByText('Workspace Settings')).toBeInTheDocument();
   });
+
+  // Note: View Filter Preset dropdown was moved to the toolbar
+  // See toolbar-preset-selector.test.tsx for preset dropdown tests
 
   it('does not render include-project-tree toggle inside workspace settings', async () => {
     act(() => {
@@ -102,7 +85,7 @@ describe('WorkspaceSettings', () => {
     ).toBeInTheDocument();
   });
 
-  it('applies settings and closes popover', async () => {
+  it('applies settings and closes dialog', async () => {
     const mockOnFilterChange = vi.fn();
     act(() => {
       renderWithProviders(
@@ -113,10 +96,6 @@ describe('WorkspaceSettings', () => {
     const button = screen.getByRole('button');
     await userEvent.click(button);
 
-    // Modify some settings
-    const regexSwitch = screen.getByRole('switch', { name: /Use Regex/i });
-    await userEvent.click(regexSwitch);
-
     // Click apply
     const applyButton = screen.getByRole('button', { name: /Apply Settings/i });
     await userEvent.click(applyButton);
@@ -124,10 +103,41 @@ describe('WorkspaceSettings', () => {
     // Verify settings were applied
     expect(mockOnFilterChange).toHaveBeenCalled();
 
-    // Verify popover is closed (wait for async operations to complete)
+    // Verify dialog is closed (wait for async operations to complete)
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 100));
     });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('shows forget stored folders button when handler is provided', async () => {
+    const mockForgetFolders = vi.fn();
+    renderWithProviders(
+      <WorkspaceSettings
+        {...defaultProps}
+        hasStoredFolders={true}
+        onForgetStoredFolders={mockForgetFolders}
+      />
+    );
+    const button = screen.getByRole('button');
+    await userEvent.click(button);
+
+    expect(screen.getByText('Forget all folders')).toBeInTheDocument();
+  });
+
+  it('disables forget folders button when no stored folders', async () => {
+    const mockForgetFolders = vi.fn();
+    renderWithProviders(
+      <WorkspaceSettings
+        {...defaultProps}
+        hasStoredFolders={false}
+        onForgetStoredFolders={mockForgetFolders}
+      />
+    );
+    const button = screen.getByRole('button');
+    await userEvent.click(button);
+
+    const forgetButton = screen.getByText('Forget all folders');
+    expect(forgetButton.closest('button')).toBeDisabled();
   });
 });

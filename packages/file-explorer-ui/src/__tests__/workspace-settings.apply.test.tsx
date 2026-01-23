@@ -15,7 +15,6 @@ describe('ConfigDialogContent apply settings', () => {
     render(
       <Dialog open>
         <ConfigDialogContent
-          filterError="test"
           inlineFixtureSetting={{ available: true, loading: false }}
           onClose={onClose}
           onFilterChange={onFilterChange}
@@ -30,8 +29,10 @@ describe('ConfigDialogContent apply settings', () => {
             useRegex: false,
             folderSummaryThreshold: 5,
             devInlineFixtureEnabled: false,
+            viewFilterPresetId: null,
           }}
           setUseRegex={vi.fn()}
+          setViewFilterPresetId={vi.fn()}
         />
       </Dialog>
     );

@@ -11,9 +11,7 @@ import { Settings } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
-import FileExtensionFilter from './file-extension-filter';
 import InlineFixtureSetting from './inline-fixture-setting';
-import UseRegexSetting from './use-regex-setting';
 
 // Types
 interface FileExplorerSettings {
@@ -22,6 +20,7 @@ interface FileExplorerSettings {
   useRegex: boolean;
   folderSummaryThreshold: number;
   devInlineFixtureEnabled: boolean;
+  viewFilterPresetId: string | null;
 }
 
 interface WorkspaceSettingsProps {
@@ -59,19 +58,19 @@ export const createInlineFixtureToggleHandler =
 
 // Inner dialog is render-only (no hooks) to avoid HMR hook-order issues
 const ConfigDialogContent: React.FC<{
-  filterError: string | null;
-  onFilterChange: (i: string[], e: string[], r: boolean) => void;
   onClose: () => void;
   settings: FileExplorerSettings;
   onSettingsChange: <K extends keyof FileExplorerSettings>(
     key: K,
     value: FileExplorerSettings[K]
   ) => void;
-  setUseRegex: (v: boolean) => void;
   setFilters: (i: string[], e: string[]) => void;
+  setUseRegex: (v: boolean) => void;
   setFolderSummaryThreshold: (v: number) => void;
   persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
   setDevInlineFixtureEnabled: (v: boolean) => void;
+  setViewFilterPresetId: (id: string | null) => void;
+  onFilterChange: (i: string[], e: string[], r: boolean) => void;
   inlineFixtureSetting?: {
     available: boolean;
     loading: boolean;
@@ -79,16 +78,16 @@ const ConfigDialogContent: React.FC<{
   hasStoredFolders?: boolean;
   onForgetStoredFolders?: () => void;
 }> = ({
-  filterError,
-  onFilterChange,
   onClose,
   settings,
   onSettingsChange,
-  setUseRegex,
   setFilters,
+  setUseRegex,
   setFolderSummaryThreshold,
   persistPatch,
   setDevInlineFixtureEnabled,
+  setViewFilterPresetId,
+  onFilterChange,
   inlineFixtureSetting,
   hasStoredFolders,
   onForgetStoredFolders,
@@ -100,12 +99,14 @@ const ConfigDialogContent: React.FC<{
       excludeFilters: e,
       folderSummaryThreshold: f,
       devInlineFixtureEnabled: fixtureEnabled,
+      viewFilterPresetId: presetId,
     } = settings;
 
     setUseRegex(r);
     setFilters(i, e);
     setFolderSummaryThreshold(f);
     setDevInlineFixtureEnabled(fixtureEnabled);
+    setViewFilterPresetId(presetId);
 
     onFilterChange(i, e, r);
 
@@ -117,6 +118,7 @@ const ConfigDialogContent: React.FC<{
         excludeFilters: e,
         folderSummaryThreshold: f,
         devInlineFixtureEnabled: fixtureEnabled,
+        viewFilterPresetId: presetId,
       });
     } catch {}
 
@@ -148,26 +150,6 @@ const ConfigDialogContent: React.FC<{
         </DialogDescription>
       </div>
       <div className="@container flex flex-col gap-4 bg-card p-4 text-foreground">
-        <FileExtensionFilter
-          excludeFilters={settings.excludeFilters}
-          filterError={filterError}
-          includeFilters={settings.includeFilters}
-          onDraftChange={(newInclude: string[], newExclude: string[]) => {
-            onSettingsChange('includeFilters', newInclude);
-            onSettingsChange('excludeFilters', newExclude);
-          }}
-          onFilterChange={(newInclude: string[], newExclude: string[]) => {
-            onSettingsChange('includeFilters', newInclude);
-            onSettingsChange('excludeFilters', newExclude);
-          }}
-          useRegex={settings.useRegex}
-        />
-        <div className="grid @md/settings:grid-cols-2 gap-4">
-          <UseRegexSetting
-            checked={settings.useRegex}
-            onChange={(checked) => onSettingsChange('useRegex', checked)}
-          />
-        </div>
         {inlineFixtureSetting?.available && (
           <InlineFixtureSetting
             checked={settings.devInlineFixtureEnabled}
@@ -216,17 +198,19 @@ const SettingsDialogContainer: React.FC<
       useRegex: boolean;
       folderSummaryThreshold: number;
       devInlineFixtureEnabled: boolean;
+      viewFilterPresetId: string | null;
     };
     actions: {
       setUseRegex: (v: boolean) => void;
       setFilters: (i: string[], e: string[]) => void;
       setFolderSummaryThreshold: (v: number) => void;
       setDevInlineFixtureEnabled: (v: boolean) => void;
+      setViewFilterPresetId: (id: string | null) => void;
     };
     persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
   }
 > = ({
-  filterError,
+  filterError: _filterError,
   onFilterChange,
   selectors,
   actions,
@@ -242,6 +226,7 @@ const SettingsDialogContainer: React.FC<
     useRegex: selectors.useRegex,
     folderSummaryThreshold: selectors.folderSummaryThreshold,
     devInlineFixtureEnabled: selectors.devInlineFixtureEnabled,
+    viewFilterPresetId: selectors.viewFilterPresetId,
   }));
 
   const handleSettingChange = useCallback(
@@ -263,6 +248,7 @@ const SettingsDialogContainer: React.FC<
       useRegex: selectors.useRegex ?? prev.useRegex,
       folderSummaryThreshold: selectors.folderSummaryThreshold ?? prev.folderSummaryThreshold,
       devInlineFixtureEnabled: selectors.devInlineFixtureEnabled ?? prev.devInlineFixtureEnabled,
+      viewFilterPresetId: selectors.viewFilterPresetId ?? prev.viewFilterPresetId,
     }));
   }, [
     isOpen,
@@ -271,6 +257,7 @@ const SettingsDialogContainer: React.FC<
     selectors.useRegex,
     selectors.folderSummaryThreshold,
     selectors.devInlineFixtureEnabled,
+    selectors.viewFilterPresetId,
   ]);
 
   return (
@@ -293,7 +280,6 @@ const SettingsDialogContainer: React.FC<
           data-testid="settings-dialog"
         >
           <ConfigDialogContent
-            filterError={filterError}
             hasStoredFolders={hasStoredFolders ?? false}
             onClose={() => setIsOpen(false)}
             onFilterChange={onFilterChange}
@@ -304,6 +290,7 @@ const SettingsDialogContainer: React.FC<
             setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
             settings={settings}
             setUseRegex={actions.setUseRegex}
+            setViewFilterPresetId={actions.setViewFilterPresetId}
             {...(onForgetStoredFolders ? { onForgetStoredFolders } : {})}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
           />
@@ -329,10 +316,12 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
       useRegex,
       folderSummaryThreshold,
       devInlineFixtureEnabled,
+      viewFilterPresetId,
       setUseRegex,
       setFilters,
       setFolderSummaryThreshold,
       setDevInlineFixtureEnabled,
+      setViewFilterPresetId,
     ] = store(
       (s) =>
         [
@@ -341,10 +330,12 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
           s.useRegex,
           s.folderSummaryThreshold,
           s.devInlineFixtureEnabled,
+          s.viewFilterPresetId,
           s.setUseRegex,
           s.setFilters,
           s.setFolderSummaryThreshold,
           s.setDevInlineFixtureEnabled,
+          s.setViewFilterPresetId,
         ] as const
     );
 
@@ -416,6 +407,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
           setFilters,
           setFolderSummaryThreshold,
           setDevInlineFixtureEnabled,
+          setViewFilterPresetId,
         }}
         filterError={filterError}
         onFilterChange={onFilterChange}
@@ -426,6 +418,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = React.memo(
           useRegex,
           folderSummaryThreshold,
           devInlineFixtureEnabled,
+          viewFilterPresetId,
         }}
         {...(typeof onForgetStoredFolders === 'function'
           ? { onForgetStoredFolders, hasStoredFolders }

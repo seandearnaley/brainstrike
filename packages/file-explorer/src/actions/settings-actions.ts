@@ -20,6 +20,8 @@ export interface SettingsActions {
   setFolderSummaryThreshold: (value: number) => void;
   setMaxSelectionCount: (count: number) => void; // Note: Moved from folder-state-actions
   setLastActiveTab: (tab: string) => void; // Note: Moved from folder-state-actions
+  setViewFilterPresetId: (presetId: string | null) => void;
+  toggleFilterEnabled: (filter: string, type: 'include' | 'exclude') => void;
 }
 
 export const createSettingsActions = (
@@ -96,5 +98,48 @@ export const createSettingsActions = (
 
   setLastActiveTab: (tab: string) => {
     set({ lastActiveTab: tab });
+  },
+
+  setViewFilterPresetId: (presetId: string | null) => {
+    set((state: FileExplorerState) => {
+      const currentFolderId = state.currentFolderId;
+      if (!currentFolderId) {
+        return { viewFilterPresetId: presetId };
+      }
+
+      const folderState = state.folderStates[currentFolderId];
+      if (!folderState) {
+        return { viewFilterPresetId: presetId };
+      }
+
+      return {
+        viewFilterPresetId: presetId,
+        folderStates: {
+          ...state.folderStates,
+          [currentFolderId]: {
+            ...folderState,
+            viewFilterPresetId: presetId,
+          },
+        },
+      };
+    });
+  },
+
+  toggleFilterEnabled: (filter: string, type: 'include' | 'exclude') => {
+    set((state: FileExplorerState) => {
+      const targetSet =
+        type === 'include' ? state.disabledIncludeFilters : state.disabledExcludeFilters;
+      const newSet = new Set(targetSet);
+
+      if (newSet.has(filter)) {
+        newSet.delete(filter);
+      } else {
+        newSet.add(filter);
+      }
+
+      return type === 'include'
+        ? { disabledIncludeFilters: newSet }
+        : { disabledExcludeFilters: newSet };
+    });
   },
 });

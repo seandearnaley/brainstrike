@@ -30,12 +30,14 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileExplorerSidebar from './file-explorer-sidebar';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
+import { FileFilterBar } from './file-filter-bar';
 import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
 import { useRuleMaterialization } from './hooks/use-rule-materialization';
 import { RestorationStatus } from './restoration-status';
 import { SelectionCounter } from './selection-counter';
 import { SelectionModeBadge } from './selection-mode-badge';
 import { SelectionRulesEditor } from './selection-rules-editor';
+import { ToolbarPresetSelector } from './toolbar-preset-selector';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
@@ -130,6 +132,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setMaxSelectionCount,
     devInlineFixtureEnabled,
     setDevInlineFixtureEnabled,
+    disabledIncludeFilters,
+    disabledExcludeFilters,
+    toggleFilterEnabled,
   ] = store(
     (s) =>
       [
@@ -142,6 +147,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.setMaxSelectionCount,
         s.devInlineFixtureEnabled,
         s.setDevInlineFixtureEnabled,
+        s.disabledIncludeFilters,
+        s.disabledExcludeFilters,
+        s.toggleFilterEnabled,
       ] as const
   );
 
@@ -519,36 +527,50 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   return (
     <FileExplorerErrorBoundary>
       <div className="grid h-full grid-rows-[auto_1fr_auto]">
-        {/* Fixed Header */}
+        {/* Fixed Header - Toolbar and filter controls */}
         <div className="shrink-0">
           <FileExplorerToolbar
-            clearQuickFilter={clearQuickFilter}
             filterError={filterError}
             hasStoredFolders={storedFolders.length > 0}
             isLoading={isLoading}
             onDirectorySelect={handleDirectorySelect}
             onFilterChange={handleFilterChange}
             onForgetStoredFolders={clearStoredHandles}
-            quickFilter={quickFilter}
-            rootDirectoryHandle={rootDirectoryHandle}
-            setQuickFilter={setQuickFilter}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
-          />
-          <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
-          <FilterStatus
-            excludeFilters={excludeFilters}
-            includeFilters={includeFilters}
-            quickFilter={quickFilter}
-            useRegex={useRegex}
           />
           {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
           <RestorationStatus
             isRestoring={isRestoringExpandedPaths}
             progress={restorationProgress}
           />
+          {/* Current directory indicator */}
+          <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
+          {/* Filter section: Preset selector + Filter pills (grouped together, no divider) */}
+          {rootDirectoryHandle && (
+            <div className="space-y-2 border-b px-2 py-2">
+              <ToolbarPresetSelector
+                className="@[300px]:h-9 h-8 w-full"
+                onFilterChange={handleFilterChange}
+              />
+              <FilterStatus
+                disabledExcludeFilters={disabledExcludeFilters}
+                disabledIncludeFilters={disabledIncludeFilters}
+                excludeFilters={excludeFilters}
+                includeFilters={includeFilters}
+                onToggleFilter={toggleFilterEnabled}
+                quickFilter={quickFilter}
+                useRegex={useRegex}
+              />
+              <FileFilterBar
+                onChange={setQuickFilter}
+                onClear={clearQuickFilter}
+                value={quickFilter}
+              />
+            </div>
+          )}
         </div>
 
-        {/* Scrollable Middle Content */}
+        {/* Scrollable Middle Content - File Tree */}
         <div className="relative min-h-0 flex-1 overflow-hidden">
           {/* Fixed buttons overlay - outside scrollable area */}
           {rootDirectoryHandle && (
@@ -587,9 +609,10 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           </div>
         </div>
 
-        {/* Fixed Footer */}
-        <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent px-4 py-3">
-          <div className="flex items-center justify-between gap-2">
+        {/* Fixed Footer - Action buttons */}
+        <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent">
+          {/* Action buttons row */}
+          <div className="flex items-center justify-between gap-2 px-4 py-3">
             <ActionButtons
               addMultipleSelectedFiles={addMultipleSelectedFiles}
               cancelSelectAll={cancelSelectAll}

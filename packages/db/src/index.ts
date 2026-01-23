@@ -55,7 +55,15 @@ export { FileChunkRepository } from './repositories/file-chunk-repository.js';
 // Repository exports
 export * from './repositories/index.js';
 // Schema types for embedding cache (BST-170)
-export type { EmbeddingCacheEntry, NewEmbeddingCacheEntry } from './schema/index.js';
+// Schema types for view filter presets
+export type {
+  EmbeddingCacheEntry,
+  NewEmbeddingCacheEntry,
+  NewViewFilterPreset,
+  ViewFilterPreset,
+} from './schema/index.js';
+// Schema table for view filter presets (needed for live queries)
+export { viewFilterPresets } from './schema/index.js';
 // Search utilities (RRF fusion for hybrid search)
 export * from './search/index.js';
 export type {

@@ -24,6 +24,7 @@ export const saveFolderState = (
     maxSelectionCount: state.maxSelectionCount,
     lastAccessed: now,
     lastActiveTab: state.lastActiveTab || 'files',
+    viewFilterPresetId: state.viewFilterPresetId,
   };
 
   return {
@@ -75,4 +76,5 @@ export const createNewFolderState = (now = Date.now()): FolderState => ({
   maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
   lastActiveTab: 'files',
   lastAccessed: now,
+  viewFilterPresetId: null,
 });
