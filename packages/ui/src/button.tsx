@@ -1,6 +1,6 @@
 import { Slot } from '@radix-ui/react-slot';
 import { cva, type VariantProps } from 'class-variance-authority';
-import * as React from 'react';
+import type * as React from 'react';
 
 import { cn } from './lib/utils';
 
@@ -39,22 +39,36 @@ export interface ButtonProps
    * @default true
    */
   depress?: boolean;
+  /**
+   * Ref forwarded to the underlying button element.
+   * React 19+: ref is passed as a prop instead of using forwardRef.
+   */
+  ref?: React.Ref<HTMLButtonElement>;
 }
 
-const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, depress = true, ...props }, ref) => {
-    const Comp = asChild ? Slot : 'button';
-    return (
-      <Comp
-        className={cn(buttonVariants({ variant, size, className }), {
-          'kinetic-depress': depress,
-        })}
-        ref={ref}
-        {...props}
-      />
-    );
-  }
-);
-Button.displayName = 'Button';
+/**
+ * Button component with variant support and optional kinetic depress effect.
+ * React 19+: Uses ref as a prop pattern instead of forwardRef.
+ */
+function Button({
+  className,
+  variant,
+  size,
+  asChild = false,
+  depress = true,
+  ref,
+  ...props
+}: ButtonProps): React.JSX.Element {
+  const Comp = asChild ? Slot : 'button';
+  return (
+    <Comp
+      className={cn(buttonVariants({ variant, size, className }), {
+        'kinetic-depress': depress,
+      })}
+      ref={ref}
+      {...props}
+    />
+  );
+}
 
 export { Button, buttonVariants };
