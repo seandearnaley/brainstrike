@@ -19,20 +19,12 @@ vi.mock('../file-explorer-toolbar', () => ({
   FileExplorerToolbar: ({
     onDirectorySelect,
     onFilterChange,
-    selectedCount,
-    maxSelectionCount,
   }: {
     onDirectorySelect: () => void;
     onFilterChange: (include: string[], exclude: string[], useRegex: boolean) => void;
-    selectedCount: number;
-    maxSelectionCount: number;
   }) => (
     <div data-testid="toolbar">
       Toolbar
-      <div>
-        <span data-testid="selection-count">{selectedCount}</span>/
-        <span data-testid="selection-max">{maxSelectionCount}</span>
-      </div>
       <button onClick={onDirectorySelect} type="button">
         Select Directory
       </button>

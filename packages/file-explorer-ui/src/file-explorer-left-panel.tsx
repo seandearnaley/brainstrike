@@ -33,6 +33,7 @@ import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
 import { useRuleMaterialization } from './hooks/use-rule-materialization';
 import { RestorationStatus } from './restoration-status';
+import { SelectionCounter } from './selection-counter';
 import { SelectionModeBadge } from './selection-mode-badge';
 import { SelectionRulesEditor } from './selection-rules-editor';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
@@ -525,14 +526,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             filterError={filterError}
             hasStoredFolders={storedFolders.length > 0}
             isLoading={isLoading}
-            maxSelectionCount={maxSelectionCount}
             onDirectorySelect={handleDirectorySelect}
             onFilterChange={handleFilterChange}
             onForgetStoredFolders={clearStoredHandles}
-            onMaxSelectionCountChange={setMaxSelectionCount}
             quickFilter={quickFilter}
             rootDirectoryHandle={rootDirectoryHandle}
-            selectedCount={selectedCount}
             setQuickFilter={setQuickFilter}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
           />
@@ -607,12 +605,19 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}
             />
-            {/* Selection mode toggle */}
-            <SelectionModeBadge
-              onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
-              rulesEditorAvailable={true}
-              show={!!rootDirectoryHandle}
-            />
+            {/* Selection controls - mode toggle and count */}
+            <div className="flex items-center gap-2">
+              <SelectionModeBadge
+                onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
+                rulesEditorAvailable={true}
+                show={!!rootDirectoryHandle}
+              />
+              <SelectionCounter
+                maxSelectionCount={maxSelectionCount}
+                onMaxSelectionCountChange={setMaxSelectionCount}
+                selectedCount={selectedCount}
+              />
+            </div>
           </div>
         </div>
 
