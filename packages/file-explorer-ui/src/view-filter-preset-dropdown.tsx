@@ -15,6 +15,7 @@ import type {
 } from '@brainstrike/types';
 import { PRESET_ICON_OPTIONS } from '@brainstrike/types';
 import { Button, cn, Input, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import {
   Box,
   Check,
@@ -36,7 +37,7 @@ import {
   X,
 } from 'lucide-react';
 import type React from 'react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 // Map icon names to Lucide components
 const ICON_MAP: Record<ViewFilterPresetIcon, React.ElementType> = {
@@ -57,6 +58,8 @@ const ICON_MAP: Record<ViewFilterPresetIcon, React.ElementType> = {
   'flask-conical': FlaskConical,
   'test-tube': FlaskConical,
 };
+
+const logger = createLogger('ViewFilterPresetDropdown');
 
 interface ViewFilterPresetDropdownProps {
   /** Available presets */
@@ -139,16 +142,11 @@ export function ViewFilterPresetDropdown({
     setNewIcon('file');
   }, []);
 
-  // Handle dropdown open/close - reset state when closing, focus when opening
+  // Handle dropdown open/close - reset state when closing
   const handleOpenChange = useCallback(
     (open: boolean) => {
       setIsOpen(open);
-      if (open) {
-        // Focus search input after a microtask to ensure DOM is ready
-        queueMicrotask(() => {
-          searchInputRef.current?.focus();
-        });
-      } else {
+      if (!open) {
         // Reset all state when closing
         setSearchFilter('');
         setEditingId(null);
@@ -158,6 +156,18 @@ export function ViewFilterPresetDropdown({
     },
     [resetCreateForm]
   );
+
+  // Focus search input when dropdown opens (using useEffect to handle mount/unmount properly)
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    // Use requestAnimationFrame to ensure DOM is ready after render
+    const rafId = requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [isOpen]);
 
   // Start editing a preset - initialize edit form with preset values
   const startEditing = useCallback((preset: ViewFilterPreset) => {
@@ -188,11 +198,15 @@ export function ViewFilterPresetDropdown({
       useRegex: newUseRegex,
     };
 
-    const created = await onCreate(input);
-    onSelect(created);
-    setIsCreating(false);
-    setIsOpen(false);
-    resetCreateForm();
+    try {
+      const created = await onCreate(input);
+      onSelect(created);
+      setIsCreating(false);
+      setIsOpen(false);
+      resetCreateForm();
+    } catch (error) {
+      logger.error('Failed to create preset', { error, name: input.name });
+    }
   }, [
     newName,
     newIcon,
@@ -223,11 +237,15 @@ export function ViewFilterPresetDropdown({
       useRegex: editUseRegex,
     };
 
-    const updated = await onUpdate(editingId, input);
-    if (updated && selectedPreset?.id === editingId) {
-      onSelect(updated);
+    try {
+      const updated = await onUpdate(editingId, input);
+      if (updated && selectedPreset?.id === editingId) {
+        onSelect(updated);
+      }
+      setEditingId(null);
+    } catch (error) {
+      logger.error('Failed to update preset', { error, id: editingId });
     }
-    setEditingId(null);
   }, [
     editingId,
     editName,
@@ -242,16 +260,20 @@ export function ViewFilterPresetDropdown({
 
   const handleDelete = useCallback(
     async (id: string) => {
-      const deleted = await onDelete(id);
-      if (deleted) {
-        setEditingId(null);
-        // If deleted preset was selected, select first available
-        if (selectedPreset?.id === id && presets.length > 1) {
-          const next = presets.find((p) => p.id !== id);
-          if (next) {
-            onSelect(next);
+      try {
+        const deleted = await onDelete(id);
+        if (deleted) {
+          setEditingId(null);
+          // If deleted preset was selected, select first available
+          if (selectedPreset?.id === id && presets.length > 1) {
+            const next = presets.find((p) => p.id !== id);
+            if (next) {
+              onSelect(next);
+            }
           }
         }
+      } catch (error) {
+        logger.error('Failed to delete preset', { error, id });
       }
     },
     [onDelete, selectedPreset, presets, onSelect]
@@ -327,11 +349,14 @@ export function ViewFilterPresetDropdown({
                 <div className="grid grid-cols-5 gap-2">
                   {PRESET_ICON_OPTIONS.map(({ name, label }) => {
                     const IconComponent = getIcon(name);
+                    const isSelected = newIcon === name;
                     return (
                       <button
+                        aria-label={`Select ${label} icon${isSelected ? ' (selected)' : ''}`}
+                        aria-pressed={isSelected}
                         className={cn(
                           'flex h-7 w-full items-center justify-center rounded border transition-all',
-                          newIcon === name
+                          isSelected
                             ? 'border-primary bg-primary text-primary-foreground'
                             : 'bg-background hover:bg-muted'
                         )}
@@ -453,11 +478,14 @@ export function ViewFilterPresetDropdown({
                       <div className="grid grid-cols-5 gap-1">
                         {PRESET_ICON_OPTIONS.map(({ name, label }) => {
                           const IconComponent = getIcon(name);
+                          const isSelected = editIcon === name;
                           return (
                             <button
+                              aria-label={`Select ${label} icon${isSelected ? ' (selected)' : ''}`}
+                              aria-pressed={isSelected}
                               className={cn(
                                 'flex size-6 items-center justify-center rounded border transition-all',
-                                editIcon === name
+                                isSelected
                                   ? 'border-primary bg-primary text-primary-foreground'
                                   : 'bg-background hover:bg-muted'
                               )}

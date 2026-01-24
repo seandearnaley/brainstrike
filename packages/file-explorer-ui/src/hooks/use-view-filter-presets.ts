@@ -139,13 +139,14 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
   }, [repository]);
 
   // Sync during render: trigger fetch when repository changes (Electron path)
-  // This replaces useEffect and follows React best practices for data sync
+  // This pattern is intentional - React 18+ supports setState during render for derived state
+  // The ref tracking ensures we only fetch once per repository instance change
   if (!useDrizzlePath && repository && lastFetchedRepoRef.current !== repository) {
     lastFetchedRepoRef.current = repository;
     void fetchPresetsFromRepo();
   }
 
-  // For Drizzle path, ensure repoLoading is false
+  // For Drizzle path, ensure repoLoading is false (synchronous state derivation)
   if (useDrizzlePath && repoLoading) {
     setRepoLoading(false);
   }
