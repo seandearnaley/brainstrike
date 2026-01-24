@@ -10,9 +10,15 @@ export default defineConfig({
   clean: true,
   target: 'es2020',
   platform: 'browser',
-  noExternal: ['xxhash-wasm', 'workerpool'],
+  // Bundle heavy dependencies into the worker to avoid ESM resolution issues
+  noExternal: ['xxhash-wasm', 'workerpool', 'tiktoken'],
   external: ['worker_threads', 'os', 'child_process'],
   loader: {
     '.wasm': 'file',
+  },
+  esbuildOptions(options) {
+    // Ensure CJS packages are properly converted to ESM for browser
+    options.mainFields = ['browser', 'module', 'main'];
+    options.conditions = ['browser', 'import', 'default'];
   },
 });
