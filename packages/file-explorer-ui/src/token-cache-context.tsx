@@ -303,16 +303,41 @@ export function TokenCacheProvider({
     };
   }, [hasher]);
 
-  // Initialize worker pool
+  // Initialize worker pool with warmup handshake
+  // Only sets workerReady=true after the worker successfully executes countTokens
   useEffect(() => {
     const url = workerUrl ?? new URL('@brainstrike/token-cache/worker', import.meta.url).href;
     logger.debug('TokenCacheProvider: creating worker pool', { url });
     const pool = createTokenCacheWorkerPool(url);
     setWorkerPool(pool as WorkerPool);
-    setWorkerReady(true);
-    logger.debug('TokenCacheProvider: workerReady set to true');
+
+    let cancelled = false;
+
+    // Warm-up handshake: verify worker can actually execute before marking ready
+    // This prevents isOperational from becoming true before the worker is usable
+    const runWarmup = async () => {
+      try {
+        const warmupRequest: TokenCountRequest = {
+          id: '__warmup__',
+          content: '',
+          mode: 'heuristic', // Use heuristic for fastest warmup
+        };
+        await (pool as unknown as WorkerPool).exec('countTokens', [warmupRequest]);
+        if (!cancelled) {
+          setWorkerReady(true);
+          logger.debug('TokenCacheProvider: worker warmup succeeded, workerReady=true');
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setWorkerReady(false);
+          logger.warn('TokenCacheProvider: worker warmup failed', { err });
+        }
+      }
+    };
+    void runWarmup();
 
     return () => {
+      cancelled = true;
       logger.debug('TokenCacheProvider: cleaning up worker pool');
       setWorkerReady(false);
       void pool.terminate();

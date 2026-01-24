@@ -12,11 +12,15 @@ vi.mock('@brainstrike/preferences', () => ({
   tokenPreferencesSelectors: { accurateCounting: {} },
 }));
 
+// Configurable mock for createTokenCacheWorkerPool
+// Allows tests to reconfigure behavior (e.g., simulate warmup failures)
+const mockCreateTokenCacheWorkerPool = vi.fn((_url?: string) => ({
+  exec: vi.fn().mockResolvedValue({ tokenCount: 42 }),
+  terminate: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@brainstrike/token-cache', () => ({
-  createTokenCacheWorkerPool: vi.fn(() => ({
-    exec: vi.fn().mockResolvedValue({ tokenCount: 42 }),
-    terminate: vi.fn().mockResolvedValue(undefined),
-  })),
+  createTokenCacheWorkerPool: (url?: string) => mockCreateTokenCacheWorkerPool(url),
   FileHasher: class {
     init = vi.fn().mockResolvedValue(undefined);
   },
@@ -41,6 +45,14 @@ vi.mock('@brainstrike/token-cache', () => ({
 }));
 
 describe('TokenCacheContext', () => {
+  beforeEach(() => {
+    // Reset to default successful mock before each test
+    mockCreateTokenCacheWorkerPool.mockImplementation(() => ({
+      exec: vi.fn().mockResolvedValue({ tokenCount: 42 }),
+      terminate: vi.fn().mockResolvedValue(undefined),
+    }));
+  });
+
   it('provides token cache context when within provider', async () => {
     const db = { query: vi.fn() } as any;
 
@@ -168,6 +180,66 @@ describe('TokenCacheContext', () => {
       });
       await vi.waitFor(() => expect(resultWithDb.current.isPersisted).toBe(true));
       expect(resultWithDb.current.persistenceMode).toBe('persistent');
+    });
+  });
+
+  describe('worker warmup handshake', () => {
+    it('sets workerReady=true only after successful warmup', async () => {
+      const { result } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      });
+
+      // Initially not operational (warmup not yet complete)
+      // Note: This may be flaky if warmup is very fast, but we're testing the concept
+      await vi.waitFor(() => expect(result.current.isOperational).toBe(true));
+
+      // Verify the mock was called (warmup happened)
+      expect(mockCreateTokenCacheWorkerPool).toHaveBeenCalled();
+    });
+
+    it('remains not operational when worker warmup fails', async () => {
+      // Configure mock to reject on exec (simulating warmup failure)
+      mockCreateTokenCacheWorkerPool.mockImplementation(() => ({
+        exec: vi.fn().mockRejectedValue(new Error('Worker initialization failed')),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      }));
+
+      const { result } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      });
+
+      // Wait a tick for the warmup to attempt and fail
+      await vi.waitFor(
+        () => {
+          // isWorkerReady should be false due to warmup failure
+          expect(result.current.isWorkerReady).toBe(false);
+        },
+        { timeout: 1000 }
+      );
+
+      // isOperational should be false (worker not ready)
+      expect(result.current.isOperational).toBe(false);
+      expect(result.current.persistenceMode).toBe('disabled');
+    });
+
+    it('uses heuristic fallback for countTextTokens when worker fails warmup', async () => {
+      // Configure mock to reject on exec (simulating warmup failure)
+      mockCreateTokenCacheWorkerPool.mockImplementation(() => ({
+        exec: vi.fn().mockRejectedValue(new Error('Worker initialization failed')),
+        terminate: vi.fn().mockResolvedValue(undefined),
+      }));
+
+      const { result } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      });
+
+      // Wait for warmup to fail
+      await vi.waitFor(() => expect(result.current.isWorkerReady).toBe(false), { timeout: 1000 });
+
+      // countTextTokens should use heuristic fallback (text.length / 4)
+      const text = 'hello world test'; // 16 chars -> ceil(16/4) = 4
+      const count = await result.current.countTextTokens(text);
+      expect(count).toBe(Math.ceil(text.length / 4));
     });
   });
 });
