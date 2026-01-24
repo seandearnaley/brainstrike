@@ -350,44 +350,64 @@ export function TokenCacheProvider({
   useEffect(() => {
     const url = workerUrl ?? resolveTokenCacheWorkerUrl().href;
     logger.debug('TokenCacheProvider: creating worker pool', { url });
-    const pool = createTokenCacheWorkerPool(url);
-    setWorkerPool(pool as WorkerPool);
 
     let cancelled = false;
     const isCancelled = () => cancelled;
+    let poolRef: WorkerPool | null = null;
 
-    // Warmup ensures worker is fully ready before marking operational
-    void runWorkerWarmup(pool as WorkerPool, isCancelled).then((result) => {
-      if (cancelled) {
-        return;
+    // Async initialization - createTokenCacheWorkerPool is now async to avoid
+    // loading worker_threads at module init time (fails in browser/jsdom tests)
+    void (async () => {
+      try {
+        const pool = await createTokenCacheWorkerPool(url);
+        if (cancelled) {
+          void pool.terminate();
+          return;
+        }
+        poolRef = pool as WorkerPool;
+        setWorkerPool(pool as WorkerPool);
+
+        // Warmup ensures worker is fully ready before marking operational
+        const result = await runWorkerWarmup(pool as WorkerPool, isCancelled);
+        if (cancelled) {
+          return;
+        }
+        // Enable worker even if warmup failed (degraded mode) for backwards compatibility
+        setWorkerReady(true);
+        if (result.success) {
+          logger.debug('TokenCacheProvider: worker warmup succeeded', {
+            attempts: result.attempts,
+          });
+        } else {
+          // Degraded mode is the expected fallback - not a warning condition
+          logger.debug('TokenCacheProvider: warmup incomplete, continuing in degraded mode', {
+            attempts: result.attempts,
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          logger.warn('TokenCacheProvider: failed to create worker pool', { error });
+        }
       }
-      // Enable worker even if warmup failed (degraded mode) for backwards compatibility
-      setWorkerReady(true);
-      if (result.success) {
-        logger.debug('TokenCacheProvider: worker warmup succeeded', { attempts: result.attempts });
-      } else {
-        // Degraded mode is the expected fallback - not a warning condition
-        logger.debug('TokenCacheProvider: warmup incomplete, continuing in degraded mode', {
-          attempts: result.attempts,
-        });
-      }
-    });
+    })();
 
     return () => {
       cancelled = true;
       logger.debug('TokenCacheProvider: cleaning up worker pool');
       setWorkerReady(false);
-      void pool.terminate();
+      if (poolRef) {
+        void poolRef.terminate();
+      }
       setWorkerPool(noopWorkerPool);
     };
   }, [noopWorkerPool, workerUrl]);
 
   // Use the token cache hook with initialized infrastructure
-  // WorkerPool interface is compatible with Pool from workerpool
+  // WorkerPool interface is compatible with WorkerPoolLike from useTokenCache
   const tokenCache = useTokenCache({
     store: store as TokenCacheStore,
     hasher,
-    workerPool: workerPool as unknown as ReturnType<typeof createTokenCacheWorkerPool>,
+    workerPool,
     countingMode,
     ...(onTokenResolved ? { onTokenResolved } : {}),
   });

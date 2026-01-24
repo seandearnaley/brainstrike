@@ -13,10 +13,14 @@ vi.mock('@brainstrike/preferences', () => ({
 }));
 
 vi.mock('@brainstrike/token-cache', () => ({
-  createTokenCacheWorkerPool: vi.fn(() => ({
-    exec: vi.fn().mockResolvedValue({ tokenCount: 42 }),
-    terminate: vi.fn().mockResolvedValue(undefined),
-  })),
+  // createTokenCacheWorkerPool is now async, return a Promise
+  createTokenCacheWorkerPool: vi.fn(() =>
+    Promise.resolve({
+      exec: vi.fn().mockResolvedValue({ tokenCount: 42 }),
+      terminate: vi.fn().mockResolvedValue(undefined),
+    })
+  ),
+  resolveTokenCacheWorkerUrl: vi.fn(() => new URL('file:///mock-worker.js')),
   FileHasher: class {
     init = vi.fn().mockResolvedValue(undefined);
   },
@@ -186,13 +190,15 @@ describe('TokenCacheContext', () => {
     });
 
     it('enables degraded mode when warmup fails', async () => {
-      // Mock exec to fail
+      // Mock exec to fail (createTokenCacheWorkerPool is async, returns a Promise)
       const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache');
       const mockExec = vi.fn().mockRejectedValue(new Error('Worker error'));
-      vi.mocked(createTokenCacheWorkerPool).mockReturnValueOnce({
-        exec: mockExec,
-        terminate: vi.fn().mockResolvedValue(undefined),
-      } as any);
+      vi.mocked(createTokenCacheWorkerPool).mockReturnValueOnce(
+        Promise.resolve({
+          exec: mockExec,
+          terminate: vi.fn().mockResolvedValue(undefined),
+        }) as any
+      );
 
       const { result } = renderHook(() => useTokenCacheContext(), {
         wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,

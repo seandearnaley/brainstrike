@@ -13,10 +13,17 @@ const logger = createLogger('TokenCache');
 /** Debounce delay for version updates to batch rapid-fire cache changes (ms) */
 const VERSION_DEBOUNCE_MS = 50;
 
-import type { Pool } from 'workerpool';
 import type { FileHasher } from './file-hasher';
 import type { TokenCacheStore } from './token-cache-store';
 import type { TokenCacheEntry, TokenCountingMode, TokenCountResult } from './types';
+
+/**
+ * Minimal worker pool interface for token counting.
+ * Subset of workerpool.Pool that this hook actually uses.
+ */
+interface WorkerPoolLike {
+  exec: (method: string, params: unknown[]) => Promise<unknown>;
+}
 
 /**
  * Options for useTokenCache hook
@@ -26,8 +33,8 @@ export interface UseTokenCacheOptions {
   store: TokenCacheStore;
   /** File hasher instance */
   hasher: FileHasher;
-  /** Worker pool instance */
-  workerPool: Pool;
+  /** Worker pool instance (minimal interface, compatible with workerpool.Pool) */
+  workerPool: WorkerPoolLike;
   /** Current counting mode preference */
   countingMode: TokenCountingMode;
   /** Callback when token count is resolved */
