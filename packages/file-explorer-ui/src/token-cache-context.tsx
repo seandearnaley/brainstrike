@@ -22,6 +22,7 @@ import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrik
 import {
   createTokenCacheWorkerPool,
   FileHasher,
+  resolveTokenCacheWorkerUrl,
   type TokenCacheEntry,
   TokenCacheStore,
   type TokenCountingMode,
@@ -347,7 +348,7 @@ export function TokenCacheProvider({
 
   // Initialize worker pool with warmup handshake
   useEffect(() => {
-    const url = workerUrl ?? new URL('@brainstrike/token-cache/worker', import.meta.url).href;
+    const url = workerUrl ?? resolveTokenCacheWorkerUrl().href;
     logger.debug('TokenCacheProvider: creating worker pool', { url });
     const pool = createTokenCacheWorkerPool(url);
     setWorkerPool(pool as WorkerPool);

@@ -81,8 +81,11 @@ import * as workerpool from 'workerpool';
 // Re-export Pool type for consumers
 export type { Pool as WorkerPool } from 'workerpool';
 
-// Re-export the worker URL resolver for external consumers
-export { resolveBackgroundIndexerWorkerUrl } from './resolve-worker-url';
+// Re-export the worker URL resolvers for external consumers
+export {
+  resolveBackgroundIndexerWorkerUrl,
+  resolveTokenCacheWorkerUrl,
+} from './resolve-worker-url';
 
 /**
  * Create a worker pool for token counting.
