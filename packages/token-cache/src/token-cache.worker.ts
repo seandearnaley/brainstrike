@@ -66,7 +66,16 @@ async function getTokenUtils(): Promise<{
  * Count tokens for a single file
  */
 async function countTokens(request: TokenCountRequest): Promise<TokenCountResult> {
-  const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
+  let hasher: XXHashModule;
+  let utils: Awaited<ReturnType<typeof getTokenUtils>>;
+
+  try {
+    [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
+  } catch (initError) {
+    // Re-throw with more context for debugging
+    const message = initError instanceof Error ? initError.message : String(initError);
+    throw new Error(`Token worker initialization failed: ${message}`);
+  }
 
   // Hash content for cache key
   const contentHash = hashToHex(hasher.h64(request.content));

@@ -93,6 +93,12 @@ export interface SerializedFolderState {
   maxSelectionCount: number;
   lastActiveTab: string;
   lastAccessed: number;
+  /**
+   * ID of the selected view filter preset.
+   * When set, includes/excludes/useRegex are derived from the preset.
+   * Optional for backward compatibility with existing persisted state.
+   */
+  viewFilterPresetId?: string | null;
 }
 
 export interface SerializedState {
@@ -120,6 +126,17 @@ export interface SerializedState {
    * Optional for backward compatibility with existing persisted state.
    */
   selectionModel?: SerializedSelectionModel;
+  /**
+   * ID of the selected view filter preset.
+   * When set, includes/excludes/useRegex are derived from the preset.
+   * Optional for backward compatibility with existing persisted state.
+   */
+  viewFilterPresetId?: string | null;
+  /**
+   * Whether the view filters section is expanded.
+   * Optional for backward compatibility with existing persisted state.
+   */
+  isFiltersExpanded?: boolean;
 }
 
 export interface FolderState {
@@ -138,6 +155,11 @@ export interface FolderState {
   maxSelectionCount: number;
   lastActiveTab: string;
   lastAccessed: number;
+  /**
+   * ID of the selected view filter preset.
+   * When set, includes/excludes/useRegex are derived from the preset.
+   */
+  viewFilterPresetId: string | null;
 }
 
 // Data types
@@ -185,6 +207,26 @@ export interface FileExplorerData {
    * This is ephemeral state (not persisted).
    */
   selectionVersion: number;
+  /**
+   * ID of the selected view filter preset.
+   * When set, includes/excludes/useRegex are derived from the preset.
+   */
+  viewFilterPresetId: string | null;
+  /**
+   * Set of include filter patterns that are temporarily disabled.
+   * Disabled filters are not applied to the file tree but remain in the filter list.
+   */
+  disabledIncludeFilters: Set<string>;
+  /**
+   * Set of exclude filter patterns that are temporarily disabled.
+   * Disabled filters are not applied to the file tree but remain in the filter list.
+   */
+  disabledExcludeFilters: Set<string>;
+  /**
+   * Whether the view filters section (preset selector + filter chips) is expanded.
+   * Persisted to remember user's preference across sessions.
+   */
+  isFiltersExpanded: boolean;
 }
 
 export interface CacheStats {
@@ -221,6 +263,16 @@ export interface FileExplorerState extends FileExplorerData {
   setFolderSummaryThreshold: (value: number) => void;
   setMaxSelectionCount: (count: number) => void;
   setLastActiveTab: (tab: string) => void;
+  /**
+   * Set the view filter preset ID for the current folder.
+   * When set, filter values are derived from the preset.
+   */
+  setViewFilterPresetId: (presetId: string | null) => void;
+  /**
+   * Toggle a filter's enabled/disabled state.
+   * Disabled filters remain in the list but are not applied.
+   */
+  toggleFilterEnabled: (filter: string, type: 'include' | 'exclude') => void;
 
   // New actions
   expandAllDirectories: (fileTree: import('./file-system').IFileNode[]) => void;
@@ -260,6 +312,9 @@ export interface FileExplorerState extends FileExplorerData {
 
   // Access loading state action (for blocking stale clearing during restore)
   setIsAccessLoading: (loading: boolean) => void;
+
+  // View filters expansion state
+  setFiltersExpanded: (expanded: boolean) => void;
 }
 
 // Constants
@@ -300,4 +355,8 @@ export const DEFAULT_STATE = {
   selectionModel: createEmptySelectionModel(),
   isAccessLoading: false,
   selectionVersion: 0,
+  viewFilterPresetId: null as string | null,
+  disabledIncludeFilters: new Set<string>(),
+  disabledExcludeFilters: new Set<string>(),
+  isFiltersExpanded: true,
 } as const;

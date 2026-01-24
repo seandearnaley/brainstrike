@@ -148,15 +148,8 @@ function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
  * This is available on Electron where we have direct file system access.
  */
 function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
-  const adapter = fileSystemAdapter as { readFileByPath?: unknown; platform?: string };
-  const hasReadByPath = typeof adapter.readFileByPath === 'function';
-  logger.debug('supportsDirectPathRead check', {
-    hasReadByPath,
-    platform: adapter.platform,
-    adapterType: typeof fileSystemAdapter,
-    readFileByPathType: typeof adapter.readFileByPath,
-  });
-  return hasReadByPath;
+  const adapter = fileSystemAdapter as { readFileByPath?: unknown };
+  return typeof adapter.readFileByPath === 'function';
 }
 
 function markFileLoading(
@@ -481,7 +474,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const handleFileContentLoading = useCallback(
     async (compositeKeys: string[]) => {
       if (!workerRef.current) {
-        logger.warn('Worker not initialized, skipping file content loading');
+        // Expected during startup before worker is ready
+        logger.debug('Worker not initialized, skipping file content loading');
         return;
       }
 

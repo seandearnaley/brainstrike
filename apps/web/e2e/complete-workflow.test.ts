@@ -142,12 +142,8 @@ test.describe('Complete File Explorer Workflow', () => {
     await filterInput2.clear();
     await expect(fileTree.getByText('src')).toBeVisible();
 
-    // Step 12: Test predefined filter buttons
-    await page.getByRole('button', { name: '*.ts', exact: true }).click();
-    // Should filter to only show .ts files (directories like src may still be visible)
-    await expect(fileTree.getByText('test.ts')).toBeVisible();
-    await expect(fileTree.getByText('test2.ts')).toBeVisible();
-    // Note: src directory may still be visible as it's not a file with an extension
+    // Note: Predefined filter buttons (e.g. '*.ts') were removed when the preset system was introduced
+    // The text-based quick filter above (Steps 7-11) covers the filtering functionality
   });
 
   test('should select and deselect all visible files using the Select All button', async ({

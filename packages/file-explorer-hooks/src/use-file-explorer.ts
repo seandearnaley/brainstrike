@@ -25,8 +25,20 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
   // Split Zustand selectors to avoid dynamic object creation
   const includeFilters = useFileExplorerStore((s) => s.includeFilters);
   const excludeFilters = useFileExplorerStore((s) => s.excludeFilters);
+  const disabledIncludeFilters = useFileExplorerStore((s) => s.disabledIncludeFilters);
+  const disabledExcludeFilters = useFileExplorerStore((s) => s.disabledExcludeFilters);
   const useRegex = useFileExplorerStore((s) => s.useRegex);
   const setCurrentFolderId = useFileExplorerStore((s) => s.setCurrentFolderId);
+
+  // Compute active filters by excluding disabled ones
+  const activeIncludeFilters = useMemo(
+    () => includeFilters.filter((f) => !disabledIncludeFilters.has(f)),
+    [includeFilters, disabledIncludeFilters]
+  );
+  const activeExcludeFilters = useMemo(
+    () => excludeFilters.filter((f) => !disabledExcludeFilters.has(f)),
+    [excludeFilters, disabledExcludeFilters]
+  );
 
   const { rootDirectoryHandle, selectRootDirectory, isAccessLoading } = useFileSystem({
     setCurrentFolderId,
@@ -51,10 +63,11 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
   const error = treeError || contentError || filterError;
 
   // Unified computation: single useMemo with constant deps and stable callback notify
+  // Uses activeIncludeFilters/activeExcludeFilters which exclude disabled patterns
   const displayedFilePaths = useMemo(() => {
     const tree = Array.isArray(fileTree) ? fileTree : [];
     const nodes = tree.length
-      ? (applyFileFilters(tree, includeFilters, excludeFilters, useRegex) ?? [])
+      ? (applyFileFilters(tree, activeIncludeFilters, activeExcludeFilters, useRegex) ?? [])
       : [];
     const paths = new Set<string>();
     for (const node of nodes) {
@@ -63,7 +76,7 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
       }
     }
     return paths;
-  }, [fileTree, includeFilters, excludeFilters, useRegex, applyFileFilters]);
+  }, [fileTree, activeIncludeFilters, activeExcludeFilters, useRegex, applyFileFilters]);
 
   // biome-ignore lint/plugin: Effect to notify callback when displayedFilePaths changes - controlled parent notification
   useEffect(() => {

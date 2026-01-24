@@ -13,7 +13,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { createLogger, decodeFileSelection } from '@brainstrike/utils';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useOptionalFileTreeContext } from './file-tree-provider';
@@ -205,11 +205,33 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // Subscribe to isAccessLoading from store (shared across all components)
   const selectIsAccessLoading = (s: FileExplorerState) => s.isAccessLoading;
   const selectSetIsAccessLoading = (s: FileExplorerState) => s.setIsAccessLoading;
+  // Subscribe to disabled filter sets for toggle functionality
+  const selectDisabledIncludeFilters = (s: FileExplorerState) => s.disabledIncludeFilters;
+  const selectDisabledExcludeFilters = (s: FileExplorerState) => s.disabledExcludeFilters;
 
   const store = useFileExplorerStoreContext();
   const includeFilters = store(selectIncludeFilters);
   const excludeFilters = store(selectExcludeFilters);
   const useRegex = store(selectUseRegex);
+  const disabledIncludeFilters = store(selectDisabledIncludeFilters);
+  const disabledExcludeFilters = store(selectDisabledExcludeFilters);
+
+  // Compute active filters by excluding disabled ones
+  const activeIncludeFilters = useMemo(
+    () => includeFilters.filter((f) => !disabledIncludeFilters.has(f)),
+    [includeFilters, disabledIncludeFilters]
+  );
+  const activeExcludeFilters = useMemo(
+    () => excludeFilters.filter((f) => !disabledExcludeFilters.has(f)),
+    [excludeFilters, disabledExcludeFilters]
+  );
+
+  // Defer filter values to prevent UI blocking during expensive tree filtering.
+  // useDeferredValue allows React to show the old tree while filtering in background.
+  // This is critical for large trees (180K+ files) where filtering takes 1-2 seconds.
+  const deferredIncludeFilters = useDeferredValue(activeIncludeFilters);
+  const deferredExcludeFilters = useDeferredValue(activeExcludeFilters);
+  const deferredUseRegex = useDeferredValue(useRegex);
   const setFilters = store(selectSetFilters);
   const setUseRegex = store(selectSetUseRegex);
   const storeClearFileContents = store(selectClearFileContents);
@@ -243,9 +265,11 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // Create a memoized filter function for the slow path in selectAllRecursively.
   // This function is called when the worker returns an unfiltered tree after loading directories.
   // It ensures workspace include/exclude filters are applied before file selection.
+  // Uses activeIncludeFilters/activeExcludeFilters to respect disabled filter toggles.
   const filterTreeFn = useCallback(
-    (tree: IFileNode[]) => applyFiltersUtil(tree, includeFilters, excludeFilters, useRegex),
-    [applyFiltersUtil, includeFilters, excludeFilters, useRegex]
+    (tree: IFileNode[]) =>
+      applyFiltersUtil(tree, activeIncludeFilters, activeExcludeFilters, useRegex),
+    [applyFiltersUtil, activeIncludeFilters, activeExcludeFilters, useRegex]
   );
 
   // Try to get shared tree state from FileTreeProvider context.
@@ -299,12 +323,26 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   // Unify filtered tree computation in useMemo to avoid state/effect complexity
   // Note: applyFiltersUtil is now obtained earlier to pass filterTreeFn to useFileTree
+  // Uses DEFERRED filter values to prevent UI blocking on large trees (180K+ files).
+  // React will show the old tree immediately while filtering happens in background,
+  // then swap to the new filtered tree when complete.
   const filteredTree = useMemo(() => {
     if (fileTree.length > 0) {
-      return applyFiltersUtil(fileTree, includeFilters, excludeFilters, useRegex);
+      return applyFiltersUtil(
+        fileTree,
+        deferredIncludeFilters,
+        deferredExcludeFilters,
+        deferredUseRegex
+      );
     }
     return [];
-  }, [fileTree, includeFilters, excludeFilters, useRegex, applyFiltersUtil]);
+  }, [
+    fileTree,
+    deferredIncludeFilters,
+    deferredExcludeFilters,
+    deferredUseRegex,
+    applyFiltersUtil,
+  ]);
 
   const loadFileContent = useCallback(
     async (compositeKey: string) => {

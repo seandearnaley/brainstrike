@@ -13,10 +13,14 @@ vi.mock('@brainstrike/preferences', () => ({
 }));
 
 vi.mock('@brainstrike/token-cache', () => ({
-  createTokenCacheWorkerPool: vi.fn(() => ({
-    exec: vi.fn().mockResolvedValue({ tokenCount: 42 }),
-    terminate: vi.fn().mockResolvedValue(undefined),
-  })),
+  // createTokenCacheWorkerPool is now async, return a Promise
+  createTokenCacheWorkerPool: vi.fn(() =>
+    Promise.resolve({
+      exec: vi.fn().mockResolvedValue({ tokenCount: 42 }),
+      terminate: vi.fn().mockResolvedValue(undefined),
+    })
+  ),
+  resolveTokenCacheWorkerUrl: vi.fn(() => new URL('file:///mock-worker.js')),
   FileHasher: class {
     init = vi.fn().mockResolvedValue(undefined);
   },
@@ -168,6 +172,45 @@ describe('TokenCacheContext', () => {
       });
       await vi.waitFor(() => expect(resultWithDb.current.isPersisted).toBe(true));
       expect(resultWithDb.current.persistenceMode).toBe('persistent');
+    });
+  });
+
+  describe('worker warmup handshake', () => {
+    it('sets workerReady after successful warmup', async () => {
+      const { result } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      });
+
+      // Initially not ready
+      expect(result.current.isWorkerReady).toBe(false);
+
+      // Wait for warmup to complete
+      await vi.waitFor(() => expect(result.current.isWorkerReady).toBe(true));
+      expect(result.current.isOperational).toBe(true);
+    });
+
+    it('enables degraded mode when warmup fails', async () => {
+      // Mock exec to fail (createTokenCacheWorkerPool is async, returns a Promise)
+      const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache');
+      const mockExec = vi.fn().mockRejectedValue(new Error('Worker error'));
+      vi.mocked(createTokenCacheWorkerPool).mockReturnValueOnce(
+        Promise.resolve({
+          exec: mockExec,
+          terminate: vi.fn().mockResolvedValue(undefined),
+        }) as any
+      );
+
+      const { result } = renderHook(() => useTokenCacheContext(), {
+        wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
+      });
+
+      // Wait for warmup retries to complete and degraded mode to enable
+      await vi.waitFor(() => expect(result.current.isWorkerReady).toBe(true), { timeout: 2000 });
+
+      // Should be operational in degraded mode
+      expect(result.current.isOperational).toBe(true);
+      // Warmup retries 3 times
+      expect(mockExec).toHaveBeenCalledTimes(3);
     });
   });
 });

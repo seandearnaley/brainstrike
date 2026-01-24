@@ -22,6 +22,7 @@ import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrik
 import {
   createTokenCacheWorkerPool,
   FileHasher,
+  resolveTokenCacheWorkerUrl,
   type TokenCacheEntry,
   TokenCacheStore,
   type TokenCountingMode,
@@ -48,6 +49,48 @@ interface PGliteDB {
 interface WorkerPool {
   exec: (method: string, params: unknown[]) => Promise<unknown>;
   terminate: () => Promise<void>;
+}
+
+/** Warmup configuration constants - longer delays for Electron bundled environments */
+const WARMUP_MAX_RETRIES = 3;
+const WARMUP_BASE_DELAY_MS = 500;
+
+/**
+ * Runs a warmup handshake with the worker pool to ensure it's fully ready.
+ * Retries with exponential backoff on failure.
+ * Returns success status and number of attempts made.
+ */
+async function runWorkerWarmup(
+  pool: WorkerPool,
+  isCancelled: () => boolean
+): Promise<{ success: boolean; attempts: number }> {
+  const warmupRequest: TokenCountRequest = {
+    id: '__warmup__',
+    content: '',
+    mode: 'heuristic',
+  };
+
+  for (let attempt = 0; attempt < WARMUP_MAX_RETRIES; attempt++) {
+    if (isCancelled()) {
+      return { success: false, attempts: attempt };
+    }
+    try {
+      await pool.exec('countTokens', [warmupRequest]);
+      return { success: true, attempts: attempt + 1 };
+    } catch (error) {
+      const isLastAttempt = attempt === WARMUP_MAX_RETRIES - 1;
+      logger.debug('TokenCacheProvider: warmup attempt failed', {
+        attempt: attempt + 1,
+        error: error instanceof Error ? error.message : String(error),
+        isLastAttempt,
+      });
+      if (!isLastAttempt) {
+        const delayMs = WARMUP_BASE_DELAY_MS * 2 ** attempt;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  return { success: false, attempts: WARMUP_MAX_RETRIES };
 }
 
 class InMemoryTokenCacheStore {
@@ -303,29 +346,68 @@ export function TokenCacheProvider({
     };
   }, [hasher]);
 
-  // Initialize worker pool
+  // Initialize worker pool with warmup handshake
   useEffect(() => {
-    const url = workerUrl ?? new URL('@brainstrike/token-cache/worker', import.meta.url).href;
+    const url = workerUrl ?? resolveTokenCacheWorkerUrl().href;
     logger.debug('TokenCacheProvider: creating worker pool', { url });
-    const pool = createTokenCacheWorkerPool(url);
-    setWorkerPool(pool as WorkerPool);
-    setWorkerReady(true);
-    logger.debug('TokenCacheProvider: workerReady set to true');
+
+    let cancelled = false;
+    const isCancelled = () => cancelled;
+    let poolRef: WorkerPool | null = null;
+
+    // Async initialization - createTokenCacheWorkerPool is now async to avoid
+    // loading worker_threads at module init time (fails in browser/jsdom tests)
+    void (async () => {
+      try {
+        const pool = await createTokenCacheWorkerPool(url);
+        if (cancelled) {
+          void pool.terminate();
+          return;
+        }
+        poolRef = pool as WorkerPool;
+        setWorkerPool(pool as WorkerPool);
+
+        // Warmup ensures worker is fully ready before marking operational
+        const result = await runWorkerWarmup(pool as WorkerPool, isCancelled);
+        if (cancelled) {
+          return;
+        }
+        // Enable worker even if warmup failed (degraded mode) for backwards compatibility
+        setWorkerReady(true);
+        if (result.success) {
+          logger.debug('TokenCacheProvider: worker warmup succeeded', {
+            attempts: result.attempts,
+          });
+        } else {
+          // Degraded mode is the expected fallback - not a warning condition
+          logger.debug('TokenCacheProvider: warmup incomplete, continuing in degraded mode', {
+            attempts: result.attempts,
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          logger.warn('TokenCacheProvider: failed to create worker pool', { error });
+        }
+      }
+    })();
 
     return () => {
+      cancelled = true;
       logger.debug('TokenCacheProvider: cleaning up worker pool');
       setWorkerReady(false);
-      void pool.terminate();
+      if (poolRef) {
+        void poolRef.terminate();
+      }
       setWorkerPool(noopWorkerPool);
     };
   }, [noopWorkerPool, workerUrl]);
 
   // Use the token cache hook with initialized infrastructure
-  // WorkerPool interface is compatible with Pool from workerpool
+  // WorkerPool interface is compatible with WorkerPoolLike from useTokenCache
   const tokenCache = useTokenCache({
     store: store as TokenCacheStore,
     hasher,
-    workerPool: workerPool as unknown as ReturnType<typeof createTokenCacheWorkerPool>,
+    workerPool,
     countingMode,
     ...(onTokenResolved ? { onTokenResolved } : {}),
   });

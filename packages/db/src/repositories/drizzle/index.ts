@@ -26,3 +26,4 @@ export type {
   TokenCountingMode,
 } from './token-cache-store.js';
 export { DrizzleTokenCacheStore } from './token-cache-store.js';
+export { DrizzleViewFilterPresetsRepository } from './view-filter-presets-repository.js';

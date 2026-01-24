@@ -11,6 +11,8 @@
  * - React hook for easy integration
  */
 
+// Re-export Pool type for consumers (type-only import doesn't trigger runtime loading)
+export type { Pool as WorkerPool } from 'workerpool';
 // Background Indexer Worker Types
 export type {
   IndexerBatchRequest,
@@ -23,6 +25,11 @@ export type {
 } from './background-indexer.worker';
 // File Hasher
 export { __resetHasherForTests, FileHasher, fileHasher } from './file-hasher';
+// Re-export the worker URL resolvers for external consumers
+export {
+  resolveBackgroundIndexerWorkerUrl,
+  resolveTokenCacheWorkerUrl,
+} from './resolve-worker-url';
 // Telemetry (BST-154)
 export type {
   IndexedFileTelemetryEvent,
@@ -75,17 +82,55 @@ export type { UseTokenCacheOptions, UseTokenCacheReturn } from './use-token-cach
 // React Hooks
 export { useTokenCache } from './use-token-cache';
 
-// Worker pool factory
-import * as workerpool from 'workerpool';
+/**
+ * Worker pool options type (re-exported for consumers).
+ * Using inline type to avoid runtime import of workerpool.
+ */
+export interface WorkerPoolOptions {
+  minWorkers?: number | 'max';
+  maxWorkers?: number;
+  maxQueueSize?: number;
+  workerType?: 'auto' | 'web' | 'process' | 'thread';
+  workerOpts?: {
+    type?: 'classic' | 'module';
+  };
+  workerTerminateTimeout?: number;
+  forkArgs?: string[];
+  forkOpts?: object;
+  onCreateWorker?: () => { on: unknown; forkArgs?: string[] };
+  onTerminateWorker?: () => void;
+}
 
-// Re-export Pool type for consumers
-export type { Pool as WorkerPool } from 'workerpool';
+/**
+ * Worker pool interface (subset of workerpool.Pool used by this package).
+ */
+export interface WorkerPoolInterface {
+  exec: (method: string, params: unknown[]) => Promise<unknown>;
+  terminate: (force?: boolean, timeout?: number) => Promise<void>;
+  stats: () => {
+    totalWorkers: number;
+    busyWorkers: number;
+    idleWorkers: number;
+    pendingTasks: number;
+    activeTasks: number;
+  };
+}
 
-// Re-export the worker URL resolver for external consumers
-export { resolveBackgroundIndexerWorkerUrl } from './resolve-worker-url';
+// Lazy-loaded workerpool module to avoid loading worker_threads in browser/test environments
+let workerpoolModule: typeof import('workerpool') | null = null;
+
+async function getWorkerpool(): Promise<typeof import('workerpool')> {
+  if (!workerpoolModule) {
+    workerpoolModule = await import('workerpool');
+  }
+  return workerpoolModule;
+}
 
 /**
  * Create a worker pool for token counting.
+ *
+ * NOTE: This function dynamically imports workerpool to avoid loading worker_threads
+ * at module initialization time, which would fail in browser/jsdom test environments.
  *
  * @param workerUrl - URL to the worker script (use import.meta.url pattern)
  * @param options - Worker pool options
@@ -99,20 +144,22 @@ export { resolveBackgroundIndexerWorkerUrl } from './resolve-worker-url';
  *   import.meta.url
  * ).href;
  *
- * const pool = createTokenCacheWorkerPool(workerUrl);
+ * const pool = await createTokenCacheWorkerPool(workerUrl);
  * ```
  */
-export function createTokenCacheWorkerPool(
+export async function createTokenCacheWorkerPool(
   workerUrl: string,
-  options?: workerpool.WorkerPoolOptions
-): workerpool.Pool {
+  options?: WorkerPoolOptions
+): Promise<WorkerPoolInterface> {
+  const workerpool = await getWorkerpool();
+
   // Workerpool defaults to classic workers, which cannot run ES module syntax.
   // Force module workers so the ESM worker entry (token-cache.worker.ts) loads correctly.
-  const workerOpts: NonNullable<workerpool.WorkerPoolOptions['workerOpts']> = {
+  const workerOpts: { type?: 'classic' | 'module' } = {
     type: 'module',
     ...(options?.workerOpts ?? {}),
   };
-  const workerType: workerpool.WorkerPoolOptions['workerType'] = options?.workerType ?? 'web';
+  const workerType = options?.workerType ?? 'web';
 
   return workerpool.pool(workerUrl, {
     minWorkers: 1,
@@ -120,5 +167,5 @@ export function createTokenCacheWorkerPool(
     ...options,
     workerType,
     workerOpts,
-  });
+  }) as unknown as WorkerPoolInterface;
 }

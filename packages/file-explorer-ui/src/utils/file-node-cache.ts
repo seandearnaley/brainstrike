@@ -49,7 +49,10 @@ export function getFileNodeFromCache(
     logger.debug('Cache miss, found via fallback', { path, folderId, folderCacheSize });
   } else {
     // Both cache and fallback failed
-    logger.warn('Node not found in cache or tree', {
+    // Use debug level when tree is empty (expected during startup race condition)
+    // Use warn level when tree exists but node not found (unexpected)
+    const logLevel = tree.length === 0 ? 'debug' : 'warn';
+    logger[logLevel]('Node not found in cache or tree', {
       path,
       folderId,
       folderCacheSize,

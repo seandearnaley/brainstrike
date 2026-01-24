@@ -137,6 +137,7 @@ describe('Folder State Actions', () => {
       maxSelectionCount: 50,
       lastActiveTab: 'settings',
       lastAccessed: Date.now(),
+      viewFilterPresetId: null,
     };
 
     store.setState((state: FileExplorerState) => ({

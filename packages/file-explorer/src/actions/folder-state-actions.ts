@@ -36,6 +36,7 @@ function buildRestoreState(
     folderSummaryThreshold: folderState.folderSummaryThreshold,
     maxSelectionCount: folderState.maxSelectionCount,
     lastActiveTab: folderState.lastActiveTab ?? 'files',
+    viewFilterPresetId: folderState.viewFilterPresetId,
   };
 }
 
@@ -157,6 +158,7 @@ export const createFolderStateActions = (
         folderSummaryThreshold: folderState.folderSummaryThreshold,
         maxSelectionCount: folderState.maxSelectionCount,
         lastActiveTab: folderState.lastActiveTab ?? 'files',
+        viewFilterPresetId: folderState.viewFilterPresetId,
       };
     });
   },

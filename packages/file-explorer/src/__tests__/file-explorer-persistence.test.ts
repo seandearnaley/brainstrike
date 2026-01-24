@@ -38,10 +38,12 @@ const testDefaultFolderState: FolderState = {
   excludeFilters: [...DEFAULT_STATE.excludeFilters], // Copy from global defaults
   useRegex: DEFAULT_STATE.useRegex,
   includeProjectTree: DEFAULT_STATE.includeProjectTree,
+  tokenBudget: DEFAULT_STATE.tokenBudget,
   folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
   maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
   lastActiveTab: DEFAULT_STATE.lastActiveTab,
   lastAccessed: 0, // Default lastAccessed
+  viewFilterPresetId: DEFAULT_STATE.viewFilterPresetId,
 };
 
 describe('file-explorer-persistence', () => {

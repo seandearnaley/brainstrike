@@ -1,5 +1,13 @@
 /**
- * Utility functions for estimating token counts for large language models
+ * Utility functions for estimating token counts for large language models.
+ *
+ * NOTE: Worker packages use a "lite" version without the pino logger dependency.
+ * If you modify the core token counting logic here, also update:
+ * - packages/token-cache/src/token-utils-lite.ts
+ * - packages/chunking-worker/src/token-utils-lite.ts
+ *
+ * The lite versions are intentionally duplicated (not shared) because each worker
+ * package needs to control its own tiktoken/WASM bundling via tsup.
  */
 import { createLogger } from './logger';
 
@@ -102,10 +110,19 @@ function extractEncoderCtor(module: Record<string, unknown>): BrowserEncoderCtor
 }
 
 async function fetchWasmBinary(module: Record<string, unknown>): Promise<ArrayBuffer> {
-  const wasmUrl = module['default'];
-  if (typeof wasmUrl !== 'string') {
+  const rawWasmUrl = module['default'];
+  if (typeof rawWasmUrl !== 'string') {
     throw new Error('tiktoken wasm asset not resolved as URL');
   }
+
+  // Strip the `?url` suffix that tsup incorrectly preserves when bundling Vite-style wasm imports.
+  // The `?url` import hint is meant for Vite, but tsup's file loader includes it in the output path.
+  const strippedUrl = rawWasmUrl.replace(/\?url$/, '');
+
+  // Resolve the wasm URL relative to the current module's location.
+  // In a web worker bundled by tsup, the wasm file is output alongside the worker JS,
+  // so we need to resolve the relative path against the module URL (not the page URL).
+  const wasmUrl = resolveWasmUrl(strippedUrl);
 
   const fetchFn = globalThis.fetch;
   if (typeof fetchFn !== 'function') {
@@ -114,9 +131,41 @@ async function fetchWasmBinary(module: Record<string, unknown>): Promise<ArrayBu
 
   const response = await fetchFn(wasmUrl);
   if (!response.ok) {
-    throw new Error(`Failed to fetch tiktoken wasm asset: ${response.status}`);
+    throw new Error(`Failed to fetch tiktoken wasm asset: ${response.status} from ${wasmUrl}`);
   }
   return response.arrayBuffer();
+}
+
+/**
+ * Resolve a relative wasm URL to an absolute URL.
+ * Handles browser and worker contexts using self.location.
+ *
+ * Note: This package builds both CJS and ESM, so we avoid `import.meta.url` which
+ * triggers esbuild warnings in CJS output. Workers that need `import.meta.url`
+ * resolution use their own token-utils-lite.ts which is ESM-only.
+ */
+function resolveWasmUrl(relativeUrl: string): string {
+  // If already absolute or a data URL, return as-is
+  if (
+    relativeUrl.startsWith('http://') ||
+    relativeUrl.startsWith('https://') ||
+    relativeUrl.startsWith('file://') ||
+    relativeUrl.startsWith('data:')
+  ) {
+    return relativeUrl;
+  }
+
+  // Use self.location in browser/worker context
+  if (
+    typeof self !== 'undefined' &&
+    'location' in self &&
+    typeof self.location?.href === 'string'
+  ) {
+    return new URL(relativeUrl, self.location.href).href;
+  }
+
+  // Last resort: return relative URL and let fetch handle it
+  return relativeUrl;
 }
 
 function extractEncoderConfig(module: Record<string, unknown>): {

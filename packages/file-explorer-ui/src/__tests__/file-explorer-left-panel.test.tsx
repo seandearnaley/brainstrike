@@ -19,20 +19,12 @@ vi.mock('../file-explorer-toolbar', () => ({
   FileExplorerToolbar: ({
     onDirectorySelect,
     onFilterChange,
-    selectedCount,
-    maxSelectionCount,
   }: {
     onDirectorySelect: () => void;
     onFilterChange: (include: string[], exclude: string[], useRegex: boolean) => void;
-    selectedCount: number;
-    maxSelectionCount: number;
   }) => (
     <div data-testid="toolbar">
       Toolbar
-      <div>
-        <span data-testid="selection-count">{selectedCount}</span>/
-        <span data-testid="selection-max">{maxSelectionCount}</span>
-      </div>
       <button onClick={onDirectorySelect} type="button">
         Select Directory
       </button>
@@ -148,6 +140,11 @@ describe('FileExplorerLeftPanel', () => {
       quickFilter: '',
       setQuickFilter: vi.fn(),
       clearQuickFilter: vi.fn(),
+      isFiltersExpanded: true,
+      setFiltersExpanded: vi.fn(),
+      disabledIncludeFilters: new Set<string>(),
+      disabledExcludeFilters: new Set<string>(),
+      toggleFilterEnabled: vi.fn(),
     };
 
     const mockStore = Object.assign(
@@ -817,5 +814,170 @@ describe('FileExplorerLeftPanel', () => {
     });
 
     expect(loadInlineFixture).toHaveBeenCalled();
+  });
+
+  describe('collapsible view filters', () => {
+    it('renders View Filters toggle button when root directory is selected', async () => {
+      renderWithProviders(<FileExplorerLeftPanel />);
+
+      expect(await screen.findByRole('button', { name: /view filters/i })).toBeInTheDocument();
+    });
+
+    it('does not render View Filters toggle when no root directory is selected', async () => {
+      vi.mocked(useFileExplorer).mockReturnValueOnce({
+        ...fileExplorerReturnValue,
+        rootDirectoryHandle: null,
+      });
+
+      renderWithProviders(<FileExplorerLeftPanel />);
+
+      expect(screen.queryByRole('button', { name: /view filters/i })).not.toBeInTheDocument();
+    });
+
+    it('calls setFiltersExpanded when toggle button is clicked', async () => {
+      const setFiltersExpandedMock = vi.fn();
+      const storeState = {
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        setFilters: vi.fn(),
+        currentFolderId: 'root',
+        setCurrentFolderId: vi.fn(),
+        maxSelectionCount: 5,
+        includeProjectTree: true,
+        setIncludeProjectTree: vi.fn(),
+        folderSummaryThreshold: 5,
+        expandAllDirectories: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        selectionModel: {
+          mode: 'explicit' as const,
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+        },
+        setMaterializedPaths: vi.fn(),
+        quickFilter: '',
+        setQuickFilter: vi.fn(),
+        clearQuickFilter: vi.fn(),
+        isFiltersExpanded: true,
+        setFiltersExpanded: setFiltersExpandedMock,
+        disabledIncludeFilters: new Set<string>(),
+        disabledExcludeFilters: new Set<string>(),
+        toggleFilterEnabled: vi.fn(),
+      };
+
+      const mockStore = Object.assign(
+        (selector?: (s: typeof storeState) => unknown) =>
+          typeof selector === 'function' ? selector(storeState) : storeState,
+        { getState: () => storeState }
+      );
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(
+        mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
+      );
+
+      const user = userEvent.setup();
+      renderWithProviders(<FileExplorerLeftPanel />);
+
+      await user.click(screen.getByRole('button', { name: /view filters/i }));
+
+      expect(setFiltersExpandedMock).toHaveBeenCalledWith(false);
+    });
+
+    it('shows expanded content when isFiltersExpanded is true', async () => {
+      const storeState = {
+        includeFilters: ['*.ts'],
+        excludeFilters: ['node_modules'],
+        useRegex: false,
+        setFilters: vi.fn(),
+        currentFolderId: 'root',
+        setCurrentFolderId: vi.fn(),
+        maxSelectionCount: 5,
+        includeProjectTree: true,
+        setIncludeProjectTree: vi.fn(),
+        folderSummaryThreshold: 5,
+        expandAllDirectories: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        selectionModel: {
+          mode: 'explicit' as const,
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+        },
+        setMaterializedPaths: vi.fn(),
+        quickFilter: '',
+        setQuickFilter: vi.fn(),
+        clearQuickFilter: vi.fn(),
+        isFiltersExpanded: true,
+        setFiltersExpanded: vi.fn(),
+        disabledIncludeFilters: new Set<string>(),
+        disabledExcludeFilters: new Set<string>(),
+        toggleFilterEnabled: vi.fn(),
+      };
+
+      const mockStore = Object.assign(
+        (selector?: (s: typeof storeState) => unknown) =>
+          typeof selector === 'function' ? selector(storeState) : storeState,
+        { getState: () => storeState }
+      );
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(
+        mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
+      );
+
+      renderWithProviders(<FileExplorerLeftPanel />);
+
+      // Content should be visible (not hidden with max-h-0)
+      const collapsibleContent = screen.getByRole('button', { name: /view filters/i });
+      expect(collapsibleContent).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('has collapsed content when isFiltersExpanded is false', async () => {
+      const storeState = {
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        setFilters: vi.fn(),
+        currentFolderId: 'root',
+        setCurrentFolderId: vi.fn(),
+        maxSelectionCount: 5,
+        includeProjectTree: true,
+        setIncludeProjectTree: vi.fn(),
+        folderSummaryThreshold: 5,
+        expandAllDirectories: vi.fn(),
+        collapseAllDirectories: vi.fn(),
+        selectionModel: {
+          mode: 'explicit' as const,
+          explicitPaths: new Set<string>(),
+          ruleSetJson: null,
+          materializedPaths: null,
+          materializedAt: null,
+        },
+        setMaterializedPaths: vi.fn(),
+        quickFilter: '',
+        setQuickFilter: vi.fn(),
+        clearQuickFilter: vi.fn(),
+        isFiltersExpanded: false,
+        setFiltersExpanded: vi.fn(),
+        disabledIncludeFilters: new Set<string>(),
+        disabledExcludeFilters: new Set<string>(),
+        toggleFilterEnabled: vi.fn(),
+      };
+
+      const mockStore = Object.assign(
+        (selector?: (s: typeof storeState) => unknown) =>
+          typeof selector === 'function' ? selector(storeState) : storeState,
+        { getState: () => storeState }
+      );
+      vi.mocked(useFileExplorerStoreContext).mockReturnValue(
+        mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
+      );
+
+      renderWithProviders(<FileExplorerLeftPanel />);
+
+      // Toggle button should indicate collapsed state
+      const toggleButton = screen.getByRole('button', { name: /view filters/i });
+      expect(toggleButton).toHaveAttribute('aria-expanded', 'false');
+    });
   });
 });

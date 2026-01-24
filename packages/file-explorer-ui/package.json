@@ -33,7 +33,9 @@
     "zustand": "^5"
   },
   "dependencies": {
+    "@brainstrike/db": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
+    "drizzle-orm": "^0.45.1",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/file-tree-worker": "workspace:*",

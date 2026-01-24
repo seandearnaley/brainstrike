@@ -77,7 +77,14 @@ function isTreeFullyLoaded(nodes: IFileNode[]): boolean {
  * 2. Breadth-first still respects the structure of the filtered tree
  * 3. The alternative (filtering during load) would require deep integration changes
  */
-function collectAllFilePaths(nodes: IFileNode[]): string[] {
+/**
+ * Collect file paths from tree with optional early exit.
+ *
+ * @param nodes - Root nodes to traverse
+ * @param maxCount - Optional limit; stops collecting once reached (memory optimization)
+ * @returns Array of file paths (up to maxCount if specified)
+ */
+function collectAllFilePaths(nodes: IFileNode[], maxCount?: number): string[] {
   const paths: string[] = [];
   const queue: IFileNode[] = [...nodes];
 
@@ -87,6 +94,12 @@ function collectAllFilePaths(nodes: IFileNode[]): string[] {
   let queueIndex = 0;
 
   while (queueIndex < queue.length) {
+    // EARLY EXIT: Stop traversing once we have enough files
+    // This prevents loading entire tree into memory for small selections
+    if (maxCount !== undefined && paths.length >= maxCount) {
+      break;
+    }
+
     const node = queue[queueIndex++];
     // Type guard for undefined (shouldn't happen with index bounds)
     if (!node) {
@@ -213,8 +226,9 @@ async function processLoadedTree(
   // This ensures include/exclude patterns (e.g., *.ts, .turbo) are respected
   const treeForSelection = filterTreeFn ? filterTreeFn(rehydratedTree) : rehydratedTree;
 
-  // Collect all file paths from the filtered tree
-  const allFilePaths = collectAllFilePaths(treeForSelection);
+  // Collect file paths with early exit once maxSelectionCount is reached
+  // This prevents loading entire tree into memory for small selections
+  const allFilePaths = collectAllFilePaths(treeForSelection, maxSelectionCount);
 
   logger.info('selectAllRecursively: complete', {
     fileCount: allFilePaths.length,
@@ -632,7 +646,8 @@ export function useRecursiveSelectAll(
         // Log why we're falling through to direct selection
         logNoLoadingNeeded(rootNodes);
 
-        const allFilePaths = collectAllFilePaths(rootNodes);
+        // Collect file paths with early exit once maxSelectionCount is reached
+        const allFilePaths = collectAllFilePaths(rootNodes, maxSelectionCount);
 
         return await selectFilesWithLimit(
           allFilePaths,
@@ -676,8 +691,10 @@ export function useRecursiveSelectAll(
 
       // Check if tree is fully loaded → fast path
       if (isTreeFullyLoaded(filteredTree)) {
-        // Collect all file paths from the filtered tree (already respects workspace filters)
-        const allFilePaths = collectAllFilePaths(filteredTree);
+        // Collect file paths with early exit once maxSelectionCount is reached
+        // Note: With early exit, we can't accurately determine totalAvailable or limitReached
+        // This is a trade-off for memory efficiency on large trees
+        const allFilePaths = collectAllFilePaths(filteredTree, maxSelectionCount);
 
         logger.info('selectAllRecursively: using fast path (fully loaded)', {
           folderId,

@@ -284,6 +284,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     sortField: 'rootFolderId',
   });
 
+  // Gate expensive Tapestry computations behind active tab
+  const isTapestryActive = activeTab === 'tapestry';
+
   const effectiveColumnVisibility = useMemo(() => {
     // Avoid redundant "Folder" column when grouping by directory or root folder (group headers already show it).
     if (groupingConfig === 'directory' || groupingConfig === 'rootFolder') {
@@ -412,6 +415,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }, [tableData]);
 
   const tapestryFileBaseByKey = useMemo(() => {
+    // Skip expensive computation when Tapestry tab is not active
+    if (!isTapestryActive) {
+      return new Map<string, ReturnType<typeof buildTapestryFileBase>>();
+    }
+
     const map = new Map<string, ReturnType<typeof buildTapestryFileBase>>();
 
     for (const item of tableData) {
@@ -426,9 +434,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }
 
     return map;
-  }, [tableData, fileContents, loadingFiles]);
+  }, [isTapestryActive, tableData, fileContents, loadingFiles]);
 
   useEffect(() => {
+    // Skip sync when Tapestry tab is not active
+    if (!isTapestryActive) {
+      return;
+    }
+
     setTapestryRangesByKey((prev) => {
       const { next, changed, totals } = syncTapestryRanges({
         bases: tapestryFileBaseByKey,
@@ -438,7 +451,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       tapestryTotalsRef.current = totals;
       return changed ? next : prev;
     });
-  }, [tapestryFileBaseByKey]);
+  }, [isTapestryActive, tapestryFileBaseByKey]);
 
   // Toggle group collapse
   const toggleGroupCollapse = useCallback((groupKey: GroupKey) => {
@@ -697,27 +710,31 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [buildTapestryFile, groupingConfig, tapestryGroupedPageSections]
   );
 
-  const activeRangesCount = useMemo(
-    () =>
-      Object.values(tapestryRangesByKey).reduce(
-        (acc, ranges) => acc + ranges.filter((range) => range.isActive).length,
-        0
-      ),
-    [tapestryRangesByKey]
-  );
+  const activeRangesCount = useMemo(() => {
+    // Skip computation when Tapestry tab is not active
+    if (!isTapestryActive) {
+      return 0;
+    }
+    return Object.values(tapestryRangesByKey).reduce(
+      (acc, ranges) => acc + ranges.filter((range) => range.isActive).length,
+      0
+    );
+  }, [isTapestryActive, tapestryRangesByKey]);
 
-  const totalLinesSelected = useMemo(
-    () =>
-      Object.values(tapestryRangesByKey).reduce(
-        (acc, ranges) =>
-          acc +
-          ranges
-            .filter((range) => range.isActive)
-            .reduce((sum, range) => sum + (range.endLine - range.startLine), 0),
-        0
-      ),
-    [tapestryRangesByKey]
-  );
+  const totalLinesSelected = useMemo(() => {
+    // Skip computation when Tapestry tab is not active
+    if (!isTapestryActive) {
+      return 0;
+    }
+    return Object.values(tapestryRangesByKey).reduce(
+      (acc, ranges) =>
+        acc +
+        ranges
+          .filter((range) => range.isActive)
+          .reduce((sum, range) => sum + (range.endLine - range.startLine), 0),
+      0
+    );
+  }, [isTapestryActive, tapestryRangesByKey]);
 
   const handleTapestryRangesChange = useCallback((fileId: string, ranges: TapestryRange[]) => {
     setTapestryRangesByKey((prev) => ({ ...prev, [fileId]: ranges }));

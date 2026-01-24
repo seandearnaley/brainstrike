@@ -120,11 +120,10 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
 
     // Enhanced virtualization with improved performance
-    const { containerRef, range, totalHeight } = useVirtualList(
-      visibleNodes.length,
-      ROW_HEIGHT,
-      { overscan: 2 } // Reduced overscan to decrease memory usage
-    );
+    // Overscan of 10 prevents gray patches during rapid scrolling on large trees
+    const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
+      overscan: 10,
+    });
 
     // Optimized row rendering with better memoization
     const renderedRows = useMemo(() => {

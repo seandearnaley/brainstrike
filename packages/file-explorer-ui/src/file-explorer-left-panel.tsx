@@ -1,7 +1,8 @@
 import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
-import { LoadingFallback } from '@brainstrike/ui';
+import { Button, cn, LoadingFallback } from '@brainstrike/ui';
 import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
+import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
 
@@ -30,11 +31,14 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileExplorerSidebar from './file-explorer-sidebar';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
+import { FileFilterBar } from './file-filter-bar';
 import { useInlineFixtureEffect } from './hooks/use-inline-fixture-effect';
 import { useRuleMaterialization } from './hooks/use-rule-materialization';
 import { RestorationStatus } from './restoration-status';
+import { SelectionCounter } from './selection-counter';
 import { SelectionModeBadge } from './selection-mode-badge';
 import { SelectionRulesEditor } from './selection-rules-editor';
+import { ToolbarPresetSelector } from './toolbar-preset-selector';
 import { useBackgroundTokenIndexerIntegration } from './use-background-token-indexer-integration';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
@@ -129,6 +133,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     setMaxSelectionCount,
     devInlineFixtureEnabled,
     setDevInlineFixtureEnabled,
+    disabledIncludeFilters,
+    disabledExcludeFilters,
+    toggleFilterEnabled,
+    isFiltersExpanded,
+    setFiltersExpanded,
   ] = store(
     (s) =>
       [
@@ -141,6 +150,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.setMaxSelectionCount,
         s.devInlineFixtureEnabled,
         s.setDevInlineFixtureEnabled,
+        s.disabledIncludeFilters,
+        s.disabledExcludeFilters,
+        s.toggleFilterEnabled,
+        s.isFiltersExpanded,
+        s.setFiltersExpanded,
       ] as const
   );
 
@@ -518,39 +532,86 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   return (
     <FileExplorerErrorBoundary>
       <div className="grid h-full grid-rows-[auto_1fr_auto]">
-        {/* Fixed Header */}
+        {/* Fixed Header - Toolbar and filter controls */}
         <div className="shrink-0">
           <FileExplorerToolbar
-            clearQuickFilter={clearQuickFilter}
             filterError={filterError}
             hasStoredFolders={storedFolders.length > 0}
             isLoading={isLoading}
-            maxSelectionCount={maxSelectionCount}
             onDirectorySelect={handleDirectorySelect}
             onFilterChange={handleFilterChange}
             onForgetStoredFolders={clearStoredHandles}
-            onMaxSelectionCountChange={setMaxSelectionCount}
-            quickFilter={quickFilter}
-            rootDirectoryHandle={rootDirectoryHandle}
-            selectedCount={selectedCount}
-            setQuickFilter={setQuickFilter}
             {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
-          />
-          <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
-          <FilterStatus
-            excludeFilters={excludeFilters}
-            includeFilters={includeFilters}
-            quickFilter={quickFilter}
-            useRegex={useRegex}
           />
           {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
           <RestorationStatus
             isRestoring={isRestoringExpandedPaths}
             progress={restorationProgress}
           />
+          {/* Current directory indicator */}
+          <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
+          {/* Filter section: Collapsible view filters + Quick filter input */}
+          {rootDirectoryHandle && (
+            <div className="border-b">
+              {/* View Filters - Collapsible toggle button */}
+              <Button
+                aria-controls="view-filters-content"
+                aria-expanded={isFiltersExpanded}
+                className="h-auto w-full justify-between rounded-none px-3 py-2 hover:bg-muted/50"
+                depress={false}
+                onClick={() => setFiltersExpanded(!isFiltersExpanded)}
+                size="sm"
+                variant="ghost"
+              >
+                <span className="flex items-center gap-2 text-muted-foreground text-xs">
+                  <SlidersHorizontal className="h-3 w-3" />
+                  View Filters
+                </span>
+                {isFiltersExpanded ? (
+                  <ChevronUp className="h-3 w-3 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                )}
+              </Button>
+
+              {/* Collapsible content - Preset selector + Filter chips */}
+              <div
+                className={cn(
+                  'overflow-hidden transition-all duration-200 ease-out',
+                  isFiltersExpanded ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'
+                )}
+                id="view-filters-content"
+              >
+                <div className="space-y-2 px-2 py-2">
+                  <ToolbarPresetSelector
+                    className="@[300px]:h-9 h-8 w-full"
+                    onFilterChange={handleFilterChange}
+                  />
+                  <FilterStatus
+                    disabledExcludeFilters={disabledExcludeFilters}
+                    disabledIncludeFilters={disabledIncludeFilters}
+                    excludeFilters={excludeFilters}
+                    includeFilters={includeFilters}
+                    onToggleFilter={toggleFilterEnabled}
+                    quickFilter={quickFilter}
+                    useRegex={useRegex}
+                  />
+                </div>
+              </div>
+
+              {/* Quick filter input - always visible */}
+              <div className="px-2 py-2">
+                <FileFilterBar
+                  onChange={setQuickFilter}
+                  onClear={clearQuickFilter}
+                  value={quickFilter}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Scrollable Middle Content */}
+        {/* Scrollable Middle Content - File Tree */}
         <div className="relative min-h-0 flex-1 overflow-hidden">
           {/* Fixed buttons overlay - outside scrollable area */}
           {rootDirectoryHandle && (
@@ -589,9 +650,10 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           </div>
         </div>
 
-        {/* Fixed Footer */}
-        <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent px-4 py-3">
-          <div className="flex items-center justify-between gap-2">
+        {/* Fixed Footer - Action buttons */}
+        <div className="shrink-0 border-t bg-gradient-to-t from-muted/20 to-transparent">
+          {/* Action buttons row */}
+          <div className="flex items-center justify-between gap-2 px-4 py-3">
             <ActionButtons
               addMultipleSelectedFiles={addMultipleSelectedFiles}
               cancelSelectAll={cancelSelectAll}
@@ -607,12 +669,19 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               selectedFiles={selectedFilesList}
               setSelectedFiles={setSelectedFilesFromList}
             />
-            {/* Selection mode toggle */}
-            <SelectionModeBadge
-              onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
-              rulesEditorAvailable={true}
-              show={!!rootDirectoryHandle}
-            />
+            {/* Selection controls - mode toggle and count */}
+            <div className="flex items-center gap-2">
+              <SelectionModeBadge
+                onOpenRulesEditor={() => setIsRulesEditorOpen(true)}
+                rulesEditorAvailable={true}
+                show={!!rootDirectoryHandle}
+              />
+              <SelectionCounter
+                maxSelectionCount={maxSelectionCount}
+                onMaxSelectionCountChange={setMaxSelectionCount}
+                selectedCount={selectedCount}
+              />
+            </div>
           </div>
         </div>
 

@@ -1,6 +1,21 @@
 /**
  * Minimal token counting helpers for worker use (no pino/logger dependency).
  * Mirrors the logic of @brainstrike/utils token-utils but without the logger.
+ *
+ * NOTE: This file is intentionally duplicated in @brainstrike/chunking-worker.
+ *
+ * Why duplication instead of a shared package:
+ * 1. Build isolation - Each worker package uses tsup with `noExternal: ['tiktoken']`
+ *    and `loader: { '.wasm': 'dataurl' }` to inline the WASM. Extracting to a shared
+ *    package would complicate this bundling behavior.
+ * 2. Self-contained workers - The "lite" version exists specifically to have zero
+ *    external runtime dependencies (no pino logger). A shared package adds complexity.
+ * 3. Electron compatibility - The dataurl approach for WASM is critical for file://
+ *    protocol support in Electron. Each worker controls its own bundling.
+ *
+ * If you modify this file, also update:
+ * - packages/chunking-worker/src/token-utils-lite.ts (identical copy)
+ * - packages/utils/src/token-utils.ts (similar logic, different logger)
  */
 
 type EncodeFn = (text: string) => Uint32Array;
@@ -96,10 +111,19 @@ function extractEncoderCtor(module: Record<string, unknown>): BrowserEncoderCtor
 }
 
 async function fetchWasmBinary(module: Record<string, unknown>): Promise<ArrayBuffer> {
-  const wasmUrl = module['default'];
-  if (typeof wasmUrl !== 'string') {
+  const rawWasmUrl = module['default'];
+  if (typeof rawWasmUrl !== 'string') {
     throw new Error('tiktoken wasm asset not resolved as URL');
   }
+
+  // Strip the `?url` suffix that tsup incorrectly preserves when bundling Vite-style wasm imports.
+  // The `?url` import hint is meant for Vite, but tsup's file loader includes it in the output path.
+  const strippedUrl = rawWasmUrl.replace(/\?url$/, '');
+
+  // Resolve the wasm URL relative to the current module's location.
+  // In a web worker bundled by tsup, the wasm file is output alongside the worker JS,
+  // so we need to resolve the relative path against the module URL (not the page URL).
+  const wasmUrl = resolveWasmUrl(strippedUrl);
 
   const fetchFn = globalThis.fetch;
   if (typeof fetchFn !== 'function') {
@@ -108,9 +132,42 @@ async function fetchWasmBinary(module: Record<string, unknown>): Promise<ArrayBu
 
   const response = await fetchFn(wasmUrl);
   if (!response.ok) {
-    throw new Error(`Failed to fetch tiktoken wasm asset: ${response.status}`);
+    throw new Error(`Failed to fetch tiktoken wasm asset: ${response.status} from ${wasmUrl}`);
   }
   return response.arrayBuffer();
+}
+
+/**
+ * Resolve a relative wasm URL to an absolute URL.
+ * Handles various runtime contexts: web worker, browser ESM, Vite dev, Electron.
+ */
+function resolveWasmUrl(relativeUrl: string): string {
+  // If already absolute or a data URL, return as-is
+  if (
+    relativeUrl.startsWith('http://') ||
+    relativeUrl.startsWith('https://') ||
+    relativeUrl.startsWith('file://') ||
+    relativeUrl.startsWith('data:')
+  ) {
+    return relativeUrl;
+  }
+
+  // Try to resolve using import.meta.url (works in ESM contexts including bundled workers)
+  if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
+    return new URL(relativeUrl, import.meta.url).href;
+  }
+
+  // Fallback: use self.location in worker context
+  if (
+    typeof self !== 'undefined' &&
+    'location' in self &&
+    typeof self.location?.href === 'string'
+  ) {
+    return new URL(relativeUrl, self.location.href).href;
+  }
+
+  // Last resort: return relative URL and let fetch handle it
+  return relativeUrl;
 }
 
 function extractEncoderConfig(module: Record<string, unknown>): {

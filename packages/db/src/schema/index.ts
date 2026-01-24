@@ -352,8 +352,48 @@ export const modelRegistry = pgTable(
 );
 
 // ============================================================================
+// VIEW FILTER PRESETS TABLE
+// ============================================================================
+
+/**
+ * View filter presets for file explorer.
+ *
+ * Stores user-defined and default presets for file filtering,
+ * including include/exclude patterns with optional regex support.
+ */
+export const viewFilterPresets = pgTable(
+  'view_filter_presets',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    name: text('name').notNull(),
+    description: text('description'),
+    /** Lucide icon name (e.g., 'file-code', 'settings', 'folder-open') */
+    icon: text('icon').notNull().default('file'),
+    /** Include patterns (glob or regex based on useRegex) */
+    includes: text('includes').array().notNull().default([]),
+    /** Exclude patterns (glob or regex based on useRegex) */
+    excludes: text('excludes').array().notNull().default([]),
+    /** Whether patterns are regex (true) or glob (false) */
+    useRegex: boolean('use_regex').notNull().default(false),
+    /** Whether this is a built-in default preset */
+    isDefault: boolean('is_default').notNull().default(false),
+    /** Sort order for display */
+    sortOrder: integer('sort_order').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index('idx_view_filter_presets_sort_order').on(table.sortOrder),
+    index('idx_view_filter_presets_is_default').on(table.isDefault),
+  ]
+);
+
+// ============================================================================
 // TYPE EXPORTS
 // ============================================================================
+
+export type ViewFilterPreset = typeof viewFilterPresets.$inferSelect;
+export type NewViewFilterPreset = typeof viewFilterPresets.$inferInsert;
 
 export type FileRecord = typeof fileRecords.$inferSelect;
 export type NewFileRecord = typeof fileRecords.$inferInsert;

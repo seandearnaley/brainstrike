@@ -35,11 +35,13 @@ interface QueryExecutor {
 
 // Forward declare for type reference (imported below)
 type EmbeddingSetsRepo = import('./repositories/interfaces.js').IEmbeddingSetsRepository;
+type ViewFilterPresetsRepo = import('./repositories/interfaces.js').IViewFilterPresetsRepository;
 
 interface DbContextValue {
   fileRecordRepository: DrizzleFileRecordRepository | ElectronFileRecordRepository | null;
   chunkRepository: DrizzleFileChunkRepository | ElectronFileChunkRepository | null;
   embeddingSetsRepository: EmbeddingSetsRepo | null;
+  viewFilterPresetsRepository: ViewFilterPresetsRepo | null;
   drizzleDb: DrizzleDb | null; // Drizzle instance for direct access
   error: Error | null;
   ready: boolean;
@@ -135,6 +137,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const [embeddingSetsRepository, setEmbeddingSetsRepository] = useState<EmbeddingSetsRepo | null>(
     null
   );
+  const [viewFilterPresetsRepository, setViewFilterPresetsRepository] =
+    useState<ViewFilterPresetsRepo | null>(null);
   const [drizzleDb, setDrizzleDb] = useState<DrizzleDb | null>(null);
   const [error, setError] = useState<Error | null>(null);
   const [ready, setReady] = useState(false);
@@ -216,12 +220,22 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         exec,
       });
 
+      // Import and create view filter presets repository for Electron
+      const { ElectronViewFilterPresetsRepository } = await import(
+        './repositories/electron-view-filter-presets-repository.js'
+      );
+      const viewFilterPresetsRepo = new ElectronViewFilterPresetsRepository({
+        query: electronDB.query,
+        exec,
+      });
+
       if (!cancelled.value) {
         dbRef.current = electronDB as unknown as PGlite;
         setExposedDb(createDbHandle(electronDB as unknown as QueryExecutor));
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
         setEmbeddingSetsRepository(embeddingSetsRepo);
+        setViewFilterPresetsRepository(viewFilterPresetsRepo);
         setVectorEnabled(hasVector);
         setError(null);
         setReady(true);
@@ -260,15 +274,20 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       const { DrizzleEmbeddingSetsRepository } = await import(
         './repositories/drizzle/embedding-sets-repository.js'
       );
+      const { DrizzleViewFilterPresetsRepository } = await import(
+        './repositories/drizzle/view-filter-presets-repository.js'
+      );
       const drizzleInstance = drizzle(db);
       const repository = new DrizzleFileRecordRepository(drizzleInstance);
       const chunkRepo = new DrizzleFileChunkRepository(drizzleInstance);
       const embeddingSetsRepo = new DrizzleEmbeddingSetsRepository(drizzleInstance);
+      const viewFilterPresetsRepo = new DrizzleViewFilterPresetsRepository(drizzleInstance);
       if (!cancelled.value) {
         setDrizzleDb(drizzleInstance);
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
         setEmbeddingSetsRepository(embeddingSetsRepo);
+        setViewFilterPresetsRepository(viewFilterPresetsRepo);
         setVectorEnabled(hasVector);
         setError(null);
         setReady(true);
@@ -306,6 +325,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setFileRecordRepository(null);
         setChunkRepository(null);
         setEmbeddingSetsRepository(null);
+        setViewFilterPresetsRepository(null);
         setError(err as Error);
         setReady(true);
         setLazyInitialized(false);
@@ -600,6 +620,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     setFileRecordRepository(null);
     setChunkRepository(null);
     setEmbeddingSetsRepository(null);
+    setViewFilterPresetsRepository(null);
     setVectorEnabled(false);
     setReady(false);
     setLazyInitialized(false);
@@ -650,6 +671,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       fileRecordRepository,
       chunkRepository,
       embeddingSetsRepository,
+      viewFilterPresetsRepository,
       drizzleDb,
       error,
       ready,
@@ -700,6 +722,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       fileRecordRepository,
       chunkRepository,
       embeddingSetsRepository,
+      viewFilterPresetsRepository,
       drizzleDb,
       error,
       ready,
@@ -971,4 +994,34 @@ export function useEmbeddingSetsRepository(): EmbeddingSetsRepo | null {
   }
 
   return ctx.ready && !ctx.error ? ctx.embeddingSetsRepository : null;
+}
+
+/**
+ * Hook to access the ViewFilterPresets repository.
+ * Use this to manage view filter presets (include/exclude patterns) in the database.
+ */
+export function useViewFilterPresetsRepository(): ViewFilterPresetsRepo | null {
+  const ctx = useContext(DbContext);
+
+  // Destructure to get stable references for dependency array
+  const viewFilterPresetsRepository = ctx?.viewFilterPresetsRepository;
+  const error = ctx?.error;
+  const initializing = ctx?.initializing;
+  const initializeDatabase = ctx?.initializeDatabase;
+
+  // Trigger lazy initialization when first accessed
+  useEffect(() => {
+    if (!(viewFilterPresetsRepository || error || initializing) && initializeDatabase) {
+      initializeDatabase().catch((err) => {
+        logger.error('Failed to lazy-initialize database:', err);
+      });
+    }
+  }, [viewFilterPresetsRepository, error, initializing, initializeDatabase]);
+
+  if (!ctx) {
+    logger.warn('useViewFilterPresetsRepository must be used within a DbProvider');
+    return null;
+  }
+
+  return ctx.ready && !ctx.error ? ctx.viewFilterPresetsRepository : null;
 }

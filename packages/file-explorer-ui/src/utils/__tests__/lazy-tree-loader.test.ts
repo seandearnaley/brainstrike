@@ -540,4 +540,127 @@ describe('lazy-tree-loader', () => {
       ).rejects.toThrow('Operation was cancelled');
     });
   });
+
+  describe('streaming batch semantics', () => {
+    it('intermediate batches contain only current batch items, final batch contains all sorted', async () => {
+      const adapter = createMockAdapter();
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
+        // Emit 3 batches with deterministic data (names chosen to test sorting)
+        onBatch(
+          [
+            createDirectoryNode({ name: 'zulu', path: '/root/zulu', children: [] }),
+            createFileNode({ name: 'beta.ts', path: '/root/beta.ts' }),
+          ],
+          { done: false, total: 6 }
+        );
+        onBatch(
+          [
+            createFileNode({ name: 'alpha.ts', path: '/root/alpha.ts' }),
+            createDirectoryNode({ name: 'src', path: '/root/src', children: [] }),
+          ],
+          { done: false, total: 6 }
+        );
+        onBatch(
+          [
+            createFileNode({ name: 'gamma.ts', path: '/root/gamma.ts' }),
+            createDirectoryNode({ name: 'docs', path: '/root/docs', children: [] }),
+          ],
+          { done: true, total: 6 }
+        );
+      });
+
+      const handle = createDirectoryHandle();
+      const batches: { nodes: IFileNode[]; done: boolean; total: number }[] = [];
+
+      await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
+        batches.push({ nodes: [...nodes], done: meta.done, total: meta.total });
+      });
+
+      // Verify batch count
+      expect(batches).toHaveLength(3);
+
+      // Verify intermediate batches contain only their batch items
+      expect(batches[0]!.done).toBe(false);
+      expect(batches[0]!.nodes).toHaveLength(2);
+      expect(batches[0]!.nodes.map((n) => n.name)).toEqual(['zulu', 'beta.ts']);
+
+      expect(batches[1]!.done).toBe(false);
+      expect(batches[1]!.nodes).toHaveLength(2);
+      expect(batches[1]!.nodes.map((n) => n.name)).toEqual(['alpha.ts', 'src']);
+
+      // Verify final batch contains ALL items (6 total), sorted (directories first, then files alphabetically)
+      expect(batches[2]!.done).toBe(true);
+      expect(batches[2]!.nodes).toHaveLength(6);
+
+      // Default sort: directories first (alphabetically), then files (alphabetically)
+      const finalNames = batches[2]!.nodes.map((n) => n.name);
+      expect(finalNames).toEqual(['docs', 'src', 'zulu', 'alpha.ts', 'beta.ts', 'gamma.ts']);
+    });
+
+    it('filters ignored items from all batches including final accumulated result', async () => {
+      const adapter = createMockAdapter();
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
+        onBatch(
+          [
+            createFileNode({ name: 'valid.ts', path: '/root/valid.ts' }),
+            createDirectoryNode({ name: 'node_modules', path: '/root/node_modules', children: [] }),
+          ],
+          { done: false, total: 4 }
+        );
+        onBatch(
+          [
+            createDirectoryNode({ name: '.git', path: '/root/.git', children: [] }),
+            createFileNode({ name: 'also-valid.ts', path: '/root/also-valid.ts' }),
+          ],
+          { done: true, total: 4 }
+        );
+      });
+
+      const handle = createDirectoryHandle();
+      const batches: { nodes: IFileNode[]; done: boolean }[] = [];
+
+      await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
+        batches.push({ nodes: [...nodes], done: meta.done });
+      });
+
+      // Intermediate batch should only contain valid.ts (node_modules filtered)
+      expect(batches[0]!.nodes).toHaveLength(1);
+      expect(batches[0]!.nodes[0]!.name).toBe('valid.ts');
+
+      // Final batch should contain only valid items (2 total, not 4)
+      expect(batches[1]!.nodes).toHaveLength(2);
+      const finalNames = batches[1]!.nodes.map((n) => n.name);
+      expect(finalNames).toContain('valid.ts');
+      expect(finalNames).toContain('also-valid.ts');
+      expect(finalNames).not.toContain('node_modules');
+      expect(finalNames).not.toContain('.git');
+    });
+
+    it('handles empty batches correctly', async () => {
+      const adapter = createMockAdapter();
+      adapter.readDirectoryStreaming = vi.fn(async (_handle, onBatch) => {
+        // First batch has items
+        onBatch([createFileNode({ name: 'file.ts', path: '/root/file.ts' })], {
+          done: false,
+          total: 1,
+        });
+        // Final batch is empty (all items were in previous batch)
+        onBatch([], { done: true, total: 1 });
+      });
+
+      const handle = createDirectoryHandle();
+      const batches: { nodes: IFileNode[]; done: boolean }[] = [];
+
+      await loadRootDirectoryStreaming(adapter, handle, (nodes, meta) => {
+        batches.push({ nodes: [...nodes], done: meta.done });
+      });
+
+      expect(batches).toHaveLength(2);
+      expect(batches[0]!.nodes).toHaveLength(1);
+      // Final batch should still have accumulated items even though this batch was empty
+      expect(batches[1]!.done).toBe(true);
+      expect(batches[1]!.nodes).toHaveLength(1);
+      expect(batches[1]!.nodes[0]!.name).toBe('file.ts');
+    });
+  });
 });
