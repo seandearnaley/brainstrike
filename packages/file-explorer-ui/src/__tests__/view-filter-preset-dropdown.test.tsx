@@ -68,7 +68,7 @@ describe('ViewFilterPresetDropdown', () => {
 
   it('renders with selected preset name', () => {
     renderWithProviders(
-      <ViewFilterPresetDropdown {...defaultProps} selectedPreset={mockPresets[0] ?? null} />
+      <ViewFilterPresetDropdown {...defaultProps} selectedPreset={mockPresets[0] || null} />
     );
     expect(screen.getByRole('button')).toHaveTextContent('Source Files');
   });
@@ -111,12 +111,12 @@ describe('ViewFilterPresetDropdown', () => {
     const presetButton = screen.getByText('Source Files');
     await userEvent.click(presetButton);
 
-    expect(mockOnSelect).toHaveBeenCalledWith(mockPresets[0] ?? null);
+    expect(mockOnSelect).toHaveBeenCalledWith(mockPresets[0] || null);
   });
 
   it('shows check mark for selected preset', async () => {
     renderWithProviders(
-      <ViewFilterPresetDropdown {...defaultProps} selectedPreset={mockPresets[0] ?? null} />
+      <ViewFilterPresetDropdown {...defaultProps} selectedPreset={mockPresets[0] || null} />
     );
     const trigger = screen.getByRole('button');
     await userEvent.click(trigger);

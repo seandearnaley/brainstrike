@@ -18,7 +18,7 @@ import type {
 } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import { asc } from 'drizzle-orm';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const logger = createLogger('useViewFilterPresets');
 
@@ -118,38 +118,62 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
   const lastFetchedRepoRef = useRef<typeof repository>(undefined);
 
   // Fetch presets using repository (Electron path)
-  const fetchPresetsFromRepo = useCallback(async () => {
-    if (!repository) {
+  // Returns a cleanup function for AbortController cancellation
+  const fetchPresetsFromRepo = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!repository) {
+        return;
+      }
+
+      try {
+        setRepoLoading(true);
+        setRepoError(null);
+        const fetchedPresets = await repository.findAll();
+        // Check if request was aborted before updating state
+        if (signal?.aborted) {
+          return;
+        }
+        setRepoPresets(fetchedPresets);
+        logger.debug('Fetched presets from repository', { count: fetchedPresets.length });
+      } catch (err) {
+        // Ignore abort errors
+        if (signal?.aborted) {
+          return;
+        }
+        const error = err instanceof Error ? err : new Error(String(err));
+        logger.error('Failed to fetch presets from repository', { error: error.message });
+        setRepoError(error);
+      } finally {
+        if (!signal?.aborted) {
+          setRepoLoading(false);
+        }
+      }
+    },
+    [repository]
+  );
+
+  // Fetch repository data when repository changes (Electron path)
+  // Using useEffect with cleanup for proper cancellation
+  useEffect(() => {
+    if (useDrizzlePath || !repository) {
+      // Not using repository path, ensure loading is false
+      setRepoLoading(false);
       return;
     }
 
-    try {
-      setRepoLoading(true);
-      setRepoError(null);
-      const fetchedPresets = await repository.findAll();
-      setRepoPresets(fetchedPresets);
-      logger.debug('Fetched presets from repository', { count: fetchedPresets.length });
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Failed to fetch presets from repository', { error: error.message });
-      setRepoError(error);
-    } finally {
-      setRepoLoading(false);
+    // Only fetch if repository has changed
+    if (lastFetchedRepoRef.current === repository) {
+      return;
     }
-  }, [repository]);
-
-  // Sync during render: trigger fetch when repository changes (Electron path)
-  // This pattern is intentional - React 18+ supports setState during render for derived state
-  // The ref tracking ensures we only fetch once per repository instance change
-  if (!useDrizzlePath && repository && lastFetchedRepoRef.current !== repository) {
     lastFetchedRepoRef.current = repository;
-    void fetchPresetsFromRepo();
-  }
 
-  // For Drizzle path, ensure repoLoading is false (synchronous state derivation)
-  if (useDrizzlePath && repoLoading) {
-    setRepoLoading(false);
-  }
+    const controller = new AbortController();
+    void fetchPresetsFromRepo(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
+  }, [useDrizzlePath, repository, fetchPresetsFromRepo]);
 
   // Select the appropriate presets based on path
   const presets = useDrizzlePath ? drizzlePresets : repoPresets;

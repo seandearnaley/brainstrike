@@ -21,6 +21,7 @@ import {
   Check,
   ChevronDown,
   Code,
+  Cpu,
   Database,
   File,
   FileCode,
@@ -29,11 +30,13 @@ import {
   FlaskConical,
   FolderOpen,
   Globe,
+  LayoutGrid,
   Palette,
   Plus,
   Settings,
   Settings2,
   Trash2,
+  User,
   X,
 } from 'lucide-react';
 import type React from 'react';
@@ -50,10 +53,10 @@ const ICON_MAP: Record<ViewFilterPresetIcon, React.ElementType> = {
   settings: Settings,
   database: Database,
   box: Box,
-  user: File, // Fallback
-  layout: File, // Fallback
+  user: User,
+  layout: LayoutGrid,
   globe: Globe,
-  cpu: File, // Fallback
+  cpu: Cpu,
   palette: Palette,
   'flask-conical': FlaskConical,
   'test-tube': FlaskConical,
