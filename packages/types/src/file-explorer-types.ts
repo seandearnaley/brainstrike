@@ -132,6 +132,11 @@ export interface SerializedState {
    * Optional for backward compatibility with existing persisted state.
    */
   viewFilterPresetId?: string | null;
+  /**
+   * Whether the view filters section is expanded.
+   * Optional for backward compatibility with existing persisted state.
+   */
+  isFiltersExpanded?: boolean;
 }
 
 export interface FolderState {
@@ -217,6 +222,11 @@ export interface FileExplorerData {
    * Disabled filters are not applied to the file tree but remain in the filter list.
    */
   disabledExcludeFilters: Set<string>;
+  /**
+   * Whether the view filters section (preset selector + filter chips) is expanded.
+   * Persisted to remember user's preference across sessions.
+   */
+  isFiltersExpanded: boolean;
 }
 
 export interface CacheStats {
@@ -302,6 +312,9 @@ export interface FileExplorerState extends FileExplorerData {
 
   // Access loading state action (for blocking stale clearing during restore)
   setIsAccessLoading: (loading: boolean) => void;
+
+  // View filters expansion state
+  setFiltersExpanded: (expanded: boolean) => void;
 }
 
 // Constants
@@ -345,4 +358,5 @@ export const DEFAULT_STATE = {
   viewFilterPresetId: null as string | null,
   disabledIncludeFilters: new Set<string>(),
   disabledExcludeFilters: new Set<string>(),
+  isFiltersExpanded: true,
 } as const;

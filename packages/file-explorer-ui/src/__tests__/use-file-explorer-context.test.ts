@@ -159,6 +159,8 @@ describe('useFileExplorer (context)', () => {
       disabledIncludeFilters: new Set<string>(),
       disabledExcludeFilters: new Set<string>(),
       toggleFilterEnabled: vi.fn(),
+      isFiltersExpanded: true,
+      setFiltersExpanded: vi.fn(),
     };
     // Mock store function to handle individual selector calls (split selector pattern)
     const mockStore = vi.fn((selector?: (state: FileExplorerState) => unknown) => {

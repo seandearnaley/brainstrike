@@ -1,7 +1,8 @@
 import { useAdapters, useRestoreAccess, useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
-import { LoadingFallback } from '@brainstrike/ui';
+import { Button, cn, LoadingFallback } from '@brainstrike/ui';
 import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
+import { ChevronDown, ChevronUp, SlidersHorizontal } from 'lucide-react';
 import type { StoreApi } from 'zustand';
 import type { UseBoundStoreWithEqualityFn } from 'zustand/traditional';
 
@@ -135,6 +136,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     disabledIncludeFilters,
     disabledExcludeFilters,
     toggleFilterEnabled,
+    isFiltersExpanded,
+    setFiltersExpanded,
   ] = store(
     (s) =>
       [
@@ -150,6 +153,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.disabledIncludeFilters,
         s.disabledExcludeFilters,
         s.toggleFilterEnabled,
+        s.isFiltersExpanded,
+        s.setFiltersExpanded,
       ] as const
   );
 
@@ -545,27 +550,63 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           />
           {/* Current directory indicator */}
           <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
-          {/* Filter section: Preset selector + Filter pills (grouped together, no divider) */}
+          {/* Filter section: Collapsible view filters + Quick filter input */}
           {rootDirectoryHandle && (
-            <div className="space-y-2 border-b px-2 py-2">
-              <ToolbarPresetSelector
-                className="@[300px]:h-9 h-8 w-full"
-                onFilterChange={handleFilterChange}
-              />
-              <FilterStatus
-                disabledExcludeFilters={disabledExcludeFilters}
-                disabledIncludeFilters={disabledIncludeFilters}
-                excludeFilters={excludeFilters}
-                includeFilters={includeFilters}
-                onToggleFilter={toggleFilterEnabled}
-                quickFilter={quickFilter}
-                useRegex={useRegex}
-              />
-              <FileFilterBar
-                onChange={setQuickFilter}
-                onClear={clearQuickFilter}
-                value={quickFilter}
-              />
+            <div className="border-b">
+              {/* View Filters - Collapsible toggle button */}
+              <Button
+                aria-controls="view-filters-content"
+                aria-expanded={isFiltersExpanded}
+                className="h-auto w-full justify-between rounded-none px-3 py-2 hover:bg-muted/50"
+                depress={false}
+                onClick={() => setFiltersExpanded(!isFiltersExpanded)}
+                size="sm"
+                variant="ghost"
+              >
+                <span className="flex items-center gap-2 text-muted-foreground text-xs">
+                  <SlidersHorizontal className="h-3 w-3" />
+                  View Filters
+                </span>
+                {isFiltersExpanded ? (
+                  <ChevronUp className="h-3 w-3 text-muted-foreground" />
+                ) : (
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                )}
+              </Button>
+
+              {/* Collapsible content - Preset selector + Filter chips */}
+              <div
+                className={cn(
+                  'overflow-hidden transition-all duration-200 ease-out',
+                  isFiltersExpanded ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'
+                )}
+                id="view-filters-content"
+              >
+                <div className="space-y-2 px-2 py-2">
+                  <ToolbarPresetSelector
+                    className="@[300px]:h-9 h-8 w-full"
+                    onFilterChange={handleFilterChange}
+                  />
+                  <FilterStatus
+                    disabledExcludeFilters={disabledExcludeFilters}
+                    disabledIncludeFilters={disabledIncludeFilters}
+                    excludeFilters={excludeFilters}
+                    includeFilters={includeFilters}
+                    onToggleFilter={toggleFilterEnabled}
+                    quickFilter={quickFilter}
+                    useRegex={useRegex}
+                  />
+                </div>
+              </div>
+
+              {/* Quick filter input - always visible */}
+              <div className="px-2 py-2">
+                <FileFilterBar
+                  onChange={setQuickFilter}
+                  onClear={clearQuickFilter}
+                  value={quickFilter}
+                />
+              </div>
             </div>
           )}
         </div>

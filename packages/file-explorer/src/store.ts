@@ -67,6 +67,9 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     setIsAccessLoading: (loading: boolean) => {
       set({ isAccessLoading: loading });
     },
+    setFiltersExpanded: (expanded: boolean) => {
+      set({ isFiltersExpanded: expanded });
+    },
   };
 
   // Combine data and actions. Type assertion might be needed if inference fails.

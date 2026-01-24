@@ -154,6 +154,7 @@ export function serializeState(state: FileExplorerState): SerializedState {
     devInlineFixtureEnabled: state.devInlineFixtureEnabled,
     selectionModel: serializeSelectionModel(state.selectionModel),
     viewFilterPresetId: state.viewFilterPresetId,
+    isFiltersExpanded: state.isFiltersExpanded,
   };
 
   return serialized;
@@ -242,6 +243,10 @@ export function mergeState(
       current.devInlineFixtureEnabled
     ),
     selectionModel: deserializeSelectionModel(persistedSerialized.selectionModel),
+    isFiltersExpanded: coerceBoolean(
+      persistedSerialized.isFiltersExpanded,
+      current.isFiltersExpanded
+    ),
   };
 
   for (const key in current.folderStates) {
