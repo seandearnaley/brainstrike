@@ -133,10 +133,9 @@ describe('EmbeddingActionsDropdown', () => {
 
       await user.click(screen.getByRole('button', { name: 'More embedding actions' }));
 
-      await waitFor(async () => {
-        const menuItem = screen.getByRole('menuitem', { name: /retry failed/i });
-        await user.click(menuItem);
-      });
+      // Use findByRole (has built-in waiting) then click once
+      const menuItem = await screen.findByRole('menuitem', { name: /retry failed/i });
+      await user.click(menuItem);
 
       await waitFor(() => {
         expect(onRetryFailed).toHaveBeenCalledTimes(1);
@@ -171,10 +170,9 @@ describe('EmbeddingActionsDropdown', () => {
 
       await user.click(screen.getByRole('button', { name: 'More embedding actions' }));
 
-      await waitFor(async () => {
-        const menuItem = screen.getByRole('menuitem', { name: /clear queue/i });
-        await user.click(menuItem);
-      });
+      // Use findByRole (has built-in waiting) then click once
+      const menuItem = await screen.findByRole('menuitem', { name: /clear queue/i });
+      await user.click(menuItem);
 
       await waitFor(() => {
         expect(onClearQueue).toHaveBeenCalledTimes(1);
@@ -201,10 +199,9 @@ describe('EmbeddingActionsDropdown', () => {
 
       await user.click(screen.getByRole('button', { name: 'More embedding actions' }));
 
-      await waitFor(async () => {
-        const menuItem = screen.getByRole('menuitem', { name: /wipe all jobs/i });
-        await user.click(menuItem);
-      });
+      // Use findByRole (has built-in waiting) then click once
+      const menuItem = await screen.findByRole('menuitem', { name: /wipe all jobs/i });
+      await user.click(menuItem);
 
       await waitFor(() => {
         expect(onWipeQueue).toHaveBeenCalledTimes(1);
