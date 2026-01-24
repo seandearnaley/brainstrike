@@ -9,7 +9,9 @@ export default defineConfig({
   outDir: 'dist',
   clean: true,
   target: 'es2020',
-  noExternal: ['xxhash-wasm'],
+  platform: 'browser',
+  noExternal: ['xxhash-wasm', 'workerpool'],
+  external: ['worker_threads', 'os', 'child_process'],
   loader: {
     '.wasm': 'file',
   },
