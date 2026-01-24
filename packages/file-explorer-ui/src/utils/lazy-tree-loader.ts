@@ -321,7 +321,8 @@ export async function loadDirectoryChildrenStreaming(
 
   // Check if adapter supports streaming
   if (adapter.readDirectoryStreaming) {
-    let accumulated: IFileNode[] = [];
+    // Use const + push for O(n) accumulation instead of spread which is O(n²)
+    const accumulated: IFileNode[] = [];
 
     await adapter.readDirectoryStreaming(
       handle,
@@ -334,15 +335,17 @@ export async function loadDirectoryChildrenStreaming(
           parentNode.path
         );
 
+        // In-place accumulation avoids per-batch array reallocation
+        for (const node of transformed) {
+          accumulated.push(node);
+        }
+
         if (meta.done) {
-          // Final batch: include all accumulated + this batch, sorted
-          accumulated = [...accumulated, ...transformed];
+          // Final batch: emit all accumulated nodes, sorted
           const sorted = sortFileNodes(accumulated);
           onBatch(sorted, { done: true, total: meta.total });
         } else {
-          // Intermediate batch: accumulate for final sort
-          accumulated = [...accumulated, ...transformed];
-          // Emit intermediate update with current count
+          // Intermediate batch: emit only current batch (accumulated used for final sort)
           onBatch(transformed, { done: false, total: meta.total });
         }
       },
@@ -391,7 +394,8 @@ export async function loadRootDirectoryStreaming(
 
   // Check if adapter supports streaming
   if (adapter.readDirectoryStreaming) {
-    let accumulated: IFileNode[] = [];
+    // Use const + push for O(n) accumulation instead of spread which is O(n²)
+    const accumulated: IFileNode[] = [];
 
     await adapter.readDirectoryStreaming(
       rootHandle,
@@ -399,15 +403,17 @@ export async function loadRootDirectoryStreaming(
         // Transform nodes for lazy loading (depth 0, rootFolderId from handle)
         const transformed = transformNodesForLazyLoading(nodes, 0, rootHandle.name);
 
+        // In-place accumulation avoids per-batch array reallocation
+        for (const node of transformed) {
+          accumulated.push(node);
+        }
+
         if (meta.done) {
-          // Final batch: include all accumulated + this batch, sorted
-          accumulated = [...accumulated, ...transformed];
+          // Final batch: emit all accumulated nodes, sorted
           const sorted = sortFileNodes(accumulated);
           onBatch(sorted, { done: true, total: meta.total });
         } else {
-          // Intermediate batch: accumulate for final sort
-          accumulated = [...accumulated, ...transformed];
-          // Emit intermediate update with current count
+          // Intermediate batch: emit only current batch (accumulated used for final sort)
           onBatch(transformed, { done: false, total: meta.total });
         }
       },
