@@ -10,9 +10,6 @@
 import { worker, workerEmit } from 'workerpool';
 import type { TokenCountRequest, TokenCountResult } from './types';
 
-// Debug: emit when worker script loads (visible in main thread)
-workerEmit({ type: 'log', message: 'Worker script loaded and imports complete' });
-
 interface XXHashModule {
   h64: (input: string) => bigint;
   create64: () => {
