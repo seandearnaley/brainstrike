@@ -1,9 +1,12 @@
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
-import { memo, useCallback, useEffect, useMemo } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
-import { useVirtualList } from './use-virtual-list';
+
+/** Default overscan count - higher values give smoother scrolling at cost of more DOM elements */
+const DEFAULT_OVERSCAN = 10;
 
 interface IOptimizedFileTreeProps {
   fileTree: IFileNode[];
@@ -35,7 +38,7 @@ interface IOptimizedFileTreeProps {
  * - Improved memoization strategies
  * - Optimized React.memo comparison functions
  * - Reduced context provider overhead
- * - Enhanced virtualization with better scroll performance
+ * - Enhanced virtualization with @tanstack/react-virtual for robust scroll handling
  *
  * @param {IFileNode[]} fileTree - The array of IFileNode objects representing the file structure to render.
  * @param {Set<string>} loadingFiles - A set of paths for files that are currently in a loading state.
@@ -59,6 +62,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
     const toggleDirectoryExpansion = store((s) => s.toggleDirectoryExpansion);
     const toggleSelectedFile = store((s) => s.toggleSelectedFile);
+
+    // Ref for the scroll container - used by TanStack Virtual
+    const parentRef = useRef<HTMLDivElement>(null);
 
     /**
      * Wrapped toggle that cancels streaming loads on collapse.
@@ -119,81 +125,28 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // Memoize visible nodes calculation
     const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
 
-    // Enhanced virtualization with improved performance
-    // Overscan of 10 prevents gray patches during rapid scrolling on large trees
-    const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
-      overscan: 10,
+    // TanStack Virtual for robust virtualization
+    // Handles edge cases like dramatic itemCount changes, filter toggling, etc.
+    const rowVirtualizer = useVirtualizer({
+      count: visibleNodes.length,
+      getScrollElement: () => parentRef.current,
+      estimateSize: () => ROW_HEIGHT,
+      overscan: DEFAULT_OVERSCAN,
     });
 
-    // Optimized row rendering with better memoization
-    const renderedRows = useMemo(() => {
-      const startIndex = range.start;
-      const endIndex = range.end;
-      const rows = [];
-
-      for (let i = startIndex; i <= endIndex; i++) {
-        const item = visibleNodes[i];
-        if (!item) {
-          continue;
-        }
-
-        const { node, depth } = item;
-
-        rows.push(
-          <OptimizedFileTreeRow
-            depth={depth}
-            folderId={folderId}
-            isChildrenLoading={loadingPaths?.has(node.path) ?? false}
-            isExpanded={expandedDirectoryPaths.has(node.path) && node.loadState === 'loaded'}
-            isLoading={
-              folderId ? loadingFiles.has(encodeFileSelection(folderId, node.path)) : false
-            }
-            isLoadingForSelection={isLoadingForSelection && loadingPathForSelection === node.path}
-            key={node.path}
-            node={node}
-            onLoadChildren={onLoadChildren}
-            onSelectFolderRecursively={onSelectFolderRecursively}
-            onToggleDirectoryExpansion={handleToggleDirectoryExpansion}
-            onToggleFileSelection={handleToggleFileSelection}
-            style={{
-              position: 'absolute',
-              top: i * ROW_HEIGHT,
-              width: '100%',
-              height: ROW_HEIGHT,
-            }}
-          />
-        );
-      }
-
-      return rows;
-    }, [
-      visibleNodes,
-      range.start,
-      range.end,
-      expandedDirectoryPaths,
-      handleToggleDirectoryExpansion,
-      handleToggleFileSelection,
-      loadingFiles,
-      folderId,
-      loadingPaths,
-      onLoadChildren,
-      onSelectFolderRecursively,
-      isLoadingForSelection,
-      loadingPathForSelection,
-    ]);
+    const virtualItems = rowVirtualizer.getVirtualItems();
+    const totalHeight = rowVirtualizer.getTotalSize();
 
     // This effect will run if the onRender callback itself changes.
     useEffect(() => {
       onRender?.();
     }, [onRender]);
 
-    // No cleanup needed anymore
-
     return (
       <div
         className="relative h-full min-h-0 flex-1 overflow-y-auto"
         data-testid="file-tree-scroll-container"
-        ref={containerRef}
+        ref={parentRef}
       >
         <div
           aria-label="File tree"
@@ -202,7 +155,41 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           role="tree"
           style={{ height: totalHeight }}
         >
-          {renderedRows}
+          {virtualItems.map((virtualItem) => {
+            const item = visibleNodes[virtualItem.index];
+            if (!item) {
+              return null;
+            }
+
+            const { node, depth } = item;
+
+            return (
+              <OptimizedFileTreeRow
+                depth={depth}
+                folderId={folderId}
+                isChildrenLoading={loadingPaths?.has(node.path) ?? false}
+                isExpanded={expandedDirectoryPaths.has(node.path) && node.loadState === 'loaded'}
+                isLoading={
+                  folderId ? loadingFiles.has(encodeFileSelection(folderId, node.path)) : false
+                }
+                isLoadingForSelection={
+                  isLoadingForSelection && loadingPathForSelection === node.path
+                }
+                key={node.path}
+                node={node}
+                onLoadChildren={onLoadChildren}
+                onSelectFolderRecursively={onSelectFolderRecursively}
+                onToggleDirectoryExpansion={handleToggleDirectoryExpansion}
+                onToggleFileSelection={handleToggleFileSelection}
+                style={{
+                  position: 'absolute',
+                  top: virtualItem.start,
+                  width: '100%',
+                  height: ROW_HEIGHT,
+                }}
+              />
+            );
+          })}
         </div>
       </div>
     );

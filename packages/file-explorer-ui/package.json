@@ -35,7 +35,6 @@
   "dependencies": {
     "@brainstrike/db": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
-    "drizzle-orm": "^0.45.1",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/file-tree-worker": "workspace:*",
@@ -49,6 +48,8 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/workers": "workspace:*",
+    "@tanstack/react-virtual": "^3.13.18",
+    "drizzle-orm": "^0.45.1",
     "react-hotkeys-hook": "^5.2.1"
   },
   "license": "ISC",
