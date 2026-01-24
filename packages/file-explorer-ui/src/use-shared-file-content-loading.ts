@@ -148,15 +148,8 @@ function getHandleCache(fileSystemAdapter: unknown): CachedHandleLookup | null {
  * This is available on Electron where we have direct file system access.
  */
 function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
-  const adapter = fileSystemAdapter as { readFileByPath?: unknown; platform?: string };
-  const hasReadByPath = typeof adapter.readFileByPath === 'function';
-  logger.debug('supportsDirectPathRead check', {
-    hasReadByPath,
-    platform: adapter.platform,
-    adapterType: typeof fileSystemAdapter,
-    readFileByPathType: typeof adapter.readFileByPath,
-  });
-  return hasReadByPath;
+  const adapter = fileSystemAdapter as { readFileByPath?: unknown };
+  return typeof adapter.readFileByPath === 'function';
 }
 
 function markFileLoading(

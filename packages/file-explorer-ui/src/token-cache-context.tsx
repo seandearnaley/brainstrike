@@ -50,6 +50,43 @@ interface WorkerPool {
   terminate: () => Promise<void>;
 }
 
+/** Warmup configuration constants */
+const WARMUP_MAX_RETRIES = 3;
+const WARMUP_BASE_DELAY_MS = 100;
+
+/**
+ * Runs a warmup handshake with the worker pool to ensure it's fully ready.
+ * Retries with exponential backoff on failure.
+ * Returns success status and number of attempts made.
+ */
+async function runWorkerWarmup(
+  pool: WorkerPool,
+  isCancelled: () => boolean
+): Promise<{ success: boolean; attempts: number }> {
+  const warmupRequest: TokenCountRequest = {
+    id: '__warmup__',
+    content: '',
+    mode: 'heuristic',
+  };
+
+  for (let attempt = 0; attempt < WARMUP_MAX_RETRIES; attempt++) {
+    if (isCancelled()) {
+      return { success: false, attempts: attempt };
+    }
+    try {
+      await pool.exec('countTokens', [warmupRequest]);
+      return { success: true, attempts: attempt + 1 };
+    } catch {
+      const isLastAttempt = attempt === WARMUP_MAX_RETRIES - 1;
+      if (!isLastAttempt) {
+        const delayMs = WARMUP_BASE_DELAY_MS * 2 ** attempt;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  return { success: false, attempts: WARMUP_MAX_RETRIES };
+}
+
 class InMemoryTokenCacheStore {
   private readonly entries = new Map<string, TokenCacheEntry>();
 
@@ -303,16 +340,34 @@ export function TokenCacheProvider({
     };
   }, [hasher]);
 
-  // Initialize worker pool
+  // Initialize worker pool with warmup handshake
   useEffect(() => {
     const url = workerUrl ?? new URL('@brainstrike/token-cache/worker', import.meta.url).href;
     logger.debug('TokenCacheProvider: creating worker pool', { url });
     const pool = createTokenCacheWorkerPool(url);
     setWorkerPool(pool as WorkerPool);
-    setWorkerReady(true);
-    logger.debug('TokenCacheProvider: workerReady set to true');
+
+    let cancelled = false;
+    const isCancelled = () => cancelled;
+
+    // Warmup ensures worker is fully ready before marking operational
+    void runWorkerWarmup(pool as WorkerPool, isCancelled).then((result) => {
+      if (cancelled) {
+        return;
+      }
+      // Enable worker even if warmup failed (degraded mode) for backwards compatibility
+      setWorkerReady(true);
+      if (result.success) {
+        logger.debug('TokenCacheProvider: worker warmup succeeded', { attempts: result.attempts });
+      } else {
+        logger.warn('TokenCacheProvider: warmup failed, enabling degraded mode', {
+          attempts: result.attempts,
+        });
+      }
+    });
 
     return () => {
+      cancelled = true;
       logger.debug('TokenCacheProvider: cleaning up worker pool');
       setWorkerReady(false);
       void pool.terminate();
