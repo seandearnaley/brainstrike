@@ -317,7 +317,6 @@ export function useBackgroundTokenIndexerIntegration({
       tokenCacheRef.current?.updateHotCache(folderId, path, tokenCount);
       tokenCacheRef.current?.updateFileSizeCache(folderId, path, fileSize);
       indexedFilesRef.current.add(compositeKey);
-      logger.debug('File indexed', { compositeKey, tokenCount, fileSize });
       onTokenResolvedRef.current?.(compositeKey, tokenCount);
     },
     []

@@ -216,11 +216,6 @@ export function useBackgroundTokenIndexer({
         }
 
         const message = event.data;
-        // Only log non-'log' message types to avoid duplicate noise
-        // Worker 'log' messages are already logged by the worker itself
-        if (message.type !== 'log') {
-          logger.debug('Background token indexer worker message', { type: message.type });
-        }
 
         if (message.type === 'ready') {
           setIsReady(true);

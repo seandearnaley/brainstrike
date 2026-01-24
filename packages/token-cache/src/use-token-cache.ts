@@ -451,7 +451,6 @@ export function useTokenCache({
         return;
       }
       hotCache.current.set(key, tokenCount);
-      logger.debug('Hot cache updated', { key, tokenCount, cacheSize: hotCache.current.size });
       debouncedSetVersion();
     },
     [debouncedSetVersion]
@@ -470,11 +469,6 @@ export function useTokenCache({
         return;
       }
       fileSizeCache.current.set(key, fileSize);
-      logger.debug('File size cache updated', {
-        key,
-        fileSize,
-        cacheSize: fileSizeCache.current.size,
-      });
       debouncedSetVersion();
     },
     [debouncedSetVersion]
