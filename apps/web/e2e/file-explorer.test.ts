@@ -72,9 +72,8 @@ test.describe('File Explorer', () => {
       await expect(dialog.getByRole('heading', { name: 'Workspace Settings' })).toBeVisible();
       // Note: Max Selection Count was moved to SelectionCounter component
       // Note: Folder Summary Threshold was moved to Preview Panel footer
-      await expect(dialog.getByPlaceholder('e.g. *.ts, src/**/*.js')).toBeVisible();
-      await expect(dialog.getByPlaceholder('e.g. *.test.js, node_modules/**')).toBeVisible();
-      await expect(dialog.getByRole('switch', { name: 'Use Regex' })).toBeVisible();
+      // Note: Include/Exclude filters and Use Regex toggle were moved to ViewFilterPresetDropdown
+      await expect(dialog.getByRole('button', { name: 'Apply Settings' })).toBeVisible();
     });
 
     test('should show action buttons in disabled state initially', async () => {
@@ -291,54 +290,24 @@ test.describe('File Explorer', () => {
           expect(maxCount).toBe('10');
         },
       },
+      // Note: Include/Exclude filters and Use Regex toggle were moved to ViewFilterPresetDropdown
+      // Persistence of filter presets is tested in view-filter-preset tests
       {
-        name: 'persists include/exclude filters',
-        tree: {
-          src: {
-            'a.ts': null,
-          },
-        },
-        execute: async ({ page, openDialog }) => {
-          const dialog = await openDialog();
-          await dialog.getByLabel('Files to Include:').fill('*.foo, lib/**');
-          await dialog.getByLabel('Files to Exclude:').fill('node_modules/**, *.test.ts');
-          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
-          await expect(dialog).not.toBeVisible();
-
-          await reloadExplorer(page);
-
-          const reopened = await openDialog();
-          await expect(reopened.getByLabel('Files to Include:')).toHaveValue('*.foo, lib/**');
-          await expect(reopened.getByLabel('Files to Exclude:')).toHaveValue(
-            'node_modules/**, *.test.ts'
-          );
-          // Note: Folder Summary Threshold persistence is tested in report-folder-summary.test.ts
-        },
-      },
-      {
-        name: 'persists Use Regex and Include Project Tree toggles',
+        name: 'persists Include Project Tree toggle',
         tree: {
           src: {
             'component.tsx': null,
           },
         },
-        execute: async ({ page, explorer, openDialog }) => {
+        execute: async ({ page, explorer }) => {
           await expect(explorer.includeProjectTreeToggle).toBeVisible();
           await explorer.includeProjectTreeToggle.click();
           await expect(explorer.includeProjectTreeToggle).toHaveAttribute('aria-checked', 'false');
-
-          const dialog = await openDialog();
-          await dialog.getByLabel(/Use Regex/i).click();
-          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
-          await expect(dialog).not.toBeVisible();
 
           await reloadExplorer(page);
 
           await expect(explorer.includeProjectTreeToggle).toBeVisible();
           await expect(explorer.includeProjectTreeToggle).toHaveAttribute('aria-checked', 'false');
-
-          const reopened = await openDialog();
-          await expect(reopened.getByLabel(/Use Regex/i)).toHaveAttribute('aria-checked', 'true');
         },
       },
       {
