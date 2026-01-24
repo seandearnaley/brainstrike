@@ -72,8 +72,8 @@ export class DrizzleViewFilterPresetsRepository {
       .from(viewFilterPresets)
       .orderBy(asc(viewFilterPresets.sortOrder));
 
-    const nextSortOrder =
-      maxSortResult.length > 0 ? Math.max(...maxSortResult.map((r) => r.sortOrder)) + 1 : 1;
+    // Use reduce instead of spread to avoid stack overflow with large arrays
+    const nextSortOrder = maxSortResult.reduce((max, r) => Math.max(max, r.sortOrder), 0) + 1;
 
     const [insertedRow] = await this.db
       .insert(viewFilterPresets)

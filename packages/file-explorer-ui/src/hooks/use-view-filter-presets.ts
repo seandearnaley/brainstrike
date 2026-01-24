@@ -152,6 +152,11 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
     [repository]
   );
 
+  // Use ref to avoid infinite loops when fetchPresetsFromRepo is in useEffect deps
+  // This pattern ensures the effect only re-runs when repository actually changes
+  const fetchPresetsRef = useRef(fetchPresetsFromRepo);
+  fetchPresetsRef.current = fetchPresetsFromRepo;
+
   // Fetch repository data when repository changes (Electron path)
   // Using useEffect with cleanup for proper cancellation
   useEffect(() => {
@@ -168,12 +173,12 @@ export function useViewFilterPresets(): UseViewFilterPresetsResult {
     lastFetchedRepoRef.current = repository;
 
     const controller = new AbortController();
-    void fetchPresetsFromRepo(controller.signal);
+    void fetchPresetsRef.current(controller.signal);
 
     return () => {
       controller.abort();
     };
-  }, [useDrizzlePath, repository, fetchPresetsFromRepo]);
+  }, [useDrizzlePath, repository]);
 
   // Select the appropriate presets based on path
   const presets = useDrizzlePath ? drizzlePresets : repoPresets;

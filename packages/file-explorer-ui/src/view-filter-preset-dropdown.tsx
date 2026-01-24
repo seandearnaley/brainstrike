@@ -401,12 +401,15 @@ export function ViewFilterPresetDropdown({
                   >
                     Exclude Patterns
                   </label>
-                  <button
-                    className="flex cursor-pointer items-center gap-1.5"
-                    onClick={() => setNewUseRegex(!newUseRegex)}
-                    type="button"
-                  >
+                  <label className="flex cursor-pointer items-center gap-1.5">
+                    <input
+                      checked={newUseRegex}
+                      className="sr-only"
+                      onChange={(e) => setNewUseRegex(e.target.checked)}
+                      type="checkbox"
+                    />
                     <div
+                      aria-hidden="true"
                       className={cn(
                         'flex size-3 items-center justify-center rounded border transition-colors',
                         newUseRegex ? 'border-primary bg-primary' : 'border-muted-foreground'
@@ -415,7 +418,7 @@ export function ViewFilterPresetDropdown({
                       {newUseRegex && <Check className="size-2 text-primary-foreground" />}
                     </div>
                     <span className="text-[10px] text-muted-foreground">Use Regex</span>
-                  </button>
+                  </label>
                 </div>
                 <Input
                   className="h-7 font-mono text-xs"
@@ -527,12 +530,15 @@ export function ViewFilterPresetDropdown({
                           placeholder="Exclude patterns"
                           value={editExcludes}
                         />
-                        <button
-                          className="flex cursor-pointer items-center gap-1.5"
-                          onClick={() => setEditUseRegex(!editUseRegex)}
-                          type="button"
-                        >
+                        <label className="flex cursor-pointer items-center gap-1.5">
+                          <input
+                            checked={editUseRegex}
+                            className="sr-only"
+                            onChange={(e) => setEditUseRegex(e.target.checked)}
+                            type="checkbox"
+                          />
                           <div
+                            aria-hidden="true"
                             className={cn(
                               'flex size-3 items-center justify-center rounded border transition-colors',
                               editUseRegex ? 'border-primary bg-primary' : 'border-muted-foreground'
@@ -541,7 +547,7 @@ export function ViewFilterPresetDropdown({
                             {editUseRegex && <Check className="size-2 text-primary-foreground" />}
                           </div>
                           <span className="text-[10px] text-muted-foreground">Regex</span>
-                        </button>
+                        </label>
                       </div>
 
                       {/* Actions */}

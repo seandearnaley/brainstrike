@@ -282,6 +282,8 @@ export class ElectronViewFilterPresetsRepository implements IViewFilterPresetsRe
 
   /**
    * Convert a database row to a ViewFilterPreset.
+   * Note: includes/excludes are guaranteed non-null by schema (NOT NULL DEFAULT '{}')
+   * and validated by isDbRow type guard (Array.isArray check).
    */
   private fromRow(row: DbRow): ViewFilterPreset {
     return {
@@ -289,8 +291,8 @@ export class ElectronViewFilterPresetsRepository implements IViewFilterPresetsRe
       name: row.name,
       description: row.description,
       icon: row.icon as ViewFilterPreset['icon'],
-      includes: row.includes ?? [],
-      excludes: row.excludes ?? [],
+      includes: row.includes,
+      excludes: row.excludes,
       useRegex: row.use_regex,
       isDefault: row.is_default,
       sortOrder: row.sort_order,
