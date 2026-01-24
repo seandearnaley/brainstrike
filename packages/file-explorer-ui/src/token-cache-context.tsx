@@ -76,8 +76,13 @@ async function runWorkerWarmup(
     try {
       await pool.exec('countTokens', [warmupRequest]);
       return { success: true, attempts: attempt + 1 };
-    } catch {
+    } catch (error) {
       const isLastAttempt = attempt === WARMUP_MAX_RETRIES - 1;
+      logger.debug('TokenCacheProvider: warmup attempt failed', {
+        attempt: attempt + 1,
+        error: error instanceof Error ? error.message : String(error),
+        isLastAttempt,
+      });
       if (!isLastAttempt) {
         const delayMs = WARMUP_BASE_DELAY_MS * 2 ** attempt;
         await new Promise((resolve) => setTimeout(resolve, delayMs));
