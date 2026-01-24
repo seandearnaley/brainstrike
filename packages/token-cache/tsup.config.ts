@@ -14,7 +14,9 @@ export default defineConfig({
   noExternal: ['xxhash-wasm', 'workerpool', 'tiktoken'],
   external: ['worker_threads', 'os', 'child_process'],
   loader: {
-    '.wasm': 'file',
+    // Use dataurl to inline WASM as base64, avoiding file:// fetch issues in Electron
+    // and eliminating the need to copy WASM files alongside bundled workers
+    '.wasm': 'dataurl',
   },
   esbuildOptions(options) {
     // Ensure CJS packages are properly converted to ESM for browser
