@@ -158,6 +158,12 @@ async function hashContentBatch(
   }));
 }
 
+// Pre-initialize on worker load to avoid cold-start delays
+// This ensures the worker is truly ready when warmup calls arrive
+void Promise.all([initHasher(), getTokenUtils()]).catch(() => {
+  // Initialization will be retried on first actual use
+});
+
 // Export worker methods
 worker({
   countTokens,
