@@ -10,6 +10,9 @@
 import { worker, workerEmit } from 'workerpool';
 import type { TokenCountRequest, TokenCountResult } from './types';
 
+// Debug: emit when worker script loads (visible in main thread)
+workerEmit({ type: 'log', message: 'Worker script loaded and imports complete' });
+
 interface XXHashModule {
   h64: (input: string) => bigint;
   create64: () => {
@@ -66,7 +69,16 @@ async function getTokenUtils(): Promise<{
  * Count tokens for a single file
  */
 async function countTokens(request: TokenCountRequest): Promise<TokenCountResult> {
-  const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
+  let hasher: XXHashModule;
+  let utils: Awaited<ReturnType<typeof getTokenUtils>>;
+
+  try {
+    [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
+  } catch (initError) {
+    // Re-throw with more context for debugging
+    const message = initError instanceof Error ? initError.message : String(initError);
+    throw new Error(`Token worker initialization failed: ${message}`);
+  }
 
   // Hash content for cache key
   const contentHash = hashToHex(hasher.h64(request.content));
@@ -157,12 +169,6 @@ async function hashContentBatch(
     hash: hashToHex(hasher.h64(content)),
   }));
 }
-
-// Pre-initialize on worker load to avoid cold-start delays
-// This ensures the worker is truly ready when warmup calls arrive
-void Promise.all([initHasher(), getTokenUtils()]).catch(() => {
-  // Initialization will be retried on first actual use
-});
 
 // Export worker methods
 worker({
