@@ -50,9 +50,9 @@ interface WorkerPool {
   terminate: () => Promise<void>;
 }
 
-/** Warmup configuration constants */
+/** Warmup configuration constants - longer delays for Electron bundled environments */
 const WARMUP_MAX_RETRIES = 3;
-const WARMUP_BASE_DELAY_MS = 100;
+const WARMUP_BASE_DELAY_MS = 500;
 
 /**
  * Runs a warmup handshake with the worker pool to ensure it's fully ready.
@@ -360,7 +360,8 @@ export function TokenCacheProvider({
       if (result.success) {
         logger.debug('TokenCacheProvider: worker warmup succeeded', { attempts: result.attempts });
       } else {
-        logger.warn('TokenCacheProvider: warmup failed, enabling degraded mode', {
+        // Degraded mode is the expected fallback - not a warning condition
+        logger.debug('TokenCacheProvider: warmup incomplete, continuing in degraded mode', {
           attempts: result.attempts,
         });
       }

@@ -474,7 +474,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const handleFileContentLoading = useCallback(
     async (compositeKeys: string[]) => {
       if (!workerRef.current) {
-        logger.warn('Worker not initialized, skipping file content loading');
+        // Expected during startup before worker is ready
+        logger.debug('Worker not initialized, skipping file content loading');
         return;
       }
 
