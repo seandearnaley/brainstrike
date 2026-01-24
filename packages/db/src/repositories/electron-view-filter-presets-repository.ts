@@ -86,8 +86,9 @@ export class ElectronViewFilterPresetsRepository implements IViewFilterPresetsRe
    * Get all presets ordered by sort order.
    */
   async findAll(): Promise<ViewFilterPreset[]> {
+    // Cast UUID and TIMESTAMPTZ columns to text for consistent serialization across IPC
     const result = await this.db.query(
-      `SELECT id, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at, updated_at
+      `SELECT id::text, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at::text, updated_at::text
        FROM view_filter_presets
        ORDER BY sort_order ASC`
     );
@@ -99,8 +100,9 @@ export class ElectronViewFilterPresetsRepository implements IViewFilterPresetsRe
    * Get a preset by ID.
    */
   async getById(id: string): Promise<ViewFilterPreset | null> {
+    // Cast UUID and TIMESTAMPTZ columns to text for consistent serialization across IPC
     const result = await this.db.query(
-      `SELECT id, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at, updated_at
+      `SELECT id::text, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at::text, updated_at::text
        FROM view_filter_presets
        WHERE id = $1`,
       [id]
@@ -114,8 +116,9 @@ export class ElectronViewFilterPresetsRepository implements IViewFilterPresetsRe
    * Get all default (built-in) presets.
    */
   async getDefaults(): Promise<ViewFilterPreset[]> {
+    // Cast UUID and TIMESTAMPTZ columns to text for consistent serialization across IPC
     const result = await this.db.query(
-      `SELECT id, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at, updated_at
+      `SELECT id::text, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at::text, updated_at::text
        FROM view_filter_presets
        WHERE is_default = true
        ORDER BY sort_order ASC`
@@ -138,10 +141,11 @@ export class ElectronViewFilterPresetsRepository implements IViewFilterPresetsRe
     const maxRow = maxResult.rows[0] as { max_sort: number | null } | undefined;
     const nextSortOrder = (maxRow?.max_sort ?? 0) + 1;
 
+    // Cast UUID and TIMESTAMPTZ columns to text in RETURNING for consistent serialization
     const result = await this.db.query(
       `INSERT INTO view_filter_presets (id, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-       RETURNING id, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at, updated_at`,
+       RETURNING id::text, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at::text, updated_at::text`,
       [
         id,
         input.name,
@@ -229,11 +233,12 @@ export class ElectronViewFilterPresetsRepository implements IViewFilterPresetsRe
       paramIndex++;
     }
 
+    // Cast UUID and TIMESTAMPTZ columns to text in RETURNING for consistent serialization
     const result = await this.db.query(
       `UPDATE view_filter_presets
        SET ${updates.join(', ')}
        WHERE id = $1
-       RETURNING id, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at, updated_at`,
+       RETURNING id::text, name, description, icon, includes, excludes, use_regex, is_default, sort_order, created_at::text, updated_at::text`,
       params
     );
 
