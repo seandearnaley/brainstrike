@@ -739,4 +739,161 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(true).toBe(true);
     });
   });
+
+  describe('P0 optimization: de-dupe warm-cache preloading', () => {
+    it('preloads folder only once when selection changes within the same folder', () => {
+      const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
+      preloadSpy.mockClear();
+
+      const { rerender } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: fileTreeRootA,
+            selectedFiles,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: new Set<string>(),
+        }
+      );
+
+      // First selection - should preload the 'root' folder
+      rerender(new Set([fileAKey]));
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('root');
+      preloadSpy.mockClear();
+
+      // Add another file in the same folder - should NOT preload again (memoized)
+      rerender(new Set([fileAKey, fileBKey]));
+      flushTimers();
+
+      expect(preloadSpy).not.toHaveBeenCalled();
+
+      // Remove a file (still in same folder) - should NOT preload again
+      rerender(new Set([fileBKey]));
+      flushTimers();
+
+      expect(preloadSpy).not.toHaveBeenCalled();
+
+      // Add file back - should NOT preload again
+      rerender(new Set([fileAKey, fileBKey]));
+      flushTimers();
+
+      expect(preloadSpy).not.toHaveBeenCalled();
+    });
+
+    it('preloads new folder when selection expands to include it', () => {
+      const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
+      preloadSpy.mockClear();
+
+      // Combined tree with files from both roots
+      const combinedTree: IFileNode[] = [...fileTreeRootA, ...fileTreeRootB];
+
+      const { rerender } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: combinedTree,
+            selectedFiles,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: new Set([fileAKey]), // Start with file from 'root' folder
+        }
+      );
+
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('root');
+      preloadSpy.mockClear();
+
+      // Now add a file from a different folder - should preload the new folder only
+      rerender(new Set([fileAKey, fileCKey]));
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('other-root');
+    });
+
+    it('clears preload memo when root folder changes (via tree change)', () => {
+      const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
+      preloadSpy.mockClear();
+
+      const { rerender } = renderHook(
+        (props: { tree: IFileNode[]; selected: Set<string> }) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: props.tree,
+            selectedFiles: props.selected,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: { tree: fileTreeRootA, selected: new Set([fileAKey]) },
+        }
+      );
+
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('root');
+      preloadSpy.mockClear();
+
+      // Change to different tree with different root - memo should be cleared
+      rerender({ tree: fileTreeRootB, selected: new Set([fileCKey]) });
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('other-root');
+      preloadSpy.mockClear();
+
+      // Change back to original tree - memo was cleared, so should preload again
+      rerender({ tree: fileTreeRootA, selected: new Set([fileAKey]) });
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('root');
+    });
+
+    it('skips getBatch for folders already preloaded at current cache version', async () => {
+      const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
+      const getBatchSpy = storeMock.getBatch as unknown as ReturnType<typeof vi.fn>;
+      preloadSpy.mockClear();
+      getBatchSpy.mockClear();
+      getBatchSpy.mockResolvedValue(new Map());
+
+      const { rerender } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: fileTreeRootA,
+            selectedFiles,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: new Set<string>(),
+        }
+      );
+
+      // First selection - should preload and call getBatch
+      rerender(new Set([fileAKey]));
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      const initialGetBatchCalls = getBatchSpy.mock.calls.length;
+      expect(initialGetBatchCalls).toBeGreaterThan(0);
+      getBatchSpy.mockClear();
+
+      // Update selection in same folder - should NOT call getBatch again (skipped)
+      rerender(new Set([fileAKey, fileBKey]));
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // No additional getBatch calls since folder was already preloaded
+      expect(getBatchSpy).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -238,6 +238,13 @@ export function useBackgroundTokenIndexerIntegration({
   // P0 optimization: Track previous selection size for 0→>0 transition detection
   const previousSelectionSizeForMapRef = useRef<number>(0);
 
+  // P0 optimization: Track which folders have been preloaded to avoid repeated DB reads.
+  // Map<folderId, cacheVersion> - folder is considered preloaded if memoized version matches current.
+  // When cacheVersion changes (e.g., hot cache updates), the folder entry becomes stale.
+  const preloadedFoldersRef = useRef<Map<string, number>>(new Map());
+  // Track previous persistence state to clear preload memo when persistence changes
+  const previousPersistedStateRef = useRef<boolean | undefined>(undefined);
+
   // Refs for values accessed inside the rebuild callback to avoid stale closures
   // and to prevent callback recreation on selection changes
   const fileTreeRef = useRef(fileTree);
@@ -298,6 +305,8 @@ export function useBackgroundTokenIndexerIntegration({
       if (previousRootIdsRef.current && previousRootIdsRef.current !== rootFingerprint) {
         indexedFilesRef.current.clear();
         inFlightRef.current.clear();
+        // P0 optimization: Also clear preload memo when root folders change
+        preloadedFoldersRef.current.clear();
         bumpInFlightPulse((value) => value + 1);
         logger.debug('Cleared indexedFiles cache due to root folder change', {
           previousRootIds: previousRootIdsRef.current,
@@ -709,7 +718,9 @@ export function useBackgroundTokenIndexerIntegration({
 
   // Warm hot cache from persistent store so repeat selections show existing counts immediately.
   // Uses tokenCacheRef to avoid re-render loops when cacheVersion changes.
+  // P0 optimization: Uses preloadedFoldersRef to skip redundant preloads within same cache session.
   // biome-ignore lint/plugin: Cache hydration from persistent store is intentional side effect
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Warm-cache logic requires branching for memo checks, persistence state, folder iteration, and async hydration
   useEffect(() => {
     const cache = tokenCacheRef.current;
     if (!cache?.isOperational || selectedFiles.size === 0) {
@@ -726,6 +737,22 @@ export function useBackgroundTokenIndexerIntegration({
       logger.debug('Warm cache effect skipped - file import in progress');
       return;
     }
+
+    // P0 optimization: Clear preload memo when persistence state changes.
+    // This ensures we re-preload from DB when persistence becomes available.
+    const currentPersisted = cache.isPersisted;
+    if (previousPersistedStateRef.current !== currentPersisted) {
+      if (previousPersistedStateRef.current !== undefined) {
+        logger.debug('Clearing preload memo due to persistence state change', {
+          previous: previousPersistedStateRef.current,
+          current: currentPersisted,
+        });
+        preloadedFoldersRef.current.clear();
+      }
+      previousPersistedStateRef.current = currentPersisted;
+    }
+
+    const currentCacheVersion = cache.cacheVersion;
     const folderIds = new Set<string>();
     const keysByFolder = new Map<string, string[]>();
     for (const key of selectedFiles) {
@@ -736,19 +763,44 @@ export function useBackgroundTokenIndexerIntegration({
       keysByFolder.set(folderId, arr);
     }
 
+    // P0 optimization: Filter to only folders that need preloading.
+    // A folder is considered "preloaded" if it was preloaded at the current cacheVersion.
+    // This avoids repeated DB reads when selection changes but folders are the same.
+    const foldersToPreload: string[] = [];
+    const foldersSkipped: string[] = [];
+    for (const folderId of folderIds) {
+      const memoizedVersion = preloadedFoldersRef.current.get(folderId);
+      if (memoizedVersion === currentCacheVersion) {
+        foldersSkipped.push(folderId);
+      } else {
+        foldersToPreload.push(folderId);
+      }
+    }
+
     logger.debug('Warm cache effect: preloading folders', {
       folderCount: folderIds.size,
+      foldersToPreload: foldersToPreload.length,
+      foldersSkipped: foldersSkipped.length,
       totalFiles: selectedFiles.size,
-      isPersisted: cache?.isPersisted ?? false,
+      isPersisted: cache.isPersisted,
+      cacheVersion: currentCacheVersion,
     });
 
-    for (const folderId of folderIds) {
+    // Only preload folders that haven't been preloaded at this cache version
+    for (const folderId of foldersToPreload) {
       void cache.preloadFolder(folderId);
+      // Mark as preloaded at this version
+      preloadedFoldersRef.current.set(folderId, currentCacheVersion);
     }
 
     // After preload, ensure hot cache gets populated for any selected files that
     // were already stored but not yet marked indexed (prevents zero-count UI).
-    for (const [folderId, keys] of keysByFolder.entries()) {
+    // Only do this for folders that we actually preloaded (new folders or stale memo).
+    for (const folderId of foldersToPreload) {
+      const keys = keysByFolder.get(folderId);
+      if (!keys) {
+        continue;
+      }
       const paths = keys.map((key) => decodeFileSelection(key).path);
       void cache.store
         .getBatch(folderId, paths)
@@ -795,6 +847,8 @@ export function useBackgroundTokenIndexerIntegration({
     const previousSize = indexedFilesRef.current.size;
     indexedFilesRef.current.clear();
     inFlightRef.current.clear();
+    // P0 optimization: Also clear preload memo to force re-preload
+    preloadedFoldersRef.current.clear();
     bumpInFlightPulse((v) => v + 1);
     logger.debug('Manually cleared indexed cache', { previousSize });
   }, []);
