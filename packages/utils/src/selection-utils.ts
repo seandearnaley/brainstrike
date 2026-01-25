@@ -66,3 +66,31 @@ export function getSelectedPathsForFolder(
   }
   return paths;
 }
+
+/**
+ * Counts selected files under a directory by scanning the bounded selectedFilePaths set.
+ * This is more efficient than building the full descendant list when selection count is small.
+ *
+ * @param selectedPaths - The set of selected file composite keys
+ * @param folderId - The folder ID to scope the search
+ * @param directoryPath - The directory path to count selected files under
+ * @returns The count of selected files under the directory
+ */
+export function countSelectedInDirectory(
+  selectedPaths: Set<string>,
+  folderId: string,
+  directoryPath: string
+): number {
+  // Build the prefix to match: "folderId|@|directoryPath/"
+  // For root directory (empty path), match all files in the folder
+  const prefix =
+    directoryPath === '' ? `${folderId}${SEPARATOR}` : `${folderId}${SEPARATOR}${directoryPath}/`;
+
+  let count = 0;
+  for (const key of selectedPaths) {
+    if (key.startsWith(prefix)) {
+      count++;
+    }
+  }
+  return count;
+}

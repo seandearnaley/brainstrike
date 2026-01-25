@@ -2,6 +2,7 @@ import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { LightweightCheckbox } from '@brainstrike/ui';
 import {
+  countSelectedInDirectory,
   encodeFileSelection,
   memoizedFileExplorer as fileExplorer,
   isPathSelectedInFolder,
@@ -124,7 +125,6 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     const maxSelectionCount = store((s) => s.maxSelectionCount);
     const addMultipleSelectedFiles = store((s) => s.addMultipleSelectedFiles);
     const removeMultipleSelectedFiles = store((s) => s.removeMultipleSelectedFiles);
-    const selectionModel = store((s) => s.selectionModel);
 
     // Extract node properties for stable dependencies
     const {
@@ -133,13 +133,6 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       children: nodeChildren,
       loadState: nodeLoadState,
     } = node;
-
-    // Compute allFilePaths first (needed for directory selection selectors)
-    const allFilePaths = useMemo(
-      () => (nodeType === 'directory' ? fileExplorer.getAllFilePathsInDirectory(node) : [nodePath]),
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      [nodePath, nodeType, nodeChildren, nodeLoadState]
-    );
 
     // PERFORMANCE OPTIMIZATION: Path-specific selection selectors
     // Instead of subscribing to the entire selectedFilePaths Set (which causes N² updates),
@@ -165,23 +158,18 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     );
     const isFileSelected = store(isFileSelectedSelector);
 
-    // Selector for directory selection count - returns number
-    // Zustand compares return values, so this only triggers re-render when the count changes
+    // PERFORMANCE OPTIMIZATION: Directory selection count via prefix scan
+    // Instead of building the full descendant file list (expensive for large directories),
+    // we scan the bounded selectedFilePaths set using a prefix match.
+    // This is O(maxSelectionCount) instead of O(files in directory subtree).
     const selectedCountSelector = useMemo(
       () => (state: FileExplorerState) => {
         if (nodeType !== 'directory') {
           return 0;
         }
-        let count = 0;
-        for (const path of allFilePaths) {
-          const key = encodeFileSelection(folderId, path);
-          if (state.selectedFilePaths.has(key)) {
-            count++;
-          }
-        }
-        return count;
+        return countSelectedInDirectory(state.selectedFilePaths, folderId, nodePath);
       },
-      [nodeType, folderId, allFilePaths]
+      [nodeType, folderId, nodePath]
     );
     const selectedCountInDir = store(selectedCountSelector);
 
@@ -193,41 +181,48 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     );
     const currentSelectionSize = store(selectionSizeSelector);
 
-    // Check if this file is selected by rules (in rules mode with materialized paths)
-    const isRuleSelected = useMemo(() => {
-      if (node.type !== 'file') {
-        return false;
-      }
-      if (selectionModel.mode !== 'rules') {
-        return false;
-      }
-      if (!selectionModel.materializedPaths) {
-        return false;
-      }
-      return selectionModel.materializedPaths.has(node.path);
-    }, [node.type, node.path, selectionModel.mode, selectionModel.materializedPaths]);
+    // PERFORMANCE OPTIMIZATION: Per-path selector for rules-mode selection
+    // Instead of subscribing to the entire selectionModel object (which causes all rows
+    // to re-render when materializedPaths changes), we use a selector that returns a
+    // boolean for just this row's path. Zustand compares return values, so only rows
+    // whose boolean changes will re-render.
+    const isRuleSelectedSelector = useMemo(
+      () => (state: FileExplorerState) => {
+        if (nodeType !== 'file') {
+          return false;
+        }
+        const model = state.selectionModel;
+        if (model.mode !== 'rules') {
+          return false;
+        }
+        return model.materializedPaths ? model.materializedPaths.has(nodePath) : false;
+      },
+      [nodeType, nodePath]
+    );
+    const isRuleSelected = store(isRuleSelectedSelector);
 
     const folderInfo = useMemo(() => {
       if (nodeType !== 'directory') {
         return null;
       }
       return fileExplorer.getFolderFileCount(node);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [nodeType, nodeChildren, nodeLoadState]);
+    }, [nodeType, nodeChildren, nodeLoadState, node]);
 
     // Memoize checkbox state calculation
+    // Uses folderInfo.count (total files in directory) instead of building full path list
     const checkboxState = useMemo(() => {
       if (node.type === 'file') {
         return isFileSelected;
       }
-      if (allFilePaths.length === 0) {
+      const totalFiles = folderInfo?.count ?? 0;
+      if (totalFiles === 0) {
         return false;
       }
       if (selectedCountInDir === 0) {
         return false;
       }
-      return selectedCountInDir === allFilePaths.length ? true : 'indeterminate';
-    }, [node.type, isFileSelected, allFilePaths, selectedCountInDir]);
+      return selectedCountInDir === totalFiles ? true : 'indeterminate';
+    }, [node.type, isFileSelected, folderInfo, selectedCountInDir]);
 
     const wouldExceedLimit = useMemo(() => {
       if (node.type === 'file') {
@@ -266,7 +261,11 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         return;
       }
 
-      // Fast path: folder is fully loaded, use existing logic
+      // PERFORMANCE: Build allFilePaths only on click, not during render
+      // This moves the expensive getAllFilePathsInDirectory call from render-time to click-time
+      const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
+
+      // Fast path: empty directory
       if (allFilePaths.length === 0) {
         return;
       }
@@ -275,10 +274,19 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
       const currentState = store.getState();
       const currentSelectedPaths = currentState.selectedFilePaths;
 
-      const isFullySelected = selectedCountInDir === allFilePaths.length;
-      if (!isFullySelected) {
+      // Compute selected count at click time for accurate comparison
+      const currentSelectedCount = countSelectedInDirectory(
+        currentSelectedPaths,
+        folderId,
+        node.path
+      );
+
+      const isFullySelected = currentSelectedCount === allFilePaths.length;
+      if (isFullySelected) {
+        removeMultipleSelectedFiles(folderId, allFilePaths);
+      } else {
         const unselectedPaths = allFilePaths.filter(
-          (path) =>
+          (path: string) =>
             !(folderId ? isPathSelectedInFolder(currentSelectedPaths, folderId, path) : false)
         );
         const availableSlots = maxSelectionCount - currentSelectedPaths.size;
@@ -286,13 +294,9 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         if (pathsToSelect.length > 0) {
           addMultipleSelectedFiles(folderId, pathsToSelect);
         }
-      } else if (allFilePaths.length > 0) {
-        removeMultipleSelectedFiles(folderId, allFilePaths);
       }
     }, [
       node,
-      allFilePaths,
-      selectedCountInDir,
       store,
       onToggleFileSelection,
       maxSelectionCount,

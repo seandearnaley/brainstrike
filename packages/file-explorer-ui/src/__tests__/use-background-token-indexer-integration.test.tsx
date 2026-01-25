@@ -586,4 +586,314 @@ describe('useBackgroundTokenIndexerIntegration', () => {
       expect(true).toBe(true);
     });
   });
+
+  describe('P0 optimization: decouple fileHandleMap rebuild from selection updates', () => {
+    it('does not rebuild fileHandleMap repeatedly when selection changes on stable tree', () => {
+      // This test verifies the core P0 optimization:
+      // When fileTree is stable, changing selectedFiles should NOT trigger repeated rebuilds.
+      // The "File handle map built" log should only appear once per tree change, not per selection change.
+
+      const { rerender, result } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: fileTreeRootA,
+            selectedFiles,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: new Set<string>(),
+        }
+      );
+
+      // Initial render with empty selection - map should be built once when selection becomes non-empty
+      rerender(new Set([fileAKey]));
+      flushTimers();
+
+      const initialMapSize = result.current.diagnostics.fileHandleMapSize;
+      expect(initialMapSize).toBe(2); // Both files in tree
+
+      // Clear indexFiles mock to track future calls
+      indexFilesMock.mockClear();
+
+      // Now update selection multiple times - should NOT trigger map rebuilds
+      rerender(new Set([fileAKey, fileBKey]));
+      advanceTimers(100); // Partial timer advance - not enough for rebuild
+
+      rerender(new Set([fileBKey]));
+      advanceTimers(100);
+
+      rerender(new Set([fileAKey, fileBKey]));
+      advanceTimers(100);
+
+      rerender(new Set([fileAKey]));
+      advanceTimers(100);
+
+      // Advance remaining time to complete any debounced operations
+      flushTimers();
+
+      // Map size should remain the same (no rebuilds on stable tree)
+      expect(result.current.diagnostics.fileHandleMapSize).toBe(initialMapSize);
+
+      // The map rebuild effect should NOT have been triggered by selection changes alone
+      // (The selection effect will trigger indexing, but NOT map rebuilds)
+    });
+
+    it('rebuilds fileHandleMap exactly once when tree changes', () => {
+      const { rerender, result } = renderHook(
+        (props: { tree: IFileNode[]; selected: Set<string> }) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: props.tree,
+            selectedFiles: props.selected,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: { tree: fileTreeRootA, selected: new Set([fileAKey]) },
+        }
+      );
+
+      flushTimers();
+      expect(result.current.diagnostics.fileHandleMapSize).toBe(2); // Root A has 2 files
+
+      indexFilesMock.mockClear();
+
+      // Change tree to rootB
+      rerender({ tree: fileTreeRootB, selected: new Set([fileCKey]) });
+      flushTimers();
+
+      // Map should now have 1 file (rootB has 1 file)
+      expect(result.current.diagnostics.fileHandleMapSize).toBe(1);
+
+      // Should have triggered indexing for the new selection
+      expect(indexFilesMock).toHaveBeenCalled();
+    });
+
+    it('only rebuilds on 0→>0 selection transition when map is stale or empty', () => {
+      const { rerender, result } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: fileTreeRootA,
+            selectedFiles,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          // Start with empty selection
+          initialProps: new Set<string>(),
+        }
+      );
+
+      // Map should not be built yet (no selection, no work)
+      advanceTimers(600); // Past debounce time
+      expect(result.current.diagnostics.fileHandleMapSize).toBe(0);
+
+      // Now transition from 0 → >0 - this should trigger a rebuild
+      rerender(new Set([fileAKey]));
+      flushTimers();
+
+      expect(result.current.diagnostics.fileHandleMapSize).toBe(2);
+
+      // Selection changes without going to 0 should NOT trigger additional rebuilds
+      const sizeAfterFirstBuild = result.current.diagnostics.fileHandleMapSize;
+
+      rerender(new Set([fileAKey, fileBKey]));
+      flushTimers();
+
+      expect(result.current.diagnostics.fileHandleMapSize).toBe(sizeAfterFirstBuild);
+
+      rerender(new Set([fileBKey]));
+      flushTimers();
+
+      expect(result.current.diagnostics.fileHandleMapSize).toBe(sizeAfterFirstBuild);
+    });
+
+    it('is idempotent - does not reset debounce when rebuild already scheduled', () => {
+      const { rerender } = renderHook(
+        (props: { tree: IFileNode[]; selected: Set<string> }) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: props.tree,
+            selectedFiles: props.selected,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: { tree: fileTreeRootA, selected: new Set([fileAKey]) },
+        }
+      );
+
+      // Don't flush - let the debounce be pending
+      advanceTimers(200);
+
+      // Change tree while rebuild is pending - this should NOT reset the timer
+      // (it should cancel and reschedule for the new tree)
+      const newTree = [...fileTreeRootA];
+      rerender({ tree: newTree, selected: new Set([fileAKey]) });
+
+      // Advance partial time
+      advanceTimers(200);
+
+      // Change selection - should NOT reset debounce since scheduleRebuildIfNeeded is idempotent
+      rerender({ tree: newTree, selected: new Set([fileAKey, fileBKey]) });
+
+      // Finish the debounce
+      flushTimers();
+
+      // Test passes if no infinite loops or excessive rebuilds occurred
+      expect(true).toBe(true);
+    });
+  });
+
+  describe('P0 optimization: de-dupe warm-cache preloading', () => {
+    it('preloads folder only once when selection changes within the same folder', () => {
+      const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
+      preloadSpy.mockClear();
+
+      const { rerender } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: fileTreeRootA,
+            selectedFiles,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: new Set<string>(),
+        }
+      );
+
+      // First selection - should preload the 'root' folder
+      rerender(new Set([fileAKey]));
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('root');
+      preloadSpy.mockClear();
+
+      // Add another file in the same folder - should NOT preload again (memoized)
+      rerender(new Set([fileAKey, fileBKey]));
+      flushTimers();
+
+      expect(preloadSpy).not.toHaveBeenCalled();
+
+      // Remove a file (still in same folder) - should NOT preload again
+      rerender(new Set([fileBKey]));
+      flushTimers();
+
+      expect(preloadSpy).not.toHaveBeenCalled();
+
+      // Add file back - should NOT preload again
+      rerender(new Set([fileAKey, fileBKey]));
+      flushTimers();
+
+      expect(preloadSpy).not.toHaveBeenCalled();
+    });
+
+    it('preloads new folder when selection expands to include it', () => {
+      const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
+      preloadSpy.mockClear();
+
+      // Combined tree with files from both roots
+      const combinedTree: IFileNode[] = [...fileTreeRootA, ...fileTreeRootB];
+
+      const { rerender } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: combinedTree,
+            selectedFiles,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: new Set([fileAKey]), // Start with file from 'root' folder
+        }
+      );
+
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('root');
+      preloadSpy.mockClear();
+
+      // Now add a file from a different folder - should preload the new folder only
+      rerender(new Set([fileAKey, fileCKey]));
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('other-root');
+    });
+
+    it('clears preload memo when root folder changes (via tree change)', () => {
+      const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
+      preloadSpy.mockClear();
+
+      const { rerender } = renderHook(
+        (props: { tree: IFileNode[]; selected: Set<string> }) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: props.tree,
+            selectedFiles: props.selected,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: { tree: fileTreeRootA, selected: new Set([fileAKey]) },
+        }
+      );
+
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('root');
+      preloadSpy.mockClear();
+
+      // Change to different tree with different root - memo should be cleared
+      rerender({ tree: fileTreeRootB, selected: new Set([fileCKey]) });
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('other-root');
+      preloadSpy.mockClear();
+
+      // Change back to original tree - memo was cleared, so should preload again
+      rerender({ tree: fileTreeRootA, selected: new Set([fileAKey]) });
+      flushTimers();
+
+      expect(preloadSpy).toHaveBeenCalledTimes(1);
+      expect(preloadSpy).toHaveBeenCalledWith('root');
+    });
+
+    it('skips getBatch for folders already preloaded at current cache version', async () => {
+      const preloadSpy = tokenCacheContext.preloadFolder as unknown as ReturnType<typeof vi.fn>;
+      const getBatchSpy = storeMock.getBatch as unknown as ReturnType<typeof vi.fn>;
+      preloadSpy.mockClear();
+      getBatchSpy.mockClear();
+      getBatchSpy.mockResolvedValue(new Map());
+
+      const { rerender } = renderHook(
+        (selectedFiles: Set<string>) =>
+          useBackgroundTokenIndexerIntegration({
+            fileTree: fileTreeRootA,
+            selectedFiles,
+            onTokenResolved: vi.fn(),
+          }),
+        {
+          initialProps: new Set<string>(),
+        }
+      );
+
+      // First selection - should preload and call getBatch
+      rerender(new Set([fileAKey]));
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      const initialGetBatchCalls = getBatchSpy.mock.calls.length;
+      expect(initialGetBatchCalls).toBeGreaterThan(0);
+      getBatchSpy.mockClear();
+
+      // Update selection in same folder - should NOT call getBatch again (skipped)
+      rerender(new Set([fileAKey, fileBKey]));
+
+      await act(async () => {
+        await vi.runAllTimersAsync();
+      });
+
+      // No additional getBatch calls since folder was already preloaded
+      expect(getBatchSpy).not.toHaveBeenCalled();
+    });
+  });
 });

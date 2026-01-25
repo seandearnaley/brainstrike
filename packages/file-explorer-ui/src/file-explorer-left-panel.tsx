@@ -22,7 +22,7 @@ type StoreWithPersist<T> = UseBoundStoreWithEqualityFn<StoreApi<T>> & {
 };
 
 import * as React from 'react';
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import ActionButtons from './action-buttons-array-facade';
 import { RestoreAccessModal } from './components/restore-access-modal';
 import { TreeActionButtons } from './components/tree-action-buttons';
@@ -341,6 +341,12 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     (s) => [s.quickFilter, s.setQuickFilter, s.clearQuickFilter] as const
   );
 
+  // Defer the quick filter value to keep typing responsive on large trees.
+  // The expensive tree filtering will happen in a lower-priority render while
+  // the input remains responsive to user keystrokes.
+  const deferredQuickFilter = useDeferredValue(quickFilter);
+  const isQuickFiltering = deferredQuickFilter !== quickFilter;
+
   const inlineFixtureSetting = useMemo(() => {
     if (!inlineFixtureAvailable) {
       return;
@@ -354,19 +360,20 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // Quick filter (search box) applies on top of workspace filters.
   // Workspace filters are already applied in useFileExplorer() which returns
   // fileTree with excluded directories (like .turbo) completely removed.
+  // Uses deferredQuickFilter so tree filtering is deferred behind UI updates.
   const quickFilteredTree = useMemo(() => {
     if (!stableFileTree) {
       return null;
     }
 
     // Only apply quick filter (search box) if present
-    if (!quickFilter.trim()) {
+    if (!deferredQuickFilter.trim()) {
       return stableFileTree;
     }
 
-    const { includes, excludes } = parseFilterString(quickFilter);
+    const { includes, excludes } = parseFilterString(deferredQuickFilter);
     return filterTreeByPatterns(stableFileTree, includes, excludes);
-  }, [quickFilter, stableFileTree]);
+  }, [deferredQuickFilter, stableFileTree]);
 
   // Calculate displayed files from the quick filtered tree
   const displayedFilesRef = React.useRef<Set<string>>(new Set());
@@ -602,6 +609,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               {/* Quick filter input - always visible */}
               <div className="px-2 py-2">
                 <FileFilterBar
+                  isFiltering={isQuickFiltering}
                   onChange={setQuickFilter}
                   onClear={clearQuickFilter}
                   value={quickFilter}

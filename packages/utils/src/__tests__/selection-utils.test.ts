@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  countSelectedInDirectory,
   decodeFileSelection,
   encodeFileSelection,
   getSelectedPathsForFolder,
@@ -11,6 +12,81 @@ describe('file-selection-utils', () => {
   const filePath = 'path/to/file.txt';
   const separator = '|@|';
   const compositeKey = `${folderId}${separator}${filePath}`;
+
+  describe('countSelectedInDirectory', () => {
+    it('should count selected files under a directory', () => {
+      const selectedPaths = new Set([
+        `${folderId}${separator}src/components/Button.tsx`,
+        `${folderId}${separator}src/components/Input.tsx`,
+        `${folderId}${separator}src/utils/helpers.ts`,
+      ]);
+
+      const result = countSelectedInDirectory(selectedPaths, folderId, 'src/components');
+      expect(result).toBe(2);
+    });
+
+    it('should not count files in similarly named directories (src vs src2)', () => {
+      const selectedPaths = new Set([
+        `${folderId}${separator}src/file1.ts`,
+        `${folderId}${separator}src2/file2.ts`,
+      ]);
+
+      // Should only count src/, not src2/
+      const result = countSelectedInDirectory(selectedPaths, folderId, 'src');
+      expect(result).toBe(1);
+    });
+
+    it('should count all files for root directory (empty path)', () => {
+      const selectedPaths = new Set([
+        `${folderId}${separator}file1.ts`,
+        `${folderId}${separator}src/file2.ts`,
+        `other-folder${separator}file3.ts`,
+      ]);
+
+      const result = countSelectedInDirectory(selectedPaths, folderId, '');
+      expect(result).toBe(2); // Only files in folderId
+    });
+
+    it('should return 0 when no files match', () => {
+      const selectedPaths = new Set([`${folderId}${separator}other/file.ts`]);
+
+      const result = countSelectedInDirectory(selectedPaths, folderId, 'src');
+      expect(result).toBe(0);
+    });
+
+    it('should return 0 for empty selection set', () => {
+      const selectedPaths = new Set<string>();
+
+      const result = countSelectedInDirectory(selectedPaths, folderId, 'src');
+      expect(result).toBe(0);
+    });
+
+    it('should not count files from different folders', () => {
+      const selectedPaths = new Set([
+        `${folderId}${separator}src/file1.ts`,
+        `other-folder${separator}src/file2.ts`,
+      ]);
+
+      const result = countSelectedInDirectory(selectedPaths, folderId, 'src');
+      expect(result).toBe(1);
+    });
+
+    it('should count nested subdirectories correctly', () => {
+      const selectedPaths = new Set([
+        `${folderId}${separator}src/components/ui/Button.tsx`,
+        `${folderId}${separator}src/components/ui/Input.tsx`,
+        `${folderId}${separator}src/components/forms/Form.tsx`,
+        `${folderId}${separator}src/utils/helpers.ts`,
+      ]);
+
+      // Count all under src/components
+      expect(countSelectedInDirectory(selectedPaths, folderId, 'src/components')).toBe(3);
+      // Count only under src/components/ui
+      expect(countSelectedInDirectory(selectedPaths, folderId, 'src/components/ui')).toBe(2);
+      // Count all under src
+      expect(countSelectedInDirectory(selectedPaths, folderId, 'src')).toBe(4);
+    });
+  });
 
   describe('encodeFileSelection', () => {
     it('should correctly encode folder ID and file path', () => {

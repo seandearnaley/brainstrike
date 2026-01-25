@@ -18,8 +18,9 @@ import {
   encodeFileSelection,
   isBinaryFile,
 } from '@brainstrike/utils';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
+import { useOptionalFileTreeIndexContext } from './file-tree-provider';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
@@ -210,6 +211,12 @@ export function useBackgroundTokenIndexerIntegration({
   // Get the token cache context (may be null if not in provider)
   const tokenCache = useOptionalTokenCacheContext();
 
+  // Get the FileTreeIndex context for O(1) handle lookups (optional - falls back to local map)
+  const fileTreeIndex = useOptionalFileTreeIndexContext();
+  const indexGetHandle = fileTreeIndex?.getHandle;
+  // Track FileTreeIndex version for retry logic - when index fills, retry pending files
+  const indexVersion = fileTreeIndex?.version ?? 0;
+
   // Check if file import is in progress - skip background indexing to avoid database contention
   // Import the store dynamically to get isImporting state
   const isFileImporting = useFileImportingState();
@@ -218,6 +225,8 @@ export function useBackgroundTokenIndexerIntegration({
   const indexedFilesRef = useRef<Set<string>>(new Set());
   // Track files currently in flight to avoid re-queuing while a batch is running
   const inFlightRef = useRef<Set<string>>(new Set());
+  // Track files skipped due to missing handles - retry when FileTreeIndex fills
+  const pendingNoHandleRef = useRef<Set<string>>(new Set());
   const previousSelectionSizeRef = useRef<number>(0);
   const [_inFlightPulse, bumpInFlightPulse] = useState(0);
   // Track file handle map population to trigger selection effect re-run
@@ -229,60 +238,141 @@ export function useBackgroundTokenIndexerIntegration({
   const tokenCacheRef = useRef(tokenCache);
   tokenCacheRef.current = tokenCache;
 
+  // Stable ref for FileTreeIndex getHandle - provides O(1) lookups when index is available
+  const indexGetHandleRef = useRef(indexGetHandle);
+  indexGetHandleRef.current = indexGetHandle;
+
   // Build file handle map whenever tree changes (debounced to avoid rebuilding during expand-all)
   const fileHandleMapRef = useRef<Map<string, HandleInfo>>(new Map());
   const previousRootIdsRef = useRef<string>('');
+  // Explicit flag for "have we seen a root yet?" - avoids truthiness issues with empty string
+  const hasSeenRootRef = useRef(false);
   const rebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Phase 4 optimization: Track staleness to enable lazy rebuilds
-  const fileHandleMapStaleRef = useRef(false);
+  // P0 optimization: Track staleness to enable lazy rebuilds
+  const fileHandleMapStaleRef = useRef(true); // Start stale since map is empty
+  // P0 optimization: Track previous selection size for 0→>0 transition detection
+  const previousSelectionSizeForMapRef = useRef<number>(0);
 
-  // Side-effectful map construction on tree change is intentional
+  // P0 optimization: Track which folders have been preloaded to avoid repeated DB reads.
+  // Map<folderId, cacheVersion> - folder is considered preloaded if memoized version matches current.
+  // When cacheVersion changes (e.g., hot cache updates), the folder entry becomes stale.
+  const preloadedFoldersRef = useRef<Map<string, number>>(new Map());
+  // Track previous persistence state to clear preload memo when persistence changes
+  const previousPersistedStateRef = useRef<boolean | undefined>(undefined);
+
+  // Refs for values accessed inside the rebuild callback to avoid stale closures
+  // and to prevent callback recreation on selection changes
+  const fileTreeRef = useRef(fileTree);
+  fileTreeRef.current = fileTree;
+  const selectedFilesSizeRef = useRef(selectedFiles.size);
+  selectedFilesSizeRef.current = selectedFiles.size;
+
+  /**
+   * Compute root fingerprint from fileTree for detecting root folder changes.
+   * O(rootCount) - only iterates top-level nodes, not entire tree.
+   * This is computed regardless of whether FileTreeIndex or local map is used.
+   */
+  const rootFingerprint = useMemo(() => {
+    const ids = new Set<string>();
+    for (const node of fileTree) {
+      if (node.rootFolderId) {
+        ids.add(node.rootFolderId);
+      }
+    }
+    return Array.from(ids).sort().join('|');
+  }, [fileTree]);
+
+  /**
+   * Effect: Clear caches when root folders change.
+   * This runs independently of handle map rebuild to ensure cache clearing works
+   * even when FileTreeIndex provides O(1) lookups (skipping local map rebuild).
+   *
+   * Empty fingerprint ('') is treated as "loading/unknown" state to avoid
+   * wasteful back-to-back clears during transient empty states (e.g., rehydration).
+   * Only clears on A → B where both A and B are non-empty and different.
+   */
+  // biome-ignore lint/plugin: Intentional effect to reset caches on root folder change
   useEffect(() => {
-    // Cancel any pending rebuild
-    if (rebuildTimeoutRef.current) {
-      clearTimeout(rebuildTimeoutRef.current);
+    const prev = previousRootIdsRef.current;
+
+    // Determine if we should clear caches:
+    // - Must have seen a root before (not initial mount)
+    // - Previous fingerprint must be non-empty (actual roots, not loading state)
+    // - Current fingerprint must be non-empty (actual roots, not loading state)
+    // - Fingerprints must differ
+    const shouldClear =
+      hasSeenRootRef.current && prev !== '' && rootFingerprint !== '' && prev !== rootFingerprint;
+
+    if (shouldClear) {
+      indexedFilesRef.current.clear();
+      inFlightRef.current.clear();
+      pendingNoHandleRef.current.clear();
+      preloadedFoldersRef.current.clear();
+      bumpInFlightPulse((v) => v + 1);
+      logger.debug('Cleared caches due to root folder change', {
+        previousRootIds: prev,
+        nextRootIds: rootFingerprint,
+      });
     }
 
-    // Mark map as stale immediately
-    fileHandleMapStaleRef.current = true;
+    // Only update previousRootIds when we have actual roots (non-empty)
+    // This preserves the "last known good" fingerprint across transient empty states
+    if (rootFingerprint !== '') {
+      previousRootIdsRef.current = rootFingerprint;
+    }
+    hasSeenRootRef.current = true;
+  }, [rootFingerprint]);
 
-    // Debounce the expensive rebuild - wait for tree to stabilize
+  /**
+   * Idempotent rebuild scheduler - only schedules if no rebuild is already queued.
+   * This prevents "debounce reset" behavior where each selection change would restart the timer.
+   * Uses refs to avoid callback recreation on selection changes.
+   */
+  const scheduleRebuildIfNeeded = useCallback(() => {
+    // Skip rebuild entirely when FileTreeIndex is available - it provides O(1) lookups
+    if (indexGetHandleRef.current) {
+      logger.debug('Skipping handle map rebuild - using FileTreeIndex');
+      return;
+    }
+
+    // Skip if rebuild already scheduled
+    if (rebuildTimeoutRef.current) {
+      logger.debug('Rebuild already scheduled, skipping duplicate');
+      return;
+    }
+
+    // Skip if map is not stale and already populated
+    if (!fileHandleMapStaleRef.current && fileHandleMapRef.current.size > 0) {
+      logger.debug('Map is fresh, skipping rebuild');
+      return;
+    }
+
     rebuildTimeoutRef.current = setTimeout(() => {
-      // Phase 4 optimization: Skip rebuild if no files selected and no pending operations
+      rebuildTimeoutRef.current = null;
+
+      // Use refs to get current values at execution time (not stale closure values)
+      const currentSelectedSize = selectedFilesSizeRef.current;
+      const currentFileTree = fileTreeRef.current;
+
+      // Skip rebuild if no files selected and no pending operations
       // This avoids expensive tree traversal when the map won't be used
-      if (selectedFiles.size === 0 && inFlightRef.current.size === 0) {
+      if (currentSelectedSize === 0 && inFlightRef.current.size === 0) {
         logger.debug('Skipping handle map rebuild - no active operations', {
-          selectedCount: selectedFiles.size,
+          selectedCount: currentSelectedSize,
           inFlightCount: inFlightRef.current.size,
         });
         return;
       }
 
       const map = new Map<string, HandleInfo>();
-      const rootIds = new Set<string>();
-      buildFileHandleMap(fileTree, map);
-      for (const key of map.keys()) {
-        const folderId = key.split('|@|', 1)[0];
-        if (folderId) {
-          rootIds.add(folderId);
-        }
-      }
+      buildFileHandleMap(currentFileTree, map);
       fileHandleMapRef.current = map;
       fileHandleMapStaleRef.current = false;
       // Update state to trigger selection effect re-run when map is populated
       setFileHandleMapSize(map.size);
 
-      const rootFingerprint = Array.from(rootIds).sort().join('|');
-      if (previousRootIdsRef.current && previousRootIdsRef.current !== rootFingerprint) {
-        indexedFilesRef.current.clear();
-        inFlightRef.current.clear();
-        bumpInFlightPulse((value) => value + 1);
-        logger.debug('Cleared indexedFiles cache due to root folder change', {
-          previousRootIds: previousRootIdsRef.current,
-          nextRootIds: rootFingerprint,
-        });
-      }
-      previousRootIdsRef.current = rootFingerprint;
+      // Note: Root folder change detection is now handled by a dedicated effect
+      // that runs regardless of whether FileTreeIndex or local map is used.
 
       logger.debug('File handle map built', {
         size: map.size,
@@ -290,13 +380,66 @@ export function useBackgroundTokenIndexerIntegration({
         hasWeb: [...map.values()].some((h) => h.webHandle),
       });
     }, 500); // Wait 500ms for tree to stabilize before rebuilding
+  }, []); // Empty deps - uses refs for all values
+
+  /**
+   * Effect A (tree-driven): When fileTree changes, mark map as stale.
+   * Schedule rebuild only if there's active work (selected files or in-flight indexing).
+   */
+  useEffect(() => {
+    // Cancel any pending rebuild when tree changes - the tree structure is different now
+    if (rebuildTimeoutRef.current) {
+      clearTimeout(rebuildTimeoutRef.current);
+      rebuildTimeoutRef.current = null;
+    }
+
+    // Mark map as stale immediately
+    fileHandleMapStaleRef.current = true;
+
+    // Only schedule rebuild if there's active work (use ref to avoid dependency on selectedFiles)
+    if (selectedFilesSizeRef.current > 0 || inFlightRef.current.size > 0) {
+      scheduleRebuildIfNeeded();
+    }
 
     return () => {
       if (rebuildTimeoutRef.current) {
         clearTimeout(rebuildTimeoutRef.current);
+        rebuildTimeoutRef.current = null;
       }
     };
-  }, [fileTree, selectedFiles.size]);
+  }, [fileTree, scheduleRebuildIfNeeded]);
+
+  /**
+   * Effect B (need-driven): Watch selection size but only act on 0 → >0 transition.
+   * This handles the case where selection becomes non-empty and we need the map.
+   */
+  useEffect(() => {
+    const prevSize = previousSelectionSizeForMapRef.current;
+    previousSelectionSizeForMapRef.current = selectedFiles.size;
+
+    // Only act on 0 → >0 transition
+    const isZeroToNonZero = prevSize === 0 && selectedFiles.size > 0;
+    if (!isZeroToNonZero) {
+      return;
+    }
+
+    // Only rebuild if stale or empty
+    const needsRebuild = fileHandleMapStaleRef.current || fileHandleMapRef.current.size === 0;
+    if (!needsRebuild) {
+      logger.debug('Selection became non-empty but map is fresh, skipping rebuild');
+      return;
+    }
+
+    logger.debug('Selection transition 0 → >0, checking if rebuild needed', {
+      newSize: selectedFiles.size,
+      isStale: fileHandleMapStaleRef.current,
+      mapSize: fileHandleMapRef.current.size,
+      hasIndex: !!indexGetHandleRef.current,
+    });
+
+    // Note: scheduleRebuildIfNeeded will short-circuit if FileTreeIndex is available
+    scheduleRebuildIfNeeded();
+  }, [selectedFiles.size, scheduleRebuildIfNeeded]);
 
   // Stable ref for onTokenResolved to avoid callback instability
   const onTokenResolvedRef = useRef(onTokenResolved);
@@ -400,11 +543,24 @@ export function useBackgroundTokenIndexerIntegration({
           continue;
         }
 
-        const handleInfo = fileHandleMapRef.current.get(compositeKey);
+        // Decode key early so we can use index lookup
+        const { folderId, path } = decodeFileSelection(compositeKey);
+
+        // Try FileTreeIndex first (O(1) lookup), then fall back to local map
+        const indexGetHandleFn = indexGetHandleRef.current;
+        let handleInfo = indexGetHandleFn?.(folderId, path);
+        if (!handleInfo) {
+          // Fall back to local map
+          handleInfo = fileHandleMapRef.current.get(compositeKey);
+        }
         if (!handleInfo) {
           skippedNoHandle++;
+          // Track for retry when FileTreeIndex fills with handles
+          pendingNoHandleRef.current.add(compositeKey);
           continue;
         }
+        // Handle found - remove from pending if it was there
+        pendingNoHandleRef.current.delete(compositeKey);
 
         // Filter out binary files BEFORE attempting to read/index
         // This avoids IPC overhead for files that would fail anyway
@@ -423,8 +579,6 @@ export function useBackgroundTokenIndexerIntegration({
           indexedFilesRef.current.add(compositeKey);
           continue;
         }
-
-        const { folderId, path } = decodeFileSelection(compositeKey);
 
         if (handleInfo.webHandle) {
           // Web files: pass handle directly to worker
@@ -578,11 +732,15 @@ export function useBackgroundTokenIndexerIntegration({
 
     // Exit early if no files selected, indexer not ready, or no file handles available yet.
     // During startup, selection may be restored from storage before file tree has handles.
-    if (selectedFiles.size === 0 || !indexer.isReady || fileHandleMapRef.current.size === 0) {
+    // When FileTreeIndex is available, skip the local map size check since we use index lookups.
+    const hasHandleSource = indexGetHandleRef.current || fileHandleMapRef.current.size > 0;
+    if (selectedFiles.size === 0 || !indexer.isReady || !hasHandleSource) {
       logger.debug('Selection effect exiting early', {
         noFiles: selectedFiles.size === 0,
         notReady: !indexer.isReady,
-        noHandles: fileHandleMapRef.current.size === 0,
+        noHandles: !hasHandleSource,
+        hasIndex: !!indexGetHandleRef.current,
+        localMapSize: fileHandleMapRef.current.size,
       });
       return;
     }
@@ -619,6 +777,7 @@ export function useBackgroundTokenIndexerIntegration({
     tokenCacheIsOperational,
     fileHandleMapSize,
     isFileImporting,
+    indexGetHandle,
   ]);
 
   // Clear indexed files cache when file tree changes significantly
@@ -627,6 +786,7 @@ export function useBackgroundTokenIndexerIntegration({
     // Reset cache when tree is empty (folder cleared)
     if (fileTree.length === 0) {
       indexedFilesRef.current.clear();
+      pendingNoHandleRef.current.clear();
       if (inFlightRef.current.size > 0) {
         inFlightRef.current.clear();
         bumpInFlightPulse((value) => value + 1);
@@ -634,9 +794,54 @@ export function useBackgroundTokenIndexerIntegration({
     }
   }, [fileTree.length]);
 
+  // Retry pending files when FileTreeIndex version changes (index was updated with new handles)
+  // This handles the case where recursive selection loads handles after initial indexing attempt
+  useEffect(() => {
+    // Skip if no pending files or not ready
+    if (pendingNoHandleRef.current.size === 0) {
+      return;
+    }
+
+    const indexer = backgroundIndexerRef.current;
+    const cache = tokenCacheRef.current;
+    if (!(cache?.isOperational && indexer.isReady)) {
+      return;
+    }
+
+    // Skip during file import
+    if (isFileImporting) {
+      return;
+    }
+
+    // Filter pending files to only those still in selection
+    const pendingInSelection = Array.from(pendingNoHandleRef.current).filter((key) =>
+      selectedFiles.has(key)
+    );
+
+    if (pendingInSelection.length === 0) {
+      pendingNoHandleRef.current.clear();
+      return;
+    }
+
+    logger.debug('Retrying pending files after index update', {
+      indexVersion,
+      pendingCount: pendingInSelection.length,
+      pendingSample: pendingInSelection.slice(0, 3),
+    });
+
+    // Small debounce to allow index to settle
+    const timeoutId = setTimeout(() => {
+      void triggerIndexing(pendingInSelection);
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [indexVersion, selectedFiles, triggerIndexing, isFileImporting]);
+
   // Warm hot cache from persistent store so repeat selections show existing counts immediately.
   // Uses tokenCacheRef to avoid re-render loops when cacheVersion changes.
+  // P0 optimization: Uses preloadedFoldersRef to skip redundant preloads within same cache session.
   // biome-ignore lint/plugin: Cache hydration from persistent store is intentional side effect
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Warm-cache logic requires branching for memo checks, persistence state, folder iteration, and async hydration
   useEffect(() => {
     const cache = tokenCacheRef.current;
     if (!cache?.isOperational || selectedFiles.size === 0) {
@@ -653,6 +858,22 @@ export function useBackgroundTokenIndexerIntegration({
       logger.debug('Warm cache effect skipped - file import in progress');
       return;
     }
+
+    // P0 optimization: Clear preload memo when persistence state changes.
+    // This ensures we re-preload from DB when persistence becomes available.
+    const currentPersisted = cache.isPersisted;
+    if (previousPersistedStateRef.current !== currentPersisted) {
+      if (previousPersistedStateRef.current !== undefined) {
+        logger.debug('Clearing preload memo due to persistence state change', {
+          previous: previousPersistedStateRef.current,
+          current: currentPersisted,
+        });
+        preloadedFoldersRef.current.clear();
+      }
+      previousPersistedStateRef.current = currentPersisted;
+    }
+
+    const currentCacheVersion = cache.cacheVersion;
     const folderIds = new Set<string>();
     const keysByFolder = new Map<string, string[]>();
     for (const key of selectedFiles) {
@@ -663,19 +884,44 @@ export function useBackgroundTokenIndexerIntegration({
       keysByFolder.set(folderId, arr);
     }
 
+    // P0 optimization: Filter to only folders that need preloading.
+    // A folder is considered "preloaded" if it was preloaded at the current cacheVersion.
+    // This avoids repeated DB reads when selection changes but folders are the same.
+    const foldersToPreload: string[] = [];
+    const foldersSkipped: string[] = [];
+    for (const folderId of folderIds) {
+      const memoizedVersion = preloadedFoldersRef.current.get(folderId);
+      if (memoizedVersion === currentCacheVersion) {
+        foldersSkipped.push(folderId);
+      } else {
+        foldersToPreload.push(folderId);
+      }
+    }
+
     logger.debug('Warm cache effect: preloading folders', {
       folderCount: folderIds.size,
+      foldersToPreload: foldersToPreload.length,
+      foldersSkipped: foldersSkipped.length,
       totalFiles: selectedFiles.size,
-      isPersisted: cache?.isPersisted ?? false,
+      isPersisted: cache.isPersisted,
+      cacheVersion: currentCacheVersion,
     });
 
-    for (const folderId of folderIds) {
+    // Only preload folders that haven't been preloaded at this cache version
+    for (const folderId of foldersToPreload) {
       void cache.preloadFolder(folderId);
+      // Mark as preloaded at this version
+      preloadedFoldersRef.current.set(folderId, currentCacheVersion);
     }
 
     // After preload, ensure hot cache gets populated for any selected files that
     // were already stored but not yet marked indexed (prevents zero-count UI).
-    for (const [folderId, keys] of keysByFolder.entries()) {
+    // Only do this for folders that we actually preloaded (new folders or stale memo).
+    for (const folderId of foldersToPreload) {
+      const keys = keysByFolder.get(folderId);
+      if (!keys) {
+        continue;
+      }
       const paths = keys.map((key) => decodeFileSelection(key).path);
       void cache.store
         .getBatch(folderId, paths)
@@ -722,6 +968,9 @@ export function useBackgroundTokenIndexerIntegration({
     const previousSize = indexedFilesRef.current.size;
     indexedFilesRef.current.clear();
     inFlightRef.current.clear();
+    pendingNoHandleRef.current.clear();
+    // P0 optimization: Also clear preload memo to force re-preload
+    preloadedFoldersRef.current.clear();
     bumpInFlightPulse((v) => v + 1);
     logger.debug('Manually cleared indexed cache', { previousSize });
   }, []);

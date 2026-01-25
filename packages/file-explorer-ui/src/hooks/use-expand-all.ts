@@ -78,12 +78,14 @@ function logRehydrationResult(
  * @param handleMap - Map of path to FileSystemHandle
  * @param setExpandedPaths - Function to update expanded paths
  * @param onTreeUpdate - Callback to update tree state
+ * @param onNodesIndexed - Optional callback to index nodes (for FileTreeIndex)
  */
 function processExpandResult(
   result: { tree: unknown[]; expandedPaths: string[]; loadedCount: number },
   handleMap: Parameters<typeof rehydrateTree>[1],
   setExpandedPaths: (updater: (prev: Set<string>) => Set<string>) => void,
-  onTreeUpdate: (tree: IFileNode[]) => void
+  onTreeUpdate: (tree: IFileNode[]) => void,
+  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void
 ): void {
   // Skip rehydration when all directories were already cached
   if (result.loadedCount === 0) {
@@ -109,6 +111,15 @@ function processExpandResult(
     countNodes(rehydratedTree),
     rehydratedTree
   );
+
+  // Index all nodes from the rehydrated tree (FileTreeIndex.addNodes is recursive)
+  if (onNodesIndexed && rehydratedTree.length > 0) {
+    logger.debug('expandAllProgressively: indexing rehydrated nodes', {
+      rootCount: rehydratedTree.length,
+    });
+    onNodesIndexed(rehydratedTree, null);
+  }
+
   // Use startTransition to make tree update non-urgent - React can interrupt
   // and yield to browser for user input during large tree renders
   startTransition(() => {
@@ -164,6 +175,13 @@ export interface UseExpandAllOptions {
   onTreeUpdate: (tree: IFileNode[]) => void;
   /** Callback when error occurs */
   onError?: (error: Error) => void;
+  /**
+   * Callback invoked when nodes are indexed after expand-all.
+   * Used by FileTreeIndex for incremental indexing.
+   * @param nodes - The root-level nodes (FileTreeIndex.addNodes is recursive)
+   * @param parentPath - Always null for expand-all (starts from root)
+   */
+  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
 }
 
 export interface UseExpandAllReturn {
@@ -192,7 +210,8 @@ export interface UseExpandAllReturn {
  * @returns Expand-all state and controls
  */
 export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
-  const { workerPortRef, handleMapRef, rootFolderId, onTreeUpdate, onError } = options;
+  const { workerPortRef, handleMapRef, rootFolderId, onTreeUpdate, onError, onNodesIndexed } =
+    options;
 
   // State
   const [state, setState] = useState<ExpandAllState>({
@@ -251,7 +270,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
 
       try {
         const result = await workerPort.expandAll(rootFolderId);
-        processExpandResult(result, handleMap, setExpandedPaths, onTreeUpdate);
+        processExpandResult(result, handleMap, setExpandedPaths, onTreeUpdate, onNodesIndexed);
         setState({ isExpandingAll: false });
       } catch (err) {
         handleExpandError(err, onError);
@@ -262,7 +281,7 @@ export function useExpandAll(options: UseExpandAllOptions): UseExpandAllReturn {
         setExpandedPathsRef.current = null;
       }
     },
-    [workerPortRef, handleMapRef, rootFolderId, onTreeUpdate, onError]
+    [workerPortRef, handleMapRef, rootFolderId, onTreeUpdate, onError, onNodesIndexed]
   );
 
   return {

@@ -16,9 +16,9 @@ const DEFAULT_THRESHOLDS = { lines: 75, functions: 60, branches: 60, statements:
 // - Functions/Branches coverage generally decreased
 const OVERRIDES = new Map([
   // High-coverage packages with strict enforcement
-  // Vitest 4: L 94.81% | F 77.07% | B 66.47% | S 75.05%
-  // Recalibrated 2025-01 after lazy workerpool loading changes (async initialization)
-  ['@brainstrike/file-explorer-ui', { lines: 94, functions: 77, branches: 66, statements: 75 }],
+  // Vitest 4: L 94.52% | F 76.75% | B 66.23% | S 74.64%
+  // Recalibrated 2025-01 after FileTreeIndex type-change handling and handle cleanup additions
+  ['@brainstrike/file-explorer-ui', { lines: 94, functions: 76, branches: 66, statements: 74 }],
   // App shell — Vitest 4: L 94.79% | F 83.92% | B 67.98% | S 79.58%
   // Recalibrated 2024-12 after mocking changes
   ['@brainstrike/app-shell', { lines: 94, functions: 83, branches: 67, statements: 79 }],

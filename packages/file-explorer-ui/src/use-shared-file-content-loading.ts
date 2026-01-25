@@ -9,6 +9,7 @@ const logger = createLogger('SharedFileContentLoading');
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useOptionalFileTreeIndexContext } from './file-tree-provider';
 import { initFileContentWorker } from './utils/file-content-worker';
 import {
   buildFileNodeCache,
@@ -57,7 +58,7 @@ function countTreeNodes(nodes: IFileNode[]): number {
 // Loading state management helpers
 function updateLoadingState(
   compositeKey: string,
-  loadingPathsRef: React.MutableRefObject<Set<string>>,
+  loadingPathsRef: React.RefObject<Set<string>>,
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>
 ): void {
   loadingPathsRef.current.delete(compositeKey);
@@ -79,7 +80,7 @@ function processWorkerResults(
 
 function shouldLoadFile(
   compositeKey: string,
-  loadingPathsRef: React.MutableRefObject<Set<string>>,
+  loadingPathsRef: React.RefObject<Set<string>>,
   fileContents: Record<string, string>,
   folderId: string,
   fileTree: IFileNode[],
@@ -105,13 +106,26 @@ function shouldLoadFile(
   return shouldLoad;
 }
 
-// File node retrieval with retry logic
+// File node retrieval with index-first lookup and cache fallback
 async function getFileNodeWithRetry(
-  nodeCacheRef: React.MutableRefObject<Map<string, Map<string, IFileNode>>>,
+  nodeCacheRef: React.RefObject<Map<string, Map<string, IFileNode>>>,
   fileTree: IFileNode[],
   folderId: string,
-  path: string
+  path: string,
+  indexGetNode?: (folderId: string, path: string) => IFileNode | undefined
 ): Promise<IFileNode | null> {
+  // Try index first (O(1) lookup) when available
+  if (indexGetNode) {
+    const indexNode = indexGetNode(folderId, path);
+    if (isFileNodeValid(indexNode ?? null, folderId)) {
+      logger.debug('Node found via FileTreeIndex', { path, folderId });
+      return indexNode ?? null;
+    }
+    // Index miss - fall through to cache lookup
+    logger.debug('Index miss, falling back to cache', { path, folderId });
+  }
+
+  // Fallback to cache lookup
   const treeNodeCount = countTreeNodes(fileTree);
   let fileNode = getFileNodeFromCache(nodeCacheRef.current, fileTree, folderId, path);
 
@@ -154,7 +168,7 @@ function supportsDirectPathRead(fileSystemAdapter: unknown): boolean {
 
 function markFileLoading(
   compositeKey: string,
-  loadingPathsRef: React.MutableRefObject<Set<string>>,
+  loadingPathsRef: React.RefObject<Set<string>>,
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>
 ): void {
   loadingPathsRef.current.add(compositeKey);
@@ -167,7 +181,7 @@ async function buildCachedFileRequest(args: {
   path: string;
   compositeKey: string;
   setFileContent: (key: string, content: string) => void;
-  loadingPathsRef: React.MutableRefObject<Set<string>>;
+  loadingPathsRef: React.RefObject<Set<string>>;
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
 }): Promise<FileReadRequest | null> {
   const {
@@ -215,9 +229,9 @@ async function handleMissingFileNode(args: {
   path: string;
   compositeKey: string;
   handleCache: CachedHandleLookup | null;
-  nodeCacheRef: React.MutableRefObject<Map<string, Map<string, IFileNode>>>;
+  nodeCacheRef: React.RefObject<Map<string, Map<string, IFileNode>>>;
   setFileContent: (key: string, content: string) => void;
-  loadingPathsRef: React.MutableRefObject<Set<string>>;
+  loadingPathsRef: React.RefObject<Set<string>>;
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
   fileSystemAdapter: unknown;
 }): Promise<FileReadRequest | null> {
@@ -279,7 +293,7 @@ async function handleInvalidFileNode(args: {
   compositeKey: string;
   handleCache: CachedHandleLookup | null;
   setFileContent: (key: string, content: string) => void;
-  loadingPathsRef: React.MutableRefObject<Set<string>>;
+  loadingPathsRef: React.RefObject<Set<string>>;
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>;
 }): Promise<FileReadRequest | null> {
   const {
@@ -332,10 +346,11 @@ async function prepareFileReadRequest(
   fileTree: IFileNode[],
   fileSystemAdapter: unknown,
   store: ReturnType<typeof useFileExplorerStoreContext>,
-  nodeCacheRef: React.MutableRefObject<Map<string, Map<string, IFileNode>>>,
-  loadingPathsRef: React.MutableRefObject<Set<string>>,
+  nodeCacheRef: React.RefObject<Map<string, Map<string, IFileNode>>>,
+  loadingPathsRef: React.RefObject<Set<string>>,
   setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>,
-  canLoadWithoutTree: boolean
+  canLoadWithoutTree: boolean,
+  indexGetNode?: (folderId: string, path: string) => IFileNode | undefined
 ): Promise<FileReadRequest | null> {
   const { setFileContent, fileContents } = store.getState();
   const { folderId, path } = decodeFileSelection(compositeKey);
@@ -353,7 +368,7 @@ async function prepareFileReadRequest(
     return null;
   }
 
-  const fileNode = await getFileNodeWithRetry(nodeCacheRef, fileTree, folderId, path);
+  const fileNode = await getFileNodeWithRetry(nodeCacheRef, fileTree, folderId, path, indexGetNode);
   const handleCache = getHandleCache(fileSystemAdapter);
 
   if (!fileNode) {
@@ -405,19 +420,30 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
 
-  // Debounce timeout ref for cache rebuild
+  // Try to use shared FileTreeIndex for O(1) lookups when available
+  // Falls back to cache-based lookups when not within FileTreeProvider
+  const fileTreeIndex = useOptionalFileTreeIndexContext();
+  const indexGetNode = fileTreeIndex?.getNode;
+
+  // Debounce timeout ref for cache rebuild (only used as fallback when index unavailable)
   const cacheRebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Build cache in effect (async) - not during render to avoid blocking
-  // Debounced to prevent rebuilding during rapid tree updates (expand-all)
+  // Build cache in effect (async) - only when FileTreeIndex is not available
+  // When index is available, this expensive O(N) traversal is skipped entirely
   useEffect(() => {
+    // Skip cache rebuild when using shared FileTreeIndex
+    if (indexGetNode) {
+      logger.debug('Skipping cache rebuild - using FileTreeIndex');
+      return;
+    }
+
     // Cancel any pending rebuild
     if (cacheRebuildTimeoutRef.current) {
       clearTimeout(cacheRebuildTimeoutRef.current);
     }
 
     const treeNodeCount = countTreeNodes(fileTree);
-    logger.debug('Cache rebuild scheduled', {
+    logger.debug('Cache rebuild scheduled (fallback mode)', {
       fileTreeLength: fileTree.length,
       treeNodeCount,
     });
@@ -431,7 +457,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       for (const folderMap of nodeCacheRef.current.values()) {
         totalCached += folderMap.size;
       }
-      logger.debug('Cache rebuilt', {
+      logger.debug('Cache rebuilt (fallback mode)', {
         folders: nodeCacheRef.current.size,
         totalCached,
         treeNodeCount,
@@ -443,7 +469,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         clearTimeout(cacheRebuildTimeoutRef.current);
       }
     };
-  }, [fileTree]);
+  }, [fileTree, indexGetNode]);
 
   useEffect(() => {
     workerRef.current = initFileContentWorker(fileSystemAdapter);
@@ -456,6 +482,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const canLoadWithoutTree = supportsDirectPathRead(fileSystemAdapter);
 
   // Prepare a single file for reading - uses ref to get current tree
+  // When FileTreeIndex is available, uses O(1) lookups instead of cache traversal
   const prepareFileRead = useCallback(
     async (compositeKey: string): Promise<FileReadRequest | null> =>
       prepareFileReadRequest(
@@ -466,9 +493,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         nodeCacheRef,
         loadingPathsRef,
         setLoadingFiles,
-        canLoadWithoutTree
+        canLoadWithoutTree,
+        indexGetNode // Pass index getter for O(1) lookups when available
       ),
-    [fileSystemAdapter, store, canLoadWithoutTree] // fileTree removed - using ref instead
+    [fileSystemAdapter, store, canLoadWithoutTree, indexGetNode]
   );
 
   const handleFileContentLoading = useCallback(

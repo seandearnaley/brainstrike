@@ -15,6 +15,7 @@ export * from './file-filter-bar';
 export { default as FileFilterBar } from './file-filter-bar';
 export { default as FileRow } from './file-row';
 export { default as FileTree } from './file-tree';
+export * from './file-tree-index';
 export { default as FileTreeNode } from './file-tree-node';
 export * from './file-tree-provider';
 export * from './folder-badge';

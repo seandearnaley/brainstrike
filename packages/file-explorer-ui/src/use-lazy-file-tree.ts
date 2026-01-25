@@ -93,11 +93,13 @@ function shouldSkipLoadRoot(
  * @param result - The result from worker.loadPaths()
  * @param handleMap - Map of path to FileSystemHandle (type comes from rehydrateTree signature)
  * @param setState - State setter for updating file tree
+ * @param onNodesIndexed - Optional callback for indexing nodes (FileTreeIndex)
  */
 function processLoadPathsResult(
   result: { tree: unknown[]; expandedPaths: string[]; loadedCount: number },
   handleMap: Parameters<typeof rehydrateTree>[1],
-  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>
+  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>,
+  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void
 ): void {
   logger.debug('[processLoadPathsResult] Called', {
     loadedCount: result.loadedCount,
@@ -117,6 +119,15 @@ function processLoadPathsResult(
     logger.debug('[processLoadPathsResult] Rehydrated tree', {
       rehydratedTreeRootCount: rehydratedTree.length,
     });
+
+    // Index all nodes from the rehydrated tree (FileTreeIndex.addNodes is recursive)
+    if (onNodesIndexed && rehydratedTree.length > 0) {
+      logger.debug('[processLoadPathsResult] Indexing rehydrated nodes', {
+        rootCount: rehydratedTree.length,
+      });
+      onNodesIndexed(rehydratedTree, null);
+    }
+
     setState((s) => ({
       ...s,
       fileTree: rehydratedTree,
@@ -136,7 +147,7 @@ function processLoadPathsResult(
  */
 function handleLoadRootNoHandle(
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>,
-  initializedRootRef: React.MutableRefObject<string | null>
+  initializedRootRef: React.RefObject<string | null>
 ): void {
   setState((s) => ({
     ...s,
@@ -158,15 +169,19 @@ function handleLoadRootNoHandle(
  * @param setState - State setter
  * @param initializedRootRef - Ref to mark as initialized
  * @param rootName - Name of root directory for worker init
+ * @param onNodesIndexedRef - Optional callback ref for indexing nodes
  */
 function handleLoadRootSuccess(
   children: IFileNode[],
   rootPath: string,
-  handleMapRef: React.MutableRefObject<Map<string, unknown>>,
-  portRef: React.MutableRefObject<FileTreeWorkerPort | null>,
+  handleMapRef: React.RefObject<Map<string, unknown>>,
+  portRef: React.RefObject<FileTreeWorkerPort | null>,
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>,
-  initializedRootRef: React.MutableRefObject<string | null>,
-  rootName: string
+  initializedRootRef: React.RefObject<string | null>,
+  rootName: string,
+  onNodesIndexedRef?: React.RefObject<
+    ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
+  >
 ): void {
   // Build handle map from root children
   handleMapRef.current = buildHandleMap(children);
@@ -190,6 +205,11 @@ function handleLoadRootSuccess(
 
   // Mark this root as initialized to prevent redundant reinits
   initializedRootRef.current = rootPath;
+
+  // Notify indexing callback for root-level nodes
+  if (onNodesIndexedRef?.current && children.length > 0) {
+    onNodesIndexedRef.current(children, null);
+  }
 }
 
 /**
@@ -203,8 +223,8 @@ function handleLoadRootSuccess(
  */
 function handleLoadRootError(
   err: unknown,
-  handleMapRef: React.MutableRefObject<Map<string, unknown>>,
-  initializedRootRef: React.MutableRefObject<string | null>,
+  handleMapRef: React.RefObject<Map<string, unknown>>,
+  initializedRootRef: React.RefObject<string | null>,
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>
 ): void {
   if (!isAbortError(err)) {
@@ -313,6 +333,14 @@ export interface UseLazyFileTreeOptions {
    * ensuring workspace filters are respected before file selection.
    */
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
+
+  /**
+   * Callback invoked when nodes are added to the tree.
+   * Used by FileTreeIndex for incremental indexing.
+   * @param nodes - The nodes that were added
+   * @param parentPath - The parent path, or null for root-level nodes
+   */
+  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
 }
 
 /**
@@ -329,8 +357,12 @@ export function useLazyFileTree(
   rootDirectoryHandle: DirectoryHandle | null,
   options: UseLazyFileTreeOptions = {}
 ): UseLazyFileTreeReturn {
-  const { filterTreeFn } = options;
+  const { filterTreeFn, onNodesIndexed } = options;
   const { fileSystemAdapter } = useAdapters();
+
+  // Ref for callback to avoid stale closures
+  const onNodesIndexedRef = useRef(onNodesIndexed);
+  onNodesIndexedRef.current = onNodesIndexed;
 
   // Core state
   const [state, setState] = useState<LazyFileTreeState>({
@@ -391,18 +423,21 @@ export function useLazyFileTree(
   }, []);
 
   // Expand-all management
-  const {
-    isExpandingAll,
-    expandAllProgressively: expandAllFromHook,
-    cancelExpandAll,
-    isExpandingAllRef,
-  } = useExpandAll({
+  // Build options object conditionally to satisfy exactOptionalPropertyTypes
+  const expandAllOptions = {
     workerPortRef: portRef,
     handleMapRef,
     rootFolderId: rootDirectoryHandle?.name ?? '',
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
-  });
+    ...(onNodesIndexedRef.current ? { onNodesIndexed: onNodesIndexedRef.current } : {}),
+  };
+  const {
+    isExpandingAll,
+    expandAllProgressively: expandAllFromHook,
+    cancelExpandAll,
+    isExpandingAllRef,
+  } = useExpandAll(expandAllOptions);
 
   // Recursive folder selection management
   // Build options object conditionally to satisfy exactOptionalPropertyTypes
@@ -412,6 +447,7 @@ export function useLazyFileTree(
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
     ...(filterTreeFn ? { filterTreeFn } : {}),
+    ...(onNodesIndexedRef.current ? { onNodesIndexed: onNodesIndexedRef.current } : {}),
   };
   const {
     isLoadingForSelection,
@@ -429,6 +465,7 @@ export function useLazyFileTree(
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
     ...(filterTreeFn ? { filterTreeFn } : {}),
+    ...(onNodesIndexedRef.current ? { onNodesIndexed: onNodesIndexedRef.current } : {}),
   };
   const {
     isLoadingForSelectAll,
@@ -511,7 +548,8 @@ export function useLazyFileTree(
                 portRef,
                 setState,
                 initializedRootRef,
-                rootDirectoryHandle.name
+                rootDirectoryHandle.name,
+                onNodesIndexedRef
               );
             }
             // Intermediate batches: loading state is already set
@@ -536,7 +574,8 @@ export function useLazyFileTree(
             portRef,
             setState,
             initializedRootRef,
-            rootDirectoryHandle.name
+            rootDirectoryHandle.name,
+            onNodesIndexedRef
           );
         }
       }
@@ -582,6 +621,11 @@ export function useLazyFileTree(
           loadingPaths: newLoadingPaths,
         };
       });
+
+      // Notify indexing callback for child nodes
+      if (onNodesIndexedRef.current && children.length > 0) {
+        onNodesIndexedRef.current(children, path);
+      }
     },
     [handleMapRef, portRef]
   );
@@ -865,7 +909,8 @@ export function useLazyFileTree(
         });
 
         // Process result with optional rehydration (skipped when all cached)
-        processLoadPathsResult(result, handleMapRef.current, setState);
+        // Pass onNodesIndexedRef.current for FileTreeIndex updates
+        processLoadPathsResult(result, handleMapRef.current, setState, onNodesIndexedRef.current);
       } catch (err) {
         if (!isAbortError(err)) {
           logger.error('loadSpecificPaths failed', { error: String(err) });
