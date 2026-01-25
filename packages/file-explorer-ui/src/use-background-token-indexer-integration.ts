@@ -682,11 +682,15 @@ export function useBackgroundTokenIndexerIntegration({
 
     // Exit early if no files selected, indexer not ready, or no file handles available yet.
     // During startup, selection may be restored from storage before file tree has handles.
-    if (selectedFiles.size === 0 || !indexer.isReady || fileHandleMapRef.current.size === 0) {
+    // When FileTreeIndex is available, skip the local map size check since we use index lookups.
+    const hasHandleSource = indexGetHandleRef.current || fileHandleMapRef.current.size > 0;
+    if (selectedFiles.size === 0 || !indexer.isReady || !hasHandleSource) {
       logger.debug('Selection effect exiting early', {
         noFiles: selectedFiles.size === 0,
         notReady: !indexer.isReady,
-        noHandles: fileHandleMapRef.current.size === 0,
+        noHandles: !hasHandleSource,
+        hasIndex: !!indexGetHandleRef.current,
+        localMapSize: fileHandleMapRef.current.size,
       });
       return;
     }
@@ -723,6 +727,7 @@ export function useBackgroundTokenIndexerIntegration({
     tokenCacheIsOperational,
     fileHandleMapSize,
     isFileImporting,
+    indexGetHandle,
   ]);
 
   // Clear indexed files cache when file tree changes significantly
