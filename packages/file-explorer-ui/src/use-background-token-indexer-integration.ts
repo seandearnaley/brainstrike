@@ -245,6 +245,8 @@ export function useBackgroundTokenIndexerIntegration({
   // Build file handle map whenever tree changes (debounced to avoid rebuilding during expand-all)
   const fileHandleMapRef = useRef<Map<string, HandleInfo>>(new Map());
   const previousRootIdsRef = useRef<string>('');
+  // Explicit flag for "have we seen a root yet?" - avoids truthiness issues with empty string
+  const hasSeenRootRef = useRef(false);
   const rebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // P0 optimization: Track staleness to enable lazy rebuilds
   const fileHandleMapStaleRef = useRef(true); // Start stale since map is empty
@@ -288,8 +290,9 @@ export function useBackgroundTokenIndexerIntegration({
   // biome-ignore lint/plugin: Intentional effect to reset caches on root folder change
   useEffect(() => {
     const prev = previousRootIdsRef.current;
-    // Only clear if we had a previous value and it changed (not on initial mount)
-    if (prev && prev !== rootFingerprint) {
+    // Only clear if we've seen a root before and it changed (not on initial mount)
+    // Using explicit hasSeenRootRef avoids truthiness issues with empty string fingerprints
+    if (hasSeenRootRef.current && prev !== rootFingerprint) {
       indexedFilesRef.current.clear();
       inFlightRef.current.clear();
       pendingNoHandleRef.current.clear();
@@ -301,6 +304,7 @@ export function useBackgroundTokenIndexerIntegration({
       });
     }
     previousRootIdsRef.current = rootFingerprint;
+    hasSeenRootRef.current = true;
   }, [rootFingerprint]);
 
   /**
@@ -410,12 +414,14 @@ export function useBackgroundTokenIndexerIntegration({
       return;
     }
 
-    logger.debug('Selection transition 0 → >0, scheduling rebuild', {
+    logger.debug('Selection transition 0 → >0, checking if rebuild needed', {
       newSize: selectedFiles.size,
       isStale: fileHandleMapStaleRef.current,
       mapSize: fileHandleMapRef.current.size,
+      hasIndex: !!indexGetHandleRef.current,
     });
 
+    // Note: scheduleRebuildIfNeeded will short-circuit if FileTreeIndex is available
     scheduleRebuildIfNeeded();
   }, [selectedFiles.size, scheduleRebuildIfNeeded]);
 

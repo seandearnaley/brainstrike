@@ -163,6 +163,46 @@ export class FileTreeIndex {
   }
 
   /**
+   * Update statistics when a node is added or updated.
+   * Handles new nodes, unchanged updates, and type changes.
+   *
+   * @param existingNode - The previous node at this key (if any)
+   * @param newNode - The new node being added
+   */
+  private updateStats(existingNode: IFileNode | undefined, newNode: IFileNode): void {
+    if (!existingNode) {
+      // New node: increment appropriate counter
+      if (newNode.type === 'file') {
+        this._stats.totalFiles++;
+      } else if (newNode.type === 'directory') {
+        this._stats.totalDirectories++;
+      }
+      this._stats.totalNodes++;
+      return;
+    }
+
+    // Existing node - check for type change
+    if (existingNode.type === newNode.type) {
+      return; // No change needed
+    }
+
+    // Type changed: adjust counters to prevent drift
+    // Decrement old type
+    if (existingNode.type === 'file') {
+      this._stats.totalFiles--;
+    } else if (existingNode.type === 'directory') {
+      this._stats.totalDirectories--;
+    }
+    // Increment new type
+    if (newNode.type === 'file') {
+      this._stats.totalFiles++;
+    } else if (newNode.type === 'directory') {
+      this._stats.totalDirectories++;
+    }
+    // Note: totalNodes stays the same since it's still one node
+  }
+
+  /**
    * Add nodes to the index, recursively processing children.
    * Updates statistics as nodes are added.
    *
@@ -185,15 +225,8 @@ export class FileTreeIndex {
       // Add or update node in the map
       this.nodeByKey.set(key, node);
 
-      // Only update statistics if this is a new node (not an update)
-      if (!existingNode) {
-        if (node.type === 'file') {
-          this._stats.totalFiles++;
-        } else if (node.type === 'directory') {
-          this._stats.totalDirectories++;
-        }
-        this._stats.totalNodes++;
-      }
+      // Update statistics (handles new nodes, unchanged updates, and type changes)
+      this.updateStats(existingNode, node);
 
       // Extract and store handle info for files (always update, even for existing nodes)
       // If handle extraction fails, delete stale entry to prevent using revoked/invalid handles
