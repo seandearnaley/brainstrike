@@ -204,4 +204,30 @@ export class FileTreeIndex {
       }
     }
   }
+
+  /**
+   * Get a node by folder ID and path.
+   * Provides O(1) lookup using the encoded key.
+   *
+   * @param folderId - The root folder ID
+   * @param path - The file path within the folder
+   * @returns The file node or undefined if not found
+   */
+  getNode(folderId: string, path: string): IFileNode | undefined {
+    const key = encodeFileSelection(folderId, path);
+    return this.nodeByKey.get(key);
+  }
+
+  /**
+   * Get handle information by folder ID and path.
+   * Provides O(1) lookup for file handles.
+   *
+   * @param folderId - The root folder ID
+   * @param path - The file path within the folder
+   * @returns The handle info or undefined if not found
+   */
+  getHandle(folderId: string, path: string): HandleInfo | undefined {
+    const key = encodeFileSelection(folderId, path);
+    return this.handleByKey.get(key);
+  }
 }

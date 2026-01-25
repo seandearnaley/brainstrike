@@ -65,4 +65,73 @@ describe('FileTreeIndex', () => {
       expect(index.stats.totalDirectories).toBe(1);
     });
   });
+
+  describe('getNode', () => {
+    it('should return node by folderId and path', () => {
+      const index = new FileTreeIndex();
+      const fileNode = createMockFileNode({ path: 'src/file.txt', rootFolderId: 'folder-123' });
+      index.addNodes([fileNode], null);
+
+      const result = index.getNode('folder-123', 'src/file.txt');
+
+      expect(result).toBe(fileNode);
+    });
+
+    it('should return undefined for non-existent node', () => {
+      const index = new FileTreeIndex();
+
+      const result = index.getNode('folder-123', 'nonexistent.txt');
+
+      expect(result).toBeUndefined();
+    });
+  });
+
+  describe('getHandle', () => {
+    it('should return handle info for file with web handle', () => {
+      const index = new FileTreeIndex();
+      const mockWebHandle = { getFile: () => Promise.resolve(new File([], 'test')) };
+      const fileNode = createMockFileNode({
+        handle: mockWebHandle as unknown as FileSystemFileHandle,
+        size: 1024,
+      });
+      index.addNodes([fileNode], null);
+
+      const result = index.getHandle('folder-123', 'src/file.txt');
+
+      expect(result).toBeDefined();
+      expect(result?.webHandle).toBe(mockWebHandle);
+      expect(result?.fileName).toBe('file.txt');
+      expect(result?.fileSize).toBe(1024);
+    });
+
+    it('should return handle info for file with electron handle', () => {
+      const index = new FileTreeIndex();
+      const mockElectronHandle = {
+        path: '/absolute/path/file.txt',
+        name: 'file.txt',
+        kind: 'file' as const,
+        platform: 'electron' as const,
+      };
+      const fileNode = createMockFileNode({
+        handle: mockElectronHandle as unknown as FileSystemFileHandle,
+        size: 2048,
+      });
+      index.addNodes([fileNode], null);
+
+      const result = index.getHandle('folder-123', 'src/file.txt');
+
+      expect(result).toBeDefined();
+      expect(result?.electronHandle).toBe(mockElectronHandle);
+      expect(result?.fileName).toBe('file.txt');
+      expect(result?.fileSize).toBe(2048);
+    });
+
+    it('should return undefined for non-existent handle', () => {
+      const index = new FileTreeIndex();
+
+      const result = index.getHandle('folder-123', 'nonexistent.txt');
+
+      expect(result).toBeUndefined();
+    });
+  });
 });
