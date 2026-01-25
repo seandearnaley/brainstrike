@@ -10,7 +10,15 @@
 
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useRef } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+} from 'react';
 import { FileTreeIndex, type FileTreeIndexStats, type HandleInfo } from './file-tree-index';
 import { type CancellableFileTreeHook, useFileTree } from './use-file-tree-context';
 
@@ -69,14 +77,18 @@ export function FileTreeProvider({
   const index = indexRef.current;
 
   // Track the last root handle path to detect root changes
-  // Clear index synchronously during render when root changes
-  // This avoids the effect-for-state-sync anti-pattern that Biome flags
   const lastRootPathRef = useRef<string | null>(null);
   const currentRootPath = rootDirectoryHandle?.path ?? null;
-  if (lastRootPathRef.current !== currentRootPath) {
-    index.clear();
-    lastRootPathRef.current = currentRootPath;
-  }
+
+  // Clear index when root changes using useEffect to avoid render-phase mutations
+  // which are unsafe in React's Concurrent Mode (render can be called multiple times)
+  // biome-ignore lint/plugin: This is intentional - index.clear() is a mutation that must run after commit, not during render
+  useEffect(() => {
+    if (lastRootPathRef.current !== currentRootPath) {
+      index.clear();
+      lastRootPathRef.current = currentRootPath;
+    }
+  }, [currentRootPath, index]);
 
   // Callback to add nodes to the index - passed to useFileTree
   const onNodesIndexed = useCallback(

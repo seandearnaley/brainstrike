@@ -93,11 +93,13 @@ function shouldSkipLoadRoot(
  * @param result - The result from worker.loadPaths()
  * @param handleMap - Map of path to FileSystemHandle (type comes from rehydrateTree signature)
  * @param setState - State setter for updating file tree
+ * @param onNodesIndexed - Optional callback for indexing nodes (FileTreeIndex)
  */
 function processLoadPathsResult(
   result: { tree: unknown[]; expandedPaths: string[]; loadedCount: number },
   handleMap: Parameters<typeof rehydrateTree>[1],
-  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>
+  setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>,
+  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void
 ): void {
   logger.debug('[processLoadPathsResult] Called', {
     loadedCount: result.loadedCount,
@@ -117,6 +119,15 @@ function processLoadPathsResult(
     logger.debug('[processLoadPathsResult] Rehydrated tree', {
       rehydratedTreeRootCount: rehydratedTree.length,
     });
+
+    // Index all nodes from the rehydrated tree (FileTreeIndex.addNodes is recursive)
+    if (onNodesIndexed && rehydratedTree.length > 0) {
+      logger.debug('[processLoadPathsResult] Indexing rehydrated nodes', {
+        rootCount: rehydratedTree.length,
+      });
+      onNodesIndexed(rehydratedTree, null);
+    }
+
     setState((s) => ({
       ...s,
       fileTree: rehydratedTree,
@@ -412,18 +423,21 @@ export function useLazyFileTree(
   }, []);
 
   // Expand-all management
-  const {
-    isExpandingAll,
-    expandAllProgressively: expandAllFromHook,
-    cancelExpandAll,
-    isExpandingAllRef,
-  } = useExpandAll({
+  // Build options object conditionally to satisfy exactOptionalPropertyTypes
+  const expandAllOptions = {
     workerPortRef: portRef,
     handleMapRef,
     rootFolderId: rootDirectoryHandle?.name ?? '',
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
-  });
+    ...(onNodesIndexedRef.current ? { onNodesIndexed: onNodesIndexedRef.current } : {}),
+  };
+  const {
+    isExpandingAll,
+    expandAllProgressively: expandAllFromHook,
+    cancelExpandAll,
+    isExpandingAllRef,
+  } = useExpandAll(expandAllOptions);
 
   // Recursive folder selection management
   // Build options object conditionally to satisfy exactOptionalPropertyTypes
@@ -893,7 +907,8 @@ export function useLazyFileTree(
         });
 
         // Process result with optional rehydration (skipped when all cached)
-        processLoadPathsResult(result, handleMapRef.current, setState);
+        // Pass onNodesIndexedRef.current for FileTreeIndex updates
+        processLoadPathsResult(result, handleMapRef.current, setState, onNodesIndexedRef.current);
       } catch (err) {
         if (!isAbortError(err)) {
           logger.error('loadSpecificPaths failed', { error: String(err) });
