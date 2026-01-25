@@ -447,6 +447,7 @@ export function useLazyFileTree(
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
     ...(filterTreeFn ? { filterTreeFn } : {}),
+    ...(onNodesIndexedRef.current ? { onNodesIndexed: onNodesIndexedRef.current } : {}),
   };
   const {
     isLoadingForSelection,
@@ -464,6 +465,7 @@ export function useLazyFileTree(
     onTreeUpdate: handleTreeUpdate,
     onError: handleWorkerError,
     ...(filterTreeFn ? { filterTreeFn } : {}),
+    ...(onNodesIndexedRef.current ? { onNodesIndexed: onNodesIndexedRef.current } : {}),
   };
   const {
     isLoadingForSelectAll,

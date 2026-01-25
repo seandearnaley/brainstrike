@@ -18,6 +18,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from 'react';
 import { FileTreeIndex, type FileTreeIndexStats, type HandleInfo } from './file-tree-index';
 import { type CancellableFileTreeHook, useFileTree } from './use-file-tree-context';
@@ -39,6 +40,11 @@ export interface FileTreeIndexContextValue {
   getHandle: (folderId: string, path: string) => HandleInfo | undefined;
   /** Current index statistics */
   stats: FileTreeIndexStats;
+  /**
+   * Increments when the index is mutated (coalesced via microtask).
+   * Consumers can use this as a dependency to retry lookups when the index fills.
+   */
+  version: number;
 }
 
 const FileTreeIndexContext = createContext<FileTreeIndexContextValue | null>(null);
@@ -76,6 +82,21 @@ export function FileTreeProvider({
   }
   const index = indexRef.current;
 
+  // Version counter to signal index mutations to consumers
+  // Coalesced via microtask to avoid excessive re-renders during multi-step updates
+  const [indexVersion, setIndexVersion] = useState(0);
+  const bumpScheduledRef = useRef(false);
+  const bumpIndexVersion = useCallback(() => {
+    if (bumpScheduledRef.current) {
+      return;
+    }
+    bumpScheduledRef.current = true;
+    queueMicrotask(() => {
+      bumpScheduledRef.current = false;
+      setIndexVersion((v: number) => v + 1);
+    });
+  }, []);
+
   // Track the last root handle path to detect root changes
   const lastRootPathRef = useRef<string | null>(null);
   const currentRootPath = rootDirectoryHandle?.path ?? null;
@@ -87,15 +108,17 @@ export function FileTreeProvider({
     if (lastRootPathRef.current !== currentRootPath) {
       index.clear();
       lastRootPathRef.current = currentRootPath;
+      bumpIndexVersion();
     }
-  }, [currentRootPath, index]);
+  }, [currentRootPath, index, bumpIndexVersion]);
 
   // Callback to add nodes to the index - passed to useFileTree
   const onNodesIndexed = useCallback(
     (nodes: IFileNode[], parentPath: string | null) => {
       index.addNodes(nodes, parentPath);
+      bumpIndexVersion();
     },
-    [index]
+    [index, bumpIndexVersion]
   );
 
   // Build options object conditionally to satisfy exactOptionalPropertyTypes
@@ -112,17 +135,15 @@ export function FileTreeProvider({
   const fileTreeState = useFileTree(rootDirectoryHandle, options);
 
   // Create stable context value with bound methods
-  // We use useMemo but include a version counter to trigger updates when index changes
-  // For now, since lookups are synchronous and always return current data, we can use stable references
+  // Version changes trigger re-renders for consumers that depend on fresh index data
   const indexContextValue = useMemo<FileTreeIndexContextValue>(
     () => ({
       getNode: (folderId: string, path: string) => index.getNode(folderId, path),
       getHandle: (folderId: string, path: string) => index.getHandle(folderId, path),
-      get stats() {
-        return index.stats;
-      },
+      stats: index.stats,
+      version: indexVersion,
     }),
-    [index]
+    [index, indexVersion]
   );
 
   return (

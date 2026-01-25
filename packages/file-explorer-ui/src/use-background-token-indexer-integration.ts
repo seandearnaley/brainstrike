@@ -214,6 +214,8 @@ export function useBackgroundTokenIndexerIntegration({
   // Get the FileTreeIndex context for O(1) handle lookups (optional - falls back to local map)
   const fileTreeIndex = useOptionalFileTreeIndexContext();
   const indexGetHandle = fileTreeIndex?.getHandle;
+  // Track FileTreeIndex version for retry logic - when index fills, retry pending files
+  const indexVersion = fileTreeIndex?.version ?? 0;
 
   // Check if file import is in progress - skip background indexing to avoid database contention
   // Import the store dynamically to get isImporting state
@@ -223,6 +225,8 @@ export function useBackgroundTokenIndexerIntegration({
   const indexedFilesRef = useRef<Set<string>>(new Set());
   // Track files currently in flight to avoid re-queuing while a batch is running
   const inFlightRef = useRef<Set<string>>(new Set());
+  // Track files skipped due to missing handles - retry when FileTreeIndex fills
+  const pendingNoHandleRef = useRef<Set<string>>(new Set());
   const previousSelectionSizeRef = useRef<number>(0);
   const [_inFlightPulse, bumpInFlightPulse] = useState(0);
   // Track file handle map population to trigger selection effect re-run
@@ -509,8 +513,12 @@ export function useBackgroundTokenIndexerIntegration({
         }
         if (!handleInfo) {
           skippedNoHandle++;
+          // Track for retry when FileTreeIndex fills with handles
+          pendingNoHandleRef.current.add(compositeKey);
           continue;
         }
+        // Handle found - remove from pending if it was there
+        pendingNoHandleRef.current.delete(compositeKey);
 
         // Filter out binary files BEFORE attempting to read/index
         // This avoids IPC overhead for files that would fail anyway
@@ -736,12 +744,56 @@ export function useBackgroundTokenIndexerIntegration({
     // Reset cache when tree is empty (folder cleared)
     if (fileTree.length === 0) {
       indexedFilesRef.current.clear();
+      pendingNoHandleRef.current.clear();
       if (inFlightRef.current.size > 0) {
         inFlightRef.current.clear();
         bumpInFlightPulse((value) => value + 1);
       }
     }
   }, [fileTree.length]);
+
+  // Retry pending files when FileTreeIndex version changes (index was updated with new handles)
+  // This handles the case where recursive selection loads handles after initial indexing attempt
+  useEffect(() => {
+    // Skip if no pending files or not ready
+    if (pendingNoHandleRef.current.size === 0) {
+      return;
+    }
+
+    const indexer = backgroundIndexerRef.current;
+    const cache = tokenCacheRef.current;
+    if (!(cache?.isOperational && indexer.isReady)) {
+      return;
+    }
+
+    // Skip during file import
+    if (isFileImporting) {
+      return;
+    }
+
+    // Filter pending files to only those still in selection
+    const pendingInSelection = Array.from(pendingNoHandleRef.current).filter((key) =>
+      selectedFiles.has(key)
+    );
+
+    if (pendingInSelection.length === 0) {
+      pendingNoHandleRef.current.clear();
+      return;
+    }
+
+    logger.debug('Retrying pending files after index update', {
+      indexVersion,
+      pendingCount: pendingInSelection.length,
+      pendingSample: pendingInSelection.slice(0, 3),
+    });
+
+    // Small debounce to allow index to settle
+    const timeoutId = setTimeout(() => {
+      void triggerIndexing(pendingInSelection);
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [indexVersion, selectedFiles, triggerIndexing, isFileImporting]);
 
   // Warm hot cache from persistent store so repeat selections show existing counts immediately.
   // Uses tokenCacheRef to avoid re-render loops when cacheVersion changes.
@@ -874,6 +926,7 @@ export function useBackgroundTokenIndexerIntegration({
     const previousSize = indexedFilesRef.current.size;
     indexedFilesRef.current.clear();
     inFlightRef.current.clear();
+    pendingNoHandleRef.current.clear();
     // P0 optimization: Also clear preload memo to force re-preload
     preloadedFoldersRef.current.clear();
     bumpInFlightPulse((v) => v + 1);

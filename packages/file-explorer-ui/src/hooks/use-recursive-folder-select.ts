@@ -194,7 +194,8 @@ function processLoadedSubtree(
   addMultipleSelectedFiles: (folderId: string, paths: string[]) => void,
   maxSelectionCount: number,
   currentSelectionSize: number,
-  filterTreeFn?: (tree: IFileNode[]) => IFileNode[]
+  filterTreeFn?: (tree: IFileNode[]) => IFileNode[],
+  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void
 ): SelectionResult {
   // Rehydrate tree with handles
   const rehydratedTree = rehydrateTree(result.tree, handleMap);
@@ -203,6 +204,15 @@ function processLoadedSubtree(
     handleMapSize: handleMap.size,
     loadedCount: result.loadedCount,
   });
+
+  // Index all nodes from the rehydrated tree (FileTreeIndex.addNodes is recursive)
+  // This must happen BEFORE consumers try to look up handles via FileTreeIndex
+  if (onNodesIndexed && rehydratedTree.length > 0) {
+    logger.debug('selectFolderRecursively: indexing rehydrated nodes', {
+      rootCount: rehydratedTree.length,
+    });
+    onNodesIndexed(rehydratedTree, null);
+  }
 
   onTreeUpdate(rehydratedTree);
 
@@ -273,6 +283,13 @@ export interface UseRecursiveFolderSelectOptions {
    * This ensures that selecting a folder respects the current workspace filters.
    */
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
+  /**
+   * Callback invoked when nodes are added to the tree.
+   * Used by FileTreeIndex for incremental indexing after subtree loading.
+   * @param nodes - The root-level nodes (FileTreeIndex.addNodes is recursive)
+   * @param parentPath - Always null for folder selection (full subtree)
+   */
+  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
 }
 
 export interface SelectionResult {
@@ -326,7 +343,8 @@ const RESET_STATE: RecursiveFolderSelectState = {
 export function useRecursiveFolderSelect(
   options: UseRecursiveFolderSelectOptions
 ): UseRecursiveFolderSelectReturn {
-  const { workerPortRef, handleMapRef, onTreeUpdate, onError, filterTreeFn } = options;
+  const { workerPortRef, handleMapRef, onTreeUpdate, onError, filterTreeFn, onNodesIndexed } =
+    options;
 
   // Access store context for workspace filters (optional - may be null outside FileExplorerProvider)
   const store = useOptionalFileExplorerStoreContext();
@@ -440,7 +458,8 @@ export function useRecursiveFolderSelect(
           addMultipleSelectedFiles,
           maxSelectionCount,
           currentSelectionSize,
-          internalFilterTreeFn
+          internalFilterTreeFn,
+          onNodesIndexed
         );
 
         setState(RESET_STATE);
@@ -454,7 +473,7 @@ export function useRecursiveFolderSelect(
         isLoadingForSelectionRef.current = false;
       }
     },
-    [onTreeUpdate, onError, internalFilterTreeFn]
+    [onTreeUpdate, onError, internalFilterTreeFn, onNodesIndexed]
   );
 
   /**
