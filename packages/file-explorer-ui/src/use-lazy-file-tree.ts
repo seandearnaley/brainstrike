@@ -136,7 +136,7 @@ function processLoadPathsResult(
  */
 function handleLoadRootNoHandle(
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>,
-  initializedRootRef: React.MutableRefObject<string | null>
+  initializedRootRef: React.RefObject<string | null>
 ): void {
   setState((s) => ({
     ...s,
@@ -163,12 +163,12 @@ function handleLoadRootNoHandle(
 function handleLoadRootSuccess(
   children: IFileNode[],
   rootPath: string,
-  handleMapRef: React.MutableRefObject<Map<string, unknown>>,
-  portRef: React.MutableRefObject<FileTreeWorkerPort | null>,
+  handleMapRef: React.RefObject<Map<string, unknown>>,
+  portRef: React.RefObject<FileTreeWorkerPort | null>,
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>,
-  initializedRootRef: React.MutableRefObject<string | null>,
+  initializedRootRef: React.RefObject<string | null>,
   rootName: string,
-  onNodesIndexedRef?: React.MutableRefObject<
+  onNodesIndexedRef?: React.RefObject<
     ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
   >
 ): void {
@@ -212,8 +212,8 @@ function handleLoadRootSuccess(
  */
 function handleLoadRootError(
   err: unknown,
-  handleMapRef: React.MutableRefObject<Map<string, unknown>>,
-  initializedRootRef: React.MutableRefObject<string | null>,
+  handleMapRef: React.RefObject<Map<string, unknown>>,
+  initializedRootRef: React.RefObject<string | null>,
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>
 ): void {
   if (!isAbortError(err)) {
