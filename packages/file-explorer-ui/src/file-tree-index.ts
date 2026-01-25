@@ -179,24 +179,29 @@ export class FileTreeIndex {
       // Create unique key for this node
       const key = encodeFileSelection(node.rootFolderId, node.path);
 
-      // Add node to the map
+      // Check if node already exists to avoid double-counting stats
+      const existingNode = this.nodeByKey.get(key);
+
+      // Add or update node in the map
       this.nodeByKey.set(key, node);
 
-      // Update statistics based on node type
-      if (node.type === 'file') {
-        this._stats.totalFiles++;
+      // Only update statistics if this is a new node (not an update)
+      if (!existingNode) {
+        if (node.type === 'file') {
+          this._stats.totalFiles++;
+        } else if (node.type === 'directory') {
+          this._stats.totalDirectories++;
+        }
+        this._stats.totalNodes++;
+      }
 
-        // Extract and store handle info for files
+      // Extract and store handle info for files (always update, even for existing nodes)
+      if (node.type === 'file') {
         const handleInfo = this.extractHandleInfo(node);
         if (handleInfo) {
           this.handleByKey.set(key, handleInfo);
         }
-      } else if (node.type === 'directory') {
-        this._stats.totalDirectories++;
       }
-
-      // Always increment total nodes
-      this._stats.totalNodes++;
 
       // Recursively process children if present
       if (node.children && node.children.length > 0) {

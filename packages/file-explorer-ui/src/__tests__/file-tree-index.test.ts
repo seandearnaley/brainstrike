@@ -134,4 +134,43 @@ describe('FileTreeIndex', () => {
       expect(result).toBeUndefined();
     });
   });
+
+  describe('clear', () => {
+    it('should remove all entries and reset stats', () => {
+      const index = new FileTreeIndex();
+      index.addNodes([createMockFileNode(), createMockDirectoryNode()], null);
+
+      index.clear();
+
+      expect(index.stats.totalNodes).toBe(0);
+      expect(index.getNode('folder-123', 'src/file.txt')).toBeUndefined();
+    });
+  });
+
+  describe('incremental updates', () => {
+    it('should accumulate nodes from multiple addNodes calls', () => {
+      const index = new FileTreeIndex();
+
+      index.addNodes([createMockFileNode({ path: 'a.txt' })], null);
+      index.addNodes([createMockFileNode({ path: 'b.txt' })], 'src');
+
+      expect(index.stats.totalNodes).toBe(2);
+      expect(index.getNode('folder-123', 'a.txt')).toBeDefined();
+      expect(index.getNode('folder-123', 'b.txt')).toBeDefined();
+    });
+
+    it('should update existing node when re-added', () => {
+      const index = new FileTreeIndex();
+      const originalNode = createMockFileNode({ path: 'file.txt', size: 100 });
+      const updatedNode = createMockFileNode({ path: 'file.txt', size: 200 });
+
+      index.addNodes([originalNode], null);
+      index.addNodes([updatedNode], null);
+
+      const result = index.getNode('folder-123', 'file.txt');
+      expect(result?.size).toBe(200);
+      // Stats should not double-count
+      expect(index.stats.totalNodes).toBe(1);
+    });
+  });
 });
