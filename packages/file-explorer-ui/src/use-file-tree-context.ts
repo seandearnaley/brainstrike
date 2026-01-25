@@ -106,6 +106,14 @@ export interface UseFileTreeOptions {
    * ensuring workspace filters are respected before file selection.
    */
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
+
+  /**
+   * Callback invoked when nodes are added to the tree.
+   * Used by FileTreeIndex for incremental indexing.
+   * @param nodes - The nodes that were added
+   * @param parentPath - The parent path, or null for root-level nodes
+   */
+  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
 }
 
 /**

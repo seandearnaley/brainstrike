@@ -158,6 +158,7 @@ function handleLoadRootNoHandle(
  * @param setState - State setter
  * @param initializedRootRef - Ref to mark as initialized
  * @param rootName - Name of root directory for worker init
+ * @param onNodesIndexedRef - Optional callback ref for indexing nodes
  */
 function handleLoadRootSuccess(
   children: IFileNode[],
@@ -166,7 +167,10 @@ function handleLoadRootSuccess(
   portRef: React.MutableRefObject<FileTreeWorkerPort | null>,
   setState: React.Dispatch<React.SetStateAction<LazyFileTreeState>>,
   initializedRootRef: React.MutableRefObject<string | null>,
-  rootName: string
+  rootName: string,
+  onNodesIndexedRef?: React.MutableRefObject<
+    ((nodes: IFileNode[], parentPath: string | null) => void) | undefined
+  >
 ): void {
   // Build handle map from root children
   handleMapRef.current = buildHandleMap(children);
@@ -190,6 +194,11 @@ function handleLoadRootSuccess(
 
   // Mark this root as initialized to prevent redundant reinits
   initializedRootRef.current = rootPath;
+
+  // Notify indexing callback for root-level nodes
+  if (onNodesIndexedRef?.current && children.length > 0) {
+    onNodesIndexedRef.current(children, null);
+  }
 }
 
 /**
@@ -313,6 +322,14 @@ export interface UseLazyFileTreeOptions {
    * ensuring workspace filters are respected before file selection.
    */
   filterTreeFn?: (tree: IFileNode[]) => IFileNode[];
+
+  /**
+   * Callback invoked when nodes are added to the tree.
+   * Used by FileTreeIndex for incremental indexing.
+   * @param nodes - The nodes that were added
+   * @param parentPath - The parent path, or null for root-level nodes
+   */
+  onNodesIndexed?: (nodes: IFileNode[], parentPath: string | null) => void;
 }
 
 /**
@@ -329,8 +346,12 @@ export function useLazyFileTree(
   rootDirectoryHandle: DirectoryHandle | null,
   options: UseLazyFileTreeOptions = {}
 ): UseLazyFileTreeReturn {
-  const { filterTreeFn } = options;
+  const { filterTreeFn, onNodesIndexed } = options;
   const { fileSystemAdapter } = useAdapters();
+
+  // Ref for callback to avoid stale closures
+  const onNodesIndexedRef = useRef(onNodesIndexed);
+  onNodesIndexedRef.current = onNodesIndexed;
 
   // Core state
   const [state, setState] = useState<LazyFileTreeState>({
@@ -511,7 +532,8 @@ export function useLazyFileTree(
                 portRef,
                 setState,
                 initializedRootRef,
-                rootDirectoryHandle.name
+                rootDirectoryHandle.name,
+                onNodesIndexedRef
               );
             }
             // Intermediate batches: loading state is already set
@@ -536,7 +558,8 @@ export function useLazyFileTree(
             portRef,
             setState,
             initializedRootRef,
-            rootDirectoryHandle.name
+            rootDirectoryHandle.name,
+            onNodesIndexedRef
           );
         }
       }
@@ -582,6 +605,11 @@ export function useLazyFileTree(
           loadingPaths: newLoadingPaths,
         };
       });
+
+      // Notify indexing callback for child nodes
+      if (onNodesIndexedRef.current && children.length > 0) {
+        onNodesIndexedRef.current(children, path);
+      }
     },
     [handleMapRef, portRef]
   );
