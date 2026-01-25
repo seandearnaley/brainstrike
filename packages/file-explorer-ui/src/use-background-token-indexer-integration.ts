@@ -233,26 +233,48 @@ export function useBackgroundTokenIndexerIntegration({
   const fileHandleMapRef = useRef<Map<string, HandleInfo>>(new Map());
   const previousRootIdsRef = useRef<string>('');
   const rebuildTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Phase 4 optimization: Track staleness to enable lazy rebuilds
-  const fileHandleMapStaleRef = useRef(false);
+  // P0 optimization: Track staleness to enable lazy rebuilds
+  const fileHandleMapStaleRef = useRef(true); // Start stale since map is empty
+  // P0 optimization: Track previous selection size for 0→>0 transition detection
+  const previousSelectionSizeForMapRef = useRef<number>(0);
 
-  // Side-effectful map construction on tree change is intentional
-  useEffect(() => {
-    // Cancel any pending rebuild
+  // Refs for values accessed inside the rebuild callback to avoid stale closures
+  // and to prevent callback recreation on selection changes
+  const fileTreeRef = useRef(fileTree);
+  fileTreeRef.current = fileTree;
+  const selectedFilesSizeRef = useRef(selectedFiles.size);
+  selectedFilesSizeRef.current = selectedFiles.size;
+
+  /**
+   * Idempotent rebuild scheduler - only schedules if no rebuild is already queued.
+   * This prevents "debounce reset" behavior where each selection change would restart the timer.
+   * Uses refs to avoid callback recreation on selection changes.
+   */
+  const scheduleRebuildIfNeeded = useCallback(() => {
+    // Skip if rebuild already scheduled
     if (rebuildTimeoutRef.current) {
-      clearTimeout(rebuildTimeoutRef.current);
+      logger.debug('Rebuild already scheduled, skipping duplicate');
+      return;
     }
 
-    // Mark map as stale immediately
-    fileHandleMapStaleRef.current = true;
+    // Skip if map is not stale and already populated
+    if (!fileHandleMapStaleRef.current && fileHandleMapRef.current.size > 0) {
+      logger.debug('Map is fresh, skipping rebuild');
+      return;
+    }
 
-    // Debounce the expensive rebuild - wait for tree to stabilize
     rebuildTimeoutRef.current = setTimeout(() => {
-      // Phase 4 optimization: Skip rebuild if no files selected and no pending operations
+      rebuildTimeoutRef.current = null;
+
+      // Use refs to get current values at execution time (not stale closure values)
+      const currentSelectedSize = selectedFilesSizeRef.current;
+      const currentFileTree = fileTreeRef.current;
+
+      // Skip rebuild if no files selected and no pending operations
       // This avoids expensive tree traversal when the map won't be used
-      if (selectedFiles.size === 0 && inFlightRef.current.size === 0) {
+      if (currentSelectedSize === 0 && inFlightRef.current.size === 0) {
         logger.debug('Skipping handle map rebuild - no active operations', {
-          selectedCount: selectedFiles.size,
+          selectedCount: currentSelectedSize,
           inFlightCount: inFlightRef.current.size,
         });
         return;
@@ -260,7 +282,7 @@ export function useBackgroundTokenIndexerIntegration({
 
       const map = new Map<string, HandleInfo>();
       const rootIds = new Set<string>();
-      buildFileHandleMap(fileTree, map);
+      buildFileHandleMap(currentFileTree, map);
       for (const key of map.keys()) {
         const folderId = key.split('|@|', 1)[0];
         if (folderId) {
@@ -290,13 +312,64 @@ export function useBackgroundTokenIndexerIntegration({
         hasWeb: [...map.values()].some((h) => h.webHandle),
       });
     }, 500); // Wait 500ms for tree to stabilize before rebuilding
+  }, []); // Empty deps - uses refs for all values
+
+  /**
+   * Effect A (tree-driven): When fileTree changes, mark map as stale.
+   * Schedule rebuild only if there's active work (selected files or in-flight indexing).
+   */
+  useEffect(() => {
+    // Cancel any pending rebuild when tree changes - the tree structure is different now
+    if (rebuildTimeoutRef.current) {
+      clearTimeout(rebuildTimeoutRef.current);
+      rebuildTimeoutRef.current = null;
+    }
+
+    // Mark map as stale immediately
+    fileHandleMapStaleRef.current = true;
+
+    // Only schedule rebuild if there's active work (use ref to avoid dependency on selectedFiles)
+    if (selectedFilesSizeRef.current > 0 || inFlightRef.current.size > 0) {
+      scheduleRebuildIfNeeded();
+    }
 
     return () => {
       if (rebuildTimeoutRef.current) {
         clearTimeout(rebuildTimeoutRef.current);
+        rebuildTimeoutRef.current = null;
       }
     };
-  }, [fileTree, selectedFiles.size]);
+  }, [fileTree, scheduleRebuildIfNeeded]);
+
+  /**
+   * Effect B (need-driven): Watch selection size but only act on 0 → >0 transition.
+   * This handles the case where selection becomes non-empty and we need the map.
+   */
+  useEffect(() => {
+    const prevSize = previousSelectionSizeForMapRef.current;
+    previousSelectionSizeForMapRef.current = selectedFiles.size;
+
+    // Only act on 0 → >0 transition
+    const isZeroToNonZero = prevSize === 0 && selectedFiles.size > 0;
+    if (!isZeroToNonZero) {
+      return;
+    }
+
+    // Only rebuild if stale or empty
+    const needsRebuild = fileHandleMapStaleRef.current || fileHandleMapRef.current.size === 0;
+    if (!needsRebuild) {
+      logger.debug('Selection became non-empty but map is fresh, skipping rebuild');
+      return;
+    }
+
+    logger.debug('Selection transition 0 → >0, scheduling rebuild', {
+      newSize: selectedFiles.size,
+      isStale: fileHandleMapStaleRef.current,
+      mapSize: fileHandleMapRef.current.size,
+    });
+
+    scheduleRebuildIfNeeded();
+  }, [selectedFiles.size, scheduleRebuildIfNeeded]);
 
   // Stable ref for onTokenResolved to avoid callback instability
   const onTokenResolvedRef = useRef(onTokenResolved);
