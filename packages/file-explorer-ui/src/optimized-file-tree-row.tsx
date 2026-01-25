@@ -124,7 +124,6 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     const maxSelectionCount = store((s) => s.maxSelectionCount);
     const addMultipleSelectedFiles = store((s) => s.addMultipleSelectedFiles);
     const removeMultipleSelectedFiles = store((s) => s.removeMultipleSelectedFiles);
-    const selectionModel = store((s) => s.selectionModel);
 
     // Extract node properties for stable dependencies
     const {
@@ -193,19 +192,25 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     );
     const currentSelectionSize = store(selectionSizeSelector);
 
-    // Check if this file is selected by rules (in rules mode with materialized paths)
-    const isRuleSelected = useMemo(() => {
-      if (node.type !== 'file') {
-        return false;
-      }
-      if (selectionModel.mode !== 'rules') {
-        return false;
-      }
-      if (!selectionModel.materializedPaths) {
-        return false;
-      }
-      return selectionModel.materializedPaths.has(node.path);
-    }, [node.type, node.path, selectionModel.mode, selectionModel.materializedPaths]);
+    // PERFORMANCE OPTIMIZATION: Per-path selector for rules-mode selection
+    // Instead of subscribing to the entire selectionModel object (which causes all rows
+    // to re-render when materializedPaths changes), we use a selector that returns a
+    // boolean for just this row's path. Zustand compares return values, so only rows
+    // whose boolean changes will re-render.
+    const isRuleSelectedSelector = useMemo(
+      () => (state: FileExplorerState) => {
+        if (nodeType !== 'file') {
+          return false;
+        }
+        const model = state.selectionModel;
+        if (model.mode !== 'rules') {
+          return false;
+        }
+        return model.materializedPaths ? model.materializedPaths.has(nodePath) : false;
+      },
+      [nodeType, nodePath]
+    );
+    const isRuleSelected = store(isRuleSelectedSelector);
 
     const folderInfo = useMemo(() => {
       if (nodeType !== 'directory') {

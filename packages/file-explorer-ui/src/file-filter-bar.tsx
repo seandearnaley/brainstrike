@@ -1,25 +1,33 @@
-import { Button, Input, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
-import { Info, X } from 'lucide-react';
+import { Button, cn, Input, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
+import { Info, Loader2, X } from 'lucide-react';
 import * as React from 'react';
 
 interface FileFilterBarProps {
   value: string;
   onChange: (value: string) => void;
   onClear: () => void;
+  /** When true, shows a subtle "filtering" indicator while deferred filtering catches up */
+  isFiltering?: boolean;
 }
 
 export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
-  ({ value, onChange, onClear }) => (
+  ({ value, onChange, onClear, isFiltering }) => (
     <div className="relative flex w-full items-center gap-2">
       <div className="relative flex-1">
         <Input
-          className="w-full pr-8"
+          className={cn('w-full pr-8', isFiltering && 'pr-20')}
           data-testid="file-filter-input"
           onChange={(e) => onChange(e.target.value)}
           placeholder="Type to filter files... (e.g. 'test component -spec')"
           type="text"
           value={value}
         />
+        {/* Filtering indicator - shown while deferred value catches up */}
+        {isFiltering && (
+          <span className="pointer-events-none absolute top-1/2 right-9 flex -translate-y-1/2 items-center gap-1 text-muted-foreground text-xs">
+            <Loader2 className="h-3 w-3 animate-spin" />
+          </span>
+        )}
         {value && (
           <Button
             aria-label="clear"
