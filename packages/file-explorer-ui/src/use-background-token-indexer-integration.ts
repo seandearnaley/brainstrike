@@ -20,6 +20,7 @@ import {
 } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
+import { useOptionalFileTreeIndexContext } from './file-tree-provider';
 import { useOptionalTokenCacheContext } from './token-cache-context';
 
 const logger = createLogger('BackgroundTokenIndexerIntegration');
@@ -210,6 +211,10 @@ export function useBackgroundTokenIndexerIntegration({
   // Get the token cache context (may be null if not in provider)
   const tokenCache = useOptionalTokenCacheContext();
 
+  // Get the FileTreeIndex context for O(1) handle lookups (optional - falls back to local map)
+  const fileTreeIndex = useOptionalFileTreeIndexContext();
+  const indexGetHandle = fileTreeIndex?.getHandle;
+
   // Check if file import is in progress - skip background indexing to avoid database contention
   // Import the store dynamically to get isImporting state
   const isFileImporting = useFileImportingState();
@@ -228,6 +233,10 @@ export function useBackgroundTokenIndexerIntegration({
   // Using refs prevents effects from re-running when cacheVersion changes.
   const tokenCacheRef = useRef(tokenCache);
   tokenCacheRef.current = tokenCache;
+
+  // Stable ref for FileTreeIndex getHandle - provides O(1) lookups when index is available
+  const indexGetHandleRef = useRef(indexGetHandle);
+  indexGetHandleRef.current = indexGetHandle;
 
   // Build file handle map whenever tree changes (debounced to avoid rebuilding during expand-all)
   const fileHandleMapRef = useRef<Map<string, HandleInfo>>(new Map());
@@ -258,6 +267,12 @@ export function useBackgroundTokenIndexerIntegration({
    * Uses refs to avoid callback recreation on selection changes.
    */
   const scheduleRebuildIfNeeded = useCallback(() => {
+    // Skip rebuild entirely when FileTreeIndex is available - it provides O(1) lookups
+    if (indexGetHandleRef.current) {
+      logger.debug('Skipping handle map rebuild - using FileTreeIndex');
+      return;
+    }
+
     // Skip if rebuild already scheduled
     if (rebuildTimeoutRef.current) {
       logger.debug('Rebuild already scheduled, skipping duplicate');
@@ -482,7 +497,16 @@ export function useBackgroundTokenIndexerIntegration({
           continue;
         }
 
-        const handleInfo = fileHandleMapRef.current.get(compositeKey);
+        // Decode key early so we can use index lookup
+        const { folderId, path } = decodeFileSelection(compositeKey);
+
+        // Try FileTreeIndex first (O(1) lookup), then fall back to local map
+        const indexGetHandleFn = indexGetHandleRef.current;
+        let handleInfo = indexGetHandleFn?.(folderId, path);
+        if (!handleInfo) {
+          // Fall back to local map
+          handleInfo = fileHandleMapRef.current.get(compositeKey);
+        }
         if (!handleInfo) {
           skippedNoHandle++;
           continue;
@@ -505,8 +529,6 @@ export function useBackgroundTokenIndexerIntegration({
           indexedFilesRef.current.add(compositeKey);
           continue;
         }
-
-        const { folderId, path } = decodeFileSelection(compositeKey);
 
         if (handleInfo.webHandle) {
           // Web files: pass handle directly to worker
