@@ -196,11 +196,18 @@ export class FileTreeIndex {
       }
 
       // Extract and store handle info for files (always update, even for existing nodes)
+      // If handle extraction fails, delete stale entry to prevent using revoked/invalid handles
       if (node.type === 'file') {
         const handleInfo = this.extractHandleInfo(node);
         if (handleInfo) {
           this.handleByKey.set(key, handleInfo);
+        } else {
+          // Delete stale handle - node was re-added without a valid handle
+          this.handleByKey.delete(key);
         }
+      } else {
+        // Directories don't have handles - clean up if previously misclassified
+        this.handleByKey.delete(key);
       }
 
       // Recursively process children if present

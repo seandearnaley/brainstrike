@@ -18,7 +18,7 @@ import {
   encodeFileSelection,
   isBinaryFile,
 } from '@brainstrike/utils';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getAdaptiveDebounceMs, INDEX_BATCH_SIZE } from './constants';
 import { useOptionalFileTreeIndexContext } from './file-tree-provider';
 import { useOptionalTokenCacheContext } from './token-cache-context';
@@ -266,6 +266,44 @@ export function useBackgroundTokenIndexerIntegration({
   selectedFilesSizeRef.current = selectedFiles.size;
 
   /**
+   * Compute root fingerprint from fileTree for detecting root folder changes.
+   * O(rootCount) - only iterates top-level nodes, not entire tree.
+   * This is computed regardless of whether FileTreeIndex or local map is used.
+   */
+  const rootFingerprint = useMemo(() => {
+    const ids = new Set<string>();
+    for (const node of fileTree) {
+      if (node.rootFolderId) {
+        ids.add(node.rootFolderId);
+      }
+    }
+    return Array.from(ids).sort().join('|');
+  }, [fileTree]);
+
+  /**
+   * Effect: Clear caches when root folders change.
+   * This runs independently of handle map rebuild to ensure cache clearing works
+   * even when FileTreeIndex provides O(1) lookups (skipping local map rebuild).
+   */
+  // biome-ignore lint/plugin: Intentional effect to reset caches on root folder change
+  useEffect(() => {
+    const prev = previousRootIdsRef.current;
+    // Only clear if we had a previous value and it changed (not on initial mount)
+    if (prev && prev !== rootFingerprint) {
+      indexedFilesRef.current.clear();
+      inFlightRef.current.clear();
+      pendingNoHandleRef.current.clear();
+      preloadedFoldersRef.current.clear();
+      bumpInFlightPulse((v) => v + 1);
+      logger.debug('Cleared caches due to root folder change', {
+        previousRootIds: prev,
+        nextRootIds: rootFingerprint,
+      });
+    }
+    previousRootIdsRef.current = rootFingerprint;
+  }, [rootFingerprint]);
+
+  /**
    * Idempotent rebuild scheduler - only schedules if no rebuild is already queued.
    * This prevents "debounce reset" behavior where each selection change would restart the timer.
    * Uses refs to avoid callback recreation on selection changes.
@@ -307,32 +345,14 @@ export function useBackgroundTokenIndexerIntegration({
       }
 
       const map = new Map<string, HandleInfo>();
-      const rootIds = new Set<string>();
       buildFileHandleMap(currentFileTree, map);
-      for (const key of map.keys()) {
-        const folderId = key.split('|@|', 1)[0];
-        if (folderId) {
-          rootIds.add(folderId);
-        }
-      }
       fileHandleMapRef.current = map;
       fileHandleMapStaleRef.current = false;
       // Update state to trigger selection effect re-run when map is populated
       setFileHandleMapSize(map.size);
 
-      const rootFingerprint = Array.from(rootIds).sort().join('|');
-      if (previousRootIdsRef.current && previousRootIdsRef.current !== rootFingerprint) {
-        indexedFilesRef.current.clear();
-        inFlightRef.current.clear();
-        // P0 optimization: Also clear preload memo when root folders change
-        preloadedFoldersRef.current.clear();
-        bumpInFlightPulse((value) => value + 1);
-        logger.debug('Cleared indexedFiles cache due to root folder change', {
-          previousRootIds: previousRootIdsRef.current,
-          nextRootIds: rootFingerprint,
-        });
-      }
-      previousRootIdsRef.current = rootFingerprint;
+      // Note: Root folder change detection is now handled by a dedicated effect
+      // that runs regardless of whether FileTreeIndex or local map is used.
 
       logger.debug('File handle map built', {
         size: map.size,

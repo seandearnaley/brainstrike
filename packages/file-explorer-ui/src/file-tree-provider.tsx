@@ -134,16 +134,27 @@ export function FileTreeProvider({
 
   const fileTreeState = useFileTree(rootDirectoryHandle, options);
 
-  // Create stable context value with bound methods
-  // Version changes trigger re-renders for consumers that depend on fresh index data
+  // Stable lookup functions - identity never changes since index instance is stable
+  // This prevents downstream effects from re-running when only version changes
+  const getNode = useCallback(
+    (folderId: string, path: string) => index.getNode(folderId, path),
+    [index]
+  );
+  const getHandle = useCallback(
+    (folderId: string, path: string) => index.getHandle(folderId, path),
+    [index]
+  );
+
+  // Create context value with stable function references
+  // Version changes trigger re-renders, but getNode/getHandle identities remain stable
   const indexContextValue = useMemo<FileTreeIndexContextValue>(
     () => ({
-      getNode: (folderId: string, path: string) => index.getNode(folderId, path),
-      getHandle: (folderId: string, path: string) => index.getHandle(folderId, path),
+      getNode,
+      getHandle,
       stats: index.stats,
       version: indexVersion,
     }),
-    [index, indexVersion]
+    [getNode, getHandle, index, indexVersion]
   );
 
   return (
