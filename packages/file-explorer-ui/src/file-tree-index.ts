@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { encodeFileSelection } from '@brainstrike/utils';
 
 /**
  * Electron-style handle with path property for direct file system access.
@@ -127,5 +128,80 @@ export class FileTreeIndex {
       totalFiles: 0,
       totalDirectories: 0,
     };
+  }
+
+  /**
+   * Extract handle information from a file node.
+   * Returns null if the node has no valid handle.
+   *
+   * @param node - The file node to extract handle info from
+   * @returns HandleInfo object or null if no handle
+   */
+  private extractHandleInfo(node: IFileNode): HandleInfo | null {
+    const handle = node.handle;
+    if (!handle) {
+      return null;
+    }
+
+    if (isWebFileHandle(handle)) {
+      return {
+        webHandle: handle,
+        fileName: node.name,
+        fileSize: node.size,
+      };
+    }
+
+    if (isElectronHandle(handle)) {
+      return {
+        electronHandle: handle,
+        fileName: node.name,
+        fileSize: node.size,
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Add nodes to the index, recursively processing children.
+   * Updates statistics as nodes are added.
+   *
+   * @param nodes - Array of file nodes to add
+   * @param _parentPath - Parent path (reserved for future use)
+   */
+  addNodes(nodes: IFileNode[], _parentPath: string | null): void {
+    for (const node of nodes) {
+      // Skip nodes without rootFolderId as they can't be keyed
+      if (!node.rootFolderId) {
+        continue;
+      }
+
+      // Create unique key for this node
+      const key = encodeFileSelection(node.rootFolderId, node.path);
+
+      // Add node to the map
+      this.nodeByKey.set(key, node);
+
+      // Update statistics based on node type
+      if (node.type === 'file') {
+        this._stats.totalFiles++;
+
+        // Extract and store handle info for files
+        const handleInfo = this.extractHandleInfo(node);
+        if (handleInfo) {
+          this.handleByKey.set(key, handleInfo);
+        }
+      } else if (node.type === 'directory') {
+        this._stats.totalDirectories++;
+      }
+
+      // Always increment total nodes
+      this._stats.totalNodes++;
+
+      // Recursively process children if present
+      if (node.children && node.children.length > 0) {
+        this.addNodes(node.children, node.path);
+      }
+    }
   }
 }
