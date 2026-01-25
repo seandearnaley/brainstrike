@@ -286,13 +286,24 @@ export function useBackgroundTokenIndexerIntegration({
    * Effect: Clear caches when root folders change.
    * This runs independently of handle map rebuild to ensure cache clearing works
    * even when FileTreeIndex provides O(1) lookups (skipping local map rebuild).
+   *
+   * Empty fingerprint ('') is treated as "loading/unknown" state to avoid
+   * wasteful back-to-back clears during transient empty states (e.g., rehydration).
+   * Only clears on A → B where both A and B are non-empty and different.
    */
   // biome-ignore lint/plugin: Intentional effect to reset caches on root folder change
   useEffect(() => {
     const prev = previousRootIdsRef.current;
-    // Only clear if we've seen a root before and it changed (not on initial mount)
-    // Using explicit hasSeenRootRef avoids truthiness issues with empty string fingerprints
-    if (hasSeenRootRef.current && prev !== rootFingerprint) {
+
+    // Determine if we should clear caches:
+    // - Must have seen a root before (not initial mount)
+    // - Previous fingerprint must be non-empty (actual roots, not loading state)
+    // - Current fingerprint must be non-empty (actual roots, not loading state)
+    // - Fingerprints must differ
+    const shouldClear =
+      hasSeenRootRef.current && prev !== '' && rootFingerprint !== '' && prev !== rootFingerprint;
+
+    if (shouldClear) {
       indexedFilesRef.current.clear();
       inFlightRef.current.clear();
       pendingNoHandleRef.current.clear();
@@ -303,7 +314,12 @@ export function useBackgroundTokenIndexerIntegration({
         nextRootIds: rootFingerprint,
       });
     }
-    previousRootIdsRef.current = rootFingerprint;
+
+    // Only update previousRootIds when we have actual roots (non-empty)
+    // This preserves the "last known good" fingerprint across transient empty states
+    if (rootFingerprint !== '') {
+      previousRootIdsRef.current = rootFingerprint;
+    }
     hasSeenRootRef.current = true;
   }, [rootFingerprint]);
 

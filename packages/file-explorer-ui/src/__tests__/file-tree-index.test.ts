@@ -173,4 +173,138 @@ describe('FileTreeIndex', () => {
       expect(index.stats.totalNodes).toBe(1);
     });
   });
+
+  describe('type change handling', () => {
+    it('should adjust stats when file becomes directory', () => {
+      const index = new FileTreeIndex();
+      const fileNode = createMockFileNode({ path: 'item', name: 'item' });
+
+      index.addNodes([fileNode], null);
+      expect(index.stats.totalFiles).toBe(1);
+      expect(index.stats.totalDirectories).toBe(0);
+      expect(index.stats.totalNodes).toBe(1);
+
+      // Re-add same path as directory
+      const dirNode = createMockDirectoryNode({ path: 'item', name: 'item' });
+      index.addNodes([dirNode], null);
+
+      expect(index.stats.totalFiles).toBe(0);
+      expect(index.stats.totalDirectories).toBe(1);
+      expect(index.stats.totalNodes).toBe(1); // Node count unchanged
+    });
+
+    it('should adjust stats when directory becomes file', () => {
+      const index = new FileTreeIndex();
+      const dirNode = createMockDirectoryNode({ path: 'item', name: 'item' });
+
+      index.addNodes([dirNode], null);
+      expect(index.stats.totalFiles).toBe(0);
+      expect(index.stats.totalDirectories).toBe(1);
+
+      // Re-add same path as file
+      const fileNode = createMockFileNode({ path: 'item', name: 'item' });
+      index.addNodes([fileNode], null);
+
+      expect(index.stats.totalFiles).toBe(1);
+      expect(index.stats.totalDirectories).toBe(0);
+      expect(index.stats.totalNodes).toBe(1);
+    });
+
+    it('should handle file → directory → file correctly', () => {
+      const index = new FileTreeIndex();
+
+      // Start as file
+      index.addNodes([createMockFileNode({ path: 'item' })], null);
+      expect(index.stats).toEqual({ totalNodes: 1, totalFiles: 1, totalDirectories: 0 });
+
+      // Change to directory
+      index.addNodes([createMockDirectoryNode({ path: 'item' })], null);
+      expect(index.stats).toEqual({ totalNodes: 1, totalFiles: 0, totalDirectories: 1 });
+
+      // Change back to file
+      index.addNodes([createMockFileNode({ path: 'item' })], null);
+      expect(index.stats).toEqual({ totalNodes: 1, totalFiles: 1, totalDirectories: 0 });
+    });
+
+    it('should not change stats when type is unchanged', () => {
+      const index = new FileTreeIndex();
+      const fileNode = createMockFileNode({ path: 'file.txt', size: 100 });
+
+      index.addNodes([fileNode], null);
+      const initialStats = { ...index.stats };
+
+      // Re-add same file with different size (same type)
+      index.addNodes([createMockFileNode({ path: 'file.txt', size: 200 })], null);
+
+      expect(index.stats).toEqual(initialStats);
+    });
+  });
+
+  describe('handle cleanup on type change', () => {
+    it('should remove file handle when node becomes directory', () => {
+      const index = new FileTreeIndex();
+      const mockHandle = { getFile: () => Promise.resolve(new File([], 'test')) };
+      const fileNode = createMockFileNode({
+        path: 'item',
+        handle: mockHandle as unknown as FileSystemFileHandle,
+      });
+
+      index.addNodes([fileNode], null);
+      expect(index.getHandle('folder-123', 'item')).toBeDefined();
+
+      // Change to directory - handle should be removed
+      index.addNodes([createMockDirectoryNode({ path: 'item' })], null);
+      expect(index.getHandle('folder-123', 'item')).toBeUndefined();
+    });
+
+    it('should remove stale handle when file re-added without handle', () => {
+      const index = new FileTreeIndex();
+      const mockHandle = { getFile: () => Promise.resolve(new File([], 'test')) };
+      const fileWithHandle = createMockFileNode({
+        path: 'file.txt',
+        handle: mockHandle as unknown as FileSystemFileHandle,
+      });
+
+      index.addNodes([fileWithHandle], null);
+      expect(index.getHandle('folder-123', 'file.txt')).toBeDefined();
+
+      // Re-add same file without handle (simulates revoked permission)
+      // Don't pass handle property - createMockFileNode doesn't set one by default
+      const fileWithoutHandle = createMockFileNode({ path: 'file.txt' });
+      index.addNodes([fileWithoutHandle], null);
+
+      expect(index.getHandle('folder-123', 'file.txt')).toBeUndefined();
+      // Node should still exist
+      expect(index.getNode('folder-123', 'file.txt')).toBeDefined();
+    });
+
+    it('should update handle when file re-added with new handle', () => {
+      const index = new FileTreeIndex();
+      const oldHandle = { getFile: () => Promise.resolve(new File([], 'old')) };
+      const newHandle = { getFile: () => Promise.resolve(new File([], 'new')) };
+
+      index.addNodes(
+        [
+          createMockFileNode({
+            path: 'file.txt',
+            handle: oldHandle as unknown as FileSystemFileHandle,
+          }),
+        ],
+        null
+      );
+
+      index.addNodes(
+        [
+          createMockFileNode({
+            path: 'file.txt',
+            handle: newHandle as unknown as FileSystemFileHandle,
+          }),
+        ],
+        null
+      );
+
+      const result = index.getHandle('folder-123', 'file.txt');
+      expect(result?.webHandle).toBe(newHandle);
+    });
+  });
 });
