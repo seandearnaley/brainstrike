@@ -12,6 +12,7 @@ describe('Token Utils - Tiktoken Fallback Behavior', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unmock('tiktoken'); // Clear mock registry before resetting modules
     vi.resetModules();
   });
 
