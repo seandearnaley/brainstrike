@@ -79,14 +79,204 @@ describe('settings-actions', () => {
 
     s.setTokenBudget(42);
     expect(store.getState().tokenBudget).toBe(42);
-    expect(store.getState().folderStates.root?.tokenBudget).toBe(42);
+    expect(store.getState().folderStates['root']?.tokenBudget).toBe(42);
 
     s.setTokenBudget(MIN_TOKEN_BUDGET - 100);
     expect(store.getState().tokenBudget).toBe(MIN_TOKEN_BUDGET);
-    expect(store.getState().folderStates.root?.tokenBudget).toBe(MIN_TOKEN_BUDGET);
+    expect(store.getState().folderStates['root']?.tokenBudget).toBe(MIN_TOKEN_BUDGET);
 
     s.setTokenBudget(MAX_TOKEN_BUDGET + 100);
     expect(store.getState().tokenBudget).toBe(MAX_TOKEN_BUDGET);
-    expect(store.getState().folderStates.root?.tokenBudget).toBe(MAX_TOKEN_BUDGET);
+    expect(store.getState().folderStates['root']?.tokenBudget).toBe(MAX_TOKEN_BUDGET);
+  });
+
+  describe('setTokenBudget edge cases', () => {
+    it('ignores NaN values', () => {
+      const store = makeStore();
+      const s = store.getState();
+      const initialBudget = store.getState().tokenBudget;
+
+      s.setTokenBudget(Number.NaN);
+      expect(store.getState().tokenBudget).toBe(initialBudget);
+    });
+
+    it('ignores Infinity values', () => {
+      const store = makeStore();
+      const s = store.getState();
+      const initialBudget = store.getState().tokenBudget;
+
+      s.setTokenBudget(Number.POSITIVE_INFINITY);
+      expect(store.getState().tokenBudget).toBe(initialBudget);
+
+      s.setTokenBudget(Number.NEGATIVE_INFINITY);
+      expect(store.getState().tokenBudget).toBe(initialBudget);
+    });
+
+    it('sets tokenBudget without folder state when no currentFolderId', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      // Ensure no currentFolderId
+      expect(store.getState().currentFolderId).toBeNull();
+
+      s.setTokenBudget(5000);
+      expect(store.getState().tokenBudget).toBe(5000);
+    });
+
+    it('sets tokenBudget when currentFolderId has no folderState', () => {
+      const store = makeStore();
+
+      // Manually set a currentFolderId without creating folderState
+      store.setState({ currentFolderId: 'nonexistent-folder' });
+
+      store.getState().setTokenBudget(6000);
+      expect(store.getState().tokenBudget).toBe(6000);
+      // No folderState should be created for nonexistent folder
+      expect(store.getState().folderStates['nonexistent-folder']).toBeUndefined();
+    });
+
+    it('rounds fractional token budgets', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      s.setTokenBudget(1000.7);
+      expect(store.getState().tokenBudget).toBe(1001);
+
+      s.setTokenBudget(1000.2);
+      expect(store.getState().tokenBudget).toBe(1000);
+    });
+  });
+
+  describe('setLastActiveTab', () => {
+    it('sets the last active tab', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      s.setLastActiveTab('files');
+      expect(store.getState().lastActiveTab).toBe('files');
+
+      s.setLastActiveTab('settings');
+      expect(store.getState().lastActiveTab).toBe('settings');
+    });
+
+    it('accepts empty string as tab value', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      s.setLastActiveTab('');
+      expect(store.getState().lastActiveTab).toBe('');
+    });
+  });
+
+  describe('setViewFilterPresetId', () => {
+    it('sets viewFilterPresetId globally when no currentFolderId', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      // Ensure no currentFolderId
+      expect(store.getState().currentFolderId).toBeNull();
+
+      s.setViewFilterPresetId('preset-1');
+      expect(store.getState().viewFilterPresetId).toBe('preset-1');
+    });
+
+    it('sets viewFilterPresetId to null', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      s.setViewFilterPresetId('preset-1');
+      expect(store.getState().viewFilterPresetId).toBe('preset-1');
+
+      s.setViewFilterPresetId(null);
+      expect(store.getState().viewFilterPresetId).toBeNull();
+    });
+
+    it('persists viewFilterPresetId to folder state when currentFolderId exists', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      s.setCurrentFolderId('root');
+      s.setViewFilterPresetId('preset-2');
+
+      expect(store.getState().viewFilterPresetId).toBe('preset-2');
+      expect(store.getState().folderStates['root']?.viewFilterPresetId).toBe('preset-2');
+    });
+
+    it('sets viewFilterPresetId when currentFolderId has no folderState', () => {
+      const store = makeStore();
+
+      // Manually set a currentFolderId without creating folderState
+      store.setState({ currentFolderId: 'nonexistent-folder' });
+
+      store.getState().setViewFilterPresetId('preset-3');
+      expect(store.getState().viewFilterPresetId).toBe('preset-3');
+      // No folderState should be created for nonexistent folder
+      expect(store.getState().folderStates['nonexistent-folder']).toBeUndefined();
+    });
+  });
+
+  describe('toggleFilterEnabled', () => {
+    it('disables an include filter', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      // Initially no disabled filters
+      expect(store.getState().disabledIncludeFilters.size).toBe(0);
+
+      s.toggleFilterEnabled('*.ts', 'include');
+      expect(store.getState().disabledIncludeFilters.has('*.ts')).toBe(true);
+    });
+
+    it('re-enables a disabled include filter', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      // Disable first
+      s.toggleFilterEnabled('*.ts', 'include');
+      expect(store.getState().disabledIncludeFilters.has('*.ts')).toBe(true);
+
+      // Toggle again to re-enable
+      s.toggleFilterEnabled('*.ts', 'include');
+      expect(store.getState().disabledIncludeFilters.has('*.ts')).toBe(false);
+    });
+
+    it('disables an exclude filter', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      // Initially no disabled filters
+      expect(store.getState().disabledExcludeFilters.size).toBe(0);
+
+      s.toggleFilterEnabled('node_modules/**', 'exclude');
+      expect(store.getState().disabledExcludeFilters.has('node_modules/**')).toBe(true);
+    });
+
+    it('re-enables a disabled exclude filter', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      // Disable first
+      s.toggleFilterEnabled('node_modules/**', 'exclude');
+      expect(store.getState().disabledExcludeFilters.has('node_modules/**')).toBe(true);
+
+      // Toggle again to re-enable
+      s.toggleFilterEnabled('node_modules/**', 'exclude');
+      expect(store.getState().disabledExcludeFilters.has('node_modules/**')).toBe(false);
+    });
+
+    it('handles multiple filters independently', () => {
+      const store = makeStore();
+      const s = store.getState();
+
+      s.toggleFilterEnabled('*.ts', 'include');
+      s.toggleFilterEnabled('*.js', 'include');
+      s.toggleFilterEnabled('node_modules/**', 'exclude');
+
+      expect(store.getState().disabledIncludeFilters.size).toBe(2);
+      expect(store.getState().disabledIncludeFilters.has('*.ts')).toBe(true);
+      expect(store.getState().disabledIncludeFilters.has('*.js')).toBe(true);
+      expect(store.getState().disabledExcludeFilters.size).toBe(1);
+      expect(store.getState().disabledExcludeFilters.has('node_modules/**')).toBe(true);
+    });
   });
 });
