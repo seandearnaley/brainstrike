@@ -79,6 +79,24 @@ class MockErrorEvent extends Event {
 }
 (global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
 
+describe('resolveWorkerStorageUrl', () => {
+  // Import dynamically to test the actual function without mocking the module
+  it('returns a URL ending with .mjs extension', async () => {
+    const { resolveWorkerStorageUrl } = await import('../worker-storage');
+    const url = resolveWorkerStorageUrl();
+
+    expect(url).toBeInstanceOf(URL);
+    expect(url.href).toMatch(/worker-storage\.worker\.mjs$/);
+  });
+
+  it('returns a URL with the persistence directory in path', async () => {
+    const { resolveWorkerStorageUrl } = await import('../worker-storage');
+    const url = resolveWorkerStorageUrl();
+
+    expect(url.href).toContain('/persistence/');
+  });
+});
+
 // TODO: These tests have intermittent failures due to Worker mock timing issues
 // that pre-date the Vitest 4 upgrade. The mock setup needs to be revisited
 // to properly handle addEventListener and message passing.

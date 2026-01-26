@@ -17,6 +17,9 @@ const logger = createLogger('worker-storage');
  * properly bundle the worker file. Without this, Vite cannot trace the URL pattern when
  * it's buried inside a class constructor.
  *
+ * Note: The package also exports `./worker-storage-worker` for consumers who need direct
+ * access to the worker module, though this is not typically needed - use this function instead.
+ *
  * @example
  * ```ts
  * import { resolveWorkerStorageUrl, WorkerStorage } from '@brainstrike/file-explorer';
@@ -26,11 +29,16 @@ const logger = createLogger('worker-storage');
  * ```
  */
 export function resolveWorkerStorageUrl(): URL {
+  // ESM environment (browsers, Node.js ESM): import.meta.url is always available
+  // This is the primary path for browser worker bundling
   if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
     // Path is relative to the bundled dist/index.mjs, so we need to include the persistence directory
     // IMPORTANT: Must use .mjs (ESM format) not .js (CJS format) - browsers only understand ESM
     return new URL('./persistence/worker-storage.worker.mjs', import.meta.url);
   }
+  // CJS Node.js fallback: __dirname is available but import.meta is not
+  // This branch is kept for compatibility but is not exercised in browser contexts
+  // (browsers always have import.meta.url in ESM modules)
   if (typeof __dirname === 'string') {
     return new URL('./persistence/worker-storage.worker.mjs', `file://${__dirname}/`);
   }
