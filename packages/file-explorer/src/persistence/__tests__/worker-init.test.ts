@@ -12,6 +12,7 @@ vi.mock('@brainstrike/utils', () => ({
 }));
 
 vi.mock('../worker-storage', () => ({
+  resolveWorkerStorageUrl: vi.fn().mockReturnValue(new URL('file:///mock-worker.js')),
   WorkerStorage: vi.fn().mockImplementation(function (this: Record<string, unknown>) {
     this.isWorkerAvailable = true;
     this.destroy = vi.fn();

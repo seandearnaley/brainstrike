@@ -12,6 +12,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./worker-storage-worker": {
+      "types": "./dist/persistence/worker-storage.worker.d.ts",
+      "import": "./dist/persistence/worker-storage.worker.mjs",
+      "require": "./dist/persistence/worker-storage.worker.js"
     }
   },
   "files": [
@@ -19,7 +24,7 @@
   ],
   "private": true,
   "scripts": {
-    "build": "tsc && tsup",
+    "build": "tsc --build && tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:coverage": "pnpm -w test:coverage",
