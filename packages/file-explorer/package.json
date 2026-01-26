@@ -15,8 +15,7 @@
     },
     "./worker-storage-worker": {
       "types": "./dist/persistence/worker-storage.worker.d.ts",
-      "import": "./dist/persistence/worker-storage.worker.mjs",
-      "require": "./dist/persistence/worker-storage.worker.js"
+      "import": "./dist/persistence/worker-storage.worker.mjs"
     }
   },
   "files": [

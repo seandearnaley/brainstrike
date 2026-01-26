@@ -28,10 +28,11 @@ const logger = createLogger('worker-storage');
 export function resolveWorkerStorageUrl(): URL {
   if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
     // Path is relative to the bundled dist/index.mjs, so we need to include the persistence directory
-    return new URL('./persistence/worker-storage.worker.js', import.meta.url);
+    // IMPORTANT: Must use .mjs (ESM format) not .js (CJS format) - browsers only understand ESM
+    return new URL('./persistence/worker-storage.worker.mjs', import.meta.url);
   }
   if (typeof __dirname === 'string') {
-    return new URL('./persistence/worker-storage.worker.js', `file://${__dirname}/`);
+    return new URL('./persistence/worker-storage.worker.mjs', `file://${__dirname}/`);
   }
   throw new Error('Unable to resolve worker storage URL in this runtime');
 }
