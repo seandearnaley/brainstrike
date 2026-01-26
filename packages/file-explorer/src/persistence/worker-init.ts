@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/utils';
-import { WorkerStorage } from './worker-storage';
+import { resolveWorkerStorageUrl, WorkerStorage } from './worker-storage';
 
 export interface WorkerInitResult {
   workerStorage: WorkerStorage | null;
@@ -49,7 +49,9 @@ function tryInitializeWorker(shouldLog: boolean): {
   useWorker: boolean;
 } {
   try {
-    const workerStorage = new WorkerStorage();
+    // Resolve worker URL at top level for Vite to statically analyze and bundle
+    const workerUrl = resolveWorkerStorageUrl();
+    const workerStorage = new WorkerStorage(workerUrl);
     const useWorker = workerStorage.isWorkerAvailable;
     if (shouldLog && useWorker) {
       logger.debug('Web Worker enabled for background state persistence');

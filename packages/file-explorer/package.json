@@ -19,7 +19,7 @@
   ],
   "private": true,
   "scripts": {
-    "build": "tsc && tsup",
+    "build": "tsc --build && tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:coverage": "pnpm -w test:coverage",

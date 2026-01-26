@@ -9,6 +9,35 @@ import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('worker-storage');
 
+/**
+ * Resolve the worker storage URL that Vite/bundlers can turn into a Worker reference at runtime.
+ * Uses the MDN-recommended `new URL(..., import.meta.url)` pattern for bundlers.
+ *
+ * This function must be exported at module top-level for Vite to statically analyze and
+ * properly bundle the worker file. Without this, Vite cannot trace the URL pattern when
+ * it's buried inside a class constructor.
+ *
+ * @example
+ * ```ts
+ * import { resolveWorkerStorageUrl, WorkerStorage } from '@brainstrike/file-explorer';
+ *
+ * const workerUrl = resolveWorkerStorageUrl();
+ * const storage = new WorkerStorage(workerUrl);
+ * ```
+ */
+export function resolveWorkerStorageUrl(): URL {
+  // ESM environment (browsers, Node.js ESM): import.meta.url is always available
+  // Path is relative to the bundled dist/index.mjs, so we need to include the persistence directory
+  // IMPORTANT: Must use .mjs (ESM format) not .js (CJS format) - browsers only understand ESM
+  if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
+    return new URL('./persistence/worker-storage.worker.mjs', import.meta.url);
+  }
+  throw new Error(
+    'Unable to resolve worker storage URL: import.meta.url is not available. ' +
+      'This function requires an ESM environment (browser or Node.js ESM).'
+  );
+}
+
 export interface WorkerMessage {
   id: string;
   type: 'save' | 'load' | 'remove';
@@ -46,22 +75,31 @@ export class WorkerStorage {
   private readonly timeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-  constructor() {
-    this.initializeWorker();
+  /**
+   * Create a WorkerStorage instance.
+   * @param workerUrl - Pre-resolved worker URL from `resolveWorkerStorageUrl()`.
+   *   This parameter is required to ensure Vite can statically analyze the worker URL
+   *   at the call site. Call `resolveWorkerStorageUrl()` before constructing.
+   *
+   * @example
+   * ```ts
+   * const workerUrl = resolveWorkerStorageUrl();
+   * const storage = new WorkerStorage(workerUrl);
+   * ```
+   */
+  constructor(workerUrl: URL) {
+    this.initializeWorker(workerUrl);
   }
 
-  private initializeWorker() {
+  private initializeWorker(workerUrl: URL) {
     if (typeof Worker === 'undefined') {
       // Web Workers not supported
       return;
     }
 
     try {
-      if (typeof import.meta.url !== 'undefined') {
-        const workerUrl = new URL('./worker-storage.worker.js', import.meta.url);
-        this.worker = new Worker(workerUrl, { type: 'module' });
-        this.registerWorkerListeners();
-      }
+      this.worker = new Worker(workerUrl, { type: 'module' });
+      this.registerWorkerListeners();
     } catch (error) {
       logger.warn('Failed to initialize Web Worker for state persistence:', error);
       this.worker = null;

@@ -79,6 +79,27 @@ class MockErrorEvent extends Event {
 }
 (global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
 
+describe('resolveWorkerStorageUrl', () => {
+  // Import dynamically to test the actual function without mocking the module
+  it('returns a URL ending with .mjs extension', async () => {
+    const { resolveWorkerStorageUrl } = await import('../worker-storage');
+    const url = resolveWorkerStorageUrl();
+
+    expect(url).toBeInstanceOf(URL);
+    expect(url.href).toMatch(/worker-storage\.worker\.mjs$/);
+  });
+
+  it('returns a URL with the persistence directory in path', async () => {
+    const { resolveWorkerStorageUrl } = await import('../worker-storage');
+    const url = resolveWorkerStorageUrl();
+
+    expect(url.href).toContain('/persistence/');
+  });
+});
+
+// Mock worker URL for testing - WorkerStorage now requires a URL parameter
+const mockWorkerUrl = new URL('file:///mock-worker-storage.worker.mjs');
+
 // TODO: These tests have intermittent failures due to Worker mock timing issues
 // that pre-date the Vitest 4 upgrade. The mock setup needs to be revisited
 // to properly handle addEventListener and message passing.
@@ -123,7 +144,7 @@ describe.skip('WorkerStorage', () => {
 
   describe('initialization', () => {
     it('should initialize worker in browser environment', () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       // It's called once for the real worker.
       expect(Worker).toHaveBeenCalledTimes(1);
@@ -132,7 +153,7 @@ describe.skip('WorkerStorage', () => {
       const workerMock = Worker as unknown as { mock: { calls: unknown[][] } };
       const callArgs = workerMock.mock.calls[0]; // First (and only) call
       expect(callArgs).toBeDefined();
-      expect(String(callArgs?.[0])).toMatch(/worker-storage\.worker\.js$/);
+      expect(String(callArgs?.[0])).toMatch(/worker-storage\.worker\.mjs$/);
       expect(callArgs?.[1]).toEqual({ type: 'module' });
       expect(storage.isWorkerAvailable).toBe(true);
     });
@@ -140,7 +161,7 @@ describe.skip('WorkerStorage', () => {
     it('should not initialize worker when Worker is undefined', () => {
       vi.stubGlobal('Worker', undefined);
 
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       expect(storage.isWorkerAvailable).toBe(false);
     });
@@ -153,7 +174,7 @@ describe.skip('WorkerStorage', () => {
         })
       );
 
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       expect(mockLogger.warn).toHaveBeenCalledWith(
         'Failed to initialize Web Worker for state persistence:',
@@ -165,7 +186,7 @@ describe.skip('WorkerStorage', () => {
 
   describe('getItem', () => {
     it('should send load message to worker and return result', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
       const testData = { foo: 'bar' };
 
       // Simulate worker response deterministically
@@ -197,7 +218,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('should fallback to localStorage when worker fails', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
       const testData = { test: 'data' };
       mockLocalStorage.data.set('fallback-key', JSON.stringify(testData));
 
@@ -227,7 +248,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('should return null when key does not exist', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       // Simulate worker response with null result deterministically
       vi.useFakeTimers();
@@ -254,7 +275,7 @@ describe.skip('WorkerStorage', () => {
 
     it('should handle worker not available', async () => {
       vi.stubGlobal('Worker', undefined);
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       const result = await storage.getItem('test-key');
 
@@ -265,7 +286,7 @@ describe.skip('WorkerStorage', () => {
 
   describe('setItem', () => {
     it('should send save message to worker', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
       const testData = { foo: 'bar' };
 
       // Simulate worker response after debounce delay deterministically
@@ -297,7 +318,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('should fallback to localStorage when worker fails', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
       const testValue = 'test-value';
 
       // Simulate worker error response after debounce delay deterministically
@@ -326,7 +347,7 @@ describe.skip('WorkerStorage', () => {
 
     it('should handle worker not available', async () => {
       vi.stubGlobal('Worker', undefined);
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
       const testValue = 'test-value';
 
       await storage.setItem('test-key', testValue);
@@ -337,7 +358,7 @@ describe.skip('WorkerStorage', () => {
 
   describe('removeItem', () => {
     it('should send remove message to worker', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       // Simulate worker response deterministically
       vi.useFakeTimers();
@@ -367,7 +388,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('should fallback to localStorage when worker fails', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       vi.useFakeTimers();
       const promise = storage.removeItem('fallback-key');
@@ -394,7 +415,7 @@ describe.skip('WorkerStorage', () => {
 
     it('should handle worker not available', async () => {
       vi.stubGlobal('Worker', undefined);
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       await storage.removeItem('test-key');
 
@@ -404,7 +425,7 @@ describe.skip('WorkerStorage', () => {
 
   describe('error handling', () => {
     it('should handle worker error events', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       // Create a promise that will fall back to localStorage
       const promise = storage.getItem('test');
@@ -423,7 +444,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('should handle unknown response IDs gracefully', () => {
-      new WorkerStorage();
+      new WorkerStorage(mockWorkerUrl);
 
       // Send response with unknown ID
       if (mockWorker.onmessage) {
@@ -444,7 +465,7 @@ describe.skip('WorkerStorage', () => {
 
     it('should timeout long-running requests', async () => {
       vi.useFakeTimers();
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       const promise = storage.getItem('test');
 
@@ -460,7 +481,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('should handle missing error message in worker response', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       const promise = storage.getItem('test');
 
@@ -489,7 +510,7 @@ describe.skip('WorkerStorage', () => {
 
   describe('cleanup', () => {
     it('should cleanup resources on destroy', () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       // Add some pending requests
       void storage.getItem('test1');
@@ -503,7 +524,7 @@ describe.skip('WorkerStorage', () => {
 
     it('should handle destroy when worker is not available', () => {
       vi.stubGlobal('Worker', undefined);
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       // Should not throw
       expect(() => storage.destroy()).not.toThrow();
@@ -512,7 +533,7 @@ describe.skip('WorkerStorage', () => {
 
   describe('edge cases', () => {
     it('should handle multiple concurrent requests', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
       const responses: Record<string, string> = {};
 
       // Track sent messages
@@ -546,7 +567,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('should generate unique message IDs', async () => {
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
       const sentIds = new Set<string>();
 
       mockWorker.postMessage = vi.fn((data) => {
@@ -579,7 +600,7 @@ describe.skip('WorkerStorage', () => {
 
     it('should reject when worker is not available', async () => {
       vi.stubGlobal('Worker', undefined);
-      const storage = new WorkerStorage();
+      const storage = new WorkerStorage(mockWorkerUrl);
 
       // Since the worker is not available, it should fall back to localStorage
       // and return null for non-existent keys
@@ -590,7 +611,7 @@ describe.skip('WorkerStorage', () => {
 
   describe('storage_request', () => {
     it('handles setItem requests', () => {
-      new WorkerStorage();
+      new WorkerStorage(mockWorkerUrl);
 
       if (mockWorker.onmessage) {
         mockWorker.onmessage(
@@ -617,7 +638,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('ignores older opId values', () => {
-      new WorkerStorage();
+      new WorkerStorage(mockWorkerUrl);
 
       if (mockWorker.onmessage) {
         mockWorker.onmessage(
@@ -665,7 +686,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('handles getItem requests', () => {
-      new WorkerStorage();
+      new WorkerStorage(mockWorkerUrl);
       mockLocalStorage.data.set('foo', 'bar');
 
       if (mockWorker.onmessage) {
@@ -690,7 +711,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('handles removeItem requests', () => {
-      new WorkerStorage();
+      new WorkerStorage(mockWorkerUrl);
       mockLocalStorage.data.set('foo', 'bar');
 
       if (mockWorker.onmessage) {
@@ -716,7 +737,7 @@ describe.skip('WorkerStorage', () => {
     });
 
     it('logs warnings on localStorage errors', () => {
-      new WorkerStorage();
+      new WorkerStorage(mockWorkerUrl);
 
       mockLocalStorage.setItem.mockImplementationOnce(() => {
         throw new Error('fail');

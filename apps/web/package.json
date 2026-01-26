@@ -6,6 +6,7 @@
     "node": "22.x"
   },
   "scripts": {
+    "predev": "[ -d ../../packages/file-explorer/dist ] || pnpm turbo build --filter=@brainstrike/file-explorer",
     "dev": "vite --port 8080 --host",
     "build": "vite build",
     "start": "vite preview --port 8080 --host",
