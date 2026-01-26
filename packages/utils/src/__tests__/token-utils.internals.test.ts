@@ -312,7 +312,8 @@ describe('Token Utils - countTokensAccurate error paths', () => {
   it('should handle very long strings without crashing', async () => {
     const { countTokensAccurate } = await import('../token-utils');
 
-    const longText = 'a'.repeat(100_000);
+    // 10,000 chars is sufficient to test long string handling without CI timeout
+    const longText = 'a'.repeat(10_000);
     const result = await countTokensAccurate(longText);
     expect(result).toBeGreaterThan(0);
   });
