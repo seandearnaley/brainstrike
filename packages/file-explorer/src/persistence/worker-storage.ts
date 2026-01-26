@@ -17,9 +17,6 @@ const logger = createLogger('worker-storage');
  * properly bundle the worker file. Without this, Vite cannot trace the URL pattern when
  * it's buried inside a class constructor.
  *
- * Note: The package also exports `./worker-storage-worker` for consumers who need direct
- * access to the worker module, though this is not typically needed - use this function instead.
- *
  * @example
  * ```ts
  * import { resolveWorkerStorageUrl, WorkerStorage } from '@brainstrike/file-explorer';
@@ -30,19 +27,15 @@ const logger = createLogger('worker-storage');
  */
 export function resolveWorkerStorageUrl(): URL {
   // ESM environment (browsers, Node.js ESM): import.meta.url is always available
-  // This is the primary path for browser worker bundling
+  // Path is relative to the bundled dist/index.mjs, so we need to include the persistence directory
+  // IMPORTANT: Must use .mjs (ESM format) not .js (CJS format) - browsers only understand ESM
   if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
-    // Path is relative to the bundled dist/index.mjs, so we need to include the persistence directory
-    // IMPORTANT: Must use .mjs (ESM format) not .js (CJS format) - browsers only understand ESM
     return new URL('./persistence/worker-storage.worker.mjs', import.meta.url);
   }
-  // CJS Node.js fallback: __dirname is available but import.meta is not
-  // This branch is kept for compatibility but is not exercised in browser contexts
-  // (browsers always have import.meta.url in ESM modules)
-  if (typeof __dirname === 'string') {
-    return new URL('./persistence/worker-storage.worker.mjs', `file://${__dirname}/`);
-  }
-  throw new Error('Unable to resolve worker storage URL in this runtime');
+  throw new Error(
+    'Unable to resolve worker storage URL: import.meta.url is not available. ' +
+      'This function requires an ESM environment (browser or Node.js ESM).'
+  );
 }
 
 export interface WorkerMessage {
@@ -84,23 +77,27 @@ export class WorkerStorage {
 
   /**
    * Create a WorkerStorage instance.
-   * @param workerUrl - Optional pre-resolved worker URL. If not provided, falls back to
-   *   resolving internally (which may not work in all bundler configurations).
-   *   For best results, use `resolveWorkerStorageUrl()` to get the URL before constructing.
+   * @param workerUrl - Pre-resolved worker URL from `resolveWorkerStorageUrl()`.
+   *   This parameter is required to ensure Vite can statically analyze the worker URL
+   *   at the call site. Call `resolveWorkerStorageUrl()` before constructing.
+   *
+   * @example
+   * ```ts
+   * const workerUrl = resolveWorkerStorageUrl();
+   * const storage = new WorkerStorage(workerUrl);
+   * ```
    */
-  constructor(workerUrl?: URL) {
+  constructor(workerUrl: URL) {
     this.initializeWorker(workerUrl);
   }
 
-  private initializeWorker(providedUrl?: URL) {
+  private initializeWorker(workerUrl: URL) {
     if (typeof Worker === 'undefined') {
       // Web Workers not supported
       return;
     }
 
     try {
-      // Use provided URL or fall back to resolving internally
-      const workerUrl = providedUrl ?? resolveWorkerStorageUrl();
       this.worker = new Worker(workerUrl, { type: 'module' });
       this.registerWorkerListeners();
     } catch (error) {

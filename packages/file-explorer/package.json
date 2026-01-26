@@ -12,10 +12,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
-    },
-    "./worker-storage-worker": {
-      "types": "./dist/persistence/worker-storage.worker.d.ts",
-      "import": "./dist/persistence/worker-storage.worker.mjs"
     }
   },
   "files": [
