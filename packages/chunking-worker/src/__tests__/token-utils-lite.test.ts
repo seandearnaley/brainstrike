@@ -250,6 +250,8 @@ describe('token-utils-lite fallback behavior', () => {
 
 describe('token-utils-lite internal helpers', () => {
   beforeEach(() => {
+    // Clear any tiktoken mocks from previous test suites before resetting modules
+    vi.unmock('tiktoken');
     vi.resetModules();
   });
 
