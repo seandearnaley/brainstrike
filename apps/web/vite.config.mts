@@ -134,6 +134,7 @@ export default defineConfig({
       // NOTE: @brainstrike/file-explorer must alias to DIST (not src) so the worker-storage.worker.js
       // file is properly bundled. Aliasing to src causes the .ts worker file to be emitted without
       // transformation, which browsers cannot execute.
+      // The web:dev script has a predev step that ensures file-explorer is built first.
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/dist'),
       // Map stylesheet imports to source files for consistent theme loading
       '@brainstrike/app-shell/styles.css': path.resolve(
