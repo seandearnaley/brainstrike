@@ -45,26 +45,16 @@ export interface FolderColors {
  * @returns Object with light and dark theme color combinations
  */
 export function getFolderColor(str: string): FolderColors {
-  // Create a simple hash of the string
+  // Normalize to lowercase for case-insensitive hashing
+  const normalized = str.toLowerCase();
   let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < normalized.length; i++) {
+    hash = normalized.charCodeAt(i) + ((hash << 5) - hash);
   }
 
   // Use the hash to select a color combination
   const index = Math.abs(hash) % COLOR_COMBINATIONS.length;
-  const selectedColor: FolderColors | undefined = COLOR_COMBINATIONS[index];
-
-  // Ensure we always return a valid FolderColors object
-  if (selectedColor !== undefined) {
-    return selectedColor;
-  }
-  if (COLOR_COMBINATIONS.length > 0) {
-    return COLOR_COMBINATIONS[0] as FolderColors;
-  }
-  // Fallback: return a default color scheme if COLOR_COMBINATIONS is empty
-  return {
-    light: { bg: '#FFFFFF', text: '#000000' },
-    dark: { bg: '#000000', text: '#FFFFFF' },
-  };
+  // Index is always valid: modulo guarantees 0 <= index < COLOR_COMBINATIONS.length
+  // biome-ignore lint/style/noNonNullAssertion: index is bounded by modulo of array length
+  return COLOR_COMBINATIONS[index]!;
 }

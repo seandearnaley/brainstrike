@@ -13,7 +13,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, getFileExtension } from '@brainstrike/utils';
 import {
   CheckSquare,
   FileText,
@@ -40,6 +40,7 @@ import { createRangeId, getStableColorForKey } from './tapestry/utils';
 import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 import type { TokenCountingState } from './use-token-counting';
 import {
+  EXTENSIONLESS_FILE_TYPE,
   GROUPING_CONFIGS,
   type GroupKey,
   groupData,
@@ -380,7 +381,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           id: fileItem.compositeKey,
           rootFolderId: folderId,
           path,
-          type: path.split('.').pop()?.toUpperCase() || 'FILE',
+          type: getFileExtension(path) || EXTENSIONLESS_FILE_TYPE,
           compositeKey: fileItem.compositeKey,
         };
 

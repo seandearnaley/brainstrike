@@ -11,7 +11,7 @@ describe('PreviewTableRow', () => {
     compositeKey: 'file1',
     rootFolderId: 'root',
     path: '/src/components/Button.tsx',
-    type: 'file',
+    type: 'tsx',
     tokens: 1500,
     size: 5120,
   };
@@ -47,7 +47,7 @@ describe('PreviewTableRow', () => {
     expect(screen.getByText('root')).toBeInTheDocument();
     expect(screen.getByText('Button.tsx')).toBeInTheDocument();
     expect(screen.getByText('src/components')).toBeInTheDocument();
-    expect(screen.getByText('file')).toBeInTheDocument();
+    expect(screen.getByText('tsx')).toBeInTheDocument();
     expect(screen.getByText('1.5K')).toBeInTheDocument();
     expect(screen.getByText('5.0 KB')).toBeInTheDocument();
   });
@@ -79,7 +79,7 @@ describe('PreviewTableRow', () => {
     expect(screen.queryByLabelText('Select /src/components/Button.tsx')).not.toBeInTheDocument();
     expect(screen.queryByText('root')).not.toBeInTheDocument();
     expect(screen.getByText('Button.tsx')).toBeInTheDocument();
-    expect(screen.queryByText('file')).not.toBeInTheDocument();
+    expect(screen.queryByText('tsx')).not.toBeInTheDocument();
   });
 
   it('handles checkbox toggle', async () => {
@@ -200,7 +200,7 @@ describe('PreviewTableRow', () => {
       compositeKey: 'file2',
       rootFolderId: 'root',
       path: 'README.md',
-      type: 'file',
+      type: 'md',
       tokens: 500,
       size: 2048,
     };
@@ -396,5 +396,53 @@ describe('PreviewTableRow', () => {
     expect(mockOnToggleSelection).toHaveBeenCalled();
     // Row click should not be triggered due to stopPropagation
     expect(rowClickHandler).not.toHaveBeenCalled();
+  });
+
+  it('renders extension badge with colored styling for type column', () => {
+    render(
+      <table>
+        <tbody>
+          <PreviewTableRow
+            columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={mockItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
+          />
+        </tbody>
+      </table>
+    );
+
+    const badge = screen.getByText('tsx');
+    expect(badge).toBeInTheDocument();
+    // Badge should have inline color styles from the hash-based color system
+    const badgeContainer = badge.closest('[style]');
+    expect(badgeContainer).not.toBeNull();
+  });
+
+  it('renders FILE type for files without extensions', () => {
+    const noExtItem: TableRowData = {
+      ...mockItem,
+      id: 'id-noext',
+      compositeKey: 'file-noext',
+      path: '/src/Makefile',
+      type: 'file',
+    };
+
+    render(
+      <table>
+        <tbody>
+          <PreviewTableRow
+            columnVisibility={defaultColumnVisibility}
+            isSelected={false}
+            item={noExtItem}
+            onFileClick={mockOnFileClick}
+            onToggleSelection={mockOnToggleSelection}
+          />
+        </tbody>
+      </table>
+    );
+
+    expect(screen.getByText('file')).toBeInTheDocument();
   });
 });

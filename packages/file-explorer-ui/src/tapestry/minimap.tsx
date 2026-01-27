@@ -1,5 +1,6 @@
-import { Badge, Checkbox, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
+import { Checkbox, cn, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { memo, useRef, useState } from 'react';
+import { ExtensionBadge } from '../extension-badge';
 import { formatTokenCount } from '../use-preview-panel-state';
 import { formatPreviewFileSize } from '../utils/preview-formatters';
 import type { FileTapestry, InteractionMode, TapestryRange } from './types';
@@ -438,9 +439,7 @@ export const Minimap = memo(
                   <span className="truncate">{file.rootFolderId}</span>
                 </div>
                 <span className="font-mono text-[10px] opacity-70">{file.totalLines}L</span>
-                <Badge className="px-1.5 text-[9px]" variant="secondary">
-                  {file.type}
-                </Badge>
+                <ExtensionBadge extension={file.type} size="compact" />
                 <span className="font-mono text-[10px] opacity-70">
                   {formatPreviewFileSize(file.size)}
                 </span>

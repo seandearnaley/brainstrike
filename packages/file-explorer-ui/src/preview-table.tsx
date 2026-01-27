@@ -291,7 +291,7 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
               )}
               {columnVisibility.type && (
                 <SortableTableHeader
-                  className="w-20"
+                  className="w-24"
                   field="type"
                   onSort={onSort}
                   sortDirection={sortDirection}

@@ -1,6 +1,7 @@
-import { Badge, Checkbox } from '@brainstrike/ui';
+import { Checkbox } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
 import { memo } from 'react';
+import { ExtensionBadge } from './extension-badge';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { formatTokenCount } from './use-preview-panel-state';
 import type { TableRowData } from './utils/grouping-configs';
@@ -71,10 +72,8 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
         </td>
       )}
       {columnVisibility.type && (
-        <td className="w-20 px-4 py-2">
-          <Badge className="text-xs" variant="secondary">
-            {item.type}
-          </Badge>
+        <td className="w-24 px-4 py-2">
+          <ExtensionBadge extension={item.type} />
         </td>
       )}
       {columnVisibility.tokens && (

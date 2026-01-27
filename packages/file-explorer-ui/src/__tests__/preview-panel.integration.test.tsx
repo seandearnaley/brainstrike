@@ -77,6 +77,7 @@ interface MockProgressProps {
 
 // Mock UI components with more realistic behavior
 vi.mock('@brainstrike/ui', () => ({
+  cn: (...inputs: unknown[]) => inputs.filter(Boolean).join(' '),
   Badge: ({ children, ...props }: MockBadgeProps) => (
     <div data-testid="badge" {...props}>
       {children}
@@ -533,6 +534,7 @@ vi.mock('lucide-react', () => ({
   Files: () => <div data-testid="files" />,
   CheckSquare: () => <div data-testid="check-square" />,
   LayoutGrid: () => <div data-testid="layout-grid" />,
+  RefreshCw: () => <div data-testid="refresh-cw" />,
   RotateCcw: () => <div data-testid="rotate-ccw" />,
   Table: () => <div data-testid="table" />,
 }));

@@ -997,8 +997,8 @@ describe('PreviewPanel', () => {
       fireEvent.change(groupingSelect, { target: { value: 'fileType' } });
 
       // Should show file type groups
-      expect(screen.getAllByText('JS').length).toBeGreaterThan(0);
-      expect(screen.getAllByText('TS').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('js').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('ts').length).toBeGreaterThan(0);
     });
 
     it('should allow selecting all files across different groups', () => {
