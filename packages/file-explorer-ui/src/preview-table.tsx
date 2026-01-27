@@ -1,6 +1,6 @@
 import { Checkbox, SortableTableHeader, TableGroupHeader } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
-import { memo, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
 import { formatTokenCount } from './use-preview-panel-state';
@@ -42,6 +42,31 @@ interface PushGroupItemsInput {
   elements: React.ReactNode[];
 }
 
+interface GroupHeaderWrapperProps {
+  group: GroupedData<TableRowData>;
+  totalVisibleColumns: number;
+  collapsedGroups: Set<string>;
+  isGroupFullySelected: (group: GroupedData<TableRowData>) => boolean;
+  isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
+  onSelectionChange: (group: GroupedData<TableRowData>, checked: boolean) => void;
+  onToggleCollapse: (groupKey: GroupKey) => void;
+}
+
+interface GroupedTableBodyProps {
+  groupedData: GroupedData<TableRowData>[];
+  collapsedGroups: Set<string>;
+  pagination: { startIndex: number; endIndex: number };
+  columnVisibility: ColumnVisibility;
+  previewSelections: Set<string>;
+  onToggleSelection: (compositeKey: string, checked: boolean) => void;
+  onFileClick?: ((compositeKey: string) => void) | undefined;
+  totalVisibleColumns: number;
+  isGroupFullySelected: (group: GroupedData<TableRowData>) => boolean;
+  isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
+  onGroupSelectionChange: (group: GroupedData<TableRowData>, checked: boolean) => void;
+  onToggleGroupCollapse: (groupKey: GroupKey) => void;
+}
+
 function pushGroupItemsForPage(input: PushGroupItemsInput): number {
   let currentItemCount = input.itemCount;
 
@@ -68,6 +93,117 @@ function pushGroupItemsForPage(input: PushGroupItemsInput): number {
 
   return currentItemCount;
 }
+
+/**
+ * Renders a group header row with selection checkbox, collapse toggle, and stats.
+ * Extracted to module level to prevent React remount on parent re-renders.
+ */
+const GroupHeaderWrapper = memo<GroupHeaderWrapperProps>(function GroupHeaderWrapperComponent({
+  group,
+  totalVisibleColumns,
+  collapsedGroups,
+  isGroupFullySelected,
+  isGroupPartiallySelected,
+  onSelectionChange,
+  onToggleCollapse,
+}) {
+  const handleSelectionChange = (checked: boolean) => {
+    onSelectionChange(group, checked);
+  };
+
+  const handleToggleCollapse = () => {
+    onToggleCollapse(group.groupKey);
+  };
+
+  return (
+    <TableGroupHeader
+      colSpan={totalVisibleColumns - 1}
+      groupKey={group.groupKey}
+      groupLabel={group.groupLabel}
+      icon={<FolderOpen className="size-4 text-muted-foreground" />}
+      isCollapsed={collapsedGroups.has(String(group.groupKey))}
+      isFullySelected={isGroupFullySelected(group)}
+      isPartiallySelected={isGroupPartiallySelected(group)}
+      onSelectionChange={handleSelectionChange}
+      onToggleCollapse={handleToggleCollapse}
+      stats={
+        <>
+          <span>{group.count} files</span>
+          <span className="whitespace-nowrap tabular-nums">
+            {formatTokenCount(group.totalTokens)}
+          </span>
+          <span className="whitespace-nowrap tabular-nums">
+            {(group.totalSize / 1024).toFixed(1)} KB
+          </span>
+        </>
+      }
+    />
+  );
+});
+GroupHeaderWrapper.displayName = 'GroupHeaderWrapper';
+
+/**
+ * Renders the grouped table body with group headers and items.
+ * Extracted to module level to prevent React remount on parent re-renders.
+ */
+const GroupedTableBody = memo<GroupedTableBodyProps>(function GroupedTableBodyComponent({
+  groupedData,
+  collapsedGroups,
+  pagination,
+  columnVisibility,
+  previewSelections,
+  onToggleSelection,
+  onFileClick,
+  totalVisibleColumns,
+  isGroupFullySelected,
+  isGroupPartiallySelected,
+  onGroupSelectionChange,
+  onToggleGroupCollapse,
+}) {
+  const elements: React.ReactNode[] = [];
+  let itemCount = 0;
+
+  for (const group of groupedData) {
+    const isCollapsed = collapsedGroups.has(String(group.groupKey));
+
+    if (itemCount >= pagination.startIndex && itemCount < pagination.endIndex) {
+      elements.push(
+        <GroupHeaderWrapper
+          collapsedGroups={collapsedGroups}
+          group={group}
+          isGroupFullySelected={isGroupFullySelected}
+          isGroupPartiallySelected={isGroupPartiallySelected}
+          key={`group-${group.groupKey}`}
+          onSelectionChange={onGroupSelectionChange}
+          onToggleCollapse={onToggleGroupCollapse}
+          totalVisibleColumns={totalVisibleColumns}
+        />
+      );
+    }
+    itemCount += 1;
+
+    if (!isCollapsed) {
+      itemCount = pushGroupItemsForPage({
+        columnVisibility,
+        elements,
+        endIndex: pagination.endIndex,
+        group,
+        itemCount,
+        onFileClick,
+        onToggleSelection,
+        previewSelections,
+        startIndex: pagination.startIndex,
+      });
+    }
+
+    if (itemCount >= pagination.endIndex) {
+      break;
+    }
+  }
+
+  return <>{elements}</>;
+});
+GroupedTableBody.displayName = 'GroupedTableBody';
 
 export const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(props) {
   const {
@@ -104,74 +240,17 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
     [isAllSelected, visibleFilesOnPage]
   );
 
-  const GroupHeaderWrapper = memo(({ group }: { group: GroupedData<TableRowData> }) => {
-    const handleSelectionChange = (checked: boolean) => {
+  // Handler for group selection changes - bridges the select/deselect API
+  const handleGroupSelectionChange = useCallback(
+    (group: GroupedData<TableRowData>, checked: boolean) => {
       if (checked) {
         handleGroupSelectAll(group);
       } else {
         handleGroupDeselectAll(group);
       }
-    };
-
-    return (
-      <TableGroupHeader
-        colSpan={totalVisibleColumns - 1}
-        groupKey={group.groupKey}
-        groupLabel={group.groupLabel}
-        icon={<FolderOpen className="size-4 text-muted-foreground" />}
-        isCollapsed={collapsedGroups.has(String(group.groupKey))}
-        isFullySelected={isGroupFullySelected(group)}
-        isPartiallySelected={isGroupPartiallySelected(group)}
-        onSelectionChange={handleSelectionChange}
-        onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
-        stats={
-          <>
-            <span>{group.count} files</span>
-            <span className="whitespace-nowrap tabular-nums">
-              {formatTokenCount(group.totalTokens)}
-            </span>
-            <span className="whitespace-nowrap tabular-nums">
-              {(group.totalSize / 1024).toFixed(1)} KB
-            </span>
-          </>
-        }
-      />
-    );
-  });
-
-  const GroupedTableBody = memo(() => {
-    const elements: React.ReactNode[] = [];
-    let itemCount = 0;
-
-    for (const group of groupedData) {
-      const isCollapsed = collapsedGroups.has(String(group.groupKey));
-
-      if (itemCount >= pagination.startIndex && itemCount < pagination.endIndex) {
-        elements.push(<GroupHeaderWrapper group={group} key={`group-${group.groupKey}`} />);
-      }
-      itemCount += 1;
-
-      if (!isCollapsed) {
-        itemCount = pushGroupItemsForPage({
-          columnVisibility,
-          elements,
-          endIndex: pagination.endIndex,
-          group,
-          itemCount,
-          onFileClick,
-          onToggleSelection,
-          previewSelections,
-          startIndex: pagination.startIndex,
-        });
-      }
-
-      if (itemCount >= pagination.endIndex) {
-        break;
-      }
-    }
-
-    return <>{elements}</>;
-  });
+    },
+    [handleGroupSelectAll, handleGroupDeselectAll]
+  );
 
   return (
     <div className="flex-1 overflow-auto">
@@ -255,7 +334,20 @@ export const PreviewTable = memo<PreviewTableProps>(function PreviewTableCompone
                 />
               ))
             ) : (
-              <GroupedTableBody />
+              <GroupedTableBody
+                collapsedGroups={collapsedGroups}
+                columnVisibility={columnVisibility}
+                groupedData={groupedData}
+                isGroupFullySelected={isGroupFullySelected}
+                isGroupPartiallySelected={isGroupPartiallySelected}
+                onFileClick={onFileClick}
+                onGroupSelectionChange={handleGroupSelectionChange}
+                onToggleGroupCollapse={toggleGroupCollapse}
+                onToggleSelection={onToggleSelection}
+                pagination={pagination}
+                previewSelections={previewSelections}
+                totalVisibleColumns={totalVisibleColumns}
+              />
             )}
           </tbody>
         </table>

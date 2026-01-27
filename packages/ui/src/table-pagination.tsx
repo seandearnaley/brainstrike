@@ -1,13 +1,32 @@
-import { memo } from 'react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { memo, useCallback, useState } from 'react';
 import { Button } from './button';
+import { Input } from './input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select';
+
+const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500, 1000] as const;
+/** Fallback page size when no options are available */
+const DEFAULT_FALLBACK_PAGE_SIZE = 50;
 
 interface TablePaginationProps {
+  /** Current page index (0-based) */
   currentPage: number;
+  /** Total number of pages */
   totalPages: number;
+  /** Total number of items across all pages */
   totalItems: number;
+  /** Callback when page changes */
   onPageChange: (page: number) => void;
+  /** Optional additional page info text */
   pageInfo?: string;
-  maxPageButtons?: number;
+  /** Current page size (items per page) */
+  pageSize?: number;
+  /** Callback when page size changes */
+  onPageSizeChange?: (pageSize: number) => void;
+  /** Available page size options */
+  pageSizeOptions?: readonly number[];
+  /** Whether to show the item range display (e.g., "Showing 1-50 of 500") */
+  showItemRange?: boolean;
 }
 
 export const TablePagination = memo<TablePaginationProps>(function TablePaginationComponent({
@@ -16,74 +35,197 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   totalItems,
   onPageChange,
   pageInfo,
-  maxPageButtons = 5,
+  pageSize,
+  onPageSizeChange,
+  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
+  showItemRange = true,
 }) {
-  const goToNextPage = () => {
+  // Track focus state to determine whether to show user input or synced value
+  const [isFocused, setIsFocused] = useState(false);
+  const [editValue, setEditValue] = useState('');
+  const displayPage = currentPage + 1;
+
+  // When focused, show user's edit; when not focused, always show current page
+  const inputValue = isFocused ? editValue : String(displayPage);
+
+  const goToFirstPage = useCallback(() => {
+    onPageChange(0);
+  }, [onPageChange]);
+
+  const goToPreviousPage = useCallback(() => {
+    onPageChange(Math.max(currentPage - 1, 0));
+  }, [currentPage, onPageChange]);
+
+  const goToNextPage = useCallback(() => {
     if (totalPages > 0) {
       onPageChange(Math.min(currentPage + 1, totalPages - 1));
     }
-  };
+  }, [currentPage, totalPages, onPageChange]);
 
-  const goToPreviousPage = () => {
-    onPageChange(Math.max(currentPage - 1, 0));
-  };
-
-  const getPageNumbers = () => {
-    const halfMax = Math.floor(maxPageButtons / 2);
-
-    if (totalPages <= maxPageButtons) {
-      return Array.from({ length: totalPages }, (_, i) => i);
+  const goToLastPage = useCallback(() => {
+    if (totalPages > 0) {
+      onPageChange(totalPages - 1);
     }
+  }, [totalPages, onPageChange]);
 
-    if (currentPage < halfMax) {
-      return Array.from({ length: maxPageButtons }, (_, i) => i);
+  const handleInputFocus = useCallback(() => {
+    setIsFocused(true);
+    setEditValue(String(displayPage));
+  }, [displayPage]);
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditValue(e.target.value);
+  }, []);
+
+  const handleInputBlur = useCallback(() => {
+    const parsed = Number.parseInt(editValue, 10);
+    setIsFocused(false);
+    if (Number.isNaN(parsed) || parsed < 1) {
+      // Reset to current page on invalid input so next focus shows correct value
+      setEditValue(String(displayPage));
+      return;
     }
-
-    if (currentPage > totalPages - Math.ceil(maxPageButtons / 2) - 1) {
-      return Array.from({ length: maxPageButtons }, (_, i) => totalPages - maxPageButtons + i);
+    const clampedPage = Math.min(Math.max(parsed, 1), totalPages);
+    if (clampedPage !== displayPage) {
+      onPageChange(clampedPage - 1);
     }
+  }, [editValue, displayPage, totalPages, onPageChange]);
 
-    const startPage = currentPage - halfMax;
-    return Array.from({ length: maxPageButtons }, (_, i) => startPage + i);
-  };
+  const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    } else if (e.key === 'Escape') {
+      setIsFocused(false);
+      e.currentTarget.blur();
+    }
+  }, []);
 
-  if (totalPages <= 1) {
+  const handlePageSizeChange = useCallback(
+    (value: string) => {
+      const newPageSize = Number.parseInt(value, 10);
+      if (!Number.isNaN(newPageSize) && onPageSizeChange) {
+        onPageSizeChange(newPageSize);
+      }
+    },
+    [onPageSizeChange]
+  );
+
+  // Ensure we have valid page size options (fallback to defaults if empty array passed)
+  const actualPageSizeOptions =
+    pageSizeOptions.length > 0 ? pageSizeOptions : DEFAULT_PAGE_SIZE_OPTIONS;
+
+  // Calculate item range for display
+  const effectivePageSize = pageSize ?? actualPageSizeOptions[0] ?? DEFAULT_FALLBACK_PAGE_SIZE;
+  const startItem = totalItems === 0 ? 0 : currentPage * effectivePageSize + 1;
+  const endItem = Math.min((currentPage + 1) * effectivePageSize, totalItems);
+
+  if (totalPages <= 1 && !onPageSizeChange) {
     return null;
   }
 
+  const isFirstPage = currentPage === 0;
+  const isLastPage = currentPage === totalPages - 1 || totalPages === 0;
+
   return (
-    <div className="flex items-center justify-between border-t bg-background p-3">
-      <div className="flex items-center gap-4 text-muted-foreground text-sm">
-        <span>
-          Page {currentPage + 1} of {totalPages}
-          {pageInfo ? ` ${pageInfo}` : ` (${totalItems} total items)`}
-        </span>
+    <div className="grid grid-cols-[1fr_auto_1fr] items-center border-t bg-background px-3 py-1.5">
+      {/* Left side: Page size selector */}
+      <div className="flex items-center justify-start gap-2">
+        {onPageSizeChange && pageSize !== undefined && (
+          <>
+            <span className="text-muted-foreground text-xs">Show</span>
+            <Select onValueChange={handlePageSizeChange} value={String(pageSize)}>
+              <SelectTrigger
+                aria-label="Items per page"
+                className="h-7 w-[80px] text-xs tabular-nums [&>svg]:h-3 [&>svg]:w-3"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {actualPageSizeOptions.map((size) => (
+                  <SelectItem className="text-xs" key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
+        )}
       </div>
-      <div className="flex items-center space-x-2">
-        <Button disabled={currentPage === 0} onClick={goToPreviousPage} size="sm" variant="outline">
-          Previous
-        </Button>
-        <div className="flex items-center space-x-1">
-          {getPageNumbers().map((pageNum) => (
-            <Button
-              className="h-8 w-8 p-0"
-              key={pageNum}
-              onClick={() => onPageChange(pageNum)}
-              size="sm"
-              variant={pageNum === currentPage ? 'default' : 'outline'}
-            >
-              {pageNum + 1}
-            </Button>
-          ))}
-        </div>
+
+      {/* Center: Navigation controls */}
+      <div className="flex items-center justify-center gap-1">
         <Button
-          disabled={currentPage === totalPages - 1}
+          aria-label="Go to first page"
+          className="h-7 w-7 p-0"
+          disabled={isFirstPage}
+          onClick={goToFirstPage}
+          size="sm"
+          variant="ghost"
+        >
+          <ChevronsLeft className="h-4 w-4" />
+        </Button>
+        <Button
+          aria-label="Go to previous page"
+          className="h-7 w-7 p-0"
+          disabled={isFirstPage}
+          onClick={goToPreviousPage}
+          size="sm"
+          variant="ghost"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+
+        <div className="flex items-center gap-1.5 px-1">
+          <Input
+            aria-label="Page number"
+            className="h-7 w-14 px-2 text-center text-xs tabular-nums"
+            disabled={totalPages === 0}
+            max={totalPages}
+            min={1}
+            onBlur={handleInputBlur}
+            onChange={handleInputChange}
+            onFocus={handleInputFocus}
+            onKeyDown={handleInputKeyDown}
+            type="number"
+            value={inputValue}
+          />
+          <span className="min-w-[4rem] whitespace-nowrap text-muted-foreground text-xs tabular-nums">
+            of {totalPages}
+          </span>
+        </div>
+
+        <Button
+          aria-label="Go to next page"
+          className="h-7 w-7 p-0"
+          disabled={isLastPage}
           onClick={goToNextPage}
           size="sm"
-          variant="outline"
+          variant="ghost"
         >
-          Next
+          <ChevronRight className="h-4 w-4" />
         </Button>
+        <Button
+          aria-label="Go to last page"
+          className="h-7 w-7 p-0"
+          disabled={isLastPage}
+          onClick={goToLastPage}
+          size="sm"
+          variant="ghost"
+        >
+          <ChevronsRight className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Right side: Item range display */}
+      <div className="flex justify-end text-muted-foreground text-xs tabular-nums">
+        {showItemRange && totalItems > 0 && (
+          <span>
+            {startItem}-{endItem} of {totalItems.toLocaleString()}
+            {pageInfo ? ` ${pageInfo}` : ''}
+          </span>
+        )}
+        {showItemRange && totalItems === 0 && <span>No items</span>}
+        {!showItemRange && pageInfo && <span>{pageInfo}</span>}
       </div>
     </div>
   );

@@ -205,6 +205,7 @@ interface TapestryViewProps {
     totalItems: number;
     onPageChange: (page: number) => void;
     pageInfo?: string;
+    pageSize?: number;
   };
 }
 
@@ -666,6 +667,7 @@ export const TapestryView = memo<TapestryViewProps>(function TapestryView({
           totalItems={pagination.totalItems}
           totalPages={pagination.totalPages}
           {...paginationInfo}
+          {...(pagination.pageSize !== undefined ? { pageSize: pagination.pageSize } : {})}
         />
 
         <div className="flex justify-end gap-4 border-border border-t bg-muted/20 p-2 text-[10px] text-muted-foreground">

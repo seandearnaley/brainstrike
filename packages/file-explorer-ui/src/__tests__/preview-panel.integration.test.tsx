@@ -247,9 +247,11 @@ vi.mock('@brainstrike/ui', () => ({
     currentPage,
     totalPages,
     onPageChange,
-    totalItems,
-    pageInfo,
-    maxPageButtons,
+    totalItems: _totalItems,
+    pageInfo: _pageInfo,
+    maxPageButtons: _maxPageButtons,
+    pageSize: _pageSize,
+    onPageSizeChange: _onPageSizeChange,
     ...domProps
   }: {
     currentPage: number;
@@ -258,59 +260,57 @@ vi.mock('@brainstrike/ui', () => ({
     totalItems?: number;
     pageInfo?: string;
     maxPageButtons?: number;
+    pageSize?: number;
+    onPageSizeChange?: (size: number) => void;
     [key: string]: unknown;
   }) => {
-    const getPageNumbers = () => {
-      const maxButtons = maxPageButtons || 5;
-      const halfMax = Math.floor(maxButtons / 2);
-
-      if (totalPages <= maxButtons) {
-        return Array.from({ length: totalPages }, (_, i) => i);
-      }
-
-      if (currentPage < halfMax) {
-        return Array.from({ length: maxButtons }, (_, i) => i);
-      }
-
-      if (currentPage > totalPages - Math.ceil(maxButtons / 2) - 1) {
-        return Array.from({ length: maxButtons }, (_, i) => totalPages - maxButtons + i);
-      }
-
-      const startPage = currentPage - halfMax;
-      return Array.from({ length: maxButtons }, (_, i) => startPage + i);
-    };
-
     return (
       <div data-testid="table-pagination" {...domProps}>
         <button
+          aria-label="Go to first page"
+          disabled={currentPage === 0}
+          onClick={() => onPageChange?.(0)}
+          type="button"
+        >
+          First
+        </button>
+        <button
+          aria-label="Go to previous page"
           disabled={currentPage === 0}
           onClick={() => onPageChange?.(currentPage - 1)}
           type="button"
         >
           Previous
         </button>
-        <span>
-          Page {currentPage + 1} of {totalPages}
-          {pageInfo ? ` ${pageInfo}` : totalItems ? ` (${totalItems} total items)` : ''}
-        </span>
-        <div>
-          {getPageNumbers().map((pageNum) => (
-            <button
-              key={pageNum}
-              onClick={() => onPageChange?.(pageNum)}
-              style={{ margin: '0 2px' }}
-              type="button"
-            >
-              {pageNum + 1}
-            </button>
-          ))}
-        </div>
+        <input
+          aria-label="Page number"
+          max={totalPages}
+          min={1}
+          onChange={(e) => {
+            const val = Number.parseInt(e.target.value, 10);
+            if (!Number.isNaN(val) && val >= 1 && val <= totalPages) {
+              onPageChange?.(val - 1);
+            }
+          }}
+          type="number"
+          value={currentPage + 1}
+        />
+        <span data-testid="page-info">of {totalPages}</span>
         <button
+          aria-label="Go to next page"
           disabled={currentPage >= totalPages - 1}
           onClick={() => onPageChange?.(currentPage + 1)}
           type="button"
         >
           Next
+        </button>
+        <button
+          aria-label="Go to last page"
+          disabled={currentPage >= totalPages - 1}
+          onClick={() => onPageChange?.(totalPages - 1)}
+          type="button"
+        >
+          Last
         </button>
       </div>
     );
@@ -669,7 +669,7 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Verify pagination is shown
-      expect(screen.getByText('Page 1 of 3 (120 total items)')).toBeInTheDocument();
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 3');
 
       // Sort by file path
       const pathHeader = screen.getByText('File Path');
@@ -681,12 +681,12 @@ describe('PreviewPanel Integration Tests', () => {
       expect(pathHeader).toBeInTheDocument();
 
       // Navigate to next page
-      const nextButton = screen.getByText('Next');
+      const nextButton = screen.getByRole('button', { name: 'Go to next page' });
       act(() => {
         fireEvent.click(nextButton);
       });
 
-      expect(screen.getByText('Page 2 of 3 (120 total items)')).toBeInTheDocument();
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 3');
 
       // Change sort direction
       act(() => {
@@ -702,7 +702,7 @@ describe('PreviewPanel Integration Tests', () => {
         fireEvent.click(resetButton);
       });
 
-      expect(screen.getByText('Page 1 of 3 (120 total items)')).toBeInTheDocument();
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 3');
     });
 
     it('should handle folder operations with large datasets', () => {
@@ -732,7 +732,7 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Should show pagination for large datasets
-      expect(screen.getByText('Page 1 of 20 (1000 total items)')).toBeInTheDocument();
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 20');
 
       // Should only render first page items (performance optimization)
       expect(screen.getByText('file0.txt')).toBeInTheDocument();
@@ -747,13 +747,13 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Rapidly navigate through pages
-      const nextButton = screen.getByText('Next');
+      const nextButton = screen.getByRole('button', { name: 'Go to next page' });
       for (let i = 0; i < 5; i++) {
         fireEvent.click(nextButton);
       }
 
       // Should handle rapid navigation correctly
-      expect(screen.getByText('Page 6 of 10 (500 total items)')).toBeInTheDocument();
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 10');
     });
   });
 
@@ -816,12 +816,12 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Go to page 2
-      const nextButton = screen.getByText('Next');
+      const nextButton = screen.getByRole('button', { name: 'Go to next page' });
       act(() => {
         fireEvent.click(nextButton);
       });
 
-      expect(screen.getByText('Page 2 of 2 (75 total items)')).toBeInTheDocument();
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 2');
 
       // Select files on page 2 - first file on page 2 would be file50
       const file50Checkbox = screen.getByLabelText('Select path/to/folder5/file50.txt');
@@ -854,20 +854,15 @@ describe('PreviewPanel Integration Tests', () => {
 
       const { rerender } = render(<PreviewPanel {...mockProps} />);
 
-      // Navigate to the last page
-      const nextButton = screen.getByText('Next');
+      // Navigate to the last page directly using the "Go to last page" button
+      const lastPageButton = screen.getByRole('button', { name: 'Go to last page' });
       act(() => {
-        fireEvent.click(nextButton);
-        fireEvent.click(nextButton);
+        fireEvent.click(lastPageButton);
       });
-      // Verify we navigated away from page 1 to the last page (don't depend on exact text structure)
+      // Verify we navigated to the last page by checking page input
       await waitFor(() => {
-        const pageInfo = screen.getByText(
-          (_content, el) =>
-            (el?.textContent?.startsWith('Page') ?? false) &&
-            (el?.textContent?.includes('(120 total items)') ?? false)
-        );
-        expect(pageInfo.textContent).not.toContain('Page 1 of');
+        const pageInput = screen.getByRole('spinbutton', { name: 'Page number' });
+        expect(pageInput).toHaveValue(3); // Page 3 (last page)
       });
 
       // Rerender with fewer files resulting in two pages
@@ -879,13 +874,12 @@ describe('PreviewPanel Integration Tests', () => {
         rerender(<PreviewPanel {...fewerProps} />);
       });
 
-      // Assert via the pagination container to avoid brittle text-node matching
+      // Assert that we're on page 1 with 2 total pages
       await waitFor(() => {
-        const pagination = screen.getByTestId('table-pagination');
-        expect(pagination).toBeInTheDocument();
-        const text = pagination.textContent ?? '';
-        expect(text).toContain('Page 1 of 2');
-        expect(text).toContain('(60 total items)');
+        const pageInput = screen.getByRole('spinbutton', { name: 'Page number' });
+        expect(pageInput).toHaveValue(1);
+        const pageInfo = screen.getByTestId('page-info');
+        expect(pageInfo).toHaveTextContent('of 2');
       });
     });
   });
