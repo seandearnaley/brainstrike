@@ -142,7 +142,10 @@ describe('LogViewer', () => {
     render(<LogViewer logSource={logSource} toast={mockToast} />);
 
     await waitFor(() => {
-      expect(screen.getByText(/Page 2 of 2/i)).toBeInTheDocument();
+      // New pagination format: page input showing "2" and "of 2" text
+      const pageInput = screen.getByRole('spinbutton', { name: 'Page number' });
+      expect(pageInput).toHaveValue(2);
+      expect(screen.getByText('of 2')).toBeInTheDocument();
     });
   });
 });
