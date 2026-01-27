@@ -123,6 +123,7 @@ export const createUsePreviewPanelStateMock = (): UsePreviewPanelStateMockReturn
 });
 
 export const createUiModuleMock = () => ({
+  cn: (...inputs: unknown[]) => inputs.filter(Boolean).join(' '),
   Badge: ({ children, ...props }: MockComponentProps) => (
     <div data-testid="badge" {...props}>
       {children}
@@ -606,6 +607,7 @@ export const createLucideModuleMock = () => ({
   LayoutGrid: () => <div data-testid="layout-grid" />,
   Maximize2: () => <div data-testid="maximize" />,
   Minimize2: () => <div data-testid="minimize" />,
+  RefreshCw: () => <div data-testid="refresh-cw" />,
   RotateCcw: () => <div data-testid="rotate-ccw" />,
   Table: () => <div data-testid="table" />,
 });
