@@ -27,8 +27,9 @@ const COLUMN_VISIBILITY_KEYS = Object.keys(
   createDefaultColumnVisibility()
 ) as (keyof ColumnVisibility)[];
 
-const DEFAULT_PAGE_SIZE = 50;
-const VALID_PAGE_SIZES = new Set([10, 25, 50, 100]);
+/** Default page size for preview panel pagination */
+export const DEFAULT_PAGE_SIZE = 50;
+const VALID_PAGE_SIZES = new Set([10, 25, 50, 100, 250, 500, 1000]);
 
 interface StoredPreferences {
   columnVisibility?: Partial<ColumnVisibility>;

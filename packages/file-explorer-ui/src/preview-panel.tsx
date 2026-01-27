@@ -25,7 +25,10 @@ import {
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useGroupSelection } from './hooks/use-group-selection';
-import { usePreviewPanelPreferences } from './hooks/use-preview-panel-preferences';
+import {
+  DEFAULT_PAGE_SIZE,
+  usePreviewPanelPreferences,
+} from './hooks/use-preview-panel-preferences';
 import { ColumnVisibilityControls } from './preview-column-visibility-controls';
 import { PreviewGroupingControls } from './preview-grouping-controls';
 import { PreviewPanelFooter, type TokenUsageMetrics } from './preview-panel-footer';
@@ -549,9 +552,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Use prop if explicitly provided (different from default), otherwise persisted, otherwise default
   // This allows tests to override the page size while still supporting user persistence
-  const DefaultPageSizeProp = 50;
   const effectivePageSize =
-    pageSize !== DefaultPageSizeProp ? pageSize : (persistedPageSize ?? pageSize);
+    pageSize !== DEFAULT_PAGE_SIZE ? pageSize : (persistedPageSize ?? pageSize);
 
   // Use pagination hooks (table + tapestry)
   const tablePagination = usePagination({

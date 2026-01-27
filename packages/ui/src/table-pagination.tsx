@@ -38,13 +38,13 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   showItemRange = true,
 }) {
-  const [inputValue, setInputValue] = useState(String(currentPage + 1));
-
-  // Sync input value when currentPage changes externally
+  // Track focus state to determine whether to show user input or synced value
+  const [isFocused, setIsFocused] = useState(false);
+  const [editValue, setEditValue] = useState('');
   const displayPage = currentPage + 1;
-  if (inputValue !== String(displayPage) && document.activeElement?.tagName !== 'INPUT') {
-    setInputValue(String(displayPage));
-  }
+
+  // When focused, show user's edit; when not focused, always show current page
+  const inputValue = isFocused ? editValue : String(displayPage);
 
   const goToFirstPage = useCallback(() => {
     onPageChange(0);
@@ -66,32 +66,35 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
     }
   }, [totalPages, onPageChange]);
 
+  const handleInputFocus = useCallback(() => {
+    setIsFocused(true);
+    setEditValue(String(displayPage));
+  }, [displayPage]);
+
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    setInputValue(e.target.value);
+    setEditValue(e.target.value);
   }, []);
 
   const handleInputBlur = useCallback(() => {
-    const parsed = Number.parseInt(inputValue, 10);
+    const parsed = Number.parseInt(editValue, 10);
+    setIsFocused(false);
     if (Number.isNaN(parsed) || parsed < 1) {
-      setInputValue(String(displayPage));
       return;
     }
     const clampedPage = Math.min(Math.max(parsed, 1), totalPages);
-    setInputValue(String(clampedPage));
-    onPageChange(clampedPage - 1);
-  }, [inputValue, displayPage, totalPages, onPageChange]);
+    if (clampedPage !== displayPage) {
+      onPageChange(clampedPage - 1);
+    }
+  }, [editValue, displayPage, totalPages, onPageChange]);
 
-  const handleInputKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === 'Enter') {
-        e.currentTarget.blur();
-      } else if (e.key === 'Escape') {
-        setInputValue(String(displayPage));
-        e.currentTarget.blur();
-      }
-    },
-    [displayPage]
-  );
+  const handleInputKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.currentTarget.blur();
+    } else if (e.key === 'Escape') {
+      setIsFocused(false);
+      e.currentTarget.blur();
+    }
+  }, []);
 
   const handlePageSizeChange = useCallback(
     (value: string) => {
@@ -172,6 +175,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
             min={1}
             onBlur={handleInputBlur}
             onChange={handleInputChange}
+            onFocus={handleInputFocus}
             onKeyDown={handleInputKeyDown}
             type="number"
             value={inputValue}
