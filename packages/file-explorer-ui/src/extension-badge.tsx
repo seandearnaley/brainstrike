@@ -29,18 +29,18 @@ export const ExtensionBadge = React.memo(
     return (
       <Badge
         className={cn(
-          'dark:!bg-[var(--ext-dark-bg)] dark:!text-[var(--ext-dark-text)] inline-flex shrink-0 items-center truncate transition-colors',
+          'dark:!bg-[var(--extension-badge-dark-bg)] dark:!text-[var(--extension-badge-dark-text)] inline-flex shrink-0 items-center truncate transition-colors',
           styles.badge,
           className
         )}
         style={
           {
-            '--ext-bg': colors.light.bg,
-            '--ext-text': colors.light.text,
-            '--ext-dark-bg': colors.dark.bg,
-            '--ext-dark-text': colors.dark.text,
-            backgroundColor: 'var(--ext-bg)',
-            color: 'var(--ext-text)',
+            '--extension-badge-bg': colors.light.bg,
+            '--extension-badge-text': colors.light.text,
+            '--extension-badge-dark-bg': colors.dark.bg,
+            '--extension-badge-dark-text': colors.dark.text,
+            backgroundColor: 'var(--extension-badge-bg)',
+            color: 'var(--extension-badge-text)',
           } as React.CSSProperties
         }
         title={extension}

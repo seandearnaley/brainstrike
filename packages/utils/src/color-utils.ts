@@ -45,10 +45,11 @@ export interface FolderColors {
  * @returns Object with light and dark theme color combinations
  */
 export function getFolderColor(str: string): FolderColors {
-  // Create a simple hash of the string
+  // Normalize to lowercase for case-insensitive hashing
+  const normalized = str.toLowerCase();
   let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < normalized.length; i++) {
+    hash = normalized.charCodeAt(i) + ((hash << 5) - hash);
   }
 
   // Use the hash to select a color combination

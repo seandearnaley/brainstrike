@@ -57,6 +57,15 @@ describe('color-utils', () => {
       expect(color.dark).toBeDefined();
     });
 
+    it('should return the same color regardless of case', () => {
+      const lower = getFolderColor('tsx');
+      const upper = getFolderColor('TSX');
+      const mixed = getFolderColor('TsX');
+
+      expect(lower).toEqual(upper);
+      expect(lower).toEqual(mixed);
+    });
+
     it('should return colors from the predefined color combinations', () => {
       // Test multiple folder paths to cover most color combinations
       const testPaths = [

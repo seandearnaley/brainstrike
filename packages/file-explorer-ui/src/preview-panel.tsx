@@ -40,6 +40,7 @@ import { createRangeId, getStableColorForKey } from './tapestry/utils';
 import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 import type { TokenCountingState } from './use-token-counting';
 import {
+  EXTENSIONLESS_FILE_TYPE,
   GROUPING_CONFIGS,
   type GroupKey,
   groupData,
@@ -380,7 +381,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           id: fileItem.compositeKey,
           rootFolderId: folderId,
           path,
-          type: getFileExtension(path).toUpperCase() || 'FILE',
+          type: getFileExtension(path).toUpperCase() || EXTENSIONLESS_FILE_TYPE,
           compositeKey: fileItem.compositeKey,
         };
 

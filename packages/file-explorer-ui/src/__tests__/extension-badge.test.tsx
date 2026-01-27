@@ -11,11 +11,12 @@ describe('ExtensionBadge', () => {
   it('applies hash-based color styles for light and dark themes', () => {
     const { container } = render(<ExtensionBadge extension="JS" />);
     const badge = container.firstElementChild as HTMLElement;
+    const hexColor = /^#[0-9A-Fa-f]{6}$/;
 
-    expect(badge.style.getPropertyValue('--ext-bg')).toBeTruthy();
-    expect(badge.style.getPropertyValue('--ext-text')).toBeTruthy();
-    expect(badge.style.getPropertyValue('--ext-dark-bg')).toBeTruthy();
-    expect(badge.style.getPropertyValue('--ext-dark-text')).toBeTruthy();
+    expect(badge.style.getPropertyValue('--extension-badge-bg')).toMatch(hexColor);
+    expect(badge.style.getPropertyValue('--extension-badge-text')).toMatch(hexColor);
+    expect(badge.style.getPropertyValue('--extension-badge-dark-bg')).toMatch(hexColor);
+    expect(badge.style.getPropertyValue('--extension-badge-dark-text')).toMatch(hexColor);
   });
 
   it('produces consistent colors for the same extension', () => {
@@ -25,8 +26,8 @@ describe('ExtensionBadge', () => {
     const badge1 = c1.firstElementChild as HTMLElement;
     const badge2 = c2.firstElementChild as HTMLElement;
 
-    expect(badge1.style.getPropertyValue('--ext-bg')).toBe(
-      badge2.style.getPropertyValue('--ext-bg')
+    expect(badge1.style.getPropertyValue('--extension-badge-bg')).toBe(
+      badge2.style.getPropertyValue('--extension-badge-bg')
     );
   });
 
