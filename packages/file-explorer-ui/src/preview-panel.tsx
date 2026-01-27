@@ -13,7 +13,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, getFileExtension } from '@brainstrike/utils';
 import {
   CheckSquare,
   FileText,
@@ -380,7 +380,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           id: fileItem.compositeKey,
           rootFolderId: folderId,
           path,
-          type: path.split('.').pop()?.toUpperCase() || 'FILE',
+          type: getFileExtension(path).toUpperCase() || 'FILE',
           compositeKey: fileItem.compositeKey,
         };
 
