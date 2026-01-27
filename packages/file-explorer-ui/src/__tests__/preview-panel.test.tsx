@@ -37,6 +37,8 @@ const { resetPreviewPanelPaginationMockState } = await previewPanelMocksPromise;
 
 beforeEach(() => {
   resetPreviewPanelPaginationMockState();
+  // Clear localStorage to ensure clean test state for preferences hook
+  localStorage.removeItem('previewPanelPreferences.v1');
 });
 
 describe('PreviewPanel', () => {
@@ -557,9 +559,9 @@ describe('PreviewPanel', () => {
         />
       );
 
-      expect(screen.getByText('Previous')).toBeInTheDocument();
-      expect(screen.getByText('Next')).toBeInTheDocument();
-      expect(screen.getByText('Page 1 of 3 (120 total items)')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Go to previous page' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Go to next page' })).toBeInTheDocument();
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 3');
     });
 
     it('should handle next page navigation', () => {
@@ -570,10 +572,11 @@ describe('PreviewPanel', () => {
         />
       );
 
-      const nextButton = screen.getByText('Next');
+      const nextButton = screen.getByRole('button', { name: 'Go to next page' });
       fireEvent.click(nextButton);
 
-      expect(screen.getByText('Page 2 of 3 (120 total items)')).toBeInTheDocument();
+      // Page input shows current page (2), total pages shown as "of 3"
+      expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(2);
     });
 
     it('should handle previous page navigation', () => {
@@ -585,17 +588,18 @@ describe('PreviewPanel', () => {
       );
 
       // Go to next page first
-      const nextButton = screen.getByText('Next');
+      const nextButton = screen.getByRole('button', { name: 'Go to next page' });
       fireEvent.click(nextButton);
 
       // Then go back
-      const prevButton = screen.getByText('Previous');
+      const prevButton = screen.getByRole('button', { name: 'Go to previous page' });
       fireEvent.click(prevButton);
 
-      expect(screen.getByText('Page 1 of 3 (120 total items)')).toBeInTheDocument();
+      // Back to page 1
+      expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(1);
     });
 
-    it('should handle direct page navigation', () => {
+    it('should handle direct page navigation via last page button', () => {
       render(
         <PreviewPanel
           {...mockProps}
@@ -603,10 +607,11 @@ describe('PreviewPanel', () => {
         />
       );
 
-      const page2Button = screen.getByText('2');
-      fireEvent.click(page2Button);
+      const lastPageButton = screen.getByRole('button', { name: 'Go to last page' });
+      fireEvent.click(lastPageButton);
 
-      expect(screen.getByText('Page 2 of 3 (120 total items)')).toBeInTheDocument();
+      // Should be on last page (page 3)
+      expect(screen.getByRole('spinbutton', { name: 'Page number' })).toHaveValue(3);
     });
 
     it('should disable navigation buttons at boundaries', () => {
@@ -617,15 +622,17 @@ describe('PreviewPanel', () => {
         />
       );
 
-      // Previous should be disabled on first page
-      expect(screen.getByText('Previous')).toBeDisabled();
+      // First page and previous should be disabled on first page
+      expect(screen.getByRole('button', { name: 'Go to first page' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Go to previous page' })).toBeDisabled();
 
       // Go to last page
-      const page3Button = screen.getByRole('button', { name: '3' });
-      fireEvent.click(page3Button);
+      const lastPageButton = screen.getByRole('button', { name: 'Go to last page' });
+      fireEvent.click(lastPageButton);
 
-      // Next should be disabled on last page
-      expect(screen.getByText('Next')).toBeDisabled();
+      // Next and last page should be disabled on last page
+      expect(screen.getByRole('button', { name: 'Go to next page' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Go to last page' })).toBeDisabled();
     });
 
     it('resets to first page when current page becomes out of bounds', () => {
@@ -648,15 +655,11 @@ describe('PreviewPanel', () => {
       );
 
       // Should show three pages
-      expect(screen.getByText('Page 1 of 3 (25 total items)')).toBeInTheDocument();
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 3');
 
-      // Go to page 3 (last page)
-      const page3Buttons = screen.getAllByText('3');
-      const page3Button = page3Buttons.find((button) => button.tagName === 'BUTTON');
-      expect(page3Button).toBeDefined();
-      if (page3Button) {
-        fireEvent.click(page3Button);
-      }
+      // Go to page 3 (last page) via last page button
+      const lastPageButton = screen.getByRole('button', { name: 'Go to last page' });
+      fireEvent.click(lastPageButton);
 
       // Shrink to 5 files (only 1 page now), making page 3 out of bounds
       const smallerFileSet = new Set(Array.from({ length: 5 }, (_, i) => `file${i}`));
@@ -676,7 +679,7 @@ describe('PreviewPanel', () => {
       rerender(<PreviewPanel {...mockProps} pageSize={10} selectedFiles={smallerFileSet} />);
 
       // Should reset to page 1 since page 3 is now out of bounds
-      expect(screen.getByText('Page 1 of 1 (5 total items)')).toBeInTheDocument();
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 1');
     });
   });
 
@@ -742,7 +745,7 @@ describe('PreviewPanel', () => {
       expect(groupingSelect).toBeInTheDocument();
 
       // Check that all grouping options are available
-      const options = screen.getByRole('combobox').querySelectorAll('option');
+      const options = groupingSelect.querySelectorAll('option');
       expect(options).toHaveLength(6); // none, directory, rootFolder, fileType, sizeSteps, tokenSteps
     });
 
@@ -756,7 +759,8 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Should show "By Root Folder" selected (migrated from legacy "folder")
-      const groupingSelect = screen.getByRole('combobox');
+      // Use getByDisplayValue to find the specific grouping select (not the page size dropdown)
+      const groupingSelect = screen.getByDisplayValue('By Root Folder');
       expect(groupingSelect).toHaveValue('rootFolder');
 
       // Clean up
@@ -1338,10 +1342,10 @@ describe('PreviewPanel', () => {
 
       mockUsePreviewPanelState.mockReturnValue(largeMockState);
 
-      render(<PreviewPanel {...mockProps} selectedFiles={largeFileSet} />);
+      render(<PreviewPanel {...mockProps} pageSize={50} selectedFiles={largeFileSet} />);
 
       // Should only show first page (50 items) even with large datasets
-      expect(screen.getByText('Page 1 of 20 (1000 total items)')).toBeInTheDocument();
+      expect(screen.getByTestId('page-info')).toHaveTextContent('of 20');
     });
   });
 });

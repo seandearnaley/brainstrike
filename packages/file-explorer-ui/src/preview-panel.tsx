@@ -269,10 +269,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     collapsedGroups,
     columnVisibility,
     groupingConfig,
+    pageSize: persistedPageSize,
     setActiveTab,
     setCollapsedGroups,
     setColumnVisibility,
     setGroupingConfig,
+    setPageSize,
     setSortDirection,
     setSortField,
     sortDirection,
@@ -545,12 +547,18 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     return flattened;
   }, [groupedData, groupingConfig, sortedData]);
 
+  // Use prop if explicitly provided (different from default), otherwise persisted, otherwise default
+  // This allows tests to override the page size while still supporting user persistence
+  const DefaultPageSizeProp = 50;
+  const effectivePageSize =
+    pageSize !== DefaultPageSizeProp ? pageSize : (persistedPageSize ?? pageSize);
+
   // Use pagination hooks (table + tapestry)
   const tablePagination = usePagination({
     totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
-    pageSize,
+    pageSize: effectivePageSize,
   });
-  const tapestryPageSize = Math.min(pageSize, TAPESTRY_MAX_PAGE_SIZE);
+  const tapestryPageSize = Math.min(effectivePageSize, TAPESTRY_MAX_PAGE_SIZE);
   const tapestryPagination = usePagination({
     totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
     pageSize: tapestryPageSize,
@@ -570,6 +578,15 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     resetTableToFirstPage();
     resetTapestryToFirstPage();
   }, [resetTableToFirstPage, resetTapestryToFirstPage]);
+
+  // Handle page size changes - reset to first page when size changes
+  const handlePageSizeChange = useCallback(
+    (newPageSize: number) => {
+      setPageSize(newPageSize);
+      resetAllPages();
+    },
+    [setPageSize, resetAllPages]
+  );
 
   // Use group selection hook
   const groupSelection = useGroupSelection({
@@ -978,6 +995,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           <TablePagination
             currentPage={tableCurrentPage}
             onPageChange={goToTablePage}
+            onPageSizeChange={handlePageSizeChange}
+            pageSize={effectivePageSize}
             totalItems={flattenedData.length}
             totalPages={tablePagination.totalPages}
             {...paginationInfo}

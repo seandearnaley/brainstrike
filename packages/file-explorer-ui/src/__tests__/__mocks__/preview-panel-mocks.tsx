@@ -21,6 +21,8 @@ interface MockTablePaginationProps extends MockComponentProps {
   totalItems?: number;
   pageInfo?: string;
   maxPageButtons?: number;
+  pageSize?: number;
+  onPageSizeChange?: (size: number) => void;
 }
 
 interface MockTableGroupHeaderProps extends MockComponentProps {
@@ -329,61 +331,81 @@ export const createUiModuleMock = () => ({
     onPageChange,
     totalItems,
     pageInfo,
-    maxPageButtons,
+    pageSize = 50,
+    onPageSizeChange,
     ...domProps
   }: MockTablePaginationProps) => {
-    const getPageNumbers = () => {
-      const maxButtons = maxPageButtons ?? 5;
-      const halfMax = Math.floor(maxButtons / 2);
-
-      if (totalPages <= maxButtons) {
-        return Array.from({ length: totalPages }, (_, index) => index);
-      }
-
-      if (currentPage < halfMax) {
-        return Array.from({ length: maxButtons }, (_, index) => index);
-      }
-
-      if (currentPage > totalPages - Math.ceil(maxButtons / 2) - 1) {
-        return Array.from({ length: maxButtons }, (_, index) => totalPages - maxButtons + index);
-      }
-
-      const startPage = currentPage - halfMax;
-      return Array.from({ length: maxButtons }, (_, index) => startPage + index);
-    };
+    // Calculate item range
+    const startItem = totalItems === 0 ? 0 : currentPage * pageSize + 1;
+    const endItem = Math.min((currentPage + 1) * pageSize, totalItems ?? 0);
 
     return (
       <div data-testid="table-pagination" {...domProps}>
+        {onPageSizeChange && (
+          <span>
+            Show{' '}
+            <select
+              aria-label="Items per page"
+              onChange={(e) => onPageSizeChange(Number(e.target.value))}
+              value={pageSize}
+            >
+              <option value="10">10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </span>
+        )}
         <button
+          aria-label="Go to first page"
+          disabled={currentPage === 0}
+          onClick={() => onPageChange?.(0)}
+          type="button"
+        >
+          ⏮
+        </button>
+        <button
+          aria-label="Go to previous page"
           disabled={currentPage === 0}
           onClick={() => onPageChange?.(currentPage - 1)}
           type="button"
         >
-          Previous
+          ◀
         </button>
-        <span>
-          Page {currentPage + 1} of {totalPages}
-          {pageInfo ? ` ${pageInfo}` : totalItems ? ` (${totalItems} total items)` : ''}
-        </span>
-        <div>
-          {getPageNumbers().map((pageNumber) => (
-            <button
-              key={pageNumber}
-              onClick={() => onPageChange?.(pageNumber)}
-              style={{ margin: '0 2px' }}
-              type="button"
-            >
-              {pageNumber + 1}
-            </button>
-          ))}
-        </div>
+        <input
+          aria-label="Page number"
+          max={totalPages}
+          min={1}
+          onChange={(e) => {
+            const val = Number.parseInt(e.target.value, 10);
+            if (!Number.isNaN(val) && val >= 1 && val <= totalPages) {
+              onPageChange?.(val - 1); // Convert to 0-indexed
+            }
+          }}
+          type="number"
+          value={currentPage + 1}
+        />
+        <span data-testid="page-info">of {totalPages}</span>
         <button
+          aria-label="Go to next page"
           disabled={currentPage >= totalPages - 1}
           onClick={() => onPageChange?.(currentPage + 1)}
           type="button"
         >
-          Next
+          ▶
         </button>
+        <button
+          aria-label="Go to last page"
+          disabled={currentPage >= totalPages - 1}
+          onClick={() => onPageChange?.(totalPages - 1)}
+          type="button"
+        >
+          ⏭
+        </button>
+        <span data-testid="item-range">
+          {totalItems ? `${startItem}-${endItem} of ${totalItems}` : 'No items'}
+          {pageInfo ? ` ${pageInfo}` : ''}
+        </span>
       </div>
     );
   },

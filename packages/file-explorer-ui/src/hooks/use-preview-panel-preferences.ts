@@ -27,6 +27,9 @@ const COLUMN_VISIBILITY_KEYS = Object.keys(
   createDefaultColumnVisibility()
 ) as (keyof ColumnVisibility)[];
 
+const DEFAULT_PAGE_SIZE = 50;
+const VALID_PAGE_SIZES = new Set([10, 25, 50, 100]);
+
 interface StoredPreferences {
   columnVisibility?: Partial<ColumnVisibility>;
   sortField?: keyof TableRowData;
@@ -34,6 +37,7 @@ interface StoredPreferences {
   groupingConfig?: string;
   activeTab?: string;
   collapsedGroups?: string[];
+  pageSize?: number;
 }
 
 interface PreviewPanelPreferences {
@@ -43,6 +47,7 @@ interface PreviewPanelPreferences {
   groupingConfig: string;
   activeTab: string;
   collapsedGroups: Set<string>;
+  pageSize: number;
 }
 
 interface PreviewPanelPreferencesDefaults {
@@ -142,6 +147,13 @@ function sanitizeCollapsedGroups(
   return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
+function sanitizePageSize(value: StoredPreferences['pageSize']): StoredPreferences['pageSize'] {
+  if (typeof value === 'number' && VALID_PAGE_SIZES.has(value)) {
+    return value;
+  }
+  return;
+}
+
 function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPreferences | null {
   if (!stored || typeof stored !== 'object') {
     return null;
@@ -172,6 +184,10 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
   if (collapsedGroups) {
     sanitized.collapsedGroups = collapsedGroups;
   }
+  const pageSize = sanitizePageSize(stored.pageSize);
+  if (pageSize !== undefined) {
+    sanitized.pageSize = pageSize;
+  }
 
   return sanitized;
 }
@@ -190,6 +206,7 @@ interface PreviewPanelPreferencesSetters {
   setGroupingConfig: Dispatch<SetStateAction<string>>;
   setActiveTab: Dispatch<SetStateAction<string>>;
   setCollapsedGroups: Dispatch<SetStateAction<Set<string>>>;
+  setPageSize: Dispatch<SetStateAction<number>>;
 }
 
 export function usePreviewPanelPreferences(
@@ -224,6 +241,10 @@ export function usePreviewPanelPreferences(
     return new Set(storedGroups);
   });
 
+  const [pageSize, setPageSize] = useState<number>(() =>
+    getStoredValue(storedPreferences, 'pageSize', DEFAULT_PAGE_SIZE)
+  );
+
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       try {
@@ -234,6 +255,7 @@ export function usePreviewPanelPreferences(
           groupingConfig,
           activeTab,
           collapsedGroups: Array.from(collapsedGroups),
+          pageSize,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       } catch (error) {
@@ -251,17 +273,27 @@ export function usePreviewPanelPreferences(
     }, SAVE_DEBOUNCE_MS);
 
     return () => clearTimeout(timeoutId);
-  }, [columnVisibility, sortField, sortDirection, groupingConfig, collapsedGroups, activeTab]);
+  }, [
+    columnVisibility,
+    sortField,
+    sortDirection,
+    groupingConfig,
+    collapsedGroups,
+    activeTab,
+    pageSize,
+  ]);
 
   return {
     activeTab,
     collapsedGroups,
     columnVisibility,
     groupingConfig,
+    pageSize,
     setActiveTab,
     setCollapsedGroups,
     setColumnVisibility,
     setGroupingConfig,
+    setPageSize,
     setSortDirection,
     setSortField,
     sortDirection,
