@@ -159,6 +159,7 @@ export function DataTable<TData>({
         <TablePagination
           currentPage={currentPage}
           onPageChange={setCurrentPage}
+          pageSize={pageSize}
           totalItems={data.length}
           totalPages={totalPages}
         />

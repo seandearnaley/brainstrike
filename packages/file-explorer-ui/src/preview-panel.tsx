@@ -1062,6 +1062,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               pagination={{
                 currentPage: tapestryCurrentPage,
                 onPageChange: goToTapestryPage,
+                pageSize: tapestryPageSize,
                 totalItems: flattenedData.length,
                 totalPages: tapestryPagination.totalPages,
                 ...paginationInfo,
