@@ -106,8 +106,8 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
     [onPageSizeChange]
   );
 
-  // Calculate item range for display
-  const effectivePageSize = pageSize ?? pageSizeOptions[0] ?? 50;
+  // Calculate item range for display (fallback to first option in defaults, then 50 as last resort)
+  const effectivePageSize = pageSize ?? pageSizeOptions[0] ?? DEFAULT_PAGE_SIZE_OPTIONS[2];
   const startItem = totalItems === 0 ? 0 : currentPage * effectivePageSize + 1;
   const endItem = Math.min((currentPage + 1) * effectivePageSize, totalItems);
 
@@ -171,6 +171,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
           <Input
             aria-label="Page number"
             className="h-7 w-14 px-2 text-center text-xs tabular-nums"
+            disabled={totalPages === 0}
             max={totalPages}
             min={1}
             onBlur={handleInputBlur}
