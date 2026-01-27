@@ -10,32 +10,21 @@ import { createLogger } from '@brainstrike/utils';
 const logger = createLogger('worker-storage');
 
 /**
- * Resolve the worker storage URL that Vite/bundlers can turn into a Worker reference at runtime.
- * Uses the MDN-recommended `new URL(..., import.meta.url)` pattern for bundlers.
+ * Resolve the worker storage URL for Vite/bundler worker loading.
  *
- * This function must be exported at module top-level for Vite to statically analyze and
- * properly bundle the worker file. Without this, Vite cannot trace the URL pattern when
- * it's buried inside a class constructor.
+ * WARNING: This function uses `import.meta.url` which is ESM-only. In CJS builds,
+ * esbuild emits "empty-import-meta" warnings because `import.meta` is undefined in CJS.
+ * This is INTENTIONAL and HARMLESS — this function is only called at runtime in browser
+ * ESM environments (guarded by `initWorker` in worker-init.ts which checks for `window`,
+ * non-test, non-Electron, and non-headless environments before calling this).
  *
- * @example
- * ```ts
- * import { resolveWorkerStorageUrl, WorkerStorage } from '@brainstrike/file-explorer';
- *
- * const workerUrl = resolveWorkerStorageUrl();
- * const storage = new WorkerStorage(workerUrl);
- * ```
+ * The esbuild warning is suppressed in tsup.config.ts via `esbuildOptions.logOverride`.
+ * DO NOT remove the suppression without verifying the warning is gone, and DO NOT try to
+ * "fix" this by adding typeof guards around import.meta — the URL constructor needs a
+ * real value, and the runtime guard in worker-init.ts is sufficient.
  */
 export function resolveWorkerStorageUrl(): URL {
-  // ESM environment (browsers, Node.js ESM): import.meta.url is always available
-  // Path is relative to the bundled dist/index.mjs, so we need to include the persistence directory
-  // IMPORTANT: Must use .mjs (ESM format) not .js (CJS format) - browsers only understand ESM
-  if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
-    return new URL('./persistence/worker-storage.worker.mjs', import.meta.url);
-  }
-  throw new Error(
-    'Unable to resolve worker storage URL: import.meta.url is not available. ' +
-      'This function requires an ESM environment (browser or Node.js ESM).'
-  );
+  return new URL('./persistence/worker-storage.worker.mjs', import.meta.url);
 }
 
 export interface WorkerMessage {

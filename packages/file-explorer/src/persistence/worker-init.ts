@@ -49,7 +49,6 @@ function tryInitializeWorker(shouldLog: boolean): {
   useWorker: boolean;
 } {
   try {
-    // Resolve worker URL at top level for Vite to statically analyze and bundle
     const workerUrl = resolveWorkerStorageUrl();
     const workerStorage = new WorkerStorage(workerUrl);
     const useWorker = workerStorage.isWorkerAvailable;

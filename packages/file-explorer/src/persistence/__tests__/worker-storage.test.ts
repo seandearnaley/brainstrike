@@ -80,7 +80,6 @@ class MockErrorEvent extends Event {
 (global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
 
 describe('resolveWorkerStorageUrl', () => {
-  // Import dynamically to test the actual function without mocking the module
   it('returns a URL ending with .mjs extension', async () => {
     const { resolveWorkerStorageUrl } = await import('../worker-storage');
     const url = resolveWorkerStorageUrl();
