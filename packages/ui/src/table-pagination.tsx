@@ -5,6 +5,8 @@ import { Input } from './input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './select';
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 250, 500, 1000] as const;
+/** Fallback page size when no options are available */
+const DEFAULT_FALLBACK_PAGE_SIZE = 50;
 
 interface TablePaginationProps {
   /** Current page index (0-based) */
@@ -79,6 +81,8 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
     const parsed = Number.parseInt(editValue, 10);
     setIsFocused(false);
     if (Number.isNaN(parsed) || parsed < 1) {
+      // Reset to current page on invalid input so next focus shows correct value
+      setEditValue(String(displayPage));
       return;
     }
     const clampedPage = Math.min(Math.max(parsed, 1), totalPages);
@@ -106,8 +110,12 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
     [onPageSizeChange]
   );
 
-  // Calculate item range for display (fallback to first option in defaults, then 50 as last resort)
-  const effectivePageSize = pageSize ?? pageSizeOptions[0] ?? DEFAULT_PAGE_SIZE_OPTIONS[2];
+  // Ensure we have valid page size options (fallback to defaults if empty array passed)
+  const actualPageSizeOptions =
+    pageSizeOptions.length > 0 ? pageSizeOptions : DEFAULT_PAGE_SIZE_OPTIONS;
+
+  // Calculate item range for display
+  const effectivePageSize = pageSize ?? actualPageSizeOptions[0] ?? DEFAULT_FALLBACK_PAGE_SIZE;
   const startItem = totalItems === 0 ? 0 : currentPage * effectivePageSize + 1;
   const endItem = Math.min((currentPage + 1) * effectivePageSize, totalItems);
 
@@ -133,7 +141,7 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {pageSizeOptions.map((size) => (
+                {actualPageSizeOptions.map((size) => (
                   <SelectItem className="text-xs" key={size} value={String(size)}>
                     {size}
                   </SelectItem>
