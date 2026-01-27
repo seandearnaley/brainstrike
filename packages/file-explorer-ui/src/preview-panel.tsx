@@ -381,7 +381,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           id: fileItem.compositeKey,
           rootFolderId: folderId,
           path,
-          type: getFileExtension(path).toUpperCase() || EXTENSIONLESS_FILE_TYPE,
+          type: getFileExtension(path) || EXTENSIONLESS_FILE_TYPE,
           compositeKey: fileItem.compositeKey,
         };
 

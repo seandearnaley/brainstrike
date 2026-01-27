@@ -54,18 +54,7 @@ export function getFolderColor(str: string): FolderColors {
 
   // Use the hash to select a color combination
   const index = Math.abs(hash) % COLOR_COMBINATIONS.length;
-  const selectedColor: FolderColors | undefined = COLOR_COMBINATIONS[index];
-
-  // Ensure we always return a valid FolderColors object
-  if (selectedColor !== undefined) {
-    return selectedColor;
-  }
-  if (COLOR_COMBINATIONS.length > 0) {
-    return COLOR_COMBINATIONS[0] as FolderColors;
-  }
-  // Fallback: return a default color scheme if COLOR_COMBINATIONS is empty
-  return {
-    light: { bg: '#FFFFFF', text: '#000000' },
-    dark: { bg: '#000000', text: '#FFFFFF' },
-  };
+  // Index is always valid: modulo guarantees 0 <= index < COLOR_COMBINATIONS.length
+  // biome-ignore lint/style/noNonNullAssertion: index is bounded by modulo of array length
+  return COLOR_COMBINATIONS[index]!;
 }

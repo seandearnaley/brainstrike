@@ -11,7 +11,7 @@ describe('PreviewTableRow', () => {
     compositeKey: 'file1',
     rootFolderId: 'root',
     path: '/src/components/Button.tsx',
-    type: 'TSX',
+    type: 'tsx',
     tokens: 1500,
     size: 5120,
   };
@@ -47,7 +47,7 @@ describe('PreviewTableRow', () => {
     expect(screen.getByText('root')).toBeInTheDocument();
     expect(screen.getByText('Button.tsx')).toBeInTheDocument();
     expect(screen.getByText('src/components')).toBeInTheDocument();
-    expect(screen.getByText('TSX')).toBeInTheDocument();
+    expect(screen.getByText('tsx')).toBeInTheDocument();
     expect(screen.getByText('1.5K')).toBeInTheDocument();
     expect(screen.getByText('5.0 KB')).toBeInTheDocument();
   });
@@ -79,7 +79,7 @@ describe('PreviewTableRow', () => {
     expect(screen.queryByLabelText('Select /src/components/Button.tsx')).not.toBeInTheDocument();
     expect(screen.queryByText('root')).not.toBeInTheDocument();
     expect(screen.getByText('Button.tsx')).toBeInTheDocument();
-    expect(screen.queryByText('TSX')).not.toBeInTheDocument();
+    expect(screen.queryByText('tsx')).not.toBeInTheDocument();
   });
 
   it('handles checkbox toggle', async () => {
@@ -200,7 +200,7 @@ describe('PreviewTableRow', () => {
       compositeKey: 'file2',
       rootFolderId: 'root',
       path: 'README.md',
-      type: 'MD',
+      type: 'md',
       tokens: 500,
       size: 2048,
     };
@@ -413,7 +413,7 @@ describe('PreviewTableRow', () => {
       </table>
     );
 
-    const badge = screen.getByText('TSX');
+    const badge = screen.getByText('tsx');
     expect(badge).toBeInTheDocument();
     // Badge should have inline color styles from the hash-based color system
     const badgeContainer = badge.closest('[style]');
@@ -426,7 +426,7 @@ describe('PreviewTableRow', () => {
       id: 'id-noext',
       compositeKey: 'file-noext',
       path: '/src/Makefile',
-      type: 'FILE',
+      type: 'file',
     };
 
     render(
@@ -443,6 +443,6 @@ describe('PreviewTableRow', () => {
       </table>
     );
 
-    expect(screen.getByText('FILE')).toBeInTheDocument();
+    expect(screen.getByText('file')).toBeInTheDocument();
   });
 });

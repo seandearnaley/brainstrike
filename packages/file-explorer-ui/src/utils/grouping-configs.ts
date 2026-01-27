@@ -38,7 +38,7 @@ export interface GroupedData<T = unknown> {
 }
 
 /** Fallback type label for files without a recognized extension. */
-export const EXTENSIONLESS_FILE_TYPE = 'FILE';
+export const EXTENSIONLESS_FILE_TYPE = 'file';
 
 // Table data structure for preview panel
 export interface TableRowData {

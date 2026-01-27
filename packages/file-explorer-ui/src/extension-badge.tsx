@@ -46,7 +46,7 @@ export const ExtensionBadge = React.memo(
         title={extension}
         variant="secondary"
       >
-        <span className={cn('truncate', styles.label)}>{extension}</span>
+        <span className={cn('truncate uppercase', styles.label)}>{extension}</span>
       </Badge>
     );
   }

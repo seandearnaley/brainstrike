@@ -4,12 +4,12 @@ import { ExtensionBadge } from '../extension-badge';
 
 describe('ExtensionBadge', () => {
   it('renders the extension text', () => {
-    render(<ExtensionBadge extension="TSX" />);
-    expect(screen.getByText('TSX')).toBeInTheDocument();
+    render(<ExtensionBadge extension="tsx" />);
+    expect(screen.getByText('tsx')).toBeInTheDocument();
   });
 
   it('applies hash-based color styles for light and dark themes', () => {
-    const { container } = render(<ExtensionBadge extension="JS" />);
+    const { container } = render(<ExtensionBadge extension="js" />);
     const badge = container.firstElementChild as HTMLElement;
     const hexColor = /^#[0-9A-Fa-f]{6}$/;
 
@@ -20,8 +20,8 @@ describe('ExtensionBadge', () => {
   });
 
   it('produces consistent colors for the same extension', () => {
-    const { container: c1 } = render(<ExtensionBadge extension="PY" />);
-    const { container: c2 } = render(<ExtensionBadge extension="PY" />);
+    const { container: c1 } = render(<ExtensionBadge extension="py" />);
+    const { container: c2 } = render(<ExtensionBadge extension="py" />);
 
     const badge1 = c1.firstElementChild as HTMLElement;
     const badge2 = c2.firstElementChild as HTMLElement;
@@ -32,32 +32,38 @@ describe('ExtensionBadge', () => {
   });
 
   it('renders a title attribute for truncated extensions', () => {
-    render(<ExtensionBadge extension="DOCKERFILE" />);
-    const badge = screen.getByTitle('DOCKERFILE');
+    render(<ExtensionBadge extension="dockerfile" />);
+    const badge = screen.getByTitle('dockerfile');
     expect(badge).toBeInTheDocument();
   });
 
-  it('renders FILE for extensionless files', () => {
-    render(<ExtensionBadge extension="FILE" />);
-    expect(screen.getByText('FILE')).toBeInTheDocument();
+  it('renders file label for extensionless files', () => {
+    render(<ExtensionBadge extension="file" />);
+    expect(screen.getByText('file')).toBeInTheDocument();
   });
 
   it('accepts custom className', () => {
-    const { container } = render(<ExtensionBadge className="custom-class" extension="MD" />);
+    const { container } = render(<ExtensionBadge className="custom-class" extension="md" />);
     const badge = container.firstElementChild as HTMLElement;
     expect(badge.className).toContain('custom-class');
   });
 
   it('renders compact size with smaller styling', () => {
-    const { container } = render(<ExtensionBadge extension="JS" size="compact" />);
+    const { container } = render(<ExtensionBadge extension="js" size="compact" />);
     const badge = container.firstElementChild as HTMLElement;
     expect(badge.className).toContain('py-0');
     expect(badge.className).toContain('leading-tight');
   });
 
   it('defaults to default size', () => {
-    const { container } = render(<ExtensionBadge extension="JS" />);
+    const { container } = render(<ExtensionBadge extension="js" />);
     const badge = container.firstElementChild as HTMLElement;
     expect(badge.className).toContain('py-0.5');
+  });
+
+  it('applies uppercase CSS class for visual display', () => {
+    const { container } = render(<ExtensionBadge extension="tsx" />);
+    const span = container.querySelector('span');
+    expect(span?.className).toContain('uppercase');
   });
 });
