@@ -364,29 +364,55 @@ async function updateChunkEmbeddingBatch(
   // Convert embeddings to string representation for postgres vector type
   const embeddings = updates.map((u) => `[${u.embedding.join(',')}]`);
 
-  const idCast = idType === 'uuid' ? '::uuid[]' : '::text[]';
+  let sql: string;
 
-  const sql = vectorEnabled
-    ? `UPDATE file_chunks AS fc
+  if (vectorEnabled) {
+    if (idType === 'uuid') {
+      sql = `UPDATE file_chunks AS fc
          SET
            embedding = t.embedding::vector,
            embedding_set_id = t.embedding_set_id,
            embedding_updated_at = $1,
            embedding_hash = t.embedding_hash,
            updated_at = $1
-       FROM unnest($2${idCast}, $3::text[], $4::text[], $5::text[])
+       FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[])
          AS t(id, embedding, embedding_set_id, embedding_hash)
-       WHERE fc.id = t.id`
-    : `UPDATE file_chunks AS fc
+       WHERE fc.id = t.id`;
+    } else {
+      sql = `UPDATE file_chunks AS fc
+         SET
+           embedding = t.embedding::vector,
+           embedding_set_id = t.embedding_set_id,
+           embedding_updated_at = $1,
+           embedding_hash = t.embedding_hash,
+           updated_at = $1
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
+         AS t(id, embedding, embedding_set_id, embedding_hash)
+       WHERE fc.id = t.id`;
+    }
+  } else if (idType === 'uuid') {
+    sql = `UPDATE file_chunks AS fc
          SET
            embedding = t.embedding,
            embedding_set_id = t.embedding_set_id,
            embedding_updated_at = $1,
            embedding_hash = t.embedding_hash,
            updated_at = $1
-       FROM unnest($2${idCast}, $3::text[], $4::text[], $5::text[])
+       FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[])
          AS t(id, embedding, embedding_set_id, embedding_hash)
        WHERE fc.id = t.id`;
+  } else {
+    sql = `UPDATE file_chunks AS fc
+         SET
+           embedding = t.embedding,
+           embedding_set_id = t.embedding_set_id,
+           embedding_updated_at = $1,
+           embedding_hash = t.embedding_hash,
+           updated_at = $1
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
+         AS t(id, embedding, embedding_set_id, embedding_hash)
+       WHERE fc.id = t.id`;
+  }
 
   await db.query(sql, [now, ids, embeddings, embeddingSetIds, embeddingHashes]);
 }
@@ -1363,6 +1389,13 @@ export async function startEmbeddingWorker(
     embeddings: number[][],
     jobModel: ReturnType<typeof resolveJobModel>
   ): Promise<Set<string>> {
+    // Validate batch size consistency before processing
+    if (toProcess.length !== embeddings.length) {
+      throw new Error(
+        `Batch size mismatch: ${toProcess.length} items vs ${embeddings.length} embeddings.`
+      );
+    }
+
     const completedJobIds = new Set<string>();
     const updates: Array<{
       id: string;
@@ -1372,11 +1405,8 @@ export async function startEmbeddingWorker(
     }> = [];
     const jobCompletions: Array<{ id: string; leaseToken: string }> = [];
 
-    for (let index = 0; index < toProcess.length; index += 1) {
-      const item = toProcess[index];
-      if (!item) {
-        throw new Error(`Missing batch item at index ${index}.`);
-      }
+    // Parallelize hash computation for performance
+    const updatesPromises = toProcess.map(async (item, index) => {
       const embedding = embeddings[index];
       if (!embedding) {
         throw new Error(`Missing embedding for item ${index} in batch.`);
@@ -1384,14 +1414,22 @@ export async function startEmbeddingWorker(
       const targetSetId = resolveTargetSetId(item.payload, item.chunk);
       const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
 
-      updates.push({
-        id: item.chunk.id,
-        embedding,
-        embeddingSetId: targetSetId,
-        embeddingHash: expectedHash,
-      });
+      return {
+        update: {
+          id: item.chunk.id,
+          embedding,
+          embeddingSetId: targetSetId,
+          embeddingHash: expectedHash,
+        },
+        jobCompletion: { id: item.job.id, leaseToken: item.job.lease_token },
+      };
+    });
 
-      jobCompletions.push({ id: item.job.id, leaseToken: item.job.lease_token });
+    const results = await Promise.all(updatesPromises);
+
+    for (const result of results) {
+      updates.push(result.update);
+      jobCompletions.push(result.jobCompletion);
     }
 
     if (updates.length > 0) {
