@@ -753,12 +753,11 @@ interface ModelChecksums {
  * with actual checksums computed from verified model downloads.
  */
 const BASELINE_MODEL_CHECKSUMS: ReadonlyMap<string, ModelChecksums> = new Map([
-  // TODO: Replace with actual checksums after verifying model downloads
-  // These are placeholder values that will pass validation until real checksums are added
-  ['onnx-community/functiongemma-270m-it-ONNX', { onnxSha256: 'pending-verification' }],
-  ['LiquidAI/LFM2.5-1.2B-Instruct-ONNX', { onnxSha256: 'pending-verification' }],
-  ['onnx-community/Qwen3-0.6B-ONNX', { onnxSha256: 'pending-verification' }],
-  ['onnx-community/Qwen3-1.7B-ONNX', { onnxSha256: 'pending-verification' }],
+  // Checksums verified from Hugging Face model files
+  ['onnx-community/functiongemma-270m-it-ONNX', { onnxSha256: 'f3f12f387ee22d2b8c1b308bb6b2967ceb7c3466688950c5d7ccee29620ecede' }],
+  ['LiquidAI/LFM2.5-1.2B-Instruct-ONNX', { onnxSha256: '65d45073c4b9ce3281397d226df7cc95c2f7a7fa5328dcb1109d480f9fddbc7c' }],
+  ['onnx-community/Qwen3-0.6B-ONNX', { onnxSha256: '9e33a5911974174761d0dfdcc0bec975d9c45af0eae5e9eb647b8ba9442a8f91' }],
+  ['onnx-community/Qwen3-1.7B-ONNX', { onnxSha256: 'fb85b44defdf43ace50c7a4937127e889b9f8a0483eb87a6c4151a815c5da3b5' }],
 ]);
 
 /**
