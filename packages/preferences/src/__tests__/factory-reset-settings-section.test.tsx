@@ -8,6 +8,59 @@ vi.mock('../settings/system/factory-reset-panel', () => ({
   FactoryResetPanel: () => <div data-testid="factory-reset-panel">Factory Reset Panel</div>,
 }));
 
+// Mock the ClearStoredFoldersPanel component
+vi.mock('../settings/system/clear-stored-folders-panel', () => ({
+  ClearStoredFoldersPanel: ({
+    isWebPlatform,
+    hasStoredFolders,
+  }: {
+    isWebPlatform?: boolean;
+    hasStoredFolders?: boolean;
+  }) => {
+    // Mirror the real component's behavior - return null when not web platform
+    if (!isWebPlatform) {
+      return null;
+    }
+    return (
+      <div
+        data-has-stored-folders={hasStoredFolders}
+        data-is-web-platform={isWebPlatform}
+        data-testid="clear-stored-folders-panel"
+      >
+        Clear Stored Folders Panel
+      </div>
+    );
+  },
+}));
+
+// Mock the InlineFixtureSettingsPanel component
+vi.mock('../settings/system/inline-fixture-settings-panel', () => ({
+  InlineFixtureSettingsPanel: ({
+    isAvailable,
+    isLoading,
+    checked,
+  }: {
+    isAvailable?: boolean;
+    isLoading?: boolean;
+    checked?: boolean;
+  }) => {
+    // Mirror the real component's behavior - return null when not available
+    if (!isAvailable) {
+      return null;
+    }
+    return (
+      <div
+        data-checked={checked}
+        data-is-available={isAvailable}
+        data-is-loading={isLoading}
+        data-testid="inline-fixture-settings-panel"
+      >
+        Inline Fixture Settings Panel
+      </div>
+    );
+  },
+}));
+
 describe('FactoryResetSettingsSection', () => {
   describe('rendering', () => {
     it('renders section heading and description', () => {
@@ -53,6 +106,125 @@ describe('FactoryResetSettingsSection', () => {
       expect(description.tagName).toBe('P');
       expect(description.className).toContain('text-sm');
       expect(description.className).toContain('text-muted-foreground');
+    });
+  });
+
+  describe('ClearStoredFoldersPanel integration', () => {
+    it('renders ClearStoredFoldersPanel on web platform by default', () => {
+      render(<FactoryResetSettingsSection />);
+
+      expect(screen.getByTestId('clear-stored-folders-panel')).toBeInTheDocument();
+    });
+
+    it('renders ClearStoredFoldersPanel when isWebPlatform is true', () => {
+      render(<FactoryResetSettingsSection isWebPlatform={true} />);
+
+      expect(screen.getByTestId('clear-stored-folders-panel')).toBeInTheDocument();
+    });
+
+    it('does not render ClearStoredFoldersPanel on desktop platform', () => {
+      render(<FactoryResetSettingsSection isWebPlatform={false} />);
+
+      expect(screen.queryByTestId('clear-stored-folders-panel')).not.toBeInTheDocument();
+    });
+
+    it('passes hasStoredFolders prop to ClearStoredFoldersPanel', () => {
+      render(<FactoryResetSettingsSection hasStoredFolders={true} />);
+
+      const panel = screen.getByTestId('clear-stored-folders-panel');
+      expect(panel).toHaveAttribute('data-has-stored-folders', 'true');
+    });
+
+    it('defaults hasStoredFolders to false', () => {
+      render(<FactoryResetSettingsSection />);
+
+      const panel = screen.getByTestId('clear-stored-folders-panel');
+      expect(panel).toHaveAttribute('data-has-stored-folders', 'false');
+    });
+  });
+
+  describe('InlineFixtureSettingsPanel integration', () => {
+    it('renders InlineFixtureSettingsPanel when available', () => {
+      render(
+        <FactoryResetSettingsSection
+          inlineFixtureSetting={{
+            available: true,
+            loading: false,
+            checked: false,
+            onChange: vi.fn(),
+          }}
+        />
+      );
+
+      expect(screen.getByTestId('inline-fixture-settings-panel')).toBeInTheDocument();
+    });
+
+    it('does not render InlineFixtureSettingsPanel when not available', () => {
+      render(
+        <FactoryResetSettingsSection
+          inlineFixtureSetting={{
+            available: false,
+            loading: false,
+            checked: false,
+            onChange: vi.fn(),
+          }}
+        />
+      );
+
+      expect(screen.queryByTestId('inline-fixture-settings-panel')).not.toBeInTheDocument();
+    });
+
+    it('does not render InlineFixtureSettingsPanel when not provided', () => {
+      render(<FactoryResetSettingsSection />);
+
+      expect(screen.queryByTestId('inline-fixture-settings-panel')).not.toBeInTheDocument();
+    });
+
+    it('passes checked prop to InlineFixtureSettingsPanel', () => {
+      render(
+        <FactoryResetSettingsSection
+          inlineFixtureSetting={{
+            available: true,
+            loading: false,
+            checked: true,
+            onChange: vi.fn(),
+          }}
+        />
+      );
+
+      const panel = screen.getByTestId('inline-fixture-settings-panel');
+      expect(panel).toHaveAttribute('data-checked', 'true');
+    });
+
+    it('passes loading prop to InlineFixtureSettingsPanel', () => {
+      render(
+        <FactoryResetSettingsSection
+          inlineFixtureSetting={{
+            available: true,
+            loading: true,
+            checked: false,
+            onChange: vi.fn(),
+          }}
+        />
+      );
+
+      const panel = screen.getByTestId('inline-fixture-settings-panel');
+      expect(panel).toHaveAttribute('data-is-loading', 'true');
+    });
+  });
+
+  describe('backward compatibility', () => {
+    it('works with no props (default behavior)', () => {
+      render(<FactoryResetSettingsSection />);
+
+      // Should render heading and description
+      expect(screen.getByRole('heading', { name: 'Factory Reset' })).toBeInTheDocument();
+      // Should render FactoryResetPanel
+      expect(screen.getByTestId('factory-reset-panel')).toBeInTheDocument();
+      // Should render ClearStoredFoldersPanel (web platform is default)
+      expect(screen.getByTestId('clear-stored-folders-panel')).toBeInTheDocument();
+      // Should NOT render InlineFixtureSettingsPanel (not provided)
+      expect(screen.queryByTestId('inline-fixture-settings-panel')).not.toBeInTheDocument();
     });
   });
 });

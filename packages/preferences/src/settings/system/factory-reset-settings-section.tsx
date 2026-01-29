@@ -1,6 +1,29 @@
+import { ClearStoredFoldersPanel } from './clear-stored-folders-panel';
 import { FactoryResetPanel } from './factory-reset-panel';
+import { InlineFixtureSettingsPanel } from './inline-fixture-settings-panel';
 
-export function FactoryResetSettingsSection() {
+export interface FactoryResetSettingsSectionProps {
+  /** Whether running on web platform. Defaults to true. */
+  isWebPlatform?: boolean;
+  /** Whether stored folders exist */
+  hasStoredFolders?: boolean;
+  /** Callback to clear stored folders */
+  onClearStoredFolders?: () => void;
+  /** Inline fixture settings (developer feature) */
+  inlineFixtureSetting?: {
+    available: boolean;
+    loading: boolean;
+    checked: boolean;
+    onChange: (checked: boolean) => void;
+  };
+}
+
+export function FactoryResetSettingsSection({
+  isWebPlatform = true,
+  hasStoredFolders = false,
+  onClearStoredFolders,
+  inlineFixtureSetting,
+}: FactoryResetSettingsSectionProps = {}) {
   return (
     <div className="space-y-4">
       <div>
@@ -10,6 +33,19 @@ export function FactoryResetSettingsSection() {
         </p>
       </div>
       <FactoryResetPanel />
+      <ClearStoredFoldersPanel
+        hasStoredFolders={hasStoredFolders}
+        isWebPlatform={isWebPlatform}
+        onClearFolders={onClearStoredFolders ?? (() => {})}
+      />
+      {inlineFixtureSetting && (
+        <InlineFixtureSettingsPanel
+          checked={inlineFixtureSetting.checked}
+          isAvailable={inlineFixtureSetting.available}
+          isLoading={inlineFixtureSetting.loading}
+          onChange={inlineFixtureSetting.onChange}
+        />
+      )}
     </div>
   );
 }
