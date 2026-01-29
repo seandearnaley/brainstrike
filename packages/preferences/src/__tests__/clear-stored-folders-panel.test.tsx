@@ -2,21 +2,7 @@ import '@testing-library/jest-dom/vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-
-// Mock dependencies
-vi.mock('@brainstrike/ui', () => ({
-  Button: ({ children, onClick, disabled, ...props }: React.ComponentProps<'button'>) => (
-    <button disabled={disabled} onClick={onClick} {...props}>
-      {children}
-    </button>
-  ),
-  Label: ({ children, className }: { children: React.ReactNode; className?: string }) => (
-    <div className={className}>{children}</div>
-  ),
-}));
-
-// Import after mocks are set up
-const { ClearStoredFoldersPanel } = await import('../settings/system/clear-stored-folders-panel');
+import { ClearStoredFoldersPanel } from '../settings/system/clear-stored-folders-panel';
 
 describe('ClearStoredFoldersPanel', () => {
   describe('rendering', () => {

@@ -4,18 +4,20 @@ import { InlineFixtureSettingsPanel } from './inline-fixture-settings-panel';
 
 export interface FactoryResetSettingsSectionProps {
   /** Whether running on web platform. Defaults to true. */
-  isWebPlatform?: boolean;
+  isWebPlatform?: boolean | undefined;
   /** Whether stored folders exist */
-  hasStoredFolders?: boolean;
+  hasStoredFolders?: boolean | undefined;
   /** Callback to clear stored folders */
-  onClearStoredFolders?: () => void;
+  onClearStoredFolders?: (() => void) | undefined;
   /** Inline fixture settings (developer feature) */
-  inlineFixtureSetting?: {
-    available: boolean;
-    loading: boolean;
-    checked: boolean;
-    onChange: (checked: boolean) => void;
-  };
+  inlineFixtureSetting?:
+    | {
+        available: boolean;
+        loading: boolean;
+        checked: boolean;
+        onChange: (checked: boolean) => void;
+      }
+    | undefined;
 }
 
 export function FactoryResetSettingsSection({

@@ -375,14 +375,42 @@ export function createTokenCountingSettingsCategory(): SettingsCategory {
   };
 }
 
-export function createFactoryResetSettingsCategory(): SettingsCategory {
+/**
+ * Options for creating the Factory Reset settings category.
+ */
+export interface CreateFactoryResetSettingsCategoryOptions {
+  /** Whether running on web platform. Defaults to true. */
+  isWebPlatform?: boolean;
+  /** Whether stored folders exist */
+  hasStoredFolders?: boolean;
+  /** Callback to clear stored folders */
+  onClearStoredFolders?: () => void;
+  /** Inline fixture settings (developer feature) */
+  inlineFixtureSetting?: {
+    available: boolean;
+    loading: boolean;
+    checked: boolean;
+    onChange: (checked: boolean) => void;
+  };
+}
+
+export function createFactoryResetSettingsCategory(
+  options?: CreateFactoryResetSettingsCategoryOptions
+): SettingsCategory {
   return {
     id: 'factory-reset',
     title: 'Factory Reset',
     description: 'Wipe application data and reset preferences.',
-    keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences'],
+    keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences', 'stored folders'],
     icon: Settings,
-    render: () => <FactoryResetSettingsSection />,
+    render: () => (
+      <FactoryResetSettingsSection
+        hasStoredFolders={options?.hasStoredFolders}
+        inlineFixtureSetting={options?.inlineFixtureSetting}
+        isWebPlatform={options?.isWebPlatform}
+        onClearStoredFolders={options?.onClearStoredFolders}
+      />
+    ),
   };
 }
 

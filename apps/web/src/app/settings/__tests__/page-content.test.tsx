@@ -20,6 +20,24 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
   };
 });
 
+vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-hooks')>();
+  return {
+    ...actual,
+    useRestoreAccess: vi.fn(() => ({
+      storedFolders: [],
+      clearStoredHandles: vi.fn(),
+      isCheckingStoredHandles: false,
+      pendingRestore: null,
+      showDeniedBanner: false,
+      showStaleBanner: false,
+      beginRestore: vi.fn(),
+      dismissRestore: vi.fn(),
+      chooseDifferentFolder: vi.fn(),
+    })),
+  };
+});
+
 describe('Web SettingsPageContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
