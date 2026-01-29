@@ -754,9 +754,14 @@ interface ModelChecksums {
  */
 const BASELINE_MODEL_CHECKSUMS: ReadonlyMap<string, ModelChecksums> = new Map([
   // Checksums verified from Hugging Face model files
+
+  // FunctionGemma uses q4 dtype: onnx/model_q4.onnx
   ['onnx-community/functiongemma-270m-it-ONNX', { onnxSha256: 'f3f12f387ee22d2b8c1b308bb6b2967ceb7c3466688950c5d7ccee29620ecede' }],
+  // LFM2.5 uses q4 dtype: onnx/model_q4.onnx
   ['LiquidAI/LFM2.5-1.2B-Instruct-ONNX', { onnxSha256: '65d45073c4b9ce3281397d226df7cc95c2f7a7fa5328dcb1109d480f9fddbc7c' }],
+  // Qwen3-0.6B uses q4f16 dtype: onnx/model_q4f16.onnx
   ['onnx-community/Qwen3-0.6B-ONNX', { onnxSha256: '9e33a5911974174761d0dfdcc0bec975d9c45af0eae5e9eb647b8ba9442a8f91' }],
+  // Qwen3-1.7B uses q4f16 dtype: onnx/model_q4f16.onnx
   ['onnx-community/Qwen3-1.7B-ONNX', { onnxSha256: 'fb85b44defdf43ace50c7a4937127e889b9f8a0483eb87a6c4151a815c5da3b5' }],
 ]);
 
@@ -1962,6 +1967,19 @@ export class LocalLlmBackend {
 
         completedFiles++;
         logger.debug('Downloaded file', { modelId, filename });
+
+        // Verify integrity of the main model file
+        if (filename === modelFiles[0]) {
+          const cache = await openModelCache();
+          const url = `https://huggingface.co/${modelId}/resolve/main/${filename}`;
+          const cachedResponse = await cache.match(url);
+
+          if (cachedResponse) {
+            const data = await cachedResponse.arrayBuffer();
+            await verifyModelIntegrity(modelId, data);
+            logger.info('Model integrity verified', { modelId, filename });
+          }
+        }
       } catch (error) {
         // Some files are optional (e.g., onnx_data for smaller models, config files)
         const isOptional =
