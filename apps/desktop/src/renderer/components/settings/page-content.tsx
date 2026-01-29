@@ -65,7 +65,7 @@ export default function SettingsPageContent() {
         render: () => <McpIntegrationsCategory />,
       },
       createSystemDiagnosticsSettingsCategory(),
-      createFactoryResetSettingsCategory(),
+      createFactoryResetSettingsCategory({ isWebPlatform: false }),
     ],
     []
   );
