@@ -327,6 +327,20 @@ async function loadChunk(db: IDatabase, id: string) {
 }
 
 
+async function resolveIdType(db: IDatabase, table: string): Promise<string> {
+  try {
+    const res = await db.query<{ data_type: string }>(
+      `SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = 'id'`,
+      [table]
+    );
+    const type = res.rows[0]?.data_type?.toLowerCase() ?? 'text';
+    return type === 'uuid' ? 'uuid' : 'text';
+  } catch (error) {
+    workerLogger.warn(`Failed to resolve ID type for ${table}, defaulting to text`, { error });
+    return 'text';
+  }
+}
+
 async function updateChunkEmbeddingBatch(
   db: IDatabase,
   updates: Array<{
@@ -335,7 +349,8 @@ async function updateChunkEmbeddingBatch(
     embeddingSetId: string;
     embeddingHash: string;
   }>,
-  vectorEnabled: boolean
+  vectorEnabled: boolean,
+  idType: string
 ) {
   if (updates.length === 0) return;
 
@@ -347,6 +362,8 @@ async function updateChunkEmbeddingBatch(
   // Convert embeddings to string representation for postgres vector type
   const embeddings = updates.map((u) => `[${u.embedding.join(',')}]`);
 
+  const idCast = idType === 'uuid' ? '::uuid[]' : '::text[]';
+
   const sql = vectorEnabled
     ? `UPDATE file_chunks AS fc
          SET
@@ -355,7 +372,7 @@ async function updateChunkEmbeddingBatch(
            embedding_updated_at = $1,
            embedding_hash = t.embedding_hash,
            updated_at = $1
-       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
+       FROM unnest($2${idCast}, $3::text[], $4::text[], $5::text[])
          AS t(id, embedding, embedding_set_id, embedding_hash)
        WHERE fc.id = t.id`
     : `UPDATE file_chunks AS fc
@@ -365,7 +382,7 @@ async function updateChunkEmbeddingBatch(
            embedding_updated_at = $1,
            embedding_hash = t.embedding_hash,
            updated_at = $1
-       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
+       FROM unnest($2${idCast}, $3::text[], $4::text[], $5::text[])
          AS t(id, embedding, embedding_set_id, embedding_hash)
        WHERE fc.id = t.id`;
 
@@ -780,6 +797,9 @@ export async function startEmbeddingWorker(
 
   let { service, modelConfig } = await initializeEmbeddingService(options, activeCompositeKey);
   let activeModelDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
+
+  // Determine ID column type for file_chunks to support both UUID (Prod) and TEXT (Test/Electron) schemas
+  const fileChunkIdType = await resolveIdType(options.db, 'file_chunks');
 
   // REMOVED: Worker no longer auto-creates embedding sets on startup
   // Collections should ONLY be created by the user via the Create Collection dialog
@@ -1373,7 +1393,12 @@ export async function startEmbeddingWorker(
     }
 
     if (updates.length > 0) {
-      await updateChunkEmbeddingBatch(options.db, updates, vectorEnabledForWrites);
+      await updateChunkEmbeddingBatch(
+        options.db,
+        updates,
+        vectorEnabledForWrites,
+        fileChunkIdType
+      );
     }
 
     const completedJobs = await jq.completeBatch(jobCompletions);

@@ -113,6 +113,8 @@ export interface CancelParams {
 }
 
 export class JobQueue {
+  private idType: string | null = null;
+
   constructor(
     private readonly db: IDatabase,
     private readonly defaults: { maxAttempts?: number } = {}
@@ -120,6 +122,23 @@ export class JobQueue {
 
   withDb(db: IDatabase): JobQueue {
     return new JobQueue(db, this.defaults);
+  }
+
+  private async resolveIdType(): Promise<string> {
+    if (this.idType) {
+      return this.idType;
+    }
+    try {
+      const res = await this.db.query<{ data_type: string }>(
+        `SELECT data_type FROM information_schema.columns WHERE table_name = 'job_queue' AND column_name = 'id'`
+      );
+      const type = res.rows[0]?.data_type?.toLowerCase() ?? 'text';
+      this.idType = type === 'uuid' ? 'uuid' : 'text';
+    } catch (error) {
+      logger.warn('Failed to resolve ID type for job_queue, defaulting to text', { error });
+      this.idType = 'text';
+    }
+    return this.idType;
   }
 
   retryPolicy(attempts: number): number {
@@ -313,14 +332,18 @@ export class JobQueue {
     if (jobs.length === 0) {
       return [];
     }
+    const idType = await this.resolveIdType();
     const updatedAt = new Date().toISOString();
     const ids = jobs.map((j) => j.id);
     const leaseTokens = jobs.map((j) => j.leaseToken);
 
+    // Dynamic cast based on detected column type
+    const idCast = idType === 'uuid' ? '::uuid[]' : '::text[]';
+
     const res = await this.db.query<JobRow>(
       `UPDATE job_queue AS j
        SET state = 'succeeded', leased_until = NULL, updated_at = $1
-       FROM unnest($2::text[], $3::text[]) AS t(id, lease_token)
+       FROM unnest($2${idCast}, $3::text[]) AS t(id, lease_token)
        WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
        RETURNING j.*`,
       [updatedAt, ids, leaseTokens]
