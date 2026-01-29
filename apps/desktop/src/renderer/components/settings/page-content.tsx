@@ -9,7 +9,6 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences';
-import { isDevEnv } from '@brainstrike/utils';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';
@@ -42,7 +41,8 @@ export default function SettingsPageContent() {
   const setDevInlineFixtureEnabled = useFileExplorerStore((s) => s.setDevInlineFixtureEnabled);
 
   // Inline fixture is available in dev mode on desktop (uses createFixtureCapableAdapter)
-  const inlineFixtureAvailable = isDevEnv();
+  // Use Vite's built-in DEV flag which is more reliable than isDevEnv()
+  const inlineFixtureAvailable = import.meta.env.DEV;
 
   const categories = useMemo<SettingsCategory[]>(
     () => [
@@ -86,7 +86,7 @@ export default function SettingsPageContent() {
           : undefined,
       }),
     ],
-    [devInlineFixtureEnabled, setDevInlineFixtureEnabled, inlineFixtureAvailable]
+    [devInlineFixtureEnabled, setDevInlineFixtureEnabled]
   );
 
   return (
