@@ -41,9 +41,8 @@ export default function SettingsPageContent() {
   const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
   const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
 
-  // Inline fixture is available on desktop (uses createFixtureCapableAdapter)
-  // TODO: Should this be gated by dev mode? For now, always available on desktop.
-  const inlineFixtureAvailable = true;
+  // Inline fixture is only available in dev mode on desktop
+  const inlineFixtureAvailable = import.meta.env.DEV;
 
   const categories = useMemo<SettingsCategory[]>(
     () => [
