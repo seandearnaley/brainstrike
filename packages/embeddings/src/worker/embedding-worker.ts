@@ -326,32 +326,50 @@ async function loadChunk(db: IDatabase, id: string) {
   return res.rows[0] ?? null;
 }
 
-async function updateChunkEmbedding(
+
+async function updateChunkEmbeddingBatch(
   db: IDatabase,
-  id: string,
-  embedding: number[],
-  embeddingSetId: string,
-  embeddingHash: string,
+  updates: Array<{
+    id: string;
+    embedding: number[];
+    embeddingSetId: string;
+    embeddingHash: string;
+  }>,
   vectorEnabled: boolean
 ) {
+  if (updates.length === 0) return;
+
   const now = new Date().toISOString();
-  const vectorString = `[${embedding.join(',')}]`;
+
+  const ids = updates.map((u) => u.id);
+  const embeddingSetIds = updates.map((u) => u.embeddingSetId);
+  const embeddingHashes = updates.map((u) => u.embeddingHash);
+  // Convert embeddings to string representation for postgres vector type
+  const embeddings = updates.map((u) => `[${u.embedding.join(',')}]`);
+
   const sql = vectorEnabled
-    ? `UPDATE file_chunks SET
-         embedding = $1::vector,
-         embedding_set_id = $2,
-         embedding_updated_at = $3,
-         embedding_hash = $4,
-         updated_at = $3
-       WHERE id = $5`
-    : `UPDATE file_chunks SET
-         embedding = $1,
-         embedding_set_id = $2,
-         embedding_updated_at = $3,
-         embedding_hash = $4,
-         updated_at = $3
-       WHERE id = $5`;
-  await db.query(sql, [vectorString, embeddingSetId, now, embeddingHash, id]);
+    ? `UPDATE file_chunks AS fc
+         SET
+           embedding = t.embedding::vector,
+           embedding_set_id = t.embedding_set_id,
+           embedding_updated_at = $1,
+           embedding_hash = t.embedding_hash,
+           updated_at = $1
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
+         AS t(id, embedding, embedding_set_id, embedding_hash)
+       WHERE fc.id = t.id`
+    : `UPDATE file_chunks AS fc
+         SET
+           embedding = t.embedding,
+           embedding_set_id = t.embedding_set_id,
+           embedding_updated_at = $1,
+           embedding_hash = t.embedding_hash,
+           updated_at = $1
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
+         AS t(id, embedding, embedding_set_id, embedding_hash)
+       WHERE fc.id = t.id`;
+
+  await db.query(sql, [now, ids, embeddings, embeddingSetIds, embeddingHashes]);
 }
 
 const embeddingSetDimensionCache = new Map<string, number>();
@@ -1324,6 +1342,14 @@ export async function startEmbeddingWorker(
     jobModel: ReturnType<typeof resolveJobModel>
   ): Promise<Set<string>> {
     const completedJobIds = new Set<string>();
+    const updates: Array<{
+      id: string;
+      embedding: number[];
+      embeddingSetId: string;
+      embeddingHash: string;
+    }> = [];
+    const jobCompletions: Array<{ id: string; leaseToken: string }> = [];
+
     for (let index = 0; index < toProcess.length; index += 1) {
       const item = toProcess[index];
       if (!item) {
@@ -1336,18 +1362,26 @@ export async function startEmbeddingWorker(
       const targetSetId = resolveTargetSetId(item.payload, item.chunk);
       const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
 
-      await updateChunkEmbedding(
-        options.db,
-        item.chunk.id,
+      updates.push({
+        id: item.chunk.id,
         embedding,
-        targetSetId,
-        expectedHash,
-        vectorEnabledForWrites
-      );
+        embeddingSetId: targetSetId,
+        embeddingHash: expectedHash,
+      });
 
-      await jq.complete({ id: item.job.id, leaseToken: item.job.lease_token });
-      completedJobIds.add(item.job.id);
+      jobCompletions.push({ id: item.job.id, leaseToken: item.job.lease_token });
     }
+
+    if (updates.length > 0) {
+      await updateChunkEmbeddingBatch(options.db, updates, vectorEnabledForWrites);
+    }
+
+    const completedJobs = await jq.completeBatch(jobCompletions);
+
+    for (const job of completedJobs) {
+      completedJobIds.add(job.id);
+    }
+
     return completedJobIds;
   }
 

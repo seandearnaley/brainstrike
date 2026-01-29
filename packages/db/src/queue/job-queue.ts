@@ -309,6 +309,47 @@ export class JobQueue {
     return job;
   }
 
+  async completeBatch(jobs: CompleteParams[]): Promise<Job[]> {
+    if (jobs.length === 0) {
+      return [];
+    }
+    const updatedAt = new Date().toISOString();
+    const ids = jobs.map((j) => j.id);
+    const leaseTokens = jobs.map((j) => j.leaseToken);
+
+    const res = await this.db.query<JobRow>(
+      `UPDATE job_queue AS j
+       SET state = 'succeeded', leased_until = NULL, updated_at = $1
+       FROM unnest($2::text[], $3::text[]) AS t(id, lease_token)
+       WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+       RETURNING j.*`,
+      [updatedAt, ids, leaseTokens]
+    );
+
+    const completedJobs = res.rows.map(fromRow);
+
+    if (completedJobs.length > 0) {
+      logger.debug('Jobs completed in batch', { count: completedJobs.length });
+    }
+
+    for (const job of completedJobs) {
+      const elapsedMs = computeElapsedMs(job.runAt, updatedAt);
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+        event: 'complete',
+        taskId: job.id,
+        ...(typeof elapsedMs === 'number' ? { elapsedMs } : {}),
+        metadata: {
+          queue: job.queue,
+          jobType: job.jobType,
+        },
+      });
+    }
+
+    return completedJobs;
+  }
+
   async complete(params: CompleteParams): Promise<Job | null> {
     const updatedAt = new Date().toISOString();
     const res = await this.db.query<JobRow>(
