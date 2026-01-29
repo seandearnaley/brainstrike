@@ -40,9 +40,9 @@ export default function SettingsPageContent() {
   const devInlineFixtureEnabled = useFileExplorerStore((s) => s.devInlineFixtureEnabled);
   const setDevInlineFixtureEnabled = useFileExplorerStore((s) => s.setDevInlineFixtureEnabled);
 
-  // Inline fixture is available in dev mode on desktop (uses createFixtureCapableAdapter)
-  // Use Vite's built-in DEV flag which is more reliable than isDevEnv()
-  const inlineFixtureAvailable = import.meta.env.DEV;
+  // Inline fixture is available on desktop (uses createFixtureCapableAdapter)
+  // TODO: Should this be gated by dev mode? For now, always available on desktop.
+  const inlineFixtureAvailable = true;
 
   const categories = useMemo<SettingsCategory[]>(
     () => [
