@@ -326,11 +326,11 @@ async function loadChunk(db: IDatabase, id: string) {
   return res.rows[0] ?? null;
 }
 
-
 async function resolveIdType(db: IDatabase, table: string): Promise<string> {
   try {
+    // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
     const res = await db.query<{ data_type: string }>(
-      `SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = 'id'`,
+      "SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = 'id'",
       [table]
     );
     const type = res.rows[0]?.data_type?.toLowerCase() ?? 'text';
@@ -352,7 +352,9 @@ async function updateChunkEmbeddingBatch(
   vectorEnabled: boolean,
   idType: string
 ) {
-  if (updates.length === 0) return;
+  if (updates.length === 0) {
+    return;
+  }
 
   const now = new Date().toISOString();
 
@@ -1393,12 +1395,7 @@ export async function startEmbeddingWorker(
     }
 
     if (updates.length > 0) {
-      await updateChunkEmbeddingBatch(
-        options.db,
-        updates,
-        vectorEnabledForWrites,
-        fileChunkIdType
-      );
+      await updateChunkEmbeddingBatch(options.db, updates, vectorEnabledForWrites, fileChunkIdType);
     }
 
     const completedJobs = await jq.completeBatch(jobCompletions);
