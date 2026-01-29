@@ -207,7 +207,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     storedFolders,
     beginRestore,
     dismissRestore,
-    clearStoredHandles,
   } = useRestoreAccess();
 
   // CRITICAL: Block stale clearing effect as soon as restore modal becomes visible.
@@ -261,23 +260,24 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   });
 
   // Inline fixture state management - extracted to reduce component complexity
-  const { isLoading: isInlineFixtureLoading, isAvailable: inlineFixtureAvailable } =
-    useInlineFixtureEffect({
-      fileSystemAdapter,
-      devInlineFixtureEnabled,
-      setDevInlineFixtureEnabled,
-      setRootDirectoryHandle,
-      clearRootDirectory,
-      showToast,
-      strings: {
-        successTitle: FileExplorerStrings.success.title,
-        errorTitle: FileExplorerStrings.error.title,
-        enableSuccess: FileExplorerStrings.inlineFixture.enableSuccess,
-        disableSuccess: FileExplorerStrings.inlineFixture.disableSuccess,
-        enableError: FileExplorerStrings.inlineFixture.enableError,
-        disableError: FileExplorerStrings.inlineFixture.disableError,
-      },
-    });
+  // The hook manages side effects for inline fixture mode (dev only).
+  // Settings UI has moved to the main Settings page, so we don't need the return values here.
+  useInlineFixtureEffect({
+    fileSystemAdapter,
+    devInlineFixtureEnabled,
+    setDevInlineFixtureEnabled,
+    setRootDirectoryHandle,
+    clearRootDirectory,
+    showToast,
+    strings: {
+      successTitle: FileExplorerStrings.success.title,
+      errorTitle: FileExplorerStrings.error.title,
+      enableSuccess: FileExplorerStrings.inlineFixture.enableSuccess,
+      disableSuccess: FileExplorerStrings.inlineFixture.disableSuccess,
+      enableError: FileExplorerStrings.inlineFixture.enableError,
+      disableError: FileExplorerStrings.inlineFixture.disableError,
+    },
+  });
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {
@@ -346,16 +346,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // the input remains responsive to user keystrokes.
   const deferredQuickFilter = useDeferredValue(quickFilter);
   const isQuickFiltering = deferredQuickFilter !== quickFilter;
-
-  const inlineFixtureSetting = useMemo(() => {
-    if (!inlineFixtureAvailable) {
-      return;
-    }
-    return {
-      available: inlineFixtureAvailable,
-      loading: isInlineFixtureLoading,
-    } as const;
-  }, [inlineFixtureAvailable, isInlineFixtureLoading]);
 
   // Quick filter (search box) applies on top of workspace filters.
   // Workspace filters are already applied in useFileExplorer() which returns
@@ -541,15 +531,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       <div className="grid h-full grid-rows-[auto_1fr_auto]">
         {/* Fixed Header - Toolbar and filter controls */}
         <div className="shrink-0">
-          <FileExplorerToolbar
-            filterError={filterError}
-            hasStoredFolders={storedFolders.length > 0}
-            isLoading={isLoading}
-            onDirectorySelect={handleDirectorySelect}
-            onFilterChange={handleFilterChange}
-            onForgetStoredFolders={clearStoredHandles}
-            {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
-          />
+          <FileExplorerToolbar isLoading={isLoading} onDirectorySelect={handleDirectorySelect} />
           {/* Restoration indicator - shown when restoring expanded directories from persisted state */}
           <RestorationStatus
             isRestoring={isRestoringExpandedPaths}
