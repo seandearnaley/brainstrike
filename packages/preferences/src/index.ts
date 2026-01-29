@@ -8,9 +8,11 @@ export * from './hooks/use-model-registry';
 export * from './settings/models/model-registry-settings-section';
 export * from './settings/models/model-selection-page';
 export * from './settings/secrets/api-keys-settings';
+export * from './settings/system/clear-stored-folders-panel';
 export * from './settings/system/factory-reset-helpers';
 export * from './settings/system/factory-reset-panel';
 export * from './settings/system/factory-reset-settings-section';
+export * from './settings/system/inline-fixture-settings-panel';
 // Settings UI Components
 export * from './settings/system/logging-settings-section';
 export * from './settings/system/token-counting-settings-section';
