@@ -1,4 +1,5 @@
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
@@ -8,6 +9,7 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences';
+import { isDevEnv } from '@brainstrike/utils';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';
@@ -35,6 +37,13 @@ function EmbeddingModelsCategory() {
 }
 
 export default function SettingsPageContent() {
+  // Inline fixture state from file explorer store (developer feature)
+  const devInlineFixtureEnabled = useFileExplorerStore((s) => s.devInlineFixtureEnabled);
+  const setDevInlineFixtureEnabled = useFileExplorerStore((s) => s.setDevInlineFixtureEnabled);
+
+  // Inline fixture is available in dev mode on desktop (uses createFixtureCapableAdapter)
+  const inlineFixtureAvailable = isDevEnv();
+
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
@@ -65,9 +74,19 @@ export default function SettingsPageContent() {
         render: () => <McpIntegrationsCategory />,
       },
       createSystemDiagnosticsSettingsCategory(),
-      createFactoryResetSettingsCategory({ isWebPlatform: false }),
+      createFactoryResetSettingsCategory({
+        isWebPlatform: false,
+        inlineFixtureSetting: inlineFixtureAvailable
+          ? {
+              available: true,
+              loading: false,
+              checked: devInlineFixtureEnabled,
+              onChange: setDevInlineFixtureEnabled,
+            }
+          : undefined,
+      }),
     ],
-    []
+    [devInlineFixtureEnabled, setDevInlineFixtureEnabled, inlineFixtureAvailable]
   );
 
   return (
