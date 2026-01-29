@@ -1,5 +1,5 @@
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
+import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
 import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
@@ -36,9 +36,10 @@ function EmbeddingModelsCategory() {
 }
 
 export default function SettingsPageContent() {
-  // Inline fixture state from file explorer store (developer feature)
-  const devInlineFixtureEnabled = useFileExplorerStore((s) => s.devInlineFixtureEnabled);
-  const setDevInlineFixtureEnabled = useFileExplorerStore((s) => s.setDevInlineFixtureEnabled);
+  // Inline fixture state from file explorer store context (shared with FileExplorerLeftPanel)
+  const store = useFileExplorerStoreContext();
+  const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
+  const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
 
   // Inline fixture is available on desktop (uses createFixtureCapableAdapter)
   // TODO: Should this be gated by dev mode? For now, always available on desktop.
