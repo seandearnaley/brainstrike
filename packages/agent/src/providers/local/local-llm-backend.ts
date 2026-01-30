@@ -223,7 +223,8 @@ async function storeInCache(
 async function downloadFileToCache(
   modelId: string,
   filePath: string,
-  onProgress?: (loaded: number, total: number) => void
+  onProgress?: (loaded: number, total: number) => void,
+  verifyIntegrity?: (data: ArrayBuffer) => Promise<void>
 ): Promise<void> {
   const url = `https://huggingface.co/${modelId}/resolve/main/${filePath}`;
   const cache = await openModelCache();
@@ -234,6 +235,8 @@ async function downloadFileToCache(
     if (cachedResponse) {
       logger.debug('File already cached', { modelId, filePath });
       onProgress?.(1, 1);
+      // NOTE: We do not verify integrity of already cached files to avoid large I/O on every load.
+      // We assume cache persistence is reliable. Integrity is checked on download.
       return;
     }
   } catch (matchError) {
@@ -257,13 +260,20 @@ async function downloadFileToCache(
     throw new Error('Response body is null');
   }
 
-  // Create a TransformStream for progress tracking without buffering
+  // If verification is requested, we need to accumulate the file content
+  // while streaming it to cache. This avoids re-reading from cache.
+  let chunks: Uint8Array[] = [];
+
+  // Create a TransformStream for progress tracking
   let loaded = 0;
   const progressTransform = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       loaded += chunk.length;
       if (total > 0) {
         onProgress?.(loaded, total);
+      }
+      if (verifyIntegrity) {
+        chunks.push(chunk);
       }
       controller.enqueue(chunk);
     },
@@ -278,8 +288,46 @@ async function downloadFileToCache(
     },
   });
 
+  // Cache the file first
   await storeInCache(cache, url, cacheResponse, filePath);
   logger.debug('File downloaded and cached', { modelId, filePath, size: loaded });
+
+  // Verify integrity if requested
+  if (verifyIntegrity && chunks.length > 0) {
+    try {
+      // Combine chunks into a single ArrayBuffer for verification
+      const combined = new Uint8Array(loaded);
+      let offset = 0;
+      for (const chunk of chunks) {
+        combined.set(chunk, offset);
+        offset += chunk.length;
+      }
+
+      await verifyIntegrity(combined.buffer);
+    } catch (error) {
+      // Verification failed - delete the corrupted file from cache to prevent "cache poisoning"
+      // If we leave it, the next run will find it in cache and skip verification
+      try {
+        await cache.delete(url);
+        logger.warn('Deleted corrupted file from cache', { modelId, filePath });
+      } catch (deleteError) {
+        logger.error('Failed to delete corrupted file from cache', {
+          modelId,
+          filePath,
+          error: deleteError instanceof Error ? deleteError.message : String(deleteError)
+        });
+      }
+
+      // Clear memory
+      chunks = [];
+
+      // Re-throw to fail the download process
+      throw error;
+    } finally {
+      // Clear chunks to free memory in all cases
+      chunks = [];
+    }
+  }
 }
 
 /**
@@ -1975,23 +2023,27 @@ export class LocalLlmBackend {
         };
 
         // Download file to cache using streaming fetch
-        await downloadFileToCache(modelId, filename, fileProgressCallback);
+        // If this is the main model file, we attach a verification callback
+        // to verify integrity without re-reading from cache.
+        const mainModelFile = modelFiles[0];
+        const isMainModel = filename === mainModelFile;
+
+        const verifyCallback = isMainModel
+          ? async (data: ArrayBuffer) => {
+              await verifyModelIntegrity(modelId, data);
+              logger.info('Model integrity verified', { modelId, filename });
+            }
+          : undefined;
+
+        await downloadFileToCache(
+          modelId,
+          filename,
+          fileProgressCallback,
+          verifyCallback
+        );
 
         completedFiles++;
         logger.debug('Downloaded file', { modelId, filename });
-
-        // Verify integrity of the main model file
-        if (filename === modelFiles[0]) {
-          const cache = await openModelCache();
-          const url = `https://huggingface.co/${modelId}/resolve/main/${filename}`;
-          const cachedResponse = await cache.match(url);
-
-          if (cachedResponse) {
-            const data = await cachedResponse.arrayBuffer();
-            await verifyModelIntegrity(modelId, data);
-            logger.info('Model integrity verified', { modelId, filename });
-          }
-        }
       } catch (error) {
         // Some files are optional (e.g., onnx_data for smaller models, config files)
         const isOptional =
