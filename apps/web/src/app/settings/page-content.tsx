@@ -1,5 +1,6 @@
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
+import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
 import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
@@ -27,6 +28,11 @@ function ModelSelectionCategory() {
 
 export default function SettingsPageContent() {
   const { storedFolders, clearStoredHandles } = useRestoreAccess();
+
+  // Inline fixture state from file explorer store context
+  const store = useFileExplorerStoreContext();
+  const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
+  const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
 
   const logSource = useMemo<LogSourceAdapter>(() => {
     const buffer = getWebLogBuffer();
@@ -61,9 +67,21 @@ export default function SettingsPageContent() {
         isWebPlatform: true,
         hasStoredFolders: storedFolders.length > 0,
         onClearStoredFolders: clearStoredHandles,
+        inlineFixtureSetting: {
+          available: true,
+          loading: false,
+          checked: devInlineFixtureEnabled,
+          onChange: setDevInlineFixtureEnabled,
+        },
       }),
     ],
-    [logSource, storedFolders.length, clearStoredHandles]
+    [
+      logSource,
+      storedFolders.length,
+      clearStoredHandles,
+      devInlineFixtureEnabled,
+      setDevInlineFixtureEnabled,
+    ]
   );
 
   return (

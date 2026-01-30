@@ -41,9 +41,6 @@ export default function SettingsPageContent() {
   const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
   const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
 
-  // Inline fixture is only available in dev mode on desktop
-  const inlineFixtureAvailable = import.meta.env.DEV;
-
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
@@ -76,14 +73,12 @@ export default function SettingsPageContent() {
       createSystemDiagnosticsSettingsCategory(),
       createFactoryResetSettingsCategory({
         isWebPlatform: false,
-        inlineFixtureSetting: inlineFixtureAvailable
-          ? {
-              available: true,
-              loading: false,
-              checked: devInlineFixtureEnabled,
-              onChange: setDevInlineFixtureEnabled,
-            }
-          : undefined,
+        inlineFixtureSetting: {
+          available: true,
+          loading: false,
+          checked: devInlineFixtureEnabled,
+          onChange: setDevInlineFixtureEnabled,
+        },
       }),
     ],
     [devInlineFixtureEnabled, setDevInlineFixtureEnabled]

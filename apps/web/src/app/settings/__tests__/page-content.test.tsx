@@ -38,6 +38,20 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
   };
 });
 
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  useFileExplorerStoreContext: () => {
+    const mockStore = (selector: (state: Record<string, unknown>) => unknown) => {
+      const mockState = {
+        devInlineFixtureEnabled: false,
+        setDevInlineFixtureEnabled: vi.fn(),
+      };
+      return selector(mockState);
+    };
+    return mockStore;
+  },
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 describe('Web SettingsPageContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
