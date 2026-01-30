@@ -578,16 +578,21 @@ export async function processChunking(
 
     // Check if repository supports findByIds (it should, as both Electron and Drizzle implementations have it)
     if (ids.length > 0 && 'findByIds' in repository && typeof repository.findByIds === 'function') {
+      const batchFetchStart = Date.now();
       const records = await repository.findByIds(ids);
+      const batchFetchDuration = Date.now() - batchFetchStart;
       recordsMap = new Map(records.map((r) => [r.id, r]));
       logger.debug('Batch fetched file records', {
         count: records.length,
         requested: ids.length,
+        durationMs: batchFetchDuration,
       });
     }
   } catch (err) {
     logger.warn('Failed to batch fetch file records, falling back to individual fetches', {
       error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+      errorType: err?.constructor?.name,
     });
   }
 

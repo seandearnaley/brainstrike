@@ -112,6 +112,13 @@ export class DrizzleFileRecordRepository {
     return row ? this.fromRow(row) : null;
   }
 
+  /**
+   * Fetches multiple file records by their IDs in a single query.
+   * Automatically deduplicates input IDs.
+   *
+   * @param ids - Array of file record IDs to fetch
+   * @returns Array of found file records (may be shorter than input if some IDs don't exist)
+   */
   async findByIds(ids: readonly string[]): Promise<FileRecord[]> {
     if (ids.length === 0) {
       return [];
