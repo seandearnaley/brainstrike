@@ -555,7 +555,7 @@ describe('Model Integrity Verification', () => {
 
   beforeEach(() => {
     // Ensure crypto.subtle exists (Node 19+ or polyfill)
-    if (!globalThis.crypto || !globalThis.crypto.subtle) {
+    if (!globalThis.crypto?.subtle) {
       Object.defineProperty(globalThis, 'crypto', {
         value: {
           subtle: {
