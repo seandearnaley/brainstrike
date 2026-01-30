@@ -1,4 +1,4 @@
-import type { Locator, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
 import { waitForAppLoad } from './layout-helpers';
@@ -80,17 +80,4 @@ export async function bootstrapFileExplorer(
 export async function reloadExplorer(page: Page): Promise<void> {
   await page.reload({ waitUntil: 'load' });
   await waitForAppLoad(page);
-}
-
-/**
- * Opens the file explorer settings dialog and waits for it to become visible.
- */
-export async function openExplorerSettings(
-  page: Page,
-  explorer: FileExplorerPage
-): Promise<Locator> {
-  await explorer.openSettingsButton.click();
-  const dialog = page.locator('[data-testid="settings-dialog"]');
-  await dialog.waitFor({ state: 'visible' });
-  return dialog;
 }

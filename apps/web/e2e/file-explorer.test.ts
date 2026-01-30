@@ -1,10 +1,9 @@
-import type { Locator, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
 import type { FileExplorerPage } from './page-objects/file-explorer-page';
 import {
   bootstrapFileExplorer,
   type ExplorerBootstrapOptions,
-  openExplorerSettings,
   reloadExplorer,
 } from './utils/file-explorer-setup';
 import type { FileTree } from './utils/mock-fs';
@@ -64,16 +63,6 @@ test.describe('File Explorer', () => {
       await expect(explorer.filterInput).not.toBeVisible();
       await expect(page.getByText('No directory selected')).toBeVisible();
       await expect(page.getByText('No files selected')).toBeVisible();
-    });
-
-    test('should show workspace settings options', async ({ page }) => {
-      const dialog = await openExplorerSettings(page, explorer);
-
-      await expect(dialog.getByRole('heading', { name: 'Workspace Settings' })).toBeVisible();
-      // Note: Max Selection Count was moved to SelectionCounter component
-      // Note: Folder Summary Threshold was moved to Preview Panel footer
-      // Note: Include/Exclude filters and Use Regex toggle were moved to ViewFilterPresetDropdown
-      await expect(dialog.getByRole('button', { name: 'Apply Settings' })).toBeVisible();
     });
 
     test('should show action buttons in disabled state initially', async () => {
@@ -224,11 +213,7 @@ test.describe('File Explorer', () => {
       name: string;
       tree: FileTree;
       options?: Partial<ExplorerBootstrapOptions>;
-      execute: (ctx: {
-        page: Page;
-        explorer: FileExplorerPage;
-        openDialog: () => Promise<Locator>;
-      }) => Promise<void>;
+      execute: (ctx: { page: Page; explorer: FileExplorerPage }) => Promise<void>;
     }
 
     const settingsScenarios: SettingsScenario[] = [
@@ -339,9 +324,8 @@ test.describe('File Explorer', () => {
         };
 
         const explorer = await bootstrapFileExplorer(page, options);
-        const openDialog = () => openExplorerSettings(page, explorer);
 
-        await scenario.execute({ page, explorer, openDialog });
+        await scenario.execute({ page, explorer });
       });
     }
   });
