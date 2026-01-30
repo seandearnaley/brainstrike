@@ -162,10 +162,10 @@ describe('Embedding Worker Batch Optimization', () => {
 
     // Wait for all jobs to match as succeeded
     await waitFor(async () => {
-      const res = await db.query(
+      const res = await db.query<{ count: number }>(
         `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
       );
-      return Number(res.rows[0]?.['count']) === JOB_COUNT;
+      return Number(res.rows[0]?.count) === JOB_COUNT;
     }, 10_000);
 
     await controller.stop();
