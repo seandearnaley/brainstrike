@@ -4,6 +4,22 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
 
+// Mock file-explorer-ui - needed for useFileExplorerStoreContext
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  useFileExplorerStoreContext: () => {
+    // Return a mock store function that returns default values
+    const mockStore = (selector: (state: Record<string, unknown>) => unknown) => {
+      const mockState = {
+        devInlineFixtureEnabled: false,
+        setDevInlineFixtureEnabled: vi.fn(),
+      };
+      return selector(mockState);
+    };
+    return mockStore;
+  },
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 interface SecretsApi {
   list: () => Promise<string[]>;
   listStored: () => Promise<string[]>;

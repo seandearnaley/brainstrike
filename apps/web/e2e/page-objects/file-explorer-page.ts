@@ -8,10 +8,6 @@ export class FileExplorerPage {
     return this.page.getByTestId('select-root-button');
   }
 
-  get openSettingsButton(): Locator {
-    return this.page.getByTestId('settings-button');
-  }
-
   get fileTree(): Locator {
     return this.page.getByRole('tree', { name: 'File tree' });
   }

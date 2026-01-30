@@ -1,4 +1,6 @@
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
+import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
+import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
 import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
@@ -25,6 +27,13 @@ function ModelSelectionCategory() {
 // Factory Reset category provided via createFactoryResetSettingsCategory()
 
 export default function SettingsPageContent() {
+  const { storedFolders, clearStoredHandles } = useRestoreAccess();
+
+  // Inline fixture state from file explorer store context
+  const store = useFileExplorerStoreContext();
+  const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
+  const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
+
   const logSource = useMemo<LogSourceAdapter>(() => {
     const buffer = getWebLogBuffer();
     return {
@@ -32,6 +41,7 @@ export default function SettingsPageContent() {
       subscribe: (handler) => buffer.subscribe(handler),
     };
   }, []);
+
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
@@ -53,9 +63,25 @@ export default function SettingsPageContent() {
         render: () => <LoggingSettingsSection logSource={logSource} runtime="browser" />,
       },
       createSystemDiagnosticsSettingsCategory(),
-      createFactoryResetSettingsCategory(),
+      createFactoryResetSettingsCategory({
+        isWebPlatform: true,
+        hasStoredFolders: storedFolders.length > 0,
+        onClearStoredFolders: clearStoredHandles,
+        inlineFixtureSetting: {
+          available: true,
+          loading: false,
+          checked: devInlineFixtureEnabled,
+          onChange: setDevInlineFixtureEnabled,
+        },
+      }),
     ],
-    [logSource]
+    [
+      logSource,
+      storedFolders.length,
+      clearStoredHandles,
+      devInlineFixtureEnabled,
+      setDevInlineFixtureEnabled,
+    ]
   );
 
   return (

@@ -53,5 +53,3 @@ export { processDirectoryEntry } from './utils/process-directory-entry';
 export { processFileEntry } from './utils/process-file-entry';
 export { readFullTree } from './utils/read-full-tree';
 export * from './view-filter-preset-dropdown';
-export * from './workspace-settings';
-export { default as WorkspaceSettings } from './workspace-settings';

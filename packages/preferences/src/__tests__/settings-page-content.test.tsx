@@ -143,7 +143,14 @@ describe('createFactoryResetSettingsCategory', () => {
 
   it('returns a category with correct keywords', () => {
     const category = createFactoryResetSettingsCategory();
-    expect(category.keywords).toEqual(['factory', 'reset', 'resetting', 'wipe', 'preferences']);
+    expect(category.keywords).toEqual([
+      'factory',
+      'reset',
+      'resetting',
+      'wipe',
+      'preferences',
+      'stored folders',
+    ]);
   });
 
   it('returns a category with an icon', () => {

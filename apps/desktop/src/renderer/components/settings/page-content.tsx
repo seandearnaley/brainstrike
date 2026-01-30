@@ -1,4 +1,5 @@
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
+import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
 import {
   createApiKeysSettingsCategory,
   createAppearanceSettingsCategory,
@@ -35,6 +36,11 @@ function EmbeddingModelsCategory() {
 }
 
 export default function SettingsPageContent() {
+  // Inline fixture state from file explorer store context (shared with FileExplorerLeftPanel)
+  const store = useFileExplorerStoreContext();
+  const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
+  const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
+
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
@@ -65,9 +71,17 @@ export default function SettingsPageContent() {
         render: () => <McpIntegrationsCategory />,
       },
       createSystemDiagnosticsSettingsCategory(),
-      createFactoryResetSettingsCategory(),
+      createFactoryResetSettingsCategory({
+        isWebPlatform: false,
+        inlineFixtureSetting: {
+          available: true,
+          loading: false,
+          checked: devInlineFixtureEnabled,
+          onChange: setDevInlineFixtureEnabled,
+        },
+      }),
     ],
-    []
+    [devInlineFixtureEnabled, setDevInlineFixtureEnabled]
   );
 
   return (

@@ -18,24 +18,15 @@ var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
 vi.mock('../file-explorer-toolbar', () => ({
   FileExplorerToolbar: ({
     onDirectorySelect,
-    onFilterChange,
+    isLoading,
   }: {
     onDirectorySelect: () => void;
-    onFilterChange: (include: string[], exclude: string[], useRegex: boolean) => void;
+    isLoading: boolean;
   }) => (
     <div data-testid="toolbar">
       Toolbar
-      <button onClick={onDirectorySelect} type="button">
+      <button disabled={isLoading} onClick={onDirectorySelect} type="button">
         Select Directory
-      </button>
-      <button onClick={() => onFilterChange(['in'], ['ex'], true)} type="button">
-        Apply Filters
-      </button>
-      <button onClick={() => onFilterChange([], [], false)} type="button">
-        Clear Filters
-      </button>
-      <button onClick={() => onFilterChange(['foo'], ['bar', 'baz'], false)} type="button">
-        Apply Complex
       </button>
     </div>
   ),
@@ -253,15 +244,8 @@ describe('FileExplorerLeftPanel', () => {
     expect(handleDirectorySelectErrorMock).toHaveBeenCalledWith(error);
   });
 
-  it('updates filters when filter button is clicked', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<FileExplorerLeftPanel />);
-
-    await user.click(screen.getByRole('button', { name: 'Apply Filters' }));
-
-    // applyFileFilters internally calls setFilters, so we only verify it's called
-    expect(applyFileFiltersMock).toHaveBeenCalledWith(['in'], ['ex'], true);
-  });
+  // Note: Filter button tests removed - workspace settings modal was migrated to Settings page
+  // Filter functionality is now tested via the Settings page tests
 
   it('displays error boundary when sidebar throws', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -299,18 +283,6 @@ describe('FileExplorerLeftPanel', () => {
       description: 'The file loading operation has been cancelled.',
       variant: 'default',
     });
-  });
-
-  it('propagates filter changes with different values', async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<FileExplorerLeftPanel />);
-
-    await user.click(screen.getByRole('button', { name: 'Clear Filters' }));
-    // applyFileFilters internally calls setFilters
-    expect(applyFileFiltersMock).toHaveBeenCalledWith([], [], false);
-
-    await user.click(screen.getByRole('button', { name: 'Apply Complex' }));
-    expect(applyFileFiltersMock).toHaveBeenCalledWith(['foo'], ['bar', 'baz'], false);
   });
 
   it('displays inline scanning indicator when loading', async () => {

@@ -20,6 +20,38 @@ vi.mock('@brainstrike/preferences', async (importOriginal) => {
   };
 });
 
+vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-hooks')>();
+  return {
+    ...actual,
+    useRestoreAccess: vi.fn(() => ({
+      storedFolders: [],
+      clearStoredHandles: vi.fn(),
+      isCheckingStoredHandles: false,
+      pendingRestore: null,
+      showDeniedBanner: false,
+      showStaleBanner: false,
+      beginRestore: vi.fn(),
+      dismissRestore: vi.fn(),
+      chooseDifferentFolder: vi.fn(),
+    })),
+  };
+});
+
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  useFileExplorerStoreContext: () => {
+    const mockStore = (selector: (state: Record<string, unknown>) => unknown) => {
+      const mockState = {
+        devInlineFixtureEnabled: false,
+        setDevInlineFixtureEnabled: vi.fn(),
+      };
+      return selector(mockState);
+    };
+    return mockStore;
+  },
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 describe('Web SettingsPageContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
