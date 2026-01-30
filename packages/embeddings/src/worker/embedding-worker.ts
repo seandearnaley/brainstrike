@@ -326,6 +326,30 @@ async function loadChunk(db: IDatabase, id: string) {
   return res.rows[0] ?? null;
 }
 
+async function loadChunksBatch(db: IDatabase, ids: string[], idType: string) {
+  if (ids.length === 0) {
+    return [];
+  }
+
+  let sql: string;
+  if (idType === 'uuid') {
+    sql = `SELECT id, content, content_hash AS "contentHash", embedding_hash AS "embeddingHash", embedding_set_id AS "embeddingSetId"
+     FROM file_chunks WHERE id = ANY($1::uuid[])`;
+  } else {
+    sql = `SELECT id, content, content_hash AS "contentHash", embedding_hash AS "embeddingHash", embedding_set_id AS "embeddingSetId"
+     FROM file_chunks WHERE id = ANY($1::text[])`;
+  }
+
+  const res = await db.query<{
+    id: string;
+    content: string;
+    contentHash: string;
+    embeddingHash?: string | null;
+    embeddingSetId?: string | null;
+  }>(sql, [ids]);
+  return res.rows;
+}
+
 async function resolveIdType(db: IDatabase, table: string): Promise<string> {
   try {
     // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
@@ -1203,12 +1227,18 @@ export async function startEmbeddingWorker(
     jobModel: ReturnType<typeof resolveJobModel>
   ) {
     // 1. Load all chunks
-    const chunks = await Promise.all(
-      jobs.map(async (job) => {
-        const p = assertEmbedChunkJob(job);
-        return { job, chunk: await loadChunkOrThrow(p.chunkId), payload: p };
-      })
-    );
+    const chunkIds = jobs.map((job) => assertEmbedChunkJob(job).chunkId);
+    const loadedChunks = await loadChunksBatch(options.db, chunkIds, fileChunkIdType);
+    const chunkMap = new Map(loadedChunks.map((c) => [c.id, c]));
+
+    const chunks = jobs.map((job) => {
+      const p = assertEmbedChunkJob(job);
+      const chunk = chunkMap.get(p.chunkId);
+      if (!chunk) {
+        throw new Error(`Chunk not found: ${p.chunkId}`);
+      }
+      return { job, chunk, payload: p };
+    });
 
     // 2. Filter out up-to-date chunks
     const toProcess: typeof chunks = [];
