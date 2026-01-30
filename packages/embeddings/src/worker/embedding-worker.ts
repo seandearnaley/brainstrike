@@ -1555,6 +1555,10 @@ export async function startEmbeddingWorker(
     }
   }
 
+  /**
+   * Marks jobs as completed in a single batch operation.
+   * Uses completeBatch to avoid N database round-trips.
+   */
   async function markAlreadyCompleted(
     completed: Array<{ job: ClaimedJob }>,
     completedJobIds: Set<string>
