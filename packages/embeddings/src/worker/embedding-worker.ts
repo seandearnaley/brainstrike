@@ -1487,31 +1487,44 @@ export async function startEmbeddingWorker(
 
   function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: (job: ClaimedJob) => void) {
     const lostJobs = new Set<string>();
+    let isHeartbeating = false;
+
     return setInterval(() => {
+      // Prevent overlapping heartbeats (race condition protection)
+      if (isHeartbeating) {
+        return;
+      }
+      isHeartbeating = true;
+
       (async () => {
-        const activeJobs = jobs.filter((job) => !lostJobs.has(job.id));
-        if (activeJobs.length === 0) {
-          return;
-        }
-
-        const heartbeatInput = activeJobs.map((job) => ({
-          id: job.id,
-          leaseToken: job.lease_token,
-        }));
-
-        const succeededJobs = await jq.heartbeatBatch(heartbeatInput, leaseMs);
-        const succeededIds = new Set(succeededJobs.map((j) => j.id));
-
-        for (const job of activeJobs) {
-          if (!succeededIds.has(job.id)) {
-            workerLogger.error('Heartbeat failed: lease lost', { jobId: job.id });
-            lostJobs.add(job.id);
-            onLeaseLost(job);
+        try {
+          const activeJobs = jobs.filter((job) => !lostJobs.has(job.id));
+          if (activeJobs.length === 0) {
+            return;
           }
+
+          const heartbeatInput = activeJobs.map((job) => ({
+            id: job.id,
+            leaseToken: job.lease_token,
+          }));
+
+          const heartbeatedJobs = await jq.heartbeatBatch(heartbeatInput, leaseMs);
+          const succeededIds = new Set(heartbeatedJobs.map((j) => j.id));
+
+          for (const job of activeJobs) {
+            if (!succeededIds.has(job.id)) {
+              workerLogger.error('Heartbeat failed: lease lost', { jobId: job.id });
+              lostJobs.add(job.id);
+              onLeaseLost(job);
+            }
+          }
+        } finally {
+          isHeartbeating = false;
         }
-      })().catch((err) =>
-        log('worker_heartbeat_error', { count: jobs.length, error: String(err) })
-      );
+      })().catch((err) => {
+        isHeartbeating = false;
+        log('worker_heartbeat_error', { count: jobs.length, error: String(err) });
+      });
     }, heartbeatMs);
   }
 

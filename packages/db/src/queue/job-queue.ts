@@ -328,6 +328,15 @@ export class JobQueue {
     return job;
   }
 
+  /**
+   * Heartbeat multiple jobs atomically in a single database query.
+   * Efficiently updates lease expiration for a batch of jobs using PostgreSQL's `unnest`.
+   * Only updates jobs where the ID and lease token match and the state is 'running'.
+   *
+   * @param jobs - Array of job identifiers (ID and lease token) to heartbeat.
+   * @param extendMs - Milliseconds to extend the lease by (from now).
+   * @returns Array of updated Job objects. Jobs with invalid leases (stolen/expired) are excluded from this list.
+   */
   async heartbeatBatch(
     jobs: { id: string; leaseToken: string }[],
     extendMs: number
