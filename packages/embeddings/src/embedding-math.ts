@@ -17,13 +17,14 @@ export function calculateCosineSimilarity(
   let norm2 = 0;
 
   for (let i = 0; i < embedding1.length; i++) {
-    const val1 = embedding1[i];
-    const val2 = embedding2[i];
-    if (val1 !== undefined && val2 !== undefined) {
-      dotProduct += val1 * val2;
-      norm1 += val1 * val1;
-      norm2 += val2 * val2;
-    }
+    // Non-null assertion is safe as we checked lengths and arrays are dense
+    // biome-ignore lint/style/noNonNullAssertion: Performance optimization
+    const val1 = embedding1[i]!;
+    // biome-ignore lint/style/noNonNullAssertion: Performance optimization
+    const val2 = embedding2[i]!;
+    dotProduct += val1 * val2;
+    norm1 += val1 * val1;
+    norm2 += val2 * val2;
   }
 
   // Guard against zero-norm vectors to prevent NaN
@@ -54,12 +55,13 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
 
   let squaredDistance = 0;
   for (let i = 0; i < embedding1.length; i++) {
-    const val1 = embedding1[i];
-    const val2 = embedding2[i];
-    if (val1 !== undefined && val2 !== undefined) {
-      const diff = val1 - val2;
-      squaredDistance += diff * diff;
-    }
+    // Non-null assertion is safe as we checked lengths and arrays are dense
+    // biome-ignore lint/style/noNonNullAssertion: Performance optimization
+    const val1 = embedding1[i]!;
+    // biome-ignore lint/style/noNonNullAssertion: Performance optimization
+    const val2 = embedding2[i]!;
+    const diff = val1 - val2;
+    squaredDistance += diff * diff;
   }
 
   const distance = Math.sqrt(squaredDistance);
@@ -83,11 +85,12 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
 
   let dotProduct = 0;
   for (let i = 0; i < embedding1.length; i++) {
-    const val1 = embedding1[i];
-    const val2 = embedding2[i];
-    if (val1 !== undefined && val2 !== undefined) {
-      dotProduct += val1 * val2;
-    }
+    // Non-null assertion is safe as we checked lengths and arrays are dense
+    // biome-ignore lint/style/noNonNullAssertion: Performance optimization
+    const val1 = embedding1[i]!;
+    // biome-ignore lint/style/noNonNullAssertion: Performance optimization
+    const val2 = embedding2[i]!;
+    dotProduct += val1 * val2;
   }
 
   return {
