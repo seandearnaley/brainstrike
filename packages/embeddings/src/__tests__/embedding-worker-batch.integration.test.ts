@@ -1,7 +1,7 @@
 import type { IDatabase } from '@brainstrike/db';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { startEmbeddingWorker } from '../index';
 import type {
   EmbeddingConfig,
@@ -56,11 +56,11 @@ class FakeEmbeddingService implements EmbeddingService {
 
 async function waitFor(
   fn: () => Promise<boolean>,
-  timeoutMs = 15000,
+  timeoutMs = 15_000,
   intervalMs = 50
 ): Promise<void> {
   const start = Date.now();
-  // eslint-disable-next-line no-constant-condition
+  // biome-ignore lint/correctness/noConstantCondition: valid loop pattern for tests
   while (true) {
     if (await fn()) {
       return;
@@ -83,11 +83,20 @@ describe('embedding-worker-batch', () => {
     // Wrap query to count
     const originalQuery = db.query.bind(db);
     queryCount = 0;
-    // @ts-ignore
-    db.query = async (...args: any[]) => {
+
+    // biome-ignore lint/suspicious/noExplicitAny: mocking PGlite query method needs flexibility
+    (db as unknown as { query: (...args: any[]) => Promise<any> }).query = async (
+      // biome-ignore lint/suspicious/noExplicitAny: generic query args
+      ...args: any[]
+    ) => {
       queryCount++;
-      return originalQuery(...args);
+      // biome-ignore lint/suspicious/noExplicitAny: generic query args
+      return originalQuery(...(args as [string, any[]?]));
     };
+  });
+
+  afterEach(async () => {
+    await db.close();
   });
 
   it('processes a batch of jobs with a single SELECT for chunks (N+1 regression test)', async () => {
@@ -119,20 +128,20 @@ describe('embedding-worker-batch', () => {
 
     // Create chunks and jobs
     for (let i = 0; i < jobCount; i++) {
-        const chunkId = `chunk-b-${i}`;
-        const jobId = `job-b-${i}`;
+      const chunkId = `chunk-b-${i}`;
+      const jobId = `job-b-${i}`;
 
-        await db.query(
-             `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+      await db.query(
+        `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
             VALUES ($1,$2,$3,$4,$5,10,'text',10,$6,$6)`,
-            [chunkId, fileId, i, `content ${i}`, `hash${i}`, now]
-        );
+        [chunkId, fileId, i, `content ${i}`, `hash${i}`, now]
+      );
 
-        await db.query(
-            `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      await db.query(
+        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
             VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
-            [jobId, JSON.stringify({ chunkId, embeddingSetId }), now]
-        );
+        [jobId, JSON.stringify({ chunkId, embeddingSetId }), now]
+      );
     }
 
     queryCount = 0;
@@ -140,14 +149,16 @@ describe('embedding-worker-batch', () => {
     const controller = await startEmbeddingWorker({
       db: db as unknown as IDatabase,
       concurrency: 1,
-      leaseMs: 60000,
+      leaseMs: 60_000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FakeEmbeddingService(),
       log: () => {},
     });
 
     await waitFor(async () => {
-      const res = await db.query<{count: number}>(`SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`);
+      const res = await db.query<{ count: number }>(
+        `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
+      );
       return Number(res.rows[0].count) === jobCount;
     }, 30_000);
 
@@ -157,8 +168,8 @@ describe('embedding-worker-batch', () => {
     // N+1 implementation: ~111 queries for 50 jobs.
     // Optimized implementation: ~61 queries for 50 jobs.
     // We expect significantly less than 100 queries to prove optimization.
-    console.log(`Total queries for ${jobCount} jobs: ${queryCount}`);
-    expect(queryCount).toBeLessThan(100);
+    const EXPECTED_MAX_QUERIES = 100;
+    expect(queryCount).toBeLessThan(EXPECTED_MAX_QUERIES);
   });
 
   it('fails jobs when chunk is missing', async () => {
@@ -181,27 +192,31 @@ describe('embedding-worker-batch', () => {
     // Enqueue a job for a non-existent chunk
     const jobId = 'job-missing';
     await db.query(
-        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
         VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
-        [jobId, JSON.stringify({ chunkId: 'missing-chunk-id', embeddingSetId }), now]
+      [jobId, JSON.stringify({ chunkId: 'missing-chunk-id', embeddingSetId }), now]
     );
 
     const controller = await startEmbeddingWorker({
       db: db as unknown as IDatabase,
       concurrency: 1,
-      leaseMs: 60000,
+      leaseMs: 60_000,
       modelKey: 'jinaai/jina-embeddings-v2-base-code',
       service: new FakeEmbeddingService(),
       log: () => {},
     });
 
     await waitFor(async () => {
-        const res = await db.query<{state: string}>(`SELECT state FROM job_queue WHERE id = $1`, [jobId]);
-        return res.rows[0]?.state === 'failed';
+      const res = await db.query<{ state: string }>('SELECT state FROM job_queue WHERE id = $1', [
+        jobId,
+      ]);
+      return res.rows[0]?.state === 'failed';
     });
 
     // Check error message
-    const res = await db.query<{error: string}>(`SELECT error FROM job_queue WHERE id = $1`, [jobId]);
+    const res = await db.query<{ error: string }>('SELECT error FROM job_queue WHERE id = $1', [
+      jobId,
+    ]);
     expect(res.rows[0].error).toContain('Chunk not found');
 
     await controller.stop();

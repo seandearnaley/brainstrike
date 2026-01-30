@@ -1071,7 +1071,6 @@ export async function startEmbeddingWorker(
     return payload;
   }
 
-
   function resolveTargetSetId(
     payload: EmbedChunkPayload,
     chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>
