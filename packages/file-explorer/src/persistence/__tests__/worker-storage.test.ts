@@ -43,8 +43,8 @@ class MockWorker {
   emitError(error: Error | string) {
     const message = error instanceof Error ? error.message : String(error);
     const errorEvent = new ErrorEvent('error', {
-        message,
-        error: error instanceof Error ? error : new Error(message)
+      message,
+      error: error instanceof Error ? error : new Error(message),
     });
 
     if (this.onerror) {
@@ -148,8 +148,10 @@ describe('WorkerStorage', () => {
         MockWorkerConstructorSpy(url);
         // Emulate behavior of feature detection vs normal worker
         if (url.toString().startsWith('data:')) {
-           return { terminate: vi.fn(), addEventListener: vi.fn() };
+          // biome-ignore lint/correctness/noConstructorReturn: Mocking Worker constructor to return a specific instance
+          return { terminate: vi.fn(), addEventListener: vi.fn() } as unknown as Worker;
         }
+        // biome-ignore lint/correctness/noConstructorReturn: Mocking Worker constructor to return a specific instance
         return mockWorker;
       }
     }
@@ -173,8 +175,8 @@ describe('WorkerStorage', () => {
       (globalThis as any).Worker = originalWorker;
     } else {
       vi.unstubAllGlobals();
-      delete (global as any).Worker;
-      delete (globalThis as any).Worker;
+      (global as any).Worker = undefined;
+      (globalThis as any).Worker = undefined;
     }
   });
 
@@ -213,9 +215,9 @@ describe('WorkerStorage', () => {
       vi.resetModules();
 
       const ErrorWorker = class {
-          constructor() {
-              throw new Error('Worker initialization failed');
-          }
+        constructor() {
+          throw new Error('Worker initialization failed');
+        }
       };
 
       vi.stubGlobal('Worker', ErrorWorker);
@@ -244,11 +246,11 @@ describe('WorkerStorage', () => {
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         // Asynchronously respond to simulate worker behavior
         queueMicrotask(() => {
-            mockWorker.emitMessage({
-                id: message.id,
-                type: 'success',
-                result: JSON.stringify(testData),
-            });
+          mockWorker.emitMessage({
+            id: message.id,
+            type: 'success',
+            result: JSON.stringify(testData),
+          });
         });
       });
 
@@ -270,11 +272,11 @@ describe('WorkerStorage', () => {
       // Setup mock error response
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         queueMicrotask(() => {
-            mockWorker.emitMessage({
-                id: message.id,
-                type: 'error',
-                error: 'Worker error',
-            });
+          mockWorker.emitMessage({
+            id: message.id,
+            type: 'error',
+            error: 'Worker error',
+          });
         });
       });
 
@@ -290,11 +292,11 @@ describe('WorkerStorage', () => {
 
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
         queueMicrotask(() => {
-            mockWorker.emitMessage({
-                id: message.id,
-                type: 'success',
-                result: null,
-            });
+          mockWorker.emitMessage({
+            id: message.id,
+            type: 'success',
+            result: null,
+          });
         });
       });
 
@@ -326,11 +328,11 @@ describe('WorkerStorage', () => {
 
       // Setup mock to respond when called
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
-          mockWorker.emitMessage({
-              id: message.id,
-              type: 'success',
-              result: true,
-          });
+        mockWorker.emitMessage({
+          id: message.id,
+          type: 'success',
+          result: true,
+        });
       });
 
       const promise = storage.setItem('test-key', JSON.stringify(testData));
@@ -354,11 +356,11 @@ describe('WorkerStorage', () => {
       const testValue = 'test-value';
 
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
-          mockWorker.emitMessage({
-              id: message.id,
-              type: 'error',
-              error: 'Worker error',
-          });
+        mockWorker.emitMessage({
+          id: message.id,
+          type: 'error',
+          error: 'Worker error',
+        });
       });
 
       const promise = storage.setItem('fallback-key', testValue);
@@ -392,13 +394,13 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorageClass(mockWorkerUrl);
 
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
-          queueMicrotask(() => {
-              mockWorker.emitMessage({
-                  id: message.id,
-                  type: 'success',
-                  result: true,
-              });
+        queueMicrotask(() => {
+          mockWorker.emitMessage({
+            id: message.id,
+            type: 'success',
+            result: true,
           });
+        });
       });
 
       await storage.removeItem('test-key');
@@ -414,13 +416,13 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorageClass(mockWorkerUrl);
 
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
-          queueMicrotask(() => {
-              mockWorker.emitMessage({
-                  id: message.id,
-                  type: 'error',
-                  error: 'Worker error',
-              });
+        queueMicrotask(() => {
+          mockWorker.emitMessage({
+            id: message.id,
+            type: 'error',
+            error: 'Worker error',
           });
+        });
       });
 
       await storage.removeItem('fallback-key');
@@ -494,13 +496,13 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorageClass(mockWorkerUrl);
 
       mockWorker.postMessage.mockImplementationOnce((message: { id: string }) => {
-          queueMicrotask(() => {
-              mockWorker.emitMessage({
-                  id: message.id,
-                  type: 'error',
-                  // No error message
-              });
+        queueMicrotask(() => {
+          mockWorker.emitMessage({
+            id: message.id,
+            type: 'error',
+            // No error message
           });
+        });
       });
 
       const result = await storage.getItem('test');
@@ -543,13 +545,13 @@ describe('WorkerStorage', () => {
 
       // Auto-respond to all messages
       mockWorker.postMessage.mockImplementation((message: { id: string }) => {
-          queueMicrotask(() => {
-              mockWorker.emitMessage({
-                  id: message.id,
-                  type: 'success',
-                  result: `result-${message.id}`,
-              });
+        queueMicrotask(() => {
+          mockWorker.emitMessage({
+            id: message.id,
+            type: 'success',
+            result: `result-${message.id}`,
           });
+        });
       });
 
       const promises = [storage.getItem('key1'), storage.getItem('key2'), storage.getItem('key3')];
@@ -569,9 +571,9 @@ describe('WorkerStorage', () => {
       mockWorker.postMessage.mockImplementation((data: { id: string }) => {
         sentIds.add(data.id);
         mockWorker.emitMessage({
-            id: data.id,
-            type: 'success',
-            result: true,
+          id: data.id,
+          type: 'success',
+          result: true,
         });
       });
 
@@ -606,12 +608,12 @@ describe('WorkerStorage', () => {
       new WorkerStorageClass(mockWorkerUrl);
 
       mockWorker.emitMessage({
-          id: '1',
-          type: 'storage_request',
-          operation: 'setItem',
-          key: 'foo',
-          value: 'bar',
-          opId: 1,
+        id: '1',
+        type: 'storage_request',
+        operation: 'setItem',
+        key: 'foo',
+        value: 'bar',
+        opId: 1,
       });
 
       expect(mockLocalStorage.setItem).toHaveBeenCalledWith('foo', 'bar');
@@ -627,21 +629,21 @@ describe('WorkerStorage', () => {
       new WorkerStorageClass(mockWorkerUrl);
 
       mockWorker.emitMessage({
-          id: '1',
-          type: 'storage_request',
-          operation: 'setItem',
-          key: 'foo',
-          value: 'bar',
-          opId: 2,
+        id: '1',
+        type: 'storage_request',
+        operation: 'setItem',
+        key: 'foo',
+        value: 'bar',
+        opId: 2,
       });
 
       mockWorker.emitMessage({
-          id: '2',
-          type: 'storage_request',
-          operation: 'setItem',
-          key: 'foo',
-          value: 'baz',
-          opId: 1,
+        id: '2',
+        type: 'storage_request',
+        operation: 'setItem',
+        key: 'foo',
+        value: 'baz',
+        opId: 1,
       });
 
       expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(1);
@@ -664,10 +666,10 @@ describe('WorkerStorage', () => {
       mockLocalStorage.data.set('foo', 'bar');
 
       mockWorker.emitMessage({
-          id: '1',
-          type: 'storage_request',
-          operation: 'getItem',
-          key: 'foo',
+        id: '1',
+        type: 'storage_request',
+        operation: 'getItem',
+        key: 'foo',
       });
 
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
@@ -683,10 +685,10 @@ describe('WorkerStorage', () => {
       mockLocalStorage.data.set('foo', 'bar');
 
       mockWorker.emitMessage({
-          id: '1',
-          type: 'storage_request',
-          operation: 'removeItem',
-          key: 'foo',
+        id: '1',
+        type: 'storage_request',
+        operation: 'removeItem',
+        key: 'foo',
       });
 
       expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('foo');
@@ -713,26 +715,26 @@ describe('WorkerStorage', () => {
       const warnSpy = vi.spyOn(mockLogger, 'warn').mockImplementation(() => {});
 
       mockWorker.emitMessage({
-          id: '1',
-          type: 'storage_request',
-          operation: 'setItem',
-          key: 'foo',
-          value: 'bar',
-          opId: 1,
+        id: '1',
+        type: 'storage_request',
+        operation: 'setItem',
+        key: 'foo',
+        value: 'bar',
+        opId: 1,
       });
 
       mockWorker.emitMessage({
-          id: '2',
-          type: 'storage_request',
-          operation: 'getItem',
-          key: 'foo',
+        id: '2',
+        type: 'storage_request',
+        operation: 'getItem',
+        key: 'foo',
       });
 
       mockWorker.emitMessage({
-          id: '3',
-          type: 'storage_request',
-          operation: 'removeItem',
-          key: 'foo',
+        id: '3',
+        type: 'storage_request',
+        operation: 'removeItem',
+        key: 'foo',
       });
 
       expect(warnSpy).toHaveBeenCalledTimes(3);
