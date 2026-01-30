@@ -139,6 +139,7 @@ export function ModelRegistrySettingsSection() {
             <Card className="overflow-hidden" key={provider.id}>
               <div className="flex items-center gap-4 bg-muted/20 p-4">
                 <Button
+                  aria-label={isExpanded ? `Collapse ${provider.name}` : `Expand ${provider.name}`}
                   className="h-6 w-6 shrink-0"
                   onClick={() => toggleExpanded(provider.id)}
                   size="icon"

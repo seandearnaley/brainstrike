@@ -1,8 +1,7 @@
+import { useToast } from '@brainstrike/ui';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { useToast } from '@brainstrike/ui';
 import {
   __resetModelRegistryStoreForTests,
   useModelRegistryStore,
@@ -22,31 +21,41 @@ vi.mock('@brainstrike/embeddings', () => {
   };
 });
 
+vi.mock('../../hooks/use-model-registry', () => ({
+  useEnsureModelRegistry: vi.fn(),
+}));
+
 vi.mock('@brainstrike/ui', () => {
+  interface MockComponentProps {
+    children?: React.ReactNode;
+    [key: string]: unknown;
+  }
+
   return {
     useToast: vi.fn(),
-    Badge: ({ children, ...props }: any) => (
+    Badge: ({ children, ...props }: MockComponentProps) => (
       <div data-testid="badge" {...props}>
         {children}
       </div>
     ),
-    Button: ({ children, ...props }: any) => <button {...props}>{children}</button>,
-    Card: ({ children, ...props }: any) => (
+    Button: ({ children, ...props }: MockComponentProps) => <button {...props}>{children}</button>,
+    Card: ({ children, ...props }: MockComponentProps) => (
       <div data-testid="card" {...props}>
         {children}
       </div>
     ),
-    Input: (props: any) => <input {...props} />,
-    Label: ({ children, ...props }: any) => <label {...props}>{children}</label>,
-    Progress: (props: any) => <div data-testid="progress" {...props} />,
-    Switch: (props: any) => <input type="checkbox" role="switch" {...props} readOnly />,
+    Input: (props: MockComponentProps) => <input {...props} />,
+    Label: ({ children, ...props }: MockComponentProps) => (
+      <label htmlFor="test-id" {...props}>
+        {children}
+      </label>
+    ),
+    Progress: (props: MockComponentProps) => <div data-testid="progress" {...props} />,
+    Switch: (props: MockComponentProps) => (
+      <input aria-checked={false} role="switch" type="checkbox" {...props} readOnly />
+    ),
   };
 });
-
-// Mock hooks
-vi.mock('../../hooks/use-model-registry', () => ({
-  useEnsureModelRegistry: vi.fn(),
-}));
 
 describe('ModelRegistrySettingsSection', () => {
   const mockToast = vi.fn();
@@ -57,8 +66,7 @@ describe('ModelRegistrySettingsSection', () => {
     (useToast as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ toast: mockToast });
   });
 
-  it('shows error toast when download fails', async () => {
-    // Setup store with one provider and one local model
+  const setupStore = () => {
     useModelRegistryStore.setState({
       providers: [
         {
@@ -88,35 +96,20 @@ describe('ModelRegistrySettingsSection', () => {
       isLoading: false,
       error: null,
     });
+  };
 
+  it('shows error toast when download fails', async () => {
+    setupStore();
     render(<ModelRegistrySettingsSection />);
 
-    // Expand the provider
-    // The expand button is within the provider card.
-    const providerText = screen.getByText('Local Provider');
-    // Traverse up to find the container, then find the button.
-    // The structure is: Card -> div -> Button (expand), div (text), div (switch)
-    // We can assume the first button in the document (or near the top) might be it, but let's be more precise if possible.
-    // Actually, screen.getAllByRole('button') is reliable if we know the order.
-    // 1. Select Directory (folder icon)
-    // 2. Refresh Registry (refresh icon)
-    // 3. Expand Provider (chevron icon)
-
-    const buttons = screen.getAllByRole('button');
-    // We expect at least 3 buttons.
-    expect(buttons.length).toBeGreaterThanOrEqual(3);
-    const expandBtn = buttons[2];
-
+    const expandBtn = screen.getByRole('button', { name: /Expand Local Provider/i });
     await userEvent.click(expandBtn);
 
-    // Now model should be visible.
     expect(await screen.findByText('Test Model')).toBeTruthy();
 
-    // Find "Download" button.
     const downloadBtn = screen.getByRole('button', { name: 'Download' });
     await userEvent.click(downloadBtn);
 
-    // Verify toast
     await waitFor(() => {
       expect(mockToast).toHaveBeenCalledWith({
         title: 'Download Failed',
@@ -124,5 +117,37 @@ describe('ModelRegistrySettingsSection', () => {
         variant: 'destructive',
       });
     });
+  });
+
+  it('successfully downloads a model', async () => {
+    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings');
+    const mockDownload = vi.fn().mockResolvedValue(undefined);
+    (SimpleEmbeddingService as unknown as ReturnType<typeof vi.fn>).prototype.downloadModel =
+      mockDownload;
+
+    setupStore();
+    render(<ModelRegistrySettingsSection />);
+
+    const expandBtn = screen.getByRole('button', { name: /Expand Local Provider/i });
+    await userEvent.click(expandBtn);
+
+    const downloadBtn = screen.getByRole('button', { name: 'Download' });
+    await userEvent.click(downloadBtn);
+
+    await waitFor(() => {
+      expect(mockDownload).toHaveBeenCalledWith(
+        'test-model',
+        expect.objectContaining({
+          onProgress: expect.any(Function),
+        })
+      );
+    });
+
+    // We can't easily assert on the state update inside the component from here without checking UI changes,
+    // but verifying the service call is sufficient for the "successful invocation" path.
+    // The UI should theoretically show "Downloading" and progress, but since the mock resolves immediately,
+    // it might be too fast to catch intermediate states in this test setup.
+    // However, we can check that no error toast was shown.
+    expect(mockToast).not.toHaveBeenCalled();
   });
 });
