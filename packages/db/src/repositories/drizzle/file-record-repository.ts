@@ -112,6 +112,17 @@ export class DrizzleFileRecordRepository {
     return row ? this.fromRow(row) : null;
   }
 
+  async findByIds(ids: readonly string[]): Promise<FileRecord[]> {
+    if (ids.length === 0) {
+      return [];
+    }
+
+    const uniqueIds = Array.from(new Set(ids));
+    const rows = await this.db.select().from(fileRecords).where(inArray(fileRecords.id, uniqueIds));
+
+    return rows.map((row) => this.fromRow(row));
+  }
+
   async findByContentHash(contentHash: string): Promise<FileRecord | null> {
     const [row] = await this.db
       .select()

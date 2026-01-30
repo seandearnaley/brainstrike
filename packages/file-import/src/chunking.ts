@@ -1,4 +1,10 @@
-import type { ChunkingStrategy, FileChunk, FileImportResult, IDatabase } from '@brainstrike/db';
+import type {
+  ChunkingStrategy,
+  FileChunk,
+  FileImportResult,
+  FileRecord,
+  IDatabase,
+} from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
 import { createLogger, fileExplorer } from '@brainstrike/utils';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
@@ -221,7 +227,8 @@ function createSkipResult(
 async function prepareChunkingExecution(
   result: FileImportResult,
   deps: ChunkingDeps,
-  options: ChunkingOptions
+  options: ChunkingOptions,
+  preFetchedRecord?: FileRecord
 ): Promise<ChunkingPreparation> {
   const repository = deps.repository;
   const chunkRepository = deps.chunkRepository;
@@ -243,7 +250,7 @@ async function prepareChunkingExecution(
     return { kind: 'skip', response: createSkipResult(result, fallbackStrategy) };
   }
 
-  const fileRecord = await repository.findById(result.id);
+  const fileRecord = preFetchedRecord || (await repository.findById(result.id));
   if (!fileRecord?.content) {
     logger.warn('File record not found or has no content', {
       fileId: result.id,
@@ -281,14 +288,15 @@ export async function processFileChunking(
   totalFiles: number,
   totalChunksCreated: number,
   deps: ChunkingDeps,
-  options: ChunkingOptions
+  options: ChunkingOptions,
+  preFetchedRecord?: FileRecord
 ): Promise<{
   enhancedResult: EnhancedImportResult;
   chunksCreated: number;
   chunks?: FileChunk[];
   strategyUsed: ChunkingStrategy;
 }> {
-  const preparation = await prepareChunkingExecution(result, deps, options);
+  const preparation = await prepareChunkingExecution(result, deps, options, preFetchedRecord);
   if (preparation.kind === 'skip') {
     return preparation.response;
   }
@@ -562,6 +570,27 @@ export async function processChunking(
   let filesProcessed = 0;
   const progressScheduler = createChunkingProgressScheduler(options.updateProgress);
 
+  // Pre-fetch all file records in a single batch to avoid N+1 queries
+  let recordsMap: Map<string, FileRecord> | undefined;
+  try {
+    const validResults = importResults.filter((r) => (r.imported || r.existed) && !r.error);
+    const ids = validResults.map((r) => r.id);
+
+    // Check if repository supports findByIds (it should, as both Electron and Drizzle implementations have it)
+    if (ids.length > 0 && 'findByIds' in repository && typeof repository.findByIds === 'function') {
+      const records = await repository.findByIds(ids);
+      recordsMap = new Map(records.map((r) => [r.id, r]));
+      logger.debug('Batch fetched file records', {
+        count: records.length,
+        requested: ids.length,
+      });
+    }
+  } catch (err) {
+    logger.warn('Failed to batch fetch file records, falling back to individual fetches', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   // Process files in parallel with concurrency limit
   const allResults = await parallelLimit(importResults, ChunkingConcurrency, async (result, i) => {
     if (!result) {
@@ -569,13 +598,15 @@ export async function processChunking(
     }
 
     try {
+      const preFetchedRecord = recordsMap?.get(result.id);
       const { enhancedResult, chunksCreated, chunks, strategyUsed } = await processFileChunking(
         result,
         i,
         importResults.length,
         totalChunksCreated,
         deps,
-        options
+        options,
+        preFetchedRecord
       );
 
       if (options.enableEmbedding && options.processEmbeddings && chunks && chunks.length > 0) {
