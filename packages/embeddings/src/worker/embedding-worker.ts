@@ -326,32 +326,95 @@ async function loadChunk(db: IDatabase, id: string) {
   return res.rows[0] ?? null;
 }
 
-async function updateChunkEmbedding(
+async function resolveIdType(db: IDatabase, table: string): Promise<string> {
+  try {
+    // biome-ignore lint/style/useNamingConvention: DB schema uses snake_case
+    const res = await db.query<{ data_type: string }>(
+      "SELECT data_type FROM information_schema.columns WHERE table_name = $1 AND column_name = 'id'",
+      [table]
+    );
+    const type = res.rows[0]?.data_type?.toLowerCase() ?? 'text';
+    return type === 'uuid' ? 'uuid' : 'text';
+  } catch (error) {
+    workerLogger.warn(`Failed to resolve ID type for ${table}, defaulting to text`, { error });
+    return 'text';
+  }
+}
+
+async function updateChunkEmbeddingBatch(
   db: IDatabase,
-  id: string,
-  embedding: number[],
-  embeddingSetId: string,
-  embeddingHash: string,
-  vectorEnabled: boolean
+  updates: Array<{
+    id: string;
+    embedding: number[];
+    embeddingSetId: string;
+    embeddingHash: string;
+  }>,
+  vectorEnabled: boolean,
+  idType: string
 ) {
+  if (updates.length === 0) {
+    return;
+  }
+
   const now = new Date().toISOString();
-  const vectorString = `[${embedding.join(',')}]`;
-  const sql = vectorEnabled
-    ? `UPDATE file_chunks SET
-         embedding = $1::vector,
-         embedding_set_id = $2,
-         embedding_updated_at = $3,
-         embedding_hash = $4,
-         updated_at = $3
-       WHERE id = $5`
-    : `UPDATE file_chunks SET
-         embedding = $1,
-         embedding_set_id = $2,
-         embedding_updated_at = $3,
-         embedding_hash = $4,
-         updated_at = $3
-       WHERE id = $5`;
-  await db.query(sql, [vectorString, embeddingSetId, now, embeddingHash, id]);
+
+  const ids = updates.map((u) => u.id);
+  const embeddingSetIds = updates.map((u) => u.embeddingSetId);
+  const embeddingHashes = updates.map((u) => u.embeddingHash);
+  // Convert embeddings to string representation for postgres vector type
+  const embeddings = updates.map((u) => `[${u.embedding.join(',')}]`);
+
+  let sql: string;
+
+  if (vectorEnabled) {
+    if (idType === 'uuid') {
+      sql = `UPDATE file_chunks AS fc
+         SET
+           embedding = t.embedding::vector,
+           embedding_set_id = t.embedding_set_id,
+           embedding_updated_at = $1,
+           embedding_hash = t.embedding_hash,
+           updated_at = $1
+       FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[])
+         AS t(id, embedding, embedding_set_id, embedding_hash)
+       WHERE fc.id = t.id`;
+    } else {
+      sql = `UPDATE file_chunks AS fc
+         SET
+           embedding = t.embedding::vector,
+           embedding_set_id = t.embedding_set_id,
+           embedding_updated_at = $1,
+           embedding_hash = t.embedding_hash,
+           updated_at = $1
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
+         AS t(id, embedding, embedding_set_id, embedding_hash)
+       WHERE fc.id = t.id`;
+    }
+  } else if (idType === 'uuid') {
+    sql = `UPDATE file_chunks AS fc
+         SET
+           embedding = t.embedding,
+           embedding_set_id = t.embedding_set_id,
+           embedding_updated_at = $1,
+           embedding_hash = t.embedding_hash,
+           updated_at = $1
+       FROM unnest($2::uuid[], $3::text[], $4::text[], $5::text[])
+         AS t(id, embedding, embedding_set_id, embedding_hash)
+       WHERE fc.id = t.id`;
+  } else {
+    sql = `UPDATE file_chunks AS fc
+         SET
+           embedding = t.embedding,
+           embedding_set_id = t.embedding_set_id,
+           embedding_updated_at = $1,
+           embedding_hash = t.embedding_hash,
+           updated_at = $1
+       FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
+         AS t(id, embedding, embedding_set_id, embedding_hash)
+       WHERE fc.id = t.id`;
+  }
+
+  await db.query(sql, [now, ids, embeddings, embeddingSetIds, embeddingHashes]);
 }
 
 const embeddingSetDimensionCache = new Map<string, number>();
@@ -762,6 +825,9 @@ export async function startEmbeddingWorker(
 
   let { service, modelConfig } = await initializeEmbeddingService(options, activeCompositeKey);
   let activeModelDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
+
+  // Determine ID column type for file_chunks to support both UUID (Prod) and TEXT (Test/Electron) schemas
+  const fileChunkIdType = await resolveIdType(options.db, 'file_chunks');
 
   // REMOVED: Worker no longer auto-creates embedding sets on startup
   // Collections should ONLY be created by the user via the Create Collection dialog
@@ -1323,12 +1389,24 @@ export async function startEmbeddingWorker(
     embeddings: number[][],
     jobModel: ReturnType<typeof resolveJobModel>
   ): Promise<Set<string>> {
+    // Validate batch size consistency before processing
+    if (toProcess.length !== embeddings.length) {
+      throw new Error(
+        `Batch size mismatch: ${toProcess.length} items vs ${embeddings.length} embeddings.`
+      );
+    }
+
     const completedJobIds = new Set<string>();
-    for (let index = 0; index < toProcess.length; index += 1) {
-      const item = toProcess[index];
-      if (!item) {
-        throw new Error(`Missing batch item at index ${index}.`);
-      }
+    const updates: Array<{
+      id: string;
+      embedding: number[];
+      embeddingSetId: string;
+      embeddingHash: string;
+    }> = [];
+    const jobCompletions: Array<{ id: string; leaseToken: string }> = [];
+
+    // Parallelize hash computation for performance
+    const updatesPromises = toProcess.map(async (item, index) => {
       const embedding = embeddings[index];
       if (!embedding) {
         throw new Error(`Missing embedding for item ${index} in batch.`);
@@ -1336,18 +1414,34 @@ export async function startEmbeddingWorker(
       const targetSetId = resolveTargetSetId(item.payload, item.chunk);
       const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
 
-      await updateChunkEmbedding(
-        options.db,
-        item.chunk.id,
-        embedding,
-        targetSetId,
-        expectedHash,
-        vectorEnabledForWrites
-      );
+      return {
+        update: {
+          id: item.chunk.id,
+          embedding,
+          embeddingSetId: targetSetId,
+          embeddingHash: expectedHash,
+        },
+        jobCompletion: { id: item.job.id, leaseToken: item.job.lease_token },
+      };
+    });
 
-      await jq.complete({ id: item.job.id, leaseToken: item.job.lease_token });
-      completedJobIds.add(item.job.id);
+    const results = await Promise.all(updatesPromises);
+
+    for (const result of results) {
+      updates.push(result.update);
+      jobCompletions.push(result.jobCompletion);
     }
+
+    if (updates.length > 0) {
+      await updateChunkEmbeddingBatch(options.db, updates, vectorEnabledForWrites, fileChunkIdType);
+    }
+
+    const completedJobs = await jq.completeBatch(jobCompletions);
+
+    for (const job of completedJobs) {
+      completedJobIds.add(job.id);
+    }
+
     return completedJobIds;
   }
 

@@ -113,6 +113,8 @@ export interface CancelParams {
 }
 
 export class JobQueue {
+  private idType: 'uuid' | 'text' | null = null;
+
   constructor(
     private readonly db: IDatabase,
     private readonly defaults: { maxAttempts?: number } = {}
@@ -120,6 +122,23 @@ export class JobQueue {
 
   withDb(db: IDatabase): JobQueue {
     return new JobQueue(db, this.defaults);
+  }
+
+  private async getOrResolveIdType(): Promise<'uuid' | 'text'> {
+    if (this.idType) {
+      return this.idType;
+    }
+    try {
+      const res = await this.db.query<{ data_type: string }>(
+        "SELECT data_type FROM information_schema.columns WHERE table_name = 'job_queue' AND column_name = 'id'"
+      );
+      const type = res.rows[0]?.data_type?.toLowerCase() ?? 'text';
+      this.idType = type === 'uuid' ? 'uuid' : 'text';
+    } catch (error) {
+      logger.warn('Failed to resolve ID type for job_queue, defaulting to text', { error });
+      this.idType = 'text';
+    }
+    return this.idType as 'uuid' | 'text';
   }
 
   retryPolicy(attempts: number): number {
@@ -307,6 +326,59 @@ export class JobQueue {
       leasedUntil: job.leasedUntil,
     });
     return job;
+  }
+
+  /**
+   * Complete multiple jobs atomically in a single database query.
+   * @param jobs Array of job IDs and lease tokens to complete
+   * @returns Array of completed Job objects
+   */
+  async completeBatch(jobs: CompleteParams[]): Promise<Job[]> {
+    if (jobs.length === 0) {
+      return [];
+    }
+    const idType = await this.getOrResolveIdType();
+    const updatedAt = new Date().toISOString();
+    const ids = jobs.map((j) => j.id);
+    const leaseTokens = jobs.map((j) => j.leaseToken);
+
+    const sql =
+      idType === 'uuid'
+        ? `UPDATE job_queue AS j
+       SET state = 'succeeded', leased_until = NULL, updated_at = $1
+       FROM unnest($2::uuid[], $3::text[]) AS t(id, lease_token)
+       WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+       RETURNING j.*`
+        : `UPDATE job_queue AS j
+       SET state = 'succeeded', leased_until = NULL, updated_at = $1
+       FROM unnest($2::text[], $3::text[]) AS t(id, lease_token)
+       WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+       RETURNING j.*`;
+
+    const res = await this.db.query<JobRow>(sql, [updatedAt, ids, leaseTokens]);
+
+    const completedJobs = res.rows.map(fromRow);
+
+    if (completedJobs.length > 0) {
+      logger.debug('Jobs completed in batch', { count: completedJobs.length });
+    }
+
+    for (const job of completedJobs) {
+      const elapsedMs = computeElapsedMs(job.runAt, updatedAt);
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+        event: 'complete',
+        taskId: job.id,
+        ...(typeof elapsedMs === 'number' ? { elapsedMs } : {}),
+        metadata: {
+          queue: job.queue,
+          jobType: job.jobType,
+        },
+      });
+    }
+
+    return completedJobs;
   }
 
   async complete(params: CompleteParams): Promise<Job | null> {
