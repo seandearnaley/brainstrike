@@ -119,9 +119,6 @@ importers:
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../../packages/embeddings
-      '@brainstrike/file-explorer':
-        specifier: workspace:*
-        version: link:../../packages/file-explorer
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../../packages/file-explorer-hooks
