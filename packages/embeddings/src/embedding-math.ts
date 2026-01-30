@@ -1,12 +1,19 @@
 import type { SimilarityResult } from './types';
 
 /**
- * Calculate cosine similarity between two embeddings
+ * Calculate cosine similarity between two embeddings.
+ *
+ * @param embedding1 - Dense array of numbers (no holes/undefined values)
+ * @param embedding2 - Dense array of numbers (no holes/undefined values)
+ * @throws {Error} If embeddings have different dimensions or are empty
  */
 export function calculateCosineSimilarity(
   embedding1: number[],
   embedding2: number[]
 ): SimilarityResult {
+  if (embedding1.length === 0 || embedding2.length === 0) {
+    throw new Error('Embeddings must not be empty');
+  }
   if (embedding1.length !== embedding2.length) {
     throw new Error('Embeddings must have the same dimensions');
   }
@@ -46,9 +53,16 @@ export function calculateCosineSimilarity(
 }
 
 /**
- * Calculate L2 (Euclidean) distance between two embeddings
+ * Calculate L2 (Euclidean) distance between two embeddings.
+ *
+ * @param embedding1 - Dense array of numbers (no holes/undefined values)
+ * @param embedding2 - Dense array of numbers (no holes/undefined values)
+ * @throws {Error} If embeddings have different dimensions or are empty
  */
 export function calculateL2Distance(embedding1: number[], embedding2: number[]): SimilarityResult {
+  if (embedding1.length === 0 || embedding2.length === 0) {
+    throw new Error('Embeddings must not be empty');
+  }
   if (embedding1.length !== embedding2.length) {
     throw new Error('Embeddings must have the same dimensions');
   }
@@ -76,9 +90,16 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
 }
 
 /**
- * Calculate dot product similarity between two embeddings
+ * Calculate dot product similarity between two embeddings.
+ *
+ * @param embedding1 - Dense array of numbers (no holes/undefined values)
+ * @param embedding2 - Dense array of numbers (no holes/undefined values)
+ * @throws {Error} If embeddings have different dimensions or are empty
  */
 export function calculateDotProduct(embedding1: number[], embedding2: number[]): SimilarityResult {
+  if (embedding1.length === 0 || embedding2.length === 0) {
+    throw new Error('Embeddings must not be empty');
+  }
   if (embedding1.length !== embedding2.length) {
     throw new Error('Embeddings must have the same dimensions');
   }

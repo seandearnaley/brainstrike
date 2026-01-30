@@ -27,4 +27,29 @@ describe('embedding-math', () => {
     expect(l2.distance).toBe(3);
     expect(l2.method).toBe('l2');
   });
+
+  describe('edge cases', () => {
+    it('throws on length mismatch', () => {
+      expect(() => calculateCosineSimilarity([1], [1, 2])).toThrow('Embeddings must have the same dimensions');
+    });
+
+    it('returns NaN for sparse arrays (undefined values)', () => {
+       const sparse = new Array(3);
+       sparse[0] = 1;
+       sparse[2] = 3;
+       // Sparse arrays result in undefined access which becomes NaN in math ops
+       const result = calculateCosineSimilarity(sparse, [1, 2, 3]);
+       expect(result.similarity).toBeNaN();
+    });
+
+    it('returns NaN for NaN input', () => {
+      const result = calculateCosineSimilarity([1, NaN], [1, 1]);
+      expect(result.similarity).toBeNaN();
+    });
+
+    it('throws on empty arrays', () => {
+      // Assuming we implement this check
+      expect(() => calculateCosineSimilarity([], [])).toThrow();
+    });
+  });
 });
