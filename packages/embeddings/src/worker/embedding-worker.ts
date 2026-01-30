@@ -1488,23 +1488,30 @@ export async function startEmbeddingWorker(
   function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: (job: ClaimedJob) => void) {
     const lostJobs = new Set<string>();
     return setInterval(() => {
-      Promise.all(
-        jobs.map(async (job) => {
-          if (lostJobs.has(job.id)) {
-            return;
-          }
-          const res = await jq.heartbeat({
-            id: job.id,
-            leaseToken: job.lease_token,
-            extendMs: leaseMs,
-          });
-          if (!res) {
+      (async () => {
+        const activeJobs = jobs.filter((job) => !lostJobs.has(job.id));
+        if (activeJobs.length === 0) {
+          return;
+        }
+
+        const heartbeatInput = activeJobs.map((job) => ({
+          id: job.id,
+          leaseToken: job.lease_token,
+        }));
+
+        const succeededJobs = await jq.heartbeatBatch(heartbeatInput, leaseMs);
+        const succeededIds = new Set(succeededJobs.map((j) => j.id));
+
+        for (const job of activeJobs) {
+          if (!succeededIds.has(job.id)) {
             workerLogger.error('Heartbeat failed: lease lost', { jobId: job.id });
             lostJobs.add(job.id);
             onLeaseLost(job);
           }
-        })
-      ).catch((err) => log('worker_heartbeat_error', { count: jobs.length, error: String(err) }));
+        }
+      })().catch((err) =>
+        log('worker_heartbeat_error', { count: jobs.length, error: String(err) })
+      );
     }, heartbeatMs);
   }
 

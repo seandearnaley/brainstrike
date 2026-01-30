@@ -328,6 +328,43 @@ export class JobQueue {
     return job;
   }
 
+  async heartbeatBatch(
+    jobs: { id: string; leaseToken: string }[],
+    extendMs: number
+  ): Promise<Job[]> {
+    if (jobs.length === 0) {
+      return [];
+    }
+    const idType = await this.getOrResolveIdType();
+    const newLease = new Date(Date.now() + extendMs).toISOString();
+    const updatedAt = new Date().toISOString();
+    const ids = jobs.map((j) => j.id);
+    const leaseTokens = jobs.map((j) => j.leaseToken);
+
+    const sql =
+      idType === 'uuid'
+        ? `UPDATE job_queue AS j
+           SET leased_until = $1, updated_at = $2
+           FROM unnest($3::uuid[], $4::text[]) AS t(id, lease_token)
+           WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+           RETURNING j.*`
+        : `UPDATE job_queue AS j
+           SET leased_until = $1, updated_at = $2
+           FROM unnest($3::text[], $4::text[]) AS t(id, lease_token)
+           WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+           RETURNING j.*`;
+
+    const res = await this.db.query<JobRow>(sql, [newLease, updatedAt, ids, leaseTokens]);
+
+    const updatedJobs = res.rows.map(fromRow);
+
+    if (updatedJobs.length > 0) {
+      logger.debug('Jobs heartbeated in batch', { count: updatedJobs.length });
+    }
+
+    return updatedJobs;
+  }
+
   /**
    * Complete multiple jobs atomically in a single database query.
    * @param jobs Array of job IDs and lease tokens to complete

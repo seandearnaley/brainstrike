@@ -43,6 +43,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@brainstrike/types': resolve(__dirname, '../types/src/index.ts'),
+      '@brainstrike/db': resolve(__dirname, '../db/src/index.ts'),
+      '@brainstrike/embedding-worker': resolve(__dirname, '../embedding-worker/src/index.ts'),
       '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
       '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
     },
