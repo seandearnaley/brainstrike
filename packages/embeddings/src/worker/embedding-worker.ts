@@ -1562,8 +1562,8 @@ export async function startEmbeddingWorker(
     if (completed.length === 0) {
       return;
     }
-    await Promise.all(
-      completed.map((item) => jq.complete({ id: item.job.id, leaseToken: item.job.lease_token }))
+    await jq.completeBatch(
+      completed.map((item) => ({ id: item.job.id, leaseToken: item.job.lease_token }))
     );
     for (const item of completed) {
       completedJobIds.add(item.job.id);
