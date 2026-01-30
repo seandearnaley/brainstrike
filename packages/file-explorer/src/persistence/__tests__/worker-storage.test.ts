@@ -119,11 +119,15 @@ describe('resolveWorkerStorageUrl', () => {
 // Mock worker URL for testing - WorkerStorage now requires a URL parameter
 const mockWorkerUrl = new URL('file:///mock-worker-storage.worker.mjs');
 
+const WORKER_TIMEOUT = 5000;
+// Buffer to ensure we're past the timeout
+const TIMEOUT_BUFFER = 1000;
+
 describe('WorkerStorage', () => {
   let originalWorker: typeof Worker | undefined;
   let mockWorker: MockWorker;
-  let MockWorkerConstructorSpy: any;
-  let WorkerStorageClass: any;
+  let MockWorkerConstructorSpy: ReturnType<typeof vi.fn>;
+  let WorkerStorageClass: typeof import('../worker-storage').WorkerStorage;
 
   beforeEach(async () => {
     // Reset modules to ensure Worker global is picked up correctly
@@ -144,8 +148,8 @@ describe('WorkerStorage', () => {
 
     // Define a proper class for Worker to avoid Vitest warnings
     class MockWorkerImplementation {
-      constructor(url: string | URL) {
-        MockWorkerConstructorSpy(url);
+      constructor(url: string | URL, ...args: unknown[]) {
+        MockWorkerConstructorSpy(url, ...args);
         // Emulate behavior of feature detection vs normal worker
         if (url.toString().startsWith('data:')) {
           // biome-ignore lint/correctness/noConstructorReturn: Mocking Worker constructor to return a specific instance
@@ -156,7 +160,9 @@ describe('WorkerStorage', () => {
       }
     }
 
-    // Set globally on both global and globalThis to be safe
+    // Set globally on both global and globalThis to be safe.
+    // vi.stubGlobal should be sufficient in JSDOM, but explicit assignment to global/globalThis
+    // ensures the mock is available even if the environment setup varies or code accesses 'global' directly.
     vi.stubGlobal('Worker', MockWorkerImplementation);
     (global as any).Worker = MockWorkerImplementation;
     (globalThis as any).Worker = MockWorkerImplementation;
@@ -191,8 +197,7 @@ describe('WorkerStorage', () => {
       const callArgs = MockWorkerConstructorSpy.mock.calls[0]; // First (and only) call
       expect(callArgs).toBeDefined();
       expect(String(callArgs?.[0])).toMatch(/worker-storage\.worker\.mjs$/);
-      // Note: The second arg {type: 'module'} is passed to constructor but spy only got url in my implementation above
-      // If I want to check args, I need to update MockWorkerImplementation to pass them to spy.
+      expect(callArgs?.[1]).toEqual({ type: 'module' });
 
       expect(storage.isWorkerAvailable).toBe(true);
     });
@@ -484,7 +489,7 @@ describe('WorkerStorage', () => {
       const promise = storage.getItem('test');
 
       // Fast-forward past timeout (5 seconds + buffer)
-      await vi.advanceTimersByTimeAsync(6000);
+      await vi.advanceTimersByTimeAsync(WORKER_TIMEOUT + TIMEOUT_BUFFER);
 
       // Should fall back to localStorage after timeout
       const result = await promise;
