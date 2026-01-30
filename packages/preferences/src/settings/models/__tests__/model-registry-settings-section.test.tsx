@@ -1,0 +1,153 @@
+import { useToast } from '@brainstrike/ui';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __resetModelRegistryStoreForTests,
+  useModelRegistryStore,
+} from '../../../stores/model-registry-store';
+import { ModelRegistrySettingsSection } from '../model-registry-settings-section';
+
+// Mock imports
+vi.mock('@brainstrike/db', () => ({
+  usePGliteDatabase: vi.fn(() => ({})),
+}));
+
+vi.mock('@brainstrike/embeddings', () => {
+  const MockService = vi.fn();
+  MockService.prototype.downloadModel = vi.fn().mockRejectedValue(new Error('Network error'));
+  return {
+    SimpleEmbeddingService: MockService,
+  };
+});
+
+vi.mock('../../hooks/use-model-registry', () => ({
+  useEnsureModelRegistry: vi.fn(),
+}));
+
+vi.mock('@brainstrike/ui', () => {
+  interface MockComponentProps {
+    children?: React.ReactNode;
+    [key: string]: unknown;
+  }
+
+  return {
+    useToast: vi.fn(),
+    Badge: ({ children, ...props }: MockComponentProps) => (
+      <div data-testid="badge" {...props}>
+        {children}
+      </div>
+    ),
+    Button: ({ children, ...props }: MockComponentProps) => <button {...props}>{children}</button>,
+    Card: ({ children, ...props }: MockComponentProps) => (
+      <div data-testid="card" {...props}>
+        {children}
+      </div>
+    ),
+    Input: (props: MockComponentProps) => <input {...props} />,
+    Label: ({ children, ...props }: MockComponentProps) => (
+      <label htmlFor="test-id" {...props}>
+        {children}
+      </label>
+    ),
+    Progress: (props: MockComponentProps) => <div data-testid="progress" {...props} />,
+    Switch: (props: MockComponentProps) => (
+      <input aria-checked={false} role="switch" type="checkbox" {...props} readOnly />
+    ),
+  };
+});
+
+describe('ModelRegistrySettingsSection', () => {
+  const mockToast = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    __resetModelRegistryStoreForTests();
+    (useToast as unknown as ReturnType<typeof vi.fn>).mockReturnValue({ toast: mockToast });
+  });
+
+  const setupStore = () => {
+    useModelRegistryStore.setState({
+      providers: [
+        {
+          id: 'local',
+          name: 'Local Provider',
+          icon: null,
+          isEnabled: true,
+          sortOrder: 0,
+        },
+      ],
+      models: [
+        {
+          id: 'test-model',
+          providerId: 'local',
+          name: 'Test Model',
+          description: 'A test model',
+          tagline: null,
+          bestFor: null,
+          icon: null,
+          isEnabled: true,
+          capabilities: { type: 'embedding', streaming: false },
+          parameters: null,
+          sortOrder: 0,
+        },
+      ],
+      hasLoaded: true,
+      isLoading: false,
+      error: null,
+    });
+  };
+
+  it('shows error toast when download fails', async () => {
+    setupStore();
+    render(<ModelRegistrySettingsSection />);
+
+    const expandBtn = screen.getByRole('button', { name: /Expand Local Provider/i });
+    await userEvent.click(expandBtn);
+
+    expect(await screen.findByText('Test Model')).toBeTruthy();
+
+    const downloadBtn = screen.getByRole('button', { name: 'Download' });
+    await userEvent.click(downloadBtn);
+
+    await waitFor(() => {
+      expect(mockToast).toHaveBeenCalledWith({
+        title: 'Download Failed',
+        description: 'Network error',
+        variant: 'destructive',
+      });
+    });
+  });
+
+  it('successfully downloads a model', async () => {
+    const { SimpleEmbeddingService } = await import('@brainstrike/embeddings');
+    const mockDownload = vi.fn().mockResolvedValue(undefined);
+    (SimpleEmbeddingService as unknown as ReturnType<typeof vi.fn>).prototype.downloadModel =
+      mockDownload;
+
+    setupStore();
+    render(<ModelRegistrySettingsSection />);
+
+    const expandBtn = screen.getByRole('button', { name: /Expand Local Provider/i });
+    await userEvent.click(expandBtn);
+
+    const downloadBtn = screen.getByRole('button', { name: 'Download' });
+    await userEvent.click(downloadBtn);
+
+    await waitFor(() => {
+      expect(mockDownload).toHaveBeenCalledWith(
+        'test-model',
+        expect.objectContaining({
+          onProgress: expect.any(Function),
+        })
+      );
+    });
+
+    // We can't easily assert on the state update inside the component from here without checking UI changes,
+    // but verifying the service call is sufficient for the "successful invocation" path.
+    // The UI should theoretically show "Downloading" and progress, but since the mock resolves immediately,
+    // it might be too fast to catch intermediate states in this test setup.
+    // However, we can check that no error toast was shown.
+    expect(mockToast).not.toHaveBeenCalled();
+  });
+});
