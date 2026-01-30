@@ -7,6 +7,18 @@ export default defineConfig({
   resolve: {
     alias: {
       '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),
+      '@brainstrike/ui': resolve(__dirname, '../ui/src/index.ts'),
+      '@brainstrike/hooks': resolve(__dirname, '../hooks/src/index.ts'),
+      '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
+      '@brainstrike/db': resolve(__dirname, '../db/src/index.ts'),
+      '@brainstrike/embeddings': resolve(__dirname, '../embeddings/src/index.ts'),
+      '@brainstrike/storage': resolve(__dirname, '../storage/src/index.ts'),
+      '@brainstrike/types': resolve(__dirname, '../types/src/index.ts'),
+      '@brainstrike/workers/report-generation-worker': resolve(
+        __dirname,
+        '../workers/report-generation-worker.ts'
+      ),
+      '@brainstrike/file-system': resolve(__dirname, '../file-system/src/index.ts'),
     },
   },
   test: {

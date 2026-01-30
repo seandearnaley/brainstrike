@@ -1,6 +1,6 @@
 import { usePGliteDatabase } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
-import { Badge, Button, Card, Input, Label, Progress, Switch } from '@brainstrike/ui';
+import { Badge, Button, Card, Input, Label, Progress, Switch, useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { ChevronDown, ChevronRight, Download, Folder, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
@@ -10,6 +10,7 @@ import { useModelRegistryStore } from '../../stores/model-registry-store';
 const logger = createLogger('ModelRegistrySettingsSection');
 
 export function ModelRegistrySettingsSection() {
+  const { toast } = useToast();
   const db = usePGliteDatabase();
   const {
     providers,
@@ -62,7 +63,14 @@ export function ModelRegistrySettingsSection() {
       setDownloadProgress(modelId, 100);
     } catch (err) {
       logger.error('Failed to download model', err);
-      // TODO: Show error toast
+      toast({
+        title: 'Download Failed',
+        description:
+          err instanceof Error
+            ? err.message
+            : 'An unknown error occurred while downloading the model.',
+        variant: 'destructive',
+      });
     } finally {
       setDownloading(modelId, false);
     }
