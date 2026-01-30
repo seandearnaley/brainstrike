@@ -1071,15 +1071,6 @@ export async function startEmbeddingWorker(
     return payload;
   }
 
-  async function loadChunkOrThrow(
-    chunkId: string
-  ): Promise<NonNullable<Awaited<ReturnType<typeof loadChunk>>>> {
-    const chunk = await loadChunk(options.db, chunkId);
-    if (!chunk) {
-      throw new Error(`Chunk not found: ${chunkId}`);
-    }
-    return chunk;
-  }
 
   function resolveTargetSetId(
     payload: EmbedChunkPayload,
