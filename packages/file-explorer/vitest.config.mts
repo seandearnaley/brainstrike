@@ -25,6 +25,9 @@ export default defineConfig({
     alias: {
       '@brainstrike/storage': path.resolve(__dirname, '../storage/src'),
       '@brainstrike/file-system': path.resolve(__dirname, '../file-system/src'),
+      '@brainstrike/utils': path.resolve(__dirname, '../utils/src'),
+      '@brainstrike/types': path.resolve(__dirname, '../types/src'),
+      '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),
     },
   },
 });
