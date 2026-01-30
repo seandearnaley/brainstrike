@@ -1,10 +1,16 @@
-
-import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
 import type { IDatabase } from '@brainstrike/db';
+import { JobQueue, migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatProviderModelKey, startEmbeddingWorker } from '../index';
-import type { EmbeddingConfig, EmbeddingProgress, EmbeddingResult, EmbeddingService, EmbeddingStatus, SimilarityResult } from '../types';
+import type {
+  EmbeddingConfig,
+  EmbeddingProgress,
+  EmbeddingResult,
+  EmbeddingService,
+  EmbeddingStatus,
+  SimilarityResult,
+} from '../types';
 
 class FakeEmbeddingService implements EmbeddingService {
   private status: EmbeddingStatus = 'ready';
@@ -82,6 +88,10 @@ describe('Embedding Worker Batch Optimization', () => {
     await migrate(db);
   });
 
+  afterEach(async () => {
+    await db?.close();
+  });
+
   it('uses completeBatch for already-completed jobs to avoid N+1 queries', async () => {
     const completeBatchSpy = vi.spyOn(JobQueue.prototype, 'completeBatch');
     const completeSpy = vi.spyOn(JobQueue.prototype, 'complete');
@@ -102,14 +112,23 @@ describe('Embedding Worker Batch Optimization', () => {
       [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
     );
 
-    const JOB_COUNT = 5;
+    const JOB_COUNT = 10;
     const fileId = 'file-batch';
 
     // Create file record
     await db.query(
       `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
-      [fileId, 'batch.ts', '/batch.ts', 100 * JOB_COUNT, 'content', 'hash-batch', 10 * JOB_COUNT, now]
+      [
+        fileId,
+        'batch.ts',
+        '/batch.ts',
+        100 * JOB_COUNT,
+        'content',
+        'hash-batch',
+        10 * JOB_COUNT,
+        now,
+      ]
     );
 
     const dummyEmbedding = vectorString(768, [[0, 0.1]]);
@@ -143,7 +162,9 @@ describe('Embedding Worker Batch Optimization', () => {
 
     // Wait for all jobs to match as succeeded
     await waitFor(async () => {
-      const res = await db.query(`SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`);
+      const res = await db.query(
+        `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
+      );
       return Number(res.rows[0]?.['count']) === JOB_COUNT;
     }, 10_000);
 
@@ -157,7 +178,9 @@ describe('Embedding Worker Batch Optimization', () => {
 
     // Verify the arguments passed to completeBatch contain the correct job IDs
     const calls = completeBatchSpy.mock.calls;
-    const completedIds = calls.flatMap(args => args[0].map(j => j.id));
+    expect(calls.length).toBeGreaterThan(0);
+
+    const completedIds = calls.flatMap((args) => args[0].map((j) => j.id));
     expect(completedIds).toHaveLength(JOB_COUNT);
     for (let i = 0; i < JOB_COUNT; i++) {
       expect(completedIds).toContain(`job-batch-${i}`);
