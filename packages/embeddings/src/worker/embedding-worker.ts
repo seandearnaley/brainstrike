@@ -1575,6 +1575,10 @@ export async function startEmbeddingWorker(
     }
   }
 
+  /**
+   * Marks jobs as completed in a single batch operation.
+   * Uses completeBatch to avoid N database round-trips.
+   */
   async function markAlreadyCompleted(
     completed: Array<{ job: ClaimedJob }>,
     completedJobIds: Set<string>
@@ -1582,8 +1586,8 @@ export async function startEmbeddingWorker(
     if (completed.length === 0) {
       return;
     }
-    await Promise.all(
-      completed.map((item) => jq.complete({ id: item.job.id, leaseToken: item.job.lease_token }))
+    await jq.completeBatch(
+      completed.map((item) => ({ id: item.job.id, leaseToken: item.job.lease_token }))
     );
     for (const item of completed) {
       completedJobIds.add(item.job.id);
