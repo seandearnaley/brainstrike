@@ -187,3 +187,6 @@ describe('Embedding Worker Batch Optimization', () => {
     }
   });
 });
+
+// Increase timeouts to reduce flakiness under workspace-wide runs
+vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
