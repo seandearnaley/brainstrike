@@ -60,7 +60,6 @@ async function waitFor(
   intervalMs = 50
 ): Promise<void> {
   const start = Date.now();
-  // biome-ignore lint/correctness/noConstantCondition: valid loop pattern for tests
   while (true) {
     if (await fn()) {
       return;
@@ -84,14 +83,11 @@ describe('embedding-worker-batch', () => {
     const originalQuery = db.query.bind(db);
     queryCount = 0;
 
-    // biome-ignore lint/suspicious/noExplicitAny: mocking PGlite query method needs flexibility
-    (db as unknown as { query: (...args: any[]) => Promise<any> }).query = async (
-      // biome-ignore lint/suspicious/noExplicitAny: generic query args
-      ...args: any[]
+    (db as unknown as { query: (...args: unknown[]) => Promise<unknown> }).query = async (
+      ...args: unknown[]
     ) => {
       queryCount++;
-      // biome-ignore lint/suspicious/noExplicitAny: generic query args
-      return originalQuery(...(args as [string, any[]?]));
+      return originalQuery(...(args as [string, unknown[]?]));
     };
   });
 

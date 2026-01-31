@@ -214,16 +214,109 @@ async function storeInCache(
 }
 
 /**
+ * Build cache key for storing verification metadata.
+ * This tracks which checksum was used to verify a cached file.
+ */
+function getVerificationMetadataKey(modelId: string, filePath: string): string {
+  return `verified:${modelId}:${filePath}`;
+}
+
+/**
+ * Check if a cached file was verified with the current expected checksum.
+ * Returns false if:
+ * - No verification metadata exists (file cached before checksums were added)
+ * - Verification metadata doesn't match current expected checksum
+ */
+async function isCacheVerifiedWithCurrentChecksum(
+  cache: Cache,
+  modelId: string,
+  filePath: string
+): Promise<boolean> {
+  const expectedChecksums = runtimeModelChecksums.get(modelId);
+  if (!expectedChecksums || expectedChecksums.onnxSha256 === 'pending-verification') {
+    // No checksum to verify against, or still pending - consider it valid
+    return true;
+  }
+
+  const metadataKey = getVerificationMetadataKey(modelId, filePath);
+  try {
+    const metadataResponse = await cache.match(metadataKey);
+    if (!metadataResponse) {
+      // No verification metadata - file was cached before checksum verification was added
+      logger.debug('No verification metadata for cached file', { modelId, filePath });
+      return false;
+    }
+
+    const metadata = await metadataResponse.json();
+    const storedChecksum = metadata?.verifiedChecksum;
+
+    if (storedChecksum !== expectedChecksums.onnxSha256) {
+      logger.info('Cached file verification metadata outdated', {
+        modelId,
+        filePath,
+        storedChecksum: storedChecksum?.substring(0, 16),
+        expectedChecksum: expectedChecksums.onnxSha256.substring(0, 16),
+      });
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    logger.debug('Failed to read verification metadata', {
+      modelId,
+      filePath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+/**
+ * Store verification metadata after successful integrity check.
+ */
+async function storeVerificationMetadata(
+  cache: Cache,
+  modelId: string,
+  filePath: string,
+  verifiedChecksum: string
+): Promise<void> {
+  const metadataKey = getVerificationMetadataKey(modelId, filePath);
+  const metadata = {
+    verifiedChecksum,
+    verifiedAt: new Date().toISOString(),
+  };
+
+  try {
+    const response = Response.json(metadata);
+    await cache.put(metadataKey, response);
+    logger.debug('Stored verification metadata', { modelId, filePath });
+  } catch (error) {
+    // Non-fatal - verification still succeeded
+    logger.debug('Failed to store verification metadata', {
+      modelId,
+      filePath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * Download a file from HuggingFace Hub with streaming to avoid memory issues.
  * Uses TransformStream for progress tracking without buffering the entire file.
  * Stores directly in browser Cache API which transformers.js uses internally.
+ *
+ * Cache verification strategy:
+ * - On fresh download: verify integrity and store verification metadata
+ * - On cache hit: check if verification metadata matches current expected checksum
+ * - If metadata is outdated/missing: invalidate cache and re-download with verification
  *
  * Based on HuggingFace transformers.js GitHub issue #1041.
  */
 async function downloadFileToCache(
   modelId: string,
   filePath: string,
-  onProgress?: (loaded: number, total: number) => void
+  onProgress?: (loaded: number, total: number) => void,
+  verifyIntegrity?: (data: ArrayBuffer) => Promise<void>
 ): Promise<void> {
   const url = `https://huggingface.co/${modelId}/resolve/main/${filePath}`;
   const cache = await openModelCache();
@@ -232,9 +325,24 @@ async function downloadFileToCache(
   try {
     const cachedResponse = await cache.match(url);
     if (cachedResponse) {
-      logger.debug('File already cached', { modelId, filePath });
-      onProgress?.(1, 1);
-      return;
+      // File is cached - check if it was verified with current checksum
+      if (verifyIntegrity) {
+        const isVerified = await isCacheVerifiedWithCurrentChecksum(cache, modelId, filePath);
+        if (isVerified) {
+          // Cache is valid and verified
+          logger.debug('File already cached and verified', { modelId, filePath });
+          onProgress?.(1, 1);
+          return;
+        }
+        // Verification metadata outdated or missing - invalidate and re-download
+        logger.info('Invalidating cached file for re-verification', { modelId, filePath });
+        await cache.delete(url);
+      } else {
+        // No verification requested - use cache as-is
+        logger.debug('File already cached', { modelId, filePath });
+        onProgress?.(1, 1);
+        return;
+      }
     }
   } catch (matchError) {
     logger.debug('Cache match failed, will re-download', {
@@ -257,13 +365,26 @@ async function downloadFileToCache(
     throw new Error('Response body is null');
   }
 
-  // Create a TransformStream for progress tracking without buffering
+  // If verification is requested, we need to accumulate the file content
+  // while streaming it to cache. This avoids re-reading from cache.
+  //
+  // MEMORY NOTE: For large models (1-2GB), accumulating all chunks in memory
+  // could be problematic on constrained devices. This is an intentional trade-off:
+  // - Pro: Avoids re-reading from cache after download (significant I/O savings)
+  // - Con: Temporarily doubles memory usage during verification
+  // The memory is released immediately after verification completes (see finally block).
+  const chunks: Uint8Array[] = [];
+
+  // Create a TransformStream for progress tracking
   let loaded = 0;
   const progressTransform = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       loaded += chunk.length;
       if (total > 0) {
         onProgress?.(loaded, total);
+      }
+      if (verifyIntegrity) {
+        chunks.push(chunk);
       }
       controller.enqueue(chunk);
     },
@@ -278,8 +399,72 @@ async function downloadFileToCache(
     },
   });
 
+  // Cache the file first
   await storeInCache(cache, url, cacheResponse, filePath);
   logger.debug('File downloaded and cached', { modelId, filePath, size: loaded });
+
+  // Verify integrity if requested
+  if (verifyIntegrity && chunks.length > 0) {
+    await performIntegrityCheck(verifyIntegrity, chunks, loaded, cache, url, modelId, filePath);
+  }
+}
+
+/**
+ * Perform integrity check on accumulated file chunks.
+ * Extracted to reduce complexity of downloadFileToCache.
+ * Stores verification metadata on success for cache invalidation detection.
+ */
+async function performIntegrityCheck(
+  verifyIntegrity: (data: ArrayBuffer) => Promise<void>,
+  chunks: Uint8Array[],
+  totalSize: number,
+  cache: Cache,
+  url: string,
+  modelId: string,
+  filePath: string
+): Promise<void> {
+  // Local reference to mutable chunks array to clear it safely
+  const localChunks = chunks;
+
+  try {
+    // Combine chunks into a single ArrayBuffer for verification
+    const combined = new Uint8Array(totalSize);
+    let offset = 0;
+    for (const chunk of localChunks) {
+      combined.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    await verifyIntegrity(combined.buffer);
+
+    // Verification succeeded - store metadata for cache invalidation detection
+    const expectedChecksums = runtimeModelChecksums.get(modelId);
+    if (expectedChecksums && expectedChecksums.onnxSha256 !== 'pending-verification') {
+      await storeVerificationMetadata(cache, modelId, filePath, expectedChecksums.onnxSha256);
+    }
+  } catch (error) {
+    // Verification failed - delete the corrupted file from cache to prevent "cache poisoning"
+    // If we leave it, the next run will find it in cache and skip verification
+    try {
+      await cache.delete(url);
+      logger.warn('Deleted corrupted file from cache', { modelId, filePath });
+    } catch (deleteError) {
+      logger.error('Failed to delete corrupted file from cache', {
+        modelId,
+        filePath,
+        error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+      });
+    }
+
+    // Clear memory immediately on error
+    localChunks.length = 0;
+
+    // Re-throw to fail the download process
+    throw error;
+  } finally {
+    // Clear chunks to free memory in all cases
+    localChunks.length = 0;
+  }
 }
 
 /**
@@ -753,12 +938,28 @@ interface ModelChecksums {
  * with actual checksums computed from verified model downloads.
  */
 const BASELINE_MODEL_CHECKSUMS: ReadonlyMap<string, ModelChecksums> = new Map([
-  // TODO: Replace with actual checksums after verifying model downloads
-  // These are placeholder values that will pass validation until real checksums are added
-  ['onnx-community/functiongemma-270m-it-ONNX', { onnxSha256: 'pending-verification' }],
-  ['LiquidAI/LFM2.5-1.2B-Instruct-ONNX', { onnxSha256: 'pending-verification' }],
-  ['onnx-community/Qwen3-0.6B-ONNX', { onnxSha256: 'pending-verification' }],
-  ['onnx-community/Qwen3-1.7B-ONNX', { onnxSha256: 'pending-verification' }],
+  // Checksums verified from Hugging Face model files
+
+  // FunctionGemma uses q4 dtype: onnx/model_q4.onnx
+  [
+    'onnx-community/functiongemma-270m-it-ONNX',
+    { onnxSha256: 'f3f12f387ee22d2b8c1b308bb6b2967ceb7c3466688950c5d7ccee29620ecede' },
+  ],
+  // LFM2.5 uses q4 dtype: onnx/model_q4.onnx
+  [
+    'LiquidAI/LFM2.5-1.2B-Instruct-ONNX',
+    { onnxSha256: '65d45073c4b9ce3281397d226df7cc95c2f7a7fa5328dcb1109d480f9fddbc7c' },
+  ],
+  // Qwen3-0.6B uses q4f16 dtype: onnx/model_q4f16.onnx
+  [
+    'onnx-community/Qwen3-0.6B-ONNX',
+    { onnxSha256: '9e33a5911974174761d0dfdcc0bec975d9c45af0eae5e9eb647b8ba9442a8f91' },
+  ],
+  // Qwen3-1.7B uses q4f16 dtype: onnx/model_q4f16.onnx
+  [
+    'onnx-community/Qwen3-1.7B-ONNX',
+    { onnxSha256: 'fb85b44defdf43ace50c7a4937127e889b9f8a0483eb87a6c4151a815c5da3b5' },
+  ],
 ]);
 
 /**
@@ -784,6 +985,16 @@ async function computeSha256(data: ArrayBuffer): Promise<string> {
   return Array.from(hashArray)
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+/**
+ * Check if a model has a checksum registered (for testing purposes).
+ *
+ * @param modelId - HuggingFace model ID
+ * @returns True if checksum is registered, false otherwise
+ */
+export function hasModelChecksum(modelId: string): boolean {
+  return runtimeModelChecksums.has(modelId);
 }
 
 /**
@@ -1959,7 +2170,20 @@ export class LocalLlmBackend {
         };
 
         // Download file to cache using streaming fetch
-        await downloadFileToCache(modelId, filename, fileProgressCallback);
+        // If this is the main model file, we attach a verification callback
+        // to verify integrity without re-reading from cache.
+        // Note: modelFiles is never empty as getModelFilesForDtype always returns at least one file
+        const mainModelFile = modelFiles.length > 0 ? modelFiles[0] : undefined;
+        const isMainModel = mainModelFile !== undefined && filename === mainModelFile;
+
+        const verifyCallback = isMainModel
+          ? async (data: ArrayBuffer) => {
+              await verifyModelIntegrity(modelId, data);
+              logger.info('Model integrity verified', { modelId, filename });
+            }
+          : undefined;
+
+        await downloadFileToCache(modelId, filename, fileProgressCallback, verifyCallback);
 
         completedFiles++;
         logger.debug('Downloaded file', { modelId, filename });
