@@ -635,7 +635,7 @@ describe('Model Integrity Verification', () => {
   });
 
   it('validates model ID format in setModelChecksums', () => {
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const _consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     // Should fail validation (no slash)
     setModelChecksums('invalid-model-id', { onnxSha256: mockHash });
 
@@ -646,7 +646,7 @@ describe('Model Integrity Verification', () => {
   });
 
   it('validates checksum format in setModelChecksums', () => {
-    const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const _consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const modelId = 'test/valid-model';
     // Should fail validation (invalid hex length)
     setModelChecksums(modelId, { onnxSha256: 'bad-checksum' });

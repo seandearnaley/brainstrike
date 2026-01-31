@@ -294,39 +294,58 @@ async function downloadFileToCache(
 
   // Verify integrity if requested
   if (verifyIntegrity && chunks.length > 0) {
-    try {
-      // Combine chunks into a single ArrayBuffer for verification
-      const combined = new Uint8Array(loaded);
-      let offset = 0;
-      for (const chunk of chunks) {
-        combined.set(chunk, offset);
-        offset += chunk.length;
-      }
+    await performIntegrityCheck(verifyIntegrity, chunks, loaded, cache, url, modelId, filePath);
+  }
+}
 
-      await verifyIntegrity(combined.buffer);
-    } catch (error) {
-      // Verification failed - delete the corrupted file from cache to prevent "cache poisoning"
-      // If we leave it, the next run will find it in cache and skip verification
-      try {
-        await cache.delete(url);
-        logger.warn('Deleted corrupted file from cache', { modelId, filePath });
-      } catch (deleteError) {
-        logger.error('Failed to delete corrupted file from cache', {
-          modelId,
-          filePath,
-          error: deleteError instanceof Error ? deleteError.message : String(deleteError)
-        });
-      }
+/**
+ * Perform integrity check on accumulated file chunks.
+ * Extracted to reduce complexity of downloadFileToCache.
+ */
+async function performIntegrityCheck(
+  verifyIntegrity: (data: ArrayBuffer) => Promise<void>,
+  chunks: Uint8Array[],
+  totalSize: number,
+  cache: Cache,
+  url: string,
+  modelId: string,
+  filePath: string
+): Promise<void> {
+  // Local reference to mutable chunks array to clear it safely
+  let localChunks = chunks;
 
-      // Clear memory
-      chunks = [];
-
-      // Re-throw to fail the download process
-      throw error;
-    } finally {
-      // Clear chunks to free memory in all cases
-      chunks = [];
+  try {
+    // Combine chunks into a single ArrayBuffer for verification
+    const combined = new Uint8Array(totalSize);
+    let offset = 0;
+    for (const chunk of localChunks) {
+      combined.set(chunk, offset);
+      offset += chunk.length;
     }
+
+    await verifyIntegrity(combined.buffer);
+  } catch (error) {
+    // Verification failed - delete the corrupted file from cache to prevent "cache poisoning"
+    // If we leave it, the next run will find it in cache and skip verification
+    try {
+      await cache.delete(url);
+      logger.warn('Deleted corrupted file from cache', { modelId, filePath });
+    } catch (deleteError) {
+      logger.error('Failed to delete corrupted file from cache', {
+        modelId,
+        filePath,
+        error: deleteError instanceof Error ? deleteError.message : String(deleteError)
+      });
+    }
+
+    // Clear memory immediately on error
+    localChunks.length = 0;
+
+    // Re-throw to fail the download process
+    throw error;
+  } finally {
+    // Clear chunks to free memory in all cases
+    localChunks.length = 0;
   }
 }
 
