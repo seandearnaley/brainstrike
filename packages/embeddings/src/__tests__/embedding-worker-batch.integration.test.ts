@@ -159,7 +159,7 @@ describe('embedding-worker-batch', () => {
       const res = await db.query<{ count: number }>(
         `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded'`
       );
-      return Number(res.rows[0].count) === jobCount;
+      return Number(res.rows[0]?.count ?? 0) === jobCount;
     }, 30_000);
 
     await controller.stop();
@@ -217,7 +217,68 @@ describe('embedding-worker-batch', () => {
     const res = await db.query<{ error: string }>('SELECT error FROM job_queue WHERE id = $1', [
       jobId,
     ]);
-    expect(res.rows[0].error).toContain('Chunk not found');
+    expect(res.rows[0]?.error).toContain('Chunk not found');
+
+    await controller.stop();
+  });
+
+  it('handles duplicate chunk IDs in batch', async () => {
+    const now = new Date().toISOString();
+    const embeddingSetId = 'set-duplicate';
+    const chunkId = 'chunk-shared';
+
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        embeddingSetId,
+        'local::jina-code',
+        'jinaai/jina-embeddings-v2-base-code',
+        768,
+        'cosine',
+        now,
+      ]
+    );
+
+    // One chunk
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+      VALUES ('file-dup','dup.ts','/dup.ts',100,'dup content','hash-dup',10,$1,$1)`,
+      [now]
+    );
+
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+        VALUES ($1,'file-dup',0,'dup content','hash-dup',10,'text',10,$2,$2)`,
+      [chunkId, now]
+    );
+
+    // Two jobs pointing to the same chunk
+    const jobIds = ['job-d-1', 'job-d-2'];
+    for (const jobId of jobIds) {
+      await db.query(
+        `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+          VALUES ($1,'embeddings','embed_chunk', $2, 'queued', $3, 0, 3, 0, $3, $3)`,
+        [jobId, JSON.stringify({ chunkId, embeddingSetId }), now]
+      );
+    }
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 60_000,
+      modelKey: 'jinaai/jina-embeddings-v2-base-code',
+      service: new FakeEmbeddingService(),
+      log: () => {},
+    });
+
+    await waitFor(async () => {
+      const res = await db.query<{ count: number }>(
+        `SELECT count(*) as count FROM job_queue WHERE state = 'succeeded' AND id = ANY($1::text[])`,
+        [jobIds]
+      );
+      return Number(res.rows[0]?.count ?? 0) === 2;
+    });
 
     await controller.stop();
   });
