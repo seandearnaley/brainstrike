@@ -33,22 +33,20 @@ describe('embedding-math', () => {
       expect(() => calculateCosineSimilarity([1], [1, 2])).toThrow('Embeddings must have the same dimensions');
     });
 
-    it('returns NaN for sparse arrays (undefined values)', () => {
+    it('throws on sparse arrays (undefined values)', () => {
        const sparse = new Array(3);
        sparse[0] = 1;
        sparse[2] = 3;
-       // Sparse arrays result in undefined access which becomes NaN in math ops
-       const result = calculateCosineSimilarity(sparse, [1, 2, 3]);
-       expect(result.similarity).toBeNaN();
+       // Sparse arrays must throw, not return NaN
+       expect(() => calculateCosineSimilarity(sparse, [1, 2, 3])).toThrow();
     });
 
-    it('returns NaN for NaN input', () => {
-      const result = calculateCosineSimilarity([1, NaN], [1, 1]);
-      expect(result.similarity).toBeNaN();
+    it('throws on NaN input', () => {
+      // NaN should be rejected to prevent data corruption
+      expect(() => calculateCosineSimilarity([1, NaN], [1, 1])).toThrow();
     });
 
     it('throws on empty arrays', () => {
-      // Assuming we implement this check
       expect(() => calculateCosineSimilarity([], [])).toThrow();
     });
   });
