@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { LocalLlmBackend, setModelChecksums, verifyModelIntegrity } from '../local-llm-backend';
+import {
+  hasModelChecksum,
+  LocalLlmBackend,
+  setModelChecksums,
+  verifyModelIntegrity,
+} from '../local-llm-backend';
 import type { LocalLlmConfig, LocalLlmGenerationOptions, LocalLlmMessage } from '../types';
 
 // Mock the transformers module
@@ -450,7 +455,7 @@ describe('generation with tools', () => {
           name: 'search',
           description: 'Search for information',
           parameters: {
-            type: 'object',
+            type: 'object' as const,
             properties: {
               query: { type: 'string' },
             },
@@ -634,23 +639,25 @@ describe('Model Integrity Verification', () => {
     expect(result).toBe(true);
   });
 
-  it('validates model ID format in setModelChecksums', () => {
-    const _consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    // Should fail validation (no slash)
-    setModelChecksums('invalid-model-id', { onnxSha256: mockHash });
+  it('validates model ID format in setModelChecksums and does not register invalid IDs', () => {
+    // Use a unique model ID to avoid test pollution
+    const invalidModelId = 'invalid-model-id-no-slash';
 
-    // Should log warning and not throw (implementation detail: setModelChecksums is void)
-    // We check that it handled it safely. Ideally we'd spy on the internal map or logger,
-    // but verifying it doesn't crash is a baseline.
-    // In a real integration, we'd check if the checksum was actually set (or not).
+    // Attempt to register with invalid model ID (no slash)
+    setModelChecksums(invalidModelId, { onnxSha256: mockHash });
+
+    // Verify the checksum was NOT added to the map
+    expect(hasModelChecksum(invalidModelId)).toBe(false);
   });
 
-  it('validates checksum format in setModelChecksums', () => {
-    const _consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const modelId = 'test/valid-model';
-    // Should fail validation (invalid hex length)
+  it('validates checksum format in setModelChecksums and does not register invalid checksums', () => {
+    // Use a unique model ID to avoid test pollution
+    const modelId = 'test/invalid-checksum-format-model';
+
+    // Attempt to register with invalid checksum format (not 64 hex chars)
     setModelChecksums(modelId, { onnxSha256: 'bad-checksum' });
 
-    // Should log warning and not crash
+    // Verify the checksum was NOT added to the map
+    expect(hasModelChecksum(modelId)).toBe(false);
   });
 });
