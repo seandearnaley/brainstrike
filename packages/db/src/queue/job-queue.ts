@@ -345,6 +345,9 @@ export class JobQueue {
       return [];
     }
     const idType = await this.getOrResolveIdType();
+    if (idType !== 'uuid' && idType !== 'text') {
+      throw new Error(`Invalid idType resolved: ${idType}`);
+    }
     const newLease = new Date(Date.now() + extendMs).toISOString();
     const updatedAt = new Date().toISOString();
     const ids = jobs.map((j) => j.id);
@@ -384,6 +387,9 @@ export class JobQueue {
       return [];
     }
     const idType = await this.getOrResolveIdType();
+    if (idType !== 'uuid' && idType !== 'text') {
+      throw new Error(`Invalid idType resolved: ${idType}`);
+    }
     const updatedAt = new Date().toISOString();
     const ids = jobs.map((j) => j.id);
     const leaseTokens = jobs.map((j) => j.leaseToken);

@@ -1522,7 +1522,6 @@ export async function startEmbeddingWorker(
           isHeartbeating = false;
         }
       })().catch((err) => {
-        isHeartbeating = false;
         log('worker_heartbeat_error', { count: jobs.length, error: String(err) });
       });
     }, heartbeatMs);
@@ -1575,6 +1574,13 @@ export async function startEmbeddingWorker(
     }
   }
 
+  /**
+   * Mark already-completed jobs (chunks with matching embedding_hash) as succeeded.
+   * Uses batch completion to avoid N+1 database queries.
+   *
+   * @param completed - Jobs that were filtered out because their chunks are already embedded
+   * @param completedJobIds - Set to track which job IDs have been completed
+   */
   async function markAlreadyCompleted(
     completed: Array<{ job: ClaimedJob }>,
     completedJobIds: Set<string>

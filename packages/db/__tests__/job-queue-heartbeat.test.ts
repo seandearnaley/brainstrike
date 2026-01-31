@@ -73,13 +73,13 @@ describe('JobQueue Heartbeat', () => {
         await jq.enqueue({ queue: 'batch-test', jobType: 'embed_chunk', payload: { i } });
       }
 
-      const jobs = await jq.claimMany({ queue: 'batch-test', leaseMs: 10000, limit: 3 });
+      const jobs = await jq.claimMany({ queue: 'batch-test', leaseMs: 10_000, limit: 3 });
       expect(jobs.length).toBe(3);
 
-      const extendMs = 60000;
+      const extendMs = 60_000;
       const now = Date.now();
       const updated = await jq.heartbeatBatch(
-        jobs.map(j => ({ id: j.id, leaseToken: j.lease_token! })),
+        jobs.map((j) => ({ id: j.id, leaseToken: j.lease_token! })),
         extendMs
       );
 
@@ -96,15 +96,15 @@ describe('JobQueue Heartbeat', () => {
       await jq.enqueue({ queue: 'batch-partial', jobType: 'embed_chunk', payload: { id: 1 } });
       await jq.enqueue({ queue: 'batch-partial', jobType: 'embed_chunk', payload: { id: 2 } });
 
-      const jobs = await jq.claimMany({ queue: 'batch-partial', leaseMs: 10000, limit: 2 });
+      const jobs = await jq.claimMany({ queue: 'batch-partial', leaseMs: 10_000, limit: 2 });
       const [job1, job2] = jobs;
 
       // Invalidate job2 by changing its lease token in DB
       await db.query("UPDATE job_queue SET lease_token = 'stolen-token' WHERE id = $1", [job2.id]);
 
       const updated = await jq.heartbeatBatch(
-        jobs.map(j => ({ id: j.id, leaseToken: j.lease_token! })),
-        60000
+        jobs.map((j) => ({ id: j.id, leaseToken: j.lease_token! })),
+        60_000
       );
 
       // Should only return job1
@@ -113,19 +113,16 @@ describe('JobQueue Heartbeat', () => {
     });
 
     it('should return empty array for empty input', async () => {
-      const updated = await jq.heartbeatBatch([], 60000);
+      const updated = await jq.heartbeatBatch([], 60_000);
       expect(updated).toEqual([]);
     });
 
     it('should return empty array if all leases are invalid', async () => {
-       await jq.enqueue({ queue: 'batch-fail', jobType: 'embed_chunk', payload: { id: 1 } });
-       const [job] = await jq.claimMany({ queue: 'batch-fail', leaseMs: 10000 });
+      await jq.enqueue({ queue: 'batch-fail', jobType: 'embed_chunk', payload: { id: 1 } });
+      const [job] = await jq.claimMany({ queue: 'batch-fail', leaseMs: 10_000 });
 
-       const updated = await jq.heartbeatBatch(
-         [{ id: job.id, leaseToken: 'wrong-token' }],
-         60000
-       );
-       expect(updated).toEqual([]);
+      const updated = await jq.heartbeatBatch([{ id: job.id, leaseToken: 'wrong-token' }], 60_000);
+      expect(updated).toEqual([]);
     });
   });
 });
