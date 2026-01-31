@@ -1,26 +1,13 @@
 import type { SimilarityResult } from './types';
 
 /**
- * Validates that a value is a finite number.
- * @internal
- */
-function checkValue(val: number | undefined, index: number): number {
-  if (val === undefined) {
-    throw new Error(`Sparse array detected at index ${index}`);
-  }
-  if (!Number.isFinite(val)) {
-    throw new Error(`Invalid value (${val}) at index ${index}`);
-  }
-  return val;
-}
-
-/**
  * Calculate cosine similarity between two embeddings.
  *
  * @param embedding1 - Dense array of numbers (no holes/undefined values)
  * @param embedding2 - Dense array of numbers (no holes/undefined values)
  * @throws {Error} If embeddings have different dimensions, are empty, or contain invalid values.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Unrolled loop with inline validation required for performance
 export function calculateCosineSimilarity(
   embedding1: number[],
   embedding2: number[]
@@ -33,40 +20,50 @@ export function calculateCosineSimilarity(
     throw new Error('Embeddings must have the same dimensions');
   }
 
-  // Calculate cosine similarity
   let dotProduct = 0;
   let norm1 = 0;
   let norm2 = 0;
 
-  // Unrolled loop (stride 4)
   const remainder = len % 4;
   const loopEnd = len - remainder;
 
   for (let i = 0; i < loopEnd; i += 4) {
     // Index i
-    const v10 = checkValue(embedding1[i], i);
-    const v20 = checkValue(embedding2[i], i);
+    const v10 = embedding1[i];
+    const v20 = embedding2[i];
+    if (v10 === undefined || !Number.isFinite(v10) || v20 === undefined || !Number.isFinite(v20)) {
+      throw new Error(`Invalid value at index ${i}`);
+    }
     dotProduct += v10 * v20;
     norm1 += v10 * v10;
     norm2 += v20 * v20;
 
     // Index i+1
-    const v11 = checkValue(embedding1[i + 1], i + 1);
-    const v21 = checkValue(embedding2[i + 1], i + 1);
+    const v11 = embedding1[i + 1];
+    const v21 = embedding2[i + 1];
+    if (v11 === undefined || !Number.isFinite(v11) || v21 === undefined || !Number.isFinite(v21)) {
+      throw new Error(`Invalid value at index ${i + 1}`);
+    }
     dotProduct += v11 * v21;
     norm1 += v11 * v11;
     norm2 += v21 * v21;
 
     // Index i+2
-    const v12 = checkValue(embedding1[i + 2], i + 2);
-    const v22 = checkValue(embedding2[i + 2], i + 2);
+    const v12 = embedding1[i + 2];
+    const v22 = embedding2[i + 2];
+    if (v12 === undefined || !Number.isFinite(v12) || v22 === undefined || !Number.isFinite(v22)) {
+      throw new Error(`Invalid value at index ${i + 2}`);
+    }
     dotProduct += v12 * v22;
     norm1 += v12 * v12;
     norm2 += v22 * v22;
 
     // Index i+3
-    const v13 = checkValue(embedding1[i + 3], i + 3);
-    const v23 = checkValue(embedding2[i + 3], i + 3);
+    const v13 = embedding1[i + 3];
+    const v23 = embedding2[i + 3];
+    if (v13 === undefined || !Number.isFinite(v13) || v23 === undefined || !Number.isFinite(v23)) {
+      throw new Error(`Invalid value at index ${i + 3}`);
+    }
     dotProduct += v13 * v23;
     norm1 += v13 * v13;
     norm2 += v23 * v23;
@@ -74,11 +71,14 @@ export function calculateCosineSimilarity(
 
   // Handle remainder
   for (let i = loopEnd; i < len; i++) {
-    const val1 = checkValue(embedding1[i], i);
-    const val2 = checkValue(embedding2[i], i);
-    dotProduct += val1 * val2;
-    norm1 += val1 * val1;
-    norm2 += val2 * val2;
+    const v1 = embedding1[i];
+    const v2 = embedding2[i];
+    if (v1 === undefined || !Number.isFinite(v1) || v2 === undefined || !Number.isFinite(v2)) {
+      throw new Error(`Invalid value at index ${i}`);
+    }
+    dotProduct += v1 * v2;
+    norm1 += v1 * v1;
+    norm2 += v2 * v2;
   }
 
   // Guard against zero-norm vectors to prevent NaN
@@ -120,31 +120,46 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
   const loopEnd = len - remainder;
 
   for (let i = 0; i < loopEnd; i += 4) {
-    const v10 = checkValue(embedding1[i], i);
-    const v20 = checkValue(embedding2[i], i);
+    const v10 = embedding1[i];
+    const v20 = embedding2[i];
+    if (v10 === undefined || !Number.isFinite(v10) || v20 === undefined || !Number.isFinite(v20)) {
+      throw new Error(`Invalid value at index ${i}`);
+    }
     const d0 = v10 - v20;
     squaredDistance += d0 * d0;
 
-    const v11 = checkValue(embedding1[i + 1], i + 1);
-    const v21 = checkValue(embedding2[i + 1], i + 1);
+    const v11 = embedding1[i + 1];
+    const v21 = embedding2[i + 1];
+    if (v11 === undefined || !Number.isFinite(v11) || v21 === undefined || !Number.isFinite(v21)) {
+      throw new Error(`Invalid value at index ${i + 1}`);
+    }
     const d1 = v11 - v21;
     squaredDistance += d1 * d1;
 
-    const v12 = checkValue(embedding1[i + 2], i + 2);
-    const v22 = checkValue(embedding2[i + 2], i + 2);
+    const v12 = embedding1[i + 2];
+    const v22 = embedding2[i + 2];
+    if (v12 === undefined || !Number.isFinite(v12) || v22 === undefined || !Number.isFinite(v22)) {
+      throw new Error(`Invalid value at index ${i + 2}`);
+    }
     const d2 = v12 - v22;
     squaredDistance += d2 * d2;
 
-    const v13 = checkValue(embedding1[i + 3], i + 3);
-    const v23 = checkValue(embedding2[i + 3], i + 3);
+    const v13 = embedding1[i + 3];
+    const v23 = embedding2[i + 3];
+    if (v13 === undefined || !Number.isFinite(v13) || v23 === undefined || !Number.isFinite(v23)) {
+      throw new Error(`Invalid value at index ${i + 3}`);
+    }
     const d3 = v13 - v23;
     squaredDistance += d3 * d3;
   }
 
   for (let i = loopEnd; i < len; i++) {
-    const val1 = checkValue(embedding1[i], i);
-    const val2 = checkValue(embedding2[i], i);
-    const diff = val1 - val2;
+    const v1 = embedding1[i];
+    const v2 = embedding2[i];
+    if (v1 === undefined || !Number.isFinite(v1) || v2 === undefined || !Number.isFinite(v2)) {
+      throw new Error(`Invalid value at index ${i}`);
+    }
+    const diff = v1 - v2;
     squaredDistance += diff * diff;
   }
 
@@ -180,16 +195,42 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
   const loopEnd = len - remainder;
 
   for (let i = 0; i < loopEnd; i += 4) {
-    dotProduct += checkValue(embedding1[i], i) * checkValue(embedding2[i], i);
-    dotProduct += checkValue(embedding1[i + 1], i + 1) * checkValue(embedding2[i + 1], i + 1);
-    dotProduct += checkValue(embedding1[i + 2], i + 2) * checkValue(embedding2[i + 2], i + 2);
-    dotProduct += checkValue(embedding1[i + 3], i + 3) * checkValue(embedding2[i + 3], i + 3);
+    const v10 = embedding1[i];
+    const v20 = embedding2[i];
+    if (v10 === undefined || !Number.isFinite(v10) || v20 === undefined || !Number.isFinite(v20)) {
+      throw new Error(`Invalid value at index ${i}`);
+    }
+    dotProduct += v10 * v20;
+
+    const v11 = embedding1[i + 1];
+    const v21 = embedding2[i + 1];
+    if (v11 === undefined || !Number.isFinite(v11) || v21 === undefined || !Number.isFinite(v21)) {
+      throw new Error(`Invalid value at index ${i + 1}`);
+    }
+    dotProduct += v11 * v21;
+
+    const v12 = embedding1[i + 2];
+    const v22 = embedding2[i + 2];
+    if (v12 === undefined || !Number.isFinite(v12) || v22 === undefined || !Number.isFinite(v22)) {
+      throw new Error(`Invalid value at index ${i + 2}`);
+    }
+    dotProduct += v12 * v22;
+
+    const v13 = embedding1[i + 3];
+    const v23 = embedding2[i + 3];
+    if (v13 === undefined || !Number.isFinite(v13) || v23 === undefined || !Number.isFinite(v23)) {
+      throw new Error(`Invalid value at index ${i + 3}`);
+    }
+    dotProduct += v13 * v23;
   }
 
   for (let i = loopEnd; i < len; i++) {
-    const val1 = checkValue(embedding1[i], i);
-    const val2 = checkValue(embedding2[i], i);
-    dotProduct += val1 * val2;
+    const v1 = embedding1[i];
+    const v2 = embedding2[i];
+    if (v1 === undefined || !Number.isFinite(v1) || v2 === undefined || !Number.isFinite(v2)) {
+      throw new Error(`Invalid value at index ${i}`);
+    }
+    dotProduct += v1 * v2;
   }
 
   return {
@@ -203,9 +244,17 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
  * Normalize an embedding vector to unit length
  */
 export function normalize(embedding: number[]): number[] {
+  if (embedding.length === 0) {
+    throw new Error('Embeddings must not be empty');
+  }
+
   let norm = 0;
-  for (const value of embedding) {
-    norm += value * value;
+  for (let i = 0; i < embedding.length; i++) {
+    const val = embedding[i];
+    if (val === undefined || !Number.isFinite(val)) {
+      throw new Error(`Invalid value at index ${i}`);
+    }
+    norm += val * val;
   }
 
   if (norm === 0) {
@@ -220,9 +269,17 @@ export function normalize(embedding: number[]): number[] {
  * Calculate the magnitude (L2 norm) of an embedding vector
  */
 export function magnitude(embedding: number[]): number {
+  if (embedding.length === 0) {
+    throw new Error('Embeddings must not be empty');
+  }
+
   let sum = 0;
-  for (const value of embedding) {
-    sum += value * value;
+  for (let i = 0; i < embedding.length; i++) {
+    const val = embedding[i];
+    if (val === undefined || !Number.isFinite(val)) {
+      throw new Error(`Invalid value at index ${i}`);
+    }
+    sum += val * val;
   }
   return Math.sqrt(sum);
 }

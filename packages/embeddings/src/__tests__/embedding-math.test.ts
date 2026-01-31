@@ -28,26 +28,50 @@ describe('embedding-math', () => {
     expect(l2.method).toBe('l2');
   });
 
-  describe('edge cases', () => {
+  describe.each([
+    ['cosine', calculateCosineSimilarity],
+    ['L2', calculateL2Distance],
+    ['dot', calculateDotProduct],
+  ])('%s similarity edge cases', (_name, fn) => {
     it('throws on length mismatch', () => {
-      expect(() => calculateCosineSimilarity([1], [1, 2])).toThrow('Embeddings must have the same dimensions');
+      expect(() => fn([1], [1, 2])).toThrow('same dimensions');
     });
 
     it('throws on sparse arrays (undefined values)', () => {
        const sparse = new Array(3);
        sparse[0] = 1;
        sparse[2] = 3;
-       // Sparse arrays must throw, not return NaN
-       expect(() => calculateCosineSimilarity(sparse, [1, 2, 3])).toThrow();
+       // Sparse arrays must throw
+       expect(() => fn(sparse, [1, 2, 3])).toThrow('Invalid value');
     });
 
     it('throws on NaN input', () => {
-      // NaN should be rejected to prevent data corruption
-      expect(() => calculateCosineSimilarity([1, NaN], [1, 1])).toThrow();
+      // NaN should be rejected
+      expect(() => fn([1, NaN], [1, 1])).toThrow('Invalid value');
     });
 
     it('throws on empty arrays', () => {
-      expect(() => calculateCosineSimilarity([], [])).toThrow();
+      expect(() => fn([], [])).toThrow('not be empty');
+    });
+  });
+
+  describe.each([
+    ['magnitude', magnitude],
+    ['normalize', normalize],
+  ])('%s single vector edge cases', (_name, fn) => {
+    it('throws on sparse arrays (undefined values)', () => {
+       const sparse = new Array(3);
+       sparse[0] = 1;
+       sparse[2] = 3;
+       expect(() => fn(sparse)).toThrow('Invalid value');
+    });
+
+    it('throws on NaN input', () => {
+      expect(() => fn([1, NaN])).toThrow('Invalid value');
+    });
+
+    it('throws on empty arrays', () => {
+      expect(() => fn([])).toThrow('not be empty');
     });
   });
 });
