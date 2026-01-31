@@ -45,6 +45,10 @@ export default defineConfig({
     alias: {
       '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
       '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
+      // Fix workspace resolution in tests: point directly to source to avoid build artifact issues
+      '@brainstrike/db': resolve(__dirname, '../db/src/index.ts'),
+      '@brainstrike/types': resolve(__dirname, '../types/src/index.ts'),
+      '@brainstrike/embedding-worker': resolve(__dirname, '../embedding-worker/src/index.ts'),
     },
   },
 });
