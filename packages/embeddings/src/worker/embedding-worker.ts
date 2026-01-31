@@ -1219,7 +1219,7 @@ export async function startEmbeddingWorker(
     // 1. Load all chunks
     const chunkIds = jobs.map((job) => assertEmbedChunkJob(job).chunkId);
     const loadedChunks = await loadChunksBatch(options.db, chunkIds, fileChunkIdType);
-    const chunkMap = new Map(loadedChunks.map((c: { id: string }) => [c.id, c]));
+    const chunkMap = new Map(loadedChunks.map((c) => [c.id, c]));
 
     const chunks = jobs.map((job) => {
       const p = assertEmbedChunkJob(job);
@@ -1235,9 +1235,7 @@ export async function startEmbeddingWorker(
     const completed: typeof chunks = [];
 
     for (const item of chunks) {
-      const expectedHash = await sha256Hex(
-        `${(item.chunk as { contentHash: string }).contentHash}:${jobModel.compositeKey}`
-      );
+      const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
       if (isEmbeddingUpToDate(item.chunk, expectedHash)) {
         completed.push(item);
       } else {
