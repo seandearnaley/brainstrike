@@ -4,9 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { startEmbeddingWorker } from '../index';
 import { clearModelConfigCache } from '../worker/embedding-worker';
 
-// Fix for PGlite migration timeout
-// vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
-
 vi.mock('@brainstrike/utils', () => ({
   createLogger: () => ({
     error: () => {},
@@ -65,17 +62,15 @@ describe('Embedding Worker Batch Optimization', () => {
     vi.restoreAllMocks();
   });
 
-  it('uses completeBatch for already-completed jobs to avoid N+1 queries', { timeout: 30_000 }, async () => {
-    const completeBatchSpy = vi.spyOn(JobQueue.prototype, 'completeBatch');
+  it(
+    'uses completeBatch for already-completed jobs to avoid N+1 queries',
+    { timeout: 30_000 },
+    async () => {
+      const completeBatchSpy = vi.spyOn(JobQueue.prototype, 'completeBatch');
       const now = new Date().toISOString();
 
       // 1. Setup a chunk that is already embedded (embedding_hash matches)
-      // Using a fake hash for 'test-content:local:all-MiniLM-L6-v2' (fallback model)
-      // Actually, to make it easier, I'll let the worker run once to compute the hash,
-      // or I can manually insert the chunk with a hash I know the worker will generate.
-      // But since I mocked the service, I don't control the hash generation inside the worker easily
-      // (it uses sha256Hex helper).
-      // Better approach: Let the worker process a job once to populate the hash, then re-queue it.
+      // Let the worker process a job once to populate the hash, then re-queue it.
 
       // Insert model to avoid DB lookup error
       await db.query(
@@ -170,41 +165,9 @@ describe('Embedding Worker Batch Optimization', () => {
       });
 
       // Check if completeBatch was used (it should be, even for skipped jobs if they are part of a group)
-      // The worker logic:
-      // 1. loadAndFilterChunks -> returns { toProcess: [], completed: [item] }
-      // 2. markAlreadyCompleted -> calls jq.complete (if not batched) OR we want to verify it uses completeBatch?
-      // Wait, markAlreadyCompleted currently uses Promise.all(map(jq.complete)).
-      // Ah! I should fix that too if I want "Batch Optimization".
+      expect(completeBatchSpy).toHaveBeenCalled(); // This assertion expects completeBatch usage.
 
-      // In my previous edit to embedding-worker.ts, I didn't touch `markAlreadyCompleted`.
-      // Let's check the code for `markAlreadyCompleted` in `embedding-worker.ts`.
-      // It says:
-      /*
-      async function markAlreadyCompleted(
-        completed: Array<{ job: ClaimedJob }>,
-        completedJobIds: Set<string>
-      ) {
-        if (completed.length === 0) {
-          return;
-        }
-        await Promise.all(
-          completed.map((item) => jq.complete({ id: item.job.id, leaseToken: item.job.lease_token }))
-        );
-        // ...
-      }
-    */
-      // It uses `Promise.all(map(jq.complete))`. This is N+1 for completed jobs!
-      // The test name says "uses completeBatch for already-completed jobs".
-      // So the user implies I should have optimized that too, or wants me to optimize it now.
-
-      // I should update `markAlreadyCompleted` to use `jq.completeBatch`.
-
-      // But first, let's finish writing this test file so I can verify the failure (or success after I fix it).
-      // Currently, with the code as is, `completeBatchSpy` will NOT be called for job-2 if `markAlreadyCompleted` uses `jq.complete`.
-      // So I expect the test to FAIL if I assert `completeBatchSpy` was called.
-
-    expect(completeBatchSpy).toHaveBeenCalled(); // This assertion expects completeBatch usage.
-
-    await controller2.stop();
-  });
+      await controller2.stop();
+    }
+  );
 });

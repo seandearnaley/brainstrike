@@ -141,6 +141,12 @@ export class JobQueue {
     return this.idType as 'uuid' | 'text';
   }
 
+  private validateIdType(idType: string): asserts idType is 'uuid' | 'text' {
+    if (idType !== 'uuid' && idType !== 'text') {
+      throw new Error(`Invalid idType resolved: ${idType}`);
+    }
+  }
+
   retryPolicy(attempts: number): number {
     // Exponential with jitter; base 1s, factor 2, cap 5m
     const base = 1000;
@@ -345,9 +351,7 @@ export class JobQueue {
       return [];
     }
     const idType = await this.getOrResolveIdType();
-    if (idType !== 'uuid' && idType !== 'text') {
-      throw new Error(`Invalid idType resolved: ${idType}`);
-    }
+    this.validateIdType(idType);
     const newLease = new Date(Date.now() + extendMs).toISOString();
     const updatedAt = new Date().toISOString();
     const ids = jobs.map((j) => j.id);
@@ -387,9 +391,7 @@ export class JobQueue {
       return [];
     }
     const idType = await this.getOrResolveIdType();
-    if (idType !== 'uuid' && idType !== 'text') {
-      throw new Error(`Invalid idType resolved: ${idType}`);
-    }
+    this.validateIdType(idType);
     const updatedAt = new Date().toISOString();
     const ids = jobs.map((j) => j.id);
     const leaseTokens = jobs.map((j) => j.leaseToken);
