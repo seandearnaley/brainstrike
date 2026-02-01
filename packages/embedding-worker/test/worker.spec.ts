@@ -15,6 +15,26 @@ describe('shared math helpers', () => {
     expect(magnitude).toBeCloseTo(1);
   });
 
+  it('normalizes in-place when destination equals source', () => {
+    const vector = Float32Array.from([3, 4]);
+    const result = l2Normalize(vector, vector);
+    expect(result).toBe(vector); // Same reference
+    expect(result[0]).toBeCloseTo(0.6);
+    expect(result[1]).toBeCloseTo(0.8);
+    expect(Math.hypot(...vector)).toBeCloseTo(1);
+  });
+
+  it('writes to separate destination buffer when provided', () => {
+    const source = Float32Array.from([3, 4]);
+    const dest = new Float32Array(2);
+    const result = l2Normalize(source, dest);
+    expect(result).toBe(dest);
+    expect(source[0]).toBe(3);
+    expect(source[1]).toBe(4);
+    expect(dest[0]).toBeCloseTo(0.6);
+    expect(dest[1]).toBeCloseTo(0.8);
+  });
+
   it('truncates vectors without mutating the input', () => {
     const vector = Float32Array.from([1, 2, 3, 4]);
     const truncated = truncateVector(vector, 2);
@@ -44,6 +64,15 @@ describe('vectorsFromPipelineOutput', () => {
     const [normalized] = vectorsFromPipelineOutput(vector, 3);
     const length = Math.sqrt(normalized.reduce((sum, value) => sum + value * value, 0));
     expect(length).toBeCloseTo(1);
+  });
+
+  it('handles arrays with undefined values by converting to 0', () => {
+    // Sparse array with undefined at index 1
+    const sparseArray = [0.3, undefined, 0.4] as unknown as number[];
+    const [normalized] = vectorsFromPipelineOutput(sparseArray, 3);
+    // Undefined should be converted to 0, not NaN
+    expect(normalized).toBeInstanceOf(Float32Array);
+    expect(Number.isNaN(normalized[1])).toBe(false);
   });
 });
 

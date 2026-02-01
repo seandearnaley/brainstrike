@@ -191,7 +191,13 @@ function cloneAsFloat32(values: ArrayLike<number>): Float32Array {
   if (values instanceof Float32Array) {
     return new Float32Array(values);
   }
-  return Float32Array.from(values);
+  // Use defensive loop to handle sparse arrays (undefined → 0, not NaN)
+  const result = new Float32Array(values.length);
+  for (let index = 0; index < values.length; index += 1) {
+    const raw = values[index];
+    result[index] = raw === undefined ? 0 : Number(raw);
+  }
+  return result;
 }
 
 function convertTensorToVectors(tensor: Tensor, truncateDim?: number): Float32Array[] {

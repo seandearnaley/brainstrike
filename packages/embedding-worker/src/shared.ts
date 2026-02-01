@@ -51,6 +51,12 @@ export interface EmbedWorkerError {
   readonly cause?: string | undefined;
 }
 
+/**
+ * Normalizes a vector to unit length (L2 norm).
+ * @param vector - The input vector to normalize
+ * @param destination - Optional output buffer. If equal to `vector`, normalizes in-place.
+ * @returns The normalized vector (either new array or the destination buffer)
+ */
 export function l2Normalize(vector: Float32Array, destination?: Float32Array): Float32Array {
   let sum = 0;
   // biome-ignore lint/style/useForOf: Index-based loop needed for Float32Array performance
