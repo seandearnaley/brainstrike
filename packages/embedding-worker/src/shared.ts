@@ -51,7 +51,13 @@ export interface EmbedWorkerError {
   readonly cause?: string | undefined;
 }
 
-export function l2Normalize(vector: Float32Array): Float32Array {
+/**
+ * Normalizes a vector to unit length (L2 norm).
+ * @param vector - The input vector to normalize
+ * @param destination - Optional output buffer. If equal to `vector`, normalizes in-place.
+ * @returns The normalized vector (either new array or the destination buffer)
+ */
+export function l2Normalize(vector: Float32Array, destination?: Float32Array): Float32Array {
   let sum = 0;
   // biome-ignore lint/style/useForOf: Index-based loop needed for Float32Array performance
   for (let index = 0; index < vector.length; index += 1) {
@@ -60,7 +66,7 @@ export function l2Normalize(vector: Float32Array): Float32Array {
   }
 
   const magnitude = sum > 0 ? 1 / Math.sqrt(sum) : 1;
-  const result = new Float32Array(vector.length);
+  const result = destination ?? new Float32Array(vector.length);
   for (let index = 0; index < vector.length; index += 1) {
     const value = vector[index] ?? 0;
     result[index] = value * magnitude;
@@ -99,7 +105,17 @@ export function normalizeProgress(value: number): number {
   return value;
 }
 
-function cloneAsFloat32(values: ArrayLike<number>): Float32Array {
+/**
+ * Clone an array-like of numbers into a Float32Array.
+ *
+ * For Float32Array inputs, uses the native TypedArray constructor for efficiency.
+ * For other array types, uses a defensive loop to handle sparse arrays
+ * (converts undefined → 0 instead of NaN from Number(undefined)).
+ */
+export function cloneAsFloat32(values: ArrayLike<number>): Float32Array {
+  if (values instanceof Float32Array) {
+    return new Float32Array(values);
+  }
   const result = new Float32Array(values.length);
   for (let index = 0; index < values.length; index += 1) {
     const raw = values[index];
@@ -114,14 +130,16 @@ function isNumberArray(input: readonly unknown[]): input is number[] {
 
 export function vectorsFromPipelineOutput(output: unknown, truncateDim?: number): Float32Array[] {
   if (output instanceof Float32Array) {
-    return [truncateVector(l2Normalize(cloneAsFloat32(output)), truncateDim)];
+    const vec = cloneAsFloat32(output);
+    return [truncateVector(l2Normalize(vec, vec), truncateDim)];
   }
   if (
     output instanceof Float64Array ||
     output instanceof Int32Array ||
     output instanceof Uint8Array
   ) {
-    return [truncateVector(l2Normalize(cloneAsFloat32(output)), truncateDim)];
+    const vec = cloneAsFloat32(output);
+    return [truncateVector(l2Normalize(vec, vec), truncateDim)];
   }
   if (Array.isArray(output)) {
     if (output.length === 0) {
@@ -129,12 +147,13 @@ export function vectorsFromPipelineOutput(output: unknown, truncateDim?: number)
     }
     if (isNumberArray(output)) {
       const vector = cloneAsFloat32(output);
-      return [truncateVector(l2Normalize(vector), truncateDim)];
+      return [truncateVector(l2Normalize(vector, vector), truncateDim)];
     }
     return output.flatMap((item) => vectorsFromPipelineOutput(item, truncateDim));
   }
   if (typeof output === 'number') {
-    return [truncateVector(l2Normalize(Float32Array.of(Number(output))), truncateDim)];
+    const vec = Float32Array.of(Number(output));
+    return [truncateVector(l2Normalize(vec, vec), truncateDim)];
   }
   return [];
 }

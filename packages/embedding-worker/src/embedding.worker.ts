@@ -12,6 +12,7 @@ import type {
   EmbedWorkerSuccess,
 } from './shared';
 import {
+  cloneAsFloat32,
   computeInitialBatchSize,
   l2Normalize,
   normalizeProgress,
@@ -187,19 +188,16 @@ function assertValidDimension(payload: EmbedWorkerRequest, requestedDimension: n
   }
 }
 
-function cloneAsFloat32(values: ArrayLike<number>): Float32Array {
-  const result = new Float32Array(values.length);
-  for (let index = 0; index < values.length; index += 1) {
-    result[index] = Number(values[index]);
-  }
-  return result;
-}
-
+/**
+ * Convert a Tensor from the pipeline output into normalized Float32Array vectors.
+ * Handles 1D, 2D (batch), and arbitrarily nested tensor structures.
+ */
 function convertTensorToVectors(tensor: Tensor, truncateDim?: number): Float32Array[] {
   const dims = tensor.dims;
   const data = tensor.data as ArrayLike<number>;
   if (dims.length === 1) {
-    return [truncateVector(l2Normalize(cloneAsFloat32(data)), truncateDim)];
+    const vec = cloneAsFloat32(data);
+    return [truncateVector(l2Normalize(vec, vec), truncateDim)];
   }
   if (dims.length === 2) {
     const [batch, width] = dims as [number, number];
@@ -208,13 +206,16 @@ function convertTensorToVectors(tensor: Tensor, truncateDim?: number): Float32Ar
     for (let row = 0; row < batch; row += 1) {
       const start = row * width;
       const slice = typed.subarray(start, start + width);
-      const normalized = l2Normalize(new Float32Array(slice));
-      vectors.push(truncateVector(normalized, truncateDim));
+      // Create a copy because subarray() returns a view into the original buffer.
+      // l2Normalize modifies in-place, so without this copy we'd corrupt `typed`.
+      const vec = new Float32Array(slice);
+      l2Normalize(vec, vec);
+      vectors.push(truncateVector(vec, truncateDim));
     }
     return vectors;
   }
   const flattened = Float32Array.from(tensor.tolist().flat(Number.POSITIVE_INFINITY) as number[]);
-  return [truncateVector(l2Normalize(flattened), truncateDim)];
+  return [truncateVector(l2Normalize(flattened, flattened), truncateDim)];
 }
 
 interface EmbeddingContext {
