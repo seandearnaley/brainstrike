@@ -307,87 +307,49 @@ function generateSummaryAndIssues(
   return { summary, issues };
 }
 
-/** Check database health with fallback */
-async function checkDatabaseHealth(
-  getDatabaseHealth: () => Promise<DatabaseDiagnostics>
-): Promise<{ data: DatabaseDiagnostics; status: HealthStatus }> {
+/** Generic health check with fallback */
+async function checkHealthWithFallback<T extends { status: HealthStatus }>(
+  getter: () => Promise<T>,
+  fallback: T
+): Promise<{ data: T; status: HealthStatus }> {
   try {
-    const data = await getDatabaseHealth();
+    const data = await getter();
     return { data, status: data.status };
   } catch {
-    return {
-      data: {
-        status: 'unhealthy',
-        connected: false,
-        tables: { fileRecords: 0, chunks: 0, embeddings: 0, embeddingSets: 0 },
-        sizeBytes: 0,
-      },
-      status: 'unhealthy',
-    };
+    return { data: fallback, status: fallback.status };
   }
 }
 
-/** Check queue health with fallback */
-async function checkQueueHealth(
-  getQueueHealth: () => Promise<QueueDiagnostics>
-): Promise<{ data: QueueDiagnostics; status: HealthStatus }> {
-  try {
-    const data = await getQueueHealth();
-    return { data, status: data.status };
-  } catch {
-    return {
-      data: {
-        status: 'unhealthy',
-        durableQueue: { queued: 0, running: 0, failed: 0, succeeded: 0 },
-        ephemeralQueue: { pending: 0, processing: 0 },
-        throughput: 0,
-        recentErrors: ['Failed to get queue status'],
-      },
-      status: 'unhealthy',
-    };
-  }
-}
+/** Default fallback data for each diagnostic category */
+const FALLBACK_DATABASE: DatabaseDiagnostics = {
+  status: 'unhealthy',
+  connected: false,
+  tables: { fileRecords: 0, chunks: 0, embeddings: 0, embeddingSets: 0 },
+  sizeBytes: 0,
+};
 
-/** Check worker health with fallback */
-async function checkWorkerHealth(
-  getWorkerHealth: () => Promise<WorkerDiagnostics>
-): Promise<{ data: WorkerDiagnostics; status: HealthStatus }> {
-  try {
-    const data = await getWorkerHealth();
-    return { data, status: data.status };
-  } catch {
-    return {
-      data: {
-        status: 'unknown',
-        isRunning: false,
-        activeWorkers: 0,
-        stats: { chunksProcessed: 0, embeddingsGenerated: 0, averageLatencyMs: 0 },
-      },
-      status: 'unknown',
-    };
-  }
-}
+const FALLBACK_QUEUE: QueueDiagnostics = {
+  status: 'unhealthy',
+  durableQueue: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+  ephemeralQueue: { pending: 0, processing: 0 },
+  throughput: 0,
+  recentErrors: ['Failed to get queue status'],
+};
 
-/** Check storage health with fallback */
-async function checkStorageHealth(
-  getStorageHealth: () => Promise<StorageDiagnostics>
-): Promise<{ data: StorageDiagnostics; status: HealthStatus }> {
-  try {
-    const data = await getStorageHealth();
-    return { data, status: data.status };
-  } catch {
-    return {
-      data: {
-        status: 'unknown',
-        type: 'unknown',
-        availableBytes: null,
-        usedBytes: 0,
-        isWritable: false,
-      },
-      status: 'unknown',
-    };
-  }
-}
+const FALLBACK_WORKER: WorkerDiagnostics = {
+  status: 'unknown',
+  isRunning: false,
+  activeWorkers: 0,
+  stats: { chunksProcessed: 0, embeddingsGenerated: 0, averageLatencyMs: 0 },
+};
+
+const FALLBACK_STORAGE: StorageDiagnostics = {
+  status: 'unknown',
+  type: 'unknown',
+  availableBytes: null,
+  usedBytes: 0,
+  isWritable: false,
+};
 
 /** Check if a category should be checked */
 function shouldCheck(category: string, categories: string[], checkAll: boolean): boolean {
@@ -415,28 +377,28 @@ async function runSystemDiagnostics(
   let storage: StorageDiagnostics | undefined;
 
   if (shouldCheck('database', categories, checkAll) && deps.getDatabaseHealth) {
-    const result = await checkDatabaseHealth(deps.getDatabaseHealth);
+    const result = await checkHealthWithFallback(deps.getDatabaseHealth, FALLBACK_DATABASE);
     database = result.data;
     categoriesChecked.push('database');
     statuses.push(result.status);
   }
 
   if (shouldCheck('queue', categories, checkAll) && deps.getQueueHealth) {
-    const result = await checkQueueHealth(deps.getQueueHealth);
+    const result = await checkHealthWithFallback(deps.getQueueHealth, FALLBACK_QUEUE);
     queue = result.data;
     categoriesChecked.push('queue');
     statuses.push(result.status);
   }
 
   if (shouldCheck('worker', categories, checkAll) && deps.getWorkerHealth) {
-    const result = await checkWorkerHealth(deps.getWorkerHealth);
+    const result = await checkHealthWithFallback(deps.getWorkerHealth, FALLBACK_WORKER);
     worker = result.data;
     categoriesChecked.push('worker');
     statuses.push(result.status);
   }
 
   if (shouldCheck('storage', categories, checkAll) && deps.getStorageHealth) {
-    const result = await checkStorageHealth(deps.getStorageHealth);
+    const result = await checkHealthWithFallback(deps.getStorageHealth, FALLBACK_STORAGE);
     storage = result.data;
     categoriesChecked.push('storage');
     statuses.push(result.status);

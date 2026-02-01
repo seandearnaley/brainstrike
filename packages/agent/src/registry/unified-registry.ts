@@ -164,37 +164,13 @@ export class UnifiedToolRegistry {
    * Register a native tool.
    */
   registerNativeTool(options: NativeToolRegistrationOptions): void {
-    const { id, description, inputSchema, enabled = true } = options;
-
-    const defaults = getNativeToolDefaults(id);
-    const category = options.category ?? defaults?.category ?? 'action';
-    const loadingTier = options.loadingTier ?? defaults?.loadingTier ?? 'conditional';
-    const estimatedTokens = options.estimatedTokens ?? defaults?.estimatedTokens ?? 100;
-    const requiresApproval = options.requiresApproval ?? defaults?.requiresApproval ?? false;
-
-    const existing = this.tools.get(id);
-    const metadata: UnifiedToolMetadata = {
-      id,
-      source: 'native',
-      category,
-      loadingTier,
-      description,
-      inputSchema,
-      enabled: existing?.enabled ?? enabled,
-      discoveredAt: existing?.discoveredAt ?? Date.now(),
-      estimatedTokens,
-      requiresApproval,
-    };
-
-    this.tools.set(id, metadata);
-
-    // Track in native "server" group
-    if (!this.toolsByServer.has('native')) {
-      this.toolsByServer.set('native', new Set());
-    }
-    this.toolsByServer.get('native')?.add(id);
-
-    logger.debug('Native tool registered', { id, category, loadingTier });
+    this.registerNativeToolInternal(options);
+    logger.debug('Native tool registered', {
+      id: options.id,
+      category: options.category ?? getNativeToolDefaults(options.id)?.category ?? 'action',
+      loadingTier:
+        options.loadingTier ?? getNativeToolDefaults(options.id)?.loadingTier ?? 'conditional',
+    });
     this.notifyListeners();
   }
 
@@ -203,7 +179,7 @@ export class UnifiedToolRegistry {
    */
   registerNativeTools(tools: NativeToolRegistrationOptions[]): void {
     for (const tool of tools) {
-      this.registerNativeToolSilent(tool);
+      this.registerNativeToolInternal(tool);
     }
     logger.info('Native tools registered', { count: tools.length });
     this.notifyListeners();
@@ -648,7 +624,8 @@ export class UnifiedToolRegistry {
 
   // Private methods
 
-  private registerNativeToolSilent(options: NativeToolRegistrationOptions): void {
+  /** Internal method to register a native tool without logging or notifying listeners */
+  private registerNativeToolInternal(options: NativeToolRegistrationOptions): void {
     const { id, description, inputSchema, enabled = true } = options;
 
     const defaults = getNativeToolDefaults(id);

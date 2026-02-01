@@ -149,24 +149,29 @@ export function UnifiedToolsSettings({
     }
   }, [operations, loadData]);
 
-  const handleEnableServer = useCallback(
-    async (serverName: string) => {
+  const handleServerToolsToggle = useCallback(
+    async (serverName: string, enable: boolean) => {
       const serverTools = tools.filter((t) => t.source === 'mcp' && t.serverName === serverName);
-      await operations.enableTools(serverTools.map((t) => t.id));
+      const toolIds = serverTools.map((t) => t.id);
+      if (enable) {
+        await operations.enableTools(toolIds);
+      } else {
+        await operations.disableTools(toolIds);
+      }
       await loadData();
       onToolsChanged?.();
     },
     [tools, operations, loadData, onToolsChanged]
   );
 
+  const handleEnableServer = useCallback(
+    (serverName: string) => handleServerToolsToggle(serverName, true),
+    [handleServerToolsToggle]
+  );
+
   const handleDisableServer = useCallback(
-    async (serverName: string) => {
-      const serverTools = tools.filter((t) => t.source === 'mcp' && t.serverName === serverName);
-      await operations.disableTools(serverTools.map((t) => t.id));
-      await loadData();
-      onToolsChanged?.();
-    },
-    [tools, operations, loadData, onToolsChanged]
+    (serverName: string) => handleServerToolsToggle(serverName, false),
+    [handleServerToolsToggle]
   );
 
   // Filter tools
