@@ -40,6 +40,13 @@ describe('embedding-math', () => {
     it('throws on empty arrays', () => {
       expect(() => fn([], [])).toThrow('not be empty');
     });
+
+    it('throws on sparse arrays', () => {
+      // biome-ignore lint/suspicious/noSparseArray: Testing sparse array detection
+      const sparse = [1, , 3] as number[];
+      expect(() => fn(sparse, [1, 2, 3])).toThrow('Sparse arrays are not supported');
+      expect(() => fn([1, 2, 3], sparse)).toThrow('Sparse arrays are not supported');
+    });
   });
 
   describe.each([
@@ -48,6 +55,12 @@ describe('embedding-math', () => {
   ])('%s single vector edge cases', (_name, fn) => {
     it('throws on empty arrays', () => {
       expect(() => fn([])).toThrow('not be empty');
+    });
+
+    it('throws on sparse arrays', () => {
+      // biome-ignore lint/suspicious/noSparseArray: Testing sparse array detection
+      const sparse = [1, , 3] as number[];
+      expect(() => fn(sparse)).toThrow('Sparse arrays are not supported');
     });
   });
 });

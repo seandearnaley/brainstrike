@@ -24,10 +24,11 @@ export function calculateCosineSimilarity(
   let norm2 = 0;
 
   for (let i = 0; i < len; i++) {
-    // biome-ignore lint/style/noNonNullAssertion: Index is within bounds after length check
-    const v1 = embedding1[i]!;
-    // biome-ignore lint/style/noNonNullAssertion: Index is within bounds after length check
-    const v2 = embedding2[i]!;
+    const v1 = embedding1[i];
+    const v2 = embedding2[i];
+    if (v1 === undefined || v2 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
     dotProduct += v1 * v2;
     norm1 += v1 * v1;
     norm2 += v2 * v2;
@@ -69,8 +70,12 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
   let squaredDistance = 0;
 
   for (let i = 0; i < len; i++) {
-    // biome-ignore lint/style/noNonNullAssertion: Index is within bounds after length check
-    const diff = embedding1[i]! - embedding2[i]!;
+    const v1 = embedding1[i];
+    const v2 = embedding2[i];
+    if (v1 === undefined || v2 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    const diff = v1 - v2;
     squaredDistance += diff * diff;
   }
 
@@ -103,8 +108,12 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
   let dotProduct = 0;
 
   for (let i = 0; i < len; i++) {
-    // biome-ignore lint/style/noNonNullAssertion: Index is within bounds after length check
-    dotProduct += embedding1[i]! * embedding2[i]!;
+    const v1 = embedding1[i];
+    const v2 = embedding2[i];
+    if (v1 === undefined || v2 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    dotProduct += v1 * v2;
   }
 
   return {
@@ -125,8 +134,10 @@ export function normalize(embedding: number[]): number[] {
 
   let norm = 0;
   for (let i = 0; i < len; i++) {
-    // biome-ignore lint/style/noNonNullAssertion: Index is within bounds after length check
-    const val = embedding[i]!;
+    const val = embedding[i];
+    if (val === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
     norm += val * val;
   }
 
@@ -137,8 +148,11 @@ export function normalize(embedding: number[]): number[] {
   const normSqrt = Math.sqrt(norm);
   const result = new Array<number>(len);
   for (let i = 0; i < len; i++) {
-    // biome-ignore lint/style/noNonNullAssertion: Index is within bounds after length check
-    result[i] = embedding[i]! / normSqrt;
+    const val = embedding[i];
+    if (val === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    result[i] = val / normSqrt;
   }
   return result;
 }
@@ -154,8 +168,10 @@ export function magnitude(embedding: number[]): number {
 
   let sum = 0;
   for (let i = 0; i < len; i++) {
-    // biome-ignore lint/style/noNonNullAssertion: Index is within bounds after length check
-    const val = embedding[i]!;
+    const val = embedding[i];
+    if (val === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
     sum += val * val;
   }
   return Math.sqrt(sum);
