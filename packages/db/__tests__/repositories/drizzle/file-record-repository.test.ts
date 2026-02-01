@@ -1,6 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DrizzleFileRecordRepository } from '../../../src/repositories/drizzle/file-record-repository';
-import { fileRecords } from '../../../src/schema';
 
 // Mock dependencies
 const mockDb = {
@@ -30,8 +29,32 @@ describe('DrizzleFileRecordRepository', () => {
     it('should deduplicate IDs', async () => {
       const ids = ['id1', 'id1', 'id2'];
       mockDb.where.mockResolvedValue([
-        { id: 'id1', name: 'File 1', path: '/path/1', size: 100, createdAt: new Date(), updatedAt: new Date(), embeddingSetId: null, content: null, contentHash: null, tokenCount: null, processedAt: null },
-        { id: 'id2', name: 'File 2', path: '/path/2', size: 200, createdAt: new Date(), updatedAt: new Date(), embeddingSetId: null, content: null, contentHash: null, tokenCount: null, processedAt: null },
+        {
+          id: 'id1',
+          name: 'File 1',
+          path: '/path/1',
+          size: 100,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          embeddingSetId: null,
+          content: null,
+          contentHash: null,
+          tokenCount: null,
+          processedAt: null,
+        },
+        {
+          id: 'id2',
+          name: 'File 2',
+          path: '/path/2',
+          size: 200,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          embeddingSetId: null,
+          content: null,
+          contentHash: null,
+          tokenCount: null,
+          processedAt: null,
+        },
       ]);
 
       await repository.findByIds(ids);
@@ -40,8 +63,20 @@ describe('DrizzleFileRecordRepository', () => {
     });
 
     it('should handle non-existent IDs gracefully', async () => {
-       mockDb.where.mockResolvedValue([
-        { id: 'id1', name: 'File 1', path: '/path/1', size: 100, createdAt: new Date(), updatedAt: new Date(), embeddingSetId: null, content: null, contentHash: null, tokenCount: null, processedAt: null },
+      mockDb.where.mockResolvedValue([
+        {
+          id: 'id1',
+          name: 'File 1',
+          path: '/path/1',
+          size: 100,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          embeddingSetId: null,
+          content: null,
+          contentHash: null,
+          tokenCount: null,
+          processedAt: null,
+        },
       ]);
 
       const result = await repository.findByIds(['id1', 'non-existent']);

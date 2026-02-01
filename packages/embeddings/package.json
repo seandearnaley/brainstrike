@@ -28,7 +28,8 @@
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest --watch",
-    "test:integration": "VITEST_RUN_INTEGRATION=true vitest run --testNamePattern=\"integration\""
+    "test:integration": "VITEST_RUN_INTEGRATION=true vitest run --testNamePattern=\"integration\"",
+    "bench": "vitest bench"
   },
   "dependencies": {
     "@brainstrike/db": "workspace:*",

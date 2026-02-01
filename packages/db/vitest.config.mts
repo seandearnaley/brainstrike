@@ -1,5 +1,9 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * November 2025 Vitest 4 configuration for @brainstrike/db
@@ -12,6 +16,20 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
   test: {
+    alias: {
+      '@': path.resolve(__dirname, 'src'),
+      src: path.resolve(__dirname, 'src'),
+      '@brainstrike/types': path.resolve(__dirname, '../types/src'),
+      '@brainstrike/queue': path.resolve(__dirname, '../queue/src'),
+      '@brainstrike/embedding-worker': path.resolve(__dirname, '../embedding-worker/src'),
+      '@brainstrike/utils': path.resolve(__dirname, '../utils/src'),
+      '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),
+      '@brainstrike/file-explorer': path.resolve(__dirname, '../file-explorer/src'),
+      '@brainstrike/file-explorer-ui': path.resolve(__dirname, '../file-explorer-ui/src'),
+      '@brainstrike/file-explorer-hooks': path.resolve(__dirname, '../file-explorer-hooks/src'),
+      '@brainstrike/storage': path.resolve(__dirname, '../storage/src'),
+      '@brainstrike/ui': path.resolve(__dirname, '../ui/src'),
+    },
     projects: [
       {
         test: {

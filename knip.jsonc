@@ -222,7 +222,12 @@
         "src/cli/embed-code.ts"
       ],
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "**/__benchmarks__/**",
+        "**/*.bench.{ts,tsx}"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
