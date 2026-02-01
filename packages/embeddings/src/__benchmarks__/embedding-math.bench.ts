@@ -1,0 +1,158 @@
+/**
+ * Performance benchmarks for embedding-math.ts
+ *
+ * Run with: pnpm bench
+ *
+ * These benchmarks validate the performance claims made in the code comments.
+ * The unrolled loops with inline validation should outperform naive implementations.
+ */
+import { bench, describe } from 'vitest';
+import {
+  calculateCosineSimilarity,
+  calculateDotProduct,
+  calculateL2Distance,
+  magnitude,
+  normalize,
+} from '../embedding-math';
+
+// Generate random embeddings of various sizes (common model dimensions)
+function generateEmbedding(size: number): number[] {
+  const result = new Array<number>(size);
+  for (let i = 0; i < size; i++) {
+    result[i] = Math.random() * 2 - 1;
+  }
+  return result;
+}
+
+// Naive implementations for comparison (using for-of to avoid index assertions)
+function naiveCosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  let i = 0;
+  for (const aVal of a) {
+    const bVal = b[i] ?? 0;
+    dot += aVal * bVal;
+    normA += aVal * aVal;
+    normB += bVal * bVal;
+    i++;
+  }
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+}
+
+function naiveL2Distance(a: number[], b: number[]): number {
+  let sum = 0;
+  let i = 0;
+  for (const aVal of a) {
+    const bVal = b[i] ?? 0;
+    const diff = aVal - bVal;
+    sum += diff * diff;
+    i++;
+  }
+  return Math.sqrt(sum);
+}
+
+function naiveDotProduct(a: number[], b: number[]): number {
+  let sum = 0;
+  let i = 0;
+  for (const aVal of a) {
+    const bVal = b[i] ?? 0;
+    sum += aVal * bVal;
+    i++;
+  }
+  return sum;
+}
+
+function naiveMagnitude(a: number[]): number {
+  let sum = 0;
+  for (const aVal of a) {
+    sum += aVal * aVal;
+  }
+  return Math.sqrt(sum);
+}
+
+function naiveNormalize(a: number[]): number[] {
+  const mag = naiveMagnitude(a);
+  return a.map((v) => v / mag);
+}
+
+// Embedding sizes based on common models
+const EMBEDDING_SIZES = {
+  'sentence-bert-384': 384,
+  'bert-768': 768,
+  'openai-1536': 1536,
+  'openai-3072': 3072,
+};
+
+describe('Cosine Similarity', () => {
+  for (const [name, size] of Object.entries(EMBEDDING_SIZES)) {
+    const a = generateEmbedding(size);
+    const b = generateEmbedding(size);
+
+    bench(`optimized (${name})`, () => {
+      calculateCosineSimilarity(a, b);
+    });
+
+    bench(`naive (${name})`, () => {
+      naiveCosineSimilarity(a, b);
+    });
+  }
+});
+
+describe('L2 Distance', () => {
+  for (const [name, size] of Object.entries(EMBEDDING_SIZES)) {
+    const a = generateEmbedding(size);
+    const b = generateEmbedding(size);
+
+    bench(`optimized (${name})`, () => {
+      calculateL2Distance(a, b);
+    });
+
+    bench(`naive (${name})`, () => {
+      naiveL2Distance(a, b);
+    });
+  }
+});
+
+describe('Dot Product', () => {
+  for (const [name, size] of Object.entries(EMBEDDING_SIZES)) {
+    const a = generateEmbedding(size);
+    const b = generateEmbedding(size);
+
+    bench(`optimized (${name})`, () => {
+      calculateDotProduct(a, b);
+    });
+
+    bench(`naive (${name})`, () => {
+      naiveDotProduct(a, b);
+    });
+  }
+});
+
+describe('Magnitude', () => {
+  for (const [name, size] of Object.entries(EMBEDDING_SIZES)) {
+    const a = generateEmbedding(size);
+
+    bench(`optimized (${name})`, () => {
+      magnitude(a);
+    });
+
+    bench(`naive (${name})`, () => {
+      naiveMagnitude(a);
+    });
+  }
+});
+
+describe('Normalize', () => {
+  for (const [name, size] of Object.entries(EMBEDDING_SIZES)) {
+    const a = generateEmbedding(size);
+
+    bench(`optimized (${name})`, () => {
+      normalize(a);
+    });
+
+    bench(`naive (${name})`, () => {
+      naiveNormalize(a);
+    });
+  }
+});

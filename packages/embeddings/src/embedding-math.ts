@@ -3,11 +3,18 @@ import type { SimilarityResult } from './types';
 /**
  * Calculate cosine similarity between two embeddings.
  *
+ * Implementation notes:
+ * - Uses 4x loop unrolling with inline validation for fail-fast behavior
+ * - Inline validation catches sparse arrays and NaN/Infinity values early
+ * - Trade-off: validation overhead vs fail-fast behavior
+ *
+ * Run `pnpm bench` in packages/embeddings to see performance characteristics.
+ *
  * @param embedding1 - Dense array of numbers (no holes/undefined values)
  * @param embedding2 - Dense array of numbers (no holes/undefined values)
  * @throws {Error} If embeddings have different dimensions, are empty, or contain invalid values.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Unrolled loop with inline validation required for performance (benchmark: 2x faster than upfront validation)
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Unrolled loop with inline validation for fail-fast error detection - see benchmark in __benchmarks__/embedding-math.bench.ts
 export function calculateCosineSimilarity(
   embedding1: number[],
   embedding2: number[]
@@ -239,6 +246,7 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
 /**
  * Normalize an embedding vector to unit length
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Unrolled loop with inline validation for fail-fast error detection
 export function normalize(embedding: number[]): number[] {
   const len = embedding.length;
   if (len === 0) {
@@ -288,7 +296,13 @@ export function normalize(embedding: number[]): number[] {
   }
 
   const normSqrt = Math.sqrt(norm);
-  return embedding.map((value) => value / normSqrt);
+  // Use for loop to preserve optimization (avoid .map() overhead)
+  // Values are guaranteed valid from the validation loop above
+  const result = new Array<number>(len);
+  for (let i = 0; i < len; i++) {
+    result[i] = (embedding[i] ?? 0) / normSqrt;
+  }
+  return result;
 }
 
 /**

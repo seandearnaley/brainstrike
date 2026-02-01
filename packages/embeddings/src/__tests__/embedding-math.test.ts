@@ -38,16 +38,16 @@ describe('embedding-math', () => {
     });
 
     it('throws on sparse arrays (undefined values)', () => {
-       const sparse = new Array(3);
-       sparse[0] = 1;
-       sparse[2] = 3;
-       // Sparse arrays must throw
-       expect(() => fn(sparse, [1, 2, 3])).toThrow('Invalid value');
+      const sparse = new Array(3);
+      sparse[0] = 1;
+      sparse[2] = 3;
+      // Sparse arrays must throw
+      expect(() => fn(sparse, [1, 2, 3])).toThrow('Invalid value');
     });
 
     it('throws on NaN input', () => {
       // NaN should be rejected
-      expect(() => fn([1, NaN], [1, 1])).toThrow('Invalid value');
+      expect(() => fn([1, Number.NaN], [1, 1])).toThrow('Invalid value');
     });
 
     it('throws on empty arrays', () => {
@@ -60,14 +60,14 @@ describe('embedding-math', () => {
     ['normalize', normalize],
   ])('%s single vector edge cases', (_name, fn) => {
     it('throws on sparse arrays (undefined values)', () => {
-       const sparse = new Array(3);
-       sparse[0] = 1;
-       sparse[2] = 3;
-       expect(() => fn(sparse)).toThrow('Invalid value');
+      const sparse = new Array(3);
+      sparse[0] = 1;
+      sparse[2] = 3;
+      expect(() => fn(sparse)).toThrow('Invalid value');
     });
 
     it('throws on NaN input', () => {
-      expect(() => fn([1, NaN])).toThrow('Invalid value');
+      expect(() => fn([1, Number.NaN])).toThrow('Invalid value');
     });
 
     it('throws on empty arrays', () => {
