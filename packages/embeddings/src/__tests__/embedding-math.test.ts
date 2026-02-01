@@ -27,4 +27,40 @@ describe('embedding-math', () => {
     expect(l2.distance).toBe(3);
     expect(l2.method).toBe('l2');
   });
+
+  describe.each([
+    ['cosine', calculateCosineSimilarity],
+    ['L2', calculateL2Distance],
+    ['dot', calculateDotProduct],
+  ])('%s similarity edge cases', (_name, fn) => {
+    it('throws on length mismatch', () => {
+      expect(() => fn([1], [1, 2])).toThrow('same dimensions');
+    });
+
+    it('throws on empty arrays', () => {
+      expect(() => fn([], [])).toThrow('not be empty');
+    });
+
+    it('throws on sparse arrays', () => {
+      // biome-ignore lint/suspicious/noSparseArray: Testing sparse array detection
+      const sparse = [1, , 3] as number[];
+      expect(() => fn(sparse, [1, 2, 3])).toThrow('Sparse arrays are not supported');
+      expect(() => fn([1, 2, 3], sparse)).toThrow('Sparse arrays are not supported');
+    });
+  });
+
+  describe.each([
+    ['magnitude', magnitude],
+    ['normalize', normalize],
+  ])('%s single vector edge cases', (_name, fn) => {
+    it('throws on empty arrays', () => {
+      expect(() => fn([])).toThrow('not be empty');
+    });
+
+    it('throws on sparse arrays', () => {
+      // biome-ignore lint/suspicious/noSparseArray: Testing sparse array detection
+      const sparse = [1, , 3] as number[];
+      expect(() => fn(sparse)).toThrow('Sparse arrays are not supported');
+    });
+  });
 });
