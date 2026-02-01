@@ -544,6 +544,48 @@ export {
   type ToolRegistry,
   type ToolRegistryEntry,
 } from './stream/tool-registry';
+// System diagnostics tool factory (Tier 3)
+export {
+  buildToolsWithDiagnostics,
+  type ComponentHealth,
+  createSystemDiagnosticsTool,
+  type DatabaseDiagnostics,
+  DIAGNOSTICS_ERROR_MESSAGES,
+  type DiagnosticsToolDependencies,
+  type HealthStatus,
+  type QueueDiagnostics,
+  SAFE_DIAGNOSTICS_ERRORS,
+  type StorageDiagnostics,
+  SYSTEM_DIAGNOSTICS_TOOL_ID,
+  type SystemDiagnosticsToolResult,
+  type WorkerDiagnostics,
+} from './tools/diagnostics-tool';
+// Embedding sets tool factory (Tier 2)
+export {
+  buildToolsWithEmbeddingSets,
+  CREATE_EMBEDDING_SET_TOOL_ID,
+  type CreateEmbeddingSetToolResult,
+  createCreateEmbeddingSetTool,
+  createListEmbeddingSetsTool,
+  EMBEDDING_SETS_ERROR_MESSAGES,
+  type EmbeddingSetCoverage,
+  type EmbeddingSetInfo as EmbeddingSetsToolInfo,
+  type EmbeddingSetsToolDependencies,
+  LIST_EMBEDDING_SETS_TOOL_ID,
+  type ListEmbeddingSetsToolResult,
+  SAFE_EMBEDDING_SETS_ERRORS,
+} from './tools/embedding-sets-tool';
+// File tree tool factory (Tier 2)
+export {
+  buildToolsWithFileTree,
+  createQueryFileTreeTool,
+  FILE_TREE_ERROR_MESSAGES,
+  type FileEntry,
+  type FileTreeToolDependencies,
+  QUERY_FILE_TREE_TOOL_ID,
+  type QueryFileTreeToolResult,
+  SAFE_FILE_TREE_ERRORS,
+} from './tools/file-tree-tool';
 // Hybrid search tool factory
 export {
   buildToolsWithHybridSearch,
