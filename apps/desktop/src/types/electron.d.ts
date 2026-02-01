@@ -113,6 +113,7 @@ declare global {
       getPath: () => Promise<string>;
       setPath: (configPath: string | null) => Promise<{ success: boolean; path: string }>;
       selectPath: () => Promise<string | null>;
+      createSampleConfig: () => Promise<{ success: boolean; path: string; error?: string }>;
       // Tool management
       listTools: () => Promise<{
         [serverName: string]: Array<{

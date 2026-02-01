@@ -201,14 +201,16 @@ export function decryptIfEncrypted(value: string): string {
   }
 }
 
-export function applyDecryptionToHeaders(
-  headers?: Record<string, string>
-): Record<string, string> | undefined {
-  if (!headers) {
-    return headers;
+/**
+ * Decrypt encrypted values in a key-value record.
+ * Keys ending with 'Encrypted' are decrypted and stored without the suffix.
+ */
+function applyDecryption(record?: Record<string, string>): Record<string, string> | undefined {
+  if (!record) {
+    return record;
   }
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(headers)) {
+  for (const [k, v] of Object.entries(record)) {
     if (k.endsWith('Encrypted')) {
       const target = k.slice(0, -'Encrypted'.length);
       out[target] = decryptIfEncrypted(v);
@@ -219,23 +221,8 @@ export function applyDecryptionToHeaders(
   return out;
 }
 
-export function applyDecryptionToEnv(
-  env?: Record<string, string>
-): Record<string, string> | undefined {
-  if (!env) {
-    return env;
-  }
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env)) {
-    if (k.endsWith('Encrypted')) {
-      const target = k.slice(0, -'Encrypted'.length);
-      out[target] = decryptIfEncrypted(v);
-    } else if (!(k in out)) {
-      out[k] = v;
-    }
-  }
-  return out;
-}
+export const applyDecryptionToHeaders = applyDecryption;
+export const applyDecryptionToEnv = applyDecryption;
 
 function processSseServer(s: Extract<McpServer, { transport: 'sse' }>): McpServer {
   const headers = applyDecryptionToHeaders(s.headers);
@@ -275,11 +262,8 @@ export async function loadMcpConfig(): Promise<LoadedMcpConfig> {
     const cfg = parseMcpConfig(text);
     const dec = withDecryptedSecrets(cfg);
     return { path: p, exists: true, config: dec, servers: dec.servers, loadedAt: Date.now() };
-  } catch (err) {
-    const error = err as { code?: string; message?: string };
-    if (error && (error.code === 'ENOENT' || /no such file/i.test(String(error.message)))) {
-      return { path: p, exists: false };
-    }
+  } catch {
+    // Return exists: false for any error (ENOENT, parse errors, etc.)
     return { path: p, exists: false };
   }
 }

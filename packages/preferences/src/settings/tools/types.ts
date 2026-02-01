@@ -94,6 +94,8 @@ export interface ToolsSettingsOperations {
   resetMcpConfig?: () => Promise<void>;
   /** Get current MCP config info */
   getMcpConfigInfo?: () => Promise<McpConfigInfo | null>;
+  /** Create a sample MCP config file */
+  createSampleConfig?: () => Promise<{ success: boolean; path: string; error?: string }>;
 }
 
 /**

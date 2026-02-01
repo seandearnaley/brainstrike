@@ -113,6 +113,8 @@ export function createToolsSettingsCategory(
 
 // Re-export types
 export type { ToolsSettingsOperations, ToolStats, ToolDisplayMetadata };
+export type { McpConfigAlertProps } from './mcp-config-alert';
+export { McpConfigAlert } from './mcp-config-alert';
 export { McpServerStatus } from './mcp-server-status';
 export { TokenBudgetSummary } from './token-budget-summary';
 export { ToolCard } from './tool-card';

@@ -16,6 +16,7 @@ import {
   ScrollArea,
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { McpConfigAlert } from './mcp-config-alert';
 import { McpServerStatus } from './mcp-server-status';
 import { TokenBudgetSummary } from './token-budget-summary';
 import { ToolCard } from './tool-card';
@@ -163,29 +164,46 @@ export function UnifiedToolsSettings({
     }
   }, [operations, loadData]);
 
-  const handleServerToolsToggle = useCallback(
-    async (serverName: string, enable: boolean) => {
-      const serverTools = tools.filter((t) => t.source === 'mcp' && t.serverName === serverName);
-      const toolIds = serverTools.map((t) => t.id);
-      if (enable) {
-        await operations.enableTools(toolIds);
-      } else {
-        await operations.disableTools(toolIds);
+  const handleSelectMcpConfig = useCallback(async () => {
+    if (operations.openMcpConfig) {
+      await operations.openMcpConfig();
+      await loadData();
+    }
+  }, [operations, loadData]);
+
+  const handleCreateSampleConfig = useCallback(async () => {
+    if (operations.createSampleConfig) {
+      const result = await operations.createSampleConfig();
+      if (result.success) {
+        await loadData();
+      } else if (result.error) {
+        setError(`Failed to create sample config: ${result.error}`);
       }
+    }
+  }, [operations, loadData]);
+
+  const handleEnableServer = useCallback(
+    async (serverName: string) => {
+      const toolIds = tools
+        .filter((t) => t.source === 'mcp' && t.serverName === serverName)
+        .map((t) => t.id);
+      await operations.enableTools(toolIds);
       await loadData();
       onToolsChanged?.();
     },
     [tools, operations, loadData, onToolsChanged]
   );
 
-  const handleEnableServer = useCallback(
-    (serverName: string) => handleServerToolsToggle(serverName, true),
-    [handleServerToolsToggle]
-  );
-
   const handleDisableServer = useCallback(
-    (serverName: string) => handleServerToolsToggle(serverName, false),
-    [handleServerToolsToggle]
+    async (serverName: string) => {
+      const toolIds = tools
+        .filter((t) => t.source === 'mcp' && t.serverName === serverName)
+        .map((t) => t.id);
+      await operations.disableTools(toolIds);
+      await loadData();
+      onToolsChanged?.();
+    },
+    [tools, operations, loadData, onToolsChanged]
   );
 
   // Filter tools
@@ -254,6 +272,16 @@ export function UnifiedToolsSettings({
           contextWindowSize={budgetData.contextWindowSize}
           criticalTokens={budgetData.criticalTokens}
           totalBudget={budgetData.totalBudget}
+        />
+      )}
+
+      {/* MCP Config Alert (when missing) */}
+      {mcpAvailable && mcpConfigInfo && !mcpConfigInfo.exists && (
+        <McpConfigAlert
+          configInfo={mcpConfigInfo}
+          onCreateSample={operations.createSampleConfig ? handleCreateSampleConfig : undefined}
+          onResetConfig={handleResetMcpConfig}
+          onSelectConfig={handleSelectMcpConfig}
         />
       )}
 

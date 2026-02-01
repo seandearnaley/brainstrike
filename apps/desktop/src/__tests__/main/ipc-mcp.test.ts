@@ -104,8 +104,9 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:disableServer', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:reset', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:getStats', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:createSample', expect.any(Function));
 
-      expect(ipcMain.handle).toHaveBeenCalledTimes(13);
+      expect(ipcMain.handle).toHaveBeenCalledTimes(14);
     });
   });
 

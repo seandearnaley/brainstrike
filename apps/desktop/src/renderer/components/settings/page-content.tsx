@@ -110,20 +110,23 @@ export default function SettingsPageContent() {
         const mcpCount = mcpStats?.total ?? 0;
         const nativeEnabled = nativeTools.filter((t) => t.enabled).length;
         const mcpEnabled = mcpStats?.enabled ?? 0;
+        const totalEnabled = nativeEnabled + mcpEnabled;
 
-        // Calculate category counts from native tools
-        const byCategory = {
-          retrieval: nativeTools.filter((t) => t.category === 'retrieval').length,
-          action: nativeTools.filter((t) => t.category === 'action').length + mcpCount, // MCP tools default to action
-          analysis: nativeTools.filter((t) => t.category === 'analysis').length,
-          configuration: nativeTools.filter((t) => t.category === 'configuration').length,
-          validation: nativeTools.filter((t) => t.category === 'validation').length,
-        };
+        // Build category counts - count each category once, add MCP to action
+        const byCategory = Object.fromEntries(
+          (['retrieval', 'action', 'analysis', 'configuration', 'validation'] as const).map(
+            (cat) => [
+              cat,
+              nativeTools.filter((t) => t.category === cat).length +
+                (cat === 'action' ? mcpCount : 0),
+            ]
+          )
+        ) as Record<'retrieval' | 'action' | 'analysis' | 'configuration' | 'validation', number>;
 
         return {
           total: nativeCount + mcpCount,
-          enabled: nativeEnabled + mcpEnabled,
-          disabled: nativeCount + mcpCount - (nativeEnabled + mcpEnabled),
+          enabled: totalEnabled,
+          disabled: nativeCount + mcpCount - totalEnabled,
           bySource: { native: nativeCount, mcp: mcpCount },
           byCategory,
           mcpServers: mcpStats?.servers ?? 0,
@@ -178,6 +181,14 @@ export default function SettingsPageContent() {
           path: config.path,
           exists: config.exists,
         };
+      },
+      createSampleConfig: async () => {
+        // Create a sample MCP config file at the default location
+        const result = await window.mcp?.createSampleConfig?.();
+        if (!result) {
+          return { success: false, path: '', error: 'MCP API not available' };
+        }
+        return result;
       },
       executeToolTest: async (toolId: string, _input: unknown) => {
         // Tool execution for playground testing

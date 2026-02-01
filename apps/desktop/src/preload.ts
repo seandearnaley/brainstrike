@@ -95,6 +95,7 @@ contextBridge.exposeInMainWorld('mcp', {
   getPath: () => ipcRenderer.invoke('mcp:config:getPath'),
   setPath: (configPath: string | null) => ipcRenderer.invoke('mcp:config:setPath', configPath),
   selectPath: () => ipcRenderer.invoke('mcp:config:selectPath'),
+  createSampleConfig: () => ipcRenderer.invoke('mcp:config:createSample'),
   // Tool management
   listTools: () => ipcRenderer.invoke('mcp:tools:list'),
   enableTools: (toolIds: string[]) => ipcRenderer.invoke('mcp:tools:enable', toolIds),
