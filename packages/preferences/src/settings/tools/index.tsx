@@ -119,6 +119,7 @@ export { ToolCard } from './tool-card';
 export { ToolPlayground } from './tool-playground';
 export { ToolsFilterBar } from './tools-filter-bar';
 export type {
+  McpConfigInfo,
   McpServerInfo,
   McpServerStatusProps,
   TokenBudgetSummaryProps,

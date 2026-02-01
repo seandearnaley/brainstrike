@@ -21,6 +21,7 @@ import { TokenBudgetSummary } from './token-budget-summary';
 import { ToolCard } from './tool-card';
 import { ToolsFilterBar } from './tools-filter-bar';
 import type {
+  McpConfigInfo,
   McpServerInfo,
   ToolDisplayMetadata,
   ToolGroup,
@@ -82,6 +83,7 @@ export function UnifiedToolsSettings({
   const [tools, setTools] = useState<ToolDisplayMetadata[]>([]);
   const [stats, setStats] = useState<ToolStats | null>(null);
   const [mcpServers, setMcpServers] = useState<McpServerInfo[]>([]);
+  const [mcpConfigInfo, setMcpConfigInfo] = useState<McpConfigInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -107,6 +109,11 @@ export function UnifiedToolsSettings({
       if (mcpAvailable && operations.getMcpServerStatus) {
         const servers = await operations.getMcpServerStatus();
         setMcpServers(servers);
+      }
+
+      if (mcpAvailable && operations.getMcpConfigInfo) {
+        const configInfo = await operations.getMcpConfigInfo();
+        setMcpConfigInfo(configInfo);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load tools');
@@ -145,6 +152,13 @@ export function UnifiedToolsSettings({
   const handleRefreshMcp = useCallback(async () => {
     if (operations.refreshMcpServers) {
       await operations.refreshMcpServers();
+      await loadData();
+    }
+  }, [operations, loadData]);
+
+  const handleResetMcpConfig = useCallback(async () => {
+    if (operations.resetMcpConfig) {
+      await operations.resetMcpConfig();
       await loadData();
     }
   }, [operations, loadData]);
@@ -244,13 +258,15 @@ export function UnifiedToolsSettings({
       )}
 
       {/* MCP Server Status (desktop only) */}
-      {mcpAvailable && mcpServers.length > 0 && (
+      {mcpAvailable && (mcpServers.length > 0 || mcpConfigInfo) && (
         <McpServerStatus
+          configInfo={mcpConfigInfo ?? undefined}
           loading={loading}
           onDisableServer={handleDisableServer}
           onEnableServer={handleEnableServer}
           onOpenConfig={operations.openMcpConfig}
           onRefresh={handleRefreshMcp}
+          onResetConfig={operations.resetMcpConfig ? handleResetMcpConfig : undefined}
           servers={mcpServers}
         />
       )}

@@ -4,8 +4,8 @@
  * Displays MCP server connection status and controls.
  */
 
-import { Button, Card, CardContent, CardHeader, CardTitle } from '@brainstrike/ui';
-import { Circle, RefreshCw, Settings } from 'lucide-react';
+import { Badge, Button, Card, CardContent, CardHeader, CardTitle } from '@brainstrike/ui';
+import { Circle, RefreshCw, RotateCcw, Settings } from 'lucide-react';
 import type { McpServerStatusProps } from './types';
 
 /**
@@ -15,11 +15,13 @@ export function McpServerStatus({
   servers,
   onRefresh,
   onOpenConfig,
+  onResetConfig,
   onEnableServer,
   onDisableServer,
   loading = false,
+  configInfo,
 }: McpServerStatusProps) {
-  if (servers.length === 0) {
+  if (servers.length === 0 && !configInfo) {
     return null;
   }
 
@@ -39,12 +41,42 @@ export function McpServerStatus({
               <RefreshCw className={`h-3 w-3 ${loading ? 'animate-spin' : ''}`} />
             </Button>
             {onOpenConfig && (
-              <Button data-testid="open-config" onClick={onOpenConfig} size="sm" variant="outline">
+              <Button
+                data-testid="open-config"
+                onClick={onOpenConfig}
+                size="sm"
+                title="Change config file"
+                variant="outline"
+              >
                 <Settings className="h-3 w-3" />
+              </Button>
+            )}
+            {onResetConfig && (
+              <Button
+                data-testid="reset-config"
+                onClick={onResetConfig}
+                size="sm"
+                title="Reset to default config"
+                variant="ghost"
+              >
+                <RotateCcw className="h-3 w-3" />
               </Button>
             )}
           </div>
         </div>
+        {configInfo && (
+          <div className="mt-2 flex items-center gap-2 text-muted-foreground text-xs">
+            <span>Config:</span>
+            <code className="rounded bg-muted px-1 py-0.5 text-[10px]">
+              {configInfo.path || 'unknown'}
+            </code>
+            {configInfo.exists ? (
+              <Badge variant="secondary">loaded</Badge>
+            ) : (
+              <Badge variant="destructive">missing</Badge>
+            )}
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         <div className="space-y-2">

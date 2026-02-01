@@ -88,8 +88,12 @@ export interface ToolsSettingsOperations {
   getMcpServerStatus?: () => Promise<McpServerInfo[]>;
   /** Refresh MCP server connections */
   refreshMcpServers?: () => Promise<void>;
-  /** Open MCP config file */
+  /** Open MCP config file selector */
   openMcpConfig?: () => Promise<void>;
+  /** Reset MCP config to default path */
+  resetMcpConfig?: () => Promise<void>;
+  /** Get current MCP config info */
+  getMcpConfigInfo?: () => Promise<McpConfigInfo | null>;
 }
 
 /**
@@ -150,15 +154,28 @@ export interface ToolsFilterBarProps {
 }
 
 /**
+ * MCP config information for display.
+ */
+export interface McpConfigInfo {
+  /** Current config file path */
+  path: string;
+  /** Whether the config file exists */
+  exists: boolean;
+}
+
+/**
  * Props for MCP server status section.
  */
 export interface McpServerStatusProps {
   servers: McpServerInfo[];
   onRefresh: () => Promise<void>;
   onOpenConfig?: (() => Promise<void>) | undefined;
+  onResetConfig?: (() => Promise<void>) | undefined;
   onEnableServer: (serverName: string) => Promise<void>;
   onDisableServer: (serverName: string) => Promise<void>;
   loading?: boolean | undefined;
+  /** Config info to display (desktop only) */
+  configInfo?: McpConfigInfo | undefined;
 }
 
 /**

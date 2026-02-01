@@ -153,6 +153,32 @@ export default function SettingsPageContent() {
         // Reload tools list to refresh server status
         await window.mcp?.listTools?.();
       },
+      openMcpConfig: async () => {
+        // Open file picker to select a new MCP config file
+        const selectedPath = await window.mcp?.selectPath?.();
+        if (selectedPath) {
+          await window.mcp?.setPath?.(selectedPath);
+          // Refresh tools list to pick up changes from new config
+          await window.mcp?.listTools?.();
+        }
+      },
+      resetMcpConfig: async () => {
+        // Reset to default config path
+        await window.mcp?.setPath?.(null);
+        // Refresh tools list to pick up changes
+        await window.mcp?.listTools?.();
+      },
+      getMcpConfigInfo: async () => {
+        // Get current MCP config info
+        const config = await window.mcp?.getConfig?.();
+        if (!config) {
+          return null;
+        }
+        return {
+          path: config.path,
+          exists: config.exists,
+        };
+      },
       executeToolTest: async (toolId: string, _input: unknown) => {
         // Tool execution for playground testing
         // Future: Wire to IPC bridge for native tools, MCP protocol for MCP tools
