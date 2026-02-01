@@ -141,6 +141,12 @@ export class JobQueue {
     return this.idType as 'uuid' | 'text';
   }
 
+  private validateIdType(idType: string): asserts idType is 'uuid' | 'text' {
+    if (idType !== 'uuid' && idType !== 'text') {
+      throw new Error(`Invalid idType resolved: ${idType}`);
+    }
+  }
+
   retryPolicy(attempts: number): number {
     // Exponential with jitter; base 1s, factor 2, cap 5m
     const base = 1000;
@@ -329,6 +335,53 @@ export class JobQueue {
   }
 
   /**
+   * Heartbeat multiple jobs atomically in a single database query.
+   * Efficiently updates lease expiration for a batch of jobs using PostgreSQL's `unnest`.
+   * Only updates jobs where the ID and lease token match and the state is 'running'.
+   *
+   * @param jobs - Array of job identifiers (ID and lease token) to heartbeat.
+   * @param extendMs - Milliseconds to extend the lease by (from now).
+   * @returns Array of updated Job objects. Jobs with invalid leases (stolen/expired) are excluded from this list.
+   */
+  async heartbeatBatch(
+    jobs: { id: string; leaseToken: string }[],
+    extendMs: number
+  ): Promise<Job[]> {
+    if (jobs.length === 0) {
+      return [];
+    }
+    const idType = await this.getOrResolveIdType();
+    this.validateIdType(idType);
+    const newLease = new Date(Date.now() + extendMs).toISOString();
+    const updatedAt = new Date().toISOString();
+    const ids = jobs.map((j) => j.id);
+    const leaseTokens = jobs.map((j) => j.leaseToken);
+
+    const sql =
+      idType === 'uuid'
+        ? `UPDATE job_queue AS j
+           SET leased_until = $1, updated_at = $2
+           FROM unnest($3::uuid[], $4::text[]) AS t(id, lease_token)
+           WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+           RETURNING j.*`
+        : `UPDATE job_queue AS j
+           SET leased_until = $1, updated_at = $2
+           FROM unnest($3::text[], $4::text[]) AS t(id, lease_token)
+           WHERE j.id = t.id AND j.lease_token = t.lease_token AND j.state = 'running'
+           RETURNING j.*`;
+
+    const res = await this.db.query<JobRow>(sql, [newLease, updatedAt, ids, leaseTokens]);
+
+    const updatedJobs = res.rows.map(fromRow);
+
+    if (updatedJobs.length > 0) {
+      logger.debug('Jobs heartbeated in batch', { count: updatedJobs.length });
+    }
+
+    return updatedJobs;
+  }
+
+  /**
    * Complete multiple jobs atomically in a single database query.
    * @param jobs Array of job IDs and lease tokens to complete
    * @returns Array of completed Job objects
@@ -338,6 +391,7 @@ export class JobQueue {
       return [];
     }
     const idType = await this.getOrResolveIdType();
+    this.validateIdType(idType);
     const updatedAt = new Date().toISOString();
     const ids = jobs.map((j) => j.id);
     const leaseTokens = jobs.map((j) => j.leaseToken);

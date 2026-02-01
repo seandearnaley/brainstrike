@@ -1507,24 +1507,43 @@ export async function startEmbeddingWorker(
 
   function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: (job: ClaimedJob) => void) {
     const lostJobs = new Set<string>();
+    let isHeartbeating = false;
+
     return setInterval(() => {
-      Promise.all(
-        jobs.map(async (job) => {
-          if (lostJobs.has(job.id)) {
+      // Prevent overlapping heartbeats (race condition protection)
+      if (isHeartbeating) {
+        return;
+      }
+      isHeartbeating = true;
+
+      (async () => {
+        try {
+          const activeJobs = jobs.filter((job) => !lostJobs.has(job.id));
+          if (activeJobs.length === 0) {
             return;
           }
-          const res = await jq.heartbeat({
+
+          const heartbeatInput = activeJobs.map((job) => ({
             id: job.id,
             leaseToken: job.lease_token,
-            extendMs: leaseMs,
-          });
-          if (!res) {
-            workerLogger.error('Heartbeat failed: lease lost', { jobId: job.id });
-            lostJobs.add(job.id);
-            onLeaseLost(job);
+          }));
+
+          const heartbeatedJobs = await jq.heartbeatBatch(heartbeatInput, leaseMs);
+          const succeededIds = new Set(heartbeatedJobs.map((j) => j.id));
+
+          for (const job of activeJobs) {
+            if (!succeededIds.has(job.id)) {
+              workerLogger.error('Heartbeat failed: lease lost', { jobId: job.id });
+              lostJobs.add(job.id);
+              onLeaseLost(job);
+            }
           }
-        })
-      ).catch((err) => log('worker_heartbeat_error', { count: jobs.length, error: String(err) }));
+        } finally {
+          isHeartbeating = false;
+        }
+      })().catch((err) => {
+        log('worker_heartbeat_error', { count: jobs.length, error: String(err) });
+      });
     }, heartbeatMs);
   }
 
@@ -1576,8 +1595,11 @@ export async function startEmbeddingWorker(
   }
 
   /**
-   * Marks jobs as completed in a single batch operation.
-   * Uses completeBatch to avoid N database round-trips.
+   * Mark already-completed jobs (chunks with matching embedding_hash) as succeeded.
+   * Uses batch completion to avoid N+1 database queries.
+   *
+   * @param completed - Jobs that were filtered out because their chunks are already embedded
+   * @param completedJobIds - Set to track which job IDs have been completed
    */
   async function markAlreadyCompleted(
     completed: Array<{ job: ClaimedJob }>,
