@@ -297,10 +297,10 @@ export function normalize(embedding: number[]): number[] {
 
   const normSqrt = Math.sqrt(norm);
   // Use for loop to preserve optimization (avoid .map() overhead)
-  // Values are guaranteed valid from the validation loop above
   const result = new Array<number>(len);
   for (let i = 0; i < len; i++) {
-    result[i] = (embedding[i] ?? 0) / normSqrt;
+    // biome-ignore lint/style/noNonNullAssertion: Values guaranteed valid from validation loop above
+    result[i] = embedding[i]! / normSqrt;
   }
   return result;
 }
