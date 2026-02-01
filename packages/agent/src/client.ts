@@ -55,3 +55,29 @@ export {
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
 } from './providers/types';
+// Tool categories and tiers (browser-safe, no Mastra dependencies)
+export {
+  compareByLoadPriority,
+  getCategoryInfo,
+  getNativeToolDefaults,
+  getTierInfo,
+  isNativeTool,
+  NATIVE_TOOL_DEFAULTS,
+  type NativeToolDefaultMetadata,
+  TOOL_CATEGORIES,
+  TOOL_LOADING_TIERS,
+  type ToolCategory,
+  type ToolCategoryInfo,
+  type ToolLoadingTier,
+  type ToolLoadingTierInfo,
+  type ToolSource,
+} from './registry/tool-categories';
+// Tool schema display info (browser-safe, for UI parameter display)
+export {
+  generateExampleInput,
+  getToolSchemaDisplay,
+  NATIVE_TOOL_SCHEMAS,
+  type ParameterType,
+  type ToolParameterDisplay,
+  type ToolSchemaDisplay,
+} from './registry/tool-schemas-display';

@@ -1,0 +1,203 @@
+/**
+ * Tools Filter Bar Tests
+ */
+
+import '@testing-library/jest-dom/vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToolsFilterBar } from '../tools-filter-bar';
+
+// Mock @brainstrike/agent/client
+vi.mock('@brainstrike/agent/client', () => ({
+  TOOL_CATEGORIES: {
+    retrieval: { id: 'retrieval', label: 'Retrieval' },
+    action: { id: 'action', label: 'Action' },
+    analysis: { id: 'analysis', label: 'Analysis' },
+    configuration: { id: 'configuration', label: 'Configuration' },
+    validation: { id: 'validation', label: 'Validation' },
+  },
+  TOOL_LOADING_TIERS: {
+    critical: { id: 'critical', label: 'Critical' },
+    conditional: { id: 'conditional', label: 'Conditional' },
+    deferred: { id: 'deferred', label: 'Deferred' },
+  },
+}));
+
+// Mock @brainstrike/ui
+vi.mock('@brainstrike/ui', () => ({
+  Input: ({
+    value,
+    onChange,
+    placeholder,
+    'data-testid': testId,
+  }: {
+    value: string;
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    placeholder?: string;
+    'data-testid'?: string;
+  }) => (
+    <input
+      data-testid={testId}
+      onChange={onChange}
+      placeholder={placeholder}
+      type="text"
+      value={value}
+    />
+  ),
+  Button: ({
+    children,
+    onClick,
+    'data-testid': testId,
+  }: {
+    children: React.ReactNode;
+    onClick: () => void;
+    'data-testid'?: string;
+  }) => (
+    <button data-testid={testId} onClick={onClick} type="button">
+      {children}
+    </button>
+  ),
+  Select: ({
+    children,
+    value,
+    onValueChange,
+  }: {
+    children: React.ReactNode;
+    value: string;
+    onValueChange: (value: string) => void;
+  }) => (
+    <button data-value={value} onClick={() => onValueChange('retrieval')} type="button">
+      {children}
+    </button>
+  ),
+  SelectTrigger: ({
+    children,
+    'data-testid': testId,
+  }: {
+    children: React.ReactNode;
+    'data-testid'?: string;
+  }) => <div data-testid={testId}>{children}</div>,
+  SelectContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  SelectItem: ({ children, value }: { children: React.ReactNode; value: string }) => (
+    <div data-value={value}>{children}</div>
+  ),
+  SelectValue: ({ placeholder }: { placeholder?: string }) => <span>{placeholder}</span>,
+}));
+
+describe('ToolsFilterBar', () => {
+  const mockOnSearchChange = vi.fn();
+  const mockOnCategoryChange = vi.fn();
+  const mockOnTierChange = vi.fn();
+  const mockOnReset = vi.fn();
+
+  const defaultProps = {
+    searchQuery: '',
+    onSearchChange: mockOnSearchChange,
+    categoryFilter: 'all' as const,
+    onCategoryChange: mockOnCategoryChange,
+    tierFilter: 'all' as const,
+    onTierChange: mockOnTierChange,
+    onReset: mockOnReset,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  describe('rendering', () => {
+    it('renders the filter bar with all controls', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      expect(screen.getByTestId('tools-filter-bar')).toBeInTheDocument();
+      expect(screen.getByTestId('search-input')).toBeInTheDocument();
+      expect(screen.getByTestId('category-filter')).toBeInTheDocument();
+      expect(screen.getByTestId('tier-filter')).toBeInTheDocument();
+      expect(screen.getByTestId('reset-filters')).toBeInTheDocument();
+    });
+
+    it('renders search input with correct value', () => {
+      render(<ToolsFilterBar {...defaultProps} searchQuery="test query" />);
+
+      const input = screen.getByTestId('search-input') as HTMLInputElement;
+      expect(input.value).toBe('test query');
+    });
+
+    it('renders reset button', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      expect(screen.getByText('Reset')).toBeInTheDocument();
+    });
+  });
+
+  describe('search functionality', () => {
+    it('calls onSearchChange when typing in search input', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      const input = screen.getByTestId('search-input');
+      fireEvent.change(input, { target: { value: 'hybrid' } });
+
+      expect(mockOnSearchChange).toHaveBeenCalledWith('hybrid');
+    });
+
+    it('shows placeholder text', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      const input = screen.getByTestId('search-input');
+      expect(input).toHaveAttribute('placeholder', 'Search tools...');
+    });
+  });
+
+  describe('category filter', () => {
+    it('renders category options', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      expect(screen.getByText('All Categories')).toBeInTheDocument();
+      expect(screen.getByText('Retrieval')).toBeInTheDocument();
+      expect(screen.getByText('Action')).toBeInTheDocument();
+      expect(screen.getByText('Analysis')).toBeInTheDocument();
+    });
+  });
+
+  describe('tier filter', () => {
+    it('renders tier options', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      expect(screen.getByText('All Tiers')).toBeInTheDocument();
+      expect(screen.getByText('Critical')).toBeInTheDocument();
+      expect(screen.getByText('Conditional')).toBeInTheDocument();
+      expect(screen.getByText('Deferred')).toBeInTheDocument();
+    });
+  });
+
+  describe('reset functionality', () => {
+    it('calls onReset when reset button is clicked', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      const resetButton = screen.getByTestId('reset-filters');
+      fireEvent.click(resetButton);
+
+      expect(mockOnReset).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('filter values', () => {
+    it('passes current search value to input', () => {
+      render(<ToolsFilterBar {...defaultProps} searchQuery="current search" />);
+
+      const input = screen.getByTestId('search-input') as HTMLInputElement;
+      expect(input.value).toBe('current search');
+    });
+
+    it('renders with specific category filter', () => {
+      render(<ToolsFilterBar {...defaultProps} categoryFilter="retrieval" />);
+
+      expect(screen.getByTestId('category-filter')).toBeInTheDocument();
+    });
+
+    it('renders with specific tier filter', () => {
+      render(<ToolsFilterBar {...defaultProps} tierFilter="critical" />);
+
+      expect(screen.getByTestId('tier-filter')).toBeInTheDocument();
+    });
+  });
+});

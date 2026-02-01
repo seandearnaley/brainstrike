@@ -1,3 +1,4 @@
+import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
 import {
@@ -5,30 +6,53 @@ import {
   createAppearanceSettingsCategory,
   createFactoryResetSettingsCategory,
   createTokenCountingSettingsCategory,
+  createToolsSettingsCategory,
   ModelSelectionPage,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
+  type ToolDisplayMetadata,
 } from '@brainstrike/preferences';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { DesktopLoggingSettings } from './logging-settings';
-import { McpConfigStatus } from './mcp-config-status';
-import { McpToolsPanel } from './mcp-tools-panel';
 
-function McpIntegrationsCategory() {
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <h3 className="font-semibold text-lg">Model Context Protocol</h3>
-        <p className="text-muted-foreground text-sm">
-          Inspect the current MCP configuration, change the config file, and manage discovered
-          tools.
-        </p>
-      </div>
-      <McpConfigStatus />
-      <McpToolsPanel />
-    </div>
-  );
+/**
+ * Transform NATIVE_TOOL_DEFAULTS into ToolDisplayMetadata format.
+ * Native tools are always enabled by default (can be toggled in settings).
+ */
+function getNativeToolsAsDisplayMetadata(): ToolDisplayMetadata[] {
+  return Object.entries(NATIVE_TOOL_DEFAULTS).map(([id, metadata]) => ({
+    id,
+    source: 'native' as const,
+    category: metadata.category,
+    loadingTier: metadata.loadingTier,
+    description: getToolDescription(id),
+    enabled: true, // Native tools enabled by default
+    estimatedTokens: metadata.estimatedTokens,
+    requiresApproval: metadata.requiresApproval,
+  }));
+}
+
+/**
+ * Get human-readable description for native tools.
+ */
+function getToolDescription(toolId: string): string {
+  const descriptions: Record<string, string> = {
+    'brainstrike.retrieveContext': 'Retrieve relevant context from indexed documents',
+    'brainstrike.hybridSearch': 'Semantic + keyword search with RRF fusion',
+    'brainstrike.queueStatus': 'Check embedding queue health and coverage',
+    'brainstrike.packContext': 'Token-budgeted context formatting',
+    'brainstrike.listEmbeddingSets': 'List available embedding collections',
+    'brainstrike.createEmbeddingSet': 'Create a new embedding collection',
+    'brainstrike.createSelectionScope': 'Create scoped retrieval context',
+    'brainstrike.queryFileTree': 'Query directories and search files',
+    'brainstrike.importFiles': 'Batch document ingestion',
+    'brainstrike.systemDiagnostics': 'Database/queue/worker health diagnostics',
+    'brainstrike.reembedCollection': 'Trigger re-embedding for a collection',
+    'web.searchDocs': 'Search documentation',
+    'web.docSummary': 'Summarize documentation',
+  };
+  return descriptions[toolId] ?? `Native tool: ${toolId}`;
 }
 
 function EmbeddingModelsCategory() {
@@ -40,6 +64,112 @@ export default function SettingsPageContent() {
   const store = useFileExplorerStoreContext();
   const devInlineFixtureEnabled = store((s) => s.devInlineFixtureEnabled);
   const setDevInlineFixtureEnabled = store((s) => s.setDevInlineFixtureEnabled);
+
+  // Create tool operations that integrate with window.mcp and window.tools APIs
+  const toolOperations = useMemo(
+    () => ({
+      getTools: async (): Promise<ToolDisplayMetadata[]> => {
+        // Start with native tools
+        const nativeTools = getNativeToolsAsDisplayMetadata();
+
+        // Add MCP tools if available
+        const mcpToolsData = await window.mcp?.listTools?.();
+        const mcpTools: ToolDisplayMetadata[] = [];
+
+        if (mcpToolsData) {
+          for (const [serverName, serverTools] of Object.entries(mcpToolsData)) {
+            for (const tool of serverTools as Array<{
+              id: string;
+              description?: string;
+              enabled: boolean;
+              inputSchema?: unknown;
+            }>) {
+              mcpTools.push({
+                id: tool.id,
+                source: 'mcp',
+                category: 'action',
+                loadingTier: 'conditional',
+                description: tool.description ?? '',
+                enabled: tool.enabled,
+                serverName,
+                estimatedTokens: 100,
+                requiresApproval: false,
+                inputSchema: tool.inputSchema,
+              });
+            }
+          }
+        }
+
+        return [...nativeTools, ...mcpTools];
+      },
+      getStats: async () => {
+        const nativeTools = getNativeToolsAsDisplayMetadata();
+        const mcpStats = await window.mcp?.getToolStats?.();
+
+        const nativeCount = nativeTools.length;
+        const mcpCount = mcpStats?.total ?? 0;
+        const nativeEnabled = nativeTools.filter((t) => t.enabled).length;
+        const mcpEnabled = mcpStats?.enabled ?? 0;
+
+        // Calculate category counts from native tools
+        const byCategory = {
+          retrieval: nativeTools.filter((t) => t.category === 'retrieval').length,
+          action: nativeTools.filter((t) => t.category === 'action').length + mcpCount, // MCP tools default to action
+          analysis: nativeTools.filter((t) => t.category === 'analysis').length,
+          configuration: nativeTools.filter((t) => t.category === 'configuration').length,
+          validation: nativeTools.filter((t) => t.category === 'validation').length,
+        };
+
+        return {
+          total: nativeCount + mcpCount,
+          enabled: nativeEnabled + mcpEnabled,
+          disabled: nativeCount + mcpCount - (nativeEnabled + mcpEnabled),
+          bySource: { native: nativeCount, mcp: mcpCount },
+          byCategory,
+          mcpServers: mcpStats?.servers ?? 0,
+        };
+      },
+      enableTools: async (ids: string[]) => {
+        await window.mcp?.enableTools?.(ids);
+      },
+      disableTools: async (ids: string[]) => {
+        await window.mcp?.disableTools?.(ids);
+      },
+      resetTools: async () => {
+        await window.mcp?.resetTools?.();
+      },
+      getMcpServerStatus: async () => {
+        const tools = await window.mcp?.listTools?.();
+        if (!tools) {
+          return [];
+        }
+        return Object.entries(tools).map(([name, serverTools]) => ({
+          name,
+          status: 'connected' as const,
+          toolCount: (serverTools as unknown[]).length,
+        }));
+      },
+      refreshMcpServers: async () => {
+        // Reload tools list to refresh server status
+        await window.mcp?.listTools?.();
+      },
+      executeToolTest: async (toolId: string, _input: unknown) => {
+        // Tool execution for playground testing
+        // Future: Wire to IPC bridge for native tools, MCP protocol for MCP tools
+        const startTime = performance.now();
+        const isNative = !toolId.startsWith('mcp__');
+
+        return {
+          success: false,
+          error: isNative
+            ? `Native tool execution not yet implemented. The ${toolId} tool requires main process integration.`
+            : `MCP tool execution not yet implemented. The ${toolId} tool requires MCP protocol integration.`,
+          durationMs: Math.round(performance.now() - startTime),
+        };
+      },
+    }),
+    []
+  );
 
   const categories = useMemo<SettingsCategory[]>(
     () => [
@@ -62,14 +192,10 @@ export default function SettingsPageContent() {
         icon: FileCog,
         render: () => <DesktopLoggingSettings />,
       },
-      {
-        id: 'mcp-integrations',
-        title: 'MCP Integrations',
-        description: 'Manage Model Context Protocol servers, tools, and connection paths.',
-        keywords: ['mcp', 'tools', 'servers', 'integration', 'protocol'],
-        icon: Layers,
-        render: () => <McpIntegrationsCategory />,
-      },
+      createToolsSettingsCategory({
+        operations: toolOperations,
+        mcpAvailable: true,
+      }),
       createSystemDiagnosticsSettingsCategory(),
       createFactoryResetSettingsCategory({
         isWebPlatform: false,
@@ -81,7 +207,7 @@ export default function SettingsPageContent() {
         },
       }),
     ],
-    [devInlineFixtureEnabled, setDevInlineFixtureEnabled]
+    [devInlineFixtureEnabled, setDevInlineFixtureEnabled, toolOperations]
   );
 
   return (
