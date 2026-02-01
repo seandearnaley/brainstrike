@@ -105,7 +105,17 @@ export function normalizeProgress(value: number): number {
   return value;
 }
 
-function cloneAsFloat32(values: ArrayLike<number>): Float32Array {
+/**
+ * Clone an array-like of numbers into a Float32Array.
+ *
+ * For Float32Array inputs, uses the native TypedArray constructor for efficiency.
+ * For other array types, uses a defensive loop to handle sparse arrays
+ * (converts undefined → 0 instead of NaN from Number(undefined)).
+ */
+export function cloneAsFloat32(values: ArrayLike<number>): Float32Array {
+  if (values instanceof Float32Array) {
+    return new Float32Array(values);
+  }
   const result = new Float32Array(values.length);
   for (let index = 0; index < values.length; index += 1) {
     const raw = values[index];

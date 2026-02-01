@@ -9,6 +9,7 @@ export type {
 } from './shared';
 
 export {
+  cloneAsFloat32,
   computeInitialBatchSize,
   l2Normalize,
   truncateVector,

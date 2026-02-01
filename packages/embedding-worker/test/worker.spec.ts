@@ -35,6 +35,19 @@ describe('shared math helpers', () => {
     expect(dest[1]).toBeCloseTo(0.8);
   });
 
+  it('handles zero-vector gracefully without NaN', () => {
+    const zeroVector = Float32Array.from([0, 0, 0]);
+    const result = l2Normalize(zeroVector);
+    // Zero vector should remain zero (magnitude factor becomes 1 when sum is 0)
+    expect(result[0]).toBe(0);
+    expect(result[1]).toBe(0);
+    expect(result[2]).toBe(0);
+    // Ensure no NaN values
+    expect(Number.isNaN(result[0])).toBe(false);
+    expect(Number.isNaN(result[1])).toBe(false);
+    expect(Number.isNaN(result[2])).toBe(false);
+  });
+
   it('truncates vectors without mutating the input', () => {
     const vector = Float32Array.from([1, 2, 3, 4]);
     const truncated = truncateVector(vector, 2);

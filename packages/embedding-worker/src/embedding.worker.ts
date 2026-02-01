@@ -12,6 +12,7 @@ import type {
   EmbedWorkerSuccess,
 } from './shared';
 import {
+  cloneAsFloat32,
   computeInitialBatchSize,
   l2Normalize,
   normalizeProgress,
@@ -187,19 +188,10 @@ function assertValidDimension(payload: EmbedWorkerRequest, requestedDimension: n
   }
 }
 
-function cloneAsFloat32(values: ArrayLike<number>): Float32Array {
-  if (values instanceof Float32Array) {
-    return new Float32Array(values);
-  }
-  // Use defensive loop to handle sparse arrays (undefined → 0, not NaN)
-  const result = new Float32Array(values.length);
-  for (let index = 0; index < values.length; index += 1) {
-    const raw = values[index];
-    result[index] = raw === undefined ? 0 : Number(raw);
-  }
-  return result;
-}
-
+/**
+ * Convert a Tensor from the pipeline output into normalized Float32Array vectors.
+ * Handles 1D, 2D (batch), and arbitrarily nested tensor structures.
+ */
 function convertTensorToVectors(tensor: Tensor, truncateDim?: number): Float32Array[] {
   const dims = tensor.dims;
   const data = tensor.data as ArrayLike<number>;
@@ -214,6 +206,8 @@ function convertTensorToVectors(tensor: Tensor, truncateDim?: number): Float32Ar
     for (let row = 0; row < batch; row += 1) {
       const start = row * width;
       const slice = typed.subarray(start, start + width);
+      // Create a copy because subarray() returns a view into the original buffer.
+      // l2Normalize modifies in-place, so without this copy we'd corrupt `typed`.
       const vec = new Float32Array(slice);
       l2Normalize(vec, vec);
       vectors.push(truncateVector(vec, truncateDim));

@@ -50,6 +50,99 @@ describe('embedding worker runtime', () => {
     vi.unstubAllGlobals();
   });
 
+  describe('global error handlers', () => {
+    it('sets up onerror handler in worker context', async () => {
+      // Use null (not undefined) to simulate browser Worker where the property exists
+      const mockSelf = {
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      await import('../src/embedding.worker');
+      expect(typeof mockSelf.onerror).toBe('function');
+      expect(typeof mockSelf.onunhandledrejection).toBe('function');
+
+      // Exercise the onerror handler with a string event
+      mockSelf.onerror?.('Test error message');
+      const errorCall = workerEmitMock.mock.calls.find(([event]) => event?.type === 'error');
+      expect(errorCall?.[0]).toMatchObject({
+        type: 'error',
+        id: 'global',
+        message: 'Worker uncaught error: Test error message',
+      });
+    });
+
+    it('handles ErrorEvent objects in onerror', async () => {
+      const mockSelf = {
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      await import('../src/embedding.worker');
+
+      // Exercise with ErrorEvent-like object
+      const errorEvent = {
+        message: 'Uncaught TypeError',
+        filename: 'worker.js',
+        lineno: 42,
+      };
+      mockSelf.onerror?.(errorEvent as unknown as ErrorEvent);
+      const errorCall = workerEmitMock.mock.calls.find(
+        ([event]) => event?.message === 'Worker uncaught error: Uncaught TypeError'
+      );
+      expect(errorCall?.[0]).toMatchObject({
+        type: 'error',
+        id: 'global',
+        cause: 'worker.js:42',
+      });
+    });
+
+    it('handles unhandled promise rejections', async () => {
+      const mockSelf = {
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      await import('../src/embedding.worker');
+
+      // Exercise with Error reason
+      const rejectionEvent = {
+        reason: new Error('Promise rejected'),
+      };
+      mockSelf.onunhandledrejection?.(rejectionEvent as unknown as PromiseRejectionEvent);
+      const errorCall = workerEmitMock.mock.calls.find(
+        ([event]) => event?.message === 'Worker unhandled rejection: Promise rejected'
+      );
+      expect(errorCall?.[0]).toMatchObject({
+        type: 'error',
+        id: 'global',
+      });
+      expect(errorCall?.[0].cause).toContain('Promise rejected');
+    });
+
+    it('handles non-Error rejection reasons', async () => {
+      const mockSelf = {
+        onerror: null as ((event: ErrorEvent | string) => void) | null,
+        onunhandledrejection: null as ((event: PromiseRejectionEvent) => void) | null,
+      };
+      vi.stubGlobal('self', mockSelf);
+      await import('../src/embedding.worker');
+
+      // Exercise with string reason
+      const rejectionEvent = {
+        reason: 'Simple string rejection',
+      };
+      mockSelf.onunhandledrejection?.(rejectionEvent as unknown as PromiseRejectionEvent);
+      const errorCall = workerEmitMock.mock.calls.find(
+        ([event]) => event?.message === 'Worker unhandled rejection: Simple string rejection'
+      );
+      expect(errorCall?.[0]).toMatchObject({
+        type: 'error',
+        id: 'global',
+      });
+    });
+  });
+
   async function loadWorker() {
     await import('../src/embedding.worker');
     if (!registeredHandlers.runEmbedding) {
@@ -150,6 +243,52 @@ describe('embedding worker runtime', () => {
       id: 'empty-output',
       message: 'Embedding pipeline returned no tensors',
     });
+  });
+
+  it('normalizes numeric error codes from ONNX runtime', async () => {
+    // ONNX/WASM can throw raw numeric error codes instead of Error objects
+    const failingExtractor = vi.fn(async () => {
+      // biome-ignore lint/style/useThrowOnlyError: Testing ONNX runtime behavior that throws numeric codes
+      throw 42;
+    });
+    pipelineMock.mockResolvedValueOnce(failingExtractor);
+    const runEmbedding = await loadWorker();
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'numeric-error',
+        model: 'bge-m3',
+        texts: ['test'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('Embedding failed with error code: 42');
+    const errorCall = workerEmitMock.mock.calls.find(([event]) => event?.type === 'error');
+    expect(errorCall?.[0]).toMatchObject({
+      type: 'error',
+      id: 'numeric-error',
+      cause: 'Error code: 42 (0x2a)',
+    });
+  });
+
+  it('normalizes string error values from pipeline failures', async () => {
+    // Some pipelines throw raw string messages instead of Error objects
+    const failingExtractor = vi.fn(async () => {
+      // biome-ignore lint/style/useThrowOnlyError: Testing pipeline behavior that throws raw strings
+      throw 'pipeline initialization failed';
+    });
+    pipelineMock.mockResolvedValueOnce(failingExtractor);
+    const runEmbedding = await loadWorker();
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'string-error',
+        model: 'bge-m3',
+        texts: ['test'],
+        truncateDim: 2,
+        deviceHint: 'wasm',
+      })
+    ).rejects.toThrow('pipeline initialization failed');
   });
 
   it('normalizes batched tensors returned by transformers', async () => {
