@@ -182,6 +182,8 @@ vi.mock('@brainstrike/agent/client', () => {
     {} as Record<keyof typeof PROVIDER_DEFINITIONS, string[]>
   );
 
+  const NATIVE_TOOL_DEFAULTS = {};
+
   return {
     getProviderDefaultModel: (provider: string) =>
       PROVIDER_DEFAULT_MODELS[provider as keyof typeof PROVIDER_DEFINITIONS],
@@ -202,6 +204,7 @@ vi.mock('@brainstrike/agent/client', () => {
     PROVIDER_DEFAULT_ENABLED_MODELS,
     PROVIDER_DEFAULT_MODELS,
     PROVIDER_MODELS,
+    NATIVE_TOOL_DEFAULTS,
   };
 });
 

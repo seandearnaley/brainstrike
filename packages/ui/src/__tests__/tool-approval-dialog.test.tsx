@@ -271,4 +271,28 @@ describe('useToolApproval', () => {
       });
     });
   });
+
+  it('queues multiple approval requests in order', async () => {
+    const onResult = vi.fn();
+
+    render(<TestHookComponent onResult={onResult} />);
+
+    const requestButton = screen.getByTestId('request-approval');
+    fireEvent.click(requestButton);
+    fireEvent.click(requestButton);
+
+    const approveButton = await screen.findByRole('button', { name: 'Approve' });
+    fireEvent.click(approveButton);
+
+    await waitFor(() => {
+      expect(onResult).toHaveBeenCalledTimes(1);
+    });
+
+    const approveButtonAgain = await screen.findByRole('button', { name: 'Approve' });
+    fireEvent.click(approveButtonAgain);
+
+    await waitFor(() => {
+      expect(onResult).toHaveBeenCalledTimes(2);
+    });
+  });
 });

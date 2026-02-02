@@ -48,7 +48,12 @@ import {
 const logger = createLogger('DesktopAssistantServer');
 export const desktopAssistantServerLogger = logger;
 
-export function startAssistantServer(portHint?: number) {
+export interface AssistantServerOptions {
+  listen?: boolean;
+  host?: string;
+}
+
+export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
   const server = http.createServer(async (req, res) => {
     await handleAssistantRequest(req, res).catch(() => {
       res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -57,11 +62,18 @@ export function startAssistantServer(portHint?: number) {
   });
 
   const port = Number(process.env['BS_ASSISTANT_PORT'] ?? portHint ?? 0) || 0;
+  const host = options.host ?? '127.0.0.1';
+  if (options.listen === false) {
+    return Promise.resolve({
+      url: `http://${host}:${port}`,
+      stop: async () => {},
+    });
+  }
   return new Promise<{ url: string; stop: () => Promise<void> }>((resolve) => {
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(port, host, () => {
       const addr = server.address();
       const actualPort = typeof addr === 'object' && addr ? addr.port : port;
-      const url = `http://127.0.0.1:${actualPort}`;
+      const url = `http://${host}:${actualPort}`;
       resolve({
         url,
         stop: async () => await new Promise<void>((r) => server.close(() => r())),
@@ -70,7 +82,7 @@ export function startAssistantServer(portHint?: number) {
   });
 }
 
-async function handleAssistantRequest(
+export async function handleAssistantRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {

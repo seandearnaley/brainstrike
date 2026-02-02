@@ -95,6 +95,7 @@ export class ToolLoader {
    */
   loadTools(options: ToolLoadingOptions = {}): ToolLoadingResult {
     const loadTiers = options.loadTiers ?? ['critical', 'conditional'];
+    const includeDeferred = loadTiers.includes('deferred');
 
     logger.debug('Loading tools', { loadTiers, source: options.source });
 
@@ -131,6 +132,9 @@ export class ToolLoader {
       }
       if (loadTiers.includes('conditional')) {
         loadedTools.push(...conditionalTools);
+      }
+      if (includeDeferred) {
+        loadedTools.push(...deferredTools);
       }
 
       const tokensUsed = loadedTools.reduce((sum, t) => sum + t.estimatedTokens, 0);
@@ -191,7 +195,11 @@ export class ToolLoader {
       budgetSkippedTools.push(...conditionalResult.skippedTools);
     }
 
-    const tokensUsed = criticalResult.tokensUsed + conditionalResult.tokensUsed;
+    if (includeDeferred) {
+      loadedTools.push(...deferredTools);
+    }
+
+    const tokensUsed = loadedTools.reduce((sum, t) => sum + t.estimatedTokens, 0);
     const tokenBudget =
       this.budgetManager.getCriticalToolsBudget() + this.budgetManager.getConditionalToolsBudget();
 

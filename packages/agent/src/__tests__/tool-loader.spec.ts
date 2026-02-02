@@ -88,6 +88,15 @@ describe('ToolLoader', () => {
       expect(result.loadedTools.every((t) => t.loadingTier === 'critical')).toBe(true);
     });
 
+    it('loads deferred tools when specified', () => {
+      const loader = createToolLoader(registry);
+      const result = loader.loadTools({ loadTiers: ['deferred'] });
+
+      expect(result.loadedTools).toHaveLength(2);
+      expect(result.loadedTools.every((t) => t.loadingTier === 'deferred')).toBe(true);
+      expect(result.tokensUsed).toBe(400);
+    });
+
     it('respects token budget for conditional tools', () => {
       // Use a 2000 token context window with default allocation:
       // - Critical tools: 15% = 300 tokens (can fit 100+150=250)
