@@ -27,6 +27,7 @@ import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerIpcHandlers } from './ipc-handlers';
 import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
+import { registerToolsIpcHandlers } from './ipc-tools';
 import {
   cloneLoggingPreferences,
   cloneLoggingSettingsPayload,
@@ -370,6 +371,7 @@ app.whenReady().then(async () => {
     registerSecretsIpcHandlers(createSecretsService());
     registerAgentIpcHandlers();
     registerMcpIpcHandlers();
+    registerToolsIpcHandlers();
     logger.info('Ready-dependent IPC handlers registered successfully');
 
     // Setup security before creating windows
