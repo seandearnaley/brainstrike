@@ -78,64 +78,71 @@ export function ToolRow({ tool, expanded = false, onToggle, onExpand }: ToolRowP
   };
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        {/* biome-ignore lint/a11y/useSemanticElements: role="row" used for accessible table-like structure in non-table context */}
-        <div
-          className={cn(
-            'flex cursor-pointer items-center gap-3 border-border/50 border-b px-3 py-2 transition-colors hover:bg-muted/50',
-            !tool.enabled && 'opacity-70'
-          )}
-          data-testid={`tool-row-${tool.id}`}
-          onClick={handleRowClick}
-          onKeyDown={handleRowKeyDown}
-          role="row"
-          tabIndex={0}
-        >
-          {/* Expand/Collapse Chevron */}
-          <span className="w-4 flex-shrink-0">
-            {expanded ? (
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
-            ) : (
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            )}
-          </span>
+    /* biome-ignore lint/a11y/useSemanticElements: role="row" used for accessible table-like structure in non-table context */
+    <div
+      className={cn(
+        'flex cursor-pointer items-center gap-3 border-border/50 border-b px-3 py-2 transition-colors hover:bg-muted/50',
+        !tool.enabled && 'opacity-70'
+      )}
+      data-testid={`tool-row-${tool.id}`}
+      onClick={handleRowClick}
+      onKeyDown={handleRowKeyDown}
+      role="row"
+      tabIndex={0}
+    >
+      {/* Expand/Collapse Chevron */}
+      <span className="w-4 flex-shrink-0" data-testid={expanded ? 'chevron-down' : 'chevron-right'}>
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+        )}
+      </span>
 
-          {/* Tool Name (monospace) */}
-          <code className="flex-1 truncate font-mono text-sm">{tool.id}</code>
+      {/* Tool Name (monospace) */}
+      <code className="flex-1 truncate font-mono text-sm">{tool.id}</code>
 
-          {/* Warning Icon for tools requiring approval */}
-          {tool.requiresApproval && (
-            <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-500" />
-          )}
+      {/* Warning Icon for tools requiring approval */}
+      {tool.requiresApproval && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="flex-shrink-0 rounded p-0.5 hover:bg-muted/50 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              data-testid="requires-approval-icon"
+              onClick={(e) => e.stopPropagation()}
+              type="button"
+            >
+              <AlertTriangle className="h-4 w-4 text-amber-500" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">Requires user approval before execution</TooltipContent>
+        </Tooltip>
+      )}
 
-          {/* Category Badge */}
-          <Badge className="flex-shrink-0 text-xs" variant="outline">
-            {categoryLabel}
-          </Badge>
+      {/* Category Badge */}
+      <Badge className="flex-shrink-0 text-xs" variant="outline">
+        {categoryLabel}
+      </Badge>
 
-          {/* Tier Badge */}
-          <Badge className="flex-shrink-0 text-xs" variant="secondary">
-            {tierLabel}
-          </Badge>
+      {/* Tier Badge */}
+      <Badge className="flex-shrink-0 text-xs" variant="secondary">
+        {tierLabel}
+      </Badge>
 
-          {/* Token Count */}
-          <span className="w-12 flex-shrink-0 text-right text-muted-foreground text-xs">
-            ~{tool.estimatedTokens}
-          </span>
+      {/* Token Count */}
+      <span className="w-12 flex-shrink-0 text-right text-muted-foreground text-xs">
+        ~{tool.estimatedTokens}
+      </span>
 
-          {/* Enable/Disable Toggle */}
-          <Switch
-            checked={tool.enabled}
-            className="flex-shrink-0"
-            data-testid={`tool-toggle-${tool.id}`}
-            onCheckedChange={handleCheckedChange}
-            onClick={handleToggleClick}
-          />
-        </div>
-      </TooltipTrigger>
-      <TooltipContent side="top">{tool.description}</TooltipContent>
-    </Tooltip>
+      {/* Enable/Disable Toggle */}
+      <Switch
+        checked={tool.enabled}
+        className="flex-shrink-0"
+        data-testid={`tool-toggle-${tool.id}`}
+        onCheckedChange={handleCheckedChange}
+        onClick={handleToggleClick}
+      />
+    </div>
   );
 }
 

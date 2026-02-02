@@ -98,12 +98,8 @@ vi.mock('lucide-react', () => ({
   AlertTriangle: ({ className }: { className?: string }) => (
     <span className={className} data-testid="warning-icon" />
   ),
-  ChevronDown: ({ className }: { className?: string }) => (
-    <span className={className} data-testid="chevron-down" />
-  ),
-  ChevronRight: ({ className }: { className?: string }) => (
-    <span className={className} data-testid="chevron-right" />
-  ),
+  ChevronDown: ({ className }: { className?: string }) => <span className={className} />,
+  ChevronRight: ({ className }: { className?: string }) => <span className={className} />,
 }));
 
 describe('ToolRow', () => {
@@ -306,14 +302,22 @@ describe('ToolRow', () => {
     });
   });
 
-  describe('tooltip', () => {
-    it('includes description in tooltip content', () => {
-      render(<ToolRow {...defaultProps} />);
+  describe('approval tooltip', () => {
+    it('shows approval tooltip for tools requiring approval', () => {
+      const props = {
+        ...defaultProps,
+        tool: { ...defaultTool, requiresApproval: true },
+      };
+      render(<ToolRow {...props} />);
 
       const tooltipContent = screen.getByTestId('tooltip-content');
-      expect(tooltipContent).toHaveTextContent(
-        'Retrieve context from the knowledge base for AI-assisted queries'
-      );
+      expect(tooltipContent).toHaveTextContent('Requires user approval before execution');
+    });
+
+    it('does not render tooltip when tool does not require approval', () => {
+      render(<ToolRow {...defaultProps} />);
+
+      expect(screen.queryByTestId('tooltip-content')).not.toBeInTheDocument();
     });
   });
 
