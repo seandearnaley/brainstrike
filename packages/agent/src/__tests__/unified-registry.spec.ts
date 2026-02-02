@@ -117,6 +117,27 @@ describe('UnifiedToolRegistry', () => {
       expect(tool1?.description).toBe('MCP Tool 1');
     });
 
+    it('removes stale tools when server registration shrinks', () => {
+      registry.registerMcpTools({
+        serverName: 'shrink-server',
+        tools: {
+          'mcp.keep': mockMcpTool('Keep tool'),
+          'mcp.drop': mockMcpTool('Drop tool'),
+        },
+      });
+
+      registry.registerMcpTools({
+        serverName: 'shrink-server',
+        tools: {
+          'mcp.keep': mockMcpTool('Keep tool updated'),
+        },
+      });
+
+      expect(registry.getTool('mcp.keep')).toBeDefined();
+      expect(registry.getTool('mcp.drop')).toBeUndefined();
+      expect(registry.getAllTools()).toHaveLength(1);
+    });
+
     it('applies category override to all server tools', () => {
       registry.registerMcpTools({
         serverName: 'retrieval-server',

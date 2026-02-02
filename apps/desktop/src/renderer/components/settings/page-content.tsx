@@ -1,4 +1,4 @@
-import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
+import { isNativeTool, NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
 import {
@@ -11,6 +11,7 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
   type ToolDisplayMetadata,
+  useNativeToolPreferencesStore,
 } from '@brainstrike/preferences';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
@@ -20,14 +21,16 @@ import { DesktopLoggingSettings } from './logging-settings';
  * Transform NATIVE_TOOL_DEFAULTS into ToolDisplayMetadata format.
  * Native tools are always enabled by default (can be toggled in settings).
  */
-function getNativeToolsAsDisplayMetadata(): ToolDisplayMetadata[] {
+function getNativeToolsAsDisplayMetadata(
+  isToolEnabled: (toolId: string) => boolean
+): ToolDisplayMetadata[] {
   return Object.entries(NATIVE_TOOL_DEFAULTS).map(([id, metadata]) => ({
     id,
     source: 'native' as const,
     category: metadata.category,
     loadingTier: metadata.loadingTier,
     description: getToolDescription(id),
-    enabled: true, // Native tools enabled by default
+    enabled: isToolEnabled(id),
     estimatedTokens: metadata.estimatedTokens,
     requiresApproval: metadata.requiresApproval,
   }));
@@ -70,7 +73,8 @@ export default function SettingsPageContent() {
     () => ({
       getTools: async (): Promise<ToolDisplayMetadata[]> => {
         // Start with native tools
-        const nativeTools = getNativeToolsAsDisplayMetadata();
+        const { isToolEnabled } = useNativeToolPreferencesStore.getState();
+        const nativeTools = getNativeToolsAsDisplayMetadata(isToolEnabled);
 
         // Add MCP tools if available
         const mcpToolsData = await window.mcp?.listTools?.();
@@ -103,7 +107,8 @@ export default function SettingsPageContent() {
         return [...nativeTools, ...mcpTools];
       },
       getStats: async () => {
-        const nativeTools = getNativeToolsAsDisplayMetadata();
+        const { isToolEnabled } = useNativeToolPreferencesStore.getState();
+        const nativeTools = getNativeToolsAsDisplayMetadata(isToolEnabled);
         const mcpStats = await window.mcp?.getToolStats?.();
 
         const nativeCount = nativeTools.length;
@@ -133,12 +138,29 @@ export default function SettingsPageContent() {
         };
       },
       enableTools: async (ids: string[]) => {
-        await window.mcp?.enableTools?.(ids);
+        const nativeToolIds = ids.filter((id) => isNativeTool(id));
+        const mcpToolIds = ids.filter((id) => !isNativeTool(id));
+
+        if (nativeToolIds.length > 0) {
+          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, true);
+        }
+        if (mcpToolIds.length > 0) {
+          await window.mcp?.enableTools?.(mcpToolIds);
+        }
       },
       disableTools: async (ids: string[]) => {
-        await window.mcp?.disableTools?.(ids);
+        const nativeToolIds = ids.filter((id) => isNativeTool(id));
+        const mcpToolIds = ids.filter((id) => !isNativeTool(id));
+
+        if (nativeToolIds.length > 0) {
+          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, false);
+        }
+        if (mcpToolIds.length > 0) {
+          await window.mcp?.disableTools?.(mcpToolIds);
+        }
       },
       resetTools: async () => {
+        useNativeToolPreferencesStore.getState().resetTools();
         await window.mcp?.resetTools?.();
       },
       getMcpServerStatus: async () => {

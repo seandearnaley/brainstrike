@@ -190,6 +190,7 @@ export class UnifiedToolRegistry {
    */
   registerMcpTools(options: McpToolRegistrationOptions): void {
     const { serverName, tools, categoryOverride, tierOverride } = options;
+    const previousToolIds = this.toolsByServer.get(serverName);
     const toolIds = new Set<string>();
     const discoveredAt = Date.now();
 
@@ -219,6 +220,18 @@ export class UnifiedToolRegistry {
 
       this.tools.set(toolId, metadata);
       toolIds.add(toolId);
+    }
+
+    if (previousToolIds) {
+      for (const id of previousToolIds) {
+        if (toolIds.has(id)) {
+          continue;
+        }
+        const existing = this.tools.get(id);
+        if (existing?.serverName === serverName) {
+          this.tools.delete(id);
+        }
+      }
     }
 
     this.toolsByServer.set(serverName, toolIds);

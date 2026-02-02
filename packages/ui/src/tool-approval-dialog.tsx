@@ -224,6 +224,8 @@ export interface UseToolApprovalResult {
   pendingTool: ToolApprovalInfo | null;
   /** Whether approval is pending */
   isPending: boolean;
+  /** Resolve the pending approval with a result */
+  resolvePending: (result: ToolApprovalResult) => void;
   /** Clear the pending approval */
   clearPending: () => void;
 }
@@ -262,16 +264,24 @@ export function useToolApproval(options: UseToolApprovalOptions = {}): UseToolAp
     [skipApprovalFor, onApprove, onCancel]
   );
 
+  const resolvePending = useCallback(
+    (result: ToolApprovalResult) => {
+      if (resolveRef) {
+        resolveRef(result);
+      }
+    },
+    [resolveRef]
+  );
+
   const clearPending = useCallback(() => {
-    if (resolveRef) {
-      resolveRef({ approved: false, dontAskAgain: false });
-    }
-  }, [resolveRef]);
+    resolvePending({ approved: false, dontAskAgain: false });
+  }, [resolvePending]);
 
   return {
     requestApproval,
     pendingTool,
     isPending: pendingTool !== null,
+    resolvePending,
     clearPending,
   };
 }

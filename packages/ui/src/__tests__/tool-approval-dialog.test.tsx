@@ -19,15 +19,8 @@ function TestHookComponent({
   onResult: (result: ToolApprovalResult) => void;
   skipApprovalFor?: Set<string>;
 }) {
-  // Build options conditionally to avoid exactOptionalPropertyTypes issues
-  const hookOptions = {
-    onApprove: (_toolId: string, dontAskAgain: boolean) =>
-      onResult({ approved: true, dontAskAgain }),
-    onCancel: () => onResult({ approved: false, dontAskAgain: false }),
-    ...(skipApprovalFor ? { skipApprovalFor } : {}),
-  };
-
-  const { requestApproval, pendingTool, isPending } = useToolApproval(hookOptions);
+  const hookOptions = skipApprovalFor ? { skipApprovalFor } : {};
+  const { requestApproval, pendingTool, isPending, resolvePending } = useToolApproval(hookOptions);
 
   const testTool: ToolApprovalInfo = {
     id: 'test.tool',
@@ -47,13 +40,7 @@ function TestHookComponent({
       </button>
       <div data-testid="is-pending">{isPending ? 'true' : 'false'}</div>
       {pendingTool && (
-        <ToolApprovalDialog
-          onResult={(result) => {
-            onResult(result);
-          }}
-          open={true}
-          tool={pendingTool}
-        />
+        <ToolApprovalDialog onResult={resolvePending} open={true} tool={pendingTool} />
       )}
     </div>
   );
@@ -265,5 +252,23 @@ describe('useToolApproval', () => {
 
     // Dialog should be shown
     expect(screen.getByText('Confirm Tool Action')).toBeInTheDocument();
+  });
+
+  it('resolves approval when dialog approves', async () => {
+    const onResult = vi.fn();
+
+    render(<TestHookComponent onResult={onResult} />);
+
+    fireEvent.click(screen.getByTestId('request-approval'));
+
+    const approveButton = await screen.findByRole('button', { name: 'Approve' });
+    fireEvent.click(approveButton);
+
+    await waitFor(() => {
+      expect(onResult).toHaveBeenCalledWith({
+        approved: true,
+        dontAskAgain: false,
+      });
+    });
   });
 });

@@ -1,4 +1,4 @@
-import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
+import { isNativeTool, NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
@@ -13,6 +13,7 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
   type ToolDisplayMetadata,
+  useNativeToolPreferencesStore,
 } from '@brainstrike/preferences';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
@@ -23,14 +24,16 @@ import { getWebLogBuffer } from '../../log-buffer';
  * Transform NATIVE_TOOL_DEFAULTS into ToolDisplayMetadata format.
  * Native tools are always enabled by default (can be toggled in settings).
  */
-function getNativeToolsAsDisplayMetadata(): ToolDisplayMetadata[] {
+function getNativeToolsAsDisplayMetadata(
+  isToolEnabled: (toolId: string) => boolean
+): ToolDisplayMetadata[] {
   return Object.entries(NATIVE_TOOL_DEFAULTS).map(([id, metadata]) => ({
     id,
     source: 'native' as const,
     category: metadata.category,
     loadingTier: metadata.loadingTier,
     description: getToolDescription(id),
-    enabled: true, // Native tools enabled by default
+    enabled: isToolEnabled(id),
     estimatedTokens: metadata.estimatedTokens,
     requiresApproval: metadata.requiresApproval,
   }));
@@ -89,10 +92,12 @@ export default function SettingsPageContent() {
     () => ({
       getTools: async (): Promise<ToolDisplayMetadata[]> => {
         // Return native tools - web app doesn't have MCP
-        return getNativeToolsAsDisplayMetadata();
+        const { isToolEnabled } = useNativeToolPreferencesStore.getState();
+        return getNativeToolsAsDisplayMetadata(isToolEnabled);
       },
       getStats: async () => {
-        const nativeTools = getNativeToolsAsDisplayMetadata();
+        const { isToolEnabled } = useNativeToolPreferencesStore.getState();
+        const nativeTools = getNativeToolsAsDisplayMetadata(isToolEnabled);
         const nativeCount = nativeTools.length;
         const nativeEnabled = nativeTools.filter((t) => t.enabled).length;
 
@@ -111,14 +116,20 @@ export default function SettingsPageContent() {
           mcpServers: 0,
         };
       },
-      enableTools: async (_ids: string[]) => {
-        // Will be implemented with native tool registry persistence
+      enableTools: async (ids: string[]) => {
+        const nativeToolIds = ids.filter((id) => isNativeTool(id));
+        if (nativeToolIds.length > 0) {
+          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, true);
+        }
       },
-      disableTools: async (_ids: string[]) => {
-        // Will be implemented with native tool registry persistence
+      disableTools: async (ids: string[]) => {
+        const nativeToolIds = ids.filter((id) => isNativeTool(id));
+        if (nativeToolIds.length > 0) {
+          useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, false);
+        }
       },
       resetTools: async () => {
-        // Will be implemented with native tool registry persistence
+        useNativeToolPreferencesStore.getState().resetTools();
       },
       executeToolTest: async (toolId: string, _input: unknown) => {
         // Tool execution for playground testing

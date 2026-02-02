@@ -1,4 +1,7 @@
-import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/preferences';
+import {
+  __resetAssistantPreferencesStoreForTests,
+  __resetNativeToolPreferencesStoreForTests,
+} from '@brainstrike/preferences';
 import { ThemeProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -104,6 +107,7 @@ beforeEach(() => {
   extendedWindow.mcp = mcp;
 
   __resetAssistantPreferencesStoreForTests();
+  __resetNativeToolPreferencesStoreForTests();
 });
 
 afterEach(() => {
