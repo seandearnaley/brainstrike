@@ -212,18 +212,16 @@ export default function SettingsPageContent() {
         }
         return result;
       },
-      executeToolTest: async (toolId: string, _input: unknown) => {
-        // Tool execution for playground testing
-        // Future: Wire to IPC bridge for native tools, MCP protocol for MCP tools
-        const startTime = performance.now();
-        const isNative = !toolId.startsWith('mcp__');
-
+      executeToolTest: async (toolId: string, input: unknown) => {
+        // Execute tool via IPC bridge to main process
+        if (window.tools?.execute) {
+          return window.tools.execute(toolId, input);
+        }
+        // Fallback if tools API not available
         return {
           success: false,
-          error: isNative
-            ? `Native tool execution not yet implemented. The ${toolId} tool requires main process integration.`
-            : `MCP tool execution not yet implemented. The ${toolId} tool requires MCP protocol integration.`,
-          durationMs: Math.round(performance.now() - startTime),
+          error: 'Tool execution API not available',
+          durationMs: 0,
         };
       },
     }),
