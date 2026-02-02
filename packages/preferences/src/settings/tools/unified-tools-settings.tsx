@@ -2,24 +2,19 @@
  * Unified Tools Settings
  *
  * Main container component for managing all agent tools (native + MCP).
- * Provides tool listing, filtering, enable/disable, and playground testing.
+ * Features accordion-based layout with collapsible tool groups,
+ * dense tool rows, and integrated MCP status display.
  */
 
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/agent/client';
-import {
-  Badge,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  ScrollArea,
-} from '@brainstrike/ui';
+import { Accordion, Card, CardContent, ScrollArea } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { McpConfigAlert } from './mcp-config-alert';
-import { McpServerStatus } from './mcp-server-status';
 import { TokenBudgetSummary } from './token-budget-summary';
-import { ToolCard } from './tool-card';
+import type { McpConnectionStatus } from './tool-group-accordion';
+import { ToolGroupAccordion } from './tool-group-accordion';
+import { ToolRow } from './tool-row';
+import { ToolRowExpanded } from './tool-row-expanded';
 import { ToolsFilterBar } from './tools-filter-bar';
 import type {
   McpConfigInfo,
@@ -74,6 +69,12 @@ function groupTools(tools: ToolDisplayMetadata[]): ToolGroup[] {
 
 /**
  * Unified Tools Settings Component
+ *
+ * Accordion-based layout with:
+ * - Collapsible tool groups with status indicators
+ * - Dense ToolRow display with expand/collapse
+ * - Integrated MCP connection status in headers
+ * - Compact filter bar with inline stats
  */
 export function UnifiedToolsSettings({
   operations,
@@ -82,7 +83,8 @@ export function UnifiedToolsSettings({
   onToolsChanged,
 }: UnifiedToolsSettingsProps) {
   const [tools, setTools] = useState<ToolDisplayMetadata[]>([]);
-  const [stats, setStats] = useState<ToolStats | null>(null);
+  // Stats are loaded for future use but not currently displayed
+  const [, setStats] = useState<ToolStats | null>(null);
   const [mcpServers, setMcpServers] = useState<McpServerInfo[]>([]);
   const [mcpConfigInfo, setMcpConfigInfo] = useState<McpConfigInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -95,6 +97,9 @@ export function UnifiedToolsSettings({
 
   // Expanded tool state
   const [expandedToolId, setExpandedToolId] = useState<string | null>(null);
+
+  // MCP config alert dismissed state
+  const [configAlertDismissed, setConfigAlertDismissed] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -182,28 +187,62 @@ export function UnifiedToolsSettings({
     }
   }, [operations, loadData]);
 
-  const handleEnableServer = useCallback(
-    async (serverName: string) => {
-      const toolIds = tools
-        .filter((t) => t.source === 'mcp' && t.serverName === serverName)
-        .map((t) => t.id);
+  const handleEnableGroup = useCallback(
+    async (group: ToolGroup) => {
+      const toolIds = group.tools.map((t) => t.id);
       await operations.enableTools(toolIds);
       await loadData();
       onToolsChanged?.();
     },
-    [tools, operations, loadData, onToolsChanged]
+    [operations, loadData, onToolsChanged]
   );
 
-  const handleDisableServer = useCallback(
-    async (serverName: string) => {
-      const toolIds = tools
-        .filter((t) => t.source === 'mcp' && t.serverName === serverName)
-        .map((t) => t.id);
+  const handleDisableGroup = useCallback(
+    async (group: ToolGroup) => {
+      const toolIds = group.tools.map((t) => t.id);
       await operations.disableTools(toolIds);
       await loadData();
       onToolsChanged?.();
     },
-    [tools, operations, loadData, onToolsChanged]
+    [operations, loadData, onToolsChanged]
+  );
+
+  const handleExpandTool = useCallback(
+    (toolId: string) => {
+      setExpandedToolId(expandedToolId === toolId ? null : toolId);
+    },
+    [expandedToolId]
+  );
+
+  const handleDismissConfigAlert = useCallback(() => {
+    setConfigAlertDismissed(true);
+  }, []);
+
+  // Get MCP server status for a given server name
+  const getServerStatus = useCallback(
+    (serverName: string): McpConnectionStatus => {
+      const server = mcpServers.find((s) => s.name === serverName);
+      if (!server) {
+        return 'disconnected';
+      }
+      // Map McpServerInfo status to McpConnectionStatus
+      if (server.status === 'connected') {
+        return 'connected';
+      }
+      if (server.status === 'error') {
+        return 'error';
+      }
+      return 'disconnected';
+    },
+    [mcpServers]
+  );
+
+  const getServerError = useCallback(
+    (serverName: string): string | undefined => {
+      const server = mcpServers.find((s) => s.name === serverName);
+      return server?.error;
+    },
+    [mcpServers]
   );
 
   // Filter tools
@@ -262,6 +301,11 @@ export function UnifiedToolsSettings({
   }, [tools, budgetManager]);
 
   const hasTools = tools.length > 0;
+  const showConfigAlert =
+    mcpAvailable && mcpConfigInfo && !mcpConfigInfo.exists && !configAlertDismissed;
+
+  // Default expanded accordion items - expand all groups by default
+  const defaultExpandedGroups = useMemo(() => toolGroups.map((g) => g.id), [toolGroups]);
 
   return (
     <div className="space-y-4" data-testid="unified-tools-settings">
@@ -276,37 +320,14 @@ export function UnifiedToolsSettings({
       )}
 
       {/* MCP Config Alert (when missing) */}
-      {mcpAvailable && mcpConfigInfo && !mcpConfigInfo.exists && (
+      {showConfigAlert && (
         <McpConfigAlert
           configInfo={mcpConfigInfo}
           onCreateSample={operations.createSampleConfig ? handleCreateSampleConfig : undefined}
+          onDismiss={handleDismissConfigAlert}
           onResetConfig={handleResetMcpConfig}
           onSelectConfig={handleSelectMcpConfig}
         />
-      )}
-
-      {/* MCP Server Status (desktop only) */}
-      {mcpAvailable && (mcpServers.length > 0 || mcpConfigInfo) && (
-        <McpServerStatus
-          configInfo={mcpConfigInfo ?? undefined}
-          loading={loading}
-          onDisableServer={handleDisableServer}
-          onEnableServer={handleEnableServer}
-          onOpenConfig={operations.openMcpConfig}
-          onRefresh={handleRefreshMcp}
-          onResetConfig={operations.resetMcpConfig ? handleResetMcpConfig : undefined}
-          servers={mcpServers}
-        />
-      )}
-
-      {/* Stats Bar */}
-      {stats && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="secondary">{stats.total} total</Badge>
-          <Badge variant="default">{stats.enabled} enabled</Badge>
-          <Badge variant="outline">{stats.disabled} disabled</Badge>
-          {stats.mcpServers > 0 && <Badge variant="outline">{stats.mcpServers} MCP servers</Badge>}
-        </div>
       )}
 
       {/* Filter Bar */}
@@ -319,6 +340,7 @@ export function UnifiedToolsSettings({
           onTierChange={setTierFilter}
           searchQuery={searchQuery}
           tierFilter={tierFilter}
+          totalCount={tools.length}
         />
       )}
 
@@ -343,69 +365,72 @@ export function UnifiedToolsSettings({
         </Card>
       )}
 
-      {/* Tool Groups */}
+      {/* Tool Groups - Accordion Layout */}
       {!loading && hasTools && (
-        <ScrollArea className="h-[500px]">
-          <div className="space-y-4 pr-4">
-            {toolGroups.map((group) => (
-              <Card key={group.id}>
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-base">{group.label}</CardTitle>
-                      <CardDescription>
-                        {group.enabledCount}/{group.tools.length} enabled
-                      </CardDescription>
-                    </div>
-                    {operations.enableBySource && (
-                      <div className="flex gap-2">
-                        <button
-                          className="text-primary text-xs hover:underline"
-                          onClick={() => {
-                            if (group.source === 'native') {
-                              void operations.enableBySource?.('native');
-                            } else if (group.serverName) {
-                              void handleEnableServer(group.serverName);
-                            }
-                          }}
-                          type="button"
-                        >
-                          Enable All
-                        </button>
-                        <button
-                          className="text-muted-foreground text-xs hover:underline"
-                          onClick={() => {
-                            if (group.source === 'native') {
-                              void operations.disableBySource?.('native');
-                            } else if (group.serverName) {
-                              void handleDisableServer(group.serverName);
-                            }
-                          }}
-                          type="button"
-                        >
-                          Disable All
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
+        <ScrollArea className="max-h-[600px]">
+          <Accordion defaultValue={defaultExpandedGroups} type="multiple">
+            {toolGroups.map((group) => {
+              const connectionStatus =
+                group.source === 'mcp' && group.serverName
+                  ? getServerStatus(group.serverName)
+                  : undefined;
+              const errorMessage =
+                group.source === 'mcp' && group.serverName
+                  ? getServerError(group.serverName)
+                  : undefined;
+              const onOpenConfigFile =
+                group.source === 'mcp' && operations.openMcpConfig
+                  ? () => operations.openMcpConfig?.()
+                  : undefined;
+              const onRefreshConnection =
+                group.source === 'mcp' && operations.refreshMcpServers
+                  ? handleRefreshMcp
+                  : undefined;
+
+              return (
+                <ToolGroupAccordion
+                  description={
+                    group.source === 'native'
+                      ? 'Built-in BrainStrike tools'
+                      : `MCP server: ${group.serverName}`
+                  }
+                  enabledCount={group.enabledCount}
+                  id={group.id}
+                  key={group.id}
+                  label={group.label}
+                  onDisableAll={() => handleDisableGroup(group)}
+                  onEnableAll={() => handleEnableGroup(group)}
+                  source={group.source}
+                  totalCount={group.tools.length}
+                  {...(connectionStatus !== undefined && { connectionStatus })}
+                  {...(errorMessage !== undefined && { errorMessage })}
+                  {...(onOpenConfigFile !== undefined && { onOpenConfigFile })}
+                  {...(onRefreshConnection !== undefined && { onRefreshConnection })}
+                >
+                  <div className="space-y-1">
                     {group.tools.map((tool) => (
-                      <ToolCard
-                        expanded={expandedToolId === tool.id}
-                        key={tool.id}
-                        onExecuteTest={operations.executeToolTest}
-                        onExpandChange={(expanded) => setExpandedToolId(expanded ? tool.id : null)}
-                        onToggle={handleToggleTool}
-                        tool={tool}
-                      />
+                      <div key={tool.id}>
+                        <ToolRow
+                          expanded={expandedToolId === tool.id}
+                          onExpand={handleExpandTool}
+                          onToggle={handleToggleTool}
+                          tool={tool}
+                        />
+                        {expandedToolId === tool.id && (
+                          <ToolRowExpanded
+                            tool={tool}
+                            {...(operations.executeToolTest !== undefined && {
+                              onExecuteTest: operations.executeToolTest,
+                            })}
+                          />
+                        )}
+                      </div>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+                </ToolGroupAccordion>
+              );
+            })}
+          </Accordion>
         </ScrollArea>
       )}
     </div>

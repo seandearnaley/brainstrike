@@ -153,6 +153,8 @@ export interface ToolsFilterBarProps {
   tierFilter: ToolLoadingTier | 'all';
   onTierChange: (tier: ToolLoadingTier | 'all') => void;
   onReset: () => void;
+  /** Total tool count for display */
+  totalCount?: number;
 }
 
 /**

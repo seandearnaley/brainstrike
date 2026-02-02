@@ -23,6 +23,12 @@ vi.mock('@brainstrike/agent/client', () => ({
   },
 }));
 
+// Mock lucide-react
+vi.mock('lucide-react', () => ({
+  Search: () => <svg data-testid="search-icon" />,
+  RotateCcw: () => <svg data-testid="rotate-icon" />,
+}));
+
 // Mock @brainstrike/ui
 vi.mock('@brainstrike/ui', () => ({
   Input: ({
@@ -30,13 +36,16 @@ vi.mock('@brainstrike/ui', () => ({
     onChange,
     placeholder,
     'data-testid': testId,
+    className,
   }: {
     value: string;
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     placeholder?: string;
     'data-testid'?: string;
+    className?: string;
   }) => (
     <input
+      className={className}
       data-testid={testId}
       onChange={onChange}
       placeholder={placeholder}
@@ -48,12 +57,14 @@ vi.mock('@brainstrike/ui', () => ({
     children,
     onClick,
     'data-testid': testId,
+    disabled,
   }: {
     children: React.ReactNode;
     onClick: () => void;
     'data-testid'?: string;
+    disabled?: boolean;
   }) => (
-    <button data-testid={testId} onClick={onClick} type="button">
+    <button data-testid={testId} disabled={disabled} onClick={onClick} type="button">
       {children}
     </button>
   ),
@@ -82,6 +93,17 @@ vi.mock('@brainstrike/ui', () => ({
     <div data-value={value}>{children}</div>
   ),
   SelectValue: ({ placeholder }: { placeholder?: string }) => <span>{placeholder}</span>,
+  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TooltipTrigger: ({
+    children,
+    asChild: _asChild,
+  }: {
+    children: React.ReactNode;
+    asChild?: boolean;
+  }) => <>{children}</>,
+  TooltipContent: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="tooltip-content">{children}</div>
+  ),
 }));
 
 describe('ToolsFilterBar', () => {
@@ -122,10 +144,32 @@ describe('ToolsFilterBar', () => {
       expect(input.value).toBe('test query');
     });
 
-    it('renders reset button', () => {
+    it('renders search icon inside input container', () => {
       render(<ToolsFilterBar {...defaultProps} />);
 
-      expect(screen.getByText('Reset')).toBeInTheDocument();
+      expect(screen.getByTestId('search-icon')).toBeInTheDocument();
+    });
+
+    it('displays tool count when provided', () => {
+      render(<ToolsFilterBar {...defaultProps} totalCount={42} />);
+
+      expect(screen.getByTestId('tool-count')).toBeInTheDocument();
+      expect(screen.getByText('42 tools')).toBeInTheDocument();
+    });
+
+    it('does not display tool count when not provided', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      expect(screen.queryByTestId('tool-count')).not.toBeInTheDocument();
+    });
+
+    it('shows reset button as icon only (has SVG child)', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      const resetButton = screen.getByTestId('reset-filters');
+      expect(resetButton.querySelector('svg')).toBeInTheDocument();
+      // Should not have visible text (only sr-only)
+      expect(resetButton.textContent).toBe('Reset filters');
     });
   });
 
@@ -171,12 +215,40 @@ describe('ToolsFilterBar', () => {
 
   describe('reset functionality', () => {
     it('calls onReset when reset button is clicked', () => {
-      render(<ToolsFilterBar {...defaultProps} />);
+      render(<ToolsFilterBar {...defaultProps} searchQuery="test" />);
 
       const resetButton = screen.getByTestId('reset-filters');
       fireEvent.click(resetButton);
 
       expect(mockOnReset).toHaveBeenCalledTimes(1);
+    });
+
+    it('disables reset button when no filters active', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      const resetButton = screen.getByTestId('reset-filters');
+      expect(resetButton).toBeDisabled();
+    });
+
+    it('enables reset button when search query is present', () => {
+      render(<ToolsFilterBar {...defaultProps} searchQuery="test" />);
+
+      const resetButton = screen.getByTestId('reset-filters');
+      expect(resetButton).not.toBeDisabled();
+    });
+
+    it('enables reset button when category filter is not all', () => {
+      render(<ToolsFilterBar {...defaultProps} categoryFilter="retrieval" />);
+
+      const resetButton = screen.getByTestId('reset-filters');
+      expect(resetButton).not.toBeDisabled();
+    });
+
+    it('enables reset button when tier filter is not all', () => {
+      render(<ToolsFilterBar {...defaultProps} tierFilter="critical" />);
+
+      const resetButton = screen.getByTestId('reset-filters');
+      expect(resetButton).not.toBeDisabled();
     });
   });
 
@@ -198,6 +270,16 @@ describe('ToolsFilterBar', () => {
       render(<ToolsFilterBar {...defaultProps} tierFilter="critical" />);
 
       expect(screen.getByTestId('tier-filter')).toBeInTheDocument();
+    });
+  });
+
+  describe('tooltip', () => {
+    it('renders tooltip content for reset button', () => {
+      render(<ToolsFilterBar {...defaultProps} />);
+
+      expect(screen.getByTestId('tooltip-content')).toBeInTheDocument();
+      // There are two "Reset filters" texts: one in sr-only span and one in tooltip
+      expect(screen.getAllByText('Reset filters')).toHaveLength(2);
     });
   });
 });

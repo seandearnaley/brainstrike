@@ -1,10 +1,11 @@
 /**
  * Token Budget Summary
  *
- * Displays token budget usage with a segmented progress bar.
+ * Displays token budget usage with a segmented progress bar in a compact single-line layout.
  */
 
 import { cn } from '@brainstrike/ui';
+import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
 import type { TokenBudgetSummaryProps } from './types';
 
@@ -32,7 +33,7 @@ export function TokenBudgetSummary({
   return (
     <div
       className={cn(
-        'rounded-lg border p-3 transition-colors',
+        'rounded-lg border p-2 transition-colors',
         isError
           ? 'border-destructive/50 bg-destructive/5'
           : isWarning
@@ -42,36 +43,47 @@ export function TokenBudgetSummary({
       data-testid="token-budget-summary"
     >
       <button
-        className="flex w-full items-center justify-between text-left"
+        className="flex w-full items-center gap-3"
         onClick={() => setExpanded(!expanded)}
         type="button"
       >
-        <span className="font-medium text-sm">Token Budget</span>
-        <span className="text-muted-foreground text-sm">
+        <span className="shrink-0 font-medium text-sm">Token Budget</span>
+
+        {/* Inline Progress Bar */}
+        <div
+          className="h-2 flex-1 overflow-hidden rounded-full bg-muted"
+          data-testid="progress-bar-inline"
+        >
+          <div className="flex h-full">
+            <div
+              className="bg-primary transition-all"
+              data-testid="critical-segment"
+              style={{ width: `${Math.min(criticalPercent, 100)}%` }}
+            />
+            <div
+              className="bg-secondary transition-all"
+              data-testid="conditional-segment"
+              style={{ width: `${Math.min(conditionalPercent, 100 - criticalPercent)}%` }}
+            />
+          </div>
+        </div>
+
+        <span className="shrink-0 text-muted-foreground text-sm">
           {usedTokens.toLocaleString()} / {(totalBudget / 1000).toFixed(0)}K
-          <span className="ml-2">{usagePercent.toFixed(0)}%</span>
+          <span className="ml-1.5">({usagePercent.toFixed(0)}%)</span>
         </span>
+
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+            expanded && 'rotate-180'
+          )}
+        />
       </button>
 
-      {/* Progress Bar */}
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-muted">
-        <div className="flex h-full">
-          <div
-            className="bg-primary transition-all"
-            data-testid="critical-segment"
-            style={{ width: `${Math.min(criticalPercent, 100)}%` }}
-          />
-          <div
-            className="bg-secondary transition-all"
-            data-testid="conditional-segment"
-            style={{ width: `${Math.min(conditionalPercent, 100 - criticalPercent)}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Expanded Details */}
+      {/* Expanded Legend */}
       {expanded && (
-        <div className="mt-3 flex flex-wrap gap-4 text-xs">
+        <div className="mt-2 flex flex-wrap gap-4 border-border/50 border-t pt-2 text-xs">
           <div className="flex items-center gap-1.5">
             <span className="h-2 w-2 rounded-full bg-primary" />
             <span>Critical ({criticalTokens.toLocaleString()})</span>

@@ -36,6 +36,12 @@ describe('TokenBudgetSummary', () => {
       expect(criticalSegment).toBeInTheDocument();
       expect(conditionalSegment).toBeInTheDocument();
     });
+
+    it('displays budget info in single line when collapsed', () => {
+      render(<TokenBudgetSummary {...defaultProps} />);
+      expect(screen.getByText('Token Budget')).toBeInTheDocument();
+      expect(screen.getByTestId('progress-bar-inline')).toBeInTheDocument();
+    });
   });
 
   describe('expanded state', () => {

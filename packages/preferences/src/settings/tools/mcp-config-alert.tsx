@@ -6,7 +6,7 @@
  */
 
 import { Button } from '@brainstrike/ui';
-import { AlertTriangle, FileJson, FolderOpen, RotateCcw } from 'lucide-react';
+import { AlertTriangle, FileJson, FolderOpen, RotateCcw, X } from 'lucide-react';
 import type { McpConfigInfo } from './types';
 
 /**
@@ -21,6 +21,8 @@ export interface McpConfigAlertProps {
   onResetConfig: () => Promise<void>;
   /** Callback to create a sample config file */
   onCreateSample?: (() => Promise<void>) | undefined;
+  /** Callback when alert is dismissed */
+  onDismiss?: () => void;
 }
 
 /**
@@ -34,6 +36,7 @@ export function McpConfigAlert({
   onSelectConfig,
   onResetConfig,
   onCreateSample,
+  onDismiss,
 }: McpConfigAlertProps) {
   // Don't render if loading or config exists
   if (configInfo === null || configInfo.exists) {
@@ -42,63 +45,69 @@ export function McpConfigAlert({
 
   return (
     <div
-      className="rounded-lg border border-yellow-500/50 bg-yellow-500/5 p-4"
+      className="flex items-start gap-3 rounded-lg border border-yellow-500/50 bg-yellow-500/5 p-3"
       data-testid="mcp-config-alert"
     >
-      <div className="flex items-start gap-3">
-        <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-yellow-600 dark:text-yellow-500" />
-        <div className="min-w-0 flex-1">
-          <h4 className="font-medium text-sm text-yellow-800 dark:text-yellow-200">
-            MCP Configuration Missing
-          </h4>
-          <p className="mt-1 text-xs text-yellow-700 dark:text-yellow-300">
-            No MCP configuration file found. MCP tools will not be available until a valid config is
-            provided.
-          </p>
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-500" />
+
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+          MCP config not found
           {configInfo.path && (
-            <p className="mt-1.5 text-xs text-yellow-600 dark:text-yellow-400">
-              Expected at:{' '}
-              <code className="rounded bg-yellow-500/10 px-1 py-0.5 font-mono text-[10px]">
-                {configInfo.path}
-              </code>
-            </p>
+            <code className="ml-1.5 rounded bg-yellow-500/10 px-1 py-0.5 font-mono text-[11px]">
+              {configInfo.path}
+            </code>
           )}
-          <div className="mt-3 flex flex-wrap gap-2">
+        </p>
+
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button
+            className="h-7 gap-1.5 px-2.5 text-xs"
+            data-testid="select-config-btn"
+            onClick={onSelectConfig}
+            size="sm"
+            variant="outline"
+          >
+            <FolderOpen className="h-3 w-3" />
+            Select Config File
+          </Button>
+          <Button
+            className="h-7 gap-1.5 px-2.5 text-xs"
+            data-testid="reset-config-btn"
+            onClick={onResetConfig}
+            size="sm"
+            variant="ghost"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reset to Default
+          </Button>
+          {onCreateSample && (
             <Button
               className="h-7 gap-1.5 px-2.5 text-xs"
-              data-testid="select-config-btn"
-              onClick={onSelectConfig}
-              size="sm"
-              variant="outline"
-            >
-              <FolderOpen className="h-3 w-3" />
-              Select Config File
-            </Button>
-            <Button
-              className="h-7 gap-1.5 px-2.5 text-xs"
-              data-testid="reset-config-btn"
-              onClick={onResetConfig}
+              data-testid="create-sample-btn"
+              onClick={onCreateSample}
               size="sm"
               variant="ghost"
             >
-              <RotateCcw className="h-3 w-3" />
-              Reset to Default
+              <FileJson className="h-3 w-3" />
+              Create Sample Config
             </Button>
-            {onCreateSample && (
-              <Button
-                className="h-7 gap-1.5 px-2.5 text-xs"
-                data-testid="create-sample-btn"
-                onClick={onCreateSample}
-                size="sm"
-                variant="ghost"
-              >
-                <FileJson className="h-3 w-3" />
-                Create Sample Config
-              </Button>
-            )}
-          </div>
+          )}
         </div>
       </div>
+
+      {onDismiss && (
+        <Button
+          className="h-6 w-6 shrink-0 p-0"
+          data-testid="dismiss-alert"
+          onClick={onDismiss}
+          size="sm"
+          variant="ghost"
+        >
+          <X className="h-3.5 w-3.5" />
+          <span className="sr-only">Dismiss</span>
+        </Button>
+      )}
     </div>
   );
 }

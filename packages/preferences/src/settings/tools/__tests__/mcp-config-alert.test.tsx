@@ -50,8 +50,15 @@ describe('McpConfigAlert', () => {
     render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);
 
     expect(screen.getByTestId('mcp-config-alert')).toBeInTheDocument();
-    expect(screen.getByText('MCP Configuration Missing')).toBeInTheDocument();
-    expect(screen.getByText(/No MCP configuration file found/)).toBeInTheDocument();
+  });
+
+  it('renders path inline with message', () => {
+    const configInfo: McpConfigInfo = {
+      path: '/path/to/mcp.config.json',
+      exists: false,
+    };
+    render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);
+    expect(screen.getByText(/MCP config not found/)).toBeInTheDocument();
   });
 
   it('displays the expected path', () => {
@@ -146,5 +153,31 @@ describe('McpConfigAlert', () => {
 
     await user.click(screen.getByTestId('create-sample-btn'));
     expect(onCreateSample).toHaveBeenCalledOnce();
+  });
+
+  it('calls onDismiss when close button is clicked', async () => {
+    const user = userEvent.setup();
+    const onDismiss = vi.fn();
+    const configInfo: McpConfigInfo = {
+      path: '/path/to/mcp.config.json',
+      exists: false,
+    };
+
+    render(<McpConfigAlert {...defaultProps} configInfo={configInfo} onDismiss={onDismiss} />);
+
+    const closeButton = screen.getByTestId('dismiss-alert');
+    await user.click(closeButton);
+    expect(onDismiss).toHaveBeenCalled();
+  });
+
+  it('does not show dismiss button when onDismiss is not provided', () => {
+    const configInfo: McpConfigInfo = {
+      path: '/path/to/mcp.config.json',
+      exists: false,
+    };
+
+    render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);
+
+    expect(screen.queryByTestId('dismiss-alert')).not.toBeInTheDocument();
   });
 });

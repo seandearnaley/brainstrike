@@ -115,10 +115,21 @@ export function createToolsSettingsCategory(
 export type { ToolsSettingsOperations, ToolStats, ToolDisplayMetadata };
 export type { McpConfigAlertProps } from './mcp-config-alert';
 export { McpConfigAlert } from './mcp-config-alert';
-export { McpServerStatus } from './mcp-server-status';
 export { TokenBudgetSummary } from './token-budget-summary';
+/**
+ * Tool Card
+ *
+ * @deprecated Use ToolRow for dense display, ToolRowExpanded for details.
+ * This component will be removed in a future version.
+ */
 export { ToolCard } from './tool-card';
+export type { McpConnectionStatus, ToolGroupAccordionProps } from './tool-group-accordion';
+export { ToolGroupAccordion } from './tool-group-accordion';
 export { ToolPlayground } from './tool-playground';
+export type { ToolRowProps } from './tool-row';
+export { ToolRow } from './tool-row';
+export type { ToolRowExpandedProps } from './tool-row-expanded';
+export { ToolRowExpanded } from './tool-row-expanded';
 export { ToolsFilterBar } from './tools-filter-bar';
 export type {
   McpConfigInfo,

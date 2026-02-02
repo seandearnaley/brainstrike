@@ -2,6 +2,9 @@
  * Tool Card
  *
  * Individual tool display with expandable details and playground.
+ *
+ * @deprecated Use ToolRow for dense display, ToolRowExpanded for details.
+ * This component will be removed in a future version.
  */
 
 import { TOOL_CATEGORIES, TOOL_LOADING_TIERS } from '@brainstrike/agent/client';
