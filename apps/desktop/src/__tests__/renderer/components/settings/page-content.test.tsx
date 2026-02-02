@@ -2,7 +2,7 @@ import {
   __resetAssistantPreferencesStoreForTests,
   __resetNativeToolPreferencesStoreForTests,
 } from '@brainstrike/preferences';
-import { ThemeProvider } from '@brainstrike/ui';
+import { ThemeProvider, TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
@@ -121,7 +121,9 @@ describe('Desktop SettingsPageContent', () => {
   it('navigates to AI Tools and displays unified tools management', async () => {
     render(
       <ThemeProvider>
-        <SettingsPageContent />
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
       </ThemeProvider>
     );
 
@@ -138,7 +140,9 @@ describe('Desktop SettingsPageContent', () => {
   it('filters categories using the search box', async () => {
     render(
       <ThemeProvider>
-        <SettingsPageContent />
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
       </ThemeProvider>
     );
 
@@ -154,7 +158,9 @@ describe('Desktop SettingsPageContent', () => {
   it('shows Factory Reset category when searching for factory', async () => {
     render(
       <ThemeProvider>
-        <SettingsPageContent />
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
       </ThemeProvider>
     );
 
@@ -168,7 +174,9 @@ describe('Desktop SettingsPageContent', () => {
   it('renders LLM credentials form fields in Models & Providers', async () => {
     render(
       <ThemeProvider>
-        <SettingsPageContent />
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
       </ThemeProvider>
     );
 
