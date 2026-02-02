@@ -276,7 +276,10 @@
       "Bash(npx vitest:*)",
       "Bash(npx tsup:*)",
       "Bash(git merge:*)",
-      "WebFetch(domain:www.anthropic.com)"
+      "WebFetch(domain:www.anthropic.com)",
+      "Bash(git -C /Users/seandearnaley/Documents/GitHub/brainstrike diff --stat HEAD)",
+      "Bash(git -C /Users/seandearnaley/Documents/GitHub/brainstrike add:*)",
+      "Bash(git -C /Users/seandearnaley/Documents/GitHub/brainstrike commit -m \"$\\(cat <<''EOF''\nfeat\\(desktop\\): add native tool executor for playground\n\nImplements native tool execution for the Tool Playground. The executor\nsupports self-contained web tools \\(web.searchDocs, web.docSummary\\) that\ndon''t require database access.\n\n- Add isExecutableNativeTool\\(\\) to check if a tool can run natively\n- Add executeNativeTool\\(\\) to execute tools with proper input validation\n- Include documentation search with tokenization and ranking\n- Return structured results with success status, result/error, and duration\n- Follow TDD with comprehensive test coverage\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
     ],
     "deny": [],
     "ask": []
