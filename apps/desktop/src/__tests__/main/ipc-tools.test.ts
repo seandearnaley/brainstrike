@@ -8,6 +8,11 @@ vi.mock('electron', () => ({
   },
 }));
 
+// Mock @brainstrike/agent/client
+vi.mock('@brainstrike/agent/client', () => ({
+  isNativeTool: vi.fn(),
+}));
+
 // Mock native tool executor
 vi.mock('../../native-tool-executor', () => ({
   executeNativeTool: vi.fn(),
@@ -19,6 +24,7 @@ vi.mock('../../mcp', () => ({
   callTool: vi.fn(),
 }));
 
+import { isNativeTool } from '@brainstrike/agent/client';
 import { ipcMain } from 'electron';
 import { callTool } from '../../mcp';
 import { executeNativeTool, isExecutableNativeTool } from '../../native-tool-executor';
@@ -74,6 +80,7 @@ describe('ipc-tools', () => {
 
     it('executes MCP tools via callTool', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(false);
       vi.mocked(callTool).mockResolvedValue({ mcpResult: 'success' });
 
       const result = await toolsExecuteHandler(mockEvent, 'mcp__server__tool', { param: 'value' });
@@ -86,8 +93,26 @@ describe('ipc-tools', () => {
       });
     });
 
+    it('returns friendly error for native tools requiring database access', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(true);
+
+      const result = await toolsExecuteHandler(mockEvent, 'brainstrike.retrieveContext', {
+        query: 'test',
+      });
+
+      expect(isExecutableNativeTool).toHaveBeenCalledWith('brainstrike.retrieveContext');
+      expect(isNativeTool).toHaveBeenCalledWith('brainstrike.retrieveContext');
+      expect(callTool).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.stringContaining('requires database access'),
+      });
+    });
+
     it('handles MCP tool execution errors', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(false);
       vi.mocked(callTool).mockRejectedValue(new Error('MCP server disconnected'));
 
       const result = await toolsExecuteHandler(mockEvent, 'mcp__server__tool', {});
@@ -100,6 +125,7 @@ describe('ipc-tools', () => {
 
     it('includes durationMs in all responses', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(false);
       vi.mocked(callTool).mockResolvedValue({ data: 'test' });
 
       const result = (await toolsExecuteHandler(mockEvent, 'mcp__tool', {})) as {
@@ -124,6 +150,7 @@ describe('ipc-tools', () => {
 
     it('handles non-Error thrown values', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(false);
       vi.mocked(callTool).mockRejectedValue('string error');
 
       const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', {});
@@ -136,6 +163,7 @@ describe('ipc-tools', () => {
 
     it('passes input as-is to MCP callTool', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(false);
       vi.mocked(callTool).mockResolvedValue({});
 
       const complexInput = {

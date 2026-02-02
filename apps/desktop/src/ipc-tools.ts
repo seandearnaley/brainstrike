@@ -5,6 +5,7 @@
  * tool execution in the main process.
  */
 
+import { isNativeTool } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
@@ -40,12 +41,22 @@ export function registerToolsIpcHandlers(): void {
       logger.debug('Executing tool', { toolId });
 
       try {
-        // Check if it's an executable native tool
+        // Check if it's an executable native tool (web.searchDocs, web.docSummary)
         if (isExecutableNativeTool(toolId)) {
           return await executeNativeTool(toolId, input);
         }
 
-        // Try MCP tool execution
+        // Check if it's a native tool that requires database access (brainstrike.*)
+        // These can't be executed in the playground - they need the full runtime
+        if (isNativeTool(toolId)) {
+          return {
+            success: false,
+            error: `Tool "${toolId}" requires database access and cannot be tested in the playground. This tool works during actual assistant conversations.`,
+            durationMs: Math.round(performance.now() - startTime),
+          };
+        }
+
+        // Try MCP tool execution (for tools from MCP servers)
         const result = await callTool(toolId, input as Record<string, unknown>);
 
         return {
