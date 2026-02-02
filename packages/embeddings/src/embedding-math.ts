@@ -7,6 +7,7 @@ import type { SimilarityResult } from './types';
  * @param embedding2 - Array of numbers
  * @throws {Error} If embeddings have different dimensions or are empty.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: performance optimization
 export function calculateCosineSimilarity(
   embedding1: number[],
   embedding2: number[]
@@ -23,7 +24,38 @@ export function calculateCosineSimilarity(
   let norm1 = 0;
   let norm2 = 0;
 
-  for (let i = 0; i < len; i++) {
+  let i = 0;
+  // Unrolled loop (stride 4) for performance
+  const len4 = len - (len % 4);
+  for (; i < len4; i += 4) {
+    const v1 = embedding1[i];
+    const v2 = embedding2[i];
+    const v3 = embedding1[i + 1];
+    const v4 = embedding2[i + 1];
+    const v5 = embedding1[i + 2];
+    const v6 = embedding2[i + 2];
+    const v7 = embedding1[i + 3];
+    const v8 = embedding2[i + 3];
+
+    if (v1 === undefined || v2 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v3 === undefined || v4 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v5 === undefined || v6 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v7 === undefined || v8 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+
+    dotProduct += v1 * v2 + v3 * v4 + v5 * v6 + v7 * v8;
+    norm1 += v1 * v1 + v3 * v3 + v5 * v5 + v7 * v7;
+    norm2 += v2 * v2 + v4 * v4 + v6 * v6 + v8 * v8;
+  }
+
+  for (; i < len; i++) {
     const v1 = embedding1[i];
     const v2 = embedding2[i];
     if (v1 === undefined || v2 === undefined) {
@@ -69,7 +101,41 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
 
   let squaredDistance = 0;
 
-  for (let i = 0; i < len; i++) {
+  let i = 0;
+  // Unrolled loop (stride 4)
+  const len4 = len - (len % 4);
+  for (; i < len4; i += 4) {
+    const v1 = embedding1[i];
+    const v2 = embedding2[i];
+    const v3 = embedding1[i + 1];
+    const v4 = embedding2[i + 1];
+    const v5 = embedding1[i + 2];
+    const v6 = embedding2[i + 2];
+    const v7 = embedding1[i + 3];
+    const v8 = embedding2[i + 3];
+
+    if (v1 === undefined || v2 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v3 === undefined || v4 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v5 === undefined || v6 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v7 === undefined || v8 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+
+    const diff1 = v1 - v2;
+    const diff2 = v3 - v4;
+    const diff3 = v5 - v6;
+    const diff4 = v7 - v8;
+
+    squaredDistance += diff1 * diff1 + diff2 * diff2 + diff3 * diff3 + diff4 * diff4;
+  }
+
+  for (; i < len; i++) {
     const v1 = embedding1[i];
     const v2 = embedding2[i];
     if (v1 === undefined || v2 === undefined) {
@@ -107,7 +173,36 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
 
   let dotProduct = 0;
 
-  for (let i = 0; i < len; i++) {
+  let i = 0;
+  // Unrolled loop (stride 4)
+  const len4 = len - (len % 4);
+  for (; i < len4; i += 4) {
+    const v1 = embedding1[i];
+    const v2 = embedding2[i];
+    const v3 = embedding1[i + 1];
+    const v4 = embedding2[i + 1];
+    const v5 = embedding1[i + 2];
+    const v6 = embedding2[i + 2];
+    const v7 = embedding1[i + 3];
+    const v8 = embedding2[i + 3];
+
+    if (v1 === undefined || v2 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v3 === undefined || v4 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v5 === undefined || v6 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v7 === undefined || v8 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+
+    dotProduct += v1 * v2 + v3 * v4 + v5 * v6 + v7 * v8;
+  }
+
+  for (; i < len; i++) {
     const v1 = embedding1[i];
     const v2 = embedding2[i];
     if (v1 === undefined || v2 === undefined) {
