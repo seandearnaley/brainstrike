@@ -8,7 +8,6 @@ BrainStrike is a suite of tools for context management to be used with LLMs. It 
 
 Do not attempt to run dev unless instructed to do so.  The user usually runs this for you.
 
-We track work in Beads instead of Markdown for internal/local work but use atlassian BST tickets to track project work. Run `bd quickstart` to see how.
 
 ## Tools, Skills, Sub-Agents 
 
