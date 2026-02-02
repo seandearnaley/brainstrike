@@ -108,6 +108,11 @@ contextBridge.exposeInMainWorld('mcp', {
   getToolStats: () => ipcRenderer.invoke('mcp:tools:getStats'),
 });
 
+// Tool execution API (for playground testing)
+contextBridge.exposeInMainWorld('tools', {
+  execute: (toolId: string, input: unknown) => ipcRenderer.invoke('tools:execute', toolId, input),
+});
+
 // Assistant UI (data stream) endpoint helper
 contextBridge.exposeInMainWorld('assistant', {
   getUrl: () => ipcRenderer.invoke('assistant:get-url'),

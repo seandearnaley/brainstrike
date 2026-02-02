@@ -137,5 +137,16 @@ declare global {
         servers: number;
       }>;
     };
+    tools: {
+      execute: (
+        toolId: string,
+        input: unknown
+      ) => Promise<{
+        success: boolean;
+        result?: unknown;
+        error?: string;
+        durationMs: number;
+      }>;
+    };
   }
 }
