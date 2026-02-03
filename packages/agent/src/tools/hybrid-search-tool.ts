@@ -20,6 +20,9 @@ export const HYBRID_SEARCH_TOOL_ID = 'brainstrike.hybridSearch' as const;
 export const HYBRID_SEARCH_ERROR_MESSAGES = {
   missingEmbeddingSet: 'An embedding set ID is required for hybrid search.',
   embeddingSetNotFound: 'The specified embedding set was not found.',
+  unsupportedProvider:
+    'Local embedding models are not available in the assistant. Choose a hosted embedding set.',
+  missingApiKey: 'No API key configured for the embedding provider.',
   embeddingFailed: 'Failed to generate query embedding.',
   searchFailed: 'Hybrid search failed. Please try again.',
   invalidQuery: 'Search query must be at least 1 character.',

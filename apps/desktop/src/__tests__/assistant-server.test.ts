@@ -65,6 +65,10 @@ vi.mock('../assistant-server/retrieval-tool', () => ({
   buildAssistantTools: vi.fn((_runtime: unknown, base: unknown) => base),
 }));
 
+vi.mock('../assistant-server/assistant-tools', () => ({
+  buildDesktopAssistantTools: vi.fn(() => ({})),
+}));
+
 describe('assistant-server', () => {
   let server: { url: string; stop: () => Promise<void> } | undefined;
   interface RequestInput {

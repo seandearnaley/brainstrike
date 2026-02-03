@@ -12,7 +12,6 @@ import {
   isSupportedProvider,
   resolveDataStreamSession,
   toAiSdkStyleStream,
-  webTools,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import { createLogger } from '@brainstrike/utils';
@@ -35,6 +34,7 @@ interface AgentStreamFailure {
 }
 type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 
+import { buildDesktopAssistantTools } from './assistant-server/assistant-tools';
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import { buildAssistantTools } from './assistant-server/retrieval-tool';
 import { loadMcpConfig } from './mcp-loader';
@@ -354,7 +354,7 @@ async function initializeAgentStream(
   const runtime: RuntimeData = {
     ...runtimeData,
     mcpEnabled: true,
-    mastraTools: buildAssistantTools(runtimeData, webTools),
+    mastraTools: buildAssistantTools(runtimeData, buildDesktopAssistantTools(runtimeData)),
     signal, // ← AbortSignal passed here, used by stream iterator
     ...(mcpConfig ? { mcpConfig } : {}),
     ...(apiKey ? { apiKey } : {}),
