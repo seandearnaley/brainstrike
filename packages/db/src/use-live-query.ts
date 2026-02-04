@@ -233,14 +233,24 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const db = usePGliteDatabase();
   const source = useMemo(() => resolveLiveSource(db), [db]);
   const [rows, setRows] = useState<T[]>([]);
-  const [loading, setLoading] = useState<boolean>(Boolean(options.enabled ?? true));
+  const {
+    enabled: enabledOption,
+    key,
+    limit,
+    mode: modeOption,
+    offset,
+    params,
+    query,
+    select,
+  } = options;
+  const [loading, setLoading] = useState<boolean>(Boolean(enabledOption ?? true));
   const [error, setError] = useState<Error | null>(null);
   const refreshRef = useRef<() => Promise<void>>(noopAsync);
 
-  const mode: 'query' | 'incremental' = options.mode ?? 'query';
+  const mode: 'query' | 'incremental' = modeOption ?? 'query';
   const requiresKey = mode === 'incremental';
-  const hasKey = !requiresKey || typeof options.key === 'string';
-  const enabled = Boolean(options.enabled ?? true) && Boolean(source) && (!requiresKey || hasKey);
+  const hasKey = !requiresKey || typeof key === 'string';
+  const enabled = Boolean(enabledOption ?? true) && Boolean(source) && (!requiresKey || hasKey);
 
   // biome-ignore lint/plugin: Live query subscription management - async data with cleanup
   useEffect(() => {
@@ -262,19 +272,19 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
       if (cancelled) {
         return;
       }
-      setRows((options.select ? options.select(results.rows) : results.rows) as T[]);
+      setRows((select ? select(results.rows) : results.rows) as T[]);
     };
 
     setLoading(true);
     setError(null);
 
     const normalizedOptions: InternalLiveQueryOptions = {
-      query: options.query,
+      query,
       mode,
-      ...(options.params !== undefined ? { params: options.params } : {}),
-      ...(options.offset !== undefined ? { offset: options.offset } : {}),
-      ...(options.limit !== undefined ? { limit: options.limit } : {}),
-      ...(options.key ? { key: options.key } : {}),
+      ...(params !== undefined ? { params } : {}),
+      ...(offset !== undefined ? { offset } : {}),
+      ...(limit !== undefined ? { limit } : {}),
+      ...(key ? { key } : {}),
     };
 
     void subscribeToLiveSource<T>(source as LiveSource, normalizedOptions, handleUpdate)
@@ -287,11 +297,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
         refreshRef.current = async () => {
           await result.refresh();
         };
-        setRows(
-          (options.select
-            ? options.select(result.initialResults.rows)
-            : result.initialResults.rows) as T[]
-        );
+        setRows((select ? select(result.initialResults.rows) : result.initialResults.rows) as T[]);
         setLoading(false);
       })
       .catch((err) => {
@@ -312,17 +318,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
         void subscription.unsubscribe();
       }
     };
-  }, [
-    enabled,
-    mode,
-    options.key,
-    options.limit,
-    options.offset,
-    options.params,
-    options.query,
-    options.select,
-    source,
-  ]);
+  }, [enabled, mode, key, limit, offset, params, query, select, source]);
 
   const refresh = useCallback(async () => {
     await refreshRef.current();

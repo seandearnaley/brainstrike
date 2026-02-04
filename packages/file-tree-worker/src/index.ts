@@ -80,8 +80,8 @@ export function resolveFileTreeWorkerUrl(): URL {
   if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
     return new URL('./file-tree.worker.js', import.meta.url);
   }
-  if (typeof __dirname === 'string') {
-    return new URL('./file-tree.worker.js', `file://${__dirname}/`);
+  if (typeof import.meta.dirname === 'string') {
+    return new URL('./file-tree.worker.js', `file://${import.meta.dirname}/`);
   }
   throw new Error('Unable to resolve file tree worker URL in this runtime');
 }

@@ -45,21 +45,30 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@brainstrike/agent': resolve(__dirname, '../../packages/agent/src'),
-      '@brainstrike/agent/client': resolve(__dirname, '../../packages/agent/src/client.ts'),
-      '@brainstrike/types': resolve(__dirname, '../../packages/types/src'),
-      '@brainstrike/hooks': resolve(__dirname, '../../packages/hooks/src'),
-      '@brainstrike/ui': resolve(__dirname, '../../packages/ui/src'),
-      '@brainstrike/utils': resolve(__dirname, '../../packages/utils/src'),
-      '@brainstrike/file-explorer': resolve(__dirname, '../../packages/file-explorer/src'),
+      '@brainstrike/agent': resolve(import.meta.dirname, '../../packages/agent/src'),
+      '@brainstrike/agent/client': resolve(
+        import.meta.dirname,
+        '../../packages/agent/src/client.ts'
+      ),
+      '@brainstrike/types': resolve(import.meta.dirname, '../../packages/types/src'),
+      '@brainstrike/hooks': resolve(import.meta.dirname, '../../packages/hooks/src'),
+      '@brainstrike/ui': resolve(import.meta.dirname, '../../packages/ui/src'),
+      '@brainstrike/utils': resolve(import.meta.dirname, '../../packages/utils/src'),
+      '@brainstrike/file-explorer': resolve(
+        import.meta.dirname,
+        '../../packages/file-explorer/src'
+      ),
       '@brainstrike/file-explorer-hooks': resolve(
-        __dirname,
+        import.meta.dirname,
         '../../packages/file-explorer-hooks/src'
       ),
-      '@brainstrike/file-explorer-ui': resolve(__dirname, '../../packages/file-explorer-ui/src'),
-      '@brainstrike/workers': resolve(__dirname, '../../packages/workers'),
+      '@brainstrike/file-explorer-ui': resolve(
+        import.meta.dirname,
+        '../../packages/file-explorer-ui/src'
+      ),
+      '@brainstrike/workers': resolve(import.meta.dirname, '../../packages/workers'),
       '@brainstrike/workers/file-content-worker': resolve(
-        __dirname,
+        import.meta.dirname,
         '../../packages/workers/file-content-worker.ts'
       ),
     },

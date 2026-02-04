@@ -10,8 +10,8 @@ export function resolveTokenCacheWorkerUrl(): URL {
   if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
     return new URL('./token-cache.worker.js', import.meta.url);
   }
-  if (typeof __dirname === 'string') {
-    return new URL('./token-cache.worker.js', `file://${__dirname}/`);
+  if (typeof import.meta.dirname === 'string') {
+    return new URL('./token-cache.worker.js', `file://${import.meta.dirname}/`);
   }
   throw new Error('Unable to resolve token cache worker URL in this runtime');
 }
@@ -28,8 +28,8 @@ export function resolveBackgroundIndexerWorkerUrl(): URL {
   if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
     return new URL('./background-indexer.worker.js', import.meta.url);
   }
-  if (typeof __dirname === 'string') {
-    return new URL('./background-indexer.worker.js', `file://${__dirname}/`);
+  if (typeof import.meta.dirname === 'string') {
+    return new URL('./background-indexer.worker.js', `file://${import.meta.dirname}/`);
   }
   throw new Error('Unable to resolve background indexer worker URL in this runtime');
 }

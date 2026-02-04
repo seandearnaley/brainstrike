@@ -74,8 +74,8 @@ export function resolveChunkingWorkerUrl(): URL {
   if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
     return new URL('./chunking.worker.js', import.meta.url);
   }
-  if (typeof __dirname === 'string') {
-    return new URL('./chunking.worker.js', `file://${__dirname}/`);
+  if (typeof import.meta.dirname === 'string') {
+    return new URL('./chunking.worker.js', `file://${import.meta.dirname}/`);
   }
   throw new Error('Unable to resolve chunking worker URL in this runtime');
 }

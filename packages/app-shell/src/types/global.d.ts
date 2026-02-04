@@ -14,6 +14,19 @@ declare global {
       >;
       watch?: () => Promise<{ watching: boolean }>;
       unwatch?: () => Promise<{ watching: false }>;
+      listTools?: () => Promise<
+        Record<
+          string,
+          Array<{
+            id: string;
+            description?: string;
+            inputSchema?: unknown;
+            enabled: boolean;
+          }>
+        >
+      >;
+      enableTools?: (toolIds: string[]) => Promise<void>;
+      disableTools?: (toolIds: string[]) => Promise<void>;
     };
   }
 }

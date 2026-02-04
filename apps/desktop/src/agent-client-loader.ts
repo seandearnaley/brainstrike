@@ -126,10 +126,19 @@ function resolveAgentPackageRoot(): string | null {
 }
 
 function resolveWorkspaceDist(): string | null {
-  const fromSource = path.resolve(__dirname, '../../../packages/agent/dist/client.js');
-  if (existsSync(fromSource)) {
-    return fromSource;
+  const candidateRoots = [
+    process.cwd(),
+    path.resolve(process.cwd(), '..'),
+    path.resolve(process.cwd(), '../..'),
+  ];
+
+  for (const root of candidateRoots) {
+    const candidate = path.resolve(root, 'packages/agent/dist/client.js');
+    if (existsSync(candidate)) {
+      return candidate;
+    }
   }
+
   return null;
 }
 

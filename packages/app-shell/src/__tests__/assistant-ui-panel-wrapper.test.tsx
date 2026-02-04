@@ -97,9 +97,17 @@ vi.mock('@brainstrike/db', () => ({
 
 vi.mock('@brainstrike/file-explorer-ui', () => {
   const store = (
-    selector?: (state: { tokenBudget: number; currentFolderId: string | null }) => unknown
+    selector?: (state: {
+      tokenBudget: number;
+      currentFolderId: string | null;
+      setTokenBudget: (budget: number) => void;
+    }) => unknown
   ) => {
-    const state = { tokenBudget: 100_000, currentFolderId: 'test-folder' };
+    const state = {
+      tokenBudget: 100_000,
+      currentFolderId: 'test-folder',
+      setTokenBudget: vi.fn(),
+    };
     return selector ? selector(state) : state;
   };
   return {

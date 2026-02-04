@@ -9,6 +9,7 @@ import {
   getProviderDefinition,
   getProviderModelDefinitions,
   isSupportedProvider,
+  NATIVE_TOOL_DEFAULTS,
   type ProviderModelDefinition,
   type ProviderRuntime,
   type SupportedProvider,
@@ -20,12 +21,16 @@ import {
   useAssistantPreferencesStore,
   useEnsureModelRegistry,
   useModelRegistryStore,
+  useNativeToolPreferencesStore,
   useSecretsStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
 import {
+  type AssistantContextMenuConfig,
   type AssistantProviderSettings,
   type AssistantProviderSettingsUpdate,
+  type AssistantToolMenuConfig,
+  type AssistantToolMenuItem,
   AssistantUiPanel,
   type ModelPickerModel,
   type ModelPickerProvider,
@@ -33,6 +38,7 @@ import {
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection } from '@brainstrike/utils';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
+import { usePanelLayoutStore } from './stores/panel-layout-store';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -53,6 +59,34 @@ function resolveModelNameFromComposite(composite: string | null | undefined): st
   }
   const parts = composite.split('::');
   return parts.length === 2 ? parts[1] : composite;
+}
+
+function formatToolLabel(toolId: string): string {
+  const name = toolId.split('.').pop() ?? toolId;
+  const spaced = name
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[-_]/g, ' ')
+    .trim();
+  return spaced.replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function getToolDescription(toolId: string): string {
+  const descriptions: Record<string, string> = {
+    'brainstrike.retrieveContext': 'Retrieve relevant context from indexed documents',
+    'brainstrike.hybridSearch': 'Semantic + keyword search with RRF fusion',
+    'brainstrike.queueStatus': 'Check embedding queue health and coverage',
+    'brainstrike.packContext': 'Token-budgeted context formatting',
+    'brainstrike.listEmbeddingSets': 'List available embedding collections',
+    'brainstrike.createEmbeddingSet': 'Create a new embedding collection',
+    'brainstrike.createSelectionScope': 'Create scoped retrieval context',
+    'brainstrike.queryFileTree': 'Query directories and search files',
+    'brainstrike.importFiles': 'Batch document ingestion',
+    'brainstrike.systemDiagnostics': 'Database/queue/worker health diagnostics',
+    'brainstrike.reembedCollection': 'Trigger re-embedding for a collection',
+    'web.searchDocs': 'Search documentation',
+    'web.docSummary': 'Summarize documentation',
+  };
+  return descriptions[toolId] ?? `Tool: ${toolId}`;
 }
 
 function buildModelSettings(
@@ -182,6 +216,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     (state) => state.enabledModelsByProvider
   );
   const providerSettings = useAssistantPreferencesStore((state) => state.providerSettings);
+  const [nativeToolStates, setNativeToolEnabled] = useNativeToolPreferencesStore(
+    (state) => [state.toolStates, state.setToolEnabled] as const
+  );
 
   // Subscribe to secrets changes to re-check available providers when API keys change
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
@@ -194,6 +231,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
+  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
+  const [mcpTools, setMcpTools] = useState<AssistantToolMenuItem[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
 
   // Create a set of DB-enabled model IDs for quick lookup
   const registryEnabledModelIds = useMemo(() => {
@@ -255,7 +295,9 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   );
   const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const store = useFileExplorerStoreContext();
-  const [tokenBudget, currentFolderId] = store((s) => [s.tokenBudget, s.currentFolderId] as const);
+  const [tokenBudget, currentFolderId, setTokenBudget] = store(
+    (s) => [s.tokenBudget, s.currentFolderId, s.setTokenBudget] as const
+  );
   const handleSelectionLimitExceeded = useCallback(() => {}, []);
   const { effectiveSelection } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitExceeded,
@@ -286,6 +328,129 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       folderId: resolvedFolderId,
     };
   }, [effectiveSelection, currentFolderId]);
+
+  const nativeToolItems = useMemo<AssistantToolMenuItem[]>(() => {
+    return Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => ({
+      id: toolId,
+      label: formatToolLabel(toolId),
+      enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
+      source: 'native',
+      group: 'Native Tools',
+      description: getToolDescription(toolId),
+      category: metadata.category,
+    }));
+  }, [nativeToolStates]);
+
+  const loadMcpTools = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.mcp?.listTools) {
+      setMcpTools([]);
+      return;
+    }
+
+    setMcpLoading(true);
+    try {
+      const toolsByServer = await window.mcp.listTools();
+      const items: AssistantToolMenuItem[] = [];
+      for (const [serverName, serverTools] of Object.entries(toolsByServer)) {
+        for (const tool of serverTools) {
+          items.push({
+            id: tool.id,
+            label: formatToolLabel(tool.id),
+            enabled: tool.enabled,
+            source: 'mcp',
+            group: serverName,
+            description: tool.description ?? `MCP tool: ${tool.id}`,
+            category: 'action',
+          });
+        }
+      }
+      setMcpTools(items);
+    } catch {
+      setMcpTools([]);
+    } finally {
+      setMcpLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadMcpTools();
+  }, [loadMcpTools]);
+
+  const toolMenuItems = useMemo(
+    () => [...nativeToolItems, ...mcpTools],
+    [nativeToolItems, mcpTools]
+  );
+
+  const toolSourceById = useMemo(() => {
+    const entries = toolMenuItems.map((tool) => [tool.id, tool.source] as const);
+    return new Map(entries);
+  }, [toolMenuItems]);
+
+  const handleToggleTool = useCallback(
+    async (toolId: string, enabled: boolean) => {
+      const source = toolSourceById.get(toolId);
+      if (!source) {
+        return;
+      }
+      if (source === 'native') {
+        setNativeToolEnabled(toolId, enabled);
+        return;
+      }
+
+      if (enabled) {
+        await window.mcp?.enableTools?.([toolId]);
+      } else {
+        await window.mcp?.disableTools?.([toolId]);
+      }
+      await loadMcpTools();
+    },
+    [toolSourceById, setNativeToolEnabled, loadMcpTools]
+  );
+
+  const handleOpenToolSettings = useCallback(() => {
+    setActiveTab('settings');
+    if (typeof window !== 'undefined') {
+      window.location.hash = '#settings/ai-tools';
+    }
+  }, [setActiveTab]);
+
+  const canRefreshMcp =
+    typeof window !== 'undefined' && typeof window.mcp?.listTools === 'function';
+
+  const toolMenu = useMemo<AssistantToolMenuConfig>(() => {
+    const summary = toolMenuItems.length
+      ? `${toolMenuItems.filter((tool) => tool.enabled).length} of ${toolMenuItems.length} enabled`
+      : undefined;
+
+    return {
+      items: toolMenuItems,
+      isLoading: mcpLoading,
+      onToggleTool: handleToggleTool,
+      onOpenSettings: handleOpenToolSettings,
+      ...(summary ? { summary } : {}),
+      ...(canRefreshMcp ? { onRefresh: loadMcpTools } : {}),
+    };
+  }, [
+    canRefreshMcp,
+    handleOpenToolSettings,
+    handleToggleTool,
+    loadMcpTools,
+    mcpLoading,
+    toolMenuItems,
+  ]);
+
+  const selectionCount = selectionData.filePaths.length;
+  const contextMenu = useMemo<AssistantContextMenuConfig>(() => {
+    const selectionLabel = selectionCount > 0 ? `${selectionCount} files selected` : undefined;
+
+    return {
+      selectionCount,
+      onTokenBudgetChange: setTokenBudget,
+      ...(selectionLabel ? { selectionLabel } : {}),
+      ...(typeof activeEmbeddingSetId === 'string' ? { embeddingSetId: activeEmbeddingSetId } : {}),
+      ...(typeof tokenBudget === 'number' ? { tokenBudget } : {}),
+    };
+  }, [activeEmbeddingSetId, selectionCount, setTokenBudget, tokenBudget]);
 
   const requestData = useMemo(() => {
     const data: Record<string, unknown> = {};
@@ -575,12 +740,14 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   return (
     <AssistantUiPanel
+      contextMenu={contextMenu}
       onProviderSettingsChange={handleProviderSettingsChange}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       providerGroups={providerGroups}
       providerSettings={providerSettings}
       requestData={requestData}
+      toolMenu={toolMenu}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}
       disabled={!isProviderReady}
