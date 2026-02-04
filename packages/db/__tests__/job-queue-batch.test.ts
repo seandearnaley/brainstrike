@@ -143,6 +143,48 @@ describe('JobQueue Batch Operations', () => {
       expect(jobNew?.id).not.toBe(existing.id);
     });
 
+    it('does not update payload on deduplication', async () => {
+      const queue = new JobQueue(db);
+      const job1 = await queue.enqueue({
+        queue: 'q1',
+        jobType: 'embed_chunk',
+        payload: { v: 1 },
+        dedupeKey: 'k1',
+      });
+
+      const jobs = await queue.enqueueBatch([
+        {
+          queue: 'q1',
+          jobType: 'embed_chunk',
+          payload: { v: 2 },
+          dedupeKey: 'k1',
+        },
+      ]);
+
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0].id).toBe(job1.id);
+
+      const fetched = await queue.claim({ queue: 'q1', leaseMs: 1000 });
+      expect(fetched).not.toBeNull();
+      // Payload should remain { v: 1 } as per dedupe logic (only runAt/updatedAt updated)
+      expect(fetched?.payload).toEqual({ v: 1 });
+    });
+
+    it('handles multiple queues in one batch', async () => {
+      const queue = new JobQueue(db);
+      const jobs = await queue.enqueueBatch([
+        { queue: 'q1', jobType: 'embed_chunk', payload: { i: 1 } },
+        { queue: 'q2', jobType: 'embed_chunk', payload: { i: 2 } },
+      ]);
+
+      expect(jobs).toHaveLength(2);
+      const statsQ1 = await queue.getQueueStats('q1');
+      const statsQ2 = await queue.getQueueStats('q2');
+
+      expect(statsQ1[0].queued).toBe(1);
+      expect(statsQ2[0].queued).toBe(1);
+    });
+
     it('handles empty batch', async () => {
       const queue = new JobQueue(db);
       const jobs = await queue.enqueueBatch([]);
