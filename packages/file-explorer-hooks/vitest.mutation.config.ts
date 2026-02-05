@@ -18,9 +18,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@brainstrike/workers': path.resolve(__dirname, '../workers'),
+      '@brainstrike/workers': path.resolve(import.meta.dirname, '../workers'),
       '@brainstrike/workers/file-content-worker': path.resolve(
-        __dirname,
+        import.meta.dirname,
         '../workers/file-content-worker.ts'
       ),
     },

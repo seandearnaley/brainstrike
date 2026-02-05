@@ -23,11 +23,11 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@brainstrike/storage': path.resolve(__dirname, '../storage/src'),
-      '@brainstrike/file-system': path.resolve(__dirname, '../file-system/src'),
-      '@brainstrike/utils': path.resolve(__dirname, '../utils/src'),
-      '@brainstrike/types': path.resolve(__dirname, '../types/src'),
-      '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),
+      '@brainstrike/storage': path.resolve(import.meta.dirname, '../storage/src'),
+      '@brainstrike/file-system': path.resolve(import.meta.dirname, '../file-system/src'),
+      '@brainstrike/utils': path.resolve(import.meta.dirname, '../utils/src'),
+      '@brainstrike/types': path.resolve(import.meta.dirname, '../types/src'),
+      '@brainstrike/platform-utils': path.resolve(import.meta.dirname, '../platform-utils/src'),
     },
   },
 });

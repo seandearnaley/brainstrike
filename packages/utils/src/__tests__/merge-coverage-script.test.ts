@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-const scriptPath = path.resolve(__dirname, '../../../../scripts/merge-coverage.js');
+const scriptPath = path.resolve(import.meta.dirname, '../../../../scripts/merge-coverage.js');
 let tmpRoot: string;
 let outputDir: string;
 

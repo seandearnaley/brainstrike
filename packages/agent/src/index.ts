@@ -473,6 +473,56 @@ export {
   PROVIDER_MODELS,
   type SupportedProvider,
 } from './providers/types';
+// Unified tool registry and loading
+export {
+  // Token budget management
+  type BudgetAllocation,
+  type BudgetUtilizationReport,
+  COMMON_CONTEXT_WINDOWS,
+  compareByLoadPriority,
+  createBudgetManagerForTier,
+  createTokenBudgetManager,
+  createToolLoader,
+  createUnifiedToolRegistry,
+  DEFAULT_BUDGET_ALLOCATION,
+  DEFAULT_SELECTION_PRIORITY,
+  getCategoryInfo,
+  getNativeToolDefaults,
+  getTierInfo,
+  isNativeTool,
+  loadToolsForAgent,
+  type McpToolRegistrationOptions,
+  NATIVE_TOOL_DEFAULTS,
+  type NativeToolDefaultMetadata,
+  type NativeToolRegistrationOptions,
+  type OnDemandLoadOptions,
+  type OnDemandLoadResult,
+  TOOL_CATEGORIES,
+  TOOL_LOADING_TIERS,
+  TokenBudgetManager,
+  type TokenBudgetManagerOptions,
+  // Categories
+  type ToolCategory,
+  type ToolCategoryInfo,
+  type ToolFilterConfig,
+  ToolLoader,
+  type ToolLoadingOptions,
+  // Tool loader
+  type ToolLoadingResult,
+  type ToolLoadingTier,
+  type ToolLoadingTierInfo,
+  type ToolRegistryListener,
+  type ToolRegistryStats,
+  type ToolSelectionPriority,
+  type ToolSelectionResult,
+  type ToolSource,
+  type ToolsByCategory,
+  type ToolsBySource,
+  // Unified registry
+  type UnifiedToolMetadata,
+  UnifiedToolRegistry,
+  unifiedToolRegistry,
+} from './registry';
 export {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,
@@ -494,6 +544,86 @@ export {
   type ToolRegistry,
   type ToolRegistryEntry,
 } from './stream/tool-registry';
+// System diagnostics tool factory (Tier 3)
+export {
+  buildToolsWithDiagnostics,
+  type ComponentHealth,
+  createSystemDiagnosticsTool,
+  type DatabaseDiagnostics,
+  DIAGNOSTICS_ERROR_MESSAGES,
+  type DiagnosticsToolDependencies,
+  type HealthStatus,
+  type QueueDiagnostics,
+  SAFE_DIAGNOSTICS_ERRORS,
+  type StorageDiagnostics,
+  SYSTEM_DIAGNOSTICS_TOOL_ID,
+  type SystemDiagnosticsToolResult,
+  type WorkerDiagnostics,
+} from './tools/diagnostics-tool';
+// Shared docs search helpers
+export {
+  type DocSummaryResponse,
+  docSummaryExecute,
+  docSummaryInputSchema,
+  type SearchResponse,
+  searchDocsExecute,
+  searchDocsInputSchema,
+} from './tools/docs-search';
+// Embedding sets tool factory (Tier 2)
+export {
+  buildToolsWithEmbeddingSets,
+  CREATE_EMBEDDING_SET_TOOL_ID,
+  type CreateEmbeddingSetToolResult,
+  createCreateEmbeddingSetTool,
+  createListEmbeddingSetsTool,
+  EMBEDDING_SETS_ERROR_MESSAGES,
+  type EmbeddingSetCoverage,
+  type EmbeddingSetInfo as EmbeddingSetsToolInfo,
+  type EmbeddingSetsToolDependencies,
+  LIST_EMBEDDING_SETS_TOOL_ID,
+  type ListEmbeddingSetsToolResult,
+  SAFE_EMBEDDING_SETS_ERRORS,
+} from './tools/embedding-sets-tool';
+// File tree tool factory (Tier 2)
+export {
+  buildToolsWithFileTree,
+  createQueryFileTreeTool,
+  FILE_TREE_ERROR_MESSAGES,
+  type FileEntry,
+  type FileTreeToolDependencies,
+  QUERY_FILE_TREE_TOOL_ID,
+  type QueryFileTreeToolResult,
+  SAFE_FILE_TREE_ERRORS,
+} from './tools/file-tree-tool';
+// Hybrid search tool factory
+export {
+  buildToolsWithHybridSearch,
+  createHybridSearchTool,
+  HYBRID_SEARCH_ERROR_MESSAGES,
+  HYBRID_SEARCH_TOOL_ID,
+  type HybridSearchResultItem,
+  type HybridSearchServiceMetadata,
+  type HybridSearchServiceResult,
+  type HybridSearchToolDependencies,
+  type HybridSearchToolResult,
+  SAFE_HYBRID_SEARCH_ERRORS,
+  type SearchChunk,
+  type SearchFileRecord,
+} from './tools/hybrid-search-tool';
+// Queue status tool factory
+export {
+  buildToolsWithQueueStatus,
+  type CoverageStats,
+  createQueueStatusTool,
+  type LatencyStats as QueueLatencyStats,
+  QUEUE_STATUS_ERROR_MESSAGES,
+  QUEUE_STATUS_TOOL_ID,
+  type QueueCounts,
+  type QueueStatusToolDependencies,
+  type QueueStatusToolResult,
+  SAFE_QUEUE_STATUS_ERRORS,
+  type VectorQueueSnapshot,
+} from './tools/queue-status-tool';
 // Retrieval tool factory (BST-174)
 export {
   buildToolsWithRetrieval,
@@ -508,3 +638,20 @@ export {
   type RetrievalToolResult,
   SAFE_ERROR_MESSAGES,
 } from './tools/retrieval-tool';
+// Tool schemas
+export {
+  type CreateEmbeddingSetInput,
+  CreateEmbeddingSetInputSchema,
+  type HybridSearchInput,
+  HybridSearchInputSchema,
+  type ListEmbeddingSetsInput,
+  ListEmbeddingSetsInputSchema,
+  type QueryFileTreeInput,
+  QueryFileTreeInputSchema,
+  type QueueStatusInput,
+  QueueStatusInputSchema,
+  type ReembedCollectionInput,
+  ReembedCollectionInputSchema,
+  type SystemDiagnosticsInput,
+  SystemDiagnosticsInputSchema,
+} from './tools/schemas';
