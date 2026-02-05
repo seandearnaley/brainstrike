@@ -1,12 +1,39 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Hoist Electron and db mocks safely
-const { handlers, mockDb, getDatabaseMock, loggerWarn } = vi.hoisted(() => {
+const {
+  handlers,
+  mockDb,
+  getDatabaseMock,
+  loggerWarn,
+  isCorruptionErrorMock,
+  handleRuntimeCorruptionMock,
+  resetLocalDatabaseMock,
+} = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
-  const mockDb = { query: vi.fn(), exec: vi.fn(), transaction: vi.fn() };
+  const mockDb = {
+    query: vi.fn(),
+    exec: vi.fn(),
+    transaction: vi.fn(),
+    live: {
+      query: vi.fn(),
+      incrementalQuery: vi.fn(),
+    },
+  };
   const getDatabaseMock = vi.fn(() => mockDb);
   const loggerWarn = vi.fn();
-  return { handlers, mockDb, getDatabaseMock, loggerWarn };
+  const isCorruptionErrorMock = vi.fn(() => false);
+  const handleRuntimeCorruptionMock = vi.fn();
+  const resetLocalDatabaseMock = vi.fn();
+  return {
+    handlers,
+    mockDb,
+    getDatabaseMock,
+    loggerWarn,
+    isCorruptionErrorMock,
+    handleRuntimeCorruptionMock,
+    resetLocalDatabaseMock,
+  };
 });
 
 vi.mock('electron', async () => {
@@ -48,6 +75,9 @@ vi.mock('electron', async () => {
     app,
     BrowserWindow,
     session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    screen: {
+      getAllDisplays: vi.fn(() => [{ workArea: { x: 0, y: 0, width: 1536, height: 800 } }]),
+    },
     Menu: {
       setApplicationMenu: vi.fn(),
       buildFromTemplate: vi.fn(),
@@ -57,8 +87,9 @@ vi.mock('electron', async () => {
 
 vi.mock('../../db-main', () => ({
   getDatabase: getDatabaseMock,
-  isCorruptionError: vi.fn(() => false),
-  handleRuntimeCorruption: vi.fn(),
+  isCorruptionError: isCorruptionErrorMock,
+  handleRuntimeCorruption: handleRuntimeCorruptionMock,
+  resetLocalDatabase: resetLocalDatabaseMock,
 }));
 
 vi.mock('@brainstrike/utils', async (importOriginal) => {
@@ -148,6 +179,216 @@ describe('database IPC handlers', () => {
     mockDb.exec.mockRejectedValue(err);
 
     await expect(handler?.({} as unknown, 'BAD')).rejects.toThrow(err);
+  });
+
+  it('db:live-query:start subscribes and forwards updates', async () => {
+    const handler = handlers.get('db:live-query:start');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    let listener: ((results: unknown) => void) | null = null;
+    const liveHandle = {
+      initialResults: { rows: [{ id: 1 }] },
+      subscribe: vi.fn((cb: (results: unknown) => void) => {
+        listener = cb;
+      }),
+      unsubscribe: vi.fn(),
+      refresh: vi.fn(),
+    };
+    mockDb.live.query.mockResolvedValue(liveHandle);
+
+    const sender = {
+      id: 22,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn((_event: string, _cb: () => void) => {}),
+    };
+
+    const result = (await handler({ sender } as unknown, { query: 'select 1', params: [1] })) as {
+      id: number;
+      initialResults: unknown;
+    };
+
+    expect(mockDb.live.query).toHaveBeenCalledWith({
+      query: 'select 1',
+      params: [1],
+      offset: undefined,
+      limit: undefined,
+    });
+    expect(result.initialResults).toEqual({ rows: [{ id: 1 }] });
+
+    listener?.({ rows: [{ id: 2 }] });
+    expect(sender.send).toHaveBeenCalledWith('db:live-query:update', {
+      id: result.id,
+      results: { rows: [{ id: 2 }] },
+    });
+
+    const stopHandler = handlers.get('db:live-query:stop');
+    await stopHandler?.({} as unknown, result.id);
+    expect(liveHandle.unsubscribe).toHaveBeenCalled();
+  });
+
+  it('db:live-query:start supports incremental mode with key', async () => {
+    const handler = handlers.get('db:live-query:start');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const liveHandle = {
+      initialResults: { rows: [] },
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      refresh: vi.fn(),
+    };
+    mockDb.live.incrementalQuery.mockResolvedValue(liveHandle);
+
+    await handler(
+      { sender: { id: 1, isDestroyed: () => false, send: vi.fn(), once: vi.fn() } } as unknown,
+      { query: 'select *', key: 'id', mode: 'incremental', offset: 2, limit: 5 }
+    );
+
+    expect(mockDb.live.incrementalQuery).toHaveBeenCalledWith({
+      query: 'select *',
+      params: null,
+      key: 'id',
+      offset: 2,
+      limit: 5,
+    });
+  });
+
+  it('db:live-query:start throws when incremental key is missing', async () => {
+    const handler = handlers.get('db:live-query:start');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    await expect(
+      handler(
+        { sender: { id: 1, isDestroyed: () => false, send: vi.fn(), once: vi.fn() } } as unknown,
+        { query: 'select *', mode: 'incremental' }
+      )
+    ).rejects.toThrow('Live incremental queries require a key column');
+  });
+
+  it('db:live-query:refresh returns not found when subscription missing', async () => {
+    const handler = handlers.get('db:live-query:refresh');
+
+    const result = await handler?.({} as unknown, { id: 999 });
+
+    expect(result).toEqual({ success: false, message: 'Subscription not found' });
+  });
+
+  it('db:live-query:refresh handles corruption errors', async () => {
+    const startHandler = handlers.get('db:live-query:start');
+    const refreshHandler = handlers.get('db:live-query:refresh');
+    if (!(startHandler && refreshHandler)) {
+      throw new Error('handler not registered');
+    }
+
+    const liveHandle = {
+      initialResults: { rows: [] },
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      refresh: vi.fn(),
+    };
+    mockDb.live.query.mockResolvedValue(liveHandle);
+
+    const sender = {
+      id: 77,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn((_event: string, _cb: () => void) => {}),
+    };
+
+    const result = (await startHandler({ sender } as unknown, { query: 'select 1' })) as {
+      id: number;
+    };
+
+    const error = new Error('corrupted');
+    liveHandle.refresh.mockRejectedValue(error);
+    isCorruptionErrorMock.mockReturnValueOnce(true);
+
+    const refreshResult = await refreshHandler({} as unknown, { id: result.id });
+
+    expect(handleRuntimeCorruptionMock).toHaveBeenCalledWith('db:live-query:refresh');
+    expect(refreshResult).toEqual({
+      success: false,
+      message: 'Database was corrupted and has been reset. Please reload the application.',
+      corrupted: true,
+    });
+  });
+
+  it('db:live-query:refresh returns error message for non-corruption errors', async () => {
+    const startHandler = handlers.get('db:live-query:start');
+    const refreshHandler = handlers.get('db:live-query:refresh');
+    if (!(startHandler && refreshHandler)) {
+      throw new Error('handler not registered');
+    }
+
+    const liveHandle = {
+      initialResults: { rows: [] },
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      refresh: vi.fn(),
+    };
+    mockDb.live.query.mockResolvedValue(liveHandle);
+
+    const sender = {
+      id: 55,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn((_event: string, _cb: () => void) => {}),
+    };
+
+    const result = (await startHandler({ sender } as unknown, { query: 'select 1' })) as {
+      id: number;
+    };
+
+    liveHandle.refresh.mockRejectedValue(new Error('refresh failed'));
+    isCorruptionErrorMock.mockReturnValueOnce(false);
+
+    const refreshResult = await refreshHandler({} as unknown, { id: result.id, offset: 1 });
+
+    expect(refreshResult).toEqual({
+      success: false,
+      message: 'refresh failed',
+    });
+  });
+
+  it('db:resetLocal returns success and errors', async () => {
+    const handler = handlers.get('db:resetLocal');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    resetLocalDatabaseMock.mockResolvedValueOnce(undefined);
+    await expect(handler({} as unknown)).resolves.toEqual({ success: true });
+
+    resetLocalDatabaseMock.mockRejectedValueOnce(new Error('fail reset'));
+    await expect(handler({} as unknown)).resolves.toEqual({
+      success: false,
+      message: 'fail reset',
+    });
+  });
+
+  it('db:getUserDataPath returns expected paths', async () => {
+    const handler = handlers.get('db:getUserDataPath');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const originalEnv = process.env['NODE_ENV'];
+
+    process.env['NODE_ENV'] = 'test';
+    const testPath = await handler({} as unknown);
+    expect(String(testPath)).toContain('pgdata');
+
+    process.env['NODE_ENV'] = 'production';
+    const prodPath = await handler({} as unknown);
+    expect(String(prodPath)).toContain('BrainStrike');
+
+    process.env['NODE_ENV'] = originalEnv;
   });
 
   it('db:test success path', async () => {

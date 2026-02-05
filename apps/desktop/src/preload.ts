@@ -95,6 +95,7 @@ contextBridge.exposeInMainWorld('mcp', {
   getPath: () => ipcRenderer.invoke('mcp:config:getPath'),
   setPath: (configPath: string | null) => ipcRenderer.invoke('mcp:config:setPath', configPath),
   selectPath: () => ipcRenderer.invoke('mcp:config:selectPath'),
+  createSampleConfig: () => ipcRenderer.invoke('mcp:config:createSample'),
   // Tool management
   listTools: () => ipcRenderer.invoke('mcp:tools:list'),
   enableTools: (toolIds: string[]) => ipcRenderer.invoke('mcp:tools:enable', toolIds),
@@ -105,6 +106,11 @@ contextBridge.exposeInMainWorld('mcp', {
     ipcRenderer.invoke('mcp:tools:disableServer', serverName),
   resetTools: () => ipcRenderer.invoke('mcp:tools:reset'),
   getToolStats: () => ipcRenderer.invoke('mcp:tools:getStats'),
+});
+
+// Tool execution API (for playground testing)
+contextBridge.exposeInMainWorld('tools', {
+  execute: (toolId: string, input: unknown) => ipcRenderer.invoke('tools:execute', toolId, input),
 });
 
 // Assistant UI (data stream) endpoint helper

@@ -47,6 +47,13 @@ describe('embedding-math', () => {
       expect(() => fn(sparse, [1, 2, 3])).toThrow('Sparse arrays are not supported');
       expect(() => fn([1, 2, 3], sparse)).toThrow('Sparse arrays are not supported');
     });
+
+    it('throws on sparse arrays (unrolled loop path)', () => {
+      const sparse = [1, 2, 3, 4, undefined, 6, 7, 8] as number[];
+      const normal = [1, 2, 3, 4, 5, 6, 7, 8];
+      expect(() => fn(sparse, normal)).toThrow('Sparse arrays are not supported');
+      expect(() => fn(normal, sparse)).toThrow('Sparse arrays are not supported');
+    });
   });
 
   describe.each([
