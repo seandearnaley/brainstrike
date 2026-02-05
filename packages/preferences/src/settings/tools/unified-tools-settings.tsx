@@ -9,7 +9,7 @@
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/agent/client';
 import { usePGliteLiveQuery } from '@brainstrike/db';
 import { Accordion, Button, Card, CardContent, ErrorBoundary, ScrollArea } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { groupTools } from './group-tools';
 import { McpConfigAlert } from './mcp-config-alert';
 import { TokenBudgetSummary } from './token-budget-summary';
@@ -102,6 +102,7 @@ export function UnifiedToolsSettings({
   const [loadingState, setLoadingState] = useState(true);
   const [errorState, setErrorState] = useState<string | null>(null);
   const [errorBoundaryKey, setErrorBoundaryKey] = useState(0);
+  const lastMcpErrorRef = useRef<string | null>(null);
   const liveQueryConfig = operations.toolsLiveQuery;
   const liveQueryEnabled = Boolean(liveQueryConfig);
   const liveQuery = usePGliteLiveQuery<ToolDisplayMetadata>({
@@ -165,8 +166,15 @@ export function UnifiedToolsSettings({
         const configInfo = await operations.getMcpConfigInfo();
         setMcpConfigInfo(configInfo);
       }
+      if (lastMcpErrorRef.current) {
+        const previousError = lastMcpErrorRef.current;
+        lastMcpErrorRef.current = null;
+        setErrorState((current) => (current === previousError ? null : current));
+      }
     } catch (err) {
-      setErrorState(err instanceof Error ? err.message : 'Failed to load MCP tools');
+      const message = err instanceof Error ? err.message : 'Failed to load MCP tools';
+      lastMcpErrorRef.current = message;
+      setErrorState(message);
     }
   }, [operations, mcpAvailable]);
 

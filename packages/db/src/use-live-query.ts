@@ -255,9 +255,13 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const refreshRef = useRef<() => Promise<void>>(noopAsync);
   const unsubscribeRef = useRef<Promise<void> | null>(null);
   const selectRef = useRef(select);
+  const rawRowsRef = useRef<T[]>([]);
 
   useEffect(() => {
     selectRef.current = select;
+    const rawRows = rawRowsRef.current;
+    const selector = selectRef.current;
+    setRows((selector ? selector(rawRows) : rawRows) as T[]);
   }, [select]);
 
   const mode: 'query' | 'incremental' = modeOption ?? 'query';
@@ -290,6 +294,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
       if (cancelled) {
         return;
       }
+      rawRowsRef.current = results.rows;
       const selector = selectRef.current;
       setRows((selector ? selector(results.rows) : results.rows) as T[]);
     };
@@ -305,6 +310,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
       refreshRef.current = async () => {
         await result.refresh();
       };
+      rawRowsRef.current = result.initialResults.rows;
       const selector = selectRef.current;
       setRows(
         (selector ? selector(result.initialResults.rows) : result.initialResults.rows) as T[]
@@ -315,6 +321,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     const handleSubscriptionError = (err: unknown) => {
       const normalized = err instanceof Error ? err : new Error(String(err));
       setError(normalized);
+      rawRowsRef.current = [];
       setRows([]);
       setLoading(false);
       refreshRef.current = noopAsync;

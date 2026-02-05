@@ -105,6 +105,18 @@ function returnIfNotEmpty<T extends Record<string, unknown>>(options: T): T | un
   return Object.keys(options).length > 0 ? options : undefined;
 }
 
+function buildOptionalOptions<T extends Record<string, unknown>>(
+  entries: [keyof T, unknown][]
+): T | undefined {
+  const options = {} as T;
+  for (const [key, value] of entries) {
+    if (value !== undefined) {
+      options[key] = value as T[keyof T];
+    }
+  }
+  return returnIfNotEmpty(options);
+}
+
 function buildModelSettings(
   settings: AssistantProviderSettings | undefined
 ): RuntimeData['modelSettings'] | undefined {
@@ -132,46 +144,44 @@ function resolveGoogleThinkingLevel(
 function buildOpenAiOptions(
   settings: AssistantProviderSettings
 ): OpenAiProviderOptions | undefined {
-  const options: OpenAiProviderOptions = {};
-  if (settings.reasoningEffort) {
-    options['reasoningEffort'] = settings.reasoningEffort;
-  }
-  if (settings.reasoningSummary) {
-    options['reasoningSummary'] = settings.reasoningSummary;
-  }
-  return returnIfNotEmpty(options);
+  return buildOptionalOptions<OpenAiProviderOptions>([
+    ['reasoningEffort', settings.reasoningEffort || undefined],
+    ['reasoningSummary', settings.reasoningSummary || undefined],
+  ]);
 }
 
 function buildAnthropicOptions(
   settings: AssistantProviderSettings
 ): AnthropicProviderOptions | undefined {
-  const options: AnthropicProviderOptions = {};
-  if (settings.anthropicEffort) {
-    options['effort'] = settings.anthropicEffort;
-  }
-  if (typeof settings.anthropicThinkingBudgetTokens === 'number') {
-    options['thinking'] = {
-      type: 'enabled',
-      budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
-    };
-  }
-  return returnIfNotEmpty(options);
+  const thinking =
+    typeof settings.anthropicThinkingBudgetTokens === 'number'
+      ? {
+          type: 'enabled' as const,
+          budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
+        }
+      : undefined;
+  return buildOptionalOptions<AnthropicProviderOptions>([
+    ['effort', settings.anthropicEffort || undefined],
+    ['thinking', thinking],
+  ]);
 }
 
 function buildGoogleOptions(
   modelName: string | undefined,
   settings: AssistantProviderSettings
 ): GoogleProviderOptions | undefined {
-  const thinkingConfig: NonNullable<GoogleProviderOptions['thinkingConfig']> = {};
   const resolvedLevel = resolveGoogleThinkingLevel(modelName, settings.googleThinkingLevel);
-  if (resolvedLevel) {
-    thinkingConfig['thinkingLevel'] = resolvedLevel;
-  }
-  if (typeof settings.googleIncludeThoughts === 'boolean') {
-    thinkingConfig['includeThoughts'] = settings.googleIncludeThoughts;
-  }
-  const resolved = returnIfNotEmpty(thinkingConfig);
-  return resolved ? { thinkingConfig: resolved } : undefined;
+  const includeThoughts =
+    typeof settings.googleIncludeThoughts === 'boolean'
+      ? settings.googleIncludeThoughts
+      : undefined;
+  const thinkingConfig = buildOptionalOptions<NonNullable<GoogleProviderOptions['thinkingConfig']>>(
+    [
+      ['thinkingLevel', resolvedLevel],
+      ['includeThoughts', includeThoughts],
+    ]
+  );
+  return thinkingConfig ? { thinkingConfig } : undefined;
 }
 
 function buildProviderOptions(

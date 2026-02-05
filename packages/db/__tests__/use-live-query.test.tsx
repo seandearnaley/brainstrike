@@ -48,11 +48,15 @@ describe('usePGliteLiveQuery', () => {
     (window as typeof window & { electronAPI?: unknown }).electronAPI = undefined;
   });
 
-  it('does not resubscribe when select changes and uses the latest selector', async () => {
-    const selectInitial = vi.fn((rows: Array<{ id: number }>) => rows);
-    const selectUpdated = vi.fn((rows: Array<{ id: number }>) => rows);
+  it('does not resubscribe when select changes and reprocesses existing rows', async () => {
+    const selectInitial = vi.fn((rows: Array<{ id: number }>) =>
+      rows.map((row) => ({ ...row, label: 'initial' }))
+    );
+    const selectUpdated = vi.fn((rows: Array<{ id: number }>) =>
+      rows.map((row) => ({ ...row, label: 'updated' }))
+    );
 
-    const { rerender } = renderHook(
+    const { rerender, result } = renderHook(
       ({ select }) =>
         usePGliteLiveQuery({
           query: 'select * from files',
@@ -71,10 +75,18 @@ describe('usePGliteLiveQuery', () => {
       expect(selectInitial).toHaveBeenCalled();
     });
 
+    await waitFor(() => {
+      expect(result.current.rows).toEqual([{ id: 1, label: 'initial' }]);
+    });
+
     rerender({ select: selectUpdated });
 
     await waitFor(() => {
       expect(start).toHaveBeenCalledTimes(1);
+    });
+
+    await waitFor(() => {
+      expect(result.current.rows).toEqual([{ id: 1, label: 'updated' }]);
     });
 
     act(() => {

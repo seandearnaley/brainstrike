@@ -65,6 +65,7 @@ const { ToolGroupAccordionMock, renderToolGroupAccordion } = vi.hoisted(() => {
     onDisableAll,
     children,
     connectionStatus,
+    onRefreshConnection,
   }: {
     id: string;
     label: string;
@@ -74,6 +75,7 @@ const { ToolGroupAccordionMock, renderToolGroupAccordion } = vi.hoisted(() => {
     onDisableAll: () => void;
     children: React.ReactNode;
     connectionStatus?: string;
+    onRefreshConnection?: () => void;
   }) => (
     <div data-testid={`tool-group-${id}`}>
       <div data-testid={`group-header-${id}`}>
@@ -83,6 +85,15 @@ const { ToolGroupAccordionMock, renderToolGroupAccordion } = vi.hoisted(() => {
         </span>
         {connectionStatus && (
           <span data-testid={`connection-status-${id}`}>{connectionStatus}</span>
+        )}
+        {onRefreshConnection && (
+          <button
+            data-testid={`refresh-connection-${id}`}
+            onClick={onRefreshConnection}
+            type="button"
+          >
+            Refresh
+          </button>
         )}
         <button data-testid={`enable-all-${id}`} onClick={onEnableAll} type="button">
           Enable All
@@ -749,6 +760,35 @@ describe('UnifiedToolsSettings', () => {
 
       await waitFor(() => {
         expect(screen.getByTestId('connection-status-mcp-github')).toHaveTextContent('connected');
+      });
+    });
+
+    it('recovers after MCP status errors when refreshed', async () => {
+      const operations = createMockOperations();
+      operations.getMcpServerStatus = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('MCP down'))
+        .mockResolvedValueOnce([{ name: 'github', status: 'connected', toolCount: 1 }]);
+      operations.refreshMcpServers = vi.fn().mockResolvedValue(undefined);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('MCP down')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('refresh-connection-mcp-github'));
+
+      await waitFor(() => {
+        expect(operations.refreshMcpServers).toHaveBeenCalled();
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('connection-status-mcp-github')).toHaveTextContent('connected');
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByText('MCP down')).not.toBeInTheDocument();
       });
     });
   });
