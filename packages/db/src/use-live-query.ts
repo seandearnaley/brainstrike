@@ -246,6 +246,11 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const [loading, setLoading] = useState<boolean>(Boolean(enabledOption ?? true));
   const [error, setError] = useState<Error | null>(null);
   const refreshRef = useRef<() => Promise<void>>(noopAsync);
+  const selectRef = useRef(select);
+
+  useEffect(() => {
+    selectRef.current = select;
+  }, [select]);
 
   const mode: 'query' | 'incremental' = modeOption ?? 'query';
   const requiresKey = mode === 'incremental';
@@ -272,7 +277,8 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
       if (cancelled) {
         return;
       }
-      setRows((select ? select(results.rows) : results.rows) as T[]);
+      const selector = selectRef.current;
+      setRows((selector ? selector(results.rows) : results.rows) as T[]);
     };
 
     setLoading(true);
@@ -297,7 +303,10 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
         refreshRef.current = async () => {
           await result.refresh();
         };
-        setRows((select ? select(result.initialResults.rows) : result.initialResults.rows) as T[]);
+        const selector = selectRef.current;
+        setRows(
+          (selector ? selector(result.initialResults.rows) : result.initialResults.rows) as T[]
+        );
         setLoading(false);
       })
       .catch((err) => {
@@ -318,7 +327,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
         void subscription.unsubscribe();
       }
     };
-  }, [enabled, mode, key, limit, offset, params, query, select, source]);
+  }, [enabled, mode, key, limit, offset, params, query, source]);
 
   const refresh = useCallback(async () => {
     await refreshRef.current();

@@ -68,6 +68,42 @@ describe('native-tool-executor', () => {
       expect(result.error).toBeDefined();
     });
 
+    it('trims search queries before execution', async () => {
+      const { executeNativeTool } = await import('../../native-tool-executor');
+      const result = await executeNativeTool('web.searchDocs', {
+        query: '  assistant  ',
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) {
+        return;
+      }
+      expect((result.result as { query: string }).query).toBe('assistant');
+    });
+
+    it('defaults the search limit when omitted', async () => {
+      const { executeNativeTool } = await import('../../native-tool-executor');
+      const result = await executeNativeTool('web.searchDocs', {
+        query: 'assistant',
+      });
+
+      expect(result.success).toBe(true);
+      if (!result.success) {
+        return;
+      }
+      expect((result.result as { limit: number }).limit).toBe(5);
+    });
+
+    it('rejects null bytes in search queries', async () => {
+      const { executeNativeTool } = await import('../../native-tool-executor');
+      const result = await executeNativeTool('web.searchDocs', {
+        query: 'assist\0ant',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('null bytes');
+    });
+
     it('returns error for doc not found', async () => {
       const { executeNativeTool } = await import('../../native-tool-executor');
       const result = await executeNativeTool('web.docSummary', {

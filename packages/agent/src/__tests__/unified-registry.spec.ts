@@ -415,6 +415,24 @@ describe('UnifiedToolRegistry', () => {
       registry.registerNativeTool({ id: 'test2', description: 'Test 2' });
       expect(listener).toHaveBeenCalledTimes(1); // No new calls
     });
+
+    it('removes listeners after repeated failures', () => {
+      const failingListener = vi.fn(() => {
+        throw new Error('Listener failed');
+      });
+      const healthyListener = vi.fn();
+
+      registry.subscribe(failingListener);
+      registry.subscribe(healthyListener);
+
+      registry.registerNativeTool({ id: 't1', description: 'T1' });
+      registry.registerNativeTool({ id: 't2', description: 'T2' });
+      registry.registerNativeTool({ id: 't3', description: 'T3' });
+      registry.registerNativeTool({ id: 't4', description: 'T4' });
+
+      expect(failingListener).toHaveBeenCalledTimes(3);
+      expect(healthyListener).toHaveBeenCalledTimes(4);
+    });
   });
 
   describe('exportState / importState', () => {

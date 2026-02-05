@@ -67,7 +67,10 @@ interface DocSummaryResponse {
 
 const DEFAULT_SEARCH_LIMIT = 5;
 
-/** Set of tool IDs that can be executed natively (without database access) */
+/**
+ * Set of tool IDs that can be executed natively (without database access).
+ * These tools are self-contained, deterministic, and safe to run in the renderer.
+ */
 const EXECUTABLE_NATIVE_TOOLS = new Set(['web.searchDocs', 'web.docSummary']);
 
 /** Documentation index for search */
@@ -149,8 +152,14 @@ const DOCS_INDEX: readonly WebDocEntry[] = [
 // ============================================================================
 
 const searchDocsInputSchema = z.object({
-  query: z.string().min(2).max(200),
-  limit: z.number().int().positive().max(10).optional(),
+  query: z
+    .string()
+    .min(2, 'Query must be at least 2 characters')
+    .max(200, 'Query must be at most 200 characters')
+    .transform((value) => value.trim())
+    .refine((value) => !value.includes('\0'), 'Query cannot contain null bytes')
+    .refine((value) => value.length >= 2, 'Query must be at least 2 characters'),
+  limit: z.number().int().positive().max(10).default(DEFAULT_SEARCH_LIMIT),
 });
 
 const docSummaryInputSchema = z.object({
@@ -251,8 +260,8 @@ function tokenizeQuery(query: string): string[] {
 async function searchDocsExecute(
   input: z.infer<typeof searchDocsInputSchema>
 ): Promise<SearchResponse> {
-  const query = (input.query ?? '').trim();
-  const limit = input.limit ?? DEFAULT_SEARCH_LIMIT;
+  const query = input.query;
+  const limit = input.limit;
   const startedAt = Date.now();
 
   const queryTokens = tokenizeQuery(query);

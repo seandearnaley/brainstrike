@@ -50,8 +50,8 @@ vi.mock('../tools-filter-bar', () => ({
   ),
 }));
 
-vi.mock('../tool-group-accordion', () => ({
-  ToolGroupAccordion: ({
+const { ToolGroupAccordionMock, renderToolGroupAccordion } = vi.hoisted(() => {
+  const renderToolGroupAccordion = ({
     id,
     label,
     enabledCount,
@@ -88,7 +88,16 @@ vi.mock('../tool-group-accordion', () => ({
       </div>
       <div data-testid={`group-content-${id}`}>{children}</div>
     </div>
-  ),
+  );
+
+  return {
+    ToolGroupAccordionMock: vi.fn(renderToolGroupAccordion),
+    renderToolGroupAccordion,
+  };
+});
+
+vi.mock('../tool-group-accordion', () => ({
+  ToolGroupAccordion: ToolGroupAccordionMock,
 }));
 
 vi.mock('../tool-row', () => ({
@@ -127,25 +136,45 @@ vi.mock('../tool-row-expanded', () => ({
   ),
 }));
 
-// Mock @brainstrike/ui
-vi.mock('@brainstrike/ui', () => ({
-  Accordion: ({
-    children,
-    type,
-    defaultValue,
-  }: {
-    children: React.ReactNode;
-    type?: string;
-    defaultValue?: string[];
-  }) => (
-    <div data-default-value={defaultValue?.join(',')} data-testid="accordion" data-type={type}>
-      {children}
-    </div>
-  ),
-  ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  Card: ({ children }: { children: React.ReactNode }) => <div data-testid="card">{children}</div>,
-  CardContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+interface CardMockProps extends React.HTMLAttributes<HTMLDivElement> {
+  children: React.ReactNode;
+  'data-testid'?: string;
+}
+
+interface CardContentMockProps extends React.HTMLAttributes<HTMLDivElement> {
+  children: React.ReactNode;
+}
+
+// Mock @brainstrike/ui (override layout components, keep ErrorBoundary/Button)
+vi.mock('@brainstrike/ui', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/ui')>('@brainstrike/ui');
+  return {
+    ...actual,
+    Accordion: ({
+      children,
+      type,
+      defaultValue,
+    }: {
+      children: React.ReactNode;
+      type?: string;
+      defaultValue?: string[];
+    }) => (
+      <div data-default-value={defaultValue?.join(',')} data-testid="accordion" data-type={type}>
+        {children}
+      </div>
+    ),
+    ScrollArea: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    Card: ({ children, 'data-testid': dataTestId, ...rest }: CardMockProps) => {
+      const testId = dataTestId ?? 'card';
+      return (
+        <div {...rest} data-testid={testId}>
+          {children}
+        </div>
+      );
+    },
+    CardContent: ({ children, ...rest }: CardContentMockProps) => <div {...rest}>{children}</div>,
+  };
+});
 
 describe('UnifiedToolsSettings', () => {
   const mockTools: ToolDisplayMetadata[] = [
@@ -253,6 +282,26 @@ describe('UnifiedToolsSettings', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Network error')).toBeInTheDocument();
+      });
+    });
+
+    it('shows an error fallback when a tool group crashes and retries on demand', async () => {
+      const operations = createMockOperations();
+      ToolGroupAccordionMock.mockImplementation(() => {
+        throw new Error('Crash in tool group');
+      });
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('tools-error-fallback')).toBeInTheDocument();
+      });
+
+      ToolGroupAccordionMock.mockImplementation(renderToolGroupAccordion);
+      fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+
+      await waitFor(() => {
+        expect(operations.getTools).toHaveBeenCalledTimes(2);
       });
     });
   });

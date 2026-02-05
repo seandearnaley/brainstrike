@@ -7,8 +7,10 @@
  */
 
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/agent/client';
-import { Accordion, Card, CardContent, ScrollArea } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Accordion, Button, Card, CardContent, ErrorBoundary, ScrollArea } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { groupTools } from './group-tools';
 import { McpConfigAlert } from './mcp-config-alert';
 import { TokenBudgetSummary } from './token-budget-summary';
 import type { McpConnectionStatus } from './tool-group-accordion';
@@ -25,46 +27,24 @@ import type {
   UnifiedToolsSettingsProps,
 } from './types';
 
-/**
- * Group tools by source and server.
- */
-function groupTools(tools: ToolDisplayMetadata[]): ToolGroup[] {
-  const groups: ToolGroup[] = [];
+const logger = createLogger('UnifiedToolsSettings');
 
-  // Native tools group
-  const nativeTools = tools.filter((t) => t.source === 'native');
-  if (nativeTools.length > 0) {
-    groups.push({
-      id: 'native',
-      label: 'Native Tools',
-      source: 'native',
-      tools: nativeTools,
-      enabledCount: nativeTools.filter((t) => t.enabled).length,
-    });
-  }
+interface ToolsErrorFallbackProps {
+  onRetry: () => void;
+}
 
-  // MCP tools grouped by server
-  const mcpTools = tools.filter((t) => t.source === 'mcp');
-  const byServer = new Map<string, ToolDisplayMetadata[]>();
-  for (const tool of mcpTools) {
-    const server = tool.serverName ?? 'unknown';
-    const existing = byServer.get(server) ?? [];
-    existing.push(tool);
-    byServer.set(server, existing);
-  }
-
-  for (const [serverName, serverTools] of byServer) {
-    groups.push({
-      id: `mcp-${serverName}`,
-      label: serverName,
-      source: 'mcp',
-      serverName,
-      tools: serverTools,
-      enabledCount: serverTools.filter((t) => t.enabled).length,
-    });
-  }
-
-  return groups;
+function ToolsErrorFallback({ onRetry }: ToolsErrorFallbackProps) {
+  return (
+    <Card data-testid="tools-error-fallback">
+      <CardContent className="space-y-3 p-4 text-muted-foreground text-sm">
+        <div className="font-medium text-foreground">Something went wrong loading tools.</div>
+        <div>Retry to reload tool metadata and MCP status.</div>
+        <Button onClick={onRetry} size="sm" variant="outline">
+          Retry
+        </Button>
+      </CardContent>
+    </Card>
+  );
 }
 
 /**
@@ -89,6 +69,10 @@ export function UnifiedToolsSettings({
   const [mcpConfigInfo, setMcpConfigInfo] = useState<McpConfigInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorBoundaryKey, setErrorBoundaryKey] = useState(0);
+  const serverStatusRef = useRef<
+    Map<string, { status: McpConnectionStatus; error: string | null }>
+  >(new Map());
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -129,6 +113,11 @@ export function UnifiedToolsSettings({
   }, [operations, mcpAvailable]);
 
   useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  const handleErrorBoundaryReset = useCallback(() => {
+    setErrorBoundaryKey((prev) => prev + 1);
     void loadData();
   }, [loadData]);
 
@@ -218,59 +207,89 @@ export function UnifiedToolsSettings({
     setConfigAlertDismissed(true);
   }, []);
 
+  const serverStatusMap = useMemo(() => {
+    const statusMap = new Map<string, { status: McpConnectionStatus; error: string | null }>();
+    for (const server of mcpServers) {
+      let status: McpConnectionStatus = 'disconnected';
+      if (server.status === 'connected') {
+        status = 'connected';
+      } else if (server.status === 'error') {
+        status = 'error';
+      }
+      statusMap.set(server.name, { status, error: server.error ?? null });
+    }
+    return statusMap;
+  }, [mcpServers]);
+
+  // biome-ignore lint/plugin: Status change logging with refs is intentional and not data fetching.
+  useEffect(() => {
+    const previousStatuses = serverStatusRef.current;
+    for (const [serverName, nextStatus] of serverStatusMap) {
+      const previous = previousStatuses.get(serverName);
+      if (
+        !previous ||
+        previous.status !== nextStatus.status ||
+        previous.error !== nextStatus.error
+      ) {
+        logger.info('MCP server status updated', {
+          serverName,
+          status: nextStatus.status,
+          error: nextStatus.error ?? undefined,
+        });
+      }
+    }
+
+    for (const serverName of previousStatuses.keys()) {
+      if (!serverStatusMap.has(serverName)) {
+        logger.info('MCP server removed', { serverName });
+      }
+    }
+
+    serverStatusRef.current = new Map(serverStatusMap);
+  }, [serverStatusMap]);
+
   // Get MCP server status for a given server name
   const getServerStatus = useCallback(
     (serverName: string): McpConnectionStatus => {
-      const server = mcpServers.find((s) => s.name === serverName);
-      if (!server) {
-        return 'disconnected';
-      }
-      // Map McpServerInfo status to McpConnectionStatus
-      if (server.status === 'connected') {
-        return 'connected';
-      }
-      if (server.status === 'error') {
-        return 'error';
-      }
-      return 'disconnected';
+      return serverStatusMap.get(serverName)?.status ?? 'disconnected';
     },
-    [mcpServers]
+    [serverStatusMap]
   );
 
   const getServerError = useCallback(
     (serverName: string): string | undefined => {
-      const server = mcpServers.find((s) => s.name === serverName);
-      return server?.error;
+      return serverStatusMap.get(serverName)?.error ?? undefined;
     },
-    [mcpServers]
+    [serverStatusMap]
   );
 
   // Filter tools
   const filteredTools = useMemo(() => {
-    return tools.filter((tool) => {
-      // Search filter
-      if (searchQuery) {
-        const query = searchQuery.toLowerCase();
-        const matches =
-          tool.id.toLowerCase().includes(query) ||
-          tool.description.toLowerCase().includes(query) ||
-          tool.serverName?.toLowerCase().includes(query);
-        if (!matches) {
-          return false;
-        }
-      }
+    const queryLower = searchQuery.trim().toLowerCase();
+    const hasQuery = queryLower.length > 0;
 
-      // Category filter
+    return tools.filter((tool) => {
       if (categoryFilter !== 'all' && tool.category !== categoryFilter) {
         return false;
       }
 
-      // Tier filter
       if (tierFilter !== 'all' && tool.loadingTier !== tierFilter) {
         return false;
       }
 
-      return true;
+      if (!hasQuery) {
+        return true;
+      }
+
+      const idLower = tool.id.toLowerCase();
+      const descriptionLower = tool.description.toLowerCase();
+      const serverLower = tool.serverName?.toLowerCase() ?? '';
+
+      return (
+        idLower.includes(queryLower) ||
+        descriptionLower.includes(queryLower) ||
+        serverLower.includes(queryLower)
+      );
     });
   }, [tools, searchQuery, categoryFilter, tierFilter]);
 
@@ -367,71 +386,77 @@ export function UnifiedToolsSettings({
 
       {/* Tool Groups - Accordion Layout */}
       {!loading && hasTools && (
-        <ScrollArea className="max-h-[600px]">
-          <Accordion defaultValue={defaultExpandedGroups} type="multiple">
-            {toolGroups.map((group) => {
-              const connectionStatus =
-                group.source === 'mcp' && group.serverName
-                  ? getServerStatus(group.serverName)
-                  : undefined;
-              const errorMessage =
-                group.source === 'mcp' && group.serverName
-                  ? getServerError(group.serverName)
-                  : undefined;
-              const onOpenConfigFile =
-                group.source === 'mcp' && operations.openMcpConfig
-                  ? () => operations.openMcpConfig?.()
-                  : undefined;
-              const onRefreshConnection =
-                group.source === 'mcp' && operations.refreshMcpServers
-                  ? handleRefreshMcp
-                  : undefined;
+        <ErrorBoundary
+          fallback={<ToolsErrorFallback onRetry={handleErrorBoundaryReset} />}
+          key={errorBoundaryKey}
+          onReset={handleErrorBoundaryReset}
+        >
+          <ScrollArea className="max-h-[600px]">
+            <Accordion defaultValue={defaultExpandedGroups} type="multiple">
+              {toolGroups.map((group) => {
+                const connectionStatus =
+                  group.source === 'mcp' && group.serverName
+                    ? getServerStatus(group.serverName)
+                    : undefined;
+                const errorMessage =
+                  group.source === 'mcp' && group.serverName
+                    ? getServerError(group.serverName)
+                    : undefined;
+                const onOpenConfigFile =
+                  group.source === 'mcp' && operations.openMcpConfig
+                    ? () => operations.openMcpConfig?.()
+                    : undefined;
+                const onRefreshConnection =
+                  group.source === 'mcp' && operations.refreshMcpServers
+                    ? handleRefreshMcp
+                    : undefined;
 
-              return (
-                <ToolGroupAccordion
-                  description={
-                    group.source === 'native'
-                      ? 'Built-in BrainStrike tools'
-                      : `MCP server: ${group.serverName}`
-                  }
-                  enabledCount={group.enabledCount}
-                  id={group.id}
-                  key={group.id}
-                  label={group.label}
-                  onDisableAll={() => handleDisableGroup(group)}
-                  onEnableAll={() => handleEnableGroup(group)}
-                  source={group.source}
-                  totalCount={group.tools.length}
-                  {...(connectionStatus !== undefined && { connectionStatus })}
-                  {...(errorMessage !== undefined && { errorMessage })}
-                  {...(onOpenConfigFile !== undefined && { onOpenConfigFile })}
-                  {...(onRefreshConnection !== undefined && { onRefreshConnection })}
-                >
-                  <div className="space-y-1">
-                    {group.tools.map((tool) => (
-                      <div key={tool.id}>
-                        <ToolRow
-                          expanded={expandedToolId === tool.id}
-                          onExpand={handleExpandTool}
-                          onToggle={handleToggleTool}
-                          tool={tool}
-                        />
-                        {expandedToolId === tool.id && (
-                          <ToolRowExpanded
+                return (
+                  <ToolGroupAccordion
+                    description={
+                      group.source === 'native'
+                        ? 'Built-in BrainStrike tools'
+                        : `MCP server: ${group.serverName}`
+                    }
+                    enabledCount={group.enabledCount}
+                    id={group.id}
+                    key={group.id}
+                    label={group.label}
+                    onDisableAll={() => handleDisableGroup(group)}
+                    onEnableAll={() => handleEnableGroup(group)}
+                    source={group.source}
+                    totalCount={group.tools.length}
+                    {...(connectionStatus !== undefined && { connectionStatus })}
+                    {...(errorMessage !== undefined && { errorMessage })}
+                    {...(onOpenConfigFile !== undefined && { onOpenConfigFile })}
+                    {...(onRefreshConnection !== undefined && { onRefreshConnection })}
+                  >
+                    <div className="space-y-1">
+                      {group.tools.map((tool) => (
+                        <div key={tool.id}>
+                          <ToolRow
+                            expanded={expandedToolId === tool.id}
+                            onExpand={handleExpandTool}
+                            onToggle={handleToggleTool}
                             tool={tool}
-                            {...(operations.executeToolTest !== undefined && {
-                              onExecuteTest: operations.executeToolTest,
-                            })}
                           />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </ToolGroupAccordion>
-              );
-            })}
-          </Accordion>
-        </ScrollArea>
+                          {expandedToolId === tool.id && (
+                            <ToolRowExpanded
+                              tool={tool}
+                              {...(operations.executeToolTest !== undefined && {
+                                onExecuteTest: operations.executeToolTest,
+                              })}
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </ToolGroupAccordion>
+                );
+              })}
+            </Accordion>
+          </ScrollArea>
+        </ErrorBoundary>
       )}
     </div>
   );

@@ -159,6 +159,8 @@ export class UnifiedToolRegistry {
   private readonly tools: Map<string, UnifiedToolMetadata> = new Map();
   private readonly toolsByServer: Map<string, Set<string>> = new Map();
   private readonly listeners: ToolRegistryListener[] = [];
+  private readonly listenerErrors: Map<ToolRegistryListener, number> = new Map();
+  private readonly maxListenerErrors = 3;
 
   /**
    * Register a native tool.
@@ -568,11 +570,13 @@ export class UnifiedToolRegistry {
    */
   subscribe(listener: ToolRegistryListener): () => void {
     this.listeners.push(listener);
+    this.listenerErrors.delete(listener);
     return () => {
       const index = this.listeners.indexOf(listener);
       if (index !== -1) {
         this.listeners.splice(index, 1);
       }
+      this.listenerErrors.delete(listener);
     };
   }
 
@@ -699,13 +703,35 @@ export class UnifiedToolRegistry {
 
   private notifyListeners(): void {
     const tools = this.getAllTools();
+    const listenersToRemove: ToolRegistryListener[] = [];
+
     for (const listener of this.listeners) {
       try {
         listener(tools);
+        this.listenerErrors.delete(listener);
       } catch (error) {
+        const errorCount = (this.listenerErrors.get(listener) ?? 0) + 1;
+        this.listenerErrors.set(listener, errorCount);
         logger.error('Listener error', {
           error: error instanceof Error ? error.message : String(error),
+          errorCount,
         });
+        if (errorCount >= this.maxListenerErrors) {
+          logger.warn('Removing listener after repeated failures', {
+            errorCount,
+          });
+          listenersToRemove.push(listener);
+        }
+      }
+    }
+
+    if (listenersToRemove.length > 0) {
+      for (const listener of listenersToRemove) {
+        const index = this.listeners.indexOf(listener);
+        if (index !== -1) {
+          this.listeners.splice(index, 1);
+        }
+        this.listenerErrors.delete(listener);
       }
     }
   }
