@@ -4,7 +4,12 @@
  * Compact search and filter controls for the tools list.
  */
 
-import { TOOL_CATEGORIES, TOOL_LOADING_TIERS } from '@brainstrike/agent/client';
+import {
+  TOOL_CATEGORIES,
+  TOOL_LOADING_TIERS,
+  type ToolCategoryInfo,
+  type ToolLoadingTierInfo,
+} from '@brainstrike/agent/client';
 import {
   Button,
   Input,
@@ -62,7 +67,7 @@ export function ToolsFilterBar({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
-            {Object.values(TOOL_CATEGORIES).map((cat) => (
+            {(Object.values(TOOL_CATEGORIES) as ToolCategoryInfo[]).map((cat) => (
               <SelectItem key={cat.id} value={cat.id}>
                 {cat.label}
               </SelectItem>
@@ -79,7 +84,7 @@ export function ToolsFilterBar({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Tiers</SelectItem>
-            {Object.values(TOOL_LOADING_TIERS).map((tier) => (
+            {(Object.values(TOOL_LOADING_TIERS) as ToolLoadingTierInfo[]).map((tier) => (
               <SelectItem key={tier.id} value={tier.id}>
                 {tier.label}
               </SelectItem>

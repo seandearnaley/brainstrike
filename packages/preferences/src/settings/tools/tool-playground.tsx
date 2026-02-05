@@ -82,9 +82,9 @@ function ParameterRow({ param }: { param: ToolParameterDisplay }) {
         <p className="truncate text-muted-foreground text-xs">{param.description}</p>
         {param.enumValues && (
           <div className="mt-0.5 flex flex-wrap gap-1">
-            {param.enumValues.map((v) => (
-              <code className="rounded bg-muted/50 px-1 py-0.5 font-mono text-[10px]" key={v}>
-                {v}
+            {param.enumValues.map((value: string) => (
+              <code className="rounded bg-muted/50 px-1 py-0.5 font-mono text-[10px]" key={value}>
+                {value}
               </code>
             ))}
           </div>
@@ -108,8 +108,8 @@ function ParameterRow({ param }: { param: ToolParameterDisplay }) {
  */
 function ParametersSection({ schema }: { schema: ToolSchemaDisplay }) {
   const [expanded, setExpanded] = useState(true);
-  const requiredParams = schema.parameters.filter((p) => p.required);
-  const optionalParams = schema.parameters.filter((p) => !p.required);
+  const requiredParams = schema.parameters.filter((param: ToolParameterDisplay) => param.required);
+  const optionalParams = schema.parameters.filter((param: ToolParameterDisplay) => !param.required);
 
   return (
     <div className="mb-3">
@@ -130,7 +130,7 @@ function ParametersSection({ schema }: { schema: ToolSchemaDisplay }) {
                 Required
               </span>
               <div className="mt-1">
-                {requiredParams.map((param) => (
+                {requiredParams.map((param: ToolParameterDisplay) => (
                   <ParameterRow key={param.name} param={param} />
                 ))}
               </div>
@@ -143,7 +143,7 @@ function ParametersSection({ schema }: { schema: ToolSchemaDisplay }) {
                 Optional
               </span>
               <div className="mt-1">
-                {optionalParams.map((param) => (
+                {optionalParams.map((param: ToolParameterDisplay) => (
                   <ParameterRow key={param.name} param={param} />
                 ))}
               </div>

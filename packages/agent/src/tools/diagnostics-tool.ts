@@ -203,7 +203,7 @@ function handleError(error: unknown, logger?: DiagnosticsToolDependencies['logge
   }
 
   logger?.error('Diagnostics check failed', { error });
-  throw new Error(DIAGNOSTICS_ERROR_MESSAGES.checkFailed);
+  throw new Error(DIAGNOSTICS_ERROR_MESSAGES.checkFailed, { cause: error });
 }
 
 /**

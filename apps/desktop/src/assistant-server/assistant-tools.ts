@@ -73,7 +73,10 @@ function isHiddenPath(path: string): boolean {
 
 function getDirName(path: string): string {
   const normalized = normalizePath(path);
-  const parts = normalized.split('/');
+  const parts = normalized.split('/').filter((segment) => segment.length > 0);
+  if (parts.length === 0) {
+    return normalized === '/' ? '/' : normalized;
+  }
   return parts.at(-1) ?? normalized;
 }
 
@@ -805,7 +808,7 @@ function createDiagnosticsDeps(runtimeData: RuntimeData | undefined): Diagnostic
  * Note: `brainstrike.retrieveContext` is added separately via buildAssistantTools().
  */
 export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined): MastraTools {
-  const tools = {
+  const tools: MastraTools = {
     ...buildToolsWithEmbeddingSets(createEmbeddingSetsDeps()),
     ...buildToolsWithFileTree(createFileTreeDeps()),
     ...buildToolsWithHybridSearch(createHybridSearchDeps()),
@@ -813,5 +816,5 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
     ...buildToolsWithDiagnostics(createDiagnosticsDeps(runtimeData)),
   };
 
-  return tools as unknown as MastraTools;
+  return tools;
 }

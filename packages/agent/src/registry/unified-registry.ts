@@ -724,8 +724,9 @@ export class UnifiedToolRegistry {
   private notifyListeners(): void {
     const tools = this.getAllTools();
     const listenersToRemove: ToolRegistryListener[] = [];
+    const listenersSnapshot = [...this.listeners];
 
-    for (const listener of this.listeners) {
+    for (const listener of listenersSnapshot) {
       try {
         listener(tools);
         this.listenerErrors.delete(listener);

@@ -9,6 +9,13 @@ import { usePGliteDatabase } from './db-provider.js';
 
 interface BaseLiveQueryOptions {
   readonly query: string;
+  /**
+   * IMPORTANT: Memoize this array to prevent unnecessary re-subscriptions.
+   *
+   * @example
+   * const params = useMemo(() => [userId, status], [userId, status]);
+   * usePGliteLiveQuery({ query: '...', params });
+   */
   readonly params?: readonly unknown[];
   readonly offset?: number;
   readonly limit?: number;

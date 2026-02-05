@@ -130,6 +130,12 @@ export class TokenBudgetManager {
     this.allocation = { ...DEFAULT_BUDGET_ALLOCATION, ...options.allocation };
     this.estimateTokens = options.estimateTokens ?? countTokensHeuristic;
 
+    for (const [key, value] of Object.entries(this.allocation)) {
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error(`Budget "${key}" must be positive, got ${value}`);
+      }
+    }
+
     // Validate allocation sums to ~1.0
     const sum = Object.values(this.allocation).reduce((a, b) => a + b, 0);
     if (sum < 0.99 || sum > 1.01) {

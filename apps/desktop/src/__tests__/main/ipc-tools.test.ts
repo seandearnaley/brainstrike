@@ -189,6 +189,21 @@ describe('ipc-tools', () => {
       });
     });
 
+    it('rejects oversized MCP inputs before calling tool', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(false);
+
+      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', {
+        payload: 'x'.repeat(1_000_001),
+      });
+
+      expect(callTool).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.stringContaining('exceeds'),
+      });
+    });
+
     it('passes input as-is to MCP callTool', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(false);

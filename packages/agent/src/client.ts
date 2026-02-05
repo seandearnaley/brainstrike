@@ -72,6 +72,7 @@ export {
   type ToolLoadingTierInfo,
   type ToolSource,
 } from './registry/tool-categories';
+export { TOOL_DESCRIPTIONS } from './registry/tool-descriptions';
 // Tool schema display info (browser-safe, for UI parameter display)
 export {
   generateExampleInput,

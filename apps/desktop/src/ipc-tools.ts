@@ -17,6 +17,7 @@ const logger = createLogger('IpcTools');
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
 const MAX_INPUT_DEPTH = 12;
+const MAX_INPUT_SIZE = 1_000_000;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) {
@@ -79,6 +80,24 @@ function isJsonValue(value: unknown, depth: number, visited: WeakSet<object>): v
 function sanitizeMcpInput(
   input: unknown
 ): { ok: true; value: Record<string, JsonValue> } | { ok: false; error: string } {
+  let serializedSize = 0;
+  try {
+    const serialized = JSON.stringify(input);
+    serializedSize = serialized.length;
+  } catch {
+    return {
+      ok: false,
+      error: 'Tool input must be JSON-serializable.',
+    };
+  }
+
+  if (serializedSize > MAX_INPUT_SIZE) {
+    return {
+      ok: false,
+      error: `Tool input exceeds ${MAX_INPUT_SIZE} bytes.`,
+    };
+  }
+
   if (!isPlainObject(input)) {
     return {
       ok: false,
