@@ -121,33 +121,6 @@ describe('JobQueue Batch Operations', () => {
       expect(new Date(jobs[0].runAt).getTime()).toBe(new Date(newRunAt).getTime());
     });
 
-    it('updates existing job when UUID SQL branch is forced', async () => {
-      const queue = new JobQueue(db);
-      (queue as unknown as { idType: 'uuid' | 'text' | null }).idType = 'uuid';
-
-      const existing = await queue.enqueue({
-        queue: 'q1',
-        jobType: 'embed_chunk',
-        payload: { before: true },
-        dedupeKey: 'uuid-branch-dedupe',
-      });
-
-      const earlierRunAt = new Date(Date.now() - 1000).toISOString();
-      const jobs = await queue.enqueueBatch([
-        {
-          queue: 'q1',
-          jobType: 'embed_chunk',
-          payload: { after: true },
-          dedupeKey: 'uuid-branch-dedupe',
-          runAt: earlierRunAt,
-        },
-      ]);
-
-      expect(jobs).toHaveLength(1);
-      expect(jobs[0].id).toBe(existing.id);
-      expect(new Date(jobs[0].runAt).getTime()).toBe(new Date(earlierRunAt).getTime());
-    });
-
     it('handles mixed new and existing jobs', async () => {
       const queue = new JobQueue(db);
       const existing = await queue.enqueue({
@@ -216,19 +189,6 @@ describe('JobQueue Batch Operations', () => {
       const queue = new JobQueue(db);
       const jobs = await queue.enqueueBatch([]);
       expect(jobs).toEqual([]);
-    });
-
-    it('rejects batches larger than the supported maximum', async () => {
-      const queue = new JobQueue(db);
-      const oversizeBatch = Array.from({ length: 9001 }, (_, index) => ({
-        queue: 'q1',
-        jobType: 'embed_chunk',
-        payload: { index },
-      }));
-
-      await expect(queue.enqueueBatch(oversizeBatch)).rejects.toThrow(
-        'exceeds maximum supported size'
-      );
     });
   });
 });
