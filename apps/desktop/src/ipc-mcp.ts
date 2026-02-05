@@ -341,13 +341,15 @@ async function resolveDiscoveryCredentials(): Promise<
   try {
     const secrets = getSecretsService();
     const providers = await secrets.listProviders();
-    for (const candidate of providers) {
-      if (!(candidate && isSupportedProvider(candidate))) {
-        continue;
-      }
-      const key = await secrets.getKey(candidate);
+    const candidates = providers.filter((p) => p && isSupportedProvider(p));
+
+    // Fetch all keys in parallel to avoid serial latency
+    const keys = await Promise.all(candidates.map((p) => secrets.getKey(p)));
+
+    for (let i = 0; i < candidates.length; i++) {
+      const key = keys[i];
       if (key && key.trim().length > 0) {
-        const resolvedProvider = candidate as ProviderId;
+        const resolvedProvider = candidates[i] as ProviderId;
         return { provider: resolvedProvider, apiKey: key };
       }
     }
