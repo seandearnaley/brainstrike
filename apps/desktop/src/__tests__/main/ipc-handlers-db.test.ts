@@ -48,6 +48,9 @@ vi.mock('electron', async () => {
     app,
     BrowserWindow,
     session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    screen: {
+      getAllDisplays: vi.fn(() => [{ workArea: { x: 0, y: 0, width: 1536, height: 800 } }]),
+    },
     Menu: {
       setApplicationMenu: vi.fn(),
       buildFromTemplate: vi.fn(),

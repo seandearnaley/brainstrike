@@ -1,76 +1,133 @@
-import * as electron from 'electron';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  applyDecryptionToEnv,
-  applyDecryptionToHeaders,
-  type McpServer,
-  withDecryptedSecrets,
-} from '../../mcp-loader';
 
-describe('mcp-loader helpers', () => {
-  // Set up spy only when Electron safeStorage is available in this environment.
-  const electronWithSafeStorage = electron as typeof electron & {
-    safeStorage?: { decryptString: (buffer: Buffer) => string };
-  };
-  // Mock spy for decryptString function
-  let decryptSpy: typeof vi.spyOn | null = null;
+const appGetPath = vi.hoisted(() => vi.fn());
+const decryptString = vi.hoisted(() => vi.fn());
+
+vi.mock('electron', () => ({
+  app: {
+    getPath: (key: string) => appGetPath(key),
+  },
+  safeStorage: {
+    decryptString: (buf: Buffer) => decryptString(buf),
+  },
+}));
+
+describe('mcp-loader', () => {
+  let tempDir: string;
 
   beforeEach(() => {
-    if (electronWithSafeStorage.safeStorage) {
-      // @ts-expect-error - Complex Vitest spy typing, using explicit cast for test simplicity
-      decryptSpy = vi.spyOn(electronWithSafeStorage.safeStorage, 'decryptString');
-      // @ts-expect-error - Test mock implementation with simplified typing
-      decryptSpy?.mockImplementation((buf: Buffer) => {
-        try {
-          return Buffer.from(buf).toString('utf-8');
-        } catch {
-          return 'decrypted';
-        }
-      });
-    } else {
-      decryptSpy = null;
-    }
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-loader-'));
+    appGetPath.mockReturnValue(tempDir);
+    decryptString.mockReset();
   });
+
   afterEach(() => {
-    vi.restoreAllMocks();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    vi.resetModules();
   });
 
-  it('decrypts Encrypted headers', () => {
-    const res = applyDecryptionToHeaders({
-      AuthorizationEncrypted: Buffer.from('abc').toString('base64'),
-    });
-    expect(res?.['Authorization']).toBe('abc');
+  it('parses valid MCP config and rejects invalid ones', async () => {
+    const { parseMcpConfig } = await import('../../mcp-loader');
+
+    expect(() => parseMcpConfig('{}')).toThrow('invalid_mcp_config');
+
+    const config = parseMcpConfig(
+      JSON.stringify({
+        servers: [
+          { transport: 'stdio', name: 'fs', command: 'node', args: ['server.js'] },
+          { transport: 'sse', name: 'remote', url: 'https://example.com/sse' },
+        ],
+      })
+    );
+
+    expect(config.servers).toHaveLength(2);
+    expect(config.servers[0]?.transport).toBe('stdio');
+    expect(config.servers[1]?.transport).toBe('sse');
   });
 
-  it('decrypts Encrypted env', () => {
-    const res = applyDecryptionToEnv({ TOKENEncrypted: Buffer.from('xyz').toString('base64') });
-    expect(res?.['TOKEN']).toBe('xyz');
-  });
+  it('decrypts encrypted values and applies to headers/env', async () => {
+    decryptString.mockReturnValue('decrypted');
+    const { decryptIfEncrypted, withDecryptedSecrets } = await import('../../mcp-loader');
 
-  it('applies decryption across servers', () => {
-    const cfg = withDecryptedSecrets({
+    const encoded = Buffer.from('secret', 'utf-8').toString('base64');
+
+    expect(decryptIfEncrypted(encoded)).toBe('decrypted');
+
+    const config = {
       servers: [
         {
-          name: 'web',
           transport: 'sse',
-          url: 'http://localhost',
-          headers: { AuthorizationEncrypted: Buffer.from('def').toString('base64') },
+          name: 'remote',
+          url: 'https://example.com/sse',
+          headers: { AuthorizationEncrypted: encoded },
         },
         {
-          name: 'fs',
           transport: 'stdio',
+          name: 'local',
           command: 'node',
-          env: { SECRETEncrypted: Buffer.from('123').toString('base64') },
+          env: { API_KEYEncrypted: encoded },
         },
       ],
+    } as const;
+
+    const decrypted = withDecryptedSecrets(config);
+    const sseServer = decrypted.servers[0];
+    const stdioServer = decrypted.servers[1];
+
+    if (sseServer.transport === 'sse') {
+      expect(sseServer.headers?.Authorization).toBe('decrypted');
+    }
+    if (stdioServer.transport === 'stdio') {
+      expect(stdioServer.env?.API_KEY).toBe('decrypted');
+    }
+  });
+
+  it('returns raw value when decrypt fails', async () => {
+    decryptString.mockImplementation(() => {
+      throw new Error('fail');
     });
-    const web = cfg.servers[0] as Extract<McpServer, { transport: 'sse' }>;
-    const fs = cfg.servers[1] as Extract<McpServer, { transport: 'stdio' }>;
-    if (web?.headers) {
-      expect(web.headers['Authorization']).toBe('def');
-    }
-    if (fs?.env) {
-      expect(fs.env['SECRET']).toBe('123');
-    }
+    const { decryptIfEncrypted } = await import('../../mcp-loader');
+
+    const encoded = Buffer.from('plain', 'utf-8').toString('base64');
+    expect(decryptIfEncrypted(encoded)).toBe(encoded);
+  });
+
+  it('uses custom config path when set', async () => {
+    const { getMcpConfigPath, setCustomMcpConfigPath } = await import('../../mcp-loader');
+
+    await setCustomMcpConfigPath('/tmp/custom-mcp.json');
+    await expect(getMcpConfigPath()).resolves.toBe('/tmp/custom-mcp.json');
+
+    await setCustomMcpConfigPath(null);
+    const fallback = await getMcpConfigPath();
+    expect(fallback).toContain(path.join(tempDir, 'mcp', 'mcp.config.json'));
+  });
+
+  it('loads MCP config from disk and reports missing config', async () => {
+    const { getMcpConfigPath, loadMcpConfig, setCustomMcpConfigPath } = await import(
+      '../../mcp-loader'
+    );
+
+    await setCustomMcpConfigPath(null);
+    const configPath = await getMcpConfigPath();
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        servers: [{ transport: 'stdio', name: 'fs', command: 'node' }],
+      }),
+      'utf-8'
+    );
+
+    const loaded = await loadMcpConfig();
+    expect(loaded.exists).toBe(true);
+    expect(loaded.servers).toHaveLength(1);
+
+    await setCustomMcpConfigPath('/tmp/does-not-exist.json');
+    const missing = await loadMcpConfig();
+    expect(missing.exists).toBe(false);
   });
 });
