@@ -8,76 +8,72 @@ import {
   handleFilesystemSearch,
 } from '../../mcp/fs-tools';
 
-describe('mcp fs-tools', () => {
+describe('fs-tools', () => {
   let rootDir: string;
-  let filePath: string;
-  let nestedDir: string;
 
   beforeEach(async () => {
-    rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'brainstrike-fs-'));
-    nestedDir = path.join(rootDir, 'nested');
-    await fs.mkdir(nestedDir, { recursive: true });
-
-    filePath = path.join(rootDir, 'notes.txt');
-    await fs.writeFile(filePath, 'hello world', 'utf8');
+    rootDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fs-tools-'));
+    await fs.mkdir(path.join(rootDir, 'subdir'), { recursive: true });
+    await fs.writeFile(path.join(rootDir, 'alpha.txt'), 'hello world', 'utf8');
+    await fs.writeFile(path.join(rootDir, 'subdir', 'beta.txt'), 'nested file', 'utf8');
   });
 
   afterEach(async () => {
     await fs.rm(rootDir, { recursive: true, force: true });
   });
 
-  it('lists files and directories under the root', async () => {
+  it('lists entries inside the resolved root', async () => {
     const result = await handleFilesystemList({ path: '.' }, rootDir);
 
-    expect(Array.isArray(result)).toBe(true);
-    const entries = result as Array<{ name: string; type: string }>;
-    const names = entries.map((entry) => entry.name);
-
-    expect(names).toContain('notes.txt');
-    expect(names).toContain('nested');
+    expect(result).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'alpha.txt', type: 'file' }),
+        expect.objectContaining({ name: 'subdir', type: 'dir' }),
+      ])
+    );
   });
 
-  it('reads file contents with default maxBytes', async () => {
-    const result = await handleFilesystemRead({ path: 'notes.txt' }, rootDir);
-    const expectedPath = await fs.realpath(filePath);
+  it('reads files with truncation and base64 encoding', async () => {
+    const truncated = await handleFilesystemRead({ path: 'alpha.txt', maxBytes: 4 }, rootDir);
 
-    expect(result).toMatchObject({
-      path: expectedPath,
-      encoding: 'utf8',
-      truncated: false,
-    });
-    expect((result as { content: string }).content).toContain('hello world');
-  });
+    expect(truncated).toEqual(
+      expect.objectContaining({
+        path: expect.stringContaining(`${path.sep}alpha.txt`),
+        encoding: 'utf8',
+        truncated: true,
+      })
+    );
 
-  it('supports base64 encoding and truncation', async () => {
-    await fs.writeFile(filePath, 'a'.repeat(200), 'utf8');
-
-    const result = await handleFilesystemRead(
-      { path: 'notes.txt', encoding: 'base64', maxBytes: 32 },
+    const base64Result = await handleFilesystemRead(
+      { path: 'alpha.txt', encoding: 'base64', maxBytes: 5 },
       rootDir
     );
 
-    expect(result).toMatchObject({ encoding: 'base64', truncated: true });
-    expect((result as { content: string }).content.length).toBeGreaterThan(0);
+    expect(base64Result).toEqual(
+      expect.objectContaining({
+        encoding: 'base64',
+        truncated: true,
+      })
+    );
   });
 
-  it('returns an error when reading a directory', async () => {
-    const result = await handleFilesystemRead({ path: 'nested' }, rootDir);
+  it('returns an error when attempting to read a directory', async () => {
+    const result = await handleFilesystemRead({ path: 'subdir' }, rootDir);
+
     expect(result).toEqual({ error: 'path is a directory' });
   });
 
-  it('returns an error when query is missing for search', async () => {
-    const result = await handleFilesystemSearch({}, rootDir);
-    expect(result).toEqual({ error: 'query is required' });
+  it('searches for matching names within the root', async () => {
+    const results = await handleFilesystemSearch({ query: 'alpha', path: '.' }, rootDir);
+
+    expect(results).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: 'alpha.txt', type: 'file' })])
+    );
   });
 
-  it('searches for matching files and directories', async () => {
-    await fs.writeFile(path.join(nestedDir, 'match.txt'), 'content', 'utf8');
+  it('returns an error when search query is missing', async () => {
+    const result = await handleFilesystemSearch({ path: '.' }, rootDir);
 
-    const result = await handleFilesystemSearch({ query: 'match', maxDepth: 2 }, rootDir);
-
-    expect(Array.isArray(result)).toBe(true);
-    const entries = result as Array<{ name: string; type: string }>;
-    expect(entries.some((entry) => entry.name === 'match.txt')).toBe(true);
+    expect(result).toEqual({ error: 'query is required' });
   });
 });

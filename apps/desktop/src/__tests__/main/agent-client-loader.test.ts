@@ -1,4 +1,7 @@
-import { createRequire } from 'node:module';
+import fs from 'node:fs';
+import Module, { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerWarn = vi.fn();
@@ -92,5 +95,50 @@ describe('agent-client-loader', () => {
 
     expect(listAgentProviders()).toEqual(expectedProviders);
     expect(getAgentProviderEnvKeys('openai')).toEqual(expectedOpenAiKeys);
+  });
+
+  it('falls back to workspace dist when exports are unavailable', async () => {
+    process.env['BRAINSTRIKE_AGENT_TEST_MODE'] = '0';
+    process.env['VITEST'] = 'false';
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-client-'));
+    const distDir = path.join(tempDir, 'packages/agent/dist');
+    fs.mkdirSync(distDir, { recursive: true });
+    const clientPath = path.join(distDir, 'client.js');
+    fs.writeFileSync(
+      clientPath,
+      [
+        "exports.listProviders = () => [{ id: 'openai' }];",
+        "exports.providerEnvKeys = () => ['WORKSPACE_KEY'];",
+      ].join('\n')
+    );
+
+    const moduleLoader = Module as unknown as {
+      _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+    };
+    const originalLoad = moduleLoader._load;
+    const loadSpy = vi
+      .spyOn(moduleLoader, '_load')
+      .mockImplementation((request, parent, isMain) => {
+        if (request === '@brainstrike/agent/client') {
+          const error = Object.assign(new Error('not found'), { code: 'MODULE_NOT_FOUND' });
+          throw error;
+        }
+        return originalLoad(request, parent, isMain);
+      });
+
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(tempDir);
+    vi.resetModules();
+    const { clearCachedAgentClient, listAgentProviders, getAgentProviderEnvKeys } = await import(
+      '../../agent-client-loader'
+    );
+    clearCachedAgentClient();
+
+    expect(listAgentProviders()).toEqual(['openai']);
+    expect(getAgentProviderEnvKeys('openai')).toEqual(['WORKSPACE_KEY']);
+
+    cwdSpy.mockRestore();
+    loadSpy.mockRestore();
+    fs.rmSync(tempDir, { recursive: true, force: true });
   });
 });

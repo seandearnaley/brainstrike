@@ -1,8 +1,13 @@
-import { ipcMain } from 'electron';
+import { app, dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMcpIpcHandlers } from '../../ipc-mcp';
 import { disposeClients, initClients } from '../../mcp';
-import { loadMcpConfig, watchMcpConfig } from '../../mcp-loader';
+import {
+  getMcpConfigPath,
+  loadMcpConfig,
+  setCustomMcpConfigPath,
+  watchMcpConfig,
+} from '../../mcp-loader';
 import { readOpenAIApiKey } from '../../openai-api-key';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
@@ -27,12 +32,20 @@ vi.mock('electron', () => ({
   ipcMain: {
     handle: vi.fn(),
   },
+  dialog: {
+    showOpenDialog: vi.fn(),
+  },
+  app: {
+    getPath: vi.fn(() => '/tmp'),
+  },
 }));
 
 // Mock dependencies
 vi.mock('../../mcp-loader', () => ({
   loadMcpConfig: vi.fn(),
   watchMcpConfig: vi.fn(),
+  getMcpConfigPath: vi.fn(),
+  setCustomMcpConfigPath: vi.fn(),
 }));
 
 vi.mock('../../mcp', () => ({
@@ -491,6 +504,91 @@ describe('ipc-mcp handlers', () => {
       expect(result2).toEqual(mockConfig);
 
       expect(initClients).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('mcp:config:selectPath', () => {
+    it('returns null when selection is canceled', async () => {
+      vi.mocked(dialog.showOpenDialog).mockResolvedValueOnce({
+        canceled: true,
+        filePaths: [],
+      } as never);
+
+      const handler = handlers.get('mcp:config:selectPath');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+      const result = await handler();
+
+      expect(result).toBeNull();
+    });
+
+    it('returns the selected path when available', async () => {
+      vi.mocked(dialog.showOpenDialog).mockResolvedValueOnce({
+        canceled: false,
+        filePaths: ['/tmp/mcp.json'],
+      } as never);
+
+      const handler = handlers.get('mcp:config:selectPath');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+      const result = await handler();
+
+      expect(result).toBe('/tmp/mcp.json');
+    });
+  });
+
+  describe('mcp:config:setPath', () => {
+    it('updates config path and restarts watcher', async () => {
+      const mockWatcher = { close: vi.fn() };
+      vi.mocked(watchMcpConfig).mockResolvedValue(mockWatcher as never);
+      vi.mocked(loadMcpConfig).mockResolvedValue({
+        path: '/tmp/new.json',
+        exists: true,
+        config: { servers: [] },
+      } as never);
+      vi.mocked(getMcpConfigPath).mockResolvedValue('/tmp/new.json' as never);
+
+      const handler = handlers.get('mcp:config:setPath');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+      const result = await handler({} as never, '/tmp/new.json');
+
+      expect(setCustomMcpConfigPath).toHaveBeenCalledWith('/tmp/new.json');
+      expect(loadMcpConfig).toHaveBeenCalled();
+      expect(watchMcpConfig).toHaveBeenCalled();
+      expect(result).toEqual({ success: true, path: '/tmp/new.json' });
+    });
+  });
+
+  describe('mcp:config:createSample', () => {
+    it('writes a sample config to disk', async () => {
+      const fsp = await import('node:fs/promises');
+      const tempDir = await fsp.mkdtemp('/tmp/mcp-sample-');
+      const samplePath = `${tempDir}/mcp.config.json`;
+
+      vi.mocked(getMcpConfigPath).mockResolvedValue(samplePath as never);
+      vi.mocked(loadMcpConfig).mockResolvedValue({
+        path: samplePath,
+        exists: true,
+        config: { servers: [] },
+      } as never);
+
+      const handler = handlers.get('mcp:config:createSample');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const result = await handler();
+
+      expect(result).toEqual({ success: true, path: samplePath });
+      const content = await fsp.readFile(samplePath, 'utf8');
+      expect(content).toContain('filesystem');
+      expect(app.getPath).toHaveBeenCalled();
+
+      await fsp.rm(tempDir, { recursive: true, force: true });
     });
   });
 });
