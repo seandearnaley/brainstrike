@@ -1,0 +1,34 @@
+import { describe, expect, it, vi } from 'vitest';
+
+vi.mock('../../../../../server/assistant-config', () => ({
+  resolveAssistantProviderConfig: vi.fn(),
+}));
+
+import { resolveAssistantProviderConfig } from '../../../../../server/assistant-config';
+import { GET } from '../route';
+
+describe('assistant status route', () => {
+  it('returns enabled status when provider is configured', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      enabled: true,
+      apiKey: 'test-key',
+    });
+
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const payload = await res.json();
+    expect(payload).toEqual({ enabled: true });
+  });
+
+  it('returns disabled status with reason when missing key', async () => {
+    vi.mocked(resolveAssistantProviderConfig).mockReturnValue({
+      enabled: false,
+      apiKey: '',
+      disabledReason: 'missing_api_key',
+    });
+
+    const res = await GET();
+    const payload = await res.json();
+    expect(payload).toEqual({ enabled: false, reason: 'missing_api_key' });
+  });
+});
