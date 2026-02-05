@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
     alias: {
-      '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),
+      '@brainstrike/agent/client': resolve(import.meta.dirname, '../agent/src/client.ts'),
     },
   },
   test: {

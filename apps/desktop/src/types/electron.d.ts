@@ -107,12 +107,14 @@ declare global {
         exists: boolean;
         servers?: { name: string; transport: 'stdio' | 'sse' }[];
         loadedAt?: number;
+        error?: string;
       }>;
       watch: () => Promise<{ watching: boolean }>;
       unwatch: () => Promise<{ watching: false }>;
       getPath: () => Promise<string>;
       setPath: (configPath: string | null) => Promise<{ success: boolean; path: string }>;
       selectPath: () => Promise<string | null>;
+      createSampleConfig: () => Promise<{ success: boolean; path: string; error?: string }>;
       // Tool management
       listTools: () => Promise<{
         [serverName: string]: Array<{
@@ -135,6 +137,23 @@ declare global {
         disabled: number;
         servers: number;
       }>;
+    };
+    tools: {
+      execute: (
+        toolId: string,
+        input: unknown
+      ) => Promise<
+        | {
+            success: true;
+            result: unknown;
+            durationMs: number;
+          }
+        | {
+            success: false;
+            error: string;
+            durationMs: number;
+          }
+      >;
     };
   }
 }

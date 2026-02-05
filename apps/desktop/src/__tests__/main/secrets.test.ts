@@ -1,52 +1,98 @@
-import type ElectronStore from 'electron-store';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const safeStorageMock = vi.hoisted(() => ({
+  isEncryptionAvailable: vi.fn(),
+  encryptString: vi.fn(),
+  decryptString: vi.fn(),
+}));
+
+vi.mock('electron', () => ({
+  safeStorage: safeStorageMock,
+}));
+
 import { createSecretsService } from '../../secrets';
 
-// Mock electron safeStorage
-vi.mock('electron', () => {
-  const encoder = new TextEncoder();
-  const decoder = new TextDecoder();
+type StoreRecord = Record<string, unknown>;
+
+const createStore = () => {
+  const data: StoreRecord = {};
   return {
-    safeStorage: {
-      isEncryptionAvailable: () => true,
-      encryptString: (s: string) => {
-        // mock encryption: prefix and encode
-        return Buffer.from(encoder.encode(`enc:${s}`));
-      },
-      decryptString: (b: Buffer) => {
-        const text = decoder.decode(b);
-        return text.replace(/^enc:/, '');
-      },
+    get: (key: string) => data[key],
+    set: (key: string, value: unknown) => {
+      data[key] = value;
     },
+    data,
   };
-});
+};
 
-describe('secrets service', () => {
-  it('encrypts, persists and decrypts keys per provider', async () => {
-    const backing: Record<string, unknown> = {};
-    const mockStore = {
-      get: vi.fn((key: string) => backing[key]),
-      set: vi.fn((key: string, value: unknown) => {
-        backing[key] = value;
-      }),
-    } as unknown as ElectronStore<{ secrets: Record<string, string> }>;
+describe('secrets', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
 
-    const svc = createSecretsService(mockStore);
-    expect(await svc.listProviders()).toEqual([]);
+  it('stores and retrieves encrypted secrets when available', async () => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
+    safeStorageMock.encryptString.mockReturnValue(Buffer.from('cipher'));
+    safeStorageMock.decryptString.mockReturnValue('decoded');
 
-    // Save key
-    const ok = await svc.saveKey('openai', 'sk-123');
-    expect(ok).toBe(true);
-    // Listing should reflect provider
-    expect(await svc.listProviders()).toEqual(['openai']);
+    const store = createStore();
+    const service = createSecretsService(store as never);
 
-    // Retrieve
-    const val = await svc.getKey('openai');
-    expect(val).toBe('sk-123');
+    await service.saveKey('openai', 'secret');
 
-    // Delete
-    const del = await svc.deleteKey('openai');
-    expect(del).toBe(true);
-    expect(await svc.getKey('openai')).toBeNull();
+    const secrets = store.data['secrets'] as Record<string, string>;
+    expect(secrets.openai).toBe(Buffer.from('cipher').toString('base64'));
+
+    const value = await service.getKey('openai');
+    expect(value).toBe('decoded');
+  });
+
+  it('falls back to base64 decode when decryption fails', async () => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
+    safeStorageMock.decryptString.mockImplementation(() => {
+      throw new Error('decrypt failed');
+    });
+
+    const store = createStore();
+    store.set('secrets', {
+      openai: Buffer.from('plain', 'utf-8').toString('base64'),
+    });
+
+    const service = createSecretsService(store as never);
+    const value = await service.getKey('openai');
+
+    expect(value).toBe('plain');
+  });
+
+  it('deletes, lists, and clears secrets', async () => {
+    safeStorageMock.isEncryptionAvailable.mockReturnValue(false);
+
+    const store = createStore();
+    const service = createSecretsService(store as never);
+
+    await service.saveKey('openai', 'secret');
+    await service.saveKey('anthropic', 'secret2');
+
+    expect(await service.listProviders()).toEqual(['openai', 'anthropic']);
+
+    expect(await service.deleteKey('missing')).toBe(false);
+    expect(await service.deleteKey('openai')).toBe(true);
+    expect(await service.listProviders()).toEqual(['anthropic']);
+
+    expect(await service.clearAll()).toBe(true);
+    expect(await service.listProviders()).toEqual([]);
+  });
+
+  it('returns false when clearAll fails', async () => {
+    const store = createStore();
+    const failingStore = {
+      get: store.get,
+      set: () => {
+        throw new Error('fail');
+      },
+    };
+
+    const service = createSecretsService(failingStore as never);
+    await expect(service.clearAll()).resolves.toBe(false);
   });
 });

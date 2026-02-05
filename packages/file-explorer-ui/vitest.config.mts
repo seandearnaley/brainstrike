@@ -11,7 +11,7 @@ export default defineConfig({
     ...testBase,
     setupFiles: [
       ...(testBase.setupFiles ?? []),
-      resolve(__dirname, './src/__tests__/setup/suppress-token-utils-warnings.ts'),
+      resolve(import.meta.dirname, './src/__tests__/setup/suppress-token-utils-warnings.ts'),
     ],
     // Default to happy-dom for speed; jsdom-only suites should annotate at file top
     environment: 'happy-dom',
@@ -25,15 +25,15 @@ export default defineConfig({
   } as InlineConfig,
   resolve: {
     alias: {
-      '@brainstrike/types': resolve(__dirname, '../types/src'),
-      '@brainstrike/ui': resolve(__dirname, '../ui/src'),
-      '@brainstrike/utils': resolve(__dirname, '../utils/src'),
-      '@brainstrike/file-explorer': resolve(__dirname, '../file-explorer/src'),
-      '@brainstrike/test-utils': resolve(__dirname, '../test-utils/src'),
-      '@brainstrike/preferences': resolve(__dirname, '../preferences/src'),
+      '@brainstrike/types': resolve(import.meta.dirname, '../types/src'),
+      '@brainstrike/ui': resolve(import.meta.dirname, '../ui/src'),
+      '@brainstrike/utils': resolve(import.meta.dirname, '../utils/src'),
+      '@brainstrike/file-explorer': resolve(import.meta.dirname, '../file-explorer/src'),
+      '@brainstrike/test-utils': resolve(import.meta.dirname, '../test-utils/src'),
+      '@brainstrike/preferences': resolve(import.meta.dirname, '../preferences/src'),
       // Ensure test-utils dynamic import of Testing Library resolves under this workspace
-      '@testing-library/react': resolve(__dirname, 'node_modules/@testing-library/react'),
-      '@brainstrike/file-explorer-ui': resolve(__dirname, './src'),
+      '@testing-library/react': resolve(import.meta.dirname, 'node_modules/@testing-library/react'),
+      '@brainstrike/file-explorer-ui': resolve(import.meta.dirname, './src'),
     },
   },
 });

@@ -1,5 +1,8 @@
-import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/preferences';
-import { ThemeProvider } from '@brainstrike/ui';
+import {
+  __resetAssistantPreferencesStoreForTests,
+  __resetNativeToolPreferencesStoreForTests,
+} from '@brainstrike/preferences';
+import { ThemeProvider, TooltipProvider } from '@brainstrike/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
@@ -104,6 +107,7 @@ beforeEach(() => {
   extendedWindow.mcp = mcp;
 
   __resetAssistantPreferencesStoreForTests();
+  __resetNativeToolPreferencesStoreForTests();
 });
 
 afterEach(() => {
@@ -114,36 +118,38 @@ afterEach(() => {
 });
 
 describe('Desktop SettingsPageContent', () => {
-  it('navigates to MCP integrations and displays tool management panels', async () => {
+  it('navigates to AI Tools and displays unified tools management', async () => {
     render(
       <ThemeProvider>
-        <SettingsPageContent />
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
       </ThemeProvider>
     );
 
-    const mcpButton = await screen.findByRole('button', { name: /MCP Integrations/i });
-    fireEvent.click(mcpButton);
+    const toolsButton = await screen.findByRole('button', { name: /AI Tools/i });
+    fireEvent.click(toolsButton);
 
-    const mcpPane = await screen.findByTestId('settings-category-mcp-integrations');
-    expect(
-      await within(mcpPane).findByRole('heading', { name: /Model Context Protocol/i })
-    ).toBeInTheDocument();
-    const toolLabels = await within(mcpPane).findAllByText(/MCP Tools/i);
-    expect(toolLabels.length).toBeGreaterThanOrEqual(2);
+    const toolsPane = await screen.findByTestId('settings-category-ai-tools');
+    // Should show the unified tools settings with stats (13 native tools enabled by default)
+    // Use getAllByText since "enabled" appears in both stats bar and group headers
+    const enabledElements = await within(toolsPane).findAllByText(/13 enabled/i);
+    expect(enabledElements.length).toBeGreaterThan(0);
   });
 
   it('filters categories using the search box', async () => {
     render(
       <ThemeProvider>
-        <SettingsPageContent />
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
       </ThemeProvider>
     );
 
     const searchbox = await screen.findByRole('searchbox', { name: /Search settings/i });
-    fireEvent.change(searchbox, { target: { value: 'mcp' } });
+    fireEvent.change(searchbox, { target: { value: 'tools' } });
 
-    expect(await screen.findByRole('button', { name: /MCP Integrations/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Desktop Preferences/i })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /AI Tools/i })).toBeInTheDocument();
 
     fireEvent.change(searchbox, { target: { value: 'unknown' } });
     expect(screen.getByText(/No settings matched "unknown"/i)).toBeInTheDocument();
@@ -152,7 +158,9 @@ describe('Desktop SettingsPageContent', () => {
   it('shows Factory Reset category when searching for factory', async () => {
     render(
       <ThemeProvider>
-        <SettingsPageContent />
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
       </ThemeProvider>
     );
 
@@ -166,7 +174,9 @@ describe('Desktop SettingsPageContent', () => {
   it('renders LLM credentials form fields in Models & Providers', async () => {
     render(
       <ThemeProvider>
-        <SettingsPageContent />
+        <TooltipProvider>
+          <SettingsPageContent />
+        </TooltipProvider>
       </ThemeProvider>
     );
 

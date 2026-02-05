@@ -44,7 +44,13 @@ const {
   });
 
   const getStats = vi.fn(() => ({ total: 2, enabled: 1, disabled: 1, servers: 1 }));
-  const getAllTools = vi.fn(() => ({}));
+  // Mock registered tools that match the preference IDs being tested
+  const getAllTools = vi.fn(() => ({
+    'mock-server': [
+      { id: 'server.tool.enable', enabled: true },
+      { id: 'server.tool.disable', enabled: false },
+    ],
+  }));
   const getEnabledTools = vi.fn(() => ({}));
   const enableServerTools = vi.fn();
   const disableServerTools = vi.fn();
@@ -160,6 +166,7 @@ vi.mock('@brainstrike/agent', () => ({
     enableServerTools: enableServerToolsMock,
     disableServerTools: disableServerToolsMock,
     reset: resetToolsMock,
+    clear: vi.fn(), // New method used for stale preferences fix
   },
 }));
 

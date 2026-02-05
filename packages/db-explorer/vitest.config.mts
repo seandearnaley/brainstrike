@@ -9,7 +9,7 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 export default defineConfig({
   resolve: {
     alias: {
-      '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),
+      '@brainstrike/agent/client': resolve(import.meta.dirname, '../agent/src/client.ts'),
     },
   },
   test: {
