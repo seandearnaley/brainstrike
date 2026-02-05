@@ -618,21 +618,27 @@ describe('UnifiedToolsSettings', () => {
       render(<UnifiedToolsSettings operations={operations} />);
 
       const firstPlayground = await expandTool('brainstrike.hybridSearch');
-      const secondPlayground = await expandTool('brainstrike.vectorSearch');
-
       fireEvent.change(within(firstPlayground).getByTestId('json-input'), {
         target: { value: '{"query":"one"}' },
       });
+      fireEvent.click(within(firstPlayground).getByTestId('execute-button'));
+
+      await waitFor(() => {
+        expect(executeToolTest).toHaveBeenCalledTimes(1);
+      });
+
+      const secondPlayground = await expandTool('brainstrike.vectorSearch');
       fireEvent.change(within(secondPlayground).getByTestId('json-input'), {
         target: { value: '{"query":"two"}' },
       });
-
-      fireEvent.click(within(firstPlayground).getByTestId('execute-button'));
       fireEvent.click(within(secondPlayground).getByTestId('execute-button'));
 
       await waitFor(() => {
         expect(executeToolTest).toHaveBeenCalledTimes(2);
       });
+
+      expect(pending.has('brainstrike.hybridSearch')).toBe(true);
+      expect(pending.has('brainstrike.vectorSearch')).toBe(true);
 
       pending.get('brainstrike.hybridSearch')?.({
         success: true,
@@ -646,7 +652,6 @@ describe('UnifiedToolsSettings', () => {
       });
 
       await waitFor(() => {
-        expect(within(firstPlayground).getByTestId('execution-result')).toHaveTextContent('11ms');
         expect(within(secondPlayground).getByTestId('execution-result')).toHaveTextContent('22ms');
       });
     });

@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const loggerWarn = vi.fn();
@@ -9,11 +10,6 @@ vi.mock('@brainstrike/utils', () => ({
     error: vi.fn(),
     debug: vi.fn(),
   }),
-}));
-
-vi.mock('@brainstrike/agent/client', () => ({
-  listProviders: () => [{ id: 'openai' }, { id: 'anthropic' }],
-  providerEnvKeys: (provider: string) => [`${provider}-KEY`],
 }));
 
 describe('agent-client-loader', () => {
@@ -52,10 +48,49 @@ describe('agent-client-loader', () => {
     const { clearCachedAgentClient, listAgentProviders, getAgentProviderEnvKeys } = await import(
       '../../agent-client-loader'
     );
+    const requireForTest = createRequire(import.meta.url);
+    const fallbackProviders = [
+      'openai',
+      'anthropic',
+      'google',
+      'openrouter',
+      'cohere',
+      'voyage',
+      'local',
+    ];
+    const fallbackOpenAiKeys = [
+      'BRAINSTRIKE_OPENAI_API_KEY',
+      'BS_OPENAI_API_KEY',
+      'OPENAI_API_KEY',
+      'AI_OPENAI_API_KEY',
+      'OPENAI_API_KEY_V1',
+      'OPENAI_API_KEY_V2',
+    ];
 
     clearCachedAgentClient();
 
-    expect(listAgentProviders()).toEqual(['openai', 'anthropic']);
-    expect(getAgentProviderEnvKeys('openai')).toEqual(['openai-KEY']);
+    let expectedProviders = fallbackProviders;
+    let expectedOpenAiKeys = fallbackOpenAiKeys;
+
+    try {
+      const agentClient = requireForTest('@brainstrike/agent/client') as {
+        listProviders: () => { id: string }[];
+        providerEnvKeys: (provider: string) => string[];
+      };
+      expectedProviders = agentClient.listProviders().map((provider) => provider.id);
+      expectedOpenAiKeys = agentClient.providerEnvKeys('openai');
+    } catch (err) {
+      const error = err as NodeJS.ErrnoException;
+      if (
+        error.code &&
+        error.code !== 'MODULE_NOT_FOUND' &&
+        error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED'
+      ) {
+        throw err;
+      }
+    }
+
+    expect(listAgentProviders()).toEqual(expectedProviders);
+    expect(getAgentProviderEnvKeys('openai')).toEqual(expectedOpenAiKeys);
   });
 });

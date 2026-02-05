@@ -1,26 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const spawnMock = vi.fn();
-const handleFilesystemList = vi.fn(async () => ({ ok: 'list' }));
-const handleFilesystemRead = vi.fn(async () => ({ ok: 'read' }));
-const handleFilesystemSearch = vi.fn(async () => ({ ok: 'search' }));
-const resolveBaseDirFromArgs = vi.fn(() => '/root');
-const normalizeRootDir = vi.fn((value: string) => value);
-
-vi.mock('node:child_process', () => ({
-  spawn: (...args: unknown[]) => spawnMock(...args),
+const childProcessMocks = vi.hoisted(() => ({
+  spawnMock: vi.fn(),
+}));
+const fsToolsMocks = vi.hoisted(() => ({
+  handleFilesystemList: vi.fn(async () => ({ ok: 'list' })),
+  handleFilesystemRead: vi.fn(async () => ({ ok: 'read' })),
+  handleFilesystemSearch: vi.fn(async () => ({ ok: 'search' })),
+}));
+const pathMocks = vi.hoisted(() => ({
+  resolveBaseDirFromArgs: vi.fn(() => '/root'),
+  normalizeRootDir: vi.fn((value: string) => value),
 }));
 
-vi.mock('../../mcp/fs-tools', () => ({
-  handleFilesystemList,
-  handleFilesystemRead,
-  handleFilesystemSearch,
-}));
+const { spawnMock } = childProcessMocks;
+const { handleFilesystemList, handleFilesystemRead, handleFilesystemSearch } = fsToolsMocks;
 
-vi.mock('../../mcp/paths', () => ({
-  resolveBaseDirFromArgs,
-  normalizeRootDir,
-}));
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return {
+    ...actual,
+    spawn: (...args: unknown[]) => spawnMock(...args),
+    default: actual,
+  };
+});
+
+vi.mock('../../mcp/fs-tools', () => fsToolsMocks);
+
+vi.mock('../../mcp/paths', () => pathMocks);
 
 import { createFilesystemClientFromStdio } from '../../mcp/stdio-client';
 
