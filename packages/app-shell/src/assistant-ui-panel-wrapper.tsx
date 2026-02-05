@@ -114,50 +114,38 @@ function resolveGoogleThinkingLevel(
 }
 
 function buildOpenAiOptions(
-  providerId: SupportedProvider,
   settings: AssistantProviderSettings
-): RuntimeData['providerOptions'] {
-  if (!(providerId === 'openai' || providerId === 'openrouter')) {
-    return;
-  }
-  const openaiOptions: OpenAiProviderOptions = {};
+): OpenAiProviderOptions | undefined {
+  const options: OpenAiProviderOptions = {};
   if (settings.reasoningEffort) {
-    openaiOptions['reasoningEffort'] = settings.reasoningEffort;
+    options['reasoningEffort'] = settings.reasoningEffort;
   }
   if (settings.reasoningSummary) {
-    openaiOptions['reasoningSummary'] = settings.reasoningSummary;
+    options['reasoningSummary'] = settings.reasoningSummary;
   }
-  return Object.keys(openaiOptions).length > 0 ? { openai: openaiOptions } : undefined;
+  return Object.keys(options).length > 0 ? options : undefined;
 }
 
 function buildAnthropicOptions(
-  providerId: SupportedProvider,
   settings: AssistantProviderSettings
-): RuntimeData['providerOptions'] {
-  if (providerId !== 'anthropic') {
-    return;
-  }
-  const anthropicOptions: AnthropicProviderOptions = {};
+): AnthropicProviderOptions | undefined {
+  const options: AnthropicProviderOptions = {};
   if (settings.anthropicEffort) {
-    anthropicOptions['effort'] = settings.anthropicEffort;
+    options['effort'] = settings.anthropicEffort;
   }
   if (typeof settings.anthropicThinkingBudgetTokens === 'number') {
-    anthropicOptions['thinking'] = {
+    options['thinking'] = {
       type: 'enabled',
       budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
     };
   }
-  return Object.keys(anthropicOptions).length > 0 ? { anthropic: anthropicOptions } : undefined;
+  return Object.keys(options).length > 0 ? options : undefined;
 }
 
 function buildGoogleOptions(
-  providerId: SupportedProvider,
   modelName: string | undefined,
   settings: AssistantProviderSettings
-): RuntimeData['providerOptions'] {
-  if (providerId !== 'google') {
-    return;
-  }
+): GoogleProviderOptions | undefined {
   const thinkingConfig: NonNullable<GoogleProviderOptions['thinkingConfig']> = {};
   const resolvedLevel = resolveGoogleThinkingLevel(modelName, settings.googleThinkingLevel);
   if (resolvedLevel) {
@@ -169,7 +157,7 @@ function buildGoogleOptions(
   if (Object.keys(thinkingConfig).length === 0) {
     return;
   }
-  return { google: { thinkingConfig } };
+  return { thinkingConfig };
 }
 
 function buildProviderOptions(
@@ -181,22 +169,23 @@ function buildProviderOptions(
     return;
   }
 
-  const openai = buildOpenAiOptions(providerId, settings);
-  if (openai) {
-    return openai;
+  switch (providerId) {
+    case 'openai':
+    case 'openrouter': {
+      const openai = buildOpenAiOptions(settings);
+      return openai ? { openai } : undefined;
+    }
+    case 'anthropic': {
+      const anthropic = buildAnthropicOptions(settings);
+      return anthropic ? { anthropic } : undefined;
+    }
+    case 'google': {
+      const google = buildGoogleOptions(modelName, settings);
+      return google ? { google } : undefined;
+    }
+    default:
+      return;
   }
-
-  const anthropic = buildAnthropicOptions(providerId, settings);
-  if (anthropic) {
-    return anthropic;
-  }
-
-  const google = buildGoogleOptions(providerId, modelName, settings);
-  if (google) {
-    return google;
-  }
-
-  return;
 }
 
 export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ initialProviders }) => {

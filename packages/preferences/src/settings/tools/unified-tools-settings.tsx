@@ -29,6 +29,38 @@ import type {
 
 const logger = createLogger('UnifiedToolsSettings');
 
+function areToolsEqual(
+  nextTools: ToolDisplayMetadata[],
+  previousTools: ToolDisplayMetadata[]
+): boolean {
+  if (nextTools.length !== previousTools.length) {
+    return false;
+  }
+
+  for (let index = 0; index < nextTools.length; index += 1) {
+    const nextTool = nextTools[index];
+    const previousTool = previousTools[index];
+    if (!(nextTool && previousTool)) {
+      return false;
+    }
+    if (
+      nextTool.id !== previousTool.id ||
+      nextTool.source !== previousTool.source ||
+      nextTool.category !== previousTool.category ||
+      nextTool.loadingTier !== previousTool.loadingTier ||
+      nextTool.description !== previousTool.description ||
+      nextTool.enabled !== previousTool.enabled ||
+      nextTool.estimatedTokens !== previousTool.estimatedTokens ||
+      nextTool.requiresApproval !== previousTool.requiresApproval ||
+      nextTool.serverName !== previousTool.serverName
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 interface ToolsErrorFallbackProps {
   onRetry: () => void;
 }
@@ -93,7 +125,7 @@ export function UnifiedToolsSettings({
         operations.getTools(),
         operations.getStats(),
       ]);
-      setTools(toolsData);
+      setTools((current) => (areToolsEqual(toolsData, current) ? current : toolsData));
       setStats(statsData);
 
       if (mcpAvailable && operations.getMcpServerStatus) {
@@ -117,6 +149,14 @@ export function UnifiedToolsSettings({
   }, [loadData]);
 
   const handleErrorBoundaryReset = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setTools([]);
+    setStats(null);
+    setMcpServers([]);
+    setMcpConfigInfo(null);
+    setExpandedToolId(null);
+    serverStatusRef.current = new Map();
     setErrorBoundaryKey((prev) => prev + 1);
     void loadData();
   }, [loadData]);

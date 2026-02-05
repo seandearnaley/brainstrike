@@ -228,6 +228,8 @@ export function ToolPlayground({
     }
   }, [input, onExecute]);
 
+  const parseErrorId = `tool-playground-${toolId}-parse-error`;
+
   return (
     <div className="space-y-3" data-testid={`tool-playground-${toolId}`}>
       {/* Schema Information */}
@@ -266,6 +268,9 @@ export function ToolPlayground({
           </div>
         </div>
         <textarea
+          aria-describedby={parseError ? parseErrorId : undefined}
+          aria-invalid={Boolean(parseError)}
+          aria-label="Tool input JSON"
           className="h-32 w-full rounded-md border border-border bg-muted/30 p-2 font-mono text-xs"
           data-testid="json-input"
           onChange={(e) => handleInputChange(e.target.value)}
@@ -273,7 +278,7 @@ export function ToolPlayground({
           value={input}
         />
         {parseError && (
-          <p className="mt-1 text-destructive text-xs" data-testid="parse-error">
+          <p className="mt-1 text-destructive text-xs" data-testid="parse-error" id={parseErrorId}>
             {parseError}
           </p>
         )}

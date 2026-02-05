@@ -14,6 +14,89 @@ import { executeNativeTool, isExecutableNativeTool } from './native-tool-executo
 
 const logger = createLogger('IpcTools');
 
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+const MAX_INPUT_DEPTH = 12;
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function isJsonValue(value: unknown, depth: number, visited: WeakSet<object>): value is JsonValue {
+  if (depth > MAX_INPUT_DEPTH) {
+    return false;
+  }
+
+  if (value === null) {
+    return true;
+  }
+
+  const valueType = typeof value;
+  if (valueType === 'string' || valueType === 'boolean') {
+    return true;
+  }
+
+  if (valueType === 'number') {
+    return Number.isFinite(value);
+  }
+
+  if (valueType !== 'object') {
+    return false;
+  }
+
+  const objectValue = value as object;
+  if (visited.has(objectValue)) {
+    return false;
+  }
+  visited.add(objectValue);
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (!isJsonValue(item, depth + 1, visited)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  for (const entry of Object.values(value)) {
+    if (!isJsonValue(entry, depth + 1, visited)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function sanitizeMcpInput(
+  input: unknown
+): { ok: true; value: Record<string, JsonValue> } | { ok: false; error: string } {
+  if (!isPlainObject(input)) {
+    return {
+      ok: false,
+      error: 'Tool input must be a JSON object.',
+    };
+  }
+
+  const visited = new WeakSet<object>();
+  if (!isJsonValue(input, 0, visited)) {
+    return {
+      ok: false,
+      error: 'Tool input must be JSON-serializable (no functions, symbols, or non-finite numbers).',
+    };
+  }
+
+  return { ok: true, value: input as Record<string, JsonValue> };
+}
+
 /**
  * Result of executing a tool via IPC.
  */
@@ -57,7 +140,17 @@ export function registerToolsIpcHandlers(): void {
         }
 
         // Try MCP tool execution (for tools from MCP servers)
-        const result = await callTool(toolId, input as Record<string, unknown>);
+        const sanitizedInput = sanitizeMcpInput(input);
+        if (!sanitizedInput.ok) {
+          logger.warn('Rejected tool input', { toolId, error: sanitizedInput.error });
+          return {
+            success: false,
+            error: sanitizedInput.error,
+            durationMs: Math.round(performance.now() - startTime),
+          };
+        }
+
+        const result = await callTool(toolId, sanitizedInput.value);
 
         return {
           success: true,

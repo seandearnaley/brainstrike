@@ -161,6 +161,34 @@ describe('ipc-tools', () => {
       });
     });
 
+    it('rejects non-object MCP inputs before calling tool', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(false);
+
+      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', ['not', 'object']);
+
+      expect(callTool).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        success: false,
+        error: 'Tool input must be a JSON object.',
+      });
+    });
+
+    it('rejects non-serializable MCP inputs', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(false);
+      vi.mocked(isNativeTool).mockReturnValue(false);
+
+      const result = await toolsExecuteHandler(mockEvent, 'mcp__tool', {
+        value: () => {},
+      });
+
+      expect(callTool).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.stringContaining('JSON-serializable'),
+      });
+    });
+
     it('passes input as-is to MCP callTool', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(false);

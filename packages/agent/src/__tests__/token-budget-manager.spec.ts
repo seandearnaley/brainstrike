@@ -134,6 +134,22 @@ describe('TokenBudgetManager', () => {
       expect(result.selectedTools[0]?.id).toBe('retrieval.tool');
     });
 
+    it('prefers smaller tools when configured', () => {
+      const tools = [
+        createMockTool('large.tool', { category: 'action', estimatedTokens: 300 }),
+        createMockTool('small.tool', { category: 'action', estimatedTokens: 100 }),
+      ];
+
+      const result = manager.selectToolsWithinBudget(tools, 200, {
+        categoryOrder: ['action', 'retrieval', 'analysis', 'configuration', 'validation'],
+        preferSmaller: true,
+      });
+
+      expect(result.selectedTools).toHaveLength(1);
+      expect(result.selectedTools[0]?.id).toBe('small.tool');
+      expect(result.tokensUsed).toBe(100);
+    });
+
     it('handles empty tool list', () => {
       const result = manager.selectToolsWithinBudget([], 1000);
 

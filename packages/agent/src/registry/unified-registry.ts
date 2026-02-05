@@ -23,6 +23,10 @@ import {
 
 const logger = createLogger('UnifiedToolRegistry');
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Unified tool metadata that supports both native and MCP tools.
  */
@@ -674,16 +678,32 @@ export class UnifiedToolRegistry {
   }
 
   private extractDescription(tool: unknown): string {
-    if (tool && typeof tool === 'object' && 'description' in tool) {
-      return String(tool.description);
+    if (!isRecord(tool)) {
+      return 'No description available';
     }
+
+    if ('description' in tool) {
+      const description = tool['description'];
+      if (typeof description === 'string') {
+        return description;
+      }
+      if (description !== undefined && description !== null) {
+        return String(description);
+      }
+    }
+
     return 'No description available';
   }
 
   private extractInputSchema(tool: unknown): unknown {
-    if (tool && typeof tool === 'object' && 'inputSchema' in tool) {
-      return tool.inputSchema;
+    if (!isRecord(tool)) {
+      return undefined;
     }
+
+    if ('inputSchema' in tool) {
+      return tool['inputSchema'];
+    }
+
     return undefined;
   }
 

@@ -246,6 +246,7 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const [loading, setLoading] = useState<boolean>(Boolean(enabledOption ?? true));
   const [error, setError] = useState<Error | null>(null);
   const refreshRef = useRef<() => Promise<void>>(noopAsync);
+  const unsubscribeRef = useRef<Promise<void> | null>(null);
   const selectRef = useRef(select);
 
   useEffect(() => {
@@ -262,16 +263,21 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
     let cancelled = false;
     let subscription: LiveSubscription<T> | null = null;
 
-    if (!enabled) {
-      // Keep existing rows cached when disabled - don't clear to avoid UI flicker
-      // Only stop the subscription and mark as not loading
-      setError(null);
-      setLoading(false);
-      refreshRef.current = noopAsync;
-      return () => {
-        cancelled = true;
-      };
-    }
+    const waitForPendingUnsubscribe = async () => {
+      const pending = unsubscribeRef.current;
+      if (!pending) {
+        return;
+      }
+      try {
+        await pending;
+      } catch {
+        // Ignore unsubscribe failures; new subscription will still proceed.
+      } finally {
+        if (unsubscribeRef.current === pending) {
+          unsubscribeRef.current = null;
+        }
+      }
+    };
 
     const handleUpdate = (results: LiveQueryResults<T>) => {
       if (cancelled) {
@@ -281,50 +287,96 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
       setRows((selector ? selector(results.rows) : results.rows) as T[]);
     };
 
-    setLoading(true);
-    setError(null);
+    const resetDisabledState = () => {
+      setError(null);
+      setLoading(false);
+      refreshRef.current = noopAsync;
+    };
 
-    const normalizedOptions: InternalLiveQueryOptions = {
+    const applySubscriptionResult = (result: LiveSubscription<T>) => {
+      subscription = result;
+      refreshRef.current = async () => {
+        await result.refresh();
+      };
+      const selector = selectRef.current;
+      setRows(
+        (selector ? selector(result.initialResults.rows) : result.initialResults.rows) as T[]
+      );
+      setLoading(false);
+    };
+
+    const handleSubscriptionError = (err: unknown) => {
+      const normalized = err instanceof Error ? err : new Error(String(err));
+      setError(normalized);
+      setRows([]);
+      setLoading(false);
+      refreshRef.current = noopAsync;
+    };
+
+    const buildOptions = (): InternalLiveQueryOptions => ({
       query,
       mode,
       ...(params !== undefined ? { params } : {}),
       ...(offset !== undefined ? { offset } : {}),
       ...(limit !== undefined ? { limit } : {}),
       ...(key ? { key } : {}),
+    });
+
+    const unsubscribeCancelled = async (result: LiveSubscription<T>) => {
+      const pending = result.unsubscribe();
+      unsubscribeRef.current = pending;
+      try {
+        await pending;
+      } catch {
+        // Ignore unsubscribe errors during cancellation.
+      }
     };
 
-    void subscribeToLiveSource<T>(source as LiveSource, normalizedOptions, handleUpdate)
-      .then((result) => {
-        if (cancelled) {
-          void result.unsubscribe();
-          return;
-        }
-        subscription = result;
-        refreshRef.current = async () => {
-          await result.refresh();
-        };
-        const selector = selectRef.current;
-        setRows(
-          (selector ? selector(result.initialResults.rows) : result.initialResults.rows) as T[]
+    const startSubscription = async () => {
+      await waitForPendingUnsubscribe();
+      if (cancelled) {
+        return;
+      }
+
+      if (!enabled) {
+        // Keep existing rows cached when disabled - don't clear to avoid UI flicker
+        // Only stop the subscription and mark as not loading
+        resetDisabledState();
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
+      try {
+        const result = await subscribeToLiveSource<T>(
+          source as LiveSource,
+          buildOptions(),
+          handleUpdate
         );
-        setLoading(false);
-      })
-      .catch((err) => {
+        if (cancelled) {
+          await unsubscribeCancelled(result);
+          return;
+        }
+
+        applySubscriptionResult(result);
+      } catch (err) {
         if (cancelled) {
           return;
         }
-        const normalized = err instanceof Error ? err : new Error(String(err));
-        setError(normalized);
-        setRows([]);
-        setLoading(false);
-        refreshRef.current = noopAsync;
-      });
+        handleSubscriptionError(err);
+      }
+    };
+
+    void startSubscription();
 
     return () => {
       cancelled = true;
       refreshRef.current = noopAsync;
       if (subscription) {
-        void subscription.unsubscribe();
+        const pending = subscription.unsubscribe();
+        unsubscribeRef.current = pending;
+        void pending.catch(() => {});
       }
     };
   }, [enabled, mode, key, limit, offset, params, query, source]);
