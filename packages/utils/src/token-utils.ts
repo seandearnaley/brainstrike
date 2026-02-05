@@ -326,7 +326,10 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
     const YIELD_THRESHOLD_MS = 5;
 
     for (let i = 0; i < texts.length; i++) {
-      total += encoder(texts[i]).length;
+      const text = texts[i];
+      if (text) {
+        total += encoder(text).length;
+      }
 
       // Yield every 20 items if time threshold exceeded to avoid blocking the event loop
       if (i % 20 === 0) {
