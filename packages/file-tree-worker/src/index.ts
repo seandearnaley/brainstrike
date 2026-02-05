@@ -105,21 +105,6 @@ function describeImportMeta(meta: ImportMetaLike | null): string {
   return `${urlDescription}; ${dirnameDescription}`;
 }
 
-function resolveWorkerUrl(workerPath: string, workerName: string): URL {
-  const meta = getImportMeta();
-  if (meta && typeof meta.url === 'string') {
-    return new URL(workerPath, meta.url);
-  }
-  if (meta && typeof meta.dirname === 'string') {
-    return new URL(workerPath, `file://${meta.dirname}/`);
-  }
-  const context = describeImportMeta(meta);
-  throw new Error(
-    `Unable to resolve ${workerName} worker URL in this runtime. Context: ${context}. ` +
-      'This package must be imported as ESM, not CommonJS.'
-  );
-}
-
 /**
  * Resolve the file tree worker URL that Vite/bundlers can turn into a Worker reference.
  * Uses the MDN-recommended `new URL(..., import.meta.url)` pattern for bundlers.
@@ -132,5 +117,34 @@ function resolveWorkerUrl(workerPath: string, workerName: string): URL {
  * ```
  */
 export function resolveFileTreeWorkerUrl(): URL {
-  return resolveWorkerUrl('./file-tree.worker.js', 'file tree');
+  const override = readImportMetaOverride();
+  if (override) {
+    if (typeof override.url === 'string') {
+      return new URL('./file-tree.worker.js', override.url);
+    }
+    if (typeof override.dirname === 'string') {
+      return new URL('./file-tree.worker.js', `file://${override.dirname}/`);
+    }
+    const context = describeImportMeta(override);
+    throw new Error(
+      `Unable to resolve file tree worker URL in this runtime. Context: ${context}. ` +
+        'This package must be imported as ESM, not CommonJS.'
+    );
+  }
+
+  // Keep this literal form so bundlers rewrite to the emitted worker asset.
+  if (typeof import.meta.url === 'string') {
+    return new URL('./file-tree.worker.js', import.meta.url);
+  }
+
+  const meta = getImportMeta();
+  if (meta && typeof meta.dirname === 'string') {
+    return new URL('./file-tree.worker.js', `file://${meta.dirname}/`);
+  }
+
+  const context = describeImportMeta(meta);
+  throw new Error(
+    `Unable to resolve file tree worker URL in this runtime. Context: ${context}. ` +
+      'This package must be imported as ESM, not CommonJS.'
+  );
 }

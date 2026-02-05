@@ -56,26 +56,40 @@ function describeImportMeta(meta: ImportMetaLike | null): string {
   return `${urlDescription}; ${dirnameDescription}`;
 }
 
-function resolveWorkerUrl(workerPath: string, workerName: string): URL {
-  const meta = getImportMeta();
-  if (meta && typeof meta.url === 'string') {
-    return new URL(workerPath, meta.url);
-  }
-  if (meta && typeof meta.dirname === 'string') {
-    return new URL(workerPath, `file://${meta.dirname}/`);
-  }
-  const context = describeImportMeta(meta);
-  throw new Error(
-    `Unable to resolve ${workerName} worker URL in this runtime. Context: ${context}. ` +
-      'This package must be imported as ESM, not CommonJS.'
-  );
-}
-
 /**
  * Resolve the module worker URL that Vite/Rspack can turn into a `Worker` reference at runtime.
  * The `new URL(..., import.meta.url)` pattern is the MDN-recommended approach for bundlers.
  * Source: https://developer.mozilla.org/docs/Web/API/Worker/Worker#syntax
  */
 export function resolveEmbeddingWorkerUrl(): URL {
-  return resolveWorkerUrl('./embedding.worker.js', 'embedding');
+  const override = readImportMetaOverride();
+  if (override) {
+    if (typeof override.url === 'string') {
+      return new URL('./embedding.worker.js', override.url);
+    }
+    if (typeof override.dirname === 'string') {
+      return new URL('./embedding.worker.js', `file://${override.dirname}/`);
+    }
+    const context = describeImportMeta(override);
+    throw new Error(
+      `Unable to resolve embedding worker URL in this runtime. Context: ${context}. ` +
+        'This package must be imported as ESM, not CommonJS.'
+    );
+  }
+
+  // Keep this literal form so bundlers rewrite to the emitted worker asset.
+  if (typeof import.meta.url === 'string') {
+    return new URL('./embedding.worker.js', import.meta.url);
+  }
+
+  const meta = getImportMeta();
+  if (meta && typeof meta.dirname === 'string') {
+    return new URL('./embedding.worker.js', `file://${meta.dirname}/`);
+  }
+
+  const context = describeImportMeta(meta);
+  throw new Error(
+    `Unable to resolve embedding worker URL in this runtime. Context: ${context}. ` +
+      'This package must be imported as ESM, not CommonJS.'
+  );
 }
