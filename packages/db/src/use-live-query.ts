@@ -38,6 +38,13 @@ type InternalLiveQueryOptions = BaseLiveQueryOptions & {
 };
 
 export type UsePGliteLiveQueryOptions<T> = (IncrementalOptions | StandardOptions) & {
+  /**
+   * IMPORTANT: Memoize this callback to avoid unnecessary row recomputation.
+   *
+   * @example
+   * const select = useCallback((rows) => rows.filter((row) => row.enabled), []);
+   * usePGliteLiveQuery({ query: '...', select });
+   */
   readonly select?: (rows: T[]) => T[];
 };
 

@@ -741,10 +741,19 @@ export class UnifiedToolRegistry {
       return true;
     }
 
-    // Support glob-style wildcards
-    const regexPattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
-    const regex = new RegExp(`^${regexPattern}$`);
-    return regex.test(toolId);
+    const escapedPattern = pattern.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+    const regexPattern = escapedPattern.replace(/\*/g, '.*').replace(/\?/g, '.');
+
+    try {
+      const regex = new RegExp(`^${regexPattern}$`);
+      return regex.test(toolId);
+    } catch (error) {
+      logger.warn('Invalid tool pattern provided', {
+        pattern,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
   }
 
   private notifyListeners(): void {

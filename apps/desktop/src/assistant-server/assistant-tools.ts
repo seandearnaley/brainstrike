@@ -93,8 +93,7 @@ function getDirName(path: string): string {
   if (parts.length === 0) {
     return normalized === '/' ? '/' : normalized;
   }
-  // biome-ignore lint/style/useAtIndex: explicit index keeps bounds check clear for empty paths
-  return parts[parts.length - 1] ?? normalized;
+  return parts.at(-1) ?? normalized;
 }
 
 function normalizeText(value: string | null | undefined): string | undefined {

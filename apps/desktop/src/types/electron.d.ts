@@ -107,6 +107,7 @@ declare global {
         exists: boolean;
         servers?: { name: string; transport: 'stdio' | 'sse' }[];
         loadedAt?: number;
+        error?: string;
       }>;
       watch: () => Promise<{ watching: boolean }>;
       unwatch: () => Promise<{ watching: false }>;

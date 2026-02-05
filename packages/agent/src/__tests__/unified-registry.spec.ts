@@ -272,6 +272,21 @@ describe('UnifiedToolRegistry', () => {
       expect(tools).toHaveLength(2);
     });
 
+    it('treats regex metacharacters as literals in patterns', () => {
+      registry.registerNativeTool({
+        id: 'tool[abc]',
+        description: 'Pattern-safe tool',
+      });
+
+      const tools = registry.getFilteredTools({ patterns: ['tool[abc]'] });
+      expect(tools).toHaveLength(1);
+      expect(tools[0]?.id).toBe('tool[abc]');
+    });
+
+    it('does not throw when patterns contain invalid regex fragments', () => {
+      expect(() => registry.getFilteredTools({ patterns: ['tool[1'] })).not.toThrow();
+    });
+
     it('excludes patterns', () => {
       const tools = registry.getFilteredTools({ excludePatterns: ['action.*'] });
       expect(tools).toHaveLength(2);

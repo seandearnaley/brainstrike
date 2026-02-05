@@ -130,4 +130,20 @@ describe('mcp-loader', () => {
     const missing = await loadMcpConfig();
     expect(missing.exists).toBe(false);
   });
+
+  it('reports parse errors without treating config as missing', async () => {
+    const { getMcpConfigPath, loadMcpConfig, setCustomMcpConfigPath } = await import(
+      '../../mcp-loader'
+    );
+
+    await setCustomMcpConfigPath(null);
+    const configPath = await getMcpConfigPath();
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, '{ invalid json }', 'utf-8');
+
+    const loaded = await loadMcpConfig();
+    expect(loaded.exists).toBe(true);
+    expect(loaded.config).toBeUndefined();
+    expect(loaded.error).toBeDefined();
+  });
 });

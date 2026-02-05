@@ -114,6 +114,7 @@ export interface LoadedMcpConfig {
   config?: McpConfig;
   servers?: McpServer[];
   loadedAt?: number;
+  error?: string;
 }
 
 let customConfigPath: string | null = null;
@@ -262,9 +263,14 @@ export async function loadMcpConfig(): Promise<LoadedMcpConfig> {
     const cfg = parseMcpConfig(text);
     const dec = withDecryptedSecrets(cfg);
     return { path: p, exists: true, config: dec, servers: dec.servers, loadedAt: Date.now() };
-  } catch {
-    // Return exists: false for any error (ENOENT, parse errors, etc.)
-    return { path: p, exists: false };
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    const message = error instanceof Error ? error.message : String(error);
+    if (code === 'ENOENT' || message.includes('no such file or directory')) {
+      return { path: p, exists: false };
+    }
+    logger.error('Failed to load MCP config', { path: p, code, error: message });
+    return { path: p, exists: true, error: message };
   }
 }
 

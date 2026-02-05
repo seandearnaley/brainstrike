@@ -165,6 +165,11 @@ export function UnifiedToolsSettings({
       if (operations.getMcpConfigInfo) {
         const configInfo = await operations.getMcpConfigInfo();
         setMcpConfigInfo(configInfo);
+        if (configInfo?.error) {
+          lastMcpErrorRef.current = configInfo.error;
+          setErrorState(configInfo.error);
+          return;
+        }
       }
       if (lastMcpErrorRef.current) {
         const previousError = lastMcpErrorRef.current;

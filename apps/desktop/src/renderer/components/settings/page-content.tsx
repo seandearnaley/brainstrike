@@ -203,6 +203,7 @@ export default function SettingsPageContent() {
         return {
           path: config.path,
           exists: config.exists,
+          ...(config.error ? { error: config.error } : {}),
         };
       },
       createSampleConfig: async () => {

@@ -187,6 +187,8 @@ export interface McpConfigInfo {
   path: string;
   /** Whether the config file exists */
   exists: boolean;
+  /** Optional config load or parse error */
+  error?: string;
 }
 
 /**

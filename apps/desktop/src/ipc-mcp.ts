@@ -30,12 +30,27 @@ const logger = createLogger('DesktopMcpIpc');
 function handleConfigChange(cfg: LoadedMcpConfig): void {
   last = cfg;
   mcpToolRegistry.clear();
+  if (cfg.error) {
+    logger.error('MCP config could not be loaded', {
+      path: cfg.path,
+      error: cfg.error,
+    });
+  }
   if (cfg.config) {
     initClients(cfg.config);
     void discoverToolsFromConfig(cfg.config);
   } else {
     void disposeClients();
   }
+}
+
+async function restartConfigWatcher(): Promise<void> {
+  if (unwatch) {
+    unwatch();
+    unwatch = null;
+  }
+  const watcher = await watchMcpConfig(handleConfigChange);
+  unwatch = () => watcher.close();
 }
 
 export function registerMcpIpcHandlers(): void {
@@ -67,12 +82,7 @@ export function registerMcpIpcHandlers(): void {
       handleConfigChange(await loadMcpConfig());
 
       // Restart the watcher to watch the new path
-      if (unwatch) {
-        unwatch();
-        unwatch = null;
-      }
-      const w = await watchMcpConfig(handleConfigChange);
-      unwatch = () => w.close();
+      await restartConfigWatcher();
 
       return { success: true, path: newPath };
     }
@@ -208,20 +218,32 @@ export function registerMcpIpcHandlers(): void {
         // Ensure directory exists
         const fsp = await import('node:fs/promises');
         const path = await import('node:path');
+        const exists = await fsp
+          .access(configPath)
+          .then(() => true)
+          .catch((error: unknown) => {
+            if ((error as { code?: unknown }).code === 'ENOENT') {
+              return false;
+            }
+            throw error;
+          });
+
+        if (exists) {
+          const error =
+            'MCP config already exists. Select the existing file or reset the path before creating a sample.';
+          logger.warn('Refusing to overwrite existing MCP config', { path: configPath });
+          return { success: false, path: configPath, error };
+        }
+
         await fsp.mkdir(path.dirname(configPath), { recursive: true });
 
         // Write sample config
         await fsp.writeFile(configPath, JSON.stringify(sampleConfig, null, 2), 'utf-8');
         logger.info('Created sample MCP config', { path: configPath });
 
-        // Clear existing tools and reload config
-        mcpToolRegistry.clear();
-        last = await loadMcpConfig();
-
-        if (last.config) {
-          initClients(last.config);
-          void discoverToolsFromConfig(last.config);
-        }
+        // Clear existing tools, reload config, and ensure file watcher tracks the new file.
+        handleConfigChange(await loadMcpConfig());
+        await restartConfigWatcher();
 
         return { success: true, path: configPath };
       } catch (error) {
@@ -243,9 +265,15 @@ async function discoverMcpToolsOnStartup(): Promise<void> {
     logger.debug('Loaded MCP config for discovery', { loaded });
 
     if (!(loaded.exists && loaded.config)) {
-      // Config missing - clear registry to prevent stale tools
       mcpToolRegistry.clear();
-      logger.info('MCP config missing, cleared tool registry');
+      if (loaded.exists && loaded.error) {
+        logger.error('MCP config invalid, cleared tool registry', {
+          path: loaded.path,
+          error: loaded.error,
+        });
+      } else {
+        logger.info('MCP config missing, cleared tool registry');
+      }
       return;
     }
 

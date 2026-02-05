@@ -65,6 +65,61 @@ export type {
   WorkerToMainMessage,
 } from './types';
 
+interface ImportMetaLike {
+  url?: string;
+  dirname?: string;
+}
+
+const IMPORT_META_OVERRIDE_KEY = '__BRAINSTRIKE_IMPORT_META__';
+
+function readImportMetaOverride(): ImportMetaLike | null {
+  const override = (globalThis as Record<string, unknown>)[IMPORT_META_OVERRIDE_KEY];
+  if (!override || typeof override !== 'object') {
+    return null;
+  }
+  const importMeta = override as ImportMetaLike;
+  return importMeta;
+}
+
+function getImportMeta(): ImportMetaLike | null {
+  const override = readImportMetaOverride();
+  if (override) {
+    return override;
+  }
+  if (typeof import.meta !== 'undefined') {
+    return import.meta as ImportMetaLike;
+  }
+  return null;
+}
+
+function describeImportMeta(meta: ImportMetaLike | null): string {
+  if (!meta) {
+    return 'import.meta is undefined (CommonJS context?)';
+  }
+  const urlDescription =
+    typeof meta.url === 'string' ? `import.meta.url: ${meta.url}` : 'import.meta.url is undefined';
+  const dirnameDescription =
+    typeof meta.dirname === 'string'
+      ? `import.meta.dirname: ${meta.dirname}`
+      : 'import.meta.dirname is undefined';
+  return `${urlDescription}; ${dirnameDescription}`;
+}
+
+function resolveWorkerUrl(workerPath: string, workerName: string): URL {
+  const meta = getImportMeta();
+  if (meta && typeof meta.url === 'string') {
+    return new URL(workerPath, meta.url);
+  }
+  if (meta && typeof meta.dirname === 'string') {
+    return new URL(workerPath, `file://${meta.dirname}/`);
+  }
+  const context = describeImportMeta(meta);
+  throw new Error(
+    `Unable to resolve ${workerName} worker URL in this runtime. Context: ${context}. ` +
+      'This package must be imported as ESM, not CommonJS.'
+  );
+}
+
 /**
  * Resolve the file tree worker URL that Vite/bundlers can turn into a Worker reference.
  * Uses the MDN-recommended `new URL(..., import.meta.url)` pattern for bundlers.
@@ -77,11 +132,5 @@ export type {
  * ```
  */
 export function resolveFileTreeWorkerUrl(): URL {
-  if (typeof import.meta !== 'undefined' && typeof import.meta.url === 'string') {
-    return new URL('./file-tree.worker.js', import.meta.url);
-  }
-  if (typeof import.meta.dirname === 'string') {
-    return new URL('./file-tree.worker.js', `file://${import.meta.dirname}/`);
-  }
-  throw new Error('Unable to resolve file tree worker URL in this runtime');
+  return resolveWorkerUrl('./file-tree.worker.js', 'file tree');
 }

@@ -590,5 +590,66 @@ describe('ipc-mcp handlers', () => {
 
       await fsp.rm(tempDir, { recursive: true, force: true });
     });
+
+    it('refuses to overwrite an existing config file', async () => {
+      const fsp = await import('node:fs/promises');
+      const tempDir = await fsp.mkdtemp('/tmp/mcp-sample-existing-');
+      const samplePath = `${tempDir}/mcp.config.json`;
+      const originalContent =
+        '{"servers":[{"transport":"stdio","name":"existing","command":"node"}]}';
+
+      await fsp.writeFile(samplePath, originalContent, 'utf8');
+      vi.mocked(getMcpConfigPath).mockResolvedValue(samplePath as never);
+
+      const handler = handlers.get('mcp:config:createSample');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const result = await handler();
+
+      expect(result).toEqual({
+        success: false,
+        path: samplePath,
+        error:
+          'MCP config already exists. Select the existing file or reset the path before creating a sample.',
+      });
+      expect(await fsp.readFile(samplePath, 'utf8')).toBe(originalContent);
+
+      await fsp.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('restarts watcher after creating sample config', async () => {
+      const fsp = await import('node:fs/promises');
+      const tempDir = await fsp.mkdtemp('/tmp/mcp-sample-watch-');
+      const samplePath = `${tempDir}/mcp.config.json`;
+      const firstWatcher = { close: vi.fn() };
+      const secondWatcher = { close: vi.fn() };
+
+      vi.mocked(watchMcpConfig)
+        .mockResolvedValueOnce(firstWatcher as never)
+        .mockResolvedValueOnce(secondWatcher as never);
+      vi.mocked(getMcpConfigPath).mockResolvedValue(samplePath as never);
+      vi.mocked(loadMcpConfig).mockResolvedValue({
+        path: samplePath,
+        exists: true,
+        config: { servers: [] },
+      } as never);
+
+      const watchHandler = handlers.get('mcp:config:watch');
+      const createSampleHandler = handlers.get('mcp:config:createSample');
+      if (!(watchHandler && createSampleHandler)) {
+        throw new Error('handlers not registered');
+      }
+
+      await watchHandler({});
+      const result = await createSampleHandler();
+
+      expect(result).toEqual({ success: true, path: samplePath });
+      expect(firstWatcher.close).toHaveBeenCalledTimes(1);
+      expect(watchMcpConfig).toHaveBeenCalledTimes(2);
+
+      await fsp.rm(tempDir, { recursive: true, force: true });
+    });
   });
 });
