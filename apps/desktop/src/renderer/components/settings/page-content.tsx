@@ -11,6 +11,7 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
   type ToolDisplayMetadata,
+  type ToolExecutionResult,
   useNativeToolPreferencesStore,
 } from '@brainstrike/preferences';
 import { FileCog, Layers } from 'lucide-react';
@@ -212,14 +213,26 @@ export default function SettingsPageContent() {
         }
         return result;
       },
-      executeToolTest: async (toolId: string, input: unknown) => {
+      executeToolTest: async (toolId: string, input: unknown): Promise<ToolExecutionResult> => {
         // Execute tool via IPC bridge to main process
         if (window.tools?.execute) {
-          return window.tools.execute(toolId, input);
+          const result = await window.tools.execute(toolId, input);
+          if (result.success) {
+            return {
+              success: true as const,
+              result: result.result,
+              durationMs: result.durationMs,
+            };
+          }
+          return {
+            success: false as const,
+            error: result.error ?? 'Tool execution failed',
+            durationMs: result.durationMs,
+          };
         }
         // Fallback if tools API not available
         return {
-          success: false,
+          success: false as const,
           error: 'Tool execution API not available',
           durationMs: 0,
         };

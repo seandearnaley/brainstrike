@@ -3,6 +3,7 @@ import {
   loadToolPreferences,
   mcpToolRegistry,
   saveToolPreferences,
+  type ToolPreferences,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils';
 import type { IpcMainInvokeEvent } from 'electron';
@@ -364,7 +365,9 @@ async function saveToolPreferencesIfNeeded(): Promise<void> {
 
 async function loadToolPreferencesOnStartup(): Promise<void> {
   try {
-    const preferences = await loadToolPreferences(app.getPath('userData'));
+    const preferences = (await loadToolPreferences(app.getPath('userData'))) as
+      | ToolPreferences
+      | undefined;
     if (!preferences) {
       return;
     }
@@ -372,8 +375,8 @@ async function loadToolPreferencesOnStartup(): Promise<void> {
     const registeredIds = new Set(getFlattenedTools().map((t) => t.id));
 
     // Filter to valid tool IDs only (prevents stale preferences)
-    const validEnabled = preferences.enabledTools.filter((id) => registeredIds.has(id));
-    const validDisabled = preferences.disabledTools.filter((id) => registeredIds.has(id));
+    const validEnabled = preferences.enabledTools.filter((id: string) => registeredIds.has(id));
+    const validDisabled = preferences.disabledTools.filter((id: string) => registeredIds.has(id));
 
     const staleCount =
       preferences.enabledTools.length -

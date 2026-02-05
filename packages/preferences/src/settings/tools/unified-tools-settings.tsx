@@ -333,35 +333,38 @@ export function UnifiedToolsSettings({
     [serverStatusMap]
   );
 
+  const searchableTools = useMemo(
+    () =>
+      tools.map((tool) => ({
+        tool,
+        searchText: [tool.id, tool.description, tool.serverName ?? ''].join(' ').toLowerCase(),
+      })),
+    [tools]
+  );
+
   // Filter tools
   const filteredTools = useMemo(() => {
     const queryLower = searchQuery.trim().toLowerCase();
     const hasQuery = queryLower.length > 0;
 
-    return tools.filter((tool) => {
-      if (categoryFilter !== 'all' && tool.category !== categoryFilter) {
-        return false;
-      }
+    return searchableTools
+      .filter(({ tool, searchText }) => {
+        if (categoryFilter !== 'all' && tool.category !== categoryFilter) {
+          return false;
+        }
 
-      if (tierFilter !== 'all' && tool.loadingTier !== tierFilter) {
-        return false;
-      }
+        if (tierFilter !== 'all' && tool.loadingTier !== tierFilter) {
+          return false;
+        }
 
-      if (!hasQuery) {
-        return true;
-      }
+        if (!hasQuery) {
+          return true;
+        }
 
-      const idLower = tool.id.toLowerCase();
-      const descriptionLower = tool.description.toLowerCase();
-      const serverLower = tool.serverName?.toLowerCase() ?? '';
-
-      return (
-        idLower.includes(queryLower) ||
-        descriptionLower.includes(queryLower) ||
-        serverLower.includes(queryLower)
-      );
-    });
-  }, [tools, searchQuery, categoryFilter, tierFilter]);
+        return searchText.includes(queryLower);
+      })
+      .map(({ tool }) => tool);
+  }, [searchableTools, searchQuery, categoryFilter, tierFilter]);
 
   // Group filtered tools
   const toolGroups = useMemo(() => groupTools(filteredTools), [filteredTools]);

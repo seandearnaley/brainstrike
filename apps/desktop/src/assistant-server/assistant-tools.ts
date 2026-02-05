@@ -48,6 +48,22 @@ const logger = createLogger('DesktopAssistantTools');
 
 const EMBEDDINGS_QUEUE_NAME = 'embeddings';
 
+function isPGliteDatabase(value: unknown): value is PGlite {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as { query?: unknown; exec?: unknown };
+  return typeof candidate.query === 'function' && typeof candidate.exec === 'function';
+}
+
+async function getPGliteDatabase(): Promise<PGlite> {
+  const db = await getDatabase();
+  if (!isPGliteDatabase(db)) {
+    throw new Error('Database instance is not a valid PGlite client.');
+  }
+  return db;
+}
+
 function normalizePath(value: string): string {
   const trimmed = value.trim().replace(/\\/g, '/');
   if (trimmed === '/') {
@@ -356,7 +372,7 @@ async function buildQueueSnapshot(
 function createEmbeddingSetsDeps(): EmbeddingSetsToolDependencies {
   return {
     listSets: async () => {
-      const db = (await getDatabase()) as unknown as PGlite;
+      const db = await getPGliteDatabase();
       return await createEmbeddingSetsRepository(db).findAll();
     },
     createSet: async (modelKey: string, name: string, description?: string) => {
@@ -369,7 +385,7 @@ function createEmbeddingSetsDeps(): EmbeddingSetsToolDependencies {
         throw new Error(EMBEDDING_SETS_ERROR_MESSAGES.invalidModelKey);
       }
 
-      const db = (await getDatabase()) as unknown as PGlite;
+      const db = await getPGliteDatabase();
       const repo = createEmbeddingSetsRepository(db);
 
       const providerMetadata = resolveHostedProviderMetadata(parsed.provider, parsed.modelId);
@@ -401,7 +417,7 @@ function createEmbeddingSetsDeps(): EmbeddingSetsToolDependencies {
       return { set, created: true };
     },
     getCoverageStats: async () => {
-      const db = (await getDatabase()) as unknown as PGlite;
+      const db = await getPGliteDatabase();
       const sets = await createEmbeddingSetsRepository(db).findAll();
       const chunkRepository = new FileChunkRepository(db);
 
@@ -605,9 +621,26 @@ function compareFileEntries(a: FileEntry, b: FileEntry): number {
   return a.name.localeCompare(b.name);
 }
 
+interface FileTreeListOptions {
+  pattern?: string;
+  maxDepth?: number;
+  includeHidden?: boolean;
+  limit?: number;
+}
+
+interface HybridSearchOptions {
+  embeddingSetId: string;
+  limit: number;
+  vectorWeight: number;
+  ftsWeight: number;
+  vectorThreshold?: number;
+  filePaths?: readonly string[];
+  chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
+}
+
 function createFileTreeDeps(): FileTreeToolDependencies {
   return {
-    listFiles: async (path: string, options) => {
+    listFiles: async (path: string, options: FileTreeListOptions) => {
       const normalizedDir = normalizePath(path);
       const prefix = normalizedDir === '/' ? '/' : normalizedDir ? `${normalizedDir}/` : '';
 
@@ -616,7 +649,7 @@ function createFileTreeDeps(): FileTreeToolDependencies {
       const limit = options.limit ?? 100;
       const pattern = options.pattern;
 
-      const db = (await getDatabase()) as unknown as PGlite;
+      const db = await getPGliteDatabase();
 
       const sqlLimit = Math.max(limit * 10, limit);
       const fileRecords = await fetchFileTreeRecords(db, prefix, sqlLimit);
@@ -652,12 +685,16 @@ function createFileTreeDeps(): FileTreeToolDependencies {
 function createHybridSearchDeps(): HybridSearchToolDependencies {
   return {
     generateQueryEmbedding: async (embeddingSetId: string, query: string) => {
-      const db = (await getDatabase()) as unknown as PGlite;
+      const db = await getPGliteDatabase();
       const { embedding } = await generateHostedQueryEmbedding(db, embeddingSetId, query);
       return embedding;
     },
-    performHybridSearch: async (queryText: string, queryEmbedding: number[], options) => {
-      const db = (await getDatabase()) as unknown as PGlite;
+    performHybridSearch: async (
+      queryText: string,
+      queryEmbedding: number[],
+      options: HybridSearchOptions
+    ) => {
+      const db = await getPGliteDatabase();
 
       const service = new HybridSearchService(new FileChunkRepository(db));
       const response = await service.search(queryText, queryEmbedding, {
@@ -700,7 +737,7 @@ function createHybridSearchDeps(): HybridSearchToolDependencies {
       return { results, metadata };
     },
     resolveFileRecords: async (fileRecordIds: string[]) => {
-      const db = (await getDatabase()) as unknown as PGlite;
+      const db = await getPGliteDatabase();
       const repo = new FileRecordRepository(db);
       const records = await repo.findByIds(fileRecordIds);
       const map = new Map<string, { id: string; name: string; path: string }>();
@@ -716,12 +753,12 @@ function createHybridSearchDeps(): HybridSearchToolDependencies {
 function createQueueStatusDeps(runtimeData: RuntimeData | undefined): QueueStatusToolDependencies {
   return {
     getQueueSnapshot: async (embeddingSetId: string | null) => {
-      const db = (await getDatabase()) as unknown as PGlite;
+      const db = await getPGliteDatabase();
       const resolvedSetId = embeddingSetId ?? runtimeData?.embeddingSetId ?? null;
       return await buildQueueSnapshot(db, resolvedSetId);
     },
     getEmbeddingSetName: async (embeddingSetId: string) => {
-      const db = (await getDatabase()) as unknown as PGlite;
+      const db = await getPGliteDatabase();
       const set = await createEmbeddingSetsRepository(db).getById(embeddingSetId);
       return set?.name;
     },
@@ -733,7 +770,7 @@ function createDiagnosticsDeps(runtimeData: RuntimeData | undefined): Diagnostic
   return {
     getDatabaseHealth: async () => {
       try {
-        const db = (await getDatabase()) as unknown as PGlite;
+        const db = await getPGliteDatabase();
         const [fileRecords, chunks, embeddings, sets] = await Promise.all([
           queryRows<{ count: string }>(db, 'SELECT COUNT(*)::text AS count FROM file_records'),
           queryRows<{ count: string }>(db, 'SELECT COUNT(*)::text AS count FROM file_chunks'),
@@ -766,7 +803,7 @@ function createDiagnosticsDeps(runtimeData: RuntimeData | undefined): Diagnostic
       }
     },
     getQueueHealth: async () => {
-      const db = (await getDatabase()) as unknown as PGlite;
+      const db = await getPGliteDatabase();
       const executor = createDbAdapter(db);
       const jobQueue = new JobQueue(executor);
       const stats = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE_NAME);

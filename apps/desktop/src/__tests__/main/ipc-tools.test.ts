@@ -32,7 +32,7 @@ import { executeNativeTool, isExecutableNativeTool } from '../../native-tool-exe
 describe('ipc-tools', () => {
   let toolsExecuteHandler: (
     event: IpcMainInvokeEvent,
-    toolId: string,
+    toolId: unknown,
     input: unknown
   ) => Promise<unknown>;
 
@@ -75,6 +75,15 @@ describe('ipc-tools', () => {
         success: true,
         result: { data: 'test' },
         durationMs: 10,
+      });
+    });
+
+    it('rejects invalid tool IDs', async () => {
+      const result = await toolsExecuteHandler(mockEvent, '   ', {});
+
+      expect(result).toMatchObject({
+        success: false,
+        error: 'Invalid tool ID.',
       });
     });
 

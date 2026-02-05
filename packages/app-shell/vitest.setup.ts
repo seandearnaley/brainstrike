@@ -1,6 +1,19 @@
 // Import shared test utilities setup
 import '../test-utils/src/vitest.setup';
 
+const actEnvironment = globalThis as typeof globalThis & {
+  IS_REACT_ACT_ENVIRONMENT?: boolean;
+};
+
+actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+if (typeof window !== 'undefined') {
+  const windowEnvironment = window as typeof window & {
+    IS_REACT_ACT_ENVIRONMENT?: boolean;
+  };
+  windowEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+}
+
 /**
  * Suppress act(...) warnings from Zustand store updates
  *

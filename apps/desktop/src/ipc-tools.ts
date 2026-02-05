@@ -119,12 +119,17 @@ function sanitizeMcpInput(
 /**
  * Result of executing a tool via IPC.
  */
-interface ToolExecutionResult {
-  success: boolean;
-  result?: unknown;
-  error?: string;
-  durationMs: number;
-}
+type ToolExecutionResult<T = unknown> =
+  | {
+      success: true;
+      result: T;
+      durationMs: number;
+    }
+  | {
+      success: false;
+      error: string;
+      durationMs: number;
+    };
 
 /**
  * Register IPC handlers for tool execution.
@@ -136,33 +141,44 @@ export function registerToolsIpcHandlers(): void {
     'tools:execute',
     async (
       _event: IpcMainInvokeEvent,
-      toolId: string,
+      toolId: unknown,
       input: unknown
     ): Promise<ToolExecutionResult> => {
       const startTime = performance.now();
-      logger.debug('Executing tool', { toolId });
+      const normalizedToolId = typeof toolId === 'string' ? toolId.trim() : '';
+      if (!normalizedToolId) {
+        return {
+          success: false,
+          error: 'Invalid tool ID.',
+          durationMs: Math.round(performance.now() - startTime),
+        };
+      }
+      logger.debug('Executing tool', { toolId: normalizedToolId });
 
       try {
         // Check if it's an executable native tool (web.searchDocs, web.docSummary)
-        if (isExecutableNativeTool(toolId)) {
+        if (isExecutableNativeTool(normalizedToolId)) {
           const sanitizedInput = sanitizeMcpInput(input);
           if (!sanitizedInput.ok) {
-            logger.warn('Rejected native tool input', { toolId, error: sanitizedInput.error });
+            logger.warn('Rejected native tool input', {
+              toolId: normalizedToolId,
+              error: sanitizedInput.error,
+            });
             return {
               success: false,
               error: sanitizedInput.error,
               durationMs: Math.round(performance.now() - startTime),
             };
           }
-          return await executeNativeTool(toolId, sanitizedInput.value);
+          return await executeNativeTool(normalizedToolId, sanitizedInput.value);
         }
 
         // Check if it's a native tool that requires database access (brainstrike.*)
         // These can't be executed in the playground - they need the full runtime
-        if (isNativeTool(toolId)) {
+        if (isNativeTool(normalizedToolId)) {
           return {
             success: false,
-            error: `Tool "${toolId}" requires database access and cannot be tested in the playground. This tool works during actual assistant conversations.`,
+            error: `Tool "${normalizedToolId}" requires database access and cannot be tested in the playground. This tool works during actual assistant conversations.`,
             durationMs: Math.round(performance.now() - startTime),
           };
         }
@@ -170,7 +186,10 @@ export function registerToolsIpcHandlers(): void {
         // Try MCP tool execution (for tools from MCP servers)
         const sanitizedInput = sanitizeMcpInput(input);
         if (!sanitizedInput.ok) {
-          logger.warn('Rejected tool input', { toolId, error: sanitizedInput.error });
+          logger.warn('Rejected tool input', {
+            toolId: normalizedToolId,
+            error: sanitizedInput.error,
+          });
           return {
             success: false,
             error: sanitizedInput.error,
@@ -178,16 +197,22 @@ export function registerToolsIpcHandlers(): void {
           };
         }
 
-        const result = await callTool(toolId, sanitizedInput.value);
+        const result = await callTool(normalizedToolId, sanitizedInput.value);
+        const durationMs = Math.round(performance.now() - startTime);
+        logger.info('Tool executed', {
+          toolId: normalizedToolId,
+          durationMs,
+          source: 'mcp',
+        });
 
         return {
           success: true,
           result,
-          durationMs: Math.round(performance.now() - startTime),
+          durationMs,
         };
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Tool execution failed';
-        logger.error('Tool execution failed', { toolId, error: errorMessage });
+        logger.error('Tool execution failed', { toolId: normalizedToolId, error: errorMessage });
 
         return {
           success: false,

@@ -560,6 +560,15 @@ export {
   type SystemDiagnosticsToolResult,
   type WorkerDiagnostics,
 } from './tools/diagnostics-tool';
+// Shared docs search helpers
+export {
+  type DocSummaryResponse,
+  docSummaryExecute,
+  docSummaryInputSchema,
+  type SearchResponse,
+  searchDocsExecute,
+  searchDocsInputSchema,
+} from './tools/docs-search';
 // Embedding sets tool factory (Tier 2)
 export {
   buildToolsWithEmbeddingSets,

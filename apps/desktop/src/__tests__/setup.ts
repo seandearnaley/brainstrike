@@ -220,20 +220,24 @@ const mockMcpToolRegistry = {
   subscribe: vi.fn(() => () => {}),
 };
 
-vi.mock('@brainstrike/agent', () => ({
-  streamMastraAgent: vi.fn(async function* () {
-    yield { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } };
-  }),
-  webTools: [],
-  loadToolPreferences: vi.fn().mockResolvedValue({}),
-  mcpToolRegistry: mockMcpToolRegistry,
-  createMastraAgentRuntime: vi.fn(async () => ({
-    run: vi.fn(),
-    dispose: vi.fn().mockResolvedValue(undefined),
-  })),
-  isSupportedProvider: (provider: string) =>
-    mockProviderDefinitions.some((entry) => entry.id === provider),
-}));
+vi.mock('@brainstrike/agent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/agent')>();
+  return {
+    ...actual,
+    streamMastraAgent: vi.fn(async function* () {
+      yield { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } };
+    }),
+    webTools: [],
+    loadToolPreferences: vi.fn().mockResolvedValue({}),
+    mcpToolRegistry: mockMcpToolRegistry,
+    createMastraAgentRuntime: vi.fn(async () => ({
+      run: vi.fn(),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    })),
+    isSupportedProvider: (provider: string) =>
+      mockProviderDefinitions.some((entry) => entry.id === provider),
+  };
+});
 
 vi.mock('@brainstrike/agent/client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent/client')>();

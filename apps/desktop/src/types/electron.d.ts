@@ -141,12 +141,18 @@ declare global {
       execute: (
         toolId: string,
         input: unknown
-      ) => Promise<{
-        success: boolean;
-        result?: unknown;
-        error?: string;
-        durationMs: number;
-      }>;
+      ) => Promise<
+        | {
+            success: true;
+            result: unknown;
+            durationMs: number;
+          }
+        | {
+            success: false;
+            error: string;
+            durationMs: number;
+          }
+      >;
     };
   }
 }

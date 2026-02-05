@@ -58,12 +58,17 @@ export interface ToolsLiveQueryConfig {
 /**
  * Result of executing a tool test.
  */
-export interface ToolExecutionResult {
-  success: boolean;
-  result?: unknown;
-  error?: string;
-  durationMs: number;
-}
+export type ToolExecutionResult<T = unknown> =
+  | {
+      success: true;
+      result: T;
+      durationMs: number;
+    }
+  | {
+      success: false;
+      error: string;
+      durationMs: number;
+    };
 
 /**
  * MCP server connection information.

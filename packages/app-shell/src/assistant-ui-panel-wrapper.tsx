@@ -38,7 +38,7 @@ import {
   type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection } from '@brainstrike/utils';
-import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
+import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePanelLayoutStore } from './stores/panel-layout-store';
 
 export interface AssistantUiPanelWrapperProps {
@@ -75,6 +75,36 @@ function getToolDescription(toolId: string): string {
   return TOOL_DESCRIPTIONS[toolId] ?? `Tool: ${toolId}`;
 }
 
+interface McpToolDescriptor {
+  id: string;
+  description?: string;
+  enabled: boolean;
+}
+
+type McpToolMap = Record<string, McpToolDescriptor[]>;
+
+function buildMcpMenuItems(toolsByServer: McpToolMap): AssistantToolMenuItem[] {
+  const items: AssistantToolMenuItem[] = [];
+  for (const [serverName, serverTools] of Object.entries(toolsByServer)) {
+    for (const tool of serverTools) {
+      items.push({
+        id: tool.id,
+        label: formatToolLabel(tool.id),
+        enabled: tool.enabled,
+        source: 'mcp',
+        group: serverName,
+        description: tool.description ?? `MCP tool: ${tool.id}`,
+        category: 'action',
+      });
+    }
+  }
+  return items;
+}
+
+function returnIfNotEmpty<T extends Record<string, unknown>>(options: T): T | undefined {
+  return Object.keys(options).length > 0 ? options : undefined;
+}
+
 function buildModelSettings(
   settings: AssistantProviderSettings | undefined
 ): RuntimeData['modelSettings'] | undefined {
@@ -109,7 +139,7 @@ function buildOpenAiOptions(
   if (settings.reasoningSummary) {
     options['reasoningSummary'] = settings.reasoningSummary;
   }
-  return Object.keys(options).length > 0 ? options : undefined;
+  return returnIfNotEmpty(options);
 }
 
 function buildAnthropicOptions(
@@ -125,7 +155,7 @@ function buildAnthropicOptions(
       budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
     };
   }
-  return Object.keys(options).length > 0 ? options : undefined;
+  return returnIfNotEmpty(options);
 }
 
 function buildGoogleOptions(
@@ -140,10 +170,8 @@ function buildGoogleOptions(
   if (typeof settings.googleIncludeThoughts === 'boolean') {
     thinkingConfig['includeThoughts'] = settings.googleIncludeThoughts;
   }
-  if (Object.keys(thinkingConfig).length === 0) {
-    return;
-  }
-  return { thinkingConfig };
+  const resolved = returnIfNotEmpty(thinkingConfig);
+  return resolved ? { thinkingConfig: resolved } : undefined;
 }
 
 function buildProviderOptions(
@@ -209,6 +237,26 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
   const [mcpTools, setMcpTools] = useState<AssistantToolMenuItem[]>([]);
   const [mcpLoading, setMcpLoading] = useState(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const setMcpToolsIfMounted = useCallback((items: AssistantToolMenuItem[]) => {
+    if (isMountedRef.current) {
+      setMcpTools(items);
+    }
+  }, []);
+
+  const setMcpLoadingIfMounted = useCallback((value: boolean) => {
+    if (isMountedRef.current) {
+      setMcpLoading(value);
+    }
+  }, []);
 
   // Create a set of DB-enabled model IDs for quick lookup
   const registryEnabledModelIds = useMemo(() => {
@@ -318,34 +366,20 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   const loadMcpTools = useCallback(async () => {
     if (typeof window === 'undefined' || !window.mcp?.listTools) {
-      setMcpTools([]);
+      setMcpToolsIfMounted([]);
       return;
     }
 
-    setMcpLoading(true);
+    setMcpLoadingIfMounted(true);
     try {
-      const toolsByServer = await window.mcp.listTools();
-      const items: AssistantToolMenuItem[] = [];
-      for (const [serverName, serverTools] of Object.entries(toolsByServer)) {
-        for (const tool of serverTools) {
-          items.push({
-            id: tool.id,
-            label: formatToolLabel(tool.id),
-            enabled: tool.enabled,
-            source: 'mcp',
-            group: serverName,
-            description: tool.description ?? `MCP tool: ${tool.id}`,
-            category: 'action',
-          });
-        }
-      }
-      setMcpTools(items);
+      const toolsByServer = (await window.mcp.listTools()) as McpToolMap;
+      setMcpToolsIfMounted(buildMcpMenuItems(toolsByServer));
     } catch {
-      setMcpTools([]);
+      setMcpToolsIfMounted([]);
     } finally {
-      setMcpLoading(false);
+      setMcpLoadingIfMounted(false);
     }
-  }, []);
+  }, [setMcpLoadingIfMounted, setMcpToolsIfMounted]);
 
   useEffect(() => {
     void loadMcpTools();

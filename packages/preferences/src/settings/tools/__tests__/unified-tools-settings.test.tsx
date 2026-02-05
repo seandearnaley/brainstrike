@@ -5,7 +5,12 @@
 import '@testing-library/jest-dom/vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ToolDisplayMetadata, ToolStats, ToolsSettingsOperations } from '../types';
+import type {
+  ToolDisplayMetadata,
+  ToolExecutionResult,
+  ToolStats,
+  ToolsSettingsOperations,
+} from '../types';
 import { UnifiedToolsSettings } from '../unified-tools-settings';
 
 // Mock child components
@@ -603,10 +608,7 @@ describe('UnifiedToolsSettings', () => {
     });
 
     it('supports concurrent executions across tools', async () => {
-      const pending = new Map<
-        string,
-        (result: { success: boolean; result?: unknown; error?: string; durationMs: number }) => void
-      >();
+      const pending = new Map<string, (result: ToolExecutionResult) => void>();
       const executeToolTest = vi.fn().mockImplementation(
         (toolId: string) =>
           new Promise((resolve) => {

@@ -13,6 +13,7 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
   type ToolDisplayMetadata,
+  type ToolExecutionResult,
   useNativeToolPreferencesStore,
 } from '@brainstrike/preferences';
 import { FileCog, Layers } from 'lucide-react';
@@ -131,13 +132,13 @@ export default function SettingsPageContent() {
       resetTools: async () => {
         useNativeToolPreferencesStore.getState().resetTools();
       },
-      executeToolTest: async (toolId: string, _input: unknown) => {
+      executeToolTest: async (toolId: string, _input: unknown): Promise<ToolExecutionResult> => {
         // Tool execution for playground testing
         // Web app native tools require service worker or API integration
         const startTime = performance.now();
 
         return {
-          success: false,
+          success: false as const,
           error: `Tool execution not yet implemented for ${toolId}. Web app requires API integration for tool execution.`,
           durationMs: Math.round(performance.now() - startTime),
         };
