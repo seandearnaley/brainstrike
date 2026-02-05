@@ -192,20 +192,23 @@ async function checkDownloadedModels(
 
   const newDownloadedModels: Record<string, boolean> = {};
 
-  for (const model of models) {
-    if (!isLocalModel(model)) {
-      continue;
-    }
+  const localModels = models.filter(isLocalModel);
 
-    const isDownloaded = await resolveDownloadedFlag(
-      model,
-      fileSystem,
-      modelCacheDir,
-      currentDownloadedModels
-    );
+  const results = await Promise.all(
+    localModels.map(async (model) => {
+      const isDownloaded = await resolveDownloadedFlag(
+        model,
+        fileSystem,
+        modelCacheDir,
+        currentDownloadedModels
+      );
+      return { id: model.id, isDownloaded };
+    })
+  );
 
+  for (const { id, isDownloaded } of results) {
     if (isDownloaded) {
-      newDownloadedModels[model.id] = true;
+      newDownloadedModels[id] = true;
     }
   }
 
