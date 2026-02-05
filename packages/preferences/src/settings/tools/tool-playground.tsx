@@ -45,6 +45,19 @@ function storeInput(toolId: string, input: string): void {
 }
 
 /**
+ * Format a range label from min/max values.
+ */
+function formatRangeLabel(min: number | undefined, max: number | undefined): string {
+  if (min !== undefined && max !== undefined) {
+    return `Range: ${min}-${max}`;
+  }
+  if (min !== undefined) {
+    return `Min: ${min}`;
+  }
+  return `Max: ${max}`;
+}
+
+/**
  * Get type badge color based on parameter type.
  */
 function getTypeBadgeVariant(type: string): 'default' | 'secondary' | 'outline' {
@@ -91,11 +104,7 @@ function ParameterRow({ param }: { param: ToolParameterDisplay }) {
         )}
         {(param.min !== undefined || param.max !== undefined) && (
           <span className="text-[10px] text-muted-foreground">
-            {param.min !== undefined && param.max !== undefined
-              ? `Range: ${param.min}-${param.max}`
-              : param.min !== undefined
-                ? `Min: ${param.min}`
-                : `Max: ${param.max}`}
+            {formatRangeLabel(param.min, param.max)}
           </span>
         )}
       </div>

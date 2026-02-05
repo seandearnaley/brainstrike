@@ -475,30 +475,28 @@ export function UnifiedToolsSettings({
           <ScrollArea className="max-h-[600px]">
             <Accordion defaultValue={defaultExpandedGroups} type="multiple">
               {toolGroups.map((group) => {
-                const connectionStatus =
-                  group.source === 'mcp' && group.serverName
-                    ? getServerStatus(group.serverName)
-                    : undefined;
-                const errorMessage =
-                  group.source === 'mcp' && group.serverName
-                    ? getServerError(group.serverName)
-                    : undefined;
-                const onOpenConfigFile =
-                  group.source === 'mcp' && operations.openMcpConfig
-                    ? () => operations.openMcpConfig?.()
-                    : undefined;
-                const onRefreshConnection =
-                  group.source === 'mcp' && operations.refreshMcpServers
-                    ? handleRefreshMcp
-                    : undefined;
+                const serverName = group.source === 'mcp' ? group.serverName : undefined;
+                const mcpProps =
+                  serverName !== undefined
+                    ? {
+                        connectionStatus: getServerStatus(serverName),
+                        errorMessage: getServerError(serverName),
+                        ...(operations.openMcpConfig && {
+                          onOpenConfigFile: () => operations.openMcpConfig?.(),
+                        }),
+                        ...(operations.refreshMcpServers && {
+                          onRefreshConnection: handleRefreshMcp,
+                        }),
+                      }
+                    : {};
+                const description =
+                  group.source === 'native'
+                    ? 'Built-in BrainStrike tools'
+                    : `MCP server: ${serverName ?? 'unknown'}`;
 
                 return (
                   <ToolGroupAccordion
-                    description={
-                      group.source === 'native'
-                        ? 'Built-in BrainStrike tools'
-                        : `MCP server: ${group.serverName}`
-                    }
+                    description={description}
                     enabledCount={group.enabledCount}
                     id={group.id}
                     key={group.id}
@@ -507,10 +505,7 @@ export function UnifiedToolsSettings({
                     onEnableAll={() => handleEnableGroup(group)}
                     source={group.source}
                     totalCount={group.tools.length}
-                    {...(connectionStatus !== undefined && { connectionStatus })}
-                    {...(errorMessage !== undefined && { errorMessage })}
-                    {...(onOpenConfigFile !== undefined && { onOpenConfigFile })}
-                    {...(onRefreshConnection !== undefined && { onRefreshConnection })}
+                    {...mcpProps}
                   >
                     <div className="space-y-1">
                       {group.tools.map((tool) => (

@@ -9,6 +9,7 @@ import {
   searchDocsInputSchema,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils';
+import type { z } from 'zod';
 
 // ============================================================================
 // Types
@@ -26,6 +27,11 @@ export type ToolExecutionResult<T = unknown> =
       durationMs: number;
     };
 
+interface ToolDefinition {
+  schema: z.ZodType<unknown>;
+  execute: (input: unknown) => Promise<unknown>;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -33,10 +39,19 @@ export type ToolExecutionResult<T = unknown> =
 const logger = createLogger('NativeToolExecutor');
 
 /**
- * Set of tool IDs that can be executed natively (without database access).
+ * Registry of executable native tools.
  * These tools are self-contained, deterministic, and safe to run in the renderer.
  */
-const EXECUTABLE_NATIVE_TOOLS = new Set(['web.searchDocs', 'web.docSummary']);
+const NATIVE_TOOLS: Record<string, ToolDefinition> = {
+  'web.searchDocs': {
+    schema: searchDocsInputSchema,
+    execute: (input) => searchDocsExecute(input as z.infer<typeof searchDocsInputSchema>),
+  },
+  'web.docSummary': {
+    schema: docSummaryInputSchema,
+    execute: (input) => docSummaryExecute(input as z.infer<typeof docSummaryInputSchema>),
+  },
+};
 
 // ============================================================================
 // Public API
@@ -47,7 +62,7 @@ const EXECUTABLE_NATIVE_TOOLS = new Set(['web.searchDocs', 'web.docSummary']);
  * Native tools are self-contained and don't require database access.
  */
 export function isExecutableNativeTool(toolId: string): boolean {
-  return EXECUTABLE_NATIVE_TOOLS.has(toolId);
+  return toolId in NATIVE_TOOLS;
 }
 
 /**
@@ -60,58 +75,33 @@ export async function executeNativeTool(
 ): Promise<ToolExecutionResult> {
   const startedAt = Date.now();
 
-  try {
-    if (!isExecutableNativeTool(toolId)) {
-      return {
-        success: false,
-        error: `Tool "${toolId}" is not supported for native execution`,
-        durationMs: Date.now() - startedAt,
-      };
-    }
-
-    if (toolId === 'web.searchDocs') {
-      const parsed = searchDocsInputSchema.safeParse(input);
-      if (!parsed.success) {
-        return {
-          success: false,
-          error: `Invalid input: ${parsed.error.message}`,
-          durationMs: Date.now() - startedAt,
-        };
-      }
-      const result = await searchDocsExecute(parsed.data);
-      const durationMs = Date.now() - startedAt;
-      logger.info('Native tool executed', { toolId, durationMs });
-      return {
-        success: true,
-        result,
-        durationMs,
-      };
-    }
-
-    if (toolId === 'web.docSummary') {
-      const parsed = docSummaryInputSchema.safeParse(input);
-      if (!parsed.success) {
-        return {
-          success: false,
-          error: `Invalid input: ${parsed.error.message}`,
-          durationMs: Date.now() - startedAt,
-        };
-      }
-      const result = await docSummaryExecute(parsed.data);
-      const durationMs = Date.now() - startedAt;
-      logger.info('Native tool executed', { toolId, durationMs });
-      return {
-        success: true,
-        result,
-        durationMs,
-      };
-    }
-
-    // This should never be reached due to the isExecutableNativeTool check
+  const tool = NATIVE_TOOLS[toolId];
+  if (!tool) {
     return {
       success: false,
       error: `Tool "${toolId}" is not supported for native execution`,
       durationMs: Date.now() - startedAt,
+    };
+  }
+
+  try {
+    const parsed = tool.schema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: `Invalid input: ${parsed.error.message}`,
+        durationMs: Date.now() - startedAt,
+      };
+    }
+
+    const result = await tool.execute(parsed.data);
+    const durationMs = Date.now() - startedAt;
+    logger.info('Native tool executed', { toolId, durationMs });
+
+    return {
+      success: true,
+      result,
+      durationMs,
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
