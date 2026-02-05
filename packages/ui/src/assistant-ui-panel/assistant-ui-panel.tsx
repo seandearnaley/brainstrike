@@ -15,7 +15,6 @@ import {
   CopyIcon,
   PencilIcon,
   RefreshCwIcon,
-  SlidersHorizontal,
 } from 'lucide-react';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 // @assistant-ui/styles v0.3.x consolidated all styles into index.css
@@ -23,17 +22,6 @@ import '@assistant-ui/styles/index.css';
 import './overrides.css';
 import { Badge } from '../badge';
 import { Button } from '../button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from '../dropdown-menu';
 import { Input } from '../input';
 import { Label } from '../label';
 import { cn } from '../lib/utils';
@@ -87,43 +75,6 @@ export interface ProviderGroupConfig {
   providers: ProviderOptionConfig[];
 }
 
-export type AssistantToolCategory =
-  | 'retrieval'
-  | 'action'
-  | 'analysis'
-  | 'configuration'
-  | 'validation';
-
-export type AssistantToolSource = 'native' | 'mcp';
-
-export interface AssistantToolMenuItem {
-  id: string;
-  label: string;
-  enabled: boolean;
-  source: AssistantToolSource;
-  group: string;
-  description?: string;
-  category?: AssistantToolCategory | string;
-  disabled?: boolean;
-}
-
-export interface AssistantToolMenuConfig {
-  items: AssistantToolMenuItem[];
-  isLoading?: boolean;
-  summary?: string;
-  onToggleTool?: (toolId: string, enabled: boolean) => void | Promise<void>;
-  onOpenSettings?: () => void;
-  onRefresh?: () => void;
-}
-
-export interface AssistantContextMenuConfig {
-  selectionCount?: number;
-  selectionLabel?: string;
-  embeddingSetId?: string;
-  tokenBudget?: number;
-  onTokenBudgetChange?: (value: number) => void;
-}
-
 export type OpenAiReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type OpenAiReasoningSummary = 'auto' | 'detailed';
 export type AnthropicEffort = 'low' | 'medium' | 'high';
@@ -164,8 +115,6 @@ export interface AssistantUiPanelProps {
   disabled?: boolean;
   disabledReason?: string;
   requestData?: Record<string, unknown>;
-  toolMenu?: AssistantToolMenuConfig;
-  contextMenu?: AssistantContextMenuConfig;
 }
 
 declare global {
@@ -197,8 +146,6 @@ interface ChatThreadProps {
   disabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
-  toolMenu?: AssistantToolMenuConfig | undefined;
-  contextMenu?: AssistantContextMenuConfig | undefined;
 }
 
 /**
@@ -224,8 +171,6 @@ const LocalRuntimeChat: FC<
   localLoadingState,
   modelId,
   onLoadingStateChange,
-  toolMenu,
-  contextMenu,
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
@@ -262,7 +207,6 @@ const LocalRuntimeChat: FC<
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ChatThreadUI
-        contextMenu={contextMenu}
         disabledReason={disabledReason}
         hasGroupedProviders={hasGroupedProviders}
         isComposerDisabled={isComposerDisabled}
@@ -275,7 +219,6 @@ const LocalRuntimeChat: FC<
         providerSettings={providerSettings}
         selectedModel={selectedModel}
         selectedProvider={selectedProvider}
-        toolMenu={toolMenu}
       />
     </AssistantRuntimeProvider>
   );
@@ -305,8 +248,6 @@ const DataStreamRuntimeChat: FC<
   api,
   requestData,
   modelName,
-  toolMenu,
-  contextMenu,
 }) => {
   const hasGroupedProviders = providerGroups.length > 0;
   const isComposerDisabled = Boolean(disabled);
@@ -325,7 +266,6 @@ const DataStreamRuntimeChat: FC<
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <ChatThreadUI
-        contextMenu={contextMenu}
         disabledReason={disabledReason}
         hasGroupedProviders={hasGroupedProviders}
         isComposerDisabled={isComposerDisabled}
@@ -337,7 +277,6 @@ const DataStreamRuntimeChat: FC<
         providerSettings={providerSettings}
         selectedModel={selectedModel}
         selectedProvider={selectedProvider}
-        toolMenu={toolMenu}
       />
     </AssistantRuntimeProvider>
   );
@@ -362,8 +301,6 @@ const ChatThreadUI: FC<{
   isComposerDisabled: boolean;
   disabledReason: string | undefined;
   localLoadingState?: LocalModelLoadingState | undefined;
-  toolMenu?: AssistantToolMenuConfig | undefined;
-  contextMenu?: AssistantContextMenuConfig | undefined;
 }> = ({
   providerGroups,
   hasGroupedProviders,
@@ -377,14 +314,11 @@ const ChatThreadUI: FC<{
   isComposerDisabled,
   disabledReason,
   localLoadingState,
-  toolMenu,
-  contextMenu,
 }) => (
   <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex h-full min-h-0 flex-col">
     {/* Provider and Model Selector Header */}
     {hasGroupedProviders && (
       <ProviderModelHeader
-        contextMenu={contextMenu}
         groups={providerGroups}
         onModelChange={onModelChange}
         onProviderSettingsChange={onProviderSettingsChange}
@@ -393,7 +327,6 @@ const ChatThreadUI: FC<{
         providerSettings={providerSettings}
         selectedModel={selectedModel}
         selectedProvider={selectedProvider}
-        toolMenu={toolMenu}
       />
     )}
     {/**
@@ -524,8 +457,6 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   selectedModel,
   requestData,
   onModelChange,
-  toolMenu,
-  contextMenu,
   disabled = false,
   disabledReason,
 }) => {
@@ -584,7 +515,6 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
     >
       {isLocalProvider && modelName ? (
         <LocalRuntimeChat
-          contextMenu={contextMenu}
           disabled={disabled}
           disabledReason={disabledReason}
           localLoadingState={localLoadingState}
@@ -598,12 +528,10 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           providerSettings={providerSettings}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
-          toolMenu={toolMenu}
         />
       ) : (
         <DataStreamRuntimeChat
           api={api}
-          contextMenu={contextMenu}
           disabled={disabled}
           disabledReason={disabledReason}
           modelName={modelName}
@@ -616,7 +544,6 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
           requestData={requestData}
           selectedModel={selectedModel}
           selectedProvider={selectedProvider}
-          toolMenu={toolMenu}
         />
       )}
     </section>
@@ -778,8 +705,6 @@ interface ProviderModelHeaderProps {
   selectedProvider?: string | undefined;
   selectedModel?: string | undefined;
   onModelChange?: ((compositeKey: string) => void) | undefined;
-  toolMenu?: AssistantToolMenuConfig | undefined;
-  contextMenu?: AssistantContextMenuConfig | undefined;
 }
 
 const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
@@ -791,8 +716,6 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   selectedProvider,
   selectedModel,
   onModelChange,
-  toolMenu,
-  contextMenu,
 }) => {
   // Extract model name from composite key (format: "provider::model")
   const modelName = useMemo(() => {
@@ -885,34 +808,26 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   };
 
   return (
-    <div className="flex-shrink-0 border-border border-b bg-muted/30 px-3 py-3 backdrop-blur-sm">
-      <div className="space-y-2.5">
-        <ProviderSelectionSummary {...summaryProps} />
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="min-w-[220px] flex-1" data-testid="assistant-model-dropdown">
-            <ModelPicker
-              models={pickerModels}
-              providers={pickerProviders}
-              {...(modelName ? { value: modelName } : {})}
-              className="h-9 rounded-full border-border/70 bg-background/80 text-xs"
-              disabled={options.length === 0 || !onModelChange}
-              mode="single"
-              modelType="llm"
-              onChange={handleModelPickerChange}
-              placeholder={options.length === 0 ? 'No models enabled' : 'Select a model...'}
-            />
-          </div>
-          <ControlsMenu
-            contextMenu={contextMenu}
-            modelName={modelName}
-            onProviderSettingsChange={onProviderSettingsChange}
-            providerSettings={providerSettings}
-            selectedProvider={selectedProvider}
-            toolMenu={toolMenu}
-          />
-        </div>
-        <ContextSummaryRow contextMenu={contextMenu} />
+    <div className="flex-shrink-0 space-y-3 border-border border-b bg-muted/30 px-3 py-3">
+      <ProviderSelectionSummary {...summaryProps} />
+      <div data-testid="assistant-model-dropdown">
+        <ModelPicker
+          models={pickerModels}
+          providers={pickerProviders}
+          {...(modelName ? { value: modelName } : {})}
+          disabled={options.length === 0 || !onModelChange}
+          mode="single"
+          modelType="llm"
+          onChange={handleModelPickerChange}
+          placeholder={options.length === 0 ? 'No models enabled' : 'Select a model...'}
+        />
       </div>
+      <ProviderSettingsPanel
+        modelName={modelName}
+        onSettingsChange={onProviderSettingsChange}
+        providerId={selectedProvider}
+        settings={selectedProvider ? providerSettings?.[selectedProvider] : undefined}
+      />
     </div>
   );
 };
@@ -953,315 +868,6 @@ const ProviderSelectionSummary: FC<ProviderSelectionSummaryProps> = ({
           <Badge variant="outline">768D</Badge>
         )}
       </div>
-    </div>
-  );
-};
-
-interface ControlsMenuProps {
-  contextMenu?: AssistantContextMenuConfig | undefined;
-  toolMenu?: AssistantToolMenuConfig | undefined;
-  providerSettings?: AssistantProviderSettingsMap | undefined;
-  onProviderSettingsChange?:
-    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
-    | undefined;
-  selectedProvider?: string | undefined;
-  modelName?: string | undefined;
-}
-
-interface ToolMenuGroup {
-  id: string;
-  label: string;
-  source: AssistantToolSource;
-  items: AssistantToolMenuItem[];
-}
-
-const TOOL_SOURCE_ORDER: AssistantToolSource[] = ['native', 'mcp'];
-
-function truncateMiddle(value: string, head = 12, tail = 6): string {
-  if (value.length <= head + tail + 3) {
-    return value;
-  }
-  return `${value.slice(0, head)}…${value.slice(-tail)}`;
-}
-
-const ControlsMenu: FC<ControlsMenuProps> = ({
-  contextMenu,
-  toolMenu,
-  providerSettings,
-  onProviderSettingsChange,
-  selectedProvider,
-  modelName,
-}) => {
-  const supportsReasoningSettings = useMemo(() => {
-    if (!selectedProvider) {
-      return false;
-    }
-    const normalized = selectedProvider.toLowerCase();
-    return (
-      normalized === 'openai' ||
-      normalized === 'openrouter' ||
-      normalized === 'anthropic' ||
-      normalized === 'google'
-    );
-  }, [selectedProvider]);
-
-  const hasContext = Boolean(contextMenu);
-  const hasTools = Boolean(toolMenu?.items && toolMenu.items.length > 0);
-  const hasReasoning = Boolean(supportsReasoningSettings && onProviderSettingsChange);
-
-  const groupedTools = useMemo<ToolMenuGroup[]>(() => {
-    if (!toolMenu?.items) {
-      return [];
-    }
-
-    const groups = new Map<string, ToolMenuGroup>();
-    for (const item of toolMenu.items) {
-      const key = `${item.source}::${item.group}`;
-      const existing = groups.get(key);
-      if (existing) {
-        existing.items.push(item);
-        continue;
-      }
-      groups.set(key, {
-        id: key,
-        label: item.group,
-        source: item.source,
-        items: [item],
-      });
-    }
-
-    return Array.from(groups.values()).sort((a, b) => {
-      const sourceOrder = TOOL_SOURCE_ORDER.indexOf(a.source) - TOOL_SOURCE_ORDER.indexOf(b.source);
-      if (sourceOrder !== 0) {
-        return sourceOrder;
-      }
-      return a.label.localeCompare(b.label);
-    });
-  }, [toolMenu?.items]);
-
-  const toolSummary = useMemo(() => {
-    if (!toolMenu?.items) {
-      return '';
-    }
-    const enabled = toolMenu.items.filter((tool) => tool.enabled).length;
-    return toolMenu.summary ?? `${enabled} of ${toolMenu.items.length} enabled`;
-  }, [toolMenu?.items, toolMenu?.summary]);
-
-  const handleToggleTool = useCallback(
-    (toolId: string, enabled: boolean) => {
-      if (!toolMenu?.onToggleTool) {
-        return;
-      }
-      void toolMenu.onToggleTool(toolId, enabled);
-    },
-    [toolMenu]
-  );
-
-  if (!(hasContext || hasTools || hasReasoning)) {
-    return null;
-  }
-
-  const activeSettings = selectedProvider ? providerSettings?.[selectedProvider] : undefined;
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          aria-label="Open assistant controls"
-          className="h-9 gap-2 rounded-full border-border/70 px-3 text-xs"
-          size="sm"
-          variant="outline"
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          <span>Controls</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-[340px] p-2">
-        {hasContext && (
-          <div className="space-y-2">
-            <DropdownMenuLabel className="px-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-              Context
-            </DropdownMenuLabel>
-            <div className="space-y-2 rounded-md border border-border/70 bg-background/80 p-2 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Selection</span>
-                <span className="font-medium">
-                  {contextMenu?.selectionLabel ??
-                    (contextMenu?.selectionCount ? `${contextMenu.selectionCount} files` : 'None')}
-                </span>
-              </div>
-              {contextMenu?.embeddingSetId && (
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Embedding set</span>
-                  <span className="font-medium">
-                    {truncateMiddle(contextMenu.embeddingSetId, 10, 6)}
-                  </span>
-                </div>
-              )}
-              {typeof contextMenu?.tokenBudget === 'number' && (
-                <div className="space-y-1">
-                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                    Token budget
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      className="h-7 text-xs"
-                      disabled={!contextMenu.onTokenBudgetChange}
-                      inputMode="numeric"
-                      onChange={(event) => {
-                        if (!contextMenu.onTokenBudgetChange) {
-                          return;
-                        }
-                        const parsed = parseNumber(event.target.value);
-                        if (parsed === undefined) {
-                          return;
-                        }
-                        contextMenu.onTokenBudgetChange(parsed);
-                      }}
-                      type="number"
-                      value={contextMenu.tokenBudget}
-                    />
-                    <span className="text-[10px] text-muted-foreground">
-                      {settingsNumberFormatter.format(contextMenu.tokenBudget)}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {hasReasoning && (
-          <>
-            <DropdownMenuSeparator className="my-2" />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="text-sm">
-                Reasoning & Output
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-[420px] p-2">
-                <ProviderSettingsPanel
-                  modelName={modelName}
-                  onSettingsChange={onProviderSettingsChange}
-                  providerId={selectedProvider}
-                  settings={activeSettings}
-                />
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          </>
-        )}
-
-        {hasTools && (
-          <>
-            <DropdownMenuSeparator className="my-2" />
-            <DropdownMenuLabel className="px-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-              AI Tools
-            </DropdownMenuLabel>
-            {toolMenu?.isLoading && (
-              <div className="px-2 py-2 text-muted-foreground text-xs">Loading tools…</div>
-            )}
-            {!toolMenu?.isLoading && groupedTools.length === 0 && (
-              <div className="px-2 py-2 text-muted-foreground text-xs">No tools detected.</div>
-            )}
-            {!toolMenu?.isLoading &&
-              groupedTools.map((group) => {
-                const enabledCount = group.items.filter((tool) => tool.enabled).length;
-                return (
-                  <DropdownMenuSub key={group.id}>
-                    <DropdownMenuSubTrigger className="text-sm">
-                      <span className="flex-1 truncate">{group.label}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {enabledCount}/{group.items.length}
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-[320px] p-1">
-                      {group.items.map((tool) => (
-                        <DropdownMenuItem
-                          className="flex items-start justify-between gap-3"
-                          key={tool.id}
-                          onSelect={(event) => event.preventDefault()}
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-sm">{tool.label}</p>
-                            {tool.description && (
-                              <p className="text-muted-foreground text-xs">{tool.description}</p>
-                            )}
-                          </div>
-                          <Switch
-                            checked={tool.enabled}
-                            className="mt-0.5"
-                            disabled={tool.disabled}
-                            onCheckedChange={(checked) => handleToggleTool(tool.id, checked)}
-                          />
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                );
-              })}
-            {toolSummary && (
-              <div className="px-2 pt-2 text-[10px] text-muted-foreground">{toolSummary}</div>
-            )}
-            {toolMenu?.onRefresh && (
-              <DropdownMenuItem
-                className="mt-1"
-                onSelect={(event) => {
-                  event.preventDefault();
-                  void toolMenu.onRefresh?.();
-                }}
-              >
-                Refresh tools
-              </DropdownMenuItem>
-            )}
-            {toolMenu?.onOpenSettings && (
-              <DropdownMenuItem onSelect={() => toolMenu.onOpenSettings?.()}>
-                Manage tools…
-              </DropdownMenuItem>
-            )}
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-};
-
-const ContextSummaryRow: FC<{ contextMenu?: AssistantContextMenuConfig | undefined }> = ({
-  contextMenu,
-}) => {
-  if (!contextMenu) {
-    return null;
-  }
-
-  const badges: Array<{ key: string; label: string }> = [];
-  if (contextMenu.selectionLabel) {
-    badges.push({ key: 'selection', label: contextMenu.selectionLabel });
-  } else if (contextMenu.selectionCount) {
-    badges.push({ key: 'selection', label: `${contextMenu.selectionCount} files` });
-  }
-  if (contextMenu.embeddingSetId) {
-    badges.push({
-      key: 'embedding',
-      label: `Set ${truncateMiddle(contextMenu.embeddingSetId, 8, 6)}`,
-    });
-  }
-  if (typeof contextMenu.tokenBudget === 'number') {
-    badges.push({
-      key: 'budget',
-      label: `${settingsNumberFormatter.format(contextMenu.tokenBudget)} tokens`,
-    });
-  }
-
-  if (badges.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
-      <span className="font-semibold uppercase tracking-wide">Context</span>
-      {badges.map((badge) => (
-        <Badge className="text-[10px]" key={badge.key} variant="outline">
-          {badge.label}
-        </Badge>
-      ))}
     </div>
   );
 };

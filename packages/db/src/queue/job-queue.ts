@@ -252,19 +252,10 @@ export class JobQueue {
    * @param params - Array of job parameters to enqueue
    * @returns Array of Job objects (length <= params.length due to deduplication)
    */
-  async enqueueBatch(params: EnqueueParams[]): Promise<Job[]> {
-    if (params.length === 0) {
-      return [];
-    }
-    if (params.length > 1000) {
-      logger.warn('Large batch size detected for enqueueBatch', { count: params.length });
-    }
-
-    const now = new Date().toISOString();
-    const idType = await this.getOrResolveIdType();
-    this.validateIdType(idType);
-
-    // Pre-process params to handle intra-batch deduplication
+  /**
+   * Helper to pre-process parameters for intra-batch deduplication.
+   */
+  private processBatchParams(params: EnqueueParams[], now: string): EnqueueParams[] {
     const processedParams: EnqueueParams[] = [];
     const seenDedupeKeys = new Map<string, EnqueueParams>();
 
@@ -288,66 +279,17 @@ export class JobQueue {
         processedParams.push({ ...p, runAt: p.runAt ?? now });
       }
     }
+    return processedParams;
+  }
 
-    const ids: string[] = [];
-    const queues: string[] = [];
-    const jobTypes: string[] = [];
-    const payloads: string[] = [];
-    const runAts: string[] = [];
-    const maxAttemptsArr: number[] = [];
-    const dedupeKeys: (string | null)[] = [];
-
-    const defaultMaxAttempts = this.defaults.maxAttempts ?? JobQueue.DEFAULT_MAX_ATTEMPTS;
-
-    for (const p of processedParams) {
-      ids.push(generateUUID());
-      queues.push(p.queue);
-      jobTypes.push(p.jobType);
-      payloads.push(JSON.stringify(p.payload));
-      runAts.push(p.runAt ?? now);
-      maxAttemptsArr.push(p.maxAttempts ?? defaultMaxAttempts);
-      dedupeKeys.push(p.dedupeKey ?? null);
-    }
-
-    // Construct CTE query
-    const sql =
-      idType === 'uuid'
-        ? `WITH input AS (
+  /**
+   * Helper to build the batch SQL query based on ID type.
+   */
+  private buildBatchQuery(idType: 'uuid' | 'text'): string {
+    const idTypeCast = idType === 'uuid' ? 'uuid' : 'text';
+    return `WITH input AS (
              SELECT * FROM unnest(
-               $1::uuid[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[], $7::text[]
-             ) AS t(id, queue, job_type, payload, run_at_text, max_attempts, dedupe_key)
-           ),
-           existing AS (
-             SELECT jq.id, jq.dedupe_key, i.run_at_text as new_run_at
-             FROM job_queue jq
-             JOIN input i ON jq.dedupe_key = i.dedupe_key
-             WHERE jq.state IN ('queued', 'running')
-           ),
-           upd AS (
-             UPDATE job_queue jq
-             SET run_at = LEAST(jq.run_at, e.new_run_at), updated_at = $8
-             FROM existing e
-             WHERE jq.id = e.id
-             RETURNING jq.*
-           ),
-           ins AS (
-             INSERT INTO job_queue (
-               id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms,
-               lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at
-             )
-             SELECT
-               i.id, i.queue, i.job_type, i.payload, 'queued', i.run_at_text, 0, i.max_attempts, 0,
-               NULL, NULL, NULL, i.dedupe_key, NULL, $8, $8
-             FROM input i
-             WHERE NOT EXISTS (SELECT 1 FROM existing e WHERE e.dedupe_key = i.dedupe_key)
-             RETURNING *
-           )
-           SELECT * FROM upd
-           UNION ALL
-           SELECT * FROM ins`
-        : `WITH input AS (
-             SELECT * FROM unnest(
-               $1::text[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[], $7::text[]
+               $1::${idTypeCast}[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[], $7::text[]
              ) AS t(id, queue, job_type, payload, run_at_text, max_attempts, dedupe_key)
            ),
            existing AS (
@@ -378,6 +320,43 @@ export class JobQueue {
            SELECT * FROM upd
            UNION ALL
            SELECT * FROM ins`;
+  }
+
+  async enqueueBatch(params: EnqueueParams[]): Promise<Job[]> {
+    if (params.length === 0) {
+      return [];
+    }
+    if (params.length > 1000) {
+      logger.warn('Large batch size detected for enqueueBatch', { count: params.length });
+    }
+
+    const now = new Date().toISOString();
+    const idType = await this.getOrResolveIdType();
+    this.validateIdType(idType);
+
+    const processedParams = this.processBatchParams(params, now);
+
+    const ids: string[] = [];
+    const queues: string[] = [];
+    const jobTypes: string[] = [];
+    const payloads: string[] = [];
+    const runAts: string[] = [];
+    const maxAttemptsArr: number[] = [];
+    const dedupeKeys: (string | null)[] = [];
+
+    const defaultMaxAttempts = this.defaults.maxAttempts ?? JobQueue.DEFAULT_MAX_ATTEMPTS;
+
+    for (const p of processedParams) {
+      ids.push(generateUUID());
+      queues.push(p.queue);
+      jobTypes.push(p.jobType);
+      payloads.push(JSON.stringify(p.payload));
+      runAts.push(p.runAt ?? now);
+      maxAttemptsArr.push(p.maxAttempts ?? defaultMaxAttempts);
+      dedupeKeys.push(p.dedupeKey ?? null);
+    }
+
+    const sql = this.buildBatchQuery(idType);
 
     const res = await this.db.query<JobRow>(sql, [
       ids,

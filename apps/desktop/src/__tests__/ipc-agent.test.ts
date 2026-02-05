@@ -18,11 +18,6 @@ vi.mock('../openai-api-key', () => ({
   readOpenAIApiKey: vi.fn(),
 }));
 
-vi.mock('../provider-api-key', () => ({
-  resolveProviderEnvKey: vi.fn(),
-  readProviderSecretKey: vi.fn(),
-}));
-
 const mockSecretsService = {
   saveKey: vi.fn(),
   getKey: vi.fn(() => Promise.resolve('test-api-key')),
@@ -290,7 +285,7 @@ describe('registerAgentIpcHandlers', () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
 
       vi.mocked(loadMcpConfig).mockResolvedValue({ config: {} } as never);
-      vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
+      vi.mocked(readOpenAIApiKey).mockResolvedValue(undefined);
 
       const messages = [
         {
@@ -324,13 +319,13 @@ describe('registerAgentIpcHandlers', () => {
 
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
-      const { readProviderSecretKey, resolveProviderEnvKey } = await import('../provider-api-key');
 
       const mcpConfig = { servers: { testServer: {} } };
       vi.mocked(loadMcpConfig).mockResolvedValue({ config: mcpConfig } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue(undefined);
-      vi.mocked(resolveProviderEnvKey).mockReturnValue(undefined);
-      vi.mocked(readProviderSecretKey).mockResolvedValue('secret-key');
+      mockSecretsService.getKey.mockImplementation(async (provider) =>
+        provider === 'anthropic' ? 'secret-key' : 'test-api-key'
+      );
 
       const messages = [
         {
@@ -360,48 +355,6 @@ describe('registerAgentIpcHandlers', () => {
         },
         tools: { tool1: {}, tool2: {} },
       });
-    });
-
-    it('throws when provider is missing or unsupported', async () => {
-      const { readOpenAIApiKey } = await import('../openai-api-key');
-      vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback');
-
-      const messages = [
-        {
-          id: '1',
-          role: 'user' as const,
-          parts: [{ type: 'text' as const, text: 'Hello' }],
-        },
-      ];
-
-      await expect(chatHandler({} as IpcMainInvokeEvent, messages, {})).rejects.toThrow(
-        'missing_provider'
-      );
-
-      await expect(
-        chatHandler({} as IpcMainInvokeEvent, messages, { provider: 'invalid' })
-      ).rejects.toThrow('missing_provider');
-    });
-
-    it('throws when API key resolution fails', async () => {
-      const { readOpenAIApiKey } = await import('../openai-api-key');
-      const { resolveProviderEnvKey, readProviderSecretKey } = await import('../provider-api-key');
-
-      vi.mocked(readOpenAIApiKey).mockResolvedValue(undefined);
-      vi.mocked(resolveProviderEnvKey).mockReturnValue(undefined);
-      vi.mocked(readProviderSecretKey).mockResolvedValue(undefined);
-
-      const messages = [
-        {
-          id: '1',
-          role: 'user' as const,
-          parts: [{ type: 'text' as const, text: 'Hello' }],
-        },
-      ];
-
-      await expect(
-        chatHandler({} as IpcMainInvokeEvent, messages, { provider: 'openai' })
-      ).rejects.toThrow('missing_api_key:openai');
     });
 
     it('should handle empty runtime data', async () => {

@@ -114,7 +114,6 @@ export interface LoadedMcpConfig {
   config?: McpConfig;
   servers?: McpServer[];
   loadedAt?: number;
-  error?: string;
 }
 
 let customConfigPath: string | null = null;
@@ -202,16 +201,14 @@ export function decryptIfEncrypted(value: string): string {
   }
 }
 
-/**
- * Decrypt encrypted values in a key-value record.
- * Keys ending with 'Encrypted' are decrypted and stored without the suffix.
- */
-function applyDecryption(record?: Record<string, string>): Record<string, string> | undefined {
-  if (!record) {
-    return record;
+export function applyDecryptionToHeaders(
+  headers?: Record<string, string>
+): Record<string, string> | undefined {
+  if (!headers) {
+    return headers;
   }
   const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(record)) {
+  for (const [k, v] of Object.entries(headers)) {
     if (k.endsWith('Encrypted')) {
       const target = k.slice(0, -'Encrypted'.length);
       out[target] = decryptIfEncrypted(v);
@@ -222,8 +219,23 @@ function applyDecryption(record?: Record<string, string>): Record<string, string
   return out;
 }
 
-export const applyDecryptionToHeaders = applyDecryption;
-export const applyDecryptionToEnv = applyDecryption;
+export function applyDecryptionToEnv(
+  env?: Record<string, string>
+): Record<string, string> | undefined {
+  if (!env) {
+    return env;
+  }
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (k.endsWith('Encrypted')) {
+      const target = k.slice(0, -'Encrypted'.length);
+      out[target] = decryptIfEncrypted(v);
+    } else if (!(k in out)) {
+      out[k] = v;
+    }
+  }
+  return out;
+}
 
 function processSseServer(s: Extract<McpServer, { transport: 'sse' }>): McpServer {
   const headers = applyDecryptionToHeaders(s.headers);
@@ -263,14 +275,12 @@ export async function loadMcpConfig(): Promise<LoadedMcpConfig> {
     const cfg = parseMcpConfig(text);
     const dec = withDecryptedSecrets(cfg);
     return { path: p, exists: true, config: dec, servers: dec.servers, loadedAt: Date.now() };
-  } catch (error) {
-    const code = (error as { code?: unknown }).code;
-    const message = error instanceof Error ? error.message : String(error);
-    if (code === 'ENOENT' || message.includes('no such file or directory')) {
+  } catch (err) {
+    const error = err as { code?: string; message?: string };
+    if (error && (error.code === 'ENOENT' || /no such file/i.test(String(error.message)))) {
       return { path: p, exists: false };
     }
-    logger.error('Failed to load MCP config', { path: p, code, error: message });
-    return { path: p, exists: true, error: message };
+    return { path: p, exists: false };
   }
 }
 

@@ -182,9 +182,7 @@
       ],
       "ignoreDependencies": [
         // Used via dynamic require in render-with-providers.tsx
-        "@testing-library/react",
-        // Optional peer used only for the playwright test helpers export
-        "@playwright/test"
+        "@testing-library/react"
       ],
       "typescript": {
         "config": "tsconfig.json"

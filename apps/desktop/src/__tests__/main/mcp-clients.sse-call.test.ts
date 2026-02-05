@@ -1,30 +1,23 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import http from 'node:http';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { disposeClients, getClient, initClients } from '../../mcp';
 
+let server: http.Server;
 let port = 0;
 type ToolRequest = Parameters<typeof emitToolResult>[0];
-type StreamList = ReadableStreamDefaultController<Uint8Array>[];
+type StreamList = Parameters<typeof emitToolResult>[1];
 let requestInterceptor: ((parsed: ToolRequest, streams: StreamList) => void) | undefined;
-let fetchSpy: ReturnType<typeof vi.spyOn> | null = null;
-const encoder = new TextEncoder();
 
 function emitToolResult(
   parsed: { id: string; tool: string; params?: { text?: string } },
-  streams: ReadableStreamDefaultController<Uint8Array>[]
+  streams: http.ServerResponse[]
 ): void {
   try {
     // Emit a progress event first
-    const progressPayload = encoder.encode(
-      [
-        'event: tool-progress',
-        `id: ${parsed.id}`,
-        `data: ${JSON.stringify({ id: parsed.id, step: 'starting' })}`,
-        '',
-        '',
-      ].join('\n')
-    );
-    for (const controller of streams) {
-      controller.enqueue(progressPayload);
+    for (const s of streams) {
+      s.write('event: tool-progress\n');
+      s.write(`id: ${parsed.id}\n`);
+      s.write(`data: ${JSON.stringify({ id: parsed.id, step: 'starting' })}\n\n`);
     }
     // Emit a tool-result event with the same id and a result payload
     if (streams.length > 0) {
@@ -32,9 +25,8 @@ function emitToolResult(
         'event: tool-result\n' +
         `id: ${parsed.id}\n` +
         `data: ${JSON.stringify({ id: parsed.id, result: { echo: parsed.params?.text ?? null, tool: parsed.tool } })}\n\n`;
-      const resultPayload = encoder.encode(line);
-      for (const controller of streams) {
-        controller.enqueue(resultPayload);
+      for (const s of streams) {
+        s.write(line);
       }
     }
   } catch {}
@@ -42,54 +34,59 @@ function emitToolResult(
 
 describe('mcp-clients (sse request/response)', () => {
   beforeAll(async () => {
-    port = 0;
-    fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = typeof input === 'string' ? input : input.url;
-      const method = init?.method ?? 'GET';
-
-      if (method === 'POST' && url.endsWith('/request')) {
-        try {
-          const body = typeof init?.body === 'string' ? init.body : '';
-          const parsed = JSON.parse(body) as ToolRequest;
-          const handler =
-            requestInterceptor ??
-            ((req: ToolRequest, resStreams: StreamList): void => {
-              setTimeout(() => emitToolResult(req, resStreams), 10);
-            });
-          handler(parsed, streams);
-          return new Response('accepted', { status: 202 });
-        } catch {
-          return new Response('bad json', { status: 400 });
-        }
-      }
-
-      if (method === 'GET' && url.endsWith('/sse')) {
-        const stream = new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(encoder.encode(': ok\n\n'));
-            streams.push(controller);
-          },
-          cancel() {
-            streams.splice(0, streams.length);
-          },
+    server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url?.endsWith('/request')) {
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk.toString();
         });
-        return new Response(stream, {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/event-stream',
-            Connection: 'keep-alive',
-            'Cache-Control': 'no-cache',
-          },
+        req.on('end', () => {
+          try {
+            const parsed = JSON.parse(body) as ToolRequest;
+            const handler =
+              requestInterceptor ??
+              ((req: ToolRequest, resStreams: StreamList): void => {
+                setTimeout(() => emitToolResult(req, resStreams), 10);
+              });
+            handler(parsed, streams);
+            res.writeHead(202);
+            res.end('accepted');
+          } catch {
+            res.writeHead(400);
+            res.end('bad json');
+          }
         });
+        return;
       }
-
-      return new Response('not found', { status: 404 });
+      // rudimentary sse endpoint
+      if (req.method === 'GET' && req.url?.endsWith('/sse')) {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          Connection: 'keep-alive',
+          'Cache-Control': 'no-cache',
+        });
+        res.write(': ok\n\n');
+        streams.push(res);
+        req.on('close', () => {
+          const idx = streams.indexOf(res);
+          if (idx >= 0) {
+            streams.splice(idx, 1);
+          }
+        });
+        return;
+      }
+      res.writeHead(404);
+      res.end('not found');
     });
+    await new Promise<void>((resolve) => server.listen(0, () => resolve()));
+    const addr = server.address();
+    if (typeof addr === 'object' && addr && 'port' in addr) {
+      port = addr.port as number;
+    }
   });
 
   afterAll(async () => {
-    fetchSpy?.mockRestore();
-    fetchSpy = null;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
   afterEach(async () => {
@@ -97,7 +94,7 @@ describe('mcp-clients (sse request/response)', () => {
     requestInterceptor = undefined;
   });
 
-  const streams: StreamList = [];
+  const streams: http.ServerResponse[] = [];
 
   test('Sends request and resolves with SSE tool-result payload', async () => {
     initClients({
@@ -126,9 +123,8 @@ describe('mcp-clients (sse request/response)', () => {
           'event: tool-error\n' +
           `id: ${parsed.id}\n` +
           `data: ${JSON.stringify({ id: parsed.id, error: 'failed' })}\n\n`;
-        const payload = encoder.encode(line);
-        for (const controller of activeStreams) {
-          controller.enqueue(payload);
+        for (const stream of activeStreams) {
+          stream.write(line);
         }
       }, 5);
     };

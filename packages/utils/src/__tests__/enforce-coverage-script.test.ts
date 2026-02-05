@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-const scriptPath = path.resolve(import.meta.dirname, '../../../../scripts/enforce-coverage.mjs');
+const scriptPath = path.resolve(__dirname, '../../../../scripts/enforce-coverage.mjs');
 
 let tmpRoot: string;
 

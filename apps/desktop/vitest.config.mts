@@ -38,12 +38,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(import.meta.dirname, './src/renderer'),
-      '@brainstrike/agent/client': path.resolve(
-        import.meta.dirname,
-        '../../packages/agent/src/client.ts'
-      ),
-      '@brainstrike/test-utils': path.resolve(import.meta.dirname, '../../packages/test-utils/src'),
+      '@': path.resolve(__dirname, './src/renderer'),
+      '@brainstrike/agent/client': path.resolve(__dirname, '../../packages/agent/src/client.ts'),
+      '@brainstrike/test-utils': path.resolve(__dirname, '../../packages/test-utils/src'),
     },
   },
 });

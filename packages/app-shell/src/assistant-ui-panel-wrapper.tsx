@@ -9,12 +9,10 @@ import {
   getProviderDefinition,
   getProviderModelDefinitions,
   isSupportedProvider,
-  NATIVE_TOOL_DEFAULTS,
   type ProviderModelDefinition,
   type ProviderRuntime,
   type SupportedProvider,
   supportsStandardEmbeddingDimension,
-  TOOL_DESCRIPTIONS,
 } from '@brainstrike/agent/client';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
 import { useFileExplorerStoreContext, useSelectionManager } from '@brainstrike/file-explorer-ui';
@@ -22,24 +20,19 @@ import {
   useAssistantPreferencesStore,
   useEnsureModelRegistry,
   useModelRegistryStore,
-  useNativeToolPreferencesStore,
   useSecretsStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
 import {
-  type AssistantContextMenuConfig,
   type AssistantProviderSettings,
   type AssistantProviderSettingsUpdate,
-  type AssistantToolMenuConfig,
-  type AssistantToolMenuItem,
   AssistantUiPanel,
   type ModelPickerModel,
   type ModelPickerProvider,
   type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection } from '@brainstrike/utils';
-import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePanelLayoutStore } from './stores/panel-layout-store';
+import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
@@ -60,61 +53,6 @@ function resolveModelNameFromComposite(composite: string | null | undefined): st
   }
   const parts = composite.split('::');
   return parts.length === 2 ? parts[1] : composite;
-}
-
-function formatToolLabel(toolId: string): string {
-  const name = toolId.split('.').pop() ?? toolId;
-  const spaced = name
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/[-_]/g, ' ')
-    .trim();
-  return spaced.replace(/\b\w/g, (match) => match.toUpperCase());
-}
-
-function getToolDescription(toolId: string): string {
-  return TOOL_DESCRIPTIONS[toolId] ?? `Tool: ${toolId}`;
-}
-
-interface McpToolDescriptor {
-  id: string;
-  description?: string;
-  enabled: boolean;
-}
-
-type McpToolMap = Record<string, McpToolDescriptor[]>;
-
-function buildMcpMenuItems(toolsByServer: McpToolMap): AssistantToolMenuItem[] {
-  const items: AssistantToolMenuItem[] = [];
-  for (const [serverName, serverTools] of Object.entries(toolsByServer)) {
-    for (const tool of serverTools) {
-      items.push({
-        id: tool.id,
-        label: formatToolLabel(tool.id),
-        enabled: tool.enabled,
-        source: 'mcp',
-        group: serverName,
-        description: tool.description ?? `MCP tool: ${tool.id}`,
-        category: 'action',
-      });
-    }
-  }
-  return items;
-}
-
-function returnIfNotEmpty<T extends Record<string, unknown>>(options: T): T | undefined {
-  return Object.keys(options).length > 0 ? options : undefined;
-}
-
-function buildOptionalOptions<T extends Record<string, unknown>>(
-  entries: [keyof T, unknown][]
-): T | undefined {
-  const options = {} as T;
-  for (const [key, value] of entries) {
-    if (value !== undefined) {
-      options[key] = value as T[keyof T];
-    }
-  }
-  return returnIfNotEmpty(options);
 }
 
 function buildModelSettings(
@@ -142,46 +80,62 @@ function resolveGoogleThinkingLevel(
 }
 
 function buildOpenAiOptions(
+  providerId: SupportedProvider,
   settings: AssistantProviderSettings
-): OpenAiProviderOptions | undefined {
-  return buildOptionalOptions<OpenAiProviderOptions>([
-    ['reasoningEffort', settings.reasoningEffort || undefined],
-    ['reasoningSummary', settings.reasoningSummary || undefined],
-  ]);
+): RuntimeData['providerOptions'] {
+  if (!(providerId === 'openai' || providerId === 'openrouter')) {
+    return;
+  }
+  const openaiOptions: OpenAiProviderOptions = {};
+  if (settings.reasoningEffort) {
+    openaiOptions['reasoningEffort'] = settings.reasoningEffort;
+  }
+  if (settings.reasoningSummary) {
+    openaiOptions['reasoningSummary'] = settings.reasoningSummary;
+  }
+  return Object.keys(openaiOptions).length > 0 ? { openai: openaiOptions } : undefined;
 }
 
 function buildAnthropicOptions(
+  providerId: SupportedProvider,
   settings: AssistantProviderSettings
-): AnthropicProviderOptions | undefined {
-  const thinking =
-    typeof settings.anthropicThinkingBudgetTokens === 'number'
-      ? {
-          type: 'enabled' as const,
-          budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
-        }
-      : undefined;
-  return buildOptionalOptions<AnthropicProviderOptions>([
-    ['effort', settings.anthropicEffort || undefined],
-    ['thinking', thinking],
-  ]);
+): RuntimeData['providerOptions'] {
+  if (providerId !== 'anthropic') {
+    return;
+  }
+  const anthropicOptions: AnthropicProviderOptions = {};
+  if (settings.anthropicEffort) {
+    anthropicOptions['effort'] = settings.anthropicEffort;
+  }
+  if (typeof settings.anthropicThinkingBudgetTokens === 'number') {
+    anthropicOptions['thinking'] = {
+      type: 'enabled',
+      budgetTokens: Math.floor(settings.anthropicThinkingBudgetTokens),
+    };
+  }
+  return Object.keys(anthropicOptions).length > 0 ? { anthropic: anthropicOptions } : undefined;
 }
 
 function buildGoogleOptions(
+  providerId: SupportedProvider,
   modelName: string | undefined,
   settings: AssistantProviderSettings
-): GoogleProviderOptions | undefined {
+): RuntimeData['providerOptions'] {
+  if (providerId !== 'google') {
+    return;
+  }
+  const thinkingConfig: NonNullable<GoogleProviderOptions['thinkingConfig']> = {};
   const resolvedLevel = resolveGoogleThinkingLevel(modelName, settings.googleThinkingLevel);
-  const includeThoughts =
-    typeof settings.googleIncludeThoughts === 'boolean'
-      ? settings.googleIncludeThoughts
-      : undefined;
-  const thinkingConfig = buildOptionalOptions<NonNullable<GoogleProviderOptions['thinkingConfig']>>(
-    [
-      ['thinkingLevel', resolvedLevel],
-      ['includeThoughts', includeThoughts],
-    ]
-  );
-  return thinkingConfig ? { thinkingConfig } : undefined;
+  if (resolvedLevel) {
+    thinkingConfig['thinkingLevel'] = resolvedLevel;
+  }
+  if (typeof settings.googleIncludeThoughts === 'boolean') {
+    thinkingConfig['includeThoughts'] = settings.googleIncludeThoughts;
+  }
+  if (Object.keys(thinkingConfig).length === 0) {
+    return;
+  }
+  return { google: { thinkingConfig } };
 }
 
 function buildProviderOptions(
@@ -193,23 +147,22 @@ function buildProviderOptions(
     return;
   }
 
-  switch (providerId) {
-    case 'openai':
-    case 'openrouter': {
-      const openai = buildOpenAiOptions(settings);
-      return openai ? { openai } : undefined;
-    }
-    case 'anthropic': {
-      const anthropic = buildAnthropicOptions(settings);
-      return anthropic ? { anthropic } : undefined;
-    }
-    case 'google': {
-      const google = buildGoogleOptions(modelName, settings);
-      return google ? { google } : undefined;
-    }
-    default:
-      return;
+  const openai = buildOpenAiOptions(providerId, settings);
+  if (openai) {
+    return openai;
   }
+
+  const anthropic = buildAnthropicOptions(providerId, settings);
+  if (anthropic) {
+    return anthropic;
+  }
+
+  const google = buildGoogleOptions(providerId, modelName, settings);
+  if (google) {
+    return google;
+  }
+
+  return;
 }
 
 export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ initialProviders }) => {
@@ -229,9 +182,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     (state) => state.enabledModelsByProvider
   );
   const providerSettings = useAssistantPreferencesStore((state) => state.providerSettings);
-  const [nativeToolStates, setNativeToolEnabled] = useNativeToolPreferencesStore(
-    (state) => [state.toolStates, state.setToolEnabled] as const
-  );
 
   // Subscribe to secrets changes to re-check available providers when API keys change
   const secretsVersion = useSecretsStore((state) => state.secretsVersion);
@@ -244,29 +194,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
-  const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
-  const [mcpTools, setMcpTools] = useState<AssistantToolMenuItem[]>([]);
-  const [mcpLoading, setMcpLoading] = useState(false);
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
-  const setMcpToolsIfMounted = useCallback((items: AssistantToolMenuItem[]) => {
-    if (isMountedRef.current) {
-      setMcpTools(items);
-    }
-  }, []);
-
-  const setMcpLoadingIfMounted = useCallback((value: boolean) => {
-    if (isMountedRef.current) {
-      setMcpLoading(value);
-    }
-  }, []);
 
   // Create a set of DB-enabled model IDs for quick lookup
   const registryEnabledModelIds = useMemo(() => {
@@ -328,9 +255,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   );
   const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const store = useFileExplorerStoreContext();
-  const [tokenBudget, currentFolderId, setTokenBudget] = store(
-    (s) => [s.tokenBudget, s.currentFolderId, s.setTokenBudget] as const
-  );
+  const [tokenBudget, currentFolderId] = store((s) => [s.tokenBudget, s.currentFolderId] as const);
   const handleSelectionLimitExceeded = useCallback(() => {}, []);
   const { effectiveSelection } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitExceeded,
@@ -361,115 +286,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       folderId: resolvedFolderId,
     };
   }, [effectiveSelection, currentFolderId]);
-
-  const nativeToolItems = useMemo<AssistantToolMenuItem[]>(() => {
-    return Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => ({
-      id: toolId,
-      label: formatToolLabel(toolId),
-      enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
-      source: 'native',
-      group: 'Native Tools',
-      description: getToolDescription(toolId),
-      category: metadata.category,
-    }));
-  }, [nativeToolStates]);
-
-  const loadMcpTools = useCallback(async () => {
-    if (typeof window === 'undefined' || !window.mcp?.listTools) {
-      setMcpToolsIfMounted([]);
-      return;
-    }
-
-    setMcpLoadingIfMounted(true);
-    try {
-      const toolsByServer = (await window.mcp.listTools()) as McpToolMap;
-      setMcpToolsIfMounted(buildMcpMenuItems(toolsByServer));
-    } catch {
-      setMcpToolsIfMounted([]);
-    } finally {
-      setMcpLoadingIfMounted(false);
-    }
-  }, [setMcpLoadingIfMounted, setMcpToolsIfMounted]);
-
-  useEffect(() => {
-    void loadMcpTools();
-  }, [loadMcpTools]);
-
-  const toolMenuItems = useMemo(
-    () => [...nativeToolItems, ...mcpTools],
-    [nativeToolItems, mcpTools]
-  );
-
-  const toolSourceById = useMemo(() => {
-    const entries = toolMenuItems.map((tool) => [tool.id, tool.source] as const);
-    return new Map(entries);
-  }, [toolMenuItems]);
-
-  const handleToggleTool = useCallback(
-    async (toolId: string, enabled: boolean) => {
-      const source = toolSourceById.get(toolId);
-      if (!source) {
-        return;
-      }
-      if (source === 'native') {
-        setNativeToolEnabled(toolId, enabled);
-        return;
-      }
-
-      if (enabled) {
-        await window.mcp?.enableTools?.([toolId]);
-      } else {
-        await window.mcp?.disableTools?.([toolId]);
-      }
-      await loadMcpTools();
-    },
-    [toolSourceById, setNativeToolEnabled, loadMcpTools]
-  );
-
-  const handleOpenToolSettings = useCallback(() => {
-    setActiveTab('settings');
-    if (typeof window !== 'undefined') {
-      window.location.hash = '#settings/ai-tools';
-    }
-  }, [setActiveTab]);
-
-  const canRefreshMcp =
-    typeof window !== 'undefined' && typeof window.mcp?.listTools === 'function';
-
-  const toolMenu = useMemo<AssistantToolMenuConfig>(() => {
-    const summary = toolMenuItems.length
-      ? `${toolMenuItems.filter((tool) => tool.enabled).length} of ${toolMenuItems.length} enabled`
-      : undefined;
-
-    return {
-      items: toolMenuItems,
-      isLoading: mcpLoading,
-      onToggleTool: handleToggleTool,
-      onOpenSettings: handleOpenToolSettings,
-      ...(summary ? { summary } : {}),
-      ...(canRefreshMcp ? { onRefresh: loadMcpTools } : {}),
-    };
-  }, [
-    canRefreshMcp,
-    handleOpenToolSettings,
-    handleToggleTool,
-    loadMcpTools,
-    mcpLoading,
-    toolMenuItems,
-  ]);
-
-  const selectionCount = selectionData.filePaths.length;
-  const contextMenu = useMemo<AssistantContextMenuConfig>(() => {
-    const selectionLabel = selectionCount > 0 ? `${selectionCount} files selected` : undefined;
-
-    return {
-      selectionCount,
-      onTokenBudgetChange: setTokenBudget,
-      ...(selectionLabel ? { selectionLabel } : {}),
-      ...(typeof activeEmbeddingSetId === 'string' ? { embeddingSetId: activeEmbeddingSetId } : {}),
-      ...(typeof tokenBudget === 'number' ? { tokenBudget } : {}),
-    };
-  }, [activeEmbeddingSetId, selectionCount, setTokenBudget, tokenBudget]);
 
   const requestData = useMemo(() => {
     const data: Record<string, unknown> = {};
@@ -759,14 +575,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
   return (
     <AssistantUiPanel
-      contextMenu={contextMenu}
       onProviderSettingsChange={handleProviderSettingsChange}
       pickerModels={pickerModels}
       pickerProviders={pickerProviders}
       providerGroups={providerGroups}
       providerSettings={providerSettings}
       requestData={requestData}
-      toolMenu={toolMenu}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}
       disabled={!isProviderReady}

@@ -19,8 +19,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@brainstrike/queue': resolve(import.meta.dirname, '../queue/src/index.ts'),
-      '@brainstrike/utils': resolve(import.meta.dirname, '../utils/src/index.ts'),
+      '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
+      '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
     },
   },
 });

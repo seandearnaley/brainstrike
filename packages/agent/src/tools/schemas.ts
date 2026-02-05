@@ -1,126 +1,5 @@
 import { z } from 'zod';
 
-// ============================================================================
-// Hybrid Search Tool Schema
-// ============================================================================
-
-export const HybridSearchInputSchema = z
-  .object({
-    query: z.string().min(1).max(2000).describe('Search query text'),
-    embeddingSetId: z.string().min(1).describe('Embedding set ID for vector search'),
-    limit: z.number().int().positive().max(100).optional().describe('Maximum results to return'),
-    vectorWeight: z
-      .number()
-      .min(0)
-      .max(2)
-      .optional()
-      .describe('Weight for vector search (default 1.0)'),
-    ftsWeight: z
-      .number()
-      .min(0)
-      .max(2)
-      .optional()
-      .describe('Weight for full-text search (default 1.0)'),
-    vectorThreshold: z.number().min(0).max(1).optional().describe('Minimum similarity threshold'),
-    filePaths: z
-      .array(z.string().min(1))
-      .max(1000)
-      .optional()
-      .describe('Filter to specific file paths'),
-    chunkType: z
-      .enum(['text', 'code', 'sentence', 'recursive'])
-      .optional()
-      .describe('Filter by chunk type'),
-  })
-  .strict();
-
-export type HybridSearchInput = z.infer<typeof HybridSearchInputSchema>;
-
-// ============================================================================
-// Queue Status Tool Schema
-// ============================================================================
-
-export const QueueStatusInputSchema = z
-  .object({
-    embeddingSetId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe('Optional: filter to specific embedding set'),
-  })
-  .strict();
-
-export type QueueStatusInput = z.infer<typeof QueueStatusInputSchema>;
-
-// ============================================================================
-// Embedding Sets Tool Schemas
-// ============================================================================
-
-export const ListEmbeddingSetsInputSchema = z
-  .object({
-    includeStats: z.boolean().optional().describe('Include coverage statistics'),
-  })
-  .strict();
-
-export type ListEmbeddingSetsInput = z.infer<typeof ListEmbeddingSetsInputSchema>;
-
-export const CreateEmbeddingSetInputSchema = z
-  .object({
-    name: z.string().min(1).max(100).describe('Name for the embedding set'),
-    modelKey: z.string().min(1).describe('Model key (provider::model format)'),
-    description: z.string().max(500).optional().describe('Optional description'),
-  })
-  .strict();
-
-export type CreateEmbeddingSetInput = z.infer<typeof CreateEmbeddingSetInputSchema>;
-
-// ============================================================================
-// File Tree Tool Schema
-// ============================================================================
-
-export const QueryFileTreeInputSchema = z
-  .object({
-    path: z.string().optional().describe('Directory path to query (defaults to root)'),
-    pattern: z.string().optional().describe('Glob pattern to filter files'),
-    maxDepth: z.number().int().positive().max(10).optional().describe('Maximum depth to traverse'),
-    includeHidden: z.boolean().optional().describe('Include hidden files/directories'),
-  })
-  .strict();
-
-export type QueryFileTreeInput = z.infer<typeof QueryFileTreeInputSchema>;
-
-// ============================================================================
-// System Diagnostics Tool Schema
-// ============================================================================
-
-export const SystemDiagnosticsInputSchema = z
-  .object({
-    categories: z
-      .array(z.enum(['database', 'queue', 'worker', 'storage', 'all']))
-      .optional()
-      .describe('Diagnostic categories to check'),
-  })
-  .strict();
-
-export type SystemDiagnosticsInput = z.infer<typeof SystemDiagnosticsInputSchema>;
-
-// ============================================================================
-// Re-embed Collection Tool Schema
-// ============================================================================
-
-export const ReembedCollectionInputSchema = z
-  .object({
-    embeddingSetId: z.string().min(1).describe('Embedding set ID to re-embed'),
-    reason: z.string().max(200).optional().describe('Reason for re-embedding'),
-  })
-  .strict();
-
-export type ReembedCollectionInput = z.infer<typeof ReembedCollectionInputSchema>;
-
-// ============================================================================
-// Existing Schemas (Filesystem, Web, Retrieval)
-// ============================================================================
-
 const FilesystemListInput = z
   .object({
     path: z.string().min(1).optional(),
@@ -190,23 +69,13 @@ export const RetrievalContextInputSchema = z
 export type RetrievalContextInput = z.infer<typeof RetrievalContextInputSchema>;
 
 const schemaMap: Record<string, z.ZodSchema> = {
-  // Filesystem tools
   'filesystem.list': FilesystemListInput,
   'filesystem.read': FilesystemReadInput,
   'filesystem.search': FilesystemSearchInput,
-  // Web tools
   'web.echo': EchoInput,
   'web.searchDocs': WebSearchDocsInput,
   'web.docSummary': WebDocSummaryInput,
-  // BrainStrike native tools
   'brainstrike.retrieveContext': RetrievalContextInputSchema,
-  'brainstrike.hybridSearch': HybridSearchInputSchema,
-  'brainstrike.queueStatus': QueueStatusInputSchema,
-  'brainstrike.listEmbeddingSets': ListEmbeddingSetsInputSchema,
-  'brainstrike.createEmbeddingSet': CreateEmbeddingSetInputSchema,
-  'brainstrike.queryFileTree': QueryFileTreeInputSchema,
-  'brainstrike.systemDiagnostics': SystemDiagnosticsInputSchema,
-  'brainstrike.reembedCollection': ReembedCollectionInputSchema,
 };
 
 function formatZodIssue(issue: z.ZodIssue): string {

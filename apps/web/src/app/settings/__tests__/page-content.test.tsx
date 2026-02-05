@@ -1,4 +1,3 @@
-import { __resetNativeToolPreferencesStoreForTests } from '@brainstrike/preferences';
 import { ThemeSettings } from '@brainstrike/ui';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { HelmetProvider } from 'react-helmet-async';
@@ -57,7 +56,6 @@ describe('Web SettingsPageContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.location.hash = '';
-    __resetNativeToolPreferencesStoreForTests();
   });
 
   const renderPage = () =>

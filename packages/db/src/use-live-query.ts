@@ -9,13 +9,6 @@ import { usePGliteDatabase } from './db-provider.js';
 
 interface BaseLiveQueryOptions {
   readonly query: string;
-  /**
-   * IMPORTANT: Memoize this array to prevent unnecessary re-subscriptions.
-   *
-   * @example
-   * const params = useMemo(() => [userId, status], [userId, status]);
-   * usePGliteLiveQuery({ query: '...', params });
-   */
   readonly params?: readonly unknown[];
   readonly offset?: number;
   readonly limit?: number;
@@ -38,13 +31,6 @@ type InternalLiveQueryOptions = BaseLiveQueryOptions & {
 };
 
 export type UsePGliteLiveQueryOptions<T> = (IncrementalOptions | StandardOptions) & {
-  /**
-   * IMPORTANT: Memoize this callback to avoid unnecessary row recomputation.
-   *
-   * @example
-   * const select = useCallback((rows) => rows.filter((row) => row.enabled), []);
-   * usePGliteLiveQuery({ query: '...', select });
-   */
   readonly select?: (rows: T[]) => T[];
 };
 
@@ -247,160 +233,96 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
   const db = usePGliteDatabase();
   const source = useMemo(() => resolveLiveSource(db), [db]);
   const [rows, setRows] = useState<T[]>([]);
-  const {
-    enabled: enabledOption,
-    key,
-    limit,
-    mode: modeOption,
-    offset,
-    params,
-    query,
-    select,
-  } = options;
-  const [loading, setLoading] = useState<boolean>(Boolean(enabledOption ?? true));
+  const [loading, setLoading] = useState<boolean>(Boolean(options.enabled ?? true));
   const [error, setError] = useState<Error | null>(null);
   const refreshRef = useRef<() => Promise<void>>(noopAsync);
-  const unsubscribeRef = useRef<Promise<void> | null>(null);
-  const selectRef = useRef(select);
-  const rawRowsRef = useRef<T[]>([]);
 
-  useEffect(() => {
-    selectRef.current = select;
-    const rawRows = rawRowsRef.current;
-    const selector = selectRef.current;
-    setRows((selector ? selector(rawRows) : rawRows) as T[]);
-  }, [select]);
-
-  const mode: 'query' | 'incremental' = modeOption ?? 'query';
+  const mode: 'query' | 'incremental' = options.mode ?? 'query';
   const requiresKey = mode === 'incremental';
-  const hasKey = !requiresKey || typeof key === 'string';
-  const enabled = Boolean(enabledOption ?? true) && Boolean(source) && (!requiresKey || hasKey);
+  const hasKey = !requiresKey || typeof options.key === 'string';
+  const enabled = Boolean(options.enabled ?? true) && Boolean(source) && (!requiresKey || hasKey);
 
   // biome-ignore lint/plugin: Live query subscription management - async data with cleanup
   useEffect(() => {
     let cancelled = false;
     let subscription: LiveSubscription<T> | null = null;
 
-    const waitForPendingUnsubscribe = async () => {
-      const pending = unsubscribeRef.current;
-      if (!pending) {
-        return;
-      }
-      try {
-        await pending;
-      } catch {
-        // Ignore unsubscribe failures; new subscription will still proceed.
-      } finally {
-        if (unsubscribeRef.current === pending) {
-          unsubscribeRef.current = null;
-        }
-      }
-    };
+    if (!enabled) {
+      // Keep existing rows cached when disabled - don't clear to avoid UI flicker
+      // Only stop the subscription and mark as not loading
+      setError(null);
+      setLoading(false);
+      refreshRef.current = noopAsync;
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const handleUpdate = (results: LiveQueryResults<T>) => {
       if (cancelled) {
         return;
       }
-      rawRowsRef.current = results.rows;
-      const selector = selectRef.current;
-      setRows((selector ? selector(results.rows) : results.rows) as T[]);
+      setRows((options.select ? options.select(results.rows) : results.rows) as T[]);
     };
 
-    const resetDisabledState = () => {
-      setError(null);
-      setLoading(false);
-      refreshRef.current = noopAsync;
-    };
+    setLoading(true);
+    setError(null);
 
-    const applySubscriptionResult = (result: LiveSubscription<T>) => {
-      subscription = result;
-      refreshRef.current = async () => {
-        await result.refresh();
-      };
-      rawRowsRef.current = result.initialResults.rows;
-      const selector = selectRef.current;
-      setRows(
-        (selector ? selector(result.initialResults.rows) : result.initialResults.rows) as T[]
-      );
-      setLoading(false);
-    };
-
-    const handleSubscriptionError = (err: unknown) => {
-      const normalized = err instanceof Error ? err : new Error(String(err));
-      setError(normalized);
-      rawRowsRef.current = [];
-      setRows([]);
-      setLoading(false);
-      refreshRef.current = noopAsync;
-    };
-
-    const buildOptions = (): InternalLiveQueryOptions => ({
-      query,
+    const normalizedOptions: InternalLiveQueryOptions = {
+      query: options.query,
       mode,
-      ...(params !== undefined ? { params } : {}),
-      ...(offset !== undefined ? { offset } : {}),
-      ...(limit !== undefined ? { limit } : {}),
-      ...(key ? { key } : {}),
-    });
-
-    const unsubscribeCancelled = async (result: LiveSubscription<T>) => {
-      const pending = result.unsubscribe();
-      unsubscribeRef.current = pending;
-      try {
-        await pending;
-      } catch {
-        // Ignore unsubscribe errors during cancellation.
-      }
+      ...(options.params !== undefined ? { params: options.params } : {}),
+      ...(options.offset !== undefined ? { offset: options.offset } : {}),
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      ...(options.key ? { key: options.key } : {}),
     };
 
-    const startSubscription = async () => {
-      await waitForPendingUnsubscribe();
-      if (cancelled) {
-        return;
-      }
-
-      if (!enabled) {
-        // Keep existing rows cached when disabled - don't clear to avoid UI flicker
-        // Only stop the subscription and mark as not loading
-        resetDisabledState();
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const result = await subscribeToLiveSource<T>(
-          source as LiveSource,
-          buildOptions(),
-          handleUpdate
+    void subscribeToLiveSource<T>(source as LiveSource, normalizedOptions, handleUpdate)
+      .then((result) => {
+        if (cancelled) {
+          void result.unsubscribe();
+          return;
+        }
+        subscription = result;
+        refreshRef.current = async () => {
+          await result.refresh();
+        };
+        setRows(
+          (options.select
+            ? options.select(result.initialResults.rows)
+            : result.initialResults.rows) as T[]
         );
-        if (cancelled) {
-          await unsubscribeCancelled(result);
-          return;
-        }
-
-        applySubscriptionResult(result);
-      } catch (err) {
+        setLoading(false);
+      })
+      .catch((err) => {
         if (cancelled) {
           return;
         }
-        handleSubscriptionError(err);
-      }
-    };
-
-    void startSubscription();
+        const normalized = err instanceof Error ? err : new Error(String(err));
+        setError(normalized);
+        setRows([]);
+        setLoading(false);
+        refreshRef.current = noopAsync;
+      });
 
     return () => {
       cancelled = true;
       refreshRef.current = noopAsync;
       if (subscription) {
-        const pending = subscription.unsubscribe();
-        unsubscribeRef.current = pending;
-        void pending.catch(() => {});
+        void subscription.unsubscribe();
       }
     };
-  }, [enabled, mode, key, limit, offset, params, query, source]);
+  }, [
+    enabled,
+    mode,
+    options.key,
+    options.limit,
+    options.offset,
+    options.params,
+    options.query,
+    options.select,
+    source,
+  ]);
 
   const refresh = useCallback(async () => {
     await refreshRef.current();

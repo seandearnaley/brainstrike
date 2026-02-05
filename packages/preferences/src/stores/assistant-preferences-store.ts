@@ -210,8 +210,7 @@ function buildMigratedModelsByProvider(
     }
 
     const enabledModels = enabled[provider] ?? [];
-    const currentModel = migrated[provider];
-    if (enabledModels.length > 0 && !(currentModel && enabledModels.includes(currentModel))) {
+    if (enabledModels.length > 0 && !enabledModels.includes(migrated[provider])) {
       const fallback = resolvePreferredModel(provider, enabledModels);
       if (fallback) {
         migrated[provider] = fallback;
@@ -228,11 +227,11 @@ function buildMigratedSelectedModel(
 ): string | null {
   let selectedModel: string | null = null;
 
-  const baseModel = base.selectedProvider
-    ? base.modelsByProvider?.[base.selectedProvider]
-    : undefined;
-  if (base.selectedProvider && typeof baseModel === 'string') {
-    const migrated = migrateModelId(base.selectedProvider, baseModel);
+  if (base.selectedProvider && base.modelsByProvider?.[base.selectedProvider]) {
+    const migrated = migrateModelId(
+      base.selectedProvider,
+      base.modelsByProvider[base.selectedProvider]
+    );
     selectedModel = `${base.selectedProvider}::${migrated}`;
   } else if (typeof base.selectedModel === 'string') {
     const [provider, model] = base.selectedModel.split('::');

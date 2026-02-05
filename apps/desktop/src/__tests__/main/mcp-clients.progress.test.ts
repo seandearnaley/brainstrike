@@ -1,80 +1,73 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import http from 'node:http';
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { disposeClients, getClient, initClients } from '../../mcp';
 
+let server: http.Server;
 let port = 0;
-const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
-let fetchSpy: ReturnType<typeof vi.spyOn> | null = null;
-const encoder = new TextEncoder();
+const streams: http.ServerResponse[] = [];
 
 describe('mcp-clients (sse progress)', () => {
   beforeAll(async () => {
-    port = 0;
-    fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = typeof input === 'string' ? input : input.url;
-      const method = init?.method ?? 'GET';
-
-      if (method === 'POST' && url.endsWith('/request')) {
-        try {
-          const body = typeof init?.body === 'string' ? init.body : '';
-          const parsed = JSON.parse(body) as { id: string; tool: string };
-          setTimeout(() => {
-            const progressPayload = encoder.encode(
-              [
-                'event: tool-progress',
-                `id: ${parsed.id}`,
-                `data: ${JSON.stringify({ id: parsed.id, step: 'starting' })}`,
-                '',
-                '',
-              ].join('\n')
-            );
-            const resultPayload = encoder.encode(
-              [
-                'event: tool-result',
-                `id: ${parsed.id}`,
-                `data: ${JSON.stringify({ id: parsed.id, result: { ok: true } })}`,
-                '',
-                '',
-              ].join('\n')
-            );
-            streams.forEach((controller) => {
-              controller.enqueue(progressPayload);
-              controller.enqueue(resultPayload);
-            });
-          }, 5);
-          return new Response('accepted', { status: 202 });
-        } catch {
-          return new Response('bad json', { status: 400 });
-        }
-      }
-
-      if (method === 'GET' && url.endsWith('/sse')) {
-        const stream = new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(encoder.encode(': ok\n\n'));
-            streams.push(controller);
-          },
-          cancel() {
-            // Remove any controllers that were registered for this stream
-            streams.splice(0, streams.length);
-          },
+    server = http.createServer((req, res) => {
+      if (req.method === 'POST' && req.url?.endsWith('/request')) {
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk.toString();
         });
-        return new Response(stream, {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/event-stream',
-            Connection: 'keep-alive',
-            'Cache-Control': 'no-cache',
-          },
+        req.on('end', () => {
+          try {
+            const parsed = JSON.parse(body) as { id: string; tool: string };
+            setTimeout(() => {
+              // progress
+              streams.forEach((s) => {
+                s.write('event: tool-progress\n');
+                s.write(`id: ${parsed.id}\n`);
+                s.write(`data: ${JSON.stringify({ id: parsed.id, step: 'starting' })}\n\n`);
+              });
+              // result
+              streams.forEach((s) => {
+                s.write('event: tool-result\n');
+                s.write(`id: ${parsed.id}\n`);
+                s.write(`data: ${JSON.stringify({ id: parsed.id, result: { ok: true } })}\n\n`);
+              });
+            }, 5);
+            res.writeHead(202);
+            res.end('accepted');
+          } catch {
+            res.writeHead(400);
+            res.end('bad json');
+          }
         });
+        return;
       }
-
-      return new Response('not found', { status: 404 });
+      if (req.method === 'GET' && req.url?.endsWith('/sse')) {
+        res.writeHead(200, {
+          'Content-Type': 'text/event-stream',
+          Connection: 'keep-alive',
+          'Cache-Control': 'no-cache',
+        });
+        res.write(': ok\n\n');
+        streams.push(res);
+        req.on('close', () => {
+          const idx = streams.indexOf(res);
+          if (idx >= 0) {
+            streams.splice(idx, 1);
+          }
+        });
+        return;
+      }
+      res.writeHead(404);
+      res.end('not found');
     });
+    await new Promise<void>((resolve) => server.listen(0, () => resolve()));
+    const addr = server.address();
+    if (typeof addr === 'object' && addr && 'port' in addr) {
+      port = addr.port as number;
+    }
   });
 
   afterAll(async () => {
-    fetchSpy?.mockRestore();
-    fetchSpy = null;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
   afterEach(async () => {

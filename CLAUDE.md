@@ -8,7 +8,14 @@ BrainStrike is a suite of tools for context management to be used with LLMs. It 
 
 Do not attempt to run dev unless instructed to do so.  The user usually runs this for you.
 
-Always run command line tools non interactively as you are a headless terminal, window popups can block execution.
+We track work in Beads instead of Markdown for internal/local work but use atlassian BST tickets to track project work. Run `bd quickstart` to see how.
+
+## Tools, Skills, Sub-Agents
+
+- Github: Please use the pr-steward subagent when working with Github related requests
+- Mermaid Diagrams: Please the mermaid-diagrams skill
+- Documentation Lookup: If you need to reference up-to-date docs use the documentation-lookup-expert, highly encouraged
+- delegate reviews code-reviewer agent liberally before creating PRs to save some cycles and catch issues early
 
 ## Codanna MCP Tools
 
@@ -129,6 +136,33 @@ Critical architectural pattern enabling cross-platform functionality:
 
 ## Documentation & Diagrams
 
+### Mermaid Diagrams
+When creating or editing Mermaid diagrams in markdown files:
+
+**CRITICAL**: Manual edits to Mermaid diagrams are highly error-prone. ALWAYS validate after making changes.
+
+1. **After ANY edit to a Mermaid diagram, run the validation script**:
+   ```bash
+   node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
+   ```
+
+2. **Common Mermaid syntax errors to avoid**:
+   - **Parentheses in unquoted labels**: Use `["Label (with parens)"]` NOT `[Label (with parens)]`
+   - **Comments in ER diagrams**: Do NOT use `//` comments in `erDiagram` blocks
+   - **Line breaks**: Use `<br/>` for line breaks in labels, NOT `\\n` (unless quoted)
+   - **Special characters**: Quote labels that contain: `()`, `:`, `,`, `/`, etc.
+
+3. **Node shape syntax**:
+   - Rectangle: `[Label]`
+   - Rounded: `(Label)`
+   - Stadium: `([Label])`
+   - Cylinder/Database: `[(Label)]` - Note: this is valid use of parentheses
+   - Diamond: `{Label}`
+
+4. **Always test diagrams before committing**. The validation script catches syntax errors that may not be obvious.
+
+See `docs/mermaid-guide.md` for comprehensive Mermaid documentation and best practices.
+
 ## Common Patterns
 
 ### File Explorer Integration
@@ -183,7 +217,7 @@ Reasoning: Adhering to these guidelines produces code that is safer, easier to r
 
 ALWAYS CONSULT THE WEB FOR BEST PRACTICES WITH THE TECHNOLOGY STACK.
 
-SEARCH FOR THIS YEARS BEST PRACTICES eg 2026.  
+SEARCH FOR THIS YEARS BEST PRACTICES eg 2025 NOT 2024.
 
 Never downgrade to get something working.
 

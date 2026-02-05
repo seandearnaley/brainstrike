@@ -33,7 +33,7 @@ export default defineConfig({
         },
         resolve: {
           alias: {
-            electron: path.resolve(import.meta.dirname, '__mocks__/electron.ts'),
+            electron: path.resolve(__dirname, '__mocks__/electron.ts'),
           },
         },
       },

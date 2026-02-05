@@ -74,7 +74,7 @@
     "@vitejs/plugin-react": "^5.1.2",
     "@vitest/ui": "^4.0.17",
     "glob": "^13.0.0",
-    "jsdom": "27.4.0",
+    "jsdom": "26.1.0",
     "knip": "^5.80.2",
     "serve": "^14.2.5",
     "tailwindcss": "^4.1.18",

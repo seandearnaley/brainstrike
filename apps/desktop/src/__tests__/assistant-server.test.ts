@@ -1,12 +1,5 @@
-import { EventEmitter } from 'node:events';
-import type http from 'node:http';
-import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
-import {
-  desktopAssistantServerLogger,
-  handleAssistantRequest,
-  startAssistantServer,
-} from '../assistant-server';
+import { desktopAssistantServerLogger, startAssistantServer } from '../assistant-server';
 
 // Mock dependencies
 vi.mock('../assistant-server/http', async () => {
@@ -65,95 +58,8 @@ vi.mock('../assistant-server/retrieval-tool', () => ({
   buildAssistantTools: vi.fn((_runtime: unknown, base: unknown) => base),
 }));
 
-vi.mock('../assistant-server/assistant-tools', () => ({
-  buildDesktopAssistantTools: vi.fn(() => ({})),
-}));
-
 describe('assistant-server', () => {
   let server: { url: string; stop: () => Promise<void> } | undefined;
-  interface RequestInput {
-    method: string;
-    url: string;
-    headers?: http.IncomingHttpHeaders;
-    body?: string;
-  }
-
-  class MockRequest extends Readable {
-    method?: string;
-    url?: string;
-    headers: http.IncomingHttpHeaders;
-    private payload?: string;
-
-    constructor(input: RequestInput) {
-      super();
-      this.method = input.method;
-      this.url = input.url;
-      this.headers = input.headers ?? {};
-      this.payload = input.body;
-    }
-
-    _read(): void {
-      if (this.payload !== undefined) {
-        this.push(this.payload);
-      }
-      this.payload = undefined;
-      this.push(null);
-    }
-  }
-
-  class MockResponse extends EventEmitter {
-    statusCode = 200;
-    headers: Record<string, string> = {};
-    bodyChunks: Buffer[] = [];
-    destroyed = false;
-
-    setHeader(name: string, value: string | number | readonly string[]): void {
-      this.headers[name.toLowerCase()] = Array.isArray(value) ? value.join(',') : String(value);
-    }
-
-    writeHead(status: number, headers?: Record<string, string>): this {
-      this.statusCode = status;
-      if (headers) {
-        for (const [key, value] of Object.entries(headers)) {
-          this.setHeader(key, value);
-        }
-      }
-      return this;
-    }
-
-    write(chunk: unknown): boolean {
-      if (chunk === undefined || chunk === null) {
-        return true;
-      }
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-      this.bodyChunks.push(buffer);
-      return true;
-    }
-
-    end(chunk?: unknown): void {
-      if (chunk !== undefined) {
-        this.write(chunk);
-      }
-      this.emit('finish');
-    }
-  }
-
-  async function runRequest(input: RequestInput): Promise<{ status: number; body: string }> {
-    const req = new MockRequest(input);
-    const res = new MockResponse();
-    const finished = new Promise<void>((resolve) => res.once('finish', resolve));
-
-    await handleAssistantRequest(
-      req as unknown as http.IncomingMessage,
-      res as unknown as http.ServerResponse
-    );
-    await finished;
-
-    return {
-      status: res.statusCode,
-      body: Buffer.concat(res.bodyChunks).toString('utf-8'),
-    };
-  }
 
   afterEach(async () => {
     if (server) {
@@ -179,14 +85,14 @@ describe('assistant-server', () => {
 
   describe('startAssistantServer', () => {
     it('should start server on dynamic port by default', async () => {
-      server = await startAssistantServer(undefined, { listen: false });
+      server = await startAssistantServer();
 
       expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
       expect(server.stop).toBeInstanceOf(Function);
     });
 
     it('should start server on specified port hint', async () => {
-      server = await startAssistantServer(0, { listen: false }); // Use 0 for dynamic port
+      server = await startAssistantServer(0); // Use 0 for dynamic port
 
       expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     });
@@ -195,7 +101,7 @@ describe('assistant-server', () => {
       const originalEnv = process.env['BS_ASSISTANT_PORT'];
       process.env['BS_ASSISTANT_PORT'] = '0'; // Use 0 for dynamic port
 
-      server = await startAssistantServer(undefined, { listen: false });
+      server = await startAssistantServer();
 
       expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
 
@@ -207,7 +113,7 @@ describe('assistant-server', () => {
     });
 
     it('should allow stopping the server', async () => {
-      server = await startAssistantServer(undefined, { listen: false });
+      server = await startAssistantServer();
       await expect(server.stop()).resolves.not.toThrow();
       server = undefined; // Mark as stopped
     });
@@ -220,13 +126,11 @@ describe('assistant-server', () => {
       mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
       mockSecretsService.getKey.mockResolvedValueOnce('test-key');
 
-      const response = await runRequest({
-        method: 'GET',
-        url: '/assistant/status',
-      });
+      server = await startAssistantServer();
+      const response = await fetch(`${server.url}/assistant/status`);
 
       expect(response.status).toBe(200);
-      const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
+      const data = await response.json();
       // 'local' provider is always available (no API key required)
       expect(data).toEqual({ enabled: true, providers: ['openai', 'local'] });
     }, 10_000);
@@ -237,10 +141,11 @@ describe('assistant-server', () => {
       mockSecretsService.listProviders.mockResolvedValueOnce([]);
       mockSecretsService.getKey.mockResolvedValueOnce(null);
 
-      const response = await runRequest({ method: 'GET', url: '/status' });
+      server = await startAssistantServer();
+      const response = await fetch(`${server.url}/status`);
 
       expect(response.status).toBe(200);
-      const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
+      const data = await response.json();
       // 'local' provider is always available (no API key required)
       expect(data).toEqual({ enabled: true, providers: ['local'] });
     }, 10_000);
@@ -249,26 +154,29 @@ describe('assistant-server', () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
       (readOpenAIApiKey as Mock).mockRejectedValueOnce(new Error('API key read failed'));
 
-      const response = await runRequest({ method: 'GET', url: '/status' });
+      server = await startAssistantServer();
+      const response = await fetch(`${server.url}/status`);
 
       expect(response.status).toBe(500);
-      const data = JSON.parse(response.body) as { error: string; message: string };
+      const data = await response.json();
       expect(data.error).toBe('assistant_status_failed');
       expect(data.message).toBe('API key read failed');
     }, 10_000);
 
     it('should return 404 for unknown routes', async () => {
-      const response = await runRequest({ method: 'GET', url: '/unknown' });
+      server = await startAssistantServer();
+      const response = await fetch(`${server.url}/unknown`);
 
       expect(response.status).toBe(404);
-      expect(response.body).toBe('not found');
+      const text = await response.text();
+      expect(text).toBe('not found');
     }, 10_000);
 
     it('should handle POST to assistant route with empty prompt', async () => {
-      const response = await runRequest({
+      server = await startAssistantServer();
+      const response = await fetch(`${server.url}/assistant`, {
         method: 'POST',
-        url: '/assistant',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [{ role: 'user', parts: [{ type: 'text', text: '   ' }] }],
           data: { provider: 'openai' },
@@ -276,22 +184,22 @@ describe('assistant-server', () => {
       });
 
       expect(response.status).toBe(400);
-      const data = JSON.parse(response.body) as { error: string };
+      const data = await response.json();
       expect(data.error).toBe('empty_prompt');
     }, 10_000);
 
     it('should reject assistant route when provider is missing', async () => {
-      const response = await runRequest({
+      server = await startAssistantServer();
+      const response = await fetch(`${server.url}/assistant`, {
         method: 'POST',
-        url: '/assistant',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
         }),
       });
 
       expect(response.status).toBe(400);
-      const data = JSON.parse(response.body) as { error: string };
+      const data = await response.json();
       expect(data.error).toBe('missing_provider');
     }, 10_000);
 
@@ -314,15 +222,12 @@ describe('assistant-server', () => {
       });
 
       // Ensure streamResponse resolves immediately
-      (streamResponse as Mock).mockImplementationOnce(async (res: unknown) => {
-        const response = res as { end?: () => void };
-        response.end?.();
-      });
+      (streamResponse as Mock).mockResolvedValueOnce(undefined);
 
-      const requestPromise = runRequest({
+      server = await startAssistantServer();
+      const fetchPromise = fetch(`${server.url}/`, {
         method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: { provider: 'openai' },
@@ -346,7 +251,8 @@ describe('assistant-server', () => {
 
       loggerInfoSpy.mockRestore();
 
-      await Promise.race([requestPromise, new Promise((resolve) => setTimeout(resolve, 1000))]);
+      // Don't await the fetch as the response may not complete
+      await Promise.race([fetchPromise, new Promise((resolve) => setTimeout(resolve, 1000))]);
     }, 15_000);
 
     it('should handle stream initialization failure', async () => {
@@ -359,10 +265,10 @@ describe('assistant-server', () => {
 
       (toAiSdkStyleStream as Mock).mockRejectedValueOnce(new Error('Stream initialization failed'));
 
-      const response = await runRequest({
+      server = await startAssistantServer();
+      const response = await fetch(`${server.url}/`, {
         method: 'POST',
-        url: '/',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
           data: { provider: 'openai' },
@@ -370,7 +276,7 @@ describe('assistant-server', () => {
       });
 
       expect(response.status).toBe(502);
-      const data = JSON.parse(response.body) as { error: string; message: string };
+      const data = await response.json();
       expect(data.error).toBe('agent_stream_init_failed');
       expect(data.message).toBe('Stream initialization failed');
     }, 10_000);

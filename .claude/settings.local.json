@@ -274,12 +274,7 @@
       "Bash(rebuild needed\" since scheduleRebuildIfNeeded may short-circuit when\n   FileTreeIndex is available. Added hasIndex to log output for clarity.\n\n2. **Root fingerprint guard logic**: Replaced truthiness check on prev\n   string with explicit hasSeenRootRef boolean. This ensures transitions\n   from empty string → non-empty root trigger cache clearing correctly.\n\n3. **Index stats drift on type changes**: Extracted updateStats\\(\\) helper\n   to handle type reconciliation. If an existing node''s type differs from\n   the new node, stats are adjusted \\(decrement old type, increment new\\).\n   This prevents stats drift if file→dir or dir→file mutations occur.\n\nVerified: TypeScript compiles, all 1027 tests pass\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git status:*)",
       "Bash(npx vitest:*)",
-      "Bash(npx tsup:*)",
-      "Bash(git merge:*)",
-      "WebFetch(domain:www.anthropic.com)",
-      "Bash(git -C /Users/seandearnaley/Documents/GitHub/brainstrike diff --stat HEAD)",
-      "Bash(git -C /Users/seandearnaley/Documents/GitHub/brainstrike add:*)",
-      "Bash(git -C /Users/seandearnaley/Documents/GitHub/brainstrike commit -m \"$\\(cat <<''EOF''\nfeat\\(desktop\\): add native tool executor for playground\n\nImplements native tool execution for the Tool Playground. The executor\nsupports self-contained web tools \\(web.searchDocs, web.docSummary\\) that\ndon''t require database access.\n\n- Add isExecutableNativeTool\\(\\) to check if a tool can run natively\n- Add executeNativeTool\\(\\) to execute tools with proper input validation\n- Include documentation search with tokenization and ranking\n- Return structured results with success status, result/error, and duration\n- Follow TDD with comprehensive test coverage\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(npx tsup:*)"
     ],
     "deny": [],
     "ask": []

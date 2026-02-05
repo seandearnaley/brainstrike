@@ -4,11 +4,6 @@ import { app, BrowserWindow } from 'electron';
 import type { DesktopWindowState } from './store-schema';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
 
-const resolveDistRoot = (): string => {
-  const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
-  return path.basename(appPath) === 'dist' ? appPath : path.join(appPath, 'dist');
-};
-
 /**
  * Configure security settings for the browser window.
  */
@@ -61,14 +56,13 @@ async function connectToDevServer(win: BrowserWindow) {
  * Load the renderer content (either built files or dev server).
  */
 async function loadRenderer(win: BrowserWindow) {
-  const distRoot = resolveDistRoot();
-  const rendererPath = path.join(distRoot, 'renderer/index.html');
+  const rendererPath = path.join(__dirname, 'renderer/index.html');
   const hasBuiltRenderer = fs.existsSync(rendererPath);
 
   // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
   console.log(
     '[createWindow] Loading renderer...\n' +
-      `[createWindow] distRoot: ${distRoot}\n` +
+      `[createWindow] __dirname: ${__dirname}\n` +
       `[createWindow] Expected renderer path: ${rendererPath}\n` +
       `[createWindow] Has built renderer: ${hasBuiltRenderer}\n` +
       `[createWindow] Is packaged: ${app.isPackaged}`
@@ -115,7 +109,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     minHeight: 600,
     fullscreen: isFullScreen,
     webPreferences: {
-      preload: path.join(resolveDistRoot(), 'preload.js'),
+      preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: enableSandbox,

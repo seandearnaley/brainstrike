@@ -220,63 +220,41 @@ const mockMcpToolRegistry = {
   subscribe: vi.fn(() => () => {}),
 };
 
-vi.mock('@brainstrike/agent', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/agent')>();
-  return {
-    ...actual,
-    streamMastraAgent: vi.fn(async function* () {
-      yield { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } };
-    }),
-    webTools: [],
-    loadToolPreferences: vi.fn().mockResolvedValue({}),
-    mcpToolRegistry: mockMcpToolRegistry,
-    createMastraAgentRuntime: vi.fn(async () => ({
-      run: vi.fn(),
-      dispose: vi.fn().mockResolvedValue(undefined),
-    })),
-    isSupportedProvider: (provider: string) =>
-      mockProviderDefinitions.some((entry) => entry.id === provider),
-  };
-});
+vi.mock('@brainstrike/agent', () => ({
+  streamMastraAgent: vi.fn(async function* () {
+    yield { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } };
+  }),
+  webTools: [],
+  loadToolPreferences: vi.fn().mockResolvedValue({}),
+  mcpToolRegistry: mockMcpToolRegistry,
+  createMastraAgentRuntime: vi.fn(async () => ({
+    run: vi.fn(),
+    dispose: vi.fn().mockResolvedValue(undefined),
+  })),
+  isSupportedProvider: (provider: string) =>
+    mockProviderDefinitions.some((entry) => entry.id === provider),
+}));
 
-vi.mock('@brainstrike/agent/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/agent/client')>();
-  return {
-    // Provider-related mocks
-    listProviders: () => mockProviderDefinitions.map((definition) => cloneDefinition(definition)),
-    providerEnvKeys: (provider: string) => ensureDefinition(provider).envKeys ?? [],
-    PROVIDER_DEFAULT_MODELS: mockProviderDefaults,
-    PROVIDER_DEFAULT_ENABLED_MODELS: mockProviderDefaultEnabledModels,
-    PROVIDER_MODELS: mockProviderModels,
-    PROVIDER_DISPLAY_NAMES: mockProviderDisplayNames,
-    getProviderDefaultModel: (provider: string) => mockProviderDefaults[provider as MockProviderId],
-    getProviderModels: (provider: string) => mockProviderModels[provider as MockProviderId] ?? [],
-    getProviderDefinition: (provider: string) => ensureDefinition(provider),
-    getProviderDisplayName: (provider: string) =>
-      mockProviderDisplayNames[provider as MockProviderId] ?? provider,
-    getProviderModelDefinitions: (provider: string) => ensureDefinition(provider).models,
-    listEmbeddingModels: (provider: string) =>
-      mockEmbeddingModels[provider as MockProviderId] ?? [],
-    supportsStandardEmbeddingDimension: (provider: string) =>
-      (mockEmbeddingModels[provider as MockProviderId] ?? []).some(
-        (model) => model.supportsStandardDimension
-      ),
-    isSupportedProvider: (provider: string) => providerIdSet.has(provider as MockProviderId),
-    // Tool-related exports (pass through from actual module)
-    NATIVE_TOOL_DEFAULTS: actual.NATIVE_TOOL_DEFAULTS,
-    TOOL_CATEGORIES: actual.TOOL_CATEGORIES,
-    TOOL_LOADING_TIERS: actual.TOOL_LOADING_TIERS,
-    getNativeToolDefaults: actual.getNativeToolDefaults,
-    isNativeTool: actual.isNativeTool,
-    getCategoryInfo: actual.getCategoryInfo,
-    getTierInfo: actual.getTierInfo,
-    compareByLoadPriority: actual.compareByLoadPriority,
-    // Schema display exports
-    NATIVE_TOOL_SCHEMAS: actual.NATIVE_TOOL_SCHEMAS,
-    getToolSchemaDisplay: actual.getToolSchemaDisplay,
-    generateExampleInput: actual.generateExampleInput,
-  };
-});
+vi.mock('@brainstrike/agent/client', () => ({
+  listProviders: () => mockProviderDefinitions.map((definition) => cloneDefinition(definition)),
+  providerEnvKeys: (provider: string) => ensureDefinition(provider).envKeys ?? [],
+  PROVIDER_DEFAULT_MODELS: mockProviderDefaults,
+  PROVIDER_DEFAULT_ENABLED_MODELS: mockProviderDefaultEnabledModels,
+  PROVIDER_MODELS: mockProviderModels,
+  PROVIDER_DISPLAY_NAMES: mockProviderDisplayNames,
+  getProviderDefaultModel: (provider: string) => mockProviderDefaults[provider as MockProviderId],
+  getProviderModels: (provider: string) => mockProviderModels[provider as MockProviderId] ?? [],
+  getProviderDefinition: (provider: string) => ensureDefinition(provider),
+  getProviderDisplayName: (provider: string) =>
+    mockProviderDisplayNames[provider as MockProviderId] ?? provider,
+  getProviderModelDefinitions: (provider: string) => ensureDefinition(provider).models,
+  listEmbeddingModels: (provider: string) => mockEmbeddingModels[provider as MockProviderId] ?? [],
+  supportsStandardEmbeddingDimension: (provider: string) =>
+    (mockEmbeddingModels[provider as MockProviderId] ?? []).some(
+      (model) => model.supportsStandardDimension
+    ),
+  isSupportedProvider: (provider: string) => providerIdSet.has(provider as MockProviderId),
+}));
 
 // Mock react-router-dom for components that use it
 vi.mock('react-router-dom', async () => {

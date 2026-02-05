@@ -16,7 +16,6 @@ export * from './settings/system/inline-fixture-settings-panel';
 // Settings UI Components
 export * from './settings/system/logging-settings-section';
 export * from './settings/system/token-counting-settings-section';
-export * from './settings/tools';
 export * from './settings-page-content';
 export * from './stores/assistant-preferences-store';
 export * from './stores/database-status-store';
@@ -24,7 +23,6 @@ export * from './stores/embedding-preferences-store';
 export * from './stores/import-settings-store';
 export * from './stores/logging-preferences-store';
 export * from './stores/model-registry-store';
-export * from './stores/native-tool-preferences-store';
 export * from './stores/panel-layout-store';
 export * from './stores/secrets-store';
 export * from './stores/token-preferences-store';

@@ -43,10 +43,8 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "^3.8.1",
-    "@mastra/core": "^1.2.0",
+    "@mastra/core": "^1.0.4",
     "@mastra/mcp": "^1.0.0",
-    "@types/json-schema": "^7.0.15",
-    "json-schema": "^0.4.0",
     "minimatch": "^10.1.1",
     "zod": "^4.3.5"
   },

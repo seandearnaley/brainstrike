@@ -97,17 +97,9 @@ vi.mock('@brainstrike/db', () => ({
 
 vi.mock('@brainstrike/file-explorer-ui', () => {
   const store = (
-    selector?: (state: {
-      tokenBudget: number;
-      currentFolderId: string | null;
-      setTokenBudget: (budget: number) => void;
-    }) => unknown
+    selector?: (state: { tokenBudget: number; currentFolderId: string | null }) => unknown
   ) => {
-    const state = {
-      tokenBudget: 100_000,
-      currentFolderId: 'test-folder',
-      setTokenBudget: vi.fn(),
-    };
+    const state = { tokenBudget: 100_000, currentFolderId: 'test-folder' };
     return selector ? selector(state) : state;
   };
   return {
@@ -190,8 +182,6 @@ vi.mock('@brainstrike/agent/client', () => {
     {} as Record<keyof typeof PROVIDER_DEFINITIONS, string[]>
   );
 
-  const NATIVE_TOOL_DEFAULTS = {};
-
   return {
     getProviderDefaultModel: (provider: string) =>
       PROVIDER_DEFAULT_MODELS[provider as keyof typeof PROVIDER_DEFINITIONS],
@@ -212,7 +202,6 @@ vi.mock('@brainstrike/agent/client', () => {
     PROVIDER_DEFAULT_ENABLED_MODELS,
     PROVIDER_DEFAULT_MODELS,
     PROVIDER_MODELS,
-    NATIVE_TOOL_DEFAULTS,
   };
 });
 
@@ -226,7 +215,6 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelToggle,
     disabled,
     disabledReason,
-    toolMenu,
   }: {
     providerGroups?: Array<{
       runtime: string;
@@ -243,12 +231,6 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
     disabled?: boolean;
     disabledReason?: string;
-    toolMenu?: {
-      items: Array<{ id: string; enabled: boolean }>;
-      isLoading?: boolean;
-      onToggleTool?: (toolId: string, enabled: boolean) => void;
-      onRefresh?: () => void;
-    };
   }) => {
     const providers = providerGroups?.flatMap((group) => group.providers) ?? [];
     const currentProvider = providers.find((p) => p.id === selectedProvider);
@@ -270,27 +252,6 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
       <div data-testid="assistant-ui-panel">
         <div data-testid="panel-disabled">{String(disabled)}</div>
         {disabledReason && <div data-testid="disabled-reason">{disabledReason}</div>}
-        <div data-testid="tool-menu-count">{toolMenu?.items.length ?? 0}</div>
-        <div data-testid="tool-menu-loading">{String(toolMenu?.isLoading ?? false)}</div>
-        <button
-          data-testid="tool-menu-refresh"
-          onClick={() => toolMenu?.onRefresh?.()}
-          type="button"
-        >
-          Refresh tools
-        </button>
-        {toolMenu?.items.map((item) => (
-          <div data-testid={`tool-menu-item-${item.id}`} key={item.id}>
-            <span>{item.id}</span>
-            <button
-              data-testid={`tool-toggle-${item.id}`}
-              onClick={() => toolMenu?.onToggleTool?.(item.id, !item.enabled)}
-              type="button"
-            >
-              Toggle
-            </button>
-          </div>
-        ))}
 
         <select
           data-testid="provider-select"
@@ -375,7 +336,6 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetAssistantPreferencesStoreForTests();
-  Reflect.deleteProperty(window, 'mcp');
 });
 
 const renderAssistantPanel = async (providers: string[], afterRender?: () => Promise<void>) => {
@@ -384,33 +344,12 @@ const renderAssistantPanel = async (providers: string[], afterRender?: () => Pro
   );
 
   if (afterRender) {
-    await afterRender();
+    await act(async () => {
+      await afterRender();
+    });
   }
 
   return renderResult;
-};
-
-interface McpToolDescriptor {
-  id: string;
-  description?: string;
-  enabled: boolean;
-}
-
-interface McpApi {
-  listTools: () => Promise<Record<string, McpToolDescriptor[]>>;
-  enableTools?: (toolIds: string[]) => Promise<void>;
-  disableTools?: (toolIds: string[]) => Promise<void>;
-}
-
-const setMcpApi = (overrides: Partial<McpApi> = {}) => {
-  const api: McpApi = {
-    listTools: vi.fn().mockResolvedValue({}),
-    enableTools: vi.fn().mockResolvedValue(undefined),
-    disableTools: vi.fn().mockResolvedValue(undefined),
-    ...overrides,
-  };
-  (window as typeof window & { mcp?: McpApi }).mcp = api;
-  return api;
 };
 
 describe('AssistantUiPanelWrapper', () => {
@@ -654,132 +593,5 @@ describe('AssistantUiPanelWrapper', () => {
 
     // Verify the model was removed from the test enabled set (DB mock)
     expect(testEnabledModels.has(initialModelName)).toBe(false);
-  });
-
-  test('loads MCP tools on mount', async () => {
-    const mcpApi = setMcpApi({
-      listTools: vi.fn().mockResolvedValue({
-        'mcp-server': [
-          {
-            id: 'mcp.tool',
-            description: 'Test tool',
-            enabled: true,
-          },
-        ],
-      }),
-    });
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('tool-menu-item-mcp.tool')).toBeInTheDocument();
-      })
-    );
-
-    expect(mcpApi.listTools).toHaveBeenCalled();
-    expect(screen.getByTestId('tool-menu-count')).toHaveTextContent('1');
-  });
-
-  test('handles MCP load failures gracefully', async () => {
-    const mcpApi = setMcpApi({
-      listTools: vi.fn().mockRejectedValue(new Error('boom')),
-    });
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('tool-menu-count')).toHaveTextContent('0');
-      })
-    );
-
-    expect(mcpApi.listTools).toHaveBeenCalled();
-    expect(screen.getByTestId('tool-menu-loading')).toHaveTextContent('false');
-  });
-
-  test('refreshes MCP tools when requested', async () => {
-    const mcpApi = setMcpApi({
-      listTools: vi.fn().mockResolvedValue({
-        'mcp-server': [
-          {
-            id: 'mcp.tool',
-            enabled: true,
-          },
-        ],
-      }),
-    });
-    const user = userEvent.setup();
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('tool-menu-item-mcp.tool')).toBeInTheDocument();
-      })
-    );
-
-    await user.click(screen.getByTestId('tool-menu-refresh'));
-
-    await waitFor(() => {
-      expect(mcpApi.listTools).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  test('toggles MCP tools via IPC and reloads', async () => {
-    const mcpApi = setMcpApi({
-      listTools: vi.fn().mockResolvedValue({
-        'mcp-server': [
-          {
-            id: 'mcp.tool',
-            enabled: false,
-          },
-        ],
-      }),
-    });
-    const user = userEvent.setup();
-
-    await renderAssistantPanel(['openai'], () =>
-      waitFor(() => {
-        expect(screen.getByTestId('tool-menu-item-mcp.tool')).toBeInTheDocument();
-      })
-    );
-
-    await user.click(screen.getByTestId('tool-toggle-mcp.tool'));
-
-    await waitFor(() => {
-      expect(mcpApi.enableTools).toHaveBeenCalledWith(['mcp.tool']);
-    });
-
-    await waitFor(() => {
-      expect(mcpApi.listTools).toHaveBeenCalledTimes(2);
-    });
-  });
-
-  test('does not update state after unmount during MCP load', async () => {
-    let resolveList: ((value: Record<string, McpToolDescriptor[]>) => void) | undefined;
-    const listPromise = new Promise<Record<string, McpToolDescriptor[]>>((resolve) => {
-      resolveList = resolve;
-    });
-    setMcpApi({
-      listTools: vi.fn().mockReturnValue(listPromise),
-    });
-
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    const { unmount } = render(
-      <AssistantUiPanelWrapper initialProviders={['openai'] as SupportedProvider[]} />
-    );
-
-    unmount();
-
-    await act(async () => {
-      resolveList?.({
-        'mcp-server': [
-          {
-            id: 'mcp.tool',
-            enabled: true,
-          },
-        ],
-      });
-      await listPromise;
-    });
-
-    expect(consoleError).not.toHaveBeenCalled();
-    consoleError.mockRestore();
   });
 });
