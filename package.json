@@ -106,8 +106,6 @@
       "sharp"
     ],
     "overrides": {
-      "hono": "4.11.7",
-      "jsdom": "27.4.0",
       "react-helmet-async>react": "^19.0.0",
       "react-helmet-async>react-dom": "^19.0.0"
     }

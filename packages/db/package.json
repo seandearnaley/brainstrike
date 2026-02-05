@@ -57,7 +57,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitest/browser-playwright": "^4.0.17",
     "drizzle-kit": "^0.31.8",
-    "jsdom": "26.1.0",
+    "jsdom": "27.4.0",
     "playwright": "^1.57.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

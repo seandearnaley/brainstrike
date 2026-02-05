@@ -78,6 +78,38 @@ describe('ipc-tools', () => {
       });
     });
 
+    it('rejects non-object inputs for native tools', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(true);
+
+      const result = await toolsExecuteHandler(mockEvent, 'web.searchDocs', ['not', 'object']);
+
+      expect(executeNativeTool).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        success: false,
+        error: 'Tool input must be a JSON object.',
+      });
+    });
+
+    it('rejects overly deep native tool inputs', async () => {
+      vi.mocked(isExecutableNativeTool).mockReturnValue(true);
+
+      const deepInput: { child?: unknown } = {};
+      let cursor: { child?: unknown } = deepInput;
+      for (let i = 0; i < 20; i += 1) {
+        const next: { child?: unknown } = {};
+        cursor.child = next;
+        cursor = next;
+      }
+
+      const result = await toolsExecuteHandler(mockEvent, 'web.searchDocs', deepInput);
+
+      expect(executeNativeTool).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        success: false,
+        error: expect.stringContaining('JSON-serializable'),
+      });
+    });
+
     it('executes MCP tools via callTool', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(false);

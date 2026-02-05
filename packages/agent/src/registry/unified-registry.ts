@@ -13,6 +13,8 @@
 
 import { createLogger } from '@brainstrike/utils';
 import type { ToolsInput } from '@mastra/core/agent';
+import type { JSONSchema7 } from 'json-schema';
+import type { z } from 'zod';
 import {
   compareByLoadPriority,
   getNativeToolDefaults,
@@ -25,6 +27,16 @@ const logger = createLogger('UnifiedToolRegistry');
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+type ToolInputSchema = z.ZodType<unknown> | JSONSchema7;
+
+function isZodSchema(value: unknown): value is z.ZodType<unknown> {
+  return typeof value === 'object' && value !== null && '_def' in value;
+}
+
+function isJSONSchema(value: unknown): value is JSONSchema7 {
+  return isRecord(value) && ('type' in value || '$schema' in value);
 }
 
 /**
@@ -42,7 +54,7 @@ export interface UnifiedToolMetadata {
   /** Human-readable description */
   description: string;
   /** Zod schema or JSON schema for tool input */
-  inputSchema?: unknown;
+  inputSchema?: ToolInputSchema;
   /** Whether the tool is enabled for use */
   enabled: boolean;
   /** Timestamp when the tool was discovered/registered */
@@ -61,7 +73,7 @@ export interface UnifiedToolMetadata {
 export interface NativeToolRegistrationOptions {
   id: string;
   description: string;
-  inputSchema?: unknown;
+  inputSchema?: ToolInputSchema;
   category?: ToolCategory;
   loadingTier?: ToolLoadingTier;
   estimatedTokens?: number;
@@ -216,13 +228,16 @@ export class UnifiedToolRegistry {
         category: categoryOverride ?? nativeDefaults?.category ?? DEFAULT_MCP_CATEGORY,
         loadingTier: tierOverride ?? nativeDefaults?.loadingTier ?? DEFAULT_MCP_TIER,
         description,
-        inputSchema,
         enabled: existing?.enabled ?? true,
         discoveredAt: existing?.discoveredAt ?? discoveredAt,
         serverName,
         estimatedTokens: nativeDefaults?.estimatedTokens ?? DEFAULT_MCP_TOOL_TOKENS,
         requiresApproval: nativeDefaults?.requiresApproval ?? false,
       };
+
+      if (inputSchema !== undefined) {
+        metadata.inputSchema = inputSchema;
+      }
 
       this.tools.set(toolId, metadata);
       toolIds.add(toolId);
@@ -648,6 +663,7 @@ export class UnifiedToolRegistry {
   /** Internal method to register a native tool without logging or notifying listeners */
   private registerNativeToolInternal(options: NativeToolRegistrationOptions): void {
     const { id, description, inputSchema, enabled = true } = options;
+    const resolvedInputSchema = this.resolveInputSchema(inputSchema);
 
     const defaults = getNativeToolDefaults(id);
     const category = options.category ?? defaults?.category ?? 'action';
@@ -662,12 +678,15 @@ export class UnifiedToolRegistry {
       category,
       loadingTier,
       description,
-      inputSchema,
       enabled: existing?.enabled ?? enabled,
       discoveredAt: existing?.discoveredAt ?? Date.now(),
       estimatedTokens,
       requiresApproval,
     };
+
+    if (resolvedInputSchema !== undefined) {
+      metadata.inputSchema = resolvedInputSchema;
+    }
 
     this.tools.set(id, metadata);
 
@@ -695,15 +714,22 @@ export class UnifiedToolRegistry {
     return 'No description available';
   }
 
-  private extractInputSchema(tool: unknown): unknown {
+  private extractInputSchema(tool: unknown): ToolInputSchema | undefined {
     if (!isRecord(tool)) {
       return undefined;
     }
 
     if ('inputSchema' in tool) {
-      return tool['inputSchema'];
+      return this.resolveInputSchema(tool['inputSchema']);
     }
 
+    return undefined;
+  }
+
+  private resolveInputSchema(inputSchema: unknown): ToolInputSchema | undefined {
+    if (isZodSchema(inputSchema) || isJSONSchema(inputSchema)) {
+      return inputSchema;
+    }
     return undefined;
   }
 

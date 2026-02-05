@@ -44,6 +44,18 @@ export interface ToolStats {
 }
 
 /**
+ * Configuration for live tool queries via PGlite.
+ */
+export interface ToolsLiveQueryConfig {
+  /** SQL query that returns ToolDisplayMetadata rows */
+  query: string;
+  /** Parameters for the SQL query */
+  params?: readonly unknown[];
+  /** Optional selector to transform or filter live rows */
+  select?: (rows: ToolDisplayMetadata[]) => ToolDisplayMetadata[];
+}
+
+/**
  * Result of executing a tool test.
  */
 export interface ToolExecutionResult {
@@ -84,7 +96,12 @@ export interface ToolsSettingsOperations {
   disableBySource?: (source: 'native' | 'mcp') => Promise<void>;
   /** Execute a tool test (playground) */
   executeToolTest?: (toolId: string, input: unknown) => Promise<ToolExecutionResult>;
-  /** Get MCP server status (desktop only) */
+  /** Optional live query configuration for tools (PGlite) */
+  toolsLiveQuery?: ToolsLiveQueryConfig;
+  /**
+   * Get status of MCP servers (desktop only).
+   * Optional: Only required when mcpAvailable=true.
+   */
   getMcpServerStatus?: () => Promise<McpServerInfo[]>;
   /** Refresh MCP server connections */
   refreshMcpServers?: () => Promise<void>;

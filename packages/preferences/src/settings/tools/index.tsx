@@ -141,6 +141,7 @@ export type {
   ToolGroup,
   ToolPlaygroundProps,
   ToolsFilterBarProps,
+  ToolsLiveQueryConfig,
   UnifiedToolsSettingsProps,
 } from './types';
 // Re-export components

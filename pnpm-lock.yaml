@@ -5,8 +5,6 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  hono: 4.11.7
-  jsdom: 27.4.0
   react-helmet-async>react: ^19.0.0
   react-helmet-async>react-dom: ^19.0.0
 
@@ -467,6 +465,12 @@ importers:
       '@mastra/mcp':
         specifier: ^1.0.0
         version: 1.0.0(@cfworker/json-schema@4.1.1)(@mastra/core@1.2.0(@cfworker/json-schema@4.1.1)(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@4.3.5))(zod@4.3.5))(@standard-community/standard-openapi@0.2.9(@standard-community/standard-json@0.3.5(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(quansync@0.2.11)(zod-to-json-schema@3.25.1(zod@4.3.5))(zod@4.3.5))(@standard-schema/spec@1.1.0)(openapi-types@12.1.3)(zod@4.3.5))(@types/json-schema@7.0.15)(openapi-types@12.1.3)(zod@4.3.5))(@types/json-schema@7.0.15)(zod@4.3.5)
+      '@types/json-schema':
+        specifier: ^7.0.15
+        version: 7.0.15
+      json-schema:
+        specifier: ^0.4.0
+        version: 0.4.0
       minimatch:
         specifier: ^10.1.1
         version: 10.1.1
@@ -3452,7 +3456,7 @@ packages:
     resolution: {integrity: sha512-vHL6w3ecZsky+8P5MD+eFfaGTyCeOHUIFYMGpQGbrBTSmNNoxv0if69rEZ5giu36weC5saFuznL411gRX7bJDw==}
     engines: {node: '>=18.14.1'}
     peerDependencies:
-      hono: 4.11.7
+      hono: ^4
 
   '@huggingface/jinja@0.5.3':
     resolution: {integrity: sha512-asqfZ4GQS0hD876Uw4qiUb7Tr/V5Q+JZuo2L+BtdrD4U40QU58nIRq3ZSgAzJgT874VLjhGVacaYfrdpXtEvtA==}
@@ -7914,7 +7918,7 @@ packages:
       '@standard-community/standard-json': ^0.3.5
       '@standard-community/standard-openapi': ^0.2.9
       '@types/json-schema': ^7.0.15
-      hono: 4.11.7
+      hono: ^4.8.3
       openapi-types: ^12.1.3
     peerDependenciesMeta:
       '@hono/standard-validator':
@@ -11021,7 +11025,7 @@ packages:
       '@vitest/browser-webdriverio': 4.0.17
       '@vitest/ui': 4.0.17
       happy-dom: '*'
-      jsdom: 27.4.0
+      jsdom: '*'
     peerDependenciesMeta:
       '@edge-runtime/vm':
         optional: true

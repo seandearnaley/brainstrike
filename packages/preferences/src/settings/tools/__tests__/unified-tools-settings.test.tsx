@@ -3,7 +3,7 @@
  */
 
 import '@testing-library/jest-dom/vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ToolDisplayMetadata, ToolStats, ToolsSettingsOperations } from '../types';
 import { UnifiedToolsSettings } from '../unified-tools-settings';
@@ -130,12 +130,6 @@ vi.mock('../tool-row', () => ({
   ),
 }));
 
-vi.mock('../tool-row-expanded', () => ({
-  ToolRowExpanded: ({ tool }: { tool: ToolDisplayMetadata }) => (
-    <div data-testid={`tool-row-expanded-${tool.id}`}>Expanded: {tool.id}</div>
-  ),
-}));
-
 interface CardMockProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
   'data-testid'?: string;
@@ -236,6 +230,7 @@ describe('UnifiedToolsSettings', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   describe('loading state', () => {
@@ -495,6 +490,164 @@ describe('UnifiedToolsSettings', () => {
 
       await waitFor(() => {
         expect(onToolsChanged).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('tool execution', () => {
+    const expandTool = async (toolId: string) => {
+      await waitFor(() => {
+        expect(screen.getByTestId(`tool-row-${toolId}`)).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId(`expand-${toolId}`));
+
+      await waitFor(() => {
+        expect(screen.getByTestId(`tool-row-expanded-${toolId}`)).toBeInTheDocument();
+      });
+
+      return screen.getByTestId(`tool-playground-${toolId}`);
+    };
+
+    it('executes tool tests successfully and displays duration', async () => {
+      const executeToolTest = vi.fn().mockResolvedValue({
+        success: true,
+        result: { ok: true },
+        durationMs: 42,
+      });
+      const operations = { ...createMockOperations(), executeToolTest };
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      const playground = await expandTool('brainstrike.hybridSearch');
+      const input = within(playground).getByTestId('json-input');
+      fireEvent.change(input, { target: { value: '{"query":"test"}' } });
+
+      fireEvent.click(within(playground).getByTestId('execute-button'));
+
+      await waitFor(() => {
+        expect(executeToolTest).toHaveBeenCalledWith('brainstrike.hybridSearch', {
+          query: 'test',
+        });
+      });
+
+      await waitFor(() => {
+        const result = within(playground).getByTestId('execution-result');
+        expect(result).toHaveTextContent('Success');
+        expect(result).toHaveTextContent('42ms');
+      });
+    });
+
+    it('handles schema validation errors during execution', async () => {
+      const executeToolTest = vi.fn().mockResolvedValue({
+        success: false,
+        error: 'Input schema validation failed',
+        durationMs: 8,
+      });
+      const operations = { ...createMockOperations(), executeToolTest };
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      const playground = await expandTool('brainstrike.hybridSearch');
+      const input = within(playground).getByTestId('json-input');
+      fireEvent.change(input, { target: { value: '{"query":"bad"}' } });
+
+      fireEvent.click(within(playground).getByTestId('execute-button'));
+
+      await waitFor(() => {
+        const result = within(playground).getByTestId('execution-result');
+        expect(result).toHaveTextContent('Error');
+        expect(result).toHaveTextContent('Input schema validation failed');
+      });
+    });
+
+    it('surfaces timeout failures when execution rejects', async () => {
+      const executeToolTest = vi.fn().mockRejectedValue(new Error('Timeout'));
+      const operations = { ...createMockOperations(), executeToolTest };
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      const playground = await expandTool('brainstrike.hybridSearch');
+      const input = within(playground).getByTestId('json-input');
+      fireEvent.change(input, { target: { value: '{"query":"timeout"}' } });
+
+      fireEvent.click(within(playground).getByTestId('execute-button'));
+
+      await waitFor(() => {
+        const result = within(playground).getByTestId('execution-result');
+        expect(result).toHaveTextContent('Error');
+        expect(result).toHaveTextContent('Timeout');
+      });
+    });
+
+    it('rejects invalid JSON input before execution', async () => {
+      const executeToolTest = vi.fn().mockResolvedValue({
+        success: true,
+        result: { ok: true },
+        durationMs: 5,
+      });
+      const operations = { ...createMockOperations(), executeToolTest };
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      const playground = await expandTool('brainstrike.hybridSearch');
+      const input = within(playground).getByTestId('json-input');
+      fireEvent.change(input, { target: { value: '{bad json' } });
+
+      fireEvent.click(within(playground).getByTestId('execute-button'));
+
+      await waitFor(() => {
+        expect(within(playground).getByTestId('parse-error')).toBeInTheDocument();
+      });
+      expect(executeToolTest).not.toHaveBeenCalled();
+    });
+
+    it('supports concurrent executions across tools', async () => {
+      const pending = new Map<
+        string,
+        (result: { success: boolean; result?: unknown; error?: string; durationMs: number }) => void
+      >();
+      const executeToolTest = vi.fn().mockImplementation(
+        (toolId: string) =>
+          new Promise((resolve) => {
+            pending.set(toolId, resolve);
+          })
+      );
+      const operations = { ...createMockOperations(), executeToolTest };
+
+      render(<UnifiedToolsSettings operations={operations} />);
+
+      const firstPlayground = await expandTool('brainstrike.hybridSearch');
+      const secondPlayground = await expandTool('brainstrike.vectorSearch');
+
+      fireEvent.change(within(firstPlayground).getByTestId('json-input'), {
+        target: { value: '{"query":"one"}' },
+      });
+      fireEvent.change(within(secondPlayground).getByTestId('json-input'), {
+        target: { value: '{"query":"two"}' },
+      });
+
+      fireEvent.click(within(firstPlayground).getByTestId('execute-button'));
+      fireEvent.click(within(secondPlayground).getByTestId('execute-button'));
+
+      await waitFor(() => {
+        expect(executeToolTest).toHaveBeenCalledTimes(2);
+      });
+
+      pending.get('brainstrike.hybridSearch')?.({
+        success: true,
+        result: { ok: 1 },
+        durationMs: 11,
+      });
+      pending.get('brainstrike.vectorSearch')?.({
+        success: true,
+        result: { ok: 2 },
+        durationMs: 22,
+      });
+
+      await waitFor(() => {
+        expect(within(firstPlayground).getByTestId('execution-result')).toHaveTextContent('11ms');
+        expect(within(secondPlayground).getByTestId('execution-result')).toHaveTextContent('22ms');
       });
     });
   });

@@ -28,7 +28,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 function isJsonValue(value: unknown, depth: number, visited: WeakSet<object>): value is JsonValue {
-  if (depth > MAX_INPUT_DEPTH) {
+  if (depth >= MAX_INPUT_DEPTH) {
     return false;
   }
 
@@ -145,7 +145,16 @@ export function registerToolsIpcHandlers(): void {
       try {
         // Check if it's an executable native tool (web.searchDocs, web.docSummary)
         if (isExecutableNativeTool(toolId)) {
-          return await executeNativeTool(toolId, input);
+          const sanitizedInput = sanitizeMcpInput(input);
+          if (!sanitizedInput.ok) {
+            logger.warn('Rejected native tool input', { toolId, error: sanitizedInput.error });
+            return {
+              success: false,
+              error: sanitizedInput.error,
+              durationMs: Math.round(performance.now() - startTime),
+            };
+          }
+          return await executeNativeTool(toolId, sanitizedInput.value);
         }
 
         // Check if it's a native tool that requires database access (brainstrike.*)

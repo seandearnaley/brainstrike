@@ -1,26 +1,21 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-const createBrowserEmbeddingQueue = vi.fn(() => ({ id: 'queue' }));
+const createBrowserEmbeddingQueueMock = vi.fn(() => ({ id: 'queue' }));
 
 vi.mock('@brainstrike/queue', () => ({
-  createBrowserEmbeddingQueue,
+  createBrowserEmbeddingQueue: createBrowserEmbeddingQueueMock,
 }));
 
-describe('desktop create-embedding-queue', () => {
-  beforeEach(() => {
-    vi.resetModules();
-    createBrowserEmbeddingQueue.mockClear();
-  });
-
-  it('creates a singleton embedding queue with desktop worker metadata', async () => {
+describe('create-embedding-queue', () => {
+  it('creates a singleton embedding queue', async () => {
     const module = await import('../../renderer/create-embedding-queue');
 
-    expect(createBrowserEmbeddingQueue).toHaveBeenCalledWith({
+    expect(createBrowserEmbeddingQueueMock).toHaveBeenCalledWith({
       requireWorkerpool: true,
       worker: { name: 'desktop-renderer-embedding' },
     });
-
     expect(module.embeddingQueue).toBe(module.getEmbeddingQueue());
     expect(module.getEmbeddingQueue()).toEqual({ id: 'queue' });
+    expect(module.createBrowserEmbeddingQueue).toBe(createBrowserEmbeddingQueueMock);
   });
 });

@@ -7,9 +7,9 @@
  */
 
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/agent/client';
+import { usePGliteLiveQuery } from '@brainstrike/db';
 import { Accordion, Button, Card, CardContent, ErrorBoundary, ScrollArea } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { groupTools } from './group-tools';
 import { McpConfigAlert } from './mcp-config-alert';
 import { TokenBudgetSummary } from './token-budget-summary';
@@ -27,7 +27,7 @@ import type {
   UnifiedToolsSettingsProps,
 } from './types';
 
-const logger = createLogger('UnifiedToolsSettings');
+const EMPTY_LIVE_QUERY = 'SELECT 1 WHERE 1 = 0';
 
 function areToolsEqual(
   nextTools: ToolDisplayMetadata[],
@@ -94,17 +94,25 @@ export function UnifiedToolsSettings({
   budgetManager,
   onToolsChanged,
 }: UnifiedToolsSettingsProps) {
-  const [tools, setTools] = useState<ToolDisplayMetadata[]>([]);
+  const [toolsState, setToolsState] = useState<ToolDisplayMetadata[]>([]);
   // Stats are loaded for future use but not currently displayed
-  const [, setStats] = useState<ToolStats | null>(null);
+  const [_statsState, setStatsState] = useState<ToolStats | null>(null);
   const [mcpServers, setMcpServers] = useState<McpServerInfo[]>([]);
   const [mcpConfigInfo, setMcpConfigInfo] = useState<McpConfigInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [loadingState, setLoadingState] = useState(true);
+  const [errorState, setErrorState] = useState<string | null>(null);
   const [errorBoundaryKey, setErrorBoundaryKey] = useState(0);
-  const serverStatusRef = useRef<
-    Map<string, { status: McpConnectionStatus; error: string | null }>
-  >(new Map());
+  const liveQueryConfig = operations.toolsLiveQuery;
+  const liveQueryEnabled = Boolean(liveQueryConfig);
+  const liveQuery = usePGliteLiveQuery<ToolDisplayMetadata>({
+    query: liveQueryConfig?.query ?? EMPTY_LIVE_QUERY,
+    ...(liveQueryConfig?.params !== undefined ? { params: liveQueryConfig.params } : {}),
+    ...(liveQueryConfig?.select !== undefined ? { select: liveQueryConfig.select } : {}),
+    enabled: liveQueryEnabled,
+  });
+  const tools = liveQueryEnabled ? liveQuery.rows : toolsState;
+  const loading = liveQueryEnabled ? liveQuery.loading || loadingState : loadingState;
+  const error = errorState ?? (liveQueryEnabled ? (liveQuery.error?.message ?? null) : null);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -117,49 +125,94 @@ export function UnifiedToolsSettings({
   // MCP config alert dismissed state
   const [configAlertDismissed, setConfigAlertDismissed] = useState(false);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const loadToolsData = useCallback(async () => {
+    setLoadingState(true);
+    setErrorState(null);
     try {
       const [toolsData, statsData] = await Promise.all([
         operations.getTools(),
         operations.getStats(),
       ]);
-      setTools((current) => (areToolsEqual(toolsData, current) ? current : toolsData));
-      setStats(statsData);
+      setToolsState((current) => {
+        if (current.length !== toolsData.length) {
+          return toolsData;
+        }
+        if (current === toolsData) {
+          return current;
+        }
+        return areToolsEqual(toolsData, current) ? current : toolsData;
+      });
+      setStatsState(statsData);
+    } catch (err) {
+      setErrorState(err instanceof Error ? err.message : 'Failed to load tools');
+    } finally {
+      setLoadingState(false);
+    }
+  }, [operations]);
 
-      if (mcpAvailable && operations.getMcpServerStatus) {
+  const loadMcpData = useCallback(async () => {
+    if (!mcpAvailable) {
+      return;
+    }
+
+    try {
+      if (operations.getMcpServerStatus) {
         const servers = await operations.getMcpServerStatus();
         setMcpServers(servers);
       }
 
-      if (mcpAvailable && operations.getMcpConfigInfo) {
+      if (operations.getMcpConfigInfo) {
         const configInfo = await operations.getMcpConfigInfo();
         setMcpConfigInfo(configInfo);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load tools');
-    } finally {
-      setLoading(false);
+      setErrorState(err instanceof Error ? err.message : 'Failed to load MCP tools');
     }
   }, [operations, mcpAvailable]);
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    if (liveQueryEnabled) {
+      return;
+    }
+    void loadToolsData();
+  }, [loadToolsData, liveQueryEnabled]);
+
+  useEffect(() => {
+    void loadMcpData();
+  }, [loadMcpData]);
+
+  const refreshTools = useCallback(async () => {
+    if (liveQueryEnabled) {
+      try {
+        await liveQuery.refresh();
+      } catch (err) {
+        setErrorState(err instanceof Error ? err.message : 'Failed to refresh tools');
+      }
+      return;
+    }
+    await loadToolsData();
+  }, [liveQueryEnabled, liveQuery.refresh, loadToolsData]);
+
+  const refreshMcpData = useCallback(async () => {
+    await loadMcpData();
+  }, [loadMcpData]);
 
   const handleErrorBoundaryReset = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    setTools([]);
-    setStats(null);
+    setLoadingState(!liveQueryEnabled);
+    setErrorState(null);
+    setToolsState([]);
+    setStatsState(null);
     setMcpServers([]);
     setMcpConfigInfo(null);
     setExpandedToolId(null);
-    serverStatusRef.current = new Map();
     setErrorBoundaryKey((prev) => prev + 1);
-    void loadData();
-  }, [loadData]);
+    if (liveQueryEnabled) {
+      void liveQuery.refresh();
+    } else {
+      void loadToolsData();
+    }
+    void loadMcpData();
+  }, [liveQueryEnabled, liveQuery.refresh, loadMcpData, loadToolsData]);
 
   const handleToggleTool = useCallback(
     async (toolId: string, currentlyEnabled: boolean) => {
@@ -169,13 +222,13 @@ export function UnifiedToolsSettings({
         } else {
           await operations.enableTools([toolId]);
         }
-        await loadData();
+        await refreshTools();
         onToolsChanged?.();
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to toggle tool');
+        setErrorState(err instanceof Error ? err.message : 'Failed to toggle tool');
       }
     },
-    [operations, loadData, onToolsChanged]
+    [operations, onToolsChanged, refreshTools]
   );
 
   const handleResetFilters = useCallback(() => {
@@ -187,53 +240,57 @@ export function UnifiedToolsSettings({
   const handleRefreshMcp = useCallback(async () => {
     if (operations.refreshMcpServers) {
       await operations.refreshMcpServers();
-      await loadData();
+      await refreshMcpData();
+      await refreshTools();
     }
-  }, [operations, loadData]);
+  }, [operations, refreshMcpData, refreshTools]);
 
   const handleResetMcpConfig = useCallback(async () => {
     if (operations.resetMcpConfig) {
       await operations.resetMcpConfig();
-      await loadData();
+      await refreshMcpData();
+      await refreshTools();
     }
-  }, [operations, loadData]);
+  }, [operations, refreshMcpData, refreshTools]);
 
   const handleSelectMcpConfig = useCallback(async () => {
     if (operations.openMcpConfig) {
       await operations.openMcpConfig();
-      await loadData();
+      await refreshMcpData();
+      await refreshTools();
     }
-  }, [operations, loadData]);
+  }, [operations, refreshMcpData, refreshTools]);
 
   const handleCreateSampleConfig = useCallback(async () => {
     if (operations.createSampleConfig) {
       const result = await operations.createSampleConfig();
       if (result.success) {
-        await loadData();
+        await refreshMcpData();
+        await refreshTools();
       } else if (result.error) {
-        setError(`Failed to create sample config: ${result.error}`);
+        setErrorState(`Failed to create sample config: ${result.error}`);
       }
     }
-  }, [operations, loadData]);
+  }, [operations, refreshMcpData, refreshTools]);
 
   const handleEnableGroup = useCallback(
     async (group: ToolGroup) => {
       const toolIds = group.tools.map((t) => t.id);
       await operations.enableTools(toolIds);
-      await loadData();
+      await refreshTools();
       onToolsChanged?.();
     },
-    [operations, loadData, onToolsChanged]
+    [operations, onToolsChanged, refreshTools]
   );
 
   const handleDisableGroup = useCallback(
     async (group: ToolGroup) => {
       const toolIds = group.tools.map((t) => t.id);
       await operations.disableTools(toolIds);
-      await loadData();
+      await refreshTools();
       onToolsChanged?.();
     },
-    [operations, loadData, onToolsChanged]
+    [operations, onToolsChanged, refreshTools]
   );
 
   const handleExpandTool = useCallback(
@@ -260,33 +317,6 @@ export function UnifiedToolsSettings({
     }
     return statusMap;
   }, [mcpServers]);
-
-  // biome-ignore lint/plugin: Status change logging with refs is intentional and not data fetching.
-  useEffect(() => {
-    const previousStatuses = serverStatusRef.current;
-    for (const [serverName, nextStatus] of serverStatusMap) {
-      const previous = previousStatuses.get(serverName);
-      if (
-        !previous ||
-        previous.status !== nextStatus.status ||
-        previous.error !== nextStatus.error
-      ) {
-        logger.info('MCP server status updated', {
-          serverName,
-          status: nextStatus.status,
-          error: nextStatus.error ?? undefined,
-        });
-      }
-    }
-
-    for (const serverName of previousStatuses.keys()) {
-      if (!serverStatusMap.has(serverName)) {
-        logger.info('MCP server removed', { serverName });
-      }
-    }
-
-    serverStatusRef.current = new Map(serverStatusMap);
-  }, [serverStatusMap]);
 
   // Get MCP server status for a given server name
   const getServerStatus = useCallback(
