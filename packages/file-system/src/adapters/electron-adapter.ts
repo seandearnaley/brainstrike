@@ -558,11 +558,28 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     try {
       dir = await fsPromises.opendir(handle.path);
 
-      let batch: IFileNode[] = [];
       let total = 0;
+      let pendingDirents: import('fs').Dirent[] = [];
 
       // Bind getFileMetadata for the helper function
       const getMetadata = this.getFileMetadata.bind(this);
+
+      const processNodes = async (dirents: import('fs').Dirent[]) => {
+        return Promise.all(
+          dirents.map(async (dirent) => {
+            const fullPath = path.join(handle.path, dirent.name);
+            return dirent.isDirectory()
+              ? toDirectoryNode(handle, dirent.name, fullPath)
+              : await createStreamingFileNode(
+                  handle,
+                  fullPath,
+                  dirent.name,
+                  includeMetadata,
+                  getMetadata
+                );
+          })
+        );
+      };
 
       for await (const dirent of dir) {
         // Check for cancellation
@@ -570,31 +587,26 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
           break;
         }
 
-        const fullPath = path.join(handle.path, dirent.name);
+        pendingDirents.push(dirent);
 
-        // Use helper functions to reduce complexity
-        const node = dirent.isDirectory()
-          ? toDirectoryNode(handle, dirent.name, fullPath)
-          : await createStreamingFileNode(
-              handle,
-              fullPath,
-              dirent.name,
-              includeMetadata,
-              getMetadata
-            );
-
-        batch.push(node);
-        total++;
-
-        // Emit batch when full
-        if (batch.length >= batchSize) {
-          onBatch(batch, { done: false, total });
-          batch = [];
+        // Process batch when full
+        if (pendingDirents.length >= batchSize) {
+          const nodes = await processNodes(pendingDirents);
+          total += nodes.length;
+          onBatch(nodes, { done: false, total });
+          pendingDirents = [];
         }
       }
 
-      // Emit any remaining entries
-      emitFinalBatch(batch, total, onBatch);
+      // Process any remaining entries
+      let finalNodes: IFileNode[] = [];
+      if (pendingDirents.length > 0) {
+        finalNodes = await processNodes(pendingDirents);
+        total += finalNodes.length;
+      }
+
+      // Emit any remaining entries and signal completion
+      emitFinalBatch(finalNodes, total, onBatch);
     } catch (error) {
       throw new AccessError(
         `Failed to stream directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
