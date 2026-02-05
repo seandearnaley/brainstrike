@@ -151,9 +151,15 @@ async function saveCustomConfigPath(configPath: string | null): Promise<void> {
     await fsp.mkdir(path.dirname(file), { recursive: true });
     if (configPath) {
       await fsp.writeFile(file, configPath, 'utf-8');
-    } else if (fs.existsSync(file)) {
+    } else {
       // Delete the file if path is null
-      await fsp.unlink(file);
+      try {
+        await fsp.unlink(file);
+      } catch (error) {
+        if ((error as { code?: string }).code !== 'ENOENT') {
+          throw error;
+        }
+      }
     }
   } catch (error) {
     logger.error('Failed to save custom MCP config path', { error });
