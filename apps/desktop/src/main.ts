@@ -169,6 +169,51 @@ function isWritableLogDestination(destination: string): boolean {
   }
 }
 
+async function isWritableLogDestinationAsync(destination: string): Promise<boolean> {
+  try {
+    const resolved = path.resolve(destination);
+    const directory = path.dirname(resolved);
+    const stats = await fs.promises.stat(directory);
+    if (!stats.isDirectory()) {
+      return false;
+    }
+    await fs.promises.access(directory, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function sanitizeDesktopPreferencesAsync(
+  preferences: LoggingPreferences
+): Promise<LoggingPreferences> {
+  const normalized: LoggingPreferences = {
+    ...preferences,
+    redactPaths: preferences.redactPaths
+      .map((value) => value.trim())
+      .filter((value) => value.length),
+    file: { ...preferences.file },
+  };
+
+  const trimmedDestination = normalized.file.destination?.trim() ?? null;
+
+  if (disableFileLogs) {
+    normalized.file.enabled = false;
+    normalized.file.destination = null;
+  } else if (normalized.file.enabled) {
+    normalized.file.destination = trimmedDestination ?? getLogFilePath() ?? null;
+    if (!normalized.file.destination) {
+      normalized.file.enabled = false;
+    } else if (!(await isWritableLogDestinationAsync(normalized.file.destination))) {
+      normalized.file.enabled = false;
+    }
+  } else {
+    normalized.file.destination = trimmedDestination;
+  }
+
+  return normalized;
+}
+
 function persistLoggingPreferences(preferences: LoggingPreferences): boolean {
   try {
     const store = getSettingsStore();
@@ -285,10 +330,10 @@ async function selectLogDestination(): Promise<string | null> {
   return result.filePath;
 }
 
-function applyAndPersistLoggingPreferences(
+async function applyAndPersistLoggingPreferences(
   preferences: LoggingPreferences
-): LoggingSettingsPayload {
-  const normalized = sanitizeDesktopPreferences(preferences);
+): Promise<LoggingSettingsPayload> {
+  const normalized = await sanitizeDesktopPreferencesAsync(preferences);
   if (!persistLoggingPreferences(normalized)) {
     return getLoggingSettingsPayload();
   }

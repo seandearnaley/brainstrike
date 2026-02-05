@@ -40,6 +40,21 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src/renderer'),
       '@brainstrike/agent/client': path.resolve(__dirname, '../../packages/agent/src/client.ts'),
+      '@brainstrike/agent': path.resolve(__dirname, '../../packages/agent/src/index.ts'),
+      '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src/index.ts'),
+      '@brainstrike/file-system': path.resolve(
+        __dirname,
+        '../../packages/file-system/src/index.ts'
+      ),
+      '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src/index.ts'),
+      '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src/index.ts'),
+      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
+      '@brainstrike/embeddings': path.resolve(__dirname, '../../packages/embeddings/src/index.ts'),
+      '@brainstrike/queue': path.resolve(__dirname, '../../packages/queue/src/index.ts'),
+      '@brainstrike/embedding-worker': path.resolve(
+        __dirname,
+        '../../packages/embedding-worker/src/index.ts'
+      ),
       '@brainstrike/test-utils': path.resolve(__dirname, '../../packages/test-utils/src'),
     },
   },
