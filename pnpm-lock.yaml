@@ -282,12 +282,6 @@ importers:
       '@biomejs/biome':
         specifier: 2.3.11
         version: 2.3.11
-      '@brainstrike/config':
-        specifier: workspace:*
-        version: link:../../packages/config
-      '@brainstrike/tailwind-config':
-        specifier: workspace:*
-        version: link:../../packages/tailwind-config
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.1.18(vite@7.3.1(@types/node@25.2.0)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.21.0))
@@ -15535,7 +15529,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 3.0.3
-      vitest: 4.0.17(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@25.2.0)(@vitest/browser-playwright@4.0.17)(@vitest/ui@4.0.17)(happy-dom@20.1.0)(jiti@2.6.1)(jsdom@27.4.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.21.0)
+      vitest: 4.0.17(@edge-runtime/vm@3.2.0)(@opentelemetry/api@1.9.0)(@types/node@25.0.8)(@vitest/browser-playwright@4.0.17)(@vitest/ui@4.0.17)(happy-dom@20.1.0)(jiti@1.21.7)(jsdom@27.4.0)(lightningcss@1.30.2)(terser@5.44.1)(tsx@4.21.0)
 
   '@vitest/utils@4.0.17':
     dependencies:
