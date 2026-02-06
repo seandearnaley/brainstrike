@@ -11,7 +11,7 @@
     "build": "vite build",
     "start": "vite preview --port 3000 --host",
     "type-check": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "lint": "biome check . --fix",
     "format": "biome format --write ."
   },
