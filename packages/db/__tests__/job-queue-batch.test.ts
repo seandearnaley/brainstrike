@@ -119,6 +119,9 @@ describe('JobQueue Batch Operations', () => {
       expect(jobs).toHaveLength(1);
       expect(jobs[0].id).toBe(job1.id);
       expect(new Date(jobs[0].runAt).getTime()).toBe(new Date(newRunAt).getTime());
+      expect(jobs[0].runAt).toBe(newRunAt);
+      expect(jobs[0].runAt).toContain('T');
+      expect(jobs[0].runAt.endsWith('Z')).toBe(true);
     });
 
     it('updates existing job when UUID SQL branch is forced', async () => {
@@ -146,6 +149,9 @@ describe('JobQueue Batch Operations', () => {
       expect(jobs).toHaveLength(1);
       expect(jobs[0].id).toBe(existing.id);
       expect(new Date(jobs[0].runAt).getTime()).toBe(new Date(earlierRunAt).getTime());
+      expect(jobs[0].runAt).toBe(earlierRunAt);
+      expect(jobs[0].runAt).toContain('T');
+      expect(jobs[0].runAt.endsWith('Z')).toBe(true);
     });
 
     it('handles mixed new and existing jobs', async () => {

@@ -282,14 +282,14 @@ export class JobQueue {
              ) AS t(id, queue, job_type, payload, run_at_text, max_attempts, dedupe_key)
            ),
            existing AS (
-             SELECT jq.id, jq.dedupe_key, i.run_at_text::timestamptz as new_run_at
+             SELECT jq.id, jq.dedupe_key, i.run_at_text
              FROM job_queue jq
              JOIN input i ON jq.dedupe_key = i.dedupe_key
              WHERE jq.state IN ('queued', 'running')
            ),
            upd AS (
              UPDATE job_queue jq
-             SET run_at = LEAST(jq.run_at::timestamptz, e.new_run_at), updated_at = $8
+             SET run_at = LEAST(jq.run_at, e.run_at_text), updated_at = $8
              FROM existing e
              WHERE jq.id = e.id
              RETURNING jq.*
