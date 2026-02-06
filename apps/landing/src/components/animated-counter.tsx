@@ -52,7 +52,7 @@ export function AnimatedCounter({
   }
 
   return (
-    <span className="tabular-nums" ref={setRef} style={{ fontFamily: 'var(--font-heading)' }}>
+    <span className="tabular-nums" ref={setRef} style={{ fontFamily: 'var(--font-display)' }}>
       {prefix}
       {0}
       {suffix}

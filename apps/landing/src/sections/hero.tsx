@@ -1,54 +1,76 @@
 import { ArrowRight } from 'lucide-react';
+import type { Variants } from 'motion/react';
+import { motion } from 'motion/react';
 import { GitHubIcon } from '../components/github-icon';
-import { GlowOrb } from '../components/glow-orb';
-import { GradientText } from '../components/gradient-text';
-import { GridBackground } from '../components/grid-background';
+import { ProductMockup } from '../components/product-mockup';
+import { TypewriterText } from '../components/typewriter-text';
+
+const stagger: Variants = {
+  hidden: { opacity: 0, y: 24 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { delay: i * 0.15, duration: 0.5, ease: 'easeOut' as const },
+  }),
+};
 
 export function Hero(): React.JSX.Element {
   return (
-    <section className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden px-6 pt-20">
-      <GridBackground />
-      <GlowOrb color="var(--accent-start)" delay={0} left="20%" size={400} top="30%" />
-      <GlowOrb color="var(--accent-end)" delay={2} left="75%" size={350} top="60%" />
-      <GlowOrb color="var(--accent-mid)" delay={4} left="55%" size={300} top="20%" />
-
-      <div className="relative z-10 mx-auto max-w-4xl text-center">
-        {/* Badge */}
-        <div
-          className="glass mb-6 inline-flex items-center gap-2 rounded-full px-4 py-1.5 font-medium text-xs sm:mb-8"
-          style={{ color: 'var(--text-secondary)' }}
-        >
-          <span
-            className="inline-block h-1.5 w-1.5 rounded-full"
-            style={{ background: 'var(--accent-end)' }}
-          />
-          Local-first AI context management
-        </div>
-
+    <section className="relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden px-6 pt-24 pb-16">
+      <div className="relative z-10 mx-auto max-w-5xl text-center">
         {/* Headline */}
-        <h1 className="mb-5 font-bold text-4xl tracking-tight sm:mb-6 sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl">
-          Your Knowledge. <GradientText>Vectorized.</GradientText>
-          <br />
-          <GradientText>Searchable.</GradientText> Local.
-        </h1>
-
-        {/* Subheadline */}
-        <p
-          className="mx-auto mb-8 max-w-2xl text-base sm:mb-10 sm:text-lg md:text-xl"
-          style={{ color: 'var(--text-secondary)' }}
+        <motion.h1
+          className="mb-4 font-bold text-4xl leading-[0.95] tracking-tight sm:text-6xl md:text-7xl lg:text-8xl xl:text-9xl"
+          custom={0}
+          initial="hidden"
+          variants={stagger}
+          viewport={{ once: true }}
+          whileInView="visible"
         >
-          The AI context management suite that runs entirely in your browser. No servers. No data
-          leaks. Just intelligence.
-        </p>
+          YOUR KNOWLEDGE.
+          <br />
+          <span className="accent-text">VECTORIZED.</span>
+        </motion.h1>
+
+        {/* Terminal command */}
+        <motion.div
+          className="mb-8 sm:mb-10"
+          custom={1}
+          initial="hidden"
+          variants={stagger}
+          viewport={{ once: true }}
+          whileInView="visible"
+        >
+          <p
+            className="text-sm sm:text-base"
+            style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}
+          >
+            <span className="accent-text">$</span>{' '}
+            <TypewriterText
+              delay={800}
+              speed={40}
+              text="brainstrike --local --zero-backend --ai-powered"
+            />
+          </p>
+        </motion.div>
 
         {/* CTAs */}
-        <div className="flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-4">
+        <motion.div
+          className="mb-16 flex flex-col items-center justify-center gap-3 sm:mb-20 sm:flex-row sm:gap-4"
+          custom={2}
+          initial="hidden"
+          variants={stagger}
+          viewport={{ once: true }}
+          whileInView="visible"
+        >
           <a
-            className="group inline-flex items-center gap-2 rounded-xl px-6 py-3 font-medium text-sm text-white transition-opacity duration-200 hover:opacity-90"
+            className="group inline-flex items-center gap-2 rounded-lg px-6 py-3 font-medium text-sm transition-all duration-200 hover:brightness-110"
             href="https://github.com/seandearnaley/brainstrike"
             rel="noopener noreferrer"
             style={{
-              background: 'linear-gradient(135deg, var(--accent-start), var(--accent-mid))',
+              fontFamily: 'var(--font-mono)',
+              background: 'var(--accent)',
+              color: 'white',
             }}
             target="_blank"
           >
@@ -59,35 +81,33 @@ export function Hero(): React.JSX.Element {
             />
           </a>
           <a
-            className="inline-flex items-center gap-2 rounded-xl border px-6 py-3 font-medium text-sm transition-colors duration-200 hover:text-white"
+            className="inline-flex items-center gap-2 rounded-lg border px-6 py-3 font-medium text-sm transition-colors duration-200 hover:text-white"
             href="https://github.com/seandearnaley/brainstrike"
             rel="noopener noreferrer"
             style={{
+              fontFamily: 'var(--font-mono)',
               borderColor: 'var(--border-hover)',
               color: 'var(--text-secondary)',
             }}
             target="_blank"
           >
             <GitHubIcon size={16} />
-            View on GitHub
+            View Source
           </a>
-        </div>
+        </motion.div>
 
-        {/* Scroll indicator */}
-        <div
-          className="mt-12 flex justify-center sm:mt-16 md:mt-20"
-          style={{ color: 'var(--text-muted)' }}
+        {/* Product mockup */}
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          style={{
+            transform: 'perspective(1200px) rotateX(2deg)',
+          }}
+          transition={{ duration: 0.8, delay: 0.3, ease: 'easeOut' }}
+          viewport={{ once: true }}
+          whileInView={{ opacity: 1, y: 0 }}
         >
-          <div className="flex flex-col items-center gap-2 text-xs">
-            <span>Scroll to explore</span>
-            <div
-              className="h-8 w-px"
-              style={{
-                background: 'linear-gradient(to bottom, var(--text-muted), transparent)',
-              }}
-            />
-          </div>
-        </div>
+          <ProductMockup />
+        </motion.div>
       </div>
     </section>
   );

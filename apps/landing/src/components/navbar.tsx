@@ -2,9 +2,9 @@ import { Menu, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const NAV_LINKS = [
-  { label: 'Features', href: '#features' },
-  { label: 'How It Works', href: '#how-it-works' },
-  { label: 'Technology', href: '#technology' },
+  { label: 'Product', href: '#product' },
+  { label: 'Local-First', href: '#local-first' },
+  { label: 'Architecture', href: '#architecture' },
 ] as const;
 
 export function Navbar(): React.JSX.Element {
@@ -28,10 +28,7 @@ export function Navbar(): React.JSX.Element {
     <nav
       className="fixed inset-x-0 top-0 z-50 transition-all duration-300"
       style={{
-        background: scrolled ? 'rgba(6, 6, 10, 0.8)' : 'transparent',
-        backdropFilter: scrolled ? 'blur(16px)' : 'none',
-        // biome-ignore lint/style/useNamingConvention: WebkitBackdropFilter requires vendor prefix casing
-        WebkitBackdropFilter: scrolled ? 'blur(16px)' : 'none',
+        background: scrolled ? 'oklch(0.14 0.006 65 / 0.92)' : 'transparent',
         borderBottom: scrolled ? '1px solid var(--border-subtle)' : '1px solid transparent',
       }}
     >
@@ -41,9 +38,9 @@ export function Navbar(): React.JSX.Element {
           className="font-bold text-xl tracking-tight"
           href="/"
           onClick={scrollToTop}
-          style={{ fontFamily: 'var(--font-heading)', color: 'var(--text-primary)' }}
+          style={{ fontFamily: 'var(--font-display)', color: 'var(--text-primary)' }}
         >
-          Brain<span className="gradient-text">Strike</span>
+          Brain<span className="accent-text">Strike</span>
         </a>
 
         {/* Desktop links */}
@@ -53,17 +50,19 @@ export function Navbar(): React.JSX.Element {
               className="text-sm transition-colors duration-200 hover:text-white"
               href={link.href}
               key={link.href}
-              style={{ color: 'var(--text-secondary)' }}
+              style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}
             >
               {link.label}
             </a>
           ))}
           <a
-            className="rounded-lg px-4 py-2 font-medium text-sm text-white transition-opacity duration-200 hover:opacity-90"
+            className="rounded-lg px-4 py-2 font-medium text-sm transition-all duration-200 hover:brightness-110"
             href="https://github.com/seandearnaley/brainstrike"
             rel="noopener noreferrer"
             style={{
-              background: 'linear-gradient(135deg, var(--accent-start), var(--accent-mid))',
+              fontFamily: 'var(--font-mono)',
+              background: 'var(--accent)',
+              color: 'white',
             }}
             target="_blank"
           >
@@ -86,8 +85,11 @@ export function Navbar(): React.JSX.Element {
       {/* Mobile menu */}
       {mobileOpen && (
         <div
-          className="glass border-t px-6 pt-2 pb-6 md:hidden"
-          style={{ borderColor: 'var(--border-subtle)' }}
+          className="border-t px-6 pt-2 pb-6 md:hidden"
+          style={{
+            borderColor: 'var(--border-subtle)',
+            background: 'oklch(0.14 0.006 65 / 0.95)',
+          }}
         >
           {NAV_LINKS.map((link) => (
             <a
@@ -95,17 +97,19 @@ export function Navbar(): React.JSX.Element {
               href={link.href}
               key={link.href}
               onClick={() => setMobileOpen(false)}
-              style={{ color: 'var(--text-secondary)' }}
+              style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}
             >
               {link.label}
             </a>
           ))}
           <a
-            className="mt-3 block rounded-lg px-4 py-2.5 text-center font-medium text-sm text-white"
+            className="mt-3 block rounded-lg px-4 py-2.5 text-center font-medium text-sm transition-all duration-200 hover:brightness-110"
             href="https://github.com/seandearnaley/brainstrike"
             rel="noopener noreferrer"
             style={{
-              background: 'linear-gradient(135deg, var(--accent-start), var(--accent-mid))',
+              fontFamily: 'var(--font-mono)',
+              background: 'var(--accent)',
+              color: 'white',
             }}
             target="_blank"
           >

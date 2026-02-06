@@ -1,10 +1,9 @@
 import { Navbar } from './components/navbar';
-import { CrossPlatform } from './sections/cross-platform';
-import { CTA } from './sections/cta';
-import { Features } from './sections/features';
+import { Architecture } from './sections/architecture';
+import { GetStarted } from './sections/get-started';
 import { Hero } from './sections/hero';
-import { HowItWorks } from './sections/how-it-works';
-import { Technology } from './sections/technology';
+import { ProductDemo } from './sections/product-demo';
+import { WhyLocalFirst } from './sections/why-local-first';
 
 export function App(): React.JSX.Element {
   return (
@@ -12,11 +11,10 @@ export function App(): React.JSX.Element {
       <Navbar />
       <main>
         <Hero />
-        <Features />
-        <HowItWorks />
-        <Technology />
-        <CrossPlatform />
-        <CTA />
+        <ProductDemo />
+        <WhyLocalFirst />
+        <Architecture />
+        <GetStarted />
       </main>
     </div>
   );

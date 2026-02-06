@@ -1,40 +1,47 @@
-@import '@fontsource-variable/space-grotesk';
 @import '@fontsource-variable/inter';
 @import '@fontsource-variable/geist-mono';
 @import 'tailwindcss';
 @source "../src/**/*.{ts,tsx}";
 
-/* ─── Design Tokens ─────────────────────────────────── */
+/* ─── Design Tokens (OKLCH) ────────────────────────── */
+/* Derived from the actual BrainStrike app color system:
+   backgrounds ≈ hsl(30 8% 9%), primary ≈ hsl(215 50% 58%) */
 :root {
-  /* Background */
-  --bg-deep: #06060a;
-  --bg-surface: #0e0e14;
-  --bg-elevated: #16161f;
+  /* Backgrounds — warm near-black (hue ~65) */
+  --bg-deep: oklch(0.14 0.006 65);
+  --bg-surface: oklch(0.18 0.005 65);
+  --bg-elevated: oklch(0.22 0.005 65);
+  --bg-code: oklch(0.15 0.005 65);
 
-  /* Text */
-  --text-primary: #e8e8ed;
-  --text-secondary: #8b8b9e;
-  --text-muted: #4a4a5c;
+  /* Text — warm whites and grays */
+  --text-primary: oklch(0.95 0.006 80);
+  --text-secondary: oklch(0.68 0.008 65);
+  --text-muted: oklch(0.48 0.006 65);
+  --text-code: oklch(0.78 0.008 65);
 
-  /* Accent */
-  --accent-start: #6366f1;
-  --accent-mid: #8b5cf6;
-  --accent-end: #06b6d4;
+  /* Accent — steel blue matching app primary hsl(215 50% 58%) */
+  --accent: oklch(0.63 0.12 255);
+  --accent-hover: oklch(0.70 0.14 255);
+  --accent-dim: oklch(0.50 0.08 255);
+  --accent-bg: oklch(0.63 0.12 255 / 0.12);
+
+  /* Semantic */
+  --success: oklch(0.70 0.14 165);
+  --warning: oklch(0.75 0.15 80);
+  --danger: oklch(0.65 0.15 25);
 
   /* Borders */
-  --border-subtle: rgba(255, 255, 255, 0.06);
-  --border-hover: rgba(255, 255, 255, 0.12);
+  --border-subtle: oklch(0.27 0.004 65);
+  --border-hover: oklch(0.33 0.005 65);
+  --border-accent: oklch(0.63 0.12 255 / 0.30);
 
   /* Typography */
-  --font-heading: 'Space Grotesk Variable', 'Space Grotesk', system-ui, sans-serif;
+  --font-display: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
   --font-body: 'Inter Variable', 'Inter', system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', 'Geist Mono', ui-monospace, monospace;
 }
 
 /* ─── Base ──────────────────────────────────────────── */
-/* NOTE: Tailwind v4 Preflight (in @layer base) already resets box-sizing,
-   margin, and padding on all elements. Custom base styles MUST be in
-   @layer base so Tailwind utilities can override them in the cascade. */
 @layer base {
   html {
     scroll-behavior: smooth;
@@ -56,10 +63,11 @@
   h4,
   h5,
   h6 {
-    font-family: var(--font-heading);
+    font-family: var(--font-display);
     color: var(--text-primary);
     line-height: 1.1;
     letter-spacing: -0.02em;
+    text-wrap: balance;
   }
 
   /* Dark-themed scrollbar */
@@ -82,33 +90,13 @@
 }
 
 /* ─── Keyframes ─────────────────────────────────────── */
-@keyframes gradient-shift {
+@keyframes cursor-blink {
   0%,
   100% {
-    background-position: 0% 50%;
+    opacity: 1;
   }
   50% {
-    background-position: 100% 50%;
-  }
-}
-
-@keyframes glow-pulse {
-  0%,
-  100% {
-    opacity: 0.4;
-  }
-  50% {
-    opacity: 0.8;
-  }
-}
-
-@keyframes float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-20px);
+    opacity: 0;
   }
 }
 
@@ -123,46 +111,61 @@
   }
 }
 
-/* ─── Utility Classes ──────────────────────────────── */
+@keyframes subtle-pulse {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ─── Scroll Progress Bar ───────────────────────────── */
+@layer base {
+  @supports (animation-timeline: scroll(root)) {
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: var(--accent);
+      transform-origin: 0 0;
+      scale: 0 1;
+      z-index: 100;
+      animation: scroll-progress linear;
+      animation-timeline: scroll(root);
+    }
+
+    @keyframes scroll-progress {
+      to {
+        scale: 1 1;
+      }
+    }
+  }
+}
+
+/* ─── Component Classes ─────────────────────────────── */
 @layer components {
-  .gradient-text {
-    background: linear-gradient(135deg, var(--accent-start), var(--accent-mid), var(--accent-end));
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-size: 200% 200%;
-    animation: gradient-shift 8s ease infinite;
-  }
-
-  .glass {
-    background: rgba(14, 14, 20, 0.6);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+  .terminal-surface {
+    background: var(--bg-code);
     border: 1px solid var(--border-subtle);
+    border-radius: 0.75rem;
   }
 
-  .glass-hover:hover {
+  .terminal-surface:hover {
     border-color: var(--border-hover);
-    background: rgba(22, 22, 31, 0.7);
   }
 
-  .glow-border {
-    position: relative;
+  .accent-text {
+    color: var(--accent);
   }
 
-  .glow-border::after {
-    content: '';
-    position: absolute;
-    inset: -1px;
-    border-radius: inherit;
-    background: linear-gradient(135deg, var(--accent-start), var(--accent-mid), var(--accent-end));
-    opacity: 0;
-    z-index: -1;
-    transition: opacity 0.4s ease;
-  }
-
-  .glow-border:hover::after {
-    opacity: 0.15;
+  .code-heading {
+    font-family: var(--font-display);
+    color: var(--text-primary);
   }
 }
 
