@@ -114,7 +114,6 @@ export interface CancelParams {
 
 export class JobQueue {
   private static readonly DEFAULT_MAX_ATTEMPTS = 5;
-  private static readonly MAX_BATCH_SIZE = 9000;
   private idType: 'uuid' | 'text' | null = null;
 
   constructor(
@@ -242,6 +241,18 @@ export class JobQueue {
   }
 
   /**
+   * Enqueue multiple jobs atomically in a single database query.
+   * Significantly faster than calling enqueue() in a loop for large batches.
+   *
+   * Deduplication behavior:
+   * - Intra-batch: Jobs with the same dedupeKey are deduplicated, keeping the earliest runAt.
+   * - Database: Existing jobs with matching dedupeKey in 'queued'/'running' states are updated
+   *   with the earlier runAt time. Payload is NOT updated.
+   *
+   * @param params - Array of job parameters to enqueue
+   * @returns Array of Job objects (length <= params.length due to deduplication)
+   */
+  /**
    * Helper to pre-process parameters for intra-batch deduplication.
    */
   private processBatchParams(params: EnqueueParams[], now: string): EnqueueParams[] {
@@ -311,26 +322,9 @@ export class JobQueue {
            SELECT * FROM ins`;
   }
 
-  /**
-   * Enqueue multiple jobs atomically in a single database query.
-   * Significantly faster than calling enqueue() in a loop for large batches.
-   *
-   * Deduplication behavior:
-   * - Intra-batch: Jobs with the same dedupeKey are deduplicated, keeping the earliest runAt.
-   * - Database: Existing jobs with matching dedupeKey in 'queued'/'running' states are updated
-   *   with the earlier runAt time. Payload is NOT updated.
-   *
-   * @param params - Array of job parameters to enqueue
-   * @returns Array of Job objects (length <= params.length due to deduplication)
-   */
   async enqueueBatch(params: EnqueueParams[]): Promise<Job[]> {
     if (params.length === 0) {
       return [];
-    }
-    if (params.length > JobQueue.MAX_BATCH_SIZE) {
-      throw new Error(
-        `Batch size ${params.length} exceeds maximum supported size of ${JobQueue.MAX_BATCH_SIZE}`
-      );
     }
     if (params.length > 1000) {
       logger.warn('Large batch size detected for enqueueBatch', { count: params.length });
