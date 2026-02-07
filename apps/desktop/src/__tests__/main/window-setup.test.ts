@@ -195,6 +195,7 @@ describe('window setup', () => {
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(false);
     isDevEnvMock.mockReturnValue(false);
+    process.env['CI'] = 'false';
 
     mockBrowserWindowInstance.loadURL
       .mockRejectedValueOnce(new Error('fail1'))
@@ -217,6 +218,7 @@ describe('window setup', () => {
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(false);
     isDevEnvMock.mockReturnValue(false);
+    process.env['CI'] = 'false';
     process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] = '1';
     mockBrowserWindowInstance.loadURL.mockResolvedValueOnce(undefined);
 
