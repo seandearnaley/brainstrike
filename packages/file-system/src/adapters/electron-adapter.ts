@@ -23,6 +23,7 @@ import { handleWatcherSetupError, startChokidarWatch } from './electron-watchers
 
 /** Default batch size for streaming directory reads */
 const DEFAULT_STREAMING_BATCH_SIZE = 50;
+type FsDirent = import('fs').Dirent;
 
 /**
  * File system adapter for Electron applications
@@ -124,6 +125,38 @@ function emitFinalBatch(batch: IFileNode[], total: number, onBatch: DirectoryStr
     // Signal completion with empty batch if last batch was exactly full
     onBatch([], { done: true, total });
   }
+}
+
+function isStreamingAborted(signal?: AbortSignal): boolean {
+  return signal?.aborted ?? false;
+}
+
+async function buildStreamingNodes(
+  dirents: FsDirent[],
+  shouldAbort: () => boolean,
+  buildNode: (dirent: FsDirent) => Promise<IFileNode>
+): Promise<IFileNode[]> {
+  const work: Promise<IFileNode>[] = [];
+  for (const dirent of dirents) {
+    if (shouldAbort()) {
+      break;
+    }
+    work.push(buildNode(dirent));
+  }
+  return Promise.all(work);
+}
+
+function emitIntermediateBatch(
+  nodes: IFileNode[],
+  total: number,
+  onBatch: DirectoryStreamCallback
+): number {
+  if (nodes.length === 0) {
+    return total;
+  }
+  const nextTotal = total + nodes.length;
+  onBatch(nodes, { done: false, total: nextTotal });
+  return nextTotal;
 }
 
 /**
@@ -552,6 +585,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     const batchSize = options?.batchSize ?? DEFAULT_STREAMING_BATCH_SIZE;
     const signal = options?.signal;
     const { includeMetadata } = normalizeDirectoryReadOptions(options);
+    const shouldAbort = (): boolean => isStreamingAborted(signal);
 
     let dir: Awaited<ReturnType<typeof fsPromises.opendir>> | null = null;
 
@@ -559,54 +593,54 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       dir = await fsPromises.opendir(handle.path);
 
       let total = 0;
-      let pendingDirents: import('fs').Dirent[] = [];
+      let pendingDirents: FsDirent[] = [];
+      let aborted = false;
 
       // Bind getFileMetadata for the helper function
       const getMetadata = this.getFileMetadata.bind(this);
-
-      const processNodes = async (dirents: import('fs').Dirent[]) => {
-        return Promise.all(
-          dirents.map(async (dirent) => {
-            const fullPath = path.join(handle.path, dirent.name);
-            return dirent.isDirectory()
-              ? toDirectoryNode(handle, dirent.name, fullPath)
-              : await createStreamingFileNode(
-                  handle,
-                  fullPath,
-                  dirent.name,
-                  includeMetadata,
-                  getMetadata
-                );
-          })
-        );
+      const buildNode = async (dirent: FsDirent): Promise<IFileNode> => {
+        const fullPath = path.join(handle.path, dirent.name);
+        return dirent.isDirectory()
+          ? toDirectoryNode(handle, dirent.name, fullPath)
+          : createStreamingFileNode(handle, fullPath, dirent.name, includeMetadata, getMetadata);
       };
 
       for await (const dirent of dir) {
         // Check for cancellation
-        if (signal?.aborted) {
+        if (shouldAbort()) {
+          aborted = true;
           break;
         }
 
         pendingDirents.push(dirent);
-
-        // Process batch when full
-        if (pendingDirents.length >= batchSize) {
-          const nodes = await processNodes(pendingDirents);
-          total += nodes.length;
-          onBatch(nodes, { done: false, total });
-          pendingDirents = [];
+        if (pendingDirents.length < batchSize) {
+          continue;
         }
+
+        const batchDirents = pendingDirents;
+        pendingDirents = [];
+        const nodes = await buildStreamingNodes(batchDirents, shouldAbort, buildNode);
+        if (shouldAbort()) {
+          aborted = true;
+          break;
+        }
+        total = emitIntermediateBatch(nodes, total, onBatch);
       }
 
       // Process any remaining entries
       let finalNodes: IFileNode[] = [];
-      if (pendingDirents.length > 0) {
-        finalNodes = await processNodes(pendingDirents);
+      if (!aborted && pendingDirents.length > 0 && !shouldAbort()) {
+        finalNodes = await buildStreamingNodes(pendingDirents, shouldAbort, buildNode);
+        if (shouldAbort()) {
+          aborted = true;
+        }
+      }
+      if (!aborted) {
         total += finalNodes.length;
       }
 
       // Emit any remaining entries and signal completion
-      emitFinalBatch(finalNodes, total, onBatch);
+      emitFinalBatch(aborted ? [] : finalNodes, total, onBatch);
     } catch (error) {
       throw new AccessError(
         `Failed to stream directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
