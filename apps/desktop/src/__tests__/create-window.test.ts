@@ -320,6 +320,33 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
+    it('should load built renderer in CI test mode when not packaged', async () => {
+      existsSyncMock.mockReturnValue(true);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      process.env['CI'] = 'true';
+
+      await createWindow();
+
+      expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
+        expect.stringContaining('renderer/index.html')
+      );
+      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
+    });
+
+    it('should throw in CI test mode if built renderer is missing', async () => {
+      existsSyncMock.mockReturnValue(false);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      process.env['CI'] = 'true';
+
+      await expect(createWindow()).rejects.toThrow(
+        'Built renderer is required in packaged/test mode but was not found'
+      );
+
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+    });
+
     it('should open devtools only when explicitly enabled', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });

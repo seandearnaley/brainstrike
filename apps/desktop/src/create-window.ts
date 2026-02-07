@@ -106,7 +106,11 @@ async function connectToDevServer(win: BrowserWindow) {
 /**
  * Load the renderer content (either built files or dev server).
  */
-async function loadRenderer(win: BrowserWindow) {
+interface LoadRendererOptions {
+  isTestMode: boolean;
+}
+
+async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
   const distRoot = resolveDistRoot();
   const rendererPath = path.join(distRoot, 'renderer/index.html');
   const hasBuiltRenderer = fs.existsSync(rendererPath);
@@ -120,9 +124,15 @@ async function loadRenderer(win: BrowserWindow) {
       `[createWindow] Is packaged: ${app.isPackaged}`
   );
 
-  if (app.isPackaged) {
+  if (app.isPackaged || options.isTestMode) {
+    if (!hasBuiltRenderer) {
+      throw new Error(
+        `Built renderer is required in packaged/test mode but was not found at ${rendererPath}`
+      );
+    }
+
     // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
-    console.log('[createWindow] Loading production renderer file');
+    console.log('[createWindow] Loading built renderer file');
     loadProductionRenderer(win, rendererPath);
     return;
   }
@@ -248,7 +258,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
 
   configureSecurity(win);
   logStartupPhase('loading-renderer');
-  await loadRenderer(win);
+  await loadRenderer(win, { isTestMode });
   logStartupPhase('renderer-load-invocation-returned');
 
   // Show only after the target renderer has loaded.
