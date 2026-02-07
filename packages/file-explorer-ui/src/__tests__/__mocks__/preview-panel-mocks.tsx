@@ -195,6 +195,26 @@ export const createUiModuleMock = () => ({
       {...props}
     />
   ),
+  LightweightCheckbox: ({
+    checked,
+    disabled,
+    onCheckedChange,
+    ...props
+  }: MockComponentProps & {
+    checked?: boolean | 'indeterminate';
+    disabled?: boolean;
+    onCheckedChange?: (checked: boolean) => void;
+  }) => (
+    <input
+      aria-checked={checked === 'indeterminate' ? 'mixed' : Boolean(checked)}
+      checked={checked === true}
+      data-testid="lightweight-checkbox"
+      disabled={disabled}
+      onChange={(event) => onCheckedChange?.(event.target.checked)}
+      type="checkbox"
+      {...props}
+    />
+  ),
   Switch: ({
     checked,
     id,
@@ -609,5 +629,6 @@ export const createLucideModuleMock = () => ({
   Minimize2: () => <div data-testid="minimize" />,
   RefreshCw: () => <div data-testid="refresh-cw" />,
   RotateCcw: () => <div data-testid="rotate-ccw" />,
+  Sparkles: () => <div data-testid="sparkles" />,
   Table: () => <div data-testid="table" />,
 });

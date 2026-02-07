@@ -41,7 +41,7 @@ describe('useFileFilters', () => {
     const { result } = renderHook(() => useFileFilters());
     const { applyFileFilters, filterError } = result.current;
     const filtered = applyFileFilters(mockTree, [], []);
-    expect(filtered).toMatchObject(mockTree);
+    expect(filtered).toBe(mockTree);
     expect(filterError).toBeNull();
   });
 

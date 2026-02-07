@@ -64,14 +64,14 @@ function shouldIncludeNode(node: IFileNode, includes: string[], excludes: string
 
 function filterNodeByPatterns(
   node: IFileNode,
-  includes: string[],
-  excludes: string[]
+  includesLower: string[],
+  excludesLower: string[]
 ): IFileNode | null {
   // CRITICAL: Check if this node is excluded FIRST (before processing children)
   // This ensures excluded directories like .turbo are completely removed
   // even if they contain files that would otherwise match include filters
   const nameText = node.name.toLowerCase();
-  const isExcluded = excludes.some((e) => nameText.includes(e.toLowerCase()));
+  const isExcluded = excludesLower.some((e) => nameText.includes(e));
   if (isExcluded) {
     return null;
   }
@@ -79,30 +79,30 @@ function filterNodeByPatterns(
   if (node.type === 'directory') {
     const children = node.children ?? [];
     const filteredChildren = children
-      .map((c) => filterNodeByPatterns(c, includes, excludes))
+      .map((c) => filterNodeByPatterns(c, includesLower, excludesLower))
       .filter(Boolean) as IFileNode[];
     if (filteredChildren.length > 0) {
       return { ...node, children: filteredChildren };
     }
     // Empty directory - check if it passes include filter
-    if (shouldIncludeNode(node, includes, excludes)) {
+    if (shouldIncludeNode(node, includesLower, excludesLower)) {
       return { ...node, children: [] };
     }
     return null;
   }
   // For files, check include filter (exclude already checked above)
-  return includes.length === 0 || includes.some((i) => nameText.includes(i.toLowerCase()))
+  return includesLower.length === 0 || includesLower.some((i) => nameText.includes(i))
     ? node
     : null;
 }
 
 function filterTreeByPatterns(
   nodes: IFileNode[],
-  includes: string[],
-  excludes: string[]
+  includesLower: string[],
+  excludesLower: string[]
 ): IFileNode[] {
   return nodes
-    .map((n) => filterNodeByPatterns(n, includes, excludes))
+    .map((n) => filterNodeByPatterns(n, includesLower, excludesLower))
     .filter(Boolean) as IFileNode[];
 }
 
@@ -116,6 +116,9 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
   }
 }
 
+const EMPTY_DISPLAYED_FILES = new Set<string>();
+const EMPTY_DISPLAYED_FILE_LIST: string[] = [];
+
 /**
  * FileExplorerLeftPanel - Contains the file tree and toolbar
  * This component can be used independently in the left panel of an IDE layout
@@ -127,6 +130,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     includeFilters,
     excludeFilters,
     useRegex,
+    setFilters,
+    setUseRegex,
     currentFolderId,
     setCurrentFolderId,
     maxSelectionCount,
@@ -144,6 +149,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.includeFilters,
         s.excludeFilters,
         s.useRegex,
+        s.setFilters,
+        s.setUseRegex,
         s.currentFolderId,
         s.setCurrentFolderId,
         s.maxSelectionCount,
@@ -169,7 +176,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     isLoading,
     error,
     loadingFiles,
-    applyFileFilters,
     filterError,
     rootDirectoryHandle,
     isFileSystemAccessSupported,
@@ -362,20 +368,35 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     }
 
     const { includes, excludes } = parseFilterString(deferredQuickFilter);
-    return filterTreeByPatterns(stableFileTree, includes, excludes);
+    const includesLower = includes.map((value) => value.toLowerCase());
+    const excludesLower = excludes.map((value) => value.toLowerCase());
+    return filterTreeByPatterns(stableFileTree, includesLower, excludesLower);
   }, [deferredQuickFilter, stableFileTree]);
 
-  // Calculate displayed files from the quick filtered tree
-  const displayedFilesRef = React.useRef<Set<string>>(new Set());
+  // displayedFiles are only needed by the legacy "fallback select-all" path.
+  // In desktop, recursive select-all should always be available and this stays false.
+  // Keep a runtime capability check so tests and non-desktop adapters can still exercise fallback.
+  const hasRecursiveSelectAll =
+    typeof (selectAllRecursively as unknown) === 'function' &&
+    typeof (addMultipleSelectedFiles as unknown) === 'function';
+  const useFallbackDisplayedFiles = !hasRecursiveSelectAll;
+
   const displayedFiles = useMemo(() => {
+    if (!useFallbackDisplayedFiles) {
+      return EMPTY_DISPLAYED_FILES;
+    }
     const visible = new Set<string>();
     if (quickFilteredTree) {
       collectVisibleFiles(quickFilteredTree, visible);
     }
-    displayedFilesRef.current = visible;
     return visible;
-  }, [quickFilteredTree]);
-  const displayedFileList = useMemo(() => Array.from(displayedFiles), [displayedFiles]);
+  }, [quickFilteredTree, useFallbackDisplayedFiles]);
+  const displayedFileList = useMemo(() => {
+    if (!useFallbackDisplayedFiles) {
+      return EMPTY_DISPLAYED_FILE_LIST;
+    }
+    return Array.from(displayedFiles);
+  }, [displayedFiles, useFallbackDisplayedFiles]);
 
   const handleRefresh = useCallback(async () => {
     if (!rootDirectoryHandle) {
@@ -422,10 +443,12 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   const handleFilterChange = useCallback(
     (newIncludeFilters: string[], newExcludeFilters: string[], newUseRegex: boolean) => {
-      // applyFileFilters internally calls setFilters and setUseRegex, so no need to call setFilters separately
-      applyFileFilters(newIncludeFilters, newExcludeFilters, newUseRegex);
+      // Avoid forcing a synchronous full-tree filter pass on preset changes.
+      // We only update filter state here; deferred filtering happens in useFileExplorer().
+      setFilters(newIncludeFilters, newExcludeFilters);
+      setUseRegex(newUseRegex);
     },
-    [applyFileFilters]
+    [setFilters, setUseRegex]
   );
 
   // biome-ignore lint/plugin: setCurrentFolderId is a stable Zustand action - syncing folder ID with handle is controlled state update
