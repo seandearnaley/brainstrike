@@ -42,6 +42,34 @@ function isTerminalTokenizerError(errorMessage: string): boolean {
   return TERMINAL_TOKENIZER_ERROR_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
+interface WorkerErrorMessage {
+  type: 'error';
+  error: string;
+  id?: string;
+  fileRecordId?: string;
+}
+
+function isWorkerErrorMessage(data: unknown): data is WorkerErrorMessage {
+  if (typeof data !== 'object' || data === null) {
+    return false;
+  }
+
+  const candidate = data as Partial<WorkerErrorMessage>;
+  return candidate.type === 'error' && typeof candidate.error === 'string';
+}
+
+function isInitWorkerErrorMessage(data: unknown): data is WorkerErrorMessage {
+  return isWorkerErrorMessage(data) && data.id === '__init__';
+}
+
+function getTerminalTokenizerErrorMessage(data: unknown): WorkerErrorMessage | null {
+  if (!isWorkerErrorMessage(data)) {
+    return null;
+  }
+
+  return isTerminalTokenizerError(data.error) ? data : null;
+}
+
 // ============================================================================
 // Context Types
 // ============================================================================
@@ -133,6 +161,7 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
     initPromiseRef.current = (async () => {
       try {
         terminalFailureActiveRef.current = false;
+        let readyReceived = false;
         logger.debug('Initializing chunking worker');
         const workerUrl = await resolveChunkingWorkerUrl();
         const worker = new Worker(workerUrl, { type: 'module' });
@@ -145,32 +174,42 @@ export function ChunkingWorkerProvider({ children }: ChunkingWorkerProviderProps
         portRef.current = port;
         setPortCreated(true);
 
-        // Handle ready signal
         const handleMessage = (event: MessageEvent) => {
-          if (event.data.type === 'ready') {
+          const { data } = event;
+
+          if (data.type === 'ready') {
+            if (readyReceived) {
+              return;
+            }
+            readyReceived = true;
+            // Keep this listener active after ready so runtime tokenizer failures
+            // can still force a deterministic terminal worker state.
             logger.debug('Chunking worker ready');
             setIsReady(true);
             setError(null);
-            worker.removeEventListener('message', handleMessage);
-          } else if (event.data.type === 'error' && event.data.id === '__init__') {
-            const errorMsg = event.data.error || 'Worker initialization failed';
+            return;
+          }
+
+          if (isInitWorkerErrorMessage(data)) {
+            const errorMsg = data.error || 'Worker initialization failed';
             logger.error('Chunking worker init error', { error: errorMsg });
             worker.removeEventListener('message', handleMessage);
             enterTerminalFailureState(new Error(errorMsg), 'worker.message.__init__');
-          } else if (
-            event.data.type === 'error' &&
-            typeof event.data.error === 'string' &&
-            isTerminalTokenizerError(event.data.error)
-          ) {
+            return;
+          }
+
+          const tokenizerErrorData = getTerminalTokenizerErrorMessage(data);
+          if (tokenizerErrorData) {
+            const tokenizerError = tokenizerErrorData.error;
             logger.error('Chunking worker tokenizer failure', {
-              id: event.data.id,
-              fileRecordId: event.data.fileRecordId,
-              error: event.data.error,
+              id: tokenizerErrorData.id,
+              fileRecordId: tokenizerErrorData.fileRecordId,
+              error: tokenizerError,
             });
             worker.removeEventListener('message', handleMessage);
             enterTerminalFailureState(
-              new Error(event.data.error),
-              `worker.message.tokenizer.${event.data.fileRecordId ?? event.data.id ?? 'unknown'}`
+              new Error(tokenizerError),
+              `worker.message.tokenizer.${tokenizerErrorData.fileRecordId ?? tokenizerErrorData.id ?? 'unknown'}`
             );
           }
         };
