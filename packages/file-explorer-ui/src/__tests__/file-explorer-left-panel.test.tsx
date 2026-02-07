@@ -63,6 +63,23 @@ vi.mock('../use-file-explorer-context', () => ({
 vi.mock('../use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(),
 }));
+vi.mock('../use-background-token-indexer-integration', () => ({
+  useBackgroundTokenIndexerIntegration: vi.fn(() => ({
+    isIndexing: false,
+    triggerIndexing: vi.fn(),
+    isReady: true,
+    progress: null,
+    diagnostics: {
+      indexedCount: 0,
+      inFlightCount: 0,
+      fileHandleMapSize: 0,
+      workerReady: true,
+      cacheOperational: true,
+      cachePersisted: true,
+      clearIndexedCache: vi.fn(),
+    },
+  })),
+}));
 vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/file-explorer-hooks')>();
   return {
@@ -263,7 +280,7 @@ describe('FileExplorerLeftPanel', () => {
 
   it('cancels loading and shows toast via inline indicator', async () => {
     const cancelOperationMock = vi.fn();
-    vi.mocked(useFileExplorer).mockReturnValueOnce({
+    vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
       isLoading: true,
       cancellable: true,
@@ -286,7 +303,7 @@ describe('FileExplorerLeftPanel', () => {
   });
 
   it('displays inline scanning indicator when loading', async () => {
-    vi.mocked(useFileExplorer).mockReturnValueOnce({
+    vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
       isLoading: true,
       cancellable: false,
@@ -365,7 +382,7 @@ describe('FileExplorerLeftPanel', () => {
   });
 
   it('does not show action buttons when no root directory is selected', async () => {
-    vi.mocked(useFileExplorer).mockReturnValueOnce({
+    vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
       rootDirectoryHandle: null,
       isLoading: true,
@@ -412,7 +429,7 @@ describe('FileExplorerLeftPanel', () => {
   });
 
   it('displays initial loading state correctly', async () => {
-    vi.mocked(useFileExplorer).mockReturnValueOnce({
+    vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
       isLoading: true,
       isInitialLoad: true,
@@ -426,7 +443,7 @@ describe('FileExplorerLeftPanel', () => {
   });
 
   it('shows cancelling state when operation is being cancelled', async () => {
-    vi.mocked(useFileExplorer).mockReturnValueOnce({
+    vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
       isLoading: true,
       isCancelling: true,
@@ -796,7 +813,7 @@ describe('FileExplorerLeftPanel', () => {
     });
 
     it('does not render View Filters toggle when no root directory is selected', async () => {
-      vi.mocked(useFileExplorer).mockReturnValueOnce({
+      vi.mocked(useFileExplorer).mockReturnValue({
         ...fileExplorerReturnValue,
         rootDirectoryHandle: null,
       });

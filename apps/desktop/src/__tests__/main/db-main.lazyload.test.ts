@@ -76,4 +76,30 @@ describe('db-main lazy-load getDatabase', () => {
     expect(second).toBe(first);
     expect(PGliteMock).toHaveBeenCalledTimes(1);
   });
+
+  it('coalesces concurrent getDatabase calls into a single initialization', async () => {
+    let releaseQueryGate = () => {};
+    const queryGate = new Promise<void>((resolve) => {
+      releaseQueryGate = resolve;
+    });
+
+    queryMock.mockImplementation(async () => {
+      await queryGate;
+      return { rows: [{ '?column?': 1 }] };
+    });
+
+    const { getDatabase } = await import('../../db-main');
+
+    const first = getDatabase();
+    const second = getDatabase();
+    const third = getDatabase();
+
+    releaseQueryGate();
+
+    const [db1, db2, db3] = await Promise.all([first, second, third]);
+    expect(db1).toBe(db2);
+    expect(db2).toBe(db3);
+    expect(PGliteMock).toHaveBeenCalledTimes(1);
+    expect(migrateMock).toHaveBeenCalledTimes(1);
+  });
 });

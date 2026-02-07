@@ -148,6 +148,27 @@ function createChunkingProgressScheduler(
   };
 }
 
+const CHUNKING_WORKER_READY_TIMEOUT_MS = 5000;
+const CHUNKING_WORKER_READY_POLL_MS = 100;
+
+async function waitForChunkingWorkerReady(
+  workerPort: NonNullable<ChunkingOptions['chunkingWorkerPort']>,
+  timeoutMs: number
+): Promise<void> {
+  if (workerPort.isReady()) {
+    return;
+  }
+
+  const startWait = Date.now();
+  while (!workerPort.isReady() && Date.now() - startWait < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, CHUNKING_WORKER_READY_POLL_MS));
+  }
+
+  if (!workerPort.isReady()) {
+    throw new Error(`Chunking worker failed to become ready within ${timeoutMs}ms`);
+  }
+}
+
 /**
  * Type guard to check if repository supports transactional insert.
  * Used to safely detect if insertManyWithTx is available.
@@ -346,16 +367,11 @@ export async function processFileChunking(
 
   // Use worker if available (preferred path - moves chunking off main thread)
   if (options.chunkingWorkerPort) {
-    // Wait for worker to be ready (max 5 seconds)
     if (!options.chunkingWorkerPort.isReady()) {
-      logger.info('Waiting for chunking worker to be ready...', { fileId: result.id });
-      const startWait = Date.now();
-      while (!options.chunkingWorkerPort.isReady() && Date.now() - startWait < 5000) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      if (!options.chunkingWorkerPort.isReady()) {
-        throw new Error('Chunking worker failed to become ready within 5 seconds');
-      }
+      throw new Error(
+        'Chunking worker is not ready at chunk execution time. ' +
+          'Failing fast to avoid degraded/fallback import behavior.'
+      );
     }
     logger.info('Using WORKER path for chunking', { fileId: result.id });
     const workerResult = await processFileChunkingWorkerPath(
@@ -526,14 +542,19 @@ async function parallelLimit<T, R>(
       results[index] = await fn(items[index] as T, index);
     })(i);
 
-    const execution = promise.then(() => {
+    const execution = promise.finally(() => {
       executing.splice(executing.indexOf(execution), 1);
     });
 
     executing.push(execution);
 
     if (executing.length >= concurrency) {
-      await Promise.race(executing);
+      try {
+        await Promise.race(executing);
+      } catch (error) {
+        await Promise.allSettled(executing);
+        throw error;
+      }
     }
   }
 
@@ -555,6 +576,18 @@ export async function processChunking(
     throw new Error('Repository not available for chunking');
   }
 
+  const chunkingWorkerPort = options.chunkingWorkerPort;
+  if (!chunkingWorkerPort) {
+    throw new Error(
+      'Chunking worker is required for imports but was not provided. ' +
+        'Main-thread chunking fallback is disabled.'
+    );
+  }
+  if (!chunkingWorkerPort.isReady()) {
+    logger.info('Waiting for chunking worker to be ready before starting chunking phase');
+    await waitForChunkingWorkerReady(chunkingWorkerPort, CHUNKING_WORKER_READY_TIMEOUT_MS);
+  }
+
   // Determine concurrency based on environment and file count
   const ChunkingConcurrency = Math.min(
     10, // Max 10 files at once to avoid overwhelming the system
@@ -572,86 +605,55 @@ export async function processChunking(
 
   // Pre-fetch all file records in a single batch to avoid N+1 queries
   let recordsMap: Map<string, FileRecord> | undefined;
-  try {
-    const validResults = importResults.filter((r) => (r.imported || r.existed) && !r.error);
-    const ids = validResults.map((r) => r.id);
-
-    // Check if repository supports findByIds (it should, as both Electron and Drizzle implementations have it)
-    if (ids.length > 0 && 'findByIds' in repository && typeof repository.findByIds === 'function') {
-      const batchFetchStart = Date.now();
-      const records = await repository.findByIds(ids);
-      const batchFetchDuration = Date.now() - batchFetchStart;
-      recordsMap = new Map(records.map((r) => [r.id, r]));
-      logger.debug('Batch fetched file records', {
-        count: records.length,
-        requested: ids.length,
-        durationMs: batchFetchDuration,
-      });
-    }
-  } catch (err) {
-    logger.warn('Failed to batch fetch file records, falling back to individual fetches', {
-      error: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-      errorType: err?.constructor?.name,
+  const validResults = importResults.filter(
+    (r): r is FileImportResult => Boolean(r) && (r.imported || r.existed) && !r.error
+  );
+  const ids = validResults.map((r) => r.id);
+  if (ids.length > 0) {
+    const batchFetchStart = Date.now();
+    const records = await repository.findByIds(ids);
+    const batchFetchDuration = Date.now() - batchFetchStart;
+    recordsMap = new Map(records.map((r) => [r.id, r]));
+    logger.debug('Batch fetched file records', {
+      count: records.length,
+      requested: ids.length,
+      durationMs: batchFetchDuration,
     });
   }
 
+  // CRITICAL: No per-file fallback. A single chunking failure means import state is inconsistent.
+  // Fail fast so we do not spam repeated worker/database errors across the whole selection.
+  // This guard prevents "degraded mode" behavior where thousands of files continue after root failure.
   // Process files in parallel with concurrency limit
   const allResults = await parallelLimit(importResults, ChunkingConcurrency, async (result, i) => {
     if (!result) {
       return null; // Mark for filtering
     }
+    const preFetchedRecord = recordsMap?.get(result.id);
+    const { enhancedResult, chunksCreated, chunks, strategyUsed } = await processFileChunking(
+      result,
+      i,
+      importResults.length,
+      totalChunksCreated,
+      deps,
+      options,
+      preFetchedRecord
+    );
 
-    try {
-      const preFetchedRecord = recordsMap?.get(result.id);
-      const { enhancedResult, chunksCreated, chunks, strategyUsed } = await processFileChunking(
-        result,
-        i,
-        importResults.length,
-        totalChunksCreated,
-        deps,
-        options,
-        preFetchedRecord
-      );
-
-      if (options.enableEmbedding && options.processEmbeddings && chunks && chunks.length > 0) {
-        await options.processEmbeddings(chunks, enhancedResult);
-      }
-
-      totalChunksCreated += chunksCreated;
-      filesProcessed++;
-      progressScheduler.schedule({
-        filesProcessed,
-        totalFiles: importResults.length,
-        chunksCreated: totalChunksCreated,
-        strategyUsed,
-      });
-
-      return enhancedResult;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      logger.error(`Chunking failed for file ${result.id}:`, {
-        error: errorMessage,
-        stack: errorStack,
-        filePath: result.id,
-        fileIndex: i,
-        totalFiles: importResults.length,
-      });
-      filesProcessed++;
-      progressScheduler.schedule({
-        filesProcessed,
-        totalFiles: importResults.length,
-        chunksCreated: totalChunksCreated,
-      });
-      return {
-        id: result.id,
-        imported: result.imported,
-        existed: result.existed,
-        error: `Chunking failed: ${errorMessage}`,
-        chunksCreated: 0,
-      };
+    if (options.enableEmbedding && options.processEmbeddings && chunks && chunks.length > 0) {
+      await options.processEmbeddings(chunks, enhancedResult);
     }
+
+    totalChunksCreated += chunksCreated;
+    filesProcessed++;
+    progressScheduler.schedule({
+      filesProcessed,
+      totalFiles: importResults.length,
+      chunksCreated: totalChunksCreated,
+      strategyUsed,
+    });
+
+    return enhancedResult;
   });
 
   // Filter out null results (from undefined inputs)

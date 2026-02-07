@@ -283,14 +283,13 @@ function estimateTokenCount(text: string): number {
 
 async function computeCharsPerToken(content: string, useAccurate: boolean): Promise<number> {
   const sample = content.slice(0, Math.min(10_000, content.length));
-  try {
-    const tokens = useAccurate ? await countTokensAccurate(sample) : countTokensHeuristic(sample);
-    if (Number.isFinite(tokens) && tokens > 0) {
-      const measured = sample.length / tokens;
-      return Math.max(1, Math.min(8, measured));
-    }
-  } catch {
-    // Fall through to default
+  const tokens = useAccurate ? await countTokensAccurate(sample) : countTokensHeuristic(sample);
+  if (Number.isFinite(tokens) && tokens > 0) {
+    const measured = sample.length / tokens;
+    return Math.max(1, Math.min(8, measured));
+  }
+  if (useAccurate) {
+    throw new Error('Accurate token counting produced an invalid token count');
   }
   return Number(CHUNKING_CONFIG.averageCharsPerToken);
 }

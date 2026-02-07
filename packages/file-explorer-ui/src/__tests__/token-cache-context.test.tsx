@@ -98,6 +98,7 @@ describe('TokenCacheContext', () => {
       wrapper: ({ children }) => <TokenCacheProvider db={db}>{children}</TokenCacheProvider>,
     });
 
+    await vi.waitFor(() => expect(result.current.isWorkerReady).toBe(true));
     const count = await result.current.countTextTokens('hello world');
     expect(count).toBeGreaterThan(0);
   });
@@ -189,7 +190,7 @@ describe('TokenCacheContext', () => {
       expect(result.current.isOperational).toBe(true);
     });
 
-    it('enables degraded mode when warmup fails', async () => {
+    it('keeps worker mode disabled when warmup fails', async () => {
       // Mock exec to fail (createTokenCacheWorkerPool is async, returns a Promise)
       const { createTokenCacheWorkerPool } = await import('@brainstrike/token-cache');
       const mockExec = vi.fn().mockRejectedValue(new Error('Worker error'));
@@ -204,11 +205,13 @@ describe('TokenCacheContext', () => {
         wrapper: ({ children }) => <TokenCacheProvider db={null}>{children}</TokenCacheProvider>,
       });
 
-      // Wait for warmup retries to complete and degraded mode to enable
-      await vi.waitFor(() => expect(result.current.isWorkerReady).toBe(true), { timeout: 2000 });
+      // Wait for warmup retries to complete
+      await vi.waitFor(() => expect(mockExec).toHaveBeenCalledTimes(3), { timeout: 2000 });
 
-      // Should be operational in degraded mode
-      expect(result.current.isOperational).toBe(true);
+      // Worker stays disabled; no fallback counting path is used.
+      expect(result.current.isWorkerReady).toBe(false);
+      expect(result.current.isOperational).toBe(false);
+      expect(result.current.persistenceMode).toBe('disabled');
       // Warmup retries 3 times
       expect(mockExec).toHaveBeenCalledTimes(3);
     });

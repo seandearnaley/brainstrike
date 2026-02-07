@@ -83,6 +83,16 @@ async function initializeSingleton(): Promise<void> {
           `Chunking worker error: ${errorDetails.message} ` +
           `(file: ${errorDetails.filename}:${errorDetails.lineno}:${errorDetails.colno})`;
         singletonError = new Error(detailedMessage);
+        singletonReady = false;
+        // CRITICAL: Hard-stop on worker runtime errors to avoid degraded behavior.
+        if (singletonPort) {
+          singletonPort.terminate();
+          singletonPort = null;
+        }
+        if (singletonWorker) {
+          singletonWorker.terminate();
+          singletonWorker = null;
+        }
         // Attach details as a property for programmatic access
         (singletonError as Error & { details?: typeof errorDetails }).details = errorDetails;
         notifyListeners();
@@ -120,6 +130,16 @@ async function initializeSingleton(): Promise<void> {
             `Worker URL: ${errorDetails.workerUrl}, ` +
             `worker: ${errorDetails.workerExists}, port: ${errorDetails.portExists}`;
           singletonError = new Error(detailedMessage);
+          singletonReady = false;
+          // CRITICAL: Startup timeout is terminal for this worker instance.
+          if (singletonPort) {
+            singletonPort.terminate();
+            singletonPort = null;
+          }
+          if (singletonWorker) {
+            singletonWorker.terminate();
+            singletonWorker = null;
+          }
           (singletonError as Error & { details?: typeof errorDetails }).details = errorDetails;
           notifyListeners();
         }

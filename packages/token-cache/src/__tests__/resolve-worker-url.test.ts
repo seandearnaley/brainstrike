@@ -17,6 +17,22 @@ describe('resolve-worker-url', () => {
     clearImportMetaOverride();
   });
 
+  it('resolves token cache worker URL from import.meta.url override', () => {
+    setImportMetaOverride({ url: 'file:///tmp/module/index.js' });
+
+    const url = resolveTokenCacheWorkerUrl();
+
+    expect(url.href).toBe('file:///tmp/module/token-cache.worker.js');
+  });
+
+  it('resolves background indexer worker URL from import.meta.dirname override', () => {
+    setImportMetaOverride({ dirname: '/tmp/module' });
+
+    const url = resolveBackgroundIndexerWorkerUrl();
+
+    expect(url.href).toBe('file:///tmp/module/background-indexer.worker.js');
+  });
+
   it('throws a descriptive error when import meta is unavailable', () => {
     setImportMetaOverride({});
 

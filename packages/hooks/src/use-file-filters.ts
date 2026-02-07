@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { processFilter } from '@brainstrike/utils';
-import { minimatch } from 'minimatch';
+import { Minimatch } from 'minimatch';
 import { useCallback, useRef, useState } from 'react';
 
 function compileRegexPatterns(
@@ -19,11 +19,20 @@ function compileRegexPatterns(
   return regexes;
 }
 
-function matchPath(path: string, globs: string[], regexes: RegExp[], useRegex: boolean): boolean {
+function compileGlobPatterns(patterns: string[]): Minimatch[] {
+  return patterns.map((pattern) => new Minimatch(pattern));
+}
+
+function matchPath(
+  path: string,
+  regexes: RegExp[],
+  globMatchers: Minimatch[],
+  useRegex: boolean
+): boolean {
   if (useRegex) {
     return regexes.some((regex) => regex.test(path));
   }
-  return globs.some((pattern) => minimatch(path, pattern));
+  return globMatchers.some((matcher) => matcher.match(path));
 }
 
 function cloneNode(node: IFileNode, keepChildren: boolean): IFileNode {
@@ -65,7 +74,12 @@ function processFileNode(
 function setupRegexFilters(
   processedIncludeFilters: string[],
   processedExcludeFilters: string[],
-  regexCache: React.MutableRefObject<{ include: RegExp[]; exclude: RegExp[] }>,
+  patternCache: React.MutableRefObject<{
+    includeRegex: RegExp[];
+    excludeRegex: RegExp[];
+    includeGlobs: Minimatch[];
+    excludeGlobs: Minimatch[];
+  }>,
   setError: (msg: string) => void
 ): boolean {
   const includes = compileRegexPatterns(processedIncludeFilters, setError);
@@ -78,26 +92,63 @@ function setupRegexFilters(
     return false;
   }
 
-  regexCache.current.include = includes;
-  regexCache.current.exclude = excludes;
+  patternCache.current.includeRegex = includes;
+  patternCache.current.excludeRegex = excludes;
+  patternCache.current.includeGlobs = [];
+  patternCache.current.excludeGlobs = [];
   return true;
 }
 
-function createFilterFunctions(
+function setupGlobFilters(
   processedIncludeFilters: string[],
   processedExcludeFilters: string[],
-  regexCache: React.MutableRefObject<{ include: RegExp[]; exclude: RegExp[] }>,
+  patternCache: React.MutableRefObject<{
+    includeRegex: RegExp[];
+    excludeRegex: RegExp[];
+    includeGlobs: Minimatch[];
+    excludeGlobs: Minimatch[];
+  }>,
+  setError: (msg: string) => void
+): boolean {
+  try {
+    patternCache.current.includeGlobs = compileGlobPatterns(processedIncludeFilters);
+    patternCache.current.excludeGlobs = compileGlobPatterns(processedExcludeFilters);
+    patternCache.current.includeRegex = [];
+    patternCache.current.excludeRegex = [];
+    return true;
+  } catch {
+    setError('Invalid glob pattern');
+    return false;
+  }
+}
+
+function createFilterFunctions(
+  patternCache: React.MutableRefObject<{
+    includeRegex: RegExp[];
+    excludeRegex: RegExp[];
+    includeGlobs: Minimatch[];
+    excludeGlobs: Minimatch[];
+  }>,
   useRegex: boolean
 ) {
   const matchesInclude = (path: string): boolean => {
-    if (processedIncludeFilters.length === 0) {
+    if (
+      useRegex
+        ? patternCache.current.includeRegex.length === 0
+        : patternCache.current.includeGlobs.length === 0
+    ) {
       return true;
     }
-    return matchPath(path, processedIncludeFilters, regexCache.current.include, useRegex);
+    return matchPath(
+      path,
+      patternCache.current.includeRegex,
+      patternCache.current.includeGlobs,
+      useRegex
+    );
   };
 
   const matchesExclude = (path: string): boolean =>
-    matchPath(path, processedExcludeFilters, regexCache.current.exclude, useRegex);
+    matchPath(path, patternCache.current.excludeRegex, patternCache.current.excludeGlobs, useRegex);
 
   return { matchesInclude, matchesExclude };
 }
@@ -145,8 +196,10 @@ function arraysEqual(a: string[], b: string[]): boolean {
 }
 
 type RegexCacheRef = React.MutableRefObject<{
-  include: RegExp[];
-  exclude: RegExp[];
+  includeRegex: RegExp[];
+  excludeRegex: RegExp[];
+  includeGlobs: Minimatch[];
+  excludeGlobs: Minimatch[];
   lastIncludePatterns: string[];
   lastExcludePatterns: string[];
   lastUseRegex: boolean;
@@ -163,11 +216,6 @@ function updateRegexCacheIfNeeded(
   useRegex: boolean,
   setError: (msg: string) => void
 ): boolean {
-  if (!useRegex) {
-    regexCache.current.lastUseRegex = false;
-    return true;
-  }
-
   const patternsChanged =
     regexCache.current.lastUseRegex !== useRegex ||
     !arraysEqual(regexCache.current.lastIncludePatterns, processedIncludeFilters) ||
@@ -177,16 +225,22 @@ function updateRegexCacheIfNeeded(
     return true;
   }
 
-  // Clear cache and recompile
-  regexCache.current.include = [];
-  regexCache.current.exclude = [];
-
-  const success = setupRegexFilters(
-    processedIncludeFilters,
-    processedExcludeFilters,
-    regexCache,
-    setError
-  );
+  let success = true;
+  if (useRegex) {
+    success = setupRegexFilters(
+      processedIncludeFilters,
+      processedExcludeFilters,
+      regexCache,
+      setError
+    );
+  } else {
+    success = setupGlobFilters(
+      processedIncludeFilters,
+      processedExcludeFilters,
+      regexCache,
+      setError
+    );
+  }
 
   if (!success) {
     return false;
@@ -209,15 +263,19 @@ function updateRegexCacheIfNeeded(
  */
 export function useFileFilters() {
   const regexCache = useRef<{
-    include: RegExp[];
-    exclude: RegExp[];
+    includeRegex: RegExp[];
+    excludeRegex: RegExp[];
+    includeGlobs: Minimatch[];
+    excludeGlobs: Minimatch[];
     // Track last used patterns to detect changes
     lastIncludePatterns: string[];
     lastExcludePatterns: string[];
     lastUseRegex: boolean;
   }>({
-    include: [],
-    exclude: [],
+    includeRegex: [],
+    excludeRegex: [],
+    includeGlobs: [],
+    excludeGlobs: [],
     lastIncludePatterns: [],
     lastExcludePatterns: [],
     lastUseRegex: false,
@@ -238,6 +296,14 @@ export function useFileFilters() {
 
       const processedIncludeFilters = useRegex ? includeFilters : includeFilters.map(processFilter);
       const processedExcludeFilters = useRegex ? excludeFilters : excludeFilters.map(processFilter);
+      const hasNoFilters =
+        processedIncludeFilters.length === 0 && processedExcludeFilters.length === 0;
+
+      // Critical fast path for large trees: avoid cloning/traversing when no filters are active.
+      // Returning the original tree keeps folder switching and preset toggles responsive.
+      if (hasNoFilters) {
+        return fileTree;
+      }
 
       // Update regex cache if needed
       const cacheSuccess = updateRegexCacheIfNeeded(
@@ -252,12 +318,7 @@ export function useFileFilters() {
         return [];
       }
 
-      const { matchesInclude, matchesExclude } = createFilterFunctions(
-        processedIncludeFilters,
-        processedExcludeFilters,
-        regexCache,
-        useRegex
-      );
+      const { matchesInclude, matchesExclude } = createFilterFunctions(regexCache, useRegex);
 
       const processTree = createProcessTreeFunction(matchesInclude, matchesExclude);
 
