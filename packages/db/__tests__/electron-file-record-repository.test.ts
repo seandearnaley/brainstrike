@@ -83,6 +83,39 @@ describe('ElectronFileRecordRepository', () => {
     expect(result).toEqual([r1, r2]);
   });
 
+  it('findByIds uses text[] matching for text primary keys', async () => {
+    const r1 = createTestRecord({ id: 'id-1' });
+    const r2 = createTestRecord({ id: 'id-2' });
+    query.mockResolvedValueOnce({
+      rows: [
+        {
+          id: r1.id,
+          name: r1.name,
+          path: r1.path,
+          size: r1.size,
+          created_at: r1.createdAt,
+          updated_at: r1.updatedAt,
+        },
+        {
+          id: r2.id,
+          name: r2.name,
+          path: r2.path,
+          size: r2.size,
+          created_at: r2.createdAt,
+          updated_at: r2.updatedAt,
+        },
+      ],
+    });
+
+    const result = await repo.findByIds([r1.id, r2.id]);
+
+    expect(query).toHaveBeenCalledWith(
+      'SELECT * FROM file_records WHERE id::text = ANY($1::text[])',
+      [[r1.id, r2.id]]
+    );
+    expect(result).toEqual([r1, r2]);
+  });
+
   it('update generates proper SQL', async () => {
     await repo.update('123', { name: 'new', createdAt: 'd1' });
     expect(query).toHaveBeenCalledWith(

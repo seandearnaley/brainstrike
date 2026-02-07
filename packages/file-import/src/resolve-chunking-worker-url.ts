@@ -16,8 +16,11 @@ const logger = createLogger('resolveChunkingWorkerUrl');
  * Resolve the chunking worker URL that Vite/bundlers can turn into a Worker reference at runtime.
  * The `new URL(..., import.meta.url)` pattern is the MDN-recommended approach for bundlers.
  *
- * We import the chunking-worker package dynamically to get its URL resolver,
- * or fall back to a direct path if that fails.
+ * We import the chunking-worker package dynamically to get its URL resolver.
+ *
+ * CRITICAL: Do not add a direct-path fallback here.
+ * A production `file://.../dist/...` fallback in non-packaged dev has repeatedly
+ * broken module worker loading and caused chunking regressions.
  */
 export async function resolveChunkingWorkerUrl(): Promise<URL> {
   try {

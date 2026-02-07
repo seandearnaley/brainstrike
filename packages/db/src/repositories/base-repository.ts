@@ -108,7 +108,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     }
 
     const uniqueIds = Array.from(new Set(ids));
-    const sql = `SELECT * FROM ${this.tableName} WHERE id = ANY($1::uuid[])`;
+    // file_records.id is persisted as TEXT in existing migrations; cast both sides to text
+    // to keep lookup behavior stable across legacy/electron databases.
+    const sql = `SELECT * FROM ${this.tableName} WHERE id::text = ANY($1::text[])`;
     const result = await this.db.query<Record<string, unknown>>(sql, [uniqueIds]);
 
     if (!Array.isArray(result.rows)) {

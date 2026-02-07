@@ -40,9 +40,16 @@ export function useTextTokenCount({
       return;
     }
 
-    // Include readiness in the memo key so we re-count once the worker is available.
-    // This prevents us from getting "stuck" with a heuristic fallback value indefinitely.
-    const modeKey = `${countingMode ?? 'heuristic'}:${isWorkerReady ? 'worker' : 'fallback'}`;
+    if (!isWorkerReady) {
+      // CRITICAL: Never use heuristic fallback in preview token counting.
+      // Token counts remain unavailable until worker readiness is confirmed.
+      setState({ tokenCount: 0, loading: false });
+      lastTextRef.current = '';
+      lastModeRef.current = '';
+      return;
+    }
+
+    const modeKey = countingMode ?? 'heuristic';
     if (lastTextRef.current === text && lastModeRef.current === modeKey) {
       return;
     }
@@ -50,9 +57,7 @@ export function useTextTokenCount({
     lastModeRef.current = modeKey;
 
     let cancelled = false;
-    if (isWorkerReady) {
-      setState((prev) => ({ ...prev, loading: true }));
-    }
+    setState((prev) => ({ ...prev, loading: true }));
 
     void (async () => {
       try {
@@ -62,7 +67,7 @@ export function useTextTokenCount({
         }
       } catch {
         if (!cancelled) {
-          setState((prev) => ({ ...prev, loading: false }));
+          setState({ tokenCount: 0, loading: false });
         }
       }
     })();

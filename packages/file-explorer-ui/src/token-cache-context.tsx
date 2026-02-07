@@ -299,14 +299,15 @@ export function TokenCacheProvider({
     dbType: db ? typeof db : 'null',
   });
 
-  const fallbackStoreRef = useState(() => new InMemoryTokenCacheStore())[0];
-  const [store, setStore] = useState<TokenCacheStoreLike>(fallbackStoreRef);
+  const inMemoryStoreRef = useState(() => new InMemoryTokenCacheStore())[0];
+  const [store, setStore] = useState<TokenCacheStoreLike>(inMemoryStoreRef);
   const [hasPersistentStore, setHasPersistentStore] = useState(false);
   const [hasher] = useState(() => new FileHasher());
   const noopWorkerPool = useState(createNoopWorkerPool)[0];
   const [workerPool, setWorkerPool] = useState<WorkerPool>(noopWorkerPool);
   const [workerReady, setWorkerReady] = useState(false);
   const [hasherReady, setHasherReady] = useState(false);
+  const [workerInitError, setWorkerInitError] = useState<Error | null>(null);
 
   // Get counting mode preference
   const accuratePreference = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
@@ -315,8 +316,10 @@ export function TokenCacheProvider({
   // Initialize store when db becomes available
   useEffect(() => {
     if (!db) {
-      logger.debug('TokenCacheProvider: db not available, using fallback store');
-      setStore(fallbackStoreRef);
+      // Startup/teardown state only: DB is not ready yet, so keep writes in-memory.
+      // This is not a worker-failure fallback path.
+      logger.debug('TokenCacheProvider: db not available yet, using in-memory store');
+      setStore(inMemoryStoreRef);
       setHasPersistentStore(false);
       return;
     }
@@ -327,7 +330,7 @@ export function TokenCacheProvider({
     );
     setHasPersistentStore(true);
     logger.debug('TokenCacheProvider: hasPersistentStore set to true');
-  }, [db, fallbackStoreRef]);
+  }, [db, inMemoryStoreRef]);
 
   // Initialize hasher once
   useEffect(() => {
@@ -355,46 +358,66 @@ export function TokenCacheProvider({
     const isCancelled = () => cancelled;
     let poolRef: WorkerPool | null = null;
 
-    // Async initialization - createTokenCacheWorkerPool is now async to avoid
-    // loading worker_threads at module init time (fails in browser/jsdom tests)
-    void (async () => {
-      try {
-        const pool = await createTokenCacheWorkerPool(url);
-        if (cancelled) {
-          void pool.terminate();
-          return;
-        }
-        poolRef = pool as WorkerPool;
-        setWorkerPool(pool as WorkerPool);
+    const markWorkerUnavailable = (error: Error): void => {
+      setWorkerReady(false);
+      setWorkerInitError(error);
+      setWorkerPool(noopWorkerPool);
+    };
 
-        // Warmup ensures worker is fully ready before marking operational
-        const result = await runWorkerWarmup(pool as WorkerPool, isCancelled);
-        if (cancelled) {
-          return;
-        }
-        // Enable worker even if warmup failed (degraded mode) for backwards compatibility
-        setWorkerReady(true);
-        if (result.success) {
-          logger.debug('TokenCacheProvider: worker warmup succeeded', {
-            attempts: result.attempts,
-          });
-        } else {
-          // Degraded mode is the expected fallback - not a warning condition
-          logger.debug('TokenCacheProvider: warmup incomplete, continuing in degraded mode', {
-            attempts: result.attempts,
-          });
-        }
-      } catch (error) {
-        if (!cancelled) {
-          logger.warn('TokenCacheProvider: failed to create worker pool', { error });
-        }
+    const initializeWorkerPool = async (): Promise<void> => {
+      const pool = await createTokenCacheWorkerPool(url);
+      if (cancelled) {
+        void pool.terminate();
+        return;
       }
-    })();
+
+      poolRef = pool as WorkerPool;
+      setWorkerPool(pool as WorkerPool);
+
+      const result = await runWorkerWarmup(pool as WorkerPool, isCancelled);
+      if (cancelled) {
+        return;
+      }
+
+      if (result.success) {
+        setWorkerReady(true);
+        setWorkerInitError(null);
+        logger.debug('TokenCacheProvider: worker warmup succeeded', {
+          attempts: result.attempts,
+        });
+        return;
+      }
+
+      // CRITICAL: No fallback mode for worker init failures.
+      // A broken worker must surface as an explicit error.
+      const warmupError = new Error(
+        `Token cache worker warmup failed after ${result.attempts} attempts`
+      );
+      logger.error(warmupError.message, { attempts: result.attempts });
+      markWorkerUnavailable(warmupError);
+      if (poolRef) {
+        void poolRef.terminate();
+        poolRef = null;
+      }
+    };
+
+    void initializeWorkerPool().catch((error: unknown) => {
+      if (cancelled) {
+        return;
+      }
+      const initError =
+        error instanceof Error
+          ? error
+          : new Error(`Failed to create token cache worker pool: ${String(error)}`);
+      logger.error('TokenCacheProvider: failed to create worker pool', { error: initError });
+      markWorkerUnavailable(initError);
+    });
 
     return () => {
       cancelled = true;
       logger.debug('TokenCacheProvider: cleaning up worker pool');
       setWorkerReady(false);
+      setWorkerInitError(null);
       if (poolRef) {
         void poolRef.terminate();
       }
@@ -435,8 +458,12 @@ export function TokenCacheProvider({
       }
 
       if (!workerReady) {
-        // Fast fallback; avoids blocking on WASM init in the main thread.
-        return Math.ceil(text.length / 4);
+        // CRITICAL: Never fall back to heuristic/main-thread counting here.
+        // If worker init failed, surface the root error directly.
+        if (workerInitError) {
+          throw workerInitError;
+        }
+        throw new Error('Token cache worker is not ready');
       }
 
       try {
@@ -448,11 +475,13 @@ export function TokenCacheProvider({
 
         const result = (await workerPool.exec('countTokens', [request])) as TokenCountResult;
         return typeof result.tokenCount === 'number' ? result.tokenCount : 0;
-      } catch {
-        return Math.ceil(text.length / 4);
+      } catch (error) {
+        throw new Error(
+          `Token cache worker countTokens failed: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     };
-  }, [countingMode, workerPool, workerReady]);
+  }, [countingMode, workerInitError, workerPool, workerReady]);
 
   // Log readiness state for debugging
   useEffect(() => {
@@ -461,6 +490,7 @@ export function TokenCacheProvider({
       workerReady,
       hasherReady,
       hasPersistentStore,
+      workerInitError: workerInitError?.message ?? null,
       isOperational,
       isPersisted,
       persistenceMode,
@@ -471,6 +501,7 @@ export function TokenCacheProvider({
     workerReady,
     hasherReady,
     hasPersistentStore,
+    workerInitError,
     isOperational,
     isPersisted,
     persistenceMode,

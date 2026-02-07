@@ -25,6 +25,10 @@ import type {
   WorkerLog,
   WorkerRequest,
 } from './shared';
+import {
+  getAccurateTokenCountingFailureReason,
+  supportsAccurateTokenCounting,
+} from './token-utils-lite';
 
 // ============================================================================
 // Constants
@@ -374,6 +378,24 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
   }
 
   log('debug', 'processBatch start', { total: requests.length });
+  const requiresAccurateTokenSizing = requests.some(
+    (request) => request.options.tokenTrueSizing === true
+  );
+  if (requiresAccurateTokenSizing) {
+    const accurateSupported = await supportsAccurateTokenCounting();
+    if (!accurateSupported) {
+      const failureReason = getAccurateTokenCountingFailureReason();
+      const failureSuffix = failureReason ? ` (${failureReason})` : '';
+      const firstRequest = requests[0];
+      self.postMessage({
+        type: 'error',
+        id: firstRequest?.id ?? '__init__',
+        fileRecordId: firstRequest?.fileRecordId ?? '__init__',
+        error: `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`,
+      } satisfies ChunkError);
+      return;
+    }
+  }
 
   const total = requests.length;
 
@@ -387,6 +409,22 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
 
     // Use timeout-protected processing
     const result = await processFileWithTimeout(request);
+
+    // CRITICAL: Fail fast on first batch error. The caller already treats any file
+    // error as a terminal batch failure, so continuing here only burns CPU and
+    // spams duplicate logs/results after the operation is already rejected.
+    if (result.type === 'error') {
+      self.postMessage(result);
+      log('error', 'processBatch aborted after file error', {
+        index: i,
+        total,
+        id: request.id,
+        fileRecordId: request.fileRecordId,
+        error: result.error,
+      });
+      return;
+    }
+
     self.postMessage(result);
 
     log('debug', 'processBatch item posted', {
@@ -415,6 +453,83 @@ async function processBatch(requests: Omit<ChunkRequest, 'type'>[]): Promise<voi
   log('debug', 'processBatch complete', { total });
 }
 
+function postChunkError(id: string, fileRecordId: string, error: string, stack?: string): void {
+  const payload: ChunkError = {
+    type: 'error',
+    id,
+    fileRecordId,
+    error,
+  };
+  if (stack !== undefined) {
+    payload.stack = stack;
+  }
+  self.postMessage(payload);
+}
+
+function postContentSizeValidationError(
+  request: Pick<ChunkRequest, 'id' | 'fileRecordId' | 'content'>,
+  context: 'single' | 'batch'
+): boolean {
+  const sizeError = validateContentSize(request.content, request.fileRecordId);
+  if (!sizeError) {
+    return false;
+  }
+
+  log('warn', 'Content size validation failed', {
+    context,
+    fileRecordId: request.fileRecordId,
+    contentLength: request.content.length,
+    maxSize: MAX_CONTENT_SIZE,
+  });
+  postChunkError(request.id, request.fileRecordId, sizeError);
+  return true;
+}
+
+async function handleChunkRequestMessage(message: ChunkRequest): Promise<void> {
+  if (postContentSizeValidationError(message, 'single')) {
+    return;
+  }
+
+  if (message.options.tokenTrueSizing === true) {
+    const accurateSupported = await supportsAccurateTokenCounting();
+    if (!accurateSupported) {
+      const failureReason = getAccurateTokenCountingFailureReason();
+      const failureSuffix = failureReason ? ` (${failureReason})` : '';
+      postChunkError(
+        message.id,
+        message.fileRecordId,
+        `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`
+      );
+      return;
+    }
+  }
+
+  const result = await processFileWithTimeout(message);
+  self.postMessage(result);
+}
+
+async function handleChunkBatchRequestMessage(message: ChunkBatchRequest): Promise<void> {
+  const validRequests: Omit<ChunkRequest, 'type'>[] = [];
+
+  for (const request of message.requests) {
+    if (!postContentSizeValidationError(request, 'batch')) {
+      validRequests.push(request);
+    }
+  }
+
+  if (validRequests.length > 0) {
+    await processBatch(validRequests);
+  }
+}
+
+function handleInvalidMessage(message: unknown, messageType: unknown): void {
+  log('warn', 'Invalid or unknown message structure', {
+    type: messageType,
+    hasRequests: Array.isArray((message as { requests?: unknown })?.requests),
+  });
+  postChunkError('__init__', '__init__', `Invalid message structure: type=${String(messageType)}`);
+}
+
 // Handle incoming messages with input validation
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const message = event.data;
@@ -430,62 +545,17 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       return;
     }
 
-    // Validate message structure before processing
     if (isChunkRequest(message)) {
-      // Validate content size to prevent OOM
-      const sizeError = validateContentSize(message.content, message.fileRecordId);
-      if (sizeError) {
-        log('warn', 'Content size validation failed', {
-          fileRecordId: message.fileRecordId,
-          contentLength: message.content.length,
-          maxSize: MAX_CONTENT_SIZE,
-        });
-        self.postMessage({
-          type: 'error',
-          id: message.id,
-          fileRecordId: message.fileRecordId,
-          error: sizeError,
-        } satisfies ChunkError);
-        return;
-      }
-      const result = await processFileWithTimeout(message);
-      self.postMessage(result);
-    } else if (isChunkBatchRequest(message)) {
-      // Validate content sizes in batch - skip oversized files with error
-      for (const request of message.requests) {
-        const sizeError = validateContentSize(request.content, request.fileRecordId);
-        if (sizeError) {
-          log('warn', 'Content size validation failed in batch', {
-            fileRecordId: request.fileRecordId,
-            contentLength: request.content.length,
-            maxSize: MAX_CONTENT_SIZE,
-          });
-          self.postMessage({
-            type: 'error',
-            id: request.id,
-            fileRecordId: request.fileRecordId,
-            error: sizeError,
-          } satisfies ChunkError);
-        }
-      }
-      // Filter out oversized files from batch
-      const validRequests = message.requests.filter((r) => r.content.length <= MAX_CONTENT_SIZE);
-      if (validRequests.length > 0) {
-        await processBatch(validRequests);
-      }
-    } else {
-      // Invalid or unknown message - log and reject
-      log('warn', 'Invalid or unknown message structure', {
-        type: messageType,
-        hasRequests: Array.isArray((message as { requests?: unknown })?.requests),
-      });
-      self.postMessage({
-        type: 'error',
-        id: '__init__',
-        fileRecordId: '__init__',
-        error: `Invalid message structure: type=${String(messageType)}`,
-      } satisfies ChunkError);
+      await handleChunkRequestMessage(message);
+      return;
     }
+
+    if (isChunkBatchRequest(message)) {
+      await handleChunkBatchRequestMessage(message);
+      return;
+    }
+
+    handleInvalidMessage(message, messageType);
   } catch (error) {
     const formatted = formatError(error);
     log('error', 'onmessage handler failed', {
@@ -493,12 +563,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       error: formatted,
       phase: 'message-handler',
     });
-    self.postMessage({
-      type: 'error',
-      id: '__init__',
-      fileRecordId: '__init__',
-      error: formatted.message,
-    } satisfies ChunkError);
+    postChunkError('__init__', '__init__', formatted.message);
   }
 };
 

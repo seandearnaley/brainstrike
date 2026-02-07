@@ -43,18 +43,36 @@ function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
 /**
  * Connect to Vite dev server in development.
  */
+const isTestRuntime = process.env['VITEST'] === 'true';
+const DEV_SERVER_RETRY_ATTEMPTS = isTestRuntime ? 1 : 30;
+const DEV_SERVER_RETRY_DELAY_MS = isTestRuntime ? 0 : 200;
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function connectToDevServer(win: BrowserWindow) {
   const devPorts = [8081, 8082, 8083];
-  for (const port of devPorts) {
-    try {
-      await win.loadURL(`http://localhost:${port}`);
-      return;
-    } catch (error) {
-      if (port === devPorts.at(-1)) {
-        throw error;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= DEV_SERVER_RETRY_ATTEMPTS; attempt++) {
+    for (const port of devPorts) {
+      try {
+        await win.loadURL(`http://localhost:${port}`);
+        return;
+      } catch (error) {
+        lastError = error;
       }
     }
+
+    if (attempt < DEV_SERVER_RETRY_ATTEMPTS) {
+      await wait(DEV_SERVER_RETRY_DELAY_MS);
+    }
   }
+
+  throw new Error(`Unable to connect to dev renderer after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`, {
+    cause: lastError instanceof Error ? lastError : undefined,
+  });
 }
 
 /**
@@ -74,15 +92,28 @@ async function loadRenderer(win: BrowserWindow) {
       `[createWindow] Is packaged: ${app.isPackaged}`
   );
 
-  if (app.isPackaged || hasBuiltRenderer) {
+  if (app.isPackaged) {
     // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
     console.log('[createWindow] Loading production renderer file');
     loadProductionRenderer(win, rendererPath);
-  } else {
+    return;
+  }
+
+  try {
+    // In local development, always prefer Vite dev server.
+    // Using file:// renderer in dev can break module workers (opaque origin).
     // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
-    console.log('[createWindow] Falling back to dev server');
+    console.log('[createWindow] Attempting dev server renderer first');
     await connectToDevServer(win);
     win.webContents.openDevTools();
+    return;
+  } catch (error) {
+    // CRITICAL: Never fall back to file:// in non-packaged mode.
+    // Loading production renderer during local dev repeatedly breaks module workers.
+    throw new Error(
+      'Dev renderer unavailable in non-packaged mode; refusing production fallback to avoid worker regressions.',
+      { cause: error instanceof Error ? error : undefined }
+    );
   }
 }
 

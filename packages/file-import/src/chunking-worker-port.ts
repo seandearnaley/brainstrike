@@ -17,10 +17,25 @@ import type {
   PortableChunk,
   WorkerResponse,
 } from '@brainstrike/chunking-worker';
-import type { ChunkingStrategy, FileChunkInsert } from '@brainstrike/db';
+import type { FileChunkInsert } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('ChunkingWorkerPort');
+
+const TERMINAL_TOKENIZER_ERROR_PATTERNS: RegExp[] = [
+  /^accurate token counting unavailable:/i,
+  /^accurate token counting failed:/i,
+  /tiktoken encoder failed to initialize/i,
+];
+
+function normalizeTerminalErrorMessage(errorMessage: string): string {
+  return errorMessage.trim().replace(/^error:\s*/i, '');
+}
+
+function isTerminalTokenizerError(errorMessage: string): boolean {
+  const normalized = normalizeTerminalErrorMessage(errorMessage);
+  return TERMINAL_TOKENIZER_ERROR_PATTERNS.some((pattern) => pattern.test(normalized));
+}
 
 /**
  * Callbacks for batch processing events.
@@ -117,6 +132,7 @@ export function toFileChunkInserts(
  */
 export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   let ready = false;
+  let terminalFailure: Error | null = null;
   const pendingRequests = new Map<
     string,
     {
@@ -127,7 +143,27 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
   let batchCallbacks: ChunkingBatchCallbacks | null = null;
   const batchResults = new Map<string, ChunkResult>();
   let batchResolve: ((results: ChunkResult[]) => void) | null = null;
+  let batchReject: ((error: Error) => void) | null = null;
   let batchFileIds: string[] = [];
+
+  function clearBatchState(): void {
+    batchResolve = null;
+    batchReject = null;
+    batchFileIds = [];
+    batchResults.clear();
+    batchCallbacks = null;
+  }
+
+  function rejectAllPending(error: Error): void {
+    for (const pending of pendingRequests.values()) {
+      pending.reject(error);
+    }
+    pendingRequests.clear();
+    if (batchReject) {
+      batchReject(error);
+    }
+    clearBatchState();
+  }
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Worker message dispatch handles multiple variants.
   function handleMessage(event: MessageEvent<WorkerResponse>) {
@@ -150,10 +186,7 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
           if (batchResults.size === batchFileIds.length && batchResolve) {
             const orderedResults = batchFileIds.map((id) => batchResults.get(id) as ChunkResult);
             batchResolve(orderedResults);
-            batchResolve = null;
-            batchFileIds = [];
-            batchResults.clear();
-            batchCallbacks = null;
+            clearBatchState();
           }
         } else {
           // Single file result
@@ -185,31 +218,42 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
           error: error.error,
         });
 
+        const tokenizerTerminalError = isTerminalTokenizerError(error.error);
+        const terminalLifecycleError =
+          error.id === '__init__' || error.fileRecordId === '__init__' || tokenizerTerminalError;
+
+        if (terminalLifecycleError) {
+          const failure = new Error(
+            tokenizerTerminalError
+              ? `Chunking worker entered terminal tokenizer failure state: ${error.error}`
+              : `Chunking worker initialization failed: ${error.error}`
+          );
+          terminalFailure = failure;
+          ready = false;
+
+          // CRITICAL: init/runtime worker errors are terminal. Reject all pending
+          // operations immediately so callers don't hang waiting for file-level results.
+          // Tokenizer-init failures are terminal too: retrying the same worker only
+          // fans out duplicate errors and hides the root cause.
+          rejectAllPending(failure);
+          worker.removeEventListener('message', handleMessage);
+          worker.removeEventListener('error', handleErrorEvent);
+          worker.terminate();
+          break;
+        }
+
         // Check if this is a batch error
         if (batchFileIds.includes(error.fileRecordId)) {
           batchCallbacks?.onFileError?.(error.fileRecordId, error.error);
-          // Create a failed result for this file
-          const failedResult: ChunkResult = {
-            type: 'result',
-            id: error.id,
-            fileRecordId: error.fileRecordId,
-            chunks: [],
-            strategyUsed: 'sentence' as ChunkingStrategy,
-            totalTokens: 0,
-            skipped: true,
-            skipReason: error.error,
-          };
-          batchResults.set(error.fileRecordId, failedResult);
-
-          // Check if batch is complete
-          if (batchResults.size === batchFileIds.length && batchResolve) {
-            const orderedResults = batchFileIds.map((id) => batchResults.get(id) as ChunkResult);
-            batchResolve(orderedResults);
-            batchResolve = null;
-            batchFileIds = [];
-            batchResults.clear();
-            batchCallbacks = null;
+          // CRITICAL: No partial-success fallback for batch chunking.
+          // A single worker failure must fail the entire batch to keep import state consistent.
+          const batchError = new Error(
+            `Chunking batch failed for ${error.fileRecordId}: ${error.error}`
+          );
+          if (batchReject) {
+            batchReject(batchError);
           }
+          clearBatchState();
         } else {
           // Single file error
           const pending = pendingRequests.get(error.id);
@@ -233,14 +277,26 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
     }
   }
 
-  worker.addEventListener('message', handleMessage);
-  worker.addEventListener('error', (event) => {
+  const handleErrorEvent = (event: ErrorEvent) => {
     logger.error('Worker error event', {
       message: event.message,
       filename: event.filename,
       lineno: event.lineno,
     });
-  });
+    ready = false;
+    const failure = new Error(
+      event.message
+        ? `Chunking worker runtime error: ${event.message}`
+        : 'Chunking worker runtime error (missing ErrorEvent.message)'
+    );
+    terminalFailure = failure;
+    rejectAllPending(failure);
+    worker.removeEventListener('message', handleMessage);
+    worker.removeEventListener('error', handleErrorEvent);
+    worker.terminate();
+  };
+  worker.addEventListener('message', handleMessage);
+  worker.addEventListener('error', handleErrorEvent);
 
   let requestIdCounter = 0;
 
@@ -252,6 +308,9 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
       filePath: string,
       options: ChunkingRequestOptions
     ): Promise<ChunkResult> {
+      if (terminalFailure) {
+        return Promise.reject(terminalFailure);
+      }
       return new Promise((resolve, reject) => {
         const id = `chunk-${++requestIdCounter}`;
 
@@ -281,8 +340,12 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
       options: ChunkingRequestOptions,
       callbacks?: ChunkingBatchCallbacks
     ): Promise<ChunkResult[]> {
-      return new Promise((resolve) => {
+      if (terminalFailure) {
+        return Promise.reject(terminalFailure);
+      }
+      return new Promise((resolve, reject) => {
         batchResolve = resolve;
+        batchReject = reject;
         batchCallbacks = callbacks ?? null;
         batchFileIds = files.map((f) => f.fileRecordId);
         batchResults.clear();
@@ -306,18 +369,16 @@ export function createChunkingWorkerPort(worker: Worker): ChunkingWorkerPort {
     },
 
     isReady(): boolean {
-      return ready;
+      return ready && terminalFailure === null;
     },
 
     terminate(): void {
       worker.removeEventListener('message', handleMessage);
+      worker.removeEventListener('error', handleErrorEvent);
+      rejectAllPending(new Error('Chunking worker terminated'));
       worker.terminate();
       ready = false;
-      pendingRequests.clear();
-      batchResults.clear();
-      batchResolve = null;
-      batchCallbacks = null;
-      batchFileIds = [];
+      terminalFailure = null;
     },
   };
 }

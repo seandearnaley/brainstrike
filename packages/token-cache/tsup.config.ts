@@ -18,6 +18,9 @@ export default defineConfig({
     // and eliminating the need to copy WASM files alongside bundled workers
     '.wasm': 'dataurl',
   },
+  // Workerpool bundles a sourceMappingURL comment that points to worker.min.js.map.
+  // Ensure the file exists in dist so Vite/dev tooling does not spam ENOENT warnings.
+  onSuccess: 'node ./scripts/ensure-workerpool-sourcemap.mjs',
   esbuildOptions(options) {
     // Ensure CJS packages are properly converted to ESM for browser
     options.mainFields = ['browser', 'module', 'main'];

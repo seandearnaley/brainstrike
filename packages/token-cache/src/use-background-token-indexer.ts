@@ -27,6 +27,47 @@ import type { TokenCacheStore } from './token-cache-store';
 import type { TokenCacheEntry, TokenCountingMode } from './types';
 
 const logger = createLogger('BackgroundTokenIndexer');
+const TERMINAL_WORKER_ERROR_KEY = '__worker__';
+const TERMINAL_TOKENIZER_ERROR_PATTERNS: RegExp[] = [
+  /^accurate token counting unavailable:/i,
+  /^accurate token counting failed:/i,
+  /tiktoken encoder failed to initialize/i,
+];
+
+function normalizeTerminalErrorMessage(errorMessage: string): string {
+  return errorMessage.trim().replace(/^error:\s*/i, '');
+}
+
+function isTerminalTokenizerError(errorMessage: string): boolean {
+  const normalized = normalizeTerminalErrorMessage(errorMessage);
+  return TERMINAL_TOKENIZER_ERROR_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function extractTerminalTokenizerErrorFromWorkerLog(logMessage: WorkerLog): string | null {
+  if (logMessage.level !== 'error') {
+    return null;
+  }
+
+  const data = logMessage.data;
+  const candidateMessages: string[] = [];
+  if (typeof data?.['error'] === 'string') {
+    candidateMessages.push(data['error']);
+  }
+  if (typeof data?.['message'] === 'string') {
+    candidateMessages.push(data['message']);
+  }
+  if (typeof data?.['cause'] === 'string') {
+    candidateMessages.push(data['cause']);
+  }
+
+  for (const candidate of candidateMessages) {
+    if (isTerminalTokenizerError(candidate)) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
 
 type TokenCacheStoreLike = Pick<TokenCacheStore, 'get' | 'set'>;
 
@@ -111,7 +152,7 @@ export interface UseBackgroundTokenIndexerOptions {
 
 export interface UseBackgroundTokenIndexerReturn {
   /** Queue files for background indexing */
-  indexFiles: (files: FileToIndex[]) => void;
+  indexFiles: (files: FileToIndex[]) => Promise<void>;
   /** Cancel all pending indexing */
   cancelIndexing: () => void;
   /** Whether indexing is in progress */
@@ -127,6 +168,13 @@ export interface UseBackgroundTokenIndexerReturn {
  */
 function createRequestId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+interface PendingBatchTracker {
+  remainingCompositeKeys: Set<string>;
+  resolve: () => void;
+  reject: (error: Error) => void;
+  done: boolean;
 }
 
 /**
@@ -152,6 +200,9 @@ export function useBackgroundTokenIndexer({
   const [progress, setProgress] = useState<IndexingProgress | null>(null);
   const workerErrorLoggedRef = useRef(false);
   const readinessTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readyRef = useRef(false);
+  const workerFailureRef = useRef<Error | null>(null);
+  const pendingBatchTrackersRef = useRef<PendingBatchTracker[]>([]);
 
   // Track pending files to enable cancellation
   const pendingFilesRef = useRef<Set<string>>(new Set());
@@ -200,6 +251,99 @@ export function useBackgroundTokenIndexer({
     console.error('[BackgroundTokenIndexer] init failure', { context, ...normalized });
   }, []);
 
+  const emitTerminalIndexingError = useCallback((errorMessage: string) => {
+    const currentOnFileError = onFileErrorRef.current;
+    emitIndexingError({
+      compositeKey: TERMINAL_WORKER_ERROR_KEY,
+      errorMessage,
+    });
+    currentOnFileError?.(TERMINAL_WORKER_ERROR_KEY, errorMessage);
+  }, []);
+
+  const settleBatchTrackersForCompositeKey = useCallback((compositeKey: string) => {
+    const trackers = pendingBatchTrackersRef.current;
+    if (trackers.length === 0) {
+      return;
+    }
+
+    const remainingTrackers: PendingBatchTracker[] = [];
+    for (const tracker of trackers) {
+      if (tracker.done) {
+        continue;
+      }
+
+      tracker.remainingCompositeKeys.delete(compositeKey);
+      if (tracker.remainingCompositeKeys.size === 0) {
+        tracker.done = true;
+        tracker.resolve();
+      } else {
+        remainingTrackers.push(tracker);
+      }
+    }
+
+    pendingBatchTrackersRef.current = remainingTrackers;
+  }, []);
+
+  const rejectAllPendingBatchTrackers = useCallback((error: Error) => {
+    const trackers = pendingBatchTrackersRef.current;
+    pendingBatchTrackersRef.current = [];
+    for (const tracker of trackers) {
+      if (tracker.done) {
+        continue;
+      }
+      tracker.done = true;
+      tracker.reject(error);
+    }
+  }, []);
+
+  const failWorker = useCallback(
+    (error: unknown, context: string) => {
+      // CRITICAL: terminal worker failure is latched. Duplicate failure signals
+      // can arrive from queued worker events and must not fan out callbacks/logging.
+      if (workerFailureRef.current) {
+        return;
+      }
+
+      const failure =
+        error instanceof Error
+          ? error
+          : new Error(`Background token indexer failure: ${formatErrorMessage(error)}`);
+      workerFailureRef.current = failure;
+      readyRef.current = false;
+      setIsReady(false);
+      setIsIndexing(false);
+      setProgress(null);
+
+      const pendingCount = pendingFilesRef.current.size;
+      const terminalMessage =
+        `Background token indexer entered failed state (${context}): ${failure.message}. ` +
+        `Pending files dropped: ${pendingCount}.`;
+
+      // Terminal worker failures should emit one summarized error signal.
+      // Per-file fan-out can create thousands of duplicate logs for a single root cause.
+      emitTerminalIndexingError(terminalMessage);
+      pendingFilesRef.current.clear();
+      rejectAllPendingBatchTrackers(failure);
+
+      if (readinessTimerRef.current) {
+        clearTimeout(readinessTimerRef.current);
+        readinessTimerRef.current = null;
+      }
+
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+
+      logWorkerErrorOnce(failure, context);
+      logger.error('Background token indexer entered failed state', {
+        context,
+        error: failure.message,
+      });
+    },
+    [emitTerminalIndexingError, logWorkerErrorOnce, rejectAllPendingBatchTrackers]
+  );
+
   // Initialize worker
   // biome-ignore lint/correctness/useExhaustiveDependencies: Handlers are stable refs
   useEffect(() => {
@@ -217,7 +361,15 @@ export function useBackgroundTokenIndexer({
 
         const message = event.data;
 
+        // Ignore trailing messages from a worker that's already in terminal failure.
+        // This prevents duplicate terminal emissions if the channel had queued events.
+        if (workerFailureRef.current && message.type !== 'ready') {
+          return;
+        }
+
         if (message.type === 'ready') {
+          readyRef.current = true;
+          workerFailureRef.current = null;
           setIsReady(true);
           if (readinessTimerRef.current) {
             clearTimeout(readinessTimerRef.current);
@@ -227,10 +379,19 @@ export function useBackgroundTokenIndexer({
         }
 
         if (message.type === 'log') {
+          const logMsg = message as WorkerLog;
+          const terminalTokenizerLogError = extractTerminalTokenizerErrorFromWorkerLog(logMsg);
+          if (terminalTokenizerLogError) {
+            failWorker(
+              new Error(terminalTokenizerLogError),
+              `worker.log.terminal-tokenizer.${logMsg.message}`
+            );
+            return;
+          }
+
           // Worker already logs to its own console, so we only forward to our
           // structured logger for file/remote logging. No duplicate console output.
-          const logMsg = message as WorkerLog;
-          const logPayload = { data: logMsg.data };
+          const logPayload = logMsg.data;
           if (logMsg.level === 'error') {
             logger.error(`Worker log: ${logMsg.message}`, logPayload);
           } else if (logMsg.level === 'warn') {
@@ -248,7 +409,23 @@ export function useBackgroundTokenIndexer({
         } else if (message.type === 'progress') {
           handleProgress(message as IndexerProgress);
         } else if (message.type === 'error') {
-          handleError(message as IndexerError);
+          const workerError = message as IndexerError;
+          // Treat worker/bootstrap/batch failures as terminal for deterministic behavior.
+          // Continuing after these errors only creates noisy per-file cascades.
+          const isTerminalError =
+            workerError.id === '__init__' ||
+            workerError.id === '__batch__' ||
+            workerError.compositeKey === '__init__' ||
+            workerError.compositeKey === '__batch__' ||
+            isTerminalTokenizerError(workerError.error);
+          if (isTerminalError) {
+            const terminalContext = isTerminalTokenizerError(workerError.error)
+              ? `worker.message.terminal-tokenizer.${workerError.compositeKey}`
+              : `worker.message.${workerError.id || workerError.compositeKey}`;
+            failWorker(new Error(workerError.error), terminalContext);
+            return;
+          }
+          handleError(workerError);
         }
       };
 
@@ -269,7 +446,10 @@ export function useBackgroundTokenIndexer({
           type: (error as ErrorEvent | undefined)?.type,
           errorObj: error,
         });
-        logWorkerErrorOnce(error, 'worker.onerror');
+        failWorker(
+          new Error(`Worker runtime error: ${error?.message ?? 'unknown worker error'}`),
+          'worker.onerror'
+        );
       };
       worker.addEventListener('error', (event) => {
         const errEvent = event as ErrorEvent;
@@ -290,6 +470,10 @@ export function useBackgroundTokenIndexer({
           colno: errEvent.colno,
           error: errEvent.error,
         });
+        failWorker(
+          new Error(`Worker error event: ${errEvent.message || 'unknown worker error event'}`),
+          'worker.addEventListener(error)'
+        );
       });
       worker.onmessageerror = (event) => {
         logger.error('Worker messageerror', { type: event.type, data: event.data });
@@ -298,16 +482,20 @@ export function useBackgroundTokenIndexer({
           type: event.type,
           data: event.data,
         });
+        failWorker(
+          new Error('Worker message channel error (onmessageerror)'),
+          'worker.onmessageerror'
+        );
       };
 
       workerRef.current = worker;
 
       // If the worker never posts "ready", emit a hard error for visibility.
       readinessTimerRef.current = setTimeout(() => {
-        if (!isReady) {
-          logWorkerErrorOnce(new Error('Worker did not signal ready within 5s'), 'ready-timeout');
-          // biome-ignore lint/suspicious/noConsole: explicit visibility for stuck worker
-          console.error('[BackgroundTokenIndexer] ready-timeout (5s) - no ready message');
+        if (!readyRef.current) {
+          failWorker(new Error('Worker did not signal ready within 5s'), 'ready-timeout');
+          // biome-ignore lint/suspicious/noConsole: explicit visibility for failed worker
+          console.error('[BackgroundTokenIndexer] ready-timeout (5s)');
         }
       }, 5000);
 
@@ -315,6 +503,11 @@ export function useBackgroundTokenIndexer({
         logger.debug('Terminating worker');
         worker.terminate();
         workerRef.current = null;
+        readyRef.current = false;
+        workerFailureRef.current = null;
+        rejectAllPendingBatchTrackers(
+          new Error('Background token indexer worker terminated during cleanup')
+        );
         if (readinessTimerRef.current) {
           clearTimeout(readinessTimerRef.current);
           readinessTimerRef.current = null;
@@ -324,10 +517,10 @@ export function useBackgroundTokenIndexer({
       logger.error('Failed to create worker', { error });
       // biome-ignore lint/suspicious/noConsole: explicit visibility for stuck worker
       console.error('[BackgroundTokenIndexer] createWorkerInstance failed', error);
-      logWorkerErrorOnce(error, 'createWorkerInstance');
+      failWorker(error, 'createWorkerInstance');
       return;
     }
-  }, []);
+  }, [failWorker, rejectAllPendingBatchTrackers]);
 
   // Cleanup on unmount
   useEffect(
@@ -341,57 +534,61 @@ export function useBackgroundTokenIndexer({
    * Handle result from worker.
    * Uses refs to always call the LATEST callbacks (avoids stale closure bug).
    */
-  const handleResult = useCallback(async (result: IndexerResult) => {
-    try {
-      pendingFilesRef.current.delete(result.compositeKey);
+  const handleResult = useCallback(
+    async (result: IndexerResult) => {
+      try {
+        pendingFilesRef.current.delete(result.compositeKey);
+        settleBatchTrackersForCompositeKey(result.compositeKey);
 
-      // Emit telemetry for successful indexing (BST-154)
-      emitIndexedFile({
-        compositeKey: result.compositeKey,
-        folderId: result.folderId,
-        filePath: result.filePath,
-        tokenCount: result.tokenCount,
-        mode: result.mode,
-        fileSize: result.fileSize,
-        elapsedMs: result.elapsedMs,
-        skipped: result.skipped,
-      });
+        // Emit telemetry for successful indexing (BST-154)
+        emitIndexedFile({
+          compositeKey: result.compositeKey,
+          folderId: result.folderId,
+          filePath: result.filePath,
+          tokenCount: result.tokenCount,
+          mode: result.mode,
+          fileSize: result.fileSize,
+          elapsedMs: result.elapsedMs,
+          skipped: result.skipped,
+        });
 
-      // Get latest callback and store from refs
-      const currentOnFileIndexed = onFileIndexedRef.current;
-      const currentStore = storeRef.current;
+        // Get latest callback and store from refs
+        const currentOnFileIndexed = onFileIndexedRef.current;
+        const currentStore = storeRef.current;
 
-      // If store is null, just notify without caching
-      if (!currentStore) {
-        currentOnFileIndexed?.(result.compositeKey, result.tokenCount, result.fileSize);
-        return;
+        // If store is null, just notify without caching
+        if (!currentStore) {
+          currentOnFileIndexed?.(result.compositeKey, result.tokenCount, result.fileSize);
+          return;
+        }
+
+        await persistResultToStore(result, currentStore, currentOnFileIndexed);
+      } catch (error) {
+        logger.error('handleResult failed', {
+          compositeKey: result.compositeKey,
+          error: formatErrorMessage(error),
+        });
+        // Emit telemetry for persistence error (BST-154)
+        emitIndexingError({
+          compositeKey: result.compositeKey,
+          folderId: result.folderId,
+          filePath: result.filePath,
+          errorMessage: `Persistence failed: ${formatErrorMessage(error)}`,
+        });
+        const currentOnFileError = onFileErrorRef.current;
+        if (currentOnFileError) {
+          currentOnFileError(result.compositeKey, formatErrorMessage(error));
+        }
+      } finally {
+        // Check if all done (handles both skipped and counted results)
+        if (pendingFilesRef.current.size === 0) {
+          setIsIndexing(false);
+          setProgress(null);
+        }
       }
-
-      await persistResultToStore(result, currentStore, currentOnFileIndexed);
-    } catch (error) {
-      logger.error('handleResult failed', {
-        compositeKey: result.compositeKey,
-        error: formatErrorMessage(error),
-      });
-      // Emit telemetry for persistence error (BST-154)
-      emitIndexingError({
-        compositeKey: result.compositeKey,
-        folderId: result.folderId,
-        filePath: result.filePath,
-        errorMessage: `Persistence failed: ${formatErrorMessage(error)}`,
-      });
-      const currentOnFileError = onFileErrorRef.current;
-      if (currentOnFileError) {
-        currentOnFileError(result.compositeKey, formatErrorMessage(error));
-      }
-    } finally {
-      // Check if all done (handles both skipped and counted results)
-      if (pendingFilesRef.current.size === 0) {
-        setIsIndexing(false);
-        setProgress(null);
-      }
-    }
-  }, []);
+    },
+    [settleBatchTrackersForCompositeKey]
+  );
 
   /**
    * Handle progress update from worker.
@@ -418,29 +615,33 @@ export function useBackgroundTokenIndexer({
    * Handle error from worker.
    * Uses ref to always call the LATEST callback.
    */
-  const handleError = useCallback((error: IndexerError) => {
-    pendingFilesRef.current.delete(error.compositeKey);
+  const handleError = useCallback(
+    (error: IndexerError) => {
+      pendingFilesRef.current.delete(error.compositeKey);
+      settleBatchTrackersForCompositeKey(error.compositeKey);
 
-    // Emit telemetry for indexing error (BST-154)
-    emitIndexingError({
-      compositeKey: error.compositeKey,
-      errorMessage: error.error,
-    });
+      // Emit telemetry for indexing error (BST-154)
+      emitIndexingError({
+        compositeKey: error.compositeKey,
+        errorMessage: error.error,
+      });
 
-    const currentOnFileError = onFileErrorRef.current;
-    if (currentOnFileError) {
-      currentOnFileError(error.compositeKey, error.error);
-    }
+      const currentOnFileError = onFileErrorRef.current;
+      if (currentOnFileError) {
+        currentOnFileError(error.compositeKey, error.error);
+      }
 
-    // biome-ignore lint/suspicious/noConsole: Error logging
-    console.warn('[BackgroundTokenIndexer] File error:', error.compositeKey, error.error);
+      // biome-ignore lint/suspicious/noConsole: Error logging
+      console.warn('[BackgroundTokenIndexer] File error:', error.compositeKey, error.error);
 
-    // Check if all done
-    if (pendingFilesRef.current.size === 0) {
-      setIsIndexing(false);
-      setProgress(null);
-    }
-  }, []);
+      // Check if all done
+      if (pendingFilesRef.current.size === 0) {
+        setIsIndexing(false);
+        setProgress(null);
+      }
+    },
+    [settleBatchTrackersForCompositeKey]
+  );
 
   /**
    * Queue files for background indexing.
@@ -449,19 +650,43 @@ export function useBackgroundTokenIndexer({
   const indexFiles = useCallback(
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Batch request building requires multiple conditionals for caching and handle types
     async (files: FileToIndex[]) => {
-      if (!(workerRef.current && isReady) || files.length === 0) {
-        logger.warn('indexFiles skipped - worker not ready', {
+      if (files.length === 0) {
+        return;
+      }
+
+      // CRITICAL: No skip/degraded fallback path. Worker unavailability is a hard failure.
+      if (workerFailureRef.current) {
+        const message =
+          `Background token indexer unavailable: ${workerFailureRef.current.message}. ` +
+          `Requested files dropped: ${files.length}.`;
+        logger.error('indexFiles rejected - worker previously failed', {
+          fileCount: files.length,
+          error: workerFailureRef.current.message,
+        });
+        emitTerminalIndexingError(message);
+        pendingFilesRef.current.clear();
+        setIsIndexing(false);
+        setProgress(null);
+        throw new Error(message);
+      }
+
+      if (!(workerRef.current && isReady)) {
+        const message = `Background token indexer worker is not ready. Requested files dropped: ${files.length}.`;
+        logger.error('indexFiles rejected - worker not ready', {
           hasWorker: !!workerRef.current,
           isReady,
           fileCount: files.length,
         });
-        return;
+        emitTerminalIndexingError(message);
+        pendingFilesRef.current.clear();
+        setIsIndexing(false);
+        setProgress(null);
+        throw new Error(message);
       }
 
       // Get latest values from refs
       const currentStore = storeRef.current;
       const currentMode = modeRef.current;
-      const currentOnFileError = onFileErrorRef.current;
 
       setIsIndexing(true);
 
@@ -479,13 +704,9 @@ export function useBackgroundTokenIndexer({
               const cached = await currentStore.get(file.folderId, file.filePath);
               cachedHash = cached?.countingMode === currentMode ? cached.contentHash : undefined;
             } catch (error) {
-              logger.error('indexFiles cache lookup failed', {
-                compositeKey: file.compositeKey,
-                error: formatErrorMessage(error),
-              });
-              pendingFilesRef.current.delete(file.compositeKey);
-              currentOnFileError?.(file.compositeKey, formatErrorMessage(error));
-              continue;
+              throw new Error(
+                `Cache lookup failed for ${file.compositeKey}: ${formatErrorMessage(error)}`
+              );
             }
           }
 
@@ -516,18 +737,44 @@ export function useBackgroundTokenIndexer({
           requests,
         };
 
+        const trackedCompositeKeys = requests.map((request) => request.compositeKey);
+        let resolveBatch!: () => void;
+        let rejectBatch!: (error: Error) => void;
+        const completionPromise = new Promise<void>((resolve, reject) => {
+          resolveBatch = resolve;
+          rejectBatch = reject;
+        });
+        const tracker: PendingBatchTracker = {
+          remainingCompositeKeys: new Set(trackedCompositeKeys),
+          resolve: resolveBatch,
+          reject: rejectBatch,
+          done: false,
+        };
+
+        pendingBatchTrackersRef.current.push(tracker);
         workerRef.current.postMessage(batchMessage);
+        await completionPromise;
       } catch (error) {
-        logger.error('indexFiles failed before dispatch', { error: formatErrorMessage(error) });
-        for (const file of files) {
-          pendingFilesRef.current.delete(file.compositeKey);
-          currentOnFileError?.(file.compositeKey, formatErrorMessage(error));
+        const normalizedError =
+          error instanceof Error ? error : new Error(formatErrorMessage(error));
+        logger.error('indexFiles failed before dispatch', { error: normalizedError.message });
+        const requestedFiles = files.length;
+        const pendingBeforeClear = pendingFilesRef.current.size;
+        pendingFilesRef.current.clear();
+        rejectAllPendingBatchTrackers(normalizedError);
+        const droppedCount = Math.max(requestedFiles, pendingBeforeClear);
+        if (!workerFailureRef.current) {
+          emitTerminalIndexingError(
+            `Background token indexer failed before dispatch: ${normalizedError.message}. ` +
+              `Requested files dropped: ${droppedCount}.`
+          );
         }
         setIsIndexing(false);
         setProgress(null);
+        throw normalizedError;
       }
     },
-    [isReady]
+    [emitTerminalIndexingError, isReady, rejectAllPendingBatchTrackers]
   );
 
   /**
@@ -537,10 +784,11 @@ export function useBackgroundTokenIndexer({
    */
   const cancelIndexing = useCallback(() => {
     pendingFilesRef.current.clear();
+    rejectAllPendingBatchTrackers(new Error('Background token indexer indexing canceled'));
     setIsIndexing(false);
     setProgress(null);
     // Worker stays alive - no need to terminate and recreate
-  }, []);
+  }, [rejectAllPendingBatchTrackers]);
 
   return {
     indexFiles,

@@ -296,13 +296,13 @@ describe('createWindow', () => {
     it('should load production renderer when built files exist', async () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      mockBrowserWindow.loadURL.mockResolvedValue(undefined);
 
       await createWindow();
 
-      expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
-        expect.stringContaining('renderer/index.html')
-      );
-      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+      expect(mockWebContents.openDevTools).toHaveBeenCalled();
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
     it('should connect to dev server when not packaged and no built files', async () => {
@@ -315,6 +315,23 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
       expect(mockWebContents.openDevTools).toHaveBeenCalled();
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+    });
+
+    it('should refuse production fallback when dev server fails even with built files', async () => {
+      existsSyncMock.mockReturnValue(true);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      mockBrowserWindow.loadURL.mockRejectedValue(new Error('Dev server unavailable'));
+
+      await expect(createWindow()).rejects.toThrow(
+        'Dev renderer unavailable in non-packaged mode; refusing production fallback'
+      );
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(1, 'http://localhost:8081');
+      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(2, 'http://localhost:8082');
+      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(3, 'http://localhost:8083');
+      expect(mockBrowserWindow.loadURL.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
     });
 
     it('should try multiple ports for dev server', async () => {
@@ -342,7 +359,11 @@ describe('createWindow', () => {
       const error = new Error('All ports unavailable');
       mockBrowserWindow.loadURL.mockRejectedValue(error);
 
-      await expect(createWindow()).rejects.toThrow('All ports unavailable');
+      await expect(createWindow()).rejects.toThrow(
+        'Dev renderer unavailable in non-packaged mode; refusing production fallback'
+      );
+      expect(mockBrowserWindow.loadURL.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
   });
 });
