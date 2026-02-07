@@ -48,7 +48,10 @@ const DEV_SERVER_RETRY_ATTEMPTS = isTestRuntime ? 1 : 30;
 const DEV_SERVER_RETRY_DELAY_MS = isTestRuntime ? 0 : 200;
 const DEV_RENDERER_URL =
   process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim() || 'http://localhost:8081';
-const SHOW_WINDOW_FALLBACK_MS = 800;
+
+function shouldAutoOpenDevTools(): boolean {
+  return process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] === '1';
+}
 
 async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -111,7 +114,11 @@ async function loadRenderer(win: BrowserWindow) {
     // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
     console.log('[createWindow] Attempting dev server renderer first');
     await connectToDevServer(win);
-    win.webContents.openDevTools();
+    // Keep DevTools opt-in so local startup remains deterministic and we don't
+    // force-open a debug window on every launch.
+    if (shouldAutoOpenDevTools()) {
+      win.webContents.openDevTools();
+    }
     return;
   } catch (error) {
     // CRITICAL: Never fall back to file:// in non-packaged mode.
@@ -170,27 +177,10 @@ export async function createWindow(options: CreateWindowOptions = {}) {
 
   // In test mode, keep window hidden; otherwise show when ready
   if (!isTestMode) {
-    let windowShown = false;
-    const showWindow = () => {
-      if (windowShown || win.isDestroyed()) {
-        return;
-      }
-      windowShown = true;
-      win.show();
-    };
-
-    const fallbackTimer = setTimeout(() => {
-      // Render cold-starts (especially in dev) can delay `ready-to-show` by several seconds.
-      // Force-show after a short timeout so startup doesn't feel like a hang/blank launch.
-      showWindow();
-    }, SHOW_WINDOW_FALLBACK_MS);
-
     win.once('ready-to-show', () => {
-      clearTimeout(fallbackTimer);
-      showWindow();
-    });
-    win.once('closed', () => {
-      clearTimeout(fallbackTimer);
+      if (!win.isDestroyed()) {
+        win.show();
+      }
     });
   }
 

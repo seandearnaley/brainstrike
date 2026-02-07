@@ -66,6 +66,7 @@ describe('createWindow', () => {
 
   afterEach(() => {
     Reflect.deleteProperty(process.env, 'CI');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS');
   });
 
   describe('window creation', () => {
@@ -294,7 +295,7 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
     });
 
-    it('should load production renderer when built files exist', async () => {
+    it('should load development renderer when built files exist in dev mode', async () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
       mockBrowserWindow.loadURL.mockResolvedValue(undefined);
@@ -302,7 +303,7 @@ describe('createWindow', () => {
       await createWindow();
 
       expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
-      expect(mockWebContents.openDevTools).toHaveBeenCalled();
+      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
@@ -314,8 +315,18 @@ describe('createWindow', () => {
       await createWindow();
 
       expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
-      expect(mockWebContents.openDevTools).toHaveBeenCalled();
+      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+    });
+
+    it('should open devtools only when explicitly enabled', async () => {
+      existsSyncMock.mockReturnValue(false);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] = '1';
+      await createWindow();
+
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+      expect(mockWebContents.openDevTools).toHaveBeenCalledTimes(1);
     });
 
     it('should refuse production fallback when dev server fails even with built files', async () => {

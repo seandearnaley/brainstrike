@@ -141,6 +141,7 @@ describe('window setup', () => {
     vi.resetModules();
     vi.clearAllMocks();
     mockApp.getPath.mockReturnValue('/tmp/brainstrike-test-logs');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS');
   });
 
   it('setupSecurity dev mode sets dev CSP and logs when isDevEnv is true', async () => {
@@ -190,7 +191,7 @@ describe('window setup', () => {
     expect(csp).toBe(getCSP('production'));
   });
 
-  it('createWindow dev mode uses deterministic URL and opens dev tools', async () => {
+  it('createWindow dev mode uses deterministic URL without auto-opening dev tools', async () => {
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(false);
     isDevEnvMock.mockReturnValue(false);
@@ -209,13 +210,14 @@ describe('window setup', () => {
     for (const url of attemptedUrls) {
       expect(url).toBe('http://localhost:8081');
     }
-    expect(mockBrowserWindowInstance.webContents.openDevTools).toHaveBeenCalled();
+    expect(mockBrowserWindowInstance.webContents.openDevTools).not.toHaveBeenCalled();
   });
 
-  it('createWindow dev mode opens dev tools when renderer URL loads', async () => {
+  it('createWindow dev mode opens dev tools only when explicitly enabled', async () => {
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(false);
     isDevEnvMock.mockReturnValue(false);
+    process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] = '1';
     mockBrowserWindowInstance.loadURL.mockResolvedValueOnce(undefined);
 
     const { createWindow } = await import('../../main');
