@@ -7,8 +7,15 @@
 
     <!-- CSP is configured programmatically in main process for better environment handling -->
     <style>
-      :root {
-        color-scheme: dark;
+      .bs-startup-shell {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(circle at 20% 20%, #1a2744 0%, #0b1020 55%, #070b16 100%);
+        color: #e7eefc;
+        z-index: 1;
         font-family:
           "Geist Variable",
           "Geist",
@@ -19,29 +26,7 @@
           sans-serif;
       }
 
-      html,
-      body {
-        margin: 0;
-        width: 100%;
-        height: 100%;
-        background: radial-gradient(circle at 20% 20%, #1a2744 0%, #0b1020 55%, #070b16 100%);
-        color: #e7eefc;
-      }
-
-      #root {
-        width: 100%;
-        height: 100%;
-      }
-
-      .startup-shell {
-        display: flex;
-        width: 100%;
-        height: 100%;
-        align-items: center;
-        justify-content: center;
-      }
-
-      .startup-card {
+      .bs-startup-card {
         min-width: 320px;
         border: 1px solid rgba(151, 169, 211, 0.24);
         border-radius: 12px;
@@ -50,19 +35,19 @@
         padding: 20px 22px;
       }
 
-      .startup-title {
+      .bs-startup-title {
         margin: 0;
         font-size: 16px;
         font-weight: 600;
       }
 
-      .startup-subtitle {
+      .bs-startup-subtitle {
         margin: 8px 0 0;
         font-size: 13px;
         color: #b2c0e5;
       }
 
-      .startup-progress {
+      .bs-startup-progress {
         margin-top: 14px;
         height: 3px;
         width: 100%;
@@ -71,17 +56,17 @@
         background: rgba(164, 182, 230, 0.2);
       }
 
-      .startup-progress::before {
+      .bs-startup-progress::before {
         content: "";
         display: block;
         width: 45%;
         height: 100%;
         background: linear-gradient(90deg, #5ea2ff 0%, #9bc8ff 100%);
         border-radius: inherit;
-        animation: startup-progress 1.15s ease-in-out infinite;
+        animation: bs-startup-progress 1.15s ease-in-out infinite;
       }
 
-      @keyframes startup-progress {
+      @keyframes bs-startup-progress {
         0% {
           transform: translateX(-120%);
         }
@@ -93,11 +78,11 @@
   </head>
   <body>
     <div id="root">
-      <div class="startup-shell">
-        <div class="startup-card" role="status" aria-live="polite">
-          <p class="startup-title">Starting BrainStrike…</p>
-          <p class="startup-subtitle">Loading renderer and restoring workspace state</p>
-          <div class="startup-progress"></div>
+      <div class="bs-startup-shell">
+        <div class="bs-startup-card" role="status" aria-live="polite">
+          <p class="bs-startup-title">Starting BrainStrike...</p>
+          <p class="bs-startup-subtitle">Loading renderer and restoring workspace state</p>
+          <div class="bs-startup-progress"></div>
         </div>
       </div>
     </div>
