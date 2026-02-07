@@ -18,6 +18,7 @@ jobs:
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
       (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
       pull-requests: write
@@ -35,6 +36,10 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --model claude-opus-4-6
+            --max-turns 16
+            --append-system-prompt "Follow AGENTS.md and docs/code-review-guidelines.md as required standards. Prioritize determinism, performance, test coverage, simplification, and architecture integrity."
 
           # Optional: Customize the trigger phrase (default: @claude)
           # trigger_phrase: "/claude"
