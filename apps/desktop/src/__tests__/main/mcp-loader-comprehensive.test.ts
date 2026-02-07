@@ -452,8 +452,9 @@ describe('mcp-loader comprehensive tests', () => {
 
       const result = await loadMcpConfig();
 
-      expect(result.exists).toBe(false);
+      expect(result.exists).toBe(true);
       expect(result.config).toBeUndefined();
+      expect(result.error).toContain('Permission denied');
     });
 
     it('should handle invalid JSON', async () => {
@@ -461,7 +462,8 @@ describe('mcp-loader comprehensive tests', () => {
 
       const result = await loadMcpConfig();
 
-      expect(result.exists).toBe(false);
+      expect(result.exists).toBe(true);
+      expect(result.error).toBeDefined();
     });
   });
 

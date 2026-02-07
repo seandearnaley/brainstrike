@@ -38,11 +38,28 @@ type BrowserEncoderCtor = new (
 let nodeEncoderPromise: Promise<EncodeFn | null> | null = null;
 let browserEncoderPromise: Promise<EncodeFn | null> | null = null;
 let loadFailureLogged = false;
+let lastEncoderFailureReason: string | null = null;
 
-const isBrowserLike = () =>
-  typeof window !== 'undefined' ||
-  (typeof self !== 'undefined' &&
-    typeof (self as { importScripts?: unknown }).importScripts === 'function');
+/**
+ * IMPORTANT:
+ * Electron module workers can report `importScripts` as unavailable.
+ * Do NOT use importScripts-based worker detection here, or runtime will
+ * misclassify workers as "node" and break accurate tokenizer initialization.
+ */
+const isWorkerGlobalRuntime = () =>
+  typeof self === 'object' &&
+  self !== null &&
+  typeof (self as { postMessage?: unknown }).postMessage === 'function' &&
+  typeof window === 'undefined';
+
+const isBrowserLike = () => typeof window !== 'undefined' || isWorkerGlobalRuntime();
+
+function normalizeErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
 
 function tryCreateEncoder(factory: EncoderFactory | undefined, input: string): EncodeFn | null {
   if (!factory) {
@@ -57,6 +74,8 @@ function tryCreateEncoder(factory: EncoderFactory | undefined, input: string): E
 }
 
 function logOnce(message: string, error: unknown) {
+  const normalizedError = normalizeErrorMessage(error);
+  lastEncoderFailureReason = `${message}: ${normalizedError}`;
   if (loadFailureLogged) {
     return;
   }
@@ -65,13 +84,38 @@ function logOnce(message: string, error: unknown) {
   console.warn('[token-utils-lite]', message, error);
 }
 
+export function getAccurateTokenCountingFailureReason(): string | null {
+  return lastEncoderFailureReason;
+}
+
 function createNodeEncoder(mod: Record<string, unknown>): EncodeFn | null {
   const encodingForModel = mod['encoding_for_model'] as EncoderFactory | undefined;
   const getEncoding = mod['get_encoding'] as EncoderFactory | undefined;
-  return (
-    tryCreateEncoder(encodingForModel, DEFAULT_MODEL) ??
-    tryCreateEncoder(getEncoding, DEFAULT_ENCODING)
-  );
+  const modelEncoder = tryCreateEncoder(encodingForModel, DEFAULT_MODEL);
+  if (modelEncoder) {
+    return modelEncoder;
+  }
+
+  const fallbackEncoder = tryCreateEncoder(getEncoding, DEFAULT_ENCODING);
+  if (fallbackEncoder) {
+    return fallbackEncoder;
+  }
+
+  // Preserve a precise reason instead of returning null silently.
+  // This keeps terminal worker failures actionable in logs/telemetry.
+  const reasons: string[] = [];
+  if (encodingForModel) {
+    reasons.push(`encoding_for_model(${DEFAULT_MODEL}) failed`);
+  } else {
+    reasons.push('encoding_for_model export missing');
+  }
+  if (getEncoding) {
+    reasons.push(`get_encoding(${DEFAULT_ENCODING}) failed`);
+  } else {
+    reasons.push('get_encoding export missing');
+  }
+  lastEncoderFailureReason = `Node tiktoken encoder unavailable: ${reasons.join('; ')}`;
+  return null;
 }
 
 async function instantiateBrowserEncoder(): Promise<EncodeFn | null> {
@@ -116,6 +160,12 @@ async function fetchWasmBinary(module: Record<string, unknown>): Promise<ArrayBu
     throw new Error('tiktoken wasm asset not resolved as URL');
   }
 
+  // tsup inlines worker WASM as data URLs. Decode directly instead of fetch()
+  // to avoid CSP/connect-src restrictions and runtime fetch variability.
+  if (rawWasmUrl.startsWith('data:')) {
+    return decodeDataUrlToArrayBuffer(rawWasmUrl);
+  }
+
   // Strip the `?url` suffix that tsup incorrectly preserves when bundling Vite-style wasm imports.
   // The `?url` import hint is meant for Vite, but tsup's file loader includes it in the output path.
   const strippedUrl = rawWasmUrl.replace(/\?url$/, '');
@@ -135,6 +185,51 @@ async function fetchWasmBinary(module: Record<string, unknown>): Promise<ArrayBu
     throw new Error(`Failed to fetch tiktoken wasm asset: ${response.status} from ${wasmUrl}`);
   }
   return response.arrayBuffer();
+}
+
+function decodeDataUrlToArrayBuffer(dataUrl: string): ArrayBuffer {
+  const commaIndex = dataUrl.indexOf(',');
+  if (commaIndex <= 0) {
+    throw new Error('Invalid data URL for tiktoken wasm asset');
+  }
+
+  const metadata = dataUrl.slice(0, commaIndex);
+  const payload = dataUrl.slice(commaIndex + 1);
+  const isBase64 = /;base64$/i.test(metadata);
+
+  if (!isBase64) {
+    return new TextEncoder().encode(decodeURIComponent(payload)).buffer;
+  }
+
+  if (typeof atob === 'function') {
+    const binary = atob(payload);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    return bytes.buffer;
+  }
+
+  const bufferGlobal = (globalThis as Record<string, unknown>)['Buffer'];
+  if (
+    !(
+      bufferGlobal &&
+      typeof bufferGlobal === 'object' &&
+      'from' in bufferGlobal &&
+      typeof (bufferGlobal as { from?: unknown }).from === 'function'
+    )
+  ) {
+    throw new Error('No base64 decoder available for wasm data URL');
+  }
+
+  const decoded = (bufferGlobal as { from: (value: string, encoding: string) => Uint8Array }).from(
+    payload,
+    'base64'
+  );
+  // Copy into a fresh Uint8Array so return type is always ArrayBuffer (not SharedArrayBuffer).
+  const bytes = new Uint8Array(decoded.byteLength);
+  bytes.set(decoded);
+  return bytes.buffer;
 }
 
 /**
@@ -206,7 +301,7 @@ async function loadNodeEncoder(): Promise<EncodeFn | null> {
         const mod = (await import('tiktoken')) as Record<string, unknown>;
         return createNodeEncoder(mod);
       } catch (error) {
-        logOnce('Failed to load tiktoken (node); falling back to heuristic', error);
+        logOnce('Failed to load tiktoken (node)', error);
         return null;
       }
     })();
@@ -220,7 +315,7 @@ async function loadBrowserEncoder(): Promise<EncodeFn | null> {
       try {
         return await instantiateBrowserEncoder();
       } catch (error) {
-        logOnce('Failed to load tiktoken (browser); falling back to heuristic', error);
+        logOnce('Failed to load tiktoken (browser)', error);
         return null;
       }
     })();
@@ -243,14 +338,19 @@ export async function countTokensAccurate(text: string): Promise<number> {
   }
   const encoder = await resolveEncoder();
   if (!encoder) {
-    return countTokensHeuristic(text);
+    const failureReason = getAccurateTokenCountingFailureReason();
+    const failureSuffix = failureReason ? ` (${failureReason})` : '';
+    throw new Error(
+      `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`
+    );
   }
 
   try {
     return encoder(text).length;
   } catch (error) {
-    logOnce('tiktoken encode failed; falling back to heuristic', error);
-    return countTokensHeuristic(text);
+    logOnce('tiktoken encode failed', error);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Accurate token counting failed: ${message}`);
   }
 }
 

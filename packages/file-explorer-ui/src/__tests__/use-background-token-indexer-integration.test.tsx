@@ -1,3 +1,4 @@
+import type { FileToIndex } from '@brainstrike/token-cache';
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
@@ -6,11 +7,13 @@ import type { TokenCacheContextValue } from '../token-cache-context';
 import { useBackgroundTokenIndexerIntegration } from '../use-background-token-indexer-integration';
 
 // Capture the onFileIndexed callback from useBackgroundTokenIndexer
-let capturedOnFileIndexed: ((compositeKey: string, tokenCount: number) => void) | undefined;
+let capturedOnFileIndexed:
+  | ((compositeKey: string, tokenCount: number, fileSize: number) => void)
+  | undefined;
 let capturedOnFileError: ((compositeKey: string, error: string) => void) | undefined;
 
 // Mock the token cache hook so we can control readiness and capture calls.
-const indexFilesMock = vi.fn();
+const indexFilesMock = vi.fn<(files: FileToIndex[]) => Promise<void>>(async () => {});
 const cancelIndexingMock = vi.fn();
 const mockBackgroundIndexer = {
   indexFiles: indexFilesMock,
@@ -22,7 +25,7 @@ const mockBackgroundIndexer = {
 
 vi.mock('@brainstrike/token-cache', () => ({
   useBackgroundTokenIndexer: (opts: {
-    onFileIndexed?: (compositeKey: string, tokenCount: number) => void;
+    onFileIndexed?: (compositeKey: string, tokenCount: number, fileSize: number) => void;
     onFileError?: (compositeKey: string, error: string) => void;
   }) => {
     // Capture callbacks for testing
@@ -268,7 +271,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       // Simulate the background indexer completing a file
       act(() => {
-        capturedOnFileIndexed?.(fileAKey, 42);
+        capturedOnFileIndexed?.(fileAKey, 42, 128);
       });
 
       expect(updateHotCacheSpy).toHaveBeenCalledTimes(1);
@@ -290,7 +293,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       // Simulate the background indexer completing a file
       act(() => {
-        capturedOnFileIndexed?.(fileAKey, 100);
+        capturedOnFileIndexed?.(fileAKey, 100, 256);
       });
 
       expect(onTokenResolvedSpy).toHaveBeenCalledTimes(1);
@@ -314,10 +317,10 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       // Simulate files being indexed one by one
       act(() => {
-        capturedOnFileIndexed?.(fileAKey, 50);
+        capturedOnFileIndexed?.(fileAKey, 50, 128);
       });
       act(() => {
-        capturedOnFileIndexed?.(fileBKey, 75);
+        capturedOnFileIndexed?.(fileBKey, 75, 256);
       });
 
       expect(updateHotCacheSpy).toHaveBeenCalledTimes(2);
@@ -557,7 +560,7 @@ describe('useBackgroundTokenIndexerIntegration', () => {
 
       // But the new callback should still be used when files are indexed
       act(() => {
-        capturedOnFileIndexed?.(fileAKey, 99);
+        capturedOnFileIndexed?.(fileAKey, 99, 128);
       });
 
       expect(onTokenResolvedSpy1).not.toHaveBeenCalled();

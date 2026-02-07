@@ -15,6 +15,14 @@ const wasmPath = findPGliteWasm(__dirname);
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
+// CRITICAL: Keep React/Babel transforms scoped to source files only.
+// Letting the React plugin process package dist artifacts (especially large worker bundles)
+// causes multi-second startup stalls in desktop dev while Vite/Babel reprocesses megabytes
+// of non-React code before first paint.
+const ReactPluginInclude = [
+  /[/\\]apps[/\\]desktop[/\\]src[/\\].*\.[jt]sx?$/,
+  /[/\\]packages[/\\][^/\\]+[/\\]src[/\\].*\.[jt]sx?$/,
+];
 
 export default defineConfig({
   root: __dirname,
@@ -25,6 +33,7 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react({
+      include: ReactPluginInclude,
       babel: {
         plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
       },
@@ -183,7 +192,11 @@ export default defineConfig({
     'process.versions': 'undefined',
   },
   server: {
-    port: 8081, // Different port from web app to avoid conflicts
+    // CRITICAL: keep desktop renderer dev URL deterministic (http://localhost:8081).
+    // Electron startup depends on this exact URL; auto-shifting ports causes long
+    // startup stalls and non-deterministic renderer boot behavior.
+    port: 8081,
+    strictPort: true,
     headers: {
       'Content-Security-Policy': getDevCSP(),
     },

@@ -466,6 +466,15 @@ export function useBackgroundTokenIndexerIntegration({
   );
 
   const handleFileError = useCallback((compositeKey: string, error: string) => {
+    if (compositeKey === '__worker__') {
+      // Terminal worker failures invalidate the whole in-flight queue.
+      // Keep behavior deterministic by clearing all pending file markers.
+      inFlightRef.current.clear();
+      bumpInFlightPulse((value) => value + 1);
+      logger.error('Background indexer terminal worker error', { error });
+      return;
+    }
+
     inFlightRef.current.delete(compositeKey);
     indexedFilesRef.current.delete(compositeKey);
     if (inFlightRef.current.size === 0) {
@@ -680,9 +689,15 @@ export function useBackgroundTokenIndexerIntegration({
       }
 
       // Queue files for background indexing in manageable batches
-      for (let i = 0; i < filesToIndex.length; i += INDEX_BATCH_SIZE) {
-        const batch = filesToIndex.slice(i, i + INDEX_BATCH_SIZE);
-        indexer.indexFiles(batch);
+      try {
+        for (let i = 0; i < filesToIndex.length; i += INDEX_BATCH_SIZE) {
+          const batch = filesToIndex.slice(i, i + INDEX_BATCH_SIZE);
+          await indexer.indexFiles(batch);
+        }
+      } catch (error) {
+        logger.error('triggerIndexing batch dispatch failed', {
+          error: error instanceof Error ? error.message : String(error),
+        });
       }
     },
     [handleFileError]

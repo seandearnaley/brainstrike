@@ -3,6 +3,7 @@ import {
   loadToolPreferences,
   mcpToolRegistry,
   saveToolPreferences,
+  type ToolPreferences,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils';
 import type { IpcMainInvokeEvent } from 'electron';
@@ -22,7 +23,37 @@ let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
 const logger = createLogger('DesktopMcpIpc');
 
-export function registerMcpIpcHandlers() {
+/**
+ * Handles config changes by clearing the registry and reinitializing clients.
+ * Shared callback for both manual config changes and file watch events.
+ */
+function handleConfigChange(cfg: LoadedMcpConfig): void {
+  last = cfg;
+  mcpToolRegistry.clear();
+  if (cfg.error) {
+    logger.error('MCP config could not be loaded', {
+      path: cfg.path,
+      error: cfg.error,
+    });
+  }
+  if (cfg.config) {
+    initClients(cfg.config);
+    void discoverToolsFromConfig(cfg.config);
+  } else {
+    void disposeClients();
+  }
+}
+
+async function restartConfigWatcher(): Promise<void> {
+  if (unwatch) {
+    unwatch();
+    unwatch = null;
+  }
+  const watcher = await watchMcpConfig(handleConfigChange);
+  unwatch = () => watcher.close();
+}
+
+export function registerMcpIpcHandlers(): void {
   logger.info('Registering MCP IPC handlers');
 
   ipcMain.handle('mcp:config:get', async (): Promise<LoadedMcpConfig> => {
@@ -47,31 +78,11 @@ export function registerMcpIpcHandlers() {
       await setCustomMcpConfigPath(configPath);
       const newPath = await getMcpConfigPath();
 
-      // Reload config from new path
-      last = await loadMcpConfig();
-      if (last.config) {
-        initClients(last.config);
-        // Discover tools from the new config
-        void discoverToolsFromConfig(last.config);
-      } else {
-        await disposeClients();
-      }
+      logger.info('Loading config from new path', { path: newPath });
+      handleConfigChange(await loadMcpConfig());
 
       // Restart the watcher to watch the new path
-      if (unwatch) {
-        unwatch();
-        unwatch = null;
-      }
-      const w = await watchMcpConfig((cfg) => {
-        last = cfg;
-        if (cfg.config) {
-          initClients(cfg.config);
-          void discoverToolsFromConfig(cfg.config);
-        } else {
-          void disposeClients();
-        }
-      });
-      unwatch = () => w.close();
+      await restartConfigWatcher();
 
       return { success: true, path: newPath };
     }
@@ -100,17 +111,7 @@ export function registerMcpIpcHandlers() {
       if (unwatch) {
         return { watching: true };
       }
-      const w = await watchMcpConfig((cfg) => {
-        last = cfg;
-        // Hot-reload clients on config change
-        if (cfg.config) {
-          initClients(cfg.config);
-          // Discover tools from the new config
-          void discoverToolsFromConfig(cfg.config);
-        } else {
-          void disposeClients();
-        }
-      });
+      const w = await watchMcpConfig(handleConfigChange);
       unwatch = () => w.close();
       return { watching: true };
     }
@@ -173,6 +174,86 @@ export function registerMcpIpcHandlers() {
 
   ipcMain.handle('mcp:tools:getStats', async () => mcpToolRegistry.getStats());
 
+  ipcMain.handle(
+    'mcp:config:createSample',
+    async (): Promise<{ success: boolean; path: string; error?: string }> => {
+      try {
+        const configPath = await getMcpConfigPath();
+
+        // Sample config using BrainStrike's native format
+        // Each server requires: transport, name, and either command (stdio) or url (sse)
+        const sampleConfig = {
+          servers: [
+            {
+              // stdio transport: runs a local command
+              transport: 'stdio',
+              name: 'filesystem',
+              command: 'npx',
+              args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
+            },
+            {
+              // Another stdio example with environment variables
+              transport: 'stdio',
+              name: 'custom-server',
+              command: 'node',
+              args: ['path/to/your/mcp-server.js'],
+              env: {
+                // biome-ignore lint/style/useNamingConvention: Environment variables use SCREAMING_SNAKE_CASE
+                API_KEY: 'your-api-key-here',
+              },
+            },
+            {
+              // sse transport: connects to a remote HTTP endpoint
+              transport: 'sse',
+              name: 'remote-api',
+              url: 'https://example.com/mcp/sse',
+              headers: {
+                // biome-ignore lint/style/useNamingConvention: HTTP headers use PascalCase
+                Authorization: 'Bearer your-token-here',
+              },
+            },
+          ],
+        };
+
+        // Ensure directory exists
+        const fsp = await import('node:fs/promises');
+        const path = await import('node:path');
+        const exists = await fsp
+          .access(configPath)
+          .then(() => true)
+          .catch((error: unknown) => {
+            if ((error as { code?: unknown }).code === 'ENOENT') {
+              return false;
+            }
+            throw error;
+          });
+
+        if (exists) {
+          const error =
+            'MCP config already exists. Select the existing file or reset the path before creating a sample.';
+          logger.warn('Refusing to overwrite existing MCP config', { path: configPath });
+          return { success: false, path: configPath, error };
+        }
+
+        await fsp.mkdir(path.dirname(configPath), { recursive: true });
+
+        // Write sample config
+        await fsp.writeFile(configPath, JSON.stringify(sampleConfig, null, 2), 'utf-8');
+        logger.info('Created sample MCP config', { path: configPath });
+
+        // Clear existing tools, reload config, and ensure file watcher tracks the new file.
+        handleConfigChange(await loadMcpConfig());
+        await restartConfigWatcher();
+
+        return { success: true, path: configPath };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        logger.error('Failed to create sample MCP config', { error });
+        return { success: false, path: '', error: message };
+      }
+    }
+  );
+
   // Discover tools when config changes; saved preferences are applied after discovery completes
   void discoverMcpToolsOnStartup();
 }
@@ -182,13 +263,25 @@ async function discoverMcpToolsOnStartup(): Promise<void> {
   try {
     const loaded = await loadMcpConfig();
     logger.debug('Loaded MCP config for discovery', { loaded });
-    if (loaded.config) {
-      await discoverToolsFromConfig(loaded.config);
-    } else {
-      logger.info('No MCP config found, skipping discovery');
+
+    if (!(loaded.exists && loaded.config)) {
+      mcpToolRegistry.clear();
+      if (loaded.exists && loaded.error) {
+        logger.error('MCP config invalid, cleared tool registry', {
+          path: loaded.path,
+          error: loaded.error,
+        });
+      } else {
+        logger.info('MCP config missing, cleared tool registry');
+      }
+      return;
     }
+
+    await discoverToolsFromConfig(loaded.config);
   } catch (error) {
-    logger.error('Failed to discover MCP tools on startup', { error });
+    // On error, clear registry to ensure no stale state
+    mcpToolRegistry.clear();
+    logger.error('Failed to discover MCP tools on startup, cleared registry', { error });
   }
 }
 
@@ -273,33 +366,26 @@ async function resolveDiscoveryCredentials(): Promise<
   return { provider: 'local', apiKey: '' };
 }
 
+/**
+ * Flattens the registry's grouped tools into a single array.
+ */
+function getFlattenedTools(): Array<{ id: string; enabled: boolean }> {
+  const allTools = mcpToolRegistry.getAllTools();
+  return Object.values(allTools).filter(Array.isArray).flat();
+}
+
 async function saveToolPreferencesIfNeeded(): Promise<void> {
   try {
-    const allTools = mcpToolRegistry.getAllTools();
-    const enabledTools: string[] = [];
-    const disabledTools: string[] = [];
+    const tools = getFlattenedTools();
+    const enabledTools = tools.filter((t) => t.enabled).map((t) => t.id);
+    const disabledTools = tools.filter((t) => !t.enabled).map((t) => t.id);
 
-    for (const [, tools] of Object.entries(allTools)) {
-      if (!Array.isArray(tools)) {
-        continue;
-      }
-      for (const tool of tools) {
-        if (tool.enabled) {
-          enabledTools.push(tool.id);
-        } else {
-          disabledTools.push(tool.id);
-        }
-      }
-    }
-
-    const preferences = {
+    await saveToolPreferences(app.getPath('userData'), {
       enabledTools,
       disabledTools,
       version: 1,
       lastUpdated: Date.now(),
-    };
-
-    await saveToolPreferences(app.getPath('userData'), preferences);
+    });
   } catch (error) {
     logger.error('Failed to save tool preferences', { error });
   }
@@ -307,15 +393,38 @@ async function saveToolPreferencesIfNeeded(): Promise<void> {
 
 async function loadToolPreferencesOnStartup(): Promise<void> {
   try {
-    const preferences = await loadToolPreferences(app.getPath('userData'));
-    if (preferences) {
-      // Apply preferences after tools are discovered
-      if (preferences.disabledTools.length > 0) {
-        mcpToolRegistry.disableTools(preferences.disabledTools);
-      }
-      if (preferences.enabledTools.length > 0) {
-        mcpToolRegistry.enableTools(preferences.enabledTools);
-      }
+    const preferences = (await loadToolPreferences(app.getPath('userData'))) as
+      | ToolPreferences
+      | undefined;
+    if (!preferences) {
+      return;
+    }
+
+    const registeredIds = new Set(getFlattenedTools().map((t) => t.id));
+
+    // Filter to valid tool IDs only (prevents stale preferences)
+    const validEnabled = preferences.enabledTools.filter((id: string) => registeredIds.has(id));
+    const validDisabled = preferences.disabledTools.filter((id: string) => registeredIds.has(id));
+
+    const staleCount =
+      preferences.enabledTools.length -
+      validEnabled.length +
+      preferences.disabledTools.length -
+      validDisabled.length;
+
+    if (staleCount > 0) {
+      logger.info('Filtered stale tool preferences', {
+        staleCount,
+        registeredCount: registeredIds.size,
+      });
+    }
+
+    // Apply valid preferences
+    if (validDisabled.length > 0) {
+      mcpToolRegistry.disableTools(validDisabled);
+    }
+    if (validEnabled.length > 0) {
+      mcpToolRegistry.enableTools(validEnabled);
     }
   } catch (error) {
     logger.error('Failed to load tool preferences', { error });

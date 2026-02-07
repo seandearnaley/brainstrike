@@ -1,23 +1,30 @@
-import http from 'node:http';
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 import { disposeClients, getClient, initClients } from '../../mcp';
 
-let server: http.Server;
 let port = 0;
 type ToolRequest = Parameters<typeof emitToolResult>[0];
-type StreamList = Parameters<typeof emitToolResult>[1];
+type StreamList = ReadableStreamDefaultController<Uint8Array>[];
 let requestInterceptor: ((parsed: ToolRequest, streams: StreamList) => void) | undefined;
+let fetchSpy: ReturnType<typeof vi.spyOn> | null = null;
+const encoder = new TextEncoder();
 
 function emitToolResult(
   parsed: { id: string; tool: string; params?: { text?: string } },
-  streams: http.ServerResponse[]
+  streams: ReadableStreamDefaultController<Uint8Array>[]
 ): void {
   try {
     // Emit a progress event first
-    for (const s of streams) {
-      s.write('event: tool-progress\n');
-      s.write(`id: ${parsed.id}\n`);
-      s.write(`data: ${JSON.stringify({ id: parsed.id, step: 'starting' })}\n\n`);
+    const progressPayload = encoder.encode(
+      [
+        'event: tool-progress',
+        `id: ${parsed.id}`,
+        `data: ${JSON.stringify({ id: parsed.id, step: 'starting' })}`,
+        '',
+        '',
+      ].join('\n')
+    );
+    for (const controller of streams) {
+      controller.enqueue(progressPayload);
     }
     // Emit a tool-result event with the same id and a result payload
     if (streams.length > 0) {
@@ -25,8 +32,9 @@ function emitToolResult(
         'event: tool-result\n' +
         `id: ${parsed.id}\n` +
         `data: ${JSON.stringify({ id: parsed.id, result: { echo: parsed.params?.text ?? null, tool: parsed.tool } })}\n\n`;
-      for (const s of streams) {
-        s.write(line);
+      const resultPayload = encoder.encode(line);
+      for (const controller of streams) {
+        controller.enqueue(resultPayload);
       }
     }
   } catch {}
@@ -34,59 +42,54 @@ function emitToolResult(
 
 describe('mcp-clients (sse request/response)', () => {
   beforeAll(async () => {
-    server = http.createServer((req, res) => {
-      if (req.method === 'POST' && req.url?.endsWith('/request')) {
-        let body = '';
-        req.on('data', (chunk) => {
-          body += chunk.toString();
-        });
-        req.on('end', () => {
-          try {
-            const parsed = JSON.parse(body) as ToolRequest;
-            const handler =
-              requestInterceptor ??
-              ((req: ToolRequest, resStreams: StreamList): void => {
-                setTimeout(() => emitToolResult(req, resStreams), 10);
-              });
-            handler(parsed, streams);
-            res.writeHead(202);
-            res.end('accepted');
-          } catch {
-            res.writeHead(400);
-            res.end('bad json');
-          }
-        });
-        return;
+    port = 0;
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input.url;
+      const method = init?.method ?? 'GET';
+
+      if (method === 'POST' && url.endsWith('/request')) {
+        try {
+          const body = typeof init?.body === 'string' ? init.body : '';
+          const parsed = JSON.parse(body) as ToolRequest;
+          const handler =
+            requestInterceptor ??
+            ((req: ToolRequest, resStreams: StreamList): void => {
+              setTimeout(() => emitToolResult(req, resStreams), 10);
+            });
+          handler(parsed, streams);
+          return new Response('accepted', { status: 202 });
+        } catch {
+          return new Response('bad json', { status: 400 });
+        }
       }
-      // rudimentary sse endpoint
-      if (req.method === 'GET' && req.url?.endsWith('/sse')) {
-        res.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          Connection: 'keep-alive',
-          'Cache-Control': 'no-cache',
+
+      if (method === 'GET' && url.endsWith('/sse')) {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(': ok\n\n'));
+            streams.push(controller);
+          },
+          cancel() {
+            streams.splice(0, streams.length);
+          },
         });
-        res.write(': ok\n\n');
-        streams.push(res);
-        req.on('close', () => {
-          const idx = streams.indexOf(res);
-          if (idx >= 0) {
-            streams.splice(idx, 1);
-          }
+        return new Response(stream, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/event-stream',
+            Connection: 'keep-alive',
+            'Cache-Control': 'no-cache',
+          },
         });
-        return;
       }
-      res.writeHead(404);
-      res.end('not found');
+
+      return new Response('not found', { status: 404 });
     });
-    await new Promise<void>((resolve) => server.listen(0, () => resolve()));
-    const addr = server.address();
-    if (typeof addr === 'object' && addr && 'port' in addr) {
-      port = addr.port as number;
-    }
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    fetchSpy?.mockRestore();
+    fetchSpy = null;
   });
 
   afterEach(async () => {
@@ -94,7 +97,7 @@ describe('mcp-clients (sse request/response)', () => {
     requestInterceptor = undefined;
   });
 
-  const streams: http.ServerResponse[] = [];
+  const streams: StreamList = [];
 
   test('Sends request and resolves with SSE tool-result payload', async () => {
     initClients({
@@ -123,8 +126,9 @@ describe('mcp-clients (sse request/response)', () => {
           'event: tool-error\n' +
           `id: ${parsed.id}\n` +
           `data: ${JSON.stringify({ id: parsed.id, error: 'failed' })}\n\n`;
-        for (const stream of activeStreams) {
-          stream.write(line);
+        const payload = encoder.encode(line);
+        for (const controller of activeStreams) {
+          controller.enqueue(payload);
         }
       }, 5);
     };

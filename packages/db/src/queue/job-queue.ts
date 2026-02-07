@@ -113,6 +113,8 @@ export interface CancelParams {
 }
 
 export class JobQueue {
+  private static readonly DEFAULT_MAX_ATTEMPTS = 5;
+  private static readonly MAX_BATCH_SIZE = 9000;
   private idType: 'uuid' | 'text' | null = null;
 
   constructor(
@@ -160,7 +162,8 @@ export class JobQueue {
     const now = new Date().toISOString();
     const runAt = params.runAt ?? now;
     const id = generateUUID();
-    const maxAttempts = params.maxAttempts ?? this.defaults.maxAttempts ?? 5;
+    const maxAttempts =
+      params.maxAttempts ?? this.defaults.maxAttempts ?? JobQueue.DEFAULT_MAX_ATTEMPTS;
     const dedupe = params.dedupeKey ?? null;
 
     // Portable idempotent enqueue using CTEs (works with partial unique index)
@@ -236,6 +239,168 @@ export class JobQueue {
       });
     }
     return job;
+  }
+
+  /**
+   * Helper to pre-process parameters for intra-batch deduplication.
+   */
+  private processBatchParams(params: EnqueueParams[], now: string): EnqueueParams[] {
+    const processedParams: EnqueueParams[] = [];
+    const seenDedupeKeys = new Map<string, EnqueueParams>();
+
+    for (const p of params) {
+      if (p.dedupeKey) {
+        const existing = seenDedupeKeys.get(p.dedupeKey);
+        if (existing) {
+          // Keep the one with earlier runAt
+          const currentRunAt = existing.runAt ?? now;
+          const newRunAt = p.runAt ?? now;
+          if (newRunAt < currentRunAt) {
+            existing.runAt = newRunAt;
+          }
+        } else {
+          // Clone to avoid mutation if we modify runAt
+          const clone = { ...p, runAt: p.runAt ?? now };
+          seenDedupeKeys.set(p.dedupeKey, clone);
+          processedParams.push(clone);
+        }
+      } else {
+        processedParams.push({ ...p, runAt: p.runAt ?? now });
+      }
+    }
+    return processedParams;
+  }
+
+  /**
+   * Helper to build the batch SQL query based on ID type.
+   */
+  private buildBatchQuery(idType: 'uuid' | 'text'): string {
+    const idTypeCast = idType === 'uuid' ? 'uuid' : 'text';
+    return `WITH input AS (
+             SELECT * FROM unnest(
+               $1::${idTypeCast}[], $2::text[], $3::text[], $4::jsonb[], $5::text[], $6::int[], $7::text[]
+             ) AS t(id, queue, job_type, payload, run_at_text, max_attempts, dedupe_key)
+           ),
+           existing AS (
+             SELECT jq.id, jq.dedupe_key, i.run_at_text
+             FROM job_queue jq
+             JOIN input i ON jq.dedupe_key = i.dedupe_key
+             WHERE jq.state IN ('queued', 'running')
+           ),
+           upd AS (
+             UPDATE job_queue jq
+             SET run_at = LEAST(jq.run_at, e.run_at_text), updated_at = $8
+             FROM existing e
+             WHERE jq.id = e.id
+             RETURNING jq.*
+           ),
+           ins AS (
+             INSERT INTO job_queue (
+               id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms,
+               lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at
+             )
+             SELECT
+               i.id, i.queue, i.job_type, i.payload, 'queued', i.run_at_text, 0, i.max_attempts, 0,
+               NULL, NULL, NULL, i.dedupe_key, NULL, $8, $8
+             FROM input i
+             WHERE NOT EXISTS (SELECT 1 FROM existing e WHERE e.dedupe_key = i.dedupe_key)
+             RETURNING *
+           )
+           SELECT * FROM upd
+           UNION ALL
+           SELECT * FROM ins`;
+  }
+
+  /**
+   * Enqueue multiple jobs atomically in a single database query.
+   * Significantly faster than calling enqueue() in a loop for large batches.
+   *
+   * Deduplication behavior:
+   * - Intra-batch: Jobs with the same dedupeKey are deduplicated, keeping the earliest runAt.
+   * - Database: Existing jobs with matching dedupeKey in 'queued'/'running' states are updated
+   *   with the earlier runAt time. Payload is NOT updated.
+   *
+   * @param params - Array of job parameters to enqueue
+   * @returns Array of Job objects (length <= params.length due to deduplication)
+   */
+  async enqueueBatch(params: EnqueueParams[]): Promise<Job[]> {
+    if (params.length === 0) {
+      return [];
+    }
+    if (params.length > JobQueue.MAX_BATCH_SIZE) {
+      throw new Error(
+        `Batch size ${params.length} exceeds maximum supported size of ${JobQueue.MAX_BATCH_SIZE}`
+      );
+    }
+    if (params.length > 1000) {
+      logger.warn('Large batch size detected for enqueueBatch', { count: params.length });
+    }
+
+    const now = new Date().toISOString();
+    const idType = await this.getOrResolveIdType();
+    this.validateIdType(idType);
+
+    const processedParams = this.processBatchParams(params, now);
+
+    const ids: string[] = [];
+    const queues: string[] = [];
+    const jobTypes: string[] = [];
+    const payloads: string[] = [];
+    const runAts: string[] = [];
+    const maxAttemptsArr: number[] = [];
+    const dedupeKeys: (string | null)[] = [];
+
+    const defaultMaxAttempts = this.defaults.maxAttempts ?? JobQueue.DEFAULT_MAX_ATTEMPTS;
+
+    for (const p of processedParams) {
+      ids.push(generateUUID());
+      queues.push(p.queue);
+      jobTypes.push(p.jobType);
+      payloads.push(JSON.stringify(p.payload));
+      runAts.push(p.runAt ?? now);
+      maxAttemptsArr.push(p.maxAttempts ?? defaultMaxAttempts);
+      dedupeKeys.push(p.dedupeKey ?? null);
+    }
+
+    const sql = this.buildBatchQuery(idType);
+
+    const res = await this.db.query<JobRow>(sql, [
+      ids,
+      queues,
+      jobTypes,
+      payloads,
+      runAts,
+      maxAttemptsArr,
+      dedupeKeys,
+      now,
+    ]);
+
+    const jobs = res.rows.map(fromRow);
+
+    if (jobs.length > 0) {
+      logger.debug('Jobs enqueued in batch', { count: jobs.length });
+
+      const newIdSet = new Set(ids);
+
+      for (const job of jobs) {
+        const isNew = newIdSet.has(job.id);
+        if (isNew) {
+          emitQueueTelemetry({
+            timestamp: Date.now(),
+            adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+            event: 'enqueue',
+            taskId: job.id,
+            metadata: {
+              queue: job.queue,
+              jobType: job.jobType,
+              dedupeKey: job.dedupe_key ?? undefined,
+            },
+          });
+        }
+      }
+    }
+
+    return jobs;
   }
 
   async claim(params: ClaimParams): Promise<Job | null> {

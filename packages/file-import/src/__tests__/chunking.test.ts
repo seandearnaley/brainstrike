@@ -34,6 +34,7 @@ function createMockChunkingWorkerPort(overrides?: Partial<ChunkingWorkerPort>): 
 // Use Partial<FileRecord> for test mocks since we don't need all required fields
 interface MockRepository {
   findById: Mock<(id: string) => Promise<Partial<FileRecord> | null>>;
+  findByIds: Mock<(ids: readonly string[]) => Promise<Partial<FileRecord>[]>>;
   update: Mock<(data: Record<string, unknown>) => Promise<void>>;
 }
 
@@ -116,6 +117,7 @@ describe('processFileChunking', () => {
   beforeEach(() => {
     mockRepository = {
       findById: vi.fn(),
+      findByIds: vi.fn().mockResolvedValue([]),
       update: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -509,6 +511,14 @@ describe('processChunking', () => {
         path: '/test.txt',
         content: 'File content',
       }),
+      findByIds: vi.fn().mockImplementation(async (ids: readonly string[]) =>
+        ids.map((id) => ({
+          id,
+          name: `${id}.txt`,
+          path: `/${id}.txt`,
+          content: `File content for ${id}`,
+        }))
+      ),
       update: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -564,20 +574,10 @@ describe('processChunking', () => {
       { id: 'file-1', imported: true, existed: false },
       { id: 'file-2', imported: false, existed: true },
     ];
-
-    mockRepository.findById
-      .mockResolvedValueOnce({
-        id: 'file-1',
-        name: 'test1.txt',
-        path: '/test1.txt',
-        content: 'File 1 content',
-      })
-      .mockResolvedValueOnce({
-        id: 'file-2',
-        name: 'test2.txt',
-        path: '/test2.txt',
-        content: 'File 2 content',
-      });
+    mockRepository.findByIds.mockResolvedValueOnce([
+      { id: 'file-1', name: 'test1.txt', path: '/test1.txt', content: 'File 1 content' },
+      { id: 'file-2', name: 'test2.txt', path: '/test2.txt', content: 'File 2 content' },
+    ]);
 
     const results = await processChunking(
       importResults,
@@ -608,18 +608,29 @@ describe('processChunking', () => {
     );
   });
 
-  it('handles errors gracefully via worker', async () => {
+  it('fails fast on per-file errors via worker', async () => {
+    mockRepository.findByIds.mockResolvedValueOnce([]);
     mockRepository.findById.mockRejectedValue(new Error('Database error'));
 
-    const results = await processChunking(
-      [{ id: 'file-1', imported: true, existed: false }],
-      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
-      { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
-    );
+    await expect(
+      processChunking(
+        [{ id: 'file-1', imported: true, existed: false }],
+        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+      )
+    ).rejects.toThrow('Database error');
+  });
 
-    expect(results).toHaveLength(1);
-    expect(results[0]?.error).toBe('Chunking failed: Database error');
-    expect(results[0]?.chunksCreated).toBe(0);
+  it('fails fast when batch prefetch fails', async () => {
+    mockRepository.findByIds.mockRejectedValueOnce(new Error('Batch prefetch failed'));
+
+    await expect(
+      processChunking(
+        [{ id: 'file-1', imported: true, existed: false }],
+        { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+        { updateProgress: mockUpdateProgress, chunkingWorkerPort: mockWorkerPort }
+      )
+    ).rejects.toThrow('Batch prefetch failed');
   });
 
   it('updates final progress correctly via worker', async () => {

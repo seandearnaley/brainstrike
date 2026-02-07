@@ -2,7 +2,7 @@
  * Tests for token-utils-lite.ts
  * Focuses on:
  * - countTokensHeuristic behavior
- * - countTokensAccurate fallback paths
+ * - countTokensAccurate failure paths
  * - supportsAccurateTokenCounting
  * - Edge cases and error handling
  */
@@ -152,7 +152,7 @@ describe('token-utils-lite', () => {
   });
 });
 
-describe('token-utils-lite fallback behavior', () => {
+describe('token-utils-lite failure behavior', () => {
   beforeEach(() => {
     vi.resetModules();
   });
@@ -168,14 +168,13 @@ describe('token-utils-lite fallback behavior', () => {
       });
     });
 
-    it('should fall back to heuristic for countTokensAccurate', async () => {
-      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils-lite');
+    it('throws when accurate tokenizer cannot be loaded', async () => {
+      const { countTokensAccurate } = await import('../token-utils-lite');
 
       const text = 'hello world test';
-      const result = await countTokensAccurate(text);
-      const heuristicResult = countTokensHeuristic(text);
-
-      expect(result).toBe(heuristicResult);
+      await expect(countTokensAccurate(text)).rejects.toThrow(
+        /Accurate token counting unavailable: tiktoken encoder failed to initialize/
+      );
     });
 
     it('should return false for supportsAccurateTokenCounting', async () => {
@@ -189,17 +188,19 @@ describe('token-utils-lite fallback behavior', () => {
   describe('when tiktoken exports partial API', () => {
     beforeEach(() => {
       // Mock tiktoken with missing encoder functions
-      vi.doMock('tiktoken', () => ({}));
+      vi.doMock('tiktoken', () => ({
+        encoding_for_model: undefined,
+        get_encoding: undefined,
+      }));
     });
 
-    it('should fall back to heuristic when no encoder available', async () => {
-      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils-lite');
+    it('throws when no encoder factory is available', async () => {
+      const { countTokensAccurate } = await import('../token-utils-lite');
 
       const text = 'test string';
-      const result = await countTokensAccurate(text);
-      const heuristicResult = countTokensHeuristic(text);
-
-      expect(result).toBe(heuristicResult);
+      await expect(countTokensAccurate(text)).rejects.toThrow(
+        /Accurate token counting unavailable: tiktoken encoder failed to initialize/
+      );
     });
   });
 
@@ -211,17 +212,19 @@ describe('token-utils-lite fallback behavior', () => {
             throw new Error('Encoding failed');
           },
         }),
+        get_encoding: () => ({
+          encode: (text: string) => new Uint32Array(Math.ceil(text.length / 4)),
+        }),
       }));
     });
 
-    it('should fall back to heuristic when encode throws', async () => {
-      const { countTokensAccurate, countTokensHeuristic } = await import('../token-utils-lite');
+    it('throws when encode fails', async () => {
+      const { countTokensAccurate } = await import('../token-utils-lite');
 
       const text = 'test encoding failure';
-      const result = await countTokensAccurate(text);
-      const heuristicResult = countTokensHeuristic(text);
-
-      expect(result).toBe(heuristicResult);
+      await expect(countTokensAccurate(text)).rejects.toThrow(
+        'Accurate token counting failed: Encoding failed'
+      );
     });
   });
 
@@ -237,7 +240,7 @@ describe('token-utils-lite fallback behavior', () => {
       }));
     });
 
-    it('should use get_encoding as fallback', async () => {
+    it('uses get_encoding when encoding_for_model is unavailable', async () => {
       const { countTokensAccurate } = await import('../token-utils-lite');
 
       const text = 'hello world';
@@ -263,10 +266,12 @@ describe('token-utils-lite internal helpers', () => {
     const getGlobal = () => globalThis as unknown as Record<string, unknown>;
     let originalWindow: unknown;
     let originalSelf: unknown;
+    let originalWorkerGlobalScope: unknown;
 
     beforeEach(() => {
       originalWindow = getGlobal()['window'];
       originalSelf = getGlobal()['self'];
+      originalWorkerGlobalScope = getGlobal()['WorkerGlobalScope'];
     });
 
     afterEach(() => {
@@ -279,6 +284,11 @@ describe('token-utils-lite internal helpers', () => {
         getGlobal()['self'] = originalSelf;
       } else {
         getGlobal()['self'] = undefined;
+      }
+      if (originalWorkerGlobalScope !== undefined) {
+        getGlobal()['WorkerGlobalScope'] = originalWorkerGlobalScope;
+      } else {
+        getGlobal()['WorkerGlobalScope'] = undefined;
       }
       vi.resetModules();
     });
@@ -295,6 +305,18 @@ describe('token-utils-lite internal helpers', () => {
     it('should detect web worker environment when self.importScripts exists', async () => {
       getGlobal()['window'] = undefined;
       getGlobal()['self'] = { importScripts: () => {} };
+      vi.resetModules();
+
+      const { supportsAccurateTokenCounting } = await import('../token-utils-lite');
+      const result = await supportsAccurateTokenCounting();
+      expect(typeof result).toBe('boolean');
+    });
+
+    it('should detect module workers without relying on importScripts', async () => {
+      class MockWorkerGlobalScope {}
+      getGlobal()['window'] = undefined;
+      getGlobal()['WorkerGlobalScope'] = MockWorkerGlobalScope;
+      getGlobal()['self'] = new MockWorkerGlobalScope();
       vi.resetModules();
 
       const { supportsAccurateTokenCounting } = await import('../token-utils-lite');

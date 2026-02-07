@@ -41,8 +41,10 @@
     "@electric-sql/pglite": "^0.3.14",
     "@types/node": "^25.0.8",
     "@types/react": "^19.2.8",
-    "jsdom": "26.1.0",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "27.4.0",
     "react": "^19.2.3",
+    "react-dom": "^19.2.3",
     "rimraf": "^6.1.2",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17"

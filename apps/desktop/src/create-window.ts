@@ -1,8 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createLogger } from '@brainstrike/utils';
 import { app, BrowserWindow } from 'electron';
 import type { DesktopWindowState } from './store-schema';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
+
+const startupLogger = createLogger('CreateWindow');
+
+const resolveDistRoot = (): string => {
+  const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
+  return path.basename(appPath) === 'dist' ? appPath : path.join(appPath, 'dist');
+};
 
 /**
  * Configure security settings for the browser window.
@@ -38,45 +46,116 @@ function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
 /**
  * Connect to Vite dev server in development.
  */
+const isTestRuntime = process.env['VITEST'] === 'true';
+const DEV_SERVER_RETRY_ATTEMPTS = isTestRuntime ? 1 : 30;
+const DEV_SERVER_RETRY_DELAY_MS = isTestRuntime ? 0 : 200;
+const DEV_RENDERER_URL =
+  process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim() || 'http://localhost:8081';
+
+function shouldAutoOpenDevTools(): boolean {
+  return process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] === '1';
+}
+
+async function wait(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function connectToDevServer(win: BrowserWindow) {
-  const devPorts = [8081, 8082, 8083];
-  for (const port of devPorts) {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= DEV_SERVER_RETRY_ATTEMPTS; attempt++) {
     try {
-      await win.loadURL(`http://localhost:${port}`);
+      const attemptStart = Date.now();
+      // CRITICAL: Keep dev renderer URL deterministic.
+      // Probing multiple ports caused hidden startup slowdowns and non-deterministic
+      // behavior when another process occupied 8081 and Vite auto-shifted ports.
+      startupLogger.info('Attempting to connect desktop renderer', {
+        attempt,
+        url: DEV_RENDERER_URL,
+      });
+      await win.loadURL(DEV_RENDERER_URL);
+      startupLogger.info('Desktop renderer connection established', {
+        attempt,
+        url: DEV_RENDERER_URL,
+        elapsedMs: Date.now() - attemptStart,
+      });
       return;
     } catch (error) {
-      if (port === devPorts.at(-1)) {
-        throw error;
-      }
+      const message = error instanceof Error ? error.message : String(error);
+      startupLogger.warn('Desktop renderer connection attempt failed', {
+        attempt,
+        url: DEV_RENDERER_URL,
+        message,
+      });
+      lastError = error;
+    }
+
+    if (attempt < DEV_SERVER_RETRY_ATTEMPTS) {
+      await wait(DEV_SERVER_RETRY_DELAY_MS);
     }
   }
+
+  throw new Error(
+    `Unable to connect to dev renderer at ${DEV_RENDERER_URL} after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`,
+    {
+      cause: lastError instanceof Error ? lastError : undefined,
+    }
+  );
 }
 
 /**
  * Load the renderer content (either built files or dev server).
  */
-async function loadRenderer(win: BrowserWindow) {
-  const rendererPath = path.join(__dirname, 'renderer/index.html');
+interface LoadRendererOptions {
+  isTestMode: boolean;
+}
+
+async function loadRenderer(win: BrowserWindow, options: LoadRendererOptions) {
+  const distRoot = resolveDistRoot();
+  const rendererPath = path.join(distRoot, 'renderer/index.html');
   const hasBuiltRenderer = fs.existsSync(rendererPath);
 
   // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
   console.log(
     '[createWindow] Loading renderer...\n' +
-      `[createWindow] __dirname: ${__dirname}\n` +
+      `[createWindow] distRoot: ${distRoot}\n` +
       `[createWindow] Expected renderer path: ${rendererPath}\n` +
       `[createWindow] Has built renderer: ${hasBuiltRenderer}\n` +
       `[createWindow] Is packaged: ${app.isPackaged}`
   );
 
-  if (app.isPackaged || hasBuiltRenderer) {
+  if (app.isPackaged || options.isTestMode) {
+    if (!hasBuiltRenderer) {
+      throw new Error(
+        `Built renderer is required in packaged/test mode but was not found at ${rendererPath}`
+      );
+    }
+
     // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
-    console.log('[createWindow] Loading production renderer file');
+    console.log('[createWindow] Loading built renderer file');
     loadProductionRenderer(win, rendererPath);
-  } else {
+    return;
+  }
+
+  try {
+    // In local development, always prefer Vite dev server.
+    // Using file:// renderer in dev can break module workers (opaque origin).
     // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
-    console.log('[createWindow] Falling back to dev server');
+    console.log('[createWindow] Attempting dev server renderer first');
     await connectToDevServer(win);
-    win.webContents.openDevTools();
+    // Keep DevTools opt-in so local startup remains deterministic and we don't
+    // force-open a debug window on every launch.
+    if (shouldAutoOpenDevTools()) {
+      win.webContents.openDevTools();
+    }
+    return;
+  } catch (error) {
+    // CRITICAL: Never fall back to file:// in non-packaged mode.
+    // Loading production renderer during local dev repeatedly breaks module workers.
+    throw new Error(
+      'Dev renderer unavailable in non-packaged mode; refusing production fallback to avoid worker regressions.',
+      { cause: error instanceof Error ? error : undefined }
+    );
   }
 }
 
@@ -88,6 +167,13 @@ interface CreateWindowOptions {
 }
 
 export async function createWindow(options: CreateWindowOptions = {}) {
+  const startupStartedAt = Date.now();
+  const logStartupPhase = (phase: string, extra: Record<string, unknown> = {}) => {
+    startupLogger.info(`Window startup: ${phase}`, {
+      elapsedMs: Date.now() - startupStartedAt,
+      ...extra,
+    });
+  };
   const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
   const resolvedWindowState = ensureWindowBoundsVisible(
     resolveInitialWindowState(options.windowState)
@@ -109,7 +195,7 @@ export async function createWindow(options: CreateWindowOptions = {}) {
     minHeight: 600,
     fullscreen: isFullScreen,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(resolveDistRoot(), 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: enableSandbox,
@@ -118,22 +204,70 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       experimentalFeatures: false,
     },
     titleBarStyle: 'default',
+    backgroundColor: '#0b1020',
     show: false,
   });
+
+  logStartupPhase('browser-window-created', {
+    isTestMode,
+    isPackaged: app.isPackaged,
+  });
+
+  win.webContents.on('did-start-loading', () => {
+    logStartupPhase('did-start-loading');
+  });
+  win.webContents.on('dom-ready', () => {
+    logStartupPhase('dom-ready');
+  });
+  win.webContents.on('did-finish-load', () => {
+    logStartupPhase('did-finish-load');
+  });
+  win.webContents.on(
+    'did-fail-load',
+    (
+      _event: Electron.Event,
+      errorCode: number,
+      errorDescription: string,
+      validatedURL: string,
+      isMainFrame: boolean
+    ) => {
+      if (!isMainFrame) {
+        return;
+      }
+      startupLogger.error('Window startup: did-fail-load', {
+        elapsedMs: Date.now() - startupStartedAt,
+        errorCode,
+        errorDescription,
+        validatedURL,
+      });
+    }
+  );
 
   if (isMaximized) {
     win.maximize();
   }
 
-  // In test mode, keep window hidden; otherwise show when ready
+  // Log the lifecycle event for startup diagnostics, but do not show the window here.
+  // IMPORTANT: ready-to-show can fire for the initial about:blank document before we
+  // load the real renderer URL, which produced long plain-white windows during startup.
   if (!isTestMode) {
     win.once('ready-to-show', () => {
-      win.show();
+      logStartupPhase('ready-to-show');
     });
   }
 
   configureSecurity(win);
-  await loadRenderer(win);
+  logStartupPhase('loading-renderer');
+  await loadRenderer(win, { isTestMode });
+  logStartupPhase('renderer-load-invocation-returned');
+
+  // Show only after the target renderer has loaded.
+  // This keeps startup deterministic and avoids exposing transient blank frames.
+  const windowDestroyed = typeof win.isDestroyed === 'function' ? win.isDestroyed() : false;
+  if (!(isTestMode || windowDestroyed)) {
+    win.show();
+    logStartupPhase('window-shown');
+  }
 
   return win;
 }

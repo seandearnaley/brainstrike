@@ -95,22 +95,48 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     // Optimized tree flattening with better memoization
     const flattenTree = useCallback(
-      (nodes: IFileNode[], depth = 0, acc: { node: IFileNode; depth: number }[] = []) => {
-        for (const n of nodes) {
-          acc.push({ node: n, depth });
+      (nodes: IFileNode[]): { node: IFileNode; depth: number }[] => {
+        const acc: { node: IFileNode; depth: number }[] = [];
+
+        // Iterative DFS avoids recursion overhead and avoids allocating
+        // per-directory filtered child arrays on every flatten pass.
+        const stack: Array<{ nodes: IFileNode[]; index: number; depth: number }> = [
+          { nodes, index: 0, depth: 0 },
+        ];
+
+        while (stack.length > 0) {
+          const frame = stack.at(-1);
+          if (!frame) {
+            break;
+          }
+
+          if (frame.index >= frame.nodes.length) {
+            stack.pop();
+            continue;
+          }
+
+          const node = frame.nodes[frame.index++];
+          if (!node || node.isVisible === false) {
+            continue;
+          }
+
+          acc.push({ node, depth: frame.depth });
+
           if (
-            n.type === 'directory' &&
-            expandedDirectoryPaths.has(n.path) &&
-            n.loadState === 'loaded' &&
-            n.children
+            node.type === 'directory' &&
+            expandedDirectoryPaths.has(node.path) &&
+            node.loadState === 'loaded' &&
+            node.children &&
+            node.children.length > 0
           ) {
-            flattenTree(
-              n.children.filter((c) => c.isVisible !== false),
-              depth + 1,
-              acc
-            );
+            stack.push({
+              nodes: node.children,
+              index: 0,
+              depth: frame.depth + 1,
+            });
           }
         }
+
         return acc;
       },
       [expandedDirectoryPaths]

@@ -149,6 +149,8 @@ interface XXHashModule {
 
 let hasherInstance: XXHashModule | null = null;
 let tokenUtilsPromise: Promise<{
+  supportsAccurateTokenCounting: () => Promise<boolean>;
+  getAccurateTokenCountingFailureReason: () => string | null;
   countTokensAccurate: (text: string) => Promise<number>;
   countTokensHeuristic: (text: string) => number;
 }> | null = null;
@@ -207,12 +209,16 @@ async function initHasher(): Promise<XXHashModule> {
  * Lazy load token counting utilities
  */
 async function getTokenUtils(): Promise<{
+  supportsAccurateTokenCounting: () => Promise<boolean>;
+  getAccurateTokenCountingFailureReason: () => string | null;
   countTokensAccurate: (text: string) => Promise<number>;
   countTokensHeuristic: (text: string) => number;
 }> {
   if (!tokenUtilsPromise) {
     tokenUtilsPromise = import('./token-utils-lite')
       .then((mod) => ({
+        supportsAccurateTokenCounting: mod.supportsAccurateTokenCounting,
+        getAccurateTokenCountingFailureReason: mod.getAccurateTokenCountingFailureReason,
         countTokensAccurate: mod.countTokensAccurate,
         countTokensHeuristic: mod.countTokensHeuristic,
       }))
@@ -367,6 +373,21 @@ async function processFile(
   }
 }
 
+const TERMINAL_TOKENIZATION_ERROR_PATTERNS: RegExp[] = [
+  /^accurate token counting unavailable:/i,
+  /^accurate token counting failed:/i,
+  /tiktoken encoder failed to initialize/i,
+];
+
+function normalizeTerminalErrorMessage(errorMessage: string): string {
+  return errorMessage.trim().replace(/^error:\s*/i, '');
+}
+
+function isTerminalTokenizationError(errorMessage: string): boolean {
+  const normalized = normalizeTerminalErrorMessage(errorMessage);
+  return TERMINAL_TOKENIZATION_ERROR_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
 /**
  * Process a batch of files with progress reporting
  */
@@ -380,12 +401,30 @@ async function processBatch(requests: Omit<IndexerRequest, 'type'>[]): Promise<v
   try {
     // Pre-initialize to avoid repeated async overhead
     const [hasher, utils] = await Promise.all([initHasher(), getTokenUtils()]);
+    const requiresAccurateCounting = requests.some((request) => request.mode === 'accurate');
+    if (requiresAccurateCounting) {
+      const accurateSupported = await utils.supportsAccurateTokenCounting();
+      if (!accurateSupported) {
+        const failureReason = utils.getAccurateTokenCountingFailureReason();
+        const failureSuffix = failureReason ? ` (${failureReason})` : '';
+        throw new Error(
+          `Accurate token counting unavailable: tiktoken encoder failed to initialize${failureSuffix}`
+        );
+      }
+    }
 
     const total = requests.length;
 
     for (const [i, request] of requests.entries()) {
       log('debug', 'processBatch item start', { index: i, total, id: request.id });
       const result = await processFile(request, hasher, utils);
+
+      // Fail fast on terminal tokenizer errors. Continuing after this state only
+      // creates duplicate per-file failures for the same root cause.
+      if (result.type === 'error' && isTerminalTokenizationError(result.error)) {
+        throw new Error(result.error);
+      }
+
       self.postMessage(result);
       log('debug', 'processBatch item posted', {
         index: i,

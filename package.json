@@ -106,7 +106,6 @@
       "sharp"
     ],
     "overrides": {
-      "jsdom": "27.4.0",
       "react-helmet-async>react": "^19.0.0",
       "react-helmet-async>react-dom": "^19.0.0"
     }

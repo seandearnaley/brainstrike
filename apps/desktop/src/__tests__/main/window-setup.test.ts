@@ -19,6 +19,7 @@ const mockBrowserWindowInstance = {
   getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
   getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
   on: vi.fn(),
+  isDestroyed: vi.fn(() => false),
   webContents: {
     setWindowOpenHandler: vi.fn(),
     on: vi.fn(),
@@ -140,6 +141,7 @@ describe('window setup', () => {
     vi.resetModules();
     vi.clearAllMocks();
     mockApp.getPath.mockReturnValue('/tmp/brainstrike-test-logs');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS');
   });
 
   it('setupSecurity dev mode sets dev CSP and logs when isDevEnv is true', async () => {
@@ -189,20 +191,41 @@ describe('window setup', () => {
     expect(csp).toBe(getCSP('production'));
   });
 
-  it('createWindow dev mode tries ports sequentially and opens dev tools', async () => {
+  it('createWindow dev mode uses deterministic URL without auto-opening dev tools', async () => {
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(false);
     isDevEnvMock.mockReturnValue(false);
+    process.env['CI'] = 'false';
 
     mockBrowserWindowInstance.loadURL
       .mockRejectedValueOnce(new Error('fail1'))
       .mockResolvedValueOnce(undefined);
 
     const { createWindow } = await import('../../main');
+    await createWindow();
+
+    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+    const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map(
+      (call: [string]) => call[0]
+    );
+    for (const url of attemptedUrls) {
+      expect(url).toBe('http://localhost:8081');
+    }
+    expect(mockBrowserWindowInstance.webContents.openDevTools).not.toHaveBeenCalled();
+  });
+
+  it('createWindow dev mode opens dev tools only when explicitly enabled', async () => {
+    mockApp.isPackaged = false;
+    existsSyncMock.mockReturnValue(false);
+    isDevEnvMock.mockReturnValue(false);
+    process.env['CI'] = 'false';
+    process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] = '1';
+    mockBrowserWindowInstance.loadURL.mockResolvedValueOnce(undefined);
+
+    const { createWindow } = await import('../../main');
     const win = await createWindow();
 
     expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8081');
-    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8082');
     expect(mockBrowserWindowInstance.webContents.openDevTools).toHaveBeenCalled();
     // Vitest 4 constructor mocks return `this`, not the original mock object
     // Verify win has the expected mock functions attached

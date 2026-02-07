@@ -105,6 +105,11 @@ const getPGlite = async () => {
 // Database instance for main process
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
 let db: any = null;
+// Single-flight guard for startup/runtime callers that hit getDatabase() concurrently.
+// Without this we can spawn multiple PGlite initializations at once, which causes
+// nondeterministic wasm aborts and noisy pgvector initialization failures.
+// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
+let dbInitializationPromise: Promise<any> | null = null;
 
 // Helper to create and validate a PGlite instance with pgvector
 async function createVectorDatabase(
@@ -252,7 +257,7 @@ async function handleCorruptionError(
 
   try {
     await attemptCorruptionRecovery(context);
-    return await initializeMainDatabase(false);
+    return await initializeMainDatabaseInternal(false);
   } catch (resetErr) {
     logger.error('Auto-recovery failed:', resetErr);
     throw new Error(
@@ -267,7 +272,7 @@ async function handleCorruptionError(
  * If corruption is detected, automatically resets and retries once.
  */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-export async function initializeMainDatabase(retryAfterCorruption = true): Promise<any> {
+async function initializeMainDatabaseInternal(retryAfterCorruption = true): Promise<any> {
   if (db) {
     return db;
   }
@@ -311,6 +316,29 @@ export async function initializeMainDatabase(retryAfterCorruption = true): Promi
 
   logger.info(`Database initialized successfully at: ${dataDir}`);
   return db;
+}
+
+/**
+ * Initialize the database once per process lifecycle event loop.
+ * Concurrent callers share a single in-flight initialization.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
+export async function initializeMainDatabase(retryAfterCorruption = true): Promise<any> {
+  if (db) {
+    return db;
+  }
+
+  if (dbInitializationPromise) {
+    return await dbInitializationPromise;
+  }
+
+  dbInitializationPromise = initializeMainDatabaseInternal(retryAfterCorruption);
+
+  try {
+    return await dbInitializationPromise;
+  } finally {
+    dbInitializationPromise = null;
+  }
 }
 
 /**

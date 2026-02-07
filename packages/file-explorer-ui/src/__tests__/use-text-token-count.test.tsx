@@ -23,11 +23,9 @@ describe('useTextTokenCount', () => {
     tokenCacheMocks.useOptionalTokenCacheContext.mockReset();
   });
 
-  it('counts using heuristic fallback until the worker is ready, then re-counts', async () => {
+  it('waits for worker readiness before counting', async () => {
     let workerReady = false;
-    const countTextTokens = vi.fn(async (input: string) =>
-      workerReady ? input.length : Math.ceil(input.length / 4)
-    );
+    const countTextTokens = vi.fn(async (input: string) => input.length);
 
     tokenCacheMocks.useOptionalTokenCacheContext.mockImplementation(
       () =>
@@ -44,15 +42,15 @@ describe('useTextTokenCount', () => {
       { initialProps: { text, enabled: true } }
     );
 
-    await waitFor(() => expect(result.current.tokenCount).toBe(10));
+    await waitFor(() => expect(result.current.tokenCount).toBe(0));
     expect(result.current.loading).toBe(false);
-    expect(countTextTokens).toHaveBeenCalledTimes(1);
+    expect(countTextTokens).toHaveBeenCalledTimes(0);
 
     workerReady = true;
     rerender({ text, enabled: true });
 
     await waitFor(() => expect(result.current.tokenCount).toBe(40));
-    expect(countTextTokens).toHaveBeenCalledTimes(2);
+    expect(countTextTokens).toHaveBeenCalledTimes(1);
   });
 
   it('resets the token count when disabled', async () => {

@@ -27,6 +27,7 @@ import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerIpcHandlers } from './ipc-handlers';
 import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
+import { registerToolsIpcHandlers } from './ipc-tools';
 import {
   cloneLoggingPreferences,
   cloneLoggingSettingsPayload,
@@ -40,16 +41,16 @@ import { readStoredWindowState, registerWindowStatePersistence } from './window-
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 // Defer getPath call until app is ready - calling at module load time fails
-let logFilePath: string | undefined;
-function getLogFilePath(): string | undefined {
+let logFilePath: string | null = null;
+function getLogFilePath(): string | null {
   if (disableFileLogs) {
-    return undefined;
+    return null;
   }
-  // CRITICAL: app.getPath() throws before app.ready - return undefined and configure later
+  // CRITICAL: app.getPath() throws before app.ready - return null and configure later
   if (!app.isReady()) {
-    return undefined;
+    return null;
   }
-  if (logFilePath === undefined) {
+  if (logFilePath === null) {
     logFilePath = path.join(app.getPath('logs'), 'brainstrike.log');
   }
   return logFilePath;
@@ -415,6 +416,7 @@ app.whenReady().then(async () => {
     registerSecretsIpcHandlers(createSecretsService());
     registerAgentIpcHandlers();
     registerMcpIpcHandlers();
+    registerToolsIpcHandlers();
     logger.info('Ready-dependent IPC handlers registered successfully');
 
     // Setup security before creating windows

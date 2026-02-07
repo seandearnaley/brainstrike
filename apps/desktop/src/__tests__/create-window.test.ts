@@ -48,6 +48,7 @@ describe('createWindow', () => {
     mockBrowserWindow = {
       once: vi.fn(),
       show: vi.fn(),
+      isDestroyed: vi.fn(() => false),
       loadFile: vi.fn(),
       loadURL: vi.fn(),
       maximize: vi.fn(),
@@ -65,6 +66,7 @@ describe('createWindow', () => {
 
   afterEach(() => {
     Reflect.deleteProperty(process.env, 'CI');
+    Reflect.deleteProperty(process.env, 'BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS');
   });
 
   describe('window creation', () => {
@@ -92,6 +94,7 @@ describe('createWindow', () => {
           experimentalFeatures: false,
         },
         titleBarStyle: 'default',
+        backgroundColor: '#0b1020',
         show: false,
       });
       expect(mockBrowserWindow.maximize).toHaveBeenCalled();
@@ -202,18 +205,14 @@ describe('createWindow', () => {
       );
     });
 
-    it('should show window when ready in non-headless mode', async () => {
+    it('should show window after renderer load in non-headless mode', async () => {
       existsSyncMock.mockReturnValue(true);
       Reflect.deleteProperty(process.env, 'CI');
+      mockBrowserWindow.loadURL.mockResolvedValue(undefined);
 
       await createWindow();
 
       expect(mockBrowserWindow.once).toHaveBeenCalledWith('ready-to-show', expect.any(Function));
-
-      // Trigger the ready-to-show callback
-      const readyCallback = mockBrowserWindow.once.mock.calls[0][1];
-      readyCallback();
-
       expect(mockBrowserWindow.show).toHaveBeenCalled();
     });
 
@@ -263,19 +262,23 @@ describe('createWindow', () => {
 
       expect(mockWebContents.on).toHaveBeenCalledWith('will-navigate', expect.any(Function));
 
-      const handler = mockWebContents.on.mock.calls[0][1];
+      const willNavigateCall = mockWebContents.on.mock.calls.find(
+        (call: [string, (event: unknown, url: string) => void]) => call[0] === 'will-navigate'
+      );
+      expect(willNavigateCall).toBeDefined();
+      const handler = willNavigateCall?.[1];
       const mockEvent = { preventDefault: vi.fn() };
 
       // Should allow localhost
-      handler(mockEvent, 'http://localhost:3000/path');
+      handler?.(mockEvent, 'http://localhost:3000/path');
       expect(mockEvent.preventDefault).not.toHaveBeenCalled();
 
       // Should allow file protocol
-      handler(mockEvent, 'file:///some/path');
+      handler?.(mockEvent, 'file:///some/path');
       expect(mockEvent.preventDefault).not.toHaveBeenCalled();
 
       // Should prevent external navigation
-      handler(mockEvent, 'https://external.com');
+      handler?.(mockEvent, 'https://external.com');
       expect(mockEvent.preventDefault).toHaveBeenCalled();
     });
   });
@@ -293,16 +296,16 @@ describe('createWindow', () => {
       expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
     });
 
-    it('should load production renderer when built files exist', async () => {
+    it('should load development renderer when built files exist in dev mode', async () => {
       existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      mockBrowserWindow.loadURL.mockResolvedValue(undefined);
 
       await createWindow();
 
-      expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
-        expect.stringContaining('renderer/index.html')
-      );
-      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
     it('should connect to dev server when not packaged and no built files', async () => {
@@ -313,36 +316,93 @@ describe('createWindow', () => {
       await createWindow();
 
       expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
-      expect(mockWebContents.openDevTools).toHaveBeenCalled();
+      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
 
-    it('should try multiple ports for dev server', async () => {
-      existsSyncMock.mockReturnValue(false);
+    it('should load built renderer in CI test mode when not packaged', async () => {
+      existsSyncMock.mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
-
-      // First two ports fail, third succeeds
-      mockBrowserWindow.loadURL
-        .mockRejectedValueOnce(new Error('Port 8081 unavailable'))
-        .mockRejectedValueOnce(new Error('Port 8082 unavailable'))
-        .mockResolvedValueOnce(undefined);
+      process.env['CI'] = 'true';
 
       await createWindow();
 
-      expect(mockBrowserWindow.loadURL).toHaveBeenCalledTimes(3);
-      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(1, 'http://localhost:8081');
-      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(2, 'http://localhost:8082');
-      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(3, 'http://localhost:8083');
+      expect(mockBrowserWindow.loadFile).toHaveBeenCalledWith(
+        expect.stringContaining('renderer/index.html')
+      );
+      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
     });
 
-    it('should throw error if all dev server ports fail', async () => {
+    it('should throw in CI test mode if built renderer is missing', async () => {
+      existsSyncMock.mockReturnValue(false);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      process.env['CI'] = 'true';
+
+      await expect(createWindow()).rejects.toThrow(
+        'Built renderer is required in packaged/test mode but was not found'
+      );
+
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).not.toHaveBeenCalled();
+    });
+
+    it('should open devtools only when explicitly enabled', async () => {
+      existsSyncMock.mockReturnValue(false);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      process.env['BRAINSTRIKE_DESKTOP_OPEN_DEVTOOLS'] = '1';
+      await createWindow();
+
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+      expect(mockWebContents.openDevTools).toHaveBeenCalledTimes(1);
+    });
+
+    it('should refuse production fallback when dev server fails even with built files', async () => {
+      existsSyncMock.mockReturnValue(true);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+      mockBrowserWindow.loadURL.mockRejectedValue(new Error('Dev server unavailable'));
+
+      await expect(createWindow()).rejects.toThrow(
+        'Dev renderer unavailable in non-packaged mode; refusing production fallback'
+      );
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
+      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(1, 'http://localhost:8081');
+      const attemptedUrls = mockBrowserWindow.loadURL.mock.calls.map((call: [string]) => call[0]);
+      for (const url of attemptedUrls) {
+        expect(url).toBe('http://localhost:8081');
+      }
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
+      expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
+    });
+
+    it('should attempt the deterministic dev server URL in test runtime', async () => {
+      existsSyncMock.mockReturnValue(false);
+      Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
+
+      mockBrowserWindow.loadURL.mockResolvedValueOnce(undefined);
+
+      await createWindow();
+
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledTimes(1);
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+    });
+
+    it('should throw error if deterministic dev renderer URL fails repeatedly', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
 
       const error = new Error('All ports unavailable');
       mockBrowserWindow.loadURL.mockRejectedValue(error);
 
-      await expect(createWindow()).rejects.toThrow('All ports unavailable');
+      await expect(createWindow()).rejects.toThrow(
+        'Dev renderer unavailable in non-packaged mode; refusing production fallback'
+      );
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
+      const attemptedUrls = mockBrowserWindow.loadURL.mock.calls.map((call: [string]) => call[0]);
+      for (const url of attemptedUrls) {
+        expect(url).toBe('http://localhost:8081');
+      }
+      expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
   });
 });

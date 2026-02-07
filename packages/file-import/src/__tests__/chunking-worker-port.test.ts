@@ -286,7 +286,7 @@ describe('createChunkingWorkerPort', () => {
       expect(callbacks.onFileComplete).toHaveBeenCalledTimes(2);
     });
 
-    it('should handle errors in batch and continue processing', async () => {
+    it('should reject batch when any file errors', async () => {
       const port = createChunkingWorkerPort(mockWorker);
       mockWorker.simulateMessage({ type: 'ready' });
 
@@ -311,23 +311,37 @@ describe('createChunkingWorkerPort', () => {
       mockWorker.simulateMessage(error);
 
       expect(callbacks.onFileError).toHaveBeenCalledWith('file-1', 'Parse failed');
+      await expect(promise).rejects.toThrow('Chunking batch failed for file-1: Parse failed');
+    });
 
-      // Second file succeeds
+    it('enters terminal failure state on tokenizer initialization errors', async () => {
+      const port = createChunkingWorkerPort(mockWorker);
+      mockWorker.simulateMessage({ type: 'ready' });
+
+      const files = [
+        { fileRecordId: 'file-1', content: 'content 1', fileName: 'a.ts', filePath: '/a.ts' },
+        { fileRecordId: 'file-2', content: 'content 2', fileName: 'b.ts', filePath: '/b.ts' },
+      ];
+
+      const promise = port.chunkBatch(files, { strategy: 'sentence', tokenTrueSizing: true });
+
       mockWorker.simulateMessage({
-        type: 'result',
-        id: 'chunk-2',
-        fileRecordId: 'file-2',
-        chunks: [],
-        strategyUsed: 'sentence',
-        totalTokens: 20,
-        skipped: false,
-      } satisfies ChunkResult);
+        type: 'error',
+        id: 'chunk-1',
+        fileRecordId: 'file-1',
+        error: 'Error: Accurate token counting unavailable: tiktoken encoder failed to initialize',
+      } satisfies ChunkError);
 
-      const results = await promise;
-      expect(results).toHaveLength(2);
-      expect(results[0]?.skipped).toBe(true);
-      expect(results[0]?.skipReason).toBe('Parse failed');
-      expect(results[1]?.skipped).toBe(false);
+      await expect(promise).rejects.toThrow('terminal tokenizer failure state');
+      expect(port.isReady()).toBe(false);
+      expect(mockWorker.terminate).toHaveBeenCalled();
+
+      await expect(
+        port.chunkFile('file-3', 'content', 'c.ts', '/c.ts', {
+          strategy: 'sentence',
+          tokenTrueSizing: true,
+        })
+      ).rejects.toThrow('terminal tokenizer failure state');
     });
   });
 
