@@ -1,8 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createLogger } from '@brainstrike/utils';
 import { app, BrowserWindow } from 'electron';
 import type { DesktopWindowState } from './store-schema';
 import { ensureWindowBoundsVisible, resolveInitialWindowState } from './window-state';
+
+const startupLogger = createLogger('CreateWindow');
 
 const resolveDistRoot = (): string => {
   const appPath = typeof app.getAppPath === 'function' ? app.getAppPath() : process.cwd();
@@ -62,12 +65,28 @@ async function connectToDevServer(win: BrowserWindow) {
 
   for (let attempt = 1; attempt <= DEV_SERVER_RETRY_ATTEMPTS; attempt++) {
     try {
+      const attemptStart = Date.now();
       // CRITICAL: Keep dev renderer URL deterministic.
       // Probing multiple ports caused hidden startup slowdowns and non-deterministic
       // behavior when another process occupied 8081 and Vite auto-shifted ports.
+      startupLogger.info('Attempting to connect desktop renderer', {
+        attempt,
+        url: DEV_RENDERER_URL,
+      });
       await win.loadURL(DEV_RENDERER_URL);
+      startupLogger.info('Desktop renderer connection established', {
+        attempt,
+        url: DEV_RENDERER_URL,
+        elapsedMs: Date.now() - attemptStart,
+      });
       return;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      startupLogger.warn('Desktop renderer connection attempt failed', {
+        attempt,
+        url: DEV_RENDERER_URL,
+        message,
+      });
       lastError = error;
     }
 
@@ -138,6 +157,13 @@ interface CreateWindowOptions {
 }
 
 export async function createWindow(options: CreateWindowOptions = {}) {
+  const startupStartedAt = Date.now();
+  const logStartupPhase = (phase: string, extra: Record<string, unknown> = {}) => {
+    startupLogger.info(`Window startup: ${phase}`, {
+      elapsedMs: Date.now() - startupStartedAt,
+      ...extra,
+    });
+  };
   const isTestMode = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
   const resolvedWindowState = ensureWindowBoundsVisible(
     resolveInitialWindowState(options.windowState)
@@ -168,24 +194,70 @@ export async function createWindow(options: CreateWindowOptions = {}) {
       experimentalFeatures: false,
     },
     titleBarStyle: 'default',
+    backgroundColor: '#0b1020',
     show: false,
   });
+
+  logStartupPhase('browser-window-created', {
+    isTestMode,
+    isPackaged: app.isPackaged,
+  });
+
+  win.webContents.on('did-start-loading', () => {
+    logStartupPhase('did-start-loading');
+  });
+  win.webContents.on('dom-ready', () => {
+    logStartupPhase('dom-ready');
+  });
+  win.webContents.on('did-finish-load', () => {
+    logStartupPhase('did-finish-load');
+  });
+  win.webContents.on(
+    'did-fail-load',
+    (
+      _event: Electron.Event,
+      errorCode: number,
+      errorDescription: string,
+      validatedURL: string,
+      isMainFrame: boolean
+    ) => {
+      if (!isMainFrame) {
+        return;
+      }
+      startupLogger.error('Window startup: did-fail-load', {
+        elapsedMs: Date.now() - startupStartedAt,
+        errorCode,
+        errorDescription,
+        validatedURL,
+      });
+    }
+  );
 
   if (isMaximized) {
     win.maximize();
   }
 
-  // In test mode, keep window hidden; otherwise show when ready
+  // Log the lifecycle event for startup diagnostics, but do not show the window here.
+  // IMPORTANT: ready-to-show can fire for the initial about:blank document before we
+  // load the real renderer URL, which produced long plain-white windows during startup.
   if (!isTestMode) {
     win.once('ready-to-show', () => {
-      if (!win.isDestroyed()) {
-        win.show();
-      }
+      logStartupPhase('ready-to-show');
     });
   }
 
   configureSecurity(win);
+  logStartupPhase('loading-renderer');
   await loadRenderer(win);
+  logStartupPhase('renderer-load-invocation-returned');
+
+  // Show only after the target renderer has loaded.
+  // This keeps startup deterministic and avoids exposing transient blank frames.
+  const windowDestroyed = typeof win.isDestroyed === 'function' ? win.isDestroyed() : false;
+  if (!(isTestMode || windowDestroyed)) {
+    win.show();
+    logStartupPhase('window-shown');
+  }
 
   return win;
 }

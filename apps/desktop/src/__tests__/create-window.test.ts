@@ -94,6 +94,7 @@ describe('createWindow', () => {
           experimentalFeatures: false,
         },
         titleBarStyle: 'default',
+        backgroundColor: '#0b1020',
         show: false,
       });
       expect(mockBrowserWindow.maximize).toHaveBeenCalled();
@@ -204,18 +205,14 @@ describe('createWindow', () => {
       );
     });
 
-    it('should show window when ready in non-headless mode', async () => {
+    it('should show window after renderer load in non-headless mode', async () => {
       existsSyncMock.mockReturnValue(true);
       Reflect.deleteProperty(process.env, 'CI');
+      mockBrowserWindow.loadURL.mockResolvedValue(undefined);
 
       await createWindow();
 
       expect(mockBrowserWindow.once).toHaveBeenCalledWith('ready-to-show', expect.any(Function));
-
-      // Trigger the ready-to-show callback
-      const readyCallback = mockBrowserWindow.once.mock.calls[0][1];
-      readyCallback();
-
       expect(mockBrowserWindow.show).toHaveBeenCalled();
     });
 
@@ -265,19 +262,23 @@ describe('createWindow', () => {
 
       expect(mockWebContents.on).toHaveBeenCalledWith('will-navigate', expect.any(Function));
 
-      const handler = mockWebContents.on.mock.calls[0][1];
+      const willNavigateCall = mockWebContents.on.mock.calls.find(
+        (call: [string, (event: unknown, url: string) => void]) => call[0] === 'will-navigate'
+      );
+      expect(willNavigateCall).toBeDefined();
+      const handler = willNavigateCall?.[1];
       const mockEvent = { preventDefault: vi.fn() };
 
       // Should allow localhost
-      handler(mockEvent, 'http://localhost:3000/path');
+      handler?.(mockEvent, 'http://localhost:3000/path');
       expect(mockEvent.preventDefault).not.toHaveBeenCalled();
 
       // Should allow file protocol
-      handler(mockEvent, 'file:///some/path');
+      handler?.(mockEvent, 'file:///some/path');
       expect(mockEvent.preventDefault).not.toHaveBeenCalled();
 
       // Should prevent external navigation
-      handler(mockEvent, 'https://external.com');
+      handler?.(mockEvent, 'https://external.com');
       expect(mockEvent.preventDefault).toHaveBeenCalled();
     });
   });
