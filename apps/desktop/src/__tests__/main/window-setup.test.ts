@@ -19,6 +19,7 @@ const mockBrowserWindowInstance = {
   getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
   getNormalBounds: vi.fn(() => ({ x: 0, y: 0, width: 1536, height: 800 })),
   on: vi.fn(),
+  isDestroyed: vi.fn(() => false),
   webContents: {
     setWindowOpenHandler: vi.fn(),
     on: vi.fn(),
@@ -189,7 +190,7 @@ describe('window setup', () => {
     expect(csp).toBe(getCSP('production'));
   });
 
-  it('createWindow dev mode tries ports sequentially and opens dev tools', async () => {
+  it('createWindow dev mode uses deterministic URL and opens dev tools', async () => {
     mockApp.isPackaged = false;
     existsSyncMock.mockReturnValue(false);
     isDevEnvMock.mockReturnValue(false);
@@ -199,10 +200,28 @@ describe('window setup', () => {
       .mockResolvedValueOnce(undefined);
 
     const { createWindow } = await import('../../main');
+    await createWindow();
+
+    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8081');
+    const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map(
+      (call: [string]) => call[0]
+    );
+    for (const url of attemptedUrls) {
+      expect(url).toBe('http://localhost:8081');
+    }
+    expect(mockBrowserWindowInstance.webContents.openDevTools).toHaveBeenCalled();
+  });
+
+  it('createWindow dev mode opens dev tools when renderer URL loads', async () => {
+    mockApp.isPackaged = false;
+    existsSyncMock.mockReturnValue(false);
+    isDevEnvMock.mockReturnValue(false);
+    mockBrowserWindowInstance.loadURL.mockResolvedValueOnce(undefined);
+
+    const { createWindow } = await import('../../main');
     const win = await createWindow();
 
     expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8081');
-    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8082');
     expect(mockBrowserWindowInstance.webContents.openDevTools).toHaveBeenCalled();
     // Vitest 4 constructor mocks return `this`, not the original mock object
     // Verify win has the expected mock functions attached

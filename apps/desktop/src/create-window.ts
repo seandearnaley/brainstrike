@@ -46,23 +46,26 @@ function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
 const isTestRuntime = process.env['VITEST'] === 'true';
 const DEV_SERVER_RETRY_ATTEMPTS = isTestRuntime ? 1 : 30;
 const DEV_SERVER_RETRY_DELAY_MS = isTestRuntime ? 0 : 200;
+const DEV_RENDERER_URL =
+  process.env['BRAINSTRIKE_DESKTOP_DEV_SERVER_URL']?.trim() || 'http://localhost:8081';
+const SHOW_WINDOW_FALLBACK_MS = 800;
 
 async function wait(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function connectToDevServer(win: BrowserWindow) {
-  const devPorts = [8081, 8082, 8083];
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= DEV_SERVER_RETRY_ATTEMPTS; attempt++) {
-    for (const port of devPorts) {
-      try {
-        await win.loadURL(`http://localhost:${port}`);
-        return;
-      } catch (error) {
-        lastError = error;
-      }
+    try {
+      // CRITICAL: Keep dev renderer URL deterministic.
+      // Probing multiple ports caused hidden startup slowdowns and non-deterministic
+      // behavior when another process occupied 8081 and Vite auto-shifted ports.
+      await win.loadURL(DEV_RENDERER_URL);
+      return;
+    } catch (error) {
+      lastError = error;
     }
 
     if (attempt < DEV_SERVER_RETRY_ATTEMPTS) {
@@ -70,9 +73,12 @@ async function connectToDevServer(win: BrowserWindow) {
     }
   }
 
-  throw new Error(`Unable to connect to dev renderer after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`, {
-    cause: lastError instanceof Error ? lastError : undefined,
-  });
+  throw new Error(
+    `Unable to connect to dev renderer at ${DEV_RENDERER_URL} after ${DEV_SERVER_RETRY_ATTEMPTS} attempts`,
+    {
+      cause: lastError instanceof Error ? lastError : undefined,
+    }
+  );
 }
 
 /**
@@ -164,8 +170,27 @@ export async function createWindow(options: CreateWindowOptions = {}) {
 
   // In test mode, keep window hidden; otherwise show when ready
   if (!isTestMode) {
-    win.once('ready-to-show', () => {
+    let windowShown = false;
+    const showWindow = () => {
+      if (windowShown || win.isDestroyed()) {
+        return;
+      }
+      windowShown = true;
       win.show();
+    };
+
+    const fallbackTimer = setTimeout(() => {
+      // Render cold-starts (especially in dev) can delay `ready-to-show` by several seconds.
+      // Force-show after a short timeout so startup doesn't feel like a hang/blank launch.
+      showWindow();
+    }, SHOW_WINDOW_FALLBACK_MS);
+
+    win.once('ready-to-show', () => {
+      clearTimeout(fallbackTimer);
+      showWindow();
+    });
+    win.once('closed', () => {
+      clearTimeout(fallbackTimer);
     });
   }
 

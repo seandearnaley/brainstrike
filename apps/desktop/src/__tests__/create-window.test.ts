@@ -48,6 +48,7 @@ describe('createWindow', () => {
     mockBrowserWindow = {
       once: vi.fn(),
       show: vi.fn(),
+      isDestroyed: vi.fn(() => false),
       loadFile: vi.fn(),
       loadURL: vi.fn(),
       maximize: vi.fn(),
@@ -327,32 +328,27 @@ describe('createWindow', () => {
       );
       expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
       expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(1, 'http://localhost:8081');
-      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(2, 'http://localhost:8082');
-      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(3, 'http://localhost:8083');
-      expect(mockBrowserWindow.loadURL.mock.calls.length).toBeGreaterThanOrEqual(3);
+      const attemptedUrls = mockBrowserWindow.loadURL.mock.calls.map((call: [string]) => call[0]);
+      for (const url of attemptedUrls) {
+        expect(url).toBe('http://localhost:8081');
+      }
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
     });
 
-    it('should try multiple ports for dev server', async () => {
+    it('should attempt the deterministic dev server URL in test runtime', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
 
-      // First two ports fail, third succeeds
-      mockBrowserWindow.loadURL
-        .mockRejectedValueOnce(new Error('Port 8081 unavailable'))
-        .mockRejectedValueOnce(new Error('Port 8082 unavailable'))
-        .mockResolvedValueOnce(undefined);
+      mockBrowserWindow.loadURL.mockResolvedValueOnce(undefined);
 
       await createWindow();
 
-      expect(mockBrowserWindow.loadURL).toHaveBeenCalledTimes(3);
-      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(1, 'http://localhost:8081');
-      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(2, 'http://localhost:8082');
-      expect(mockBrowserWindow.loadURL).toHaveBeenNthCalledWith(3, 'http://localhost:8083');
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledTimes(1);
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalledWith('http://localhost:8081');
     });
 
-    it('should throw error if all dev server ports fail', async () => {
+    it('should throw error if deterministic dev renderer URL fails repeatedly', async () => {
       existsSyncMock.mockReturnValue(false);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: false, configurable: true });
 
@@ -362,7 +358,11 @@ describe('createWindow', () => {
       await expect(createWindow()).rejects.toThrow(
         'Dev renderer unavailable in non-packaged mode; refusing production fallback'
       );
-      expect(mockBrowserWindow.loadURL.mock.calls.length).toBeGreaterThanOrEqual(3);
+      expect(mockBrowserWindow.loadURL).toHaveBeenCalled();
+      const attemptedUrls = mockBrowserWindow.loadURL.mock.calls.map((call: [string]) => call[0]);
+      for (const url of attemptedUrls) {
+        expect(url).toBe('http://localhost:8081');
+      }
       expect(mockBrowserWindow.loadFile).not.toHaveBeenCalled();
     });
   });

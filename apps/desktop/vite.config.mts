@@ -183,7 +183,11 @@ export default defineConfig({
     'process.versions': 'undefined',
   },
   server: {
-    port: 8081, // Different port from web app to avoid conflicts
+    // CRITICAL: keep desktop renderer dev URL deterministic (http://localhost:8081).
+    // Electron startup depends on this exact URL; auto-shifting ports causes long
+    // startup stalls and non-deterministic renderer boot behavior.
+    port: 8081,
+    strictPort: true,
     headers: {
       'Content-Security-Policy': getDevCSP(),
     },
