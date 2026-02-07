@@ -18,6 +18,18 @@ import {
   registerLoggingIpcHandlers,
 } from '../../logging-ipc';
 
+function createDeferred<T>() {
+  let resolve: (value: T | PromiseLike<T>) => void = () => {};
+  let reject: (reason?: unknown) => void = () => {};
+
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve;
+    reject = promiseReject;
+  });
+
+  return { promise, resolve, reject };
+}
+
 describe('logging-ipc', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -121,5 +133,71 @@ describe('logging-ipc', () => {
     expect(cloned).toEqual(basePreferences);
     expect(cloned.redactPaths).not.toBe(basePreferences.redactPaths);
     expect(cloned.file).not.toBe(basePreferences.file);
+  });
+
+  it('serializes async logging preference updates to preserve call order', async () => {
+    const firstDeferred = createDeferred<{
+      preferences: LoggingPreferences;
+      capabilities: { canOpenDestination: boolean };
+    }>();
+    const setPreferences = vi
+      .fn<
+        (_preferences: LoggingPreferences) => Promise<{
+          preferences: LoggingPreferences;
+          capabilities: { canOpenDestination: boolean };
+        }>
+      >()
+      .mockImplementationOnce(async (preferences: LoggingPreferences) => {
+        const payload = await firstDeferred.promise;
+        return { ...payload, preferences };
+      })
+      .mockImplementation(async (preferences: LoggingPreferences) => ({
+        preferences,
+        capabilities: { canOpenDestination: true },
+      }));
+
+    registerLoggingIpcHandlers({
+      getState: () => ({
+        preferences: basePreferences,
+        capabilities: { canOpenDestination: true },
+      }),
+      setPreferences,
+      selectDestination: async () => '/tmp',
+      openDestination: async () => true,
+      getBufferedLogs: () => [],
+    });
+
+    const setPreferencesHandler = vi
+      .mocked(ipcMain.handle)
+      .mock.calls.find(([channel]) => channel === 'logging:set-preferences')?.[1] as (
+      event: IpcMainInvokeEvent,
+      preferences: LoggingPreferences
+    ) => Promise<unknown>;
+
+    const firstPreferences: LoggingPreferences = {
+      ...basePreferences,
+      level: 'debug',
+    };
+    const secondPreferences: LoggingPreferences = {
+      ...basePreferences,
+      level: 'warn',
+    };
+
+    const firstCall = setPreferencesHandler({} as IpcMainInvokeEvent, firstPreferences);
+    const secondCall = setPreferencesHandler({} as IpcMainInvokeEvent, secondPreferences);
+
+    await Promise.resolve();
+    expect(setPreferences).toHaveBeenCalledTimes(1);
+
+    firstDeferred.resolve({
+      preferences: firstPreferences,
+      capabilities: { canOpenDestination: true },
+    });
+    await firstCall;
+    await secondCall;
+
+    expect(setPreferences).toHaveBeenCalledTimes(2);
+    expect(setPreferences.mock.calls[0]?.[0]).toEqual(firstPreferences);
+    expect(setPreferences.mock.calls[1]?.[0]).toEqual(secondPreferences);
   });
 });

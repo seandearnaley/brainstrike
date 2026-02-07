@@ -15,12 +15,24 @@ export interface LoggingIpcHandlers {
 export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): void {
   ipcMain.handle('logging:get-preferences', () => handlers.getState());
 
+  let preferencesUpdateQueue: Promise<void> = Promise.resolve();
+
   ipcMain.handle(
     'logging:set-preferences',
     async (_event, preferences: LoggingPreferences): Promise<LoggingSettingsPayload> => {
-      const payload = await handlers.setPreferences(preferences);
-      broadcastLoggingPreferences(payload.preferences);
-      return payload;
+      const runUpdate = async (): Promise<LoggingSettingsPayload> => {
+        const payload = await handlers.setPreferences(preferences);
+        broadcastLoggingPreferences(payload.preferences);
+        return payload;
+      };
+
+      const queuedUpdate = preferencesUpdateQueue.then(runUpdate, runUpdate);
+      preferencesUpdateQueue = queuedUpdate.then(
+        () => undefined,
+        () => undefined
+      );
+
+      return queuedUpdate;
     }
   );
 
