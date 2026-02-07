@@ -221,6 +221,7 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
 /**
  * Normalize an embedding vector to unit length
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: performance optimization
 export function normalize(embedding: number[]): number[] {
   const len = embedding.length;
   if (len === 0) {
@@ -228,7 +229,27 @@ export function normalize(embedding: number[]): number[] {
   }
 
   let norm = 0;
-  for (let i = 0; i < len; i++) {
+  let i = 0;
+  const len4 = len - (len % 4);
+
+  // Unrolled loop (stride 4)
+  for (; i < len4; i += 4) {
+    const v1 = embedding[i];
+    const v2 = embedding[i + 1];
+    const v3 = embedding[i + 2];
+    const v4 = embedding[i + 3];
+
+    if (v1 === undefined || v2 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v3 === undefined || v4 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+
+    norm += v1 * v1 + v2 * v2 + v3 * v3 + v4 * v4;
+  }
+
+  for (; i < len; i++) {
     const val = embedding[i];
     if (val === undefined) {
       throw new Error('Sparse arrays are not supported');
@@ -242,7 +263,29 @@ export function normalize(embedding: number[]): number[] {
 
   const normSqrt = Math.sqrt(norm);
   const result = new Array<number>(len);
-  for (let i = 0; i < len; i++) {
+
+  i = 0;
+  // Unrolled loop (stride 4)
+  for (; i < len4; i += 4) {
+    const v1 = embedding[i];
+    const v2 = embedding[i + 1];
+    const v3 = embedding[i + 2];
+    const v4 = embedding[i + 3];
+
+    if (v1 === undefined || v2 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v3 === undefined || v4 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+
+    result[i] = v1 / normSqrt;
+    result[i + 1] = v2 / normSqrt;
+    result[i + 2] = v3 / normSqrt;
+    result[i + 3] = v4 / normSqrt;
+  }
+
+  for (; i < len; i++) {
     const val = embedding[i];
     if (val === undefined) {
       throw new Error('Sparse arrays are not supported');
@@ -262,7 +305,27 @@ export function magnitude(embedding: number[]): number {
   }
 
   let sum = 0;
-  for (let i = 0; i < len; i++) {
+  let i = 0;
+  const len4 = len - (len % 4);
+
+  // Unrolled loop (stride 4)
+  for (; i < len4; i += 4) {
+    const v1 = embedding[i];
+    const v2 = embedding[i + 1];
+    const v3 = embedding[i + 2];
+    const v4 = embedding[i + 3];
+
+    if (v1 === undefined || v2 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v3 === undefined || v4 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+
+    sum += v1 * v1 + v2 * v2 + v3 * v3 + v4 * v4;
+  }
+
+  for (; i < len; i++) {
     const val = embedding[i];
     if (val === undefined) {
       throw new Error('Sparse arrays are not supported');
