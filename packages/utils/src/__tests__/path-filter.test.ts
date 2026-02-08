@@ -73,6 +73,22 @@ describe('fileFilter', () => {
       expect(fileFilter.shouldIgnorePath('a/b/c/node_modules/d/e')).toBe(true);
       expect(fileFilter.shouldIgnorePath('project/src/.git/hooks/pre-commit')).toBe(true);
     });
+
+    // NEW: Test partial matches (should NOT be ignored)
+    it('should NOT ignore partial matches of default patterns', () => {
+      const partialMatches = [
+        'src/distributed/file.ts', // contains 'dist'
+        'rebuild/file.ts',         // contains 'build'
+        'my-dist-folder/file.ts',  // contains 'dist'
+        'redistribution/file.ts',  // contains 'dist'
+        'builder/file.ts',         // contains 'build'
+        'my_node_modules/file.ts', // contains 'node_modules'
+      ];
+
+      for (const path of partialMatches) {
+        expect(fileFilter.shouldIgnorePath(path)).toBe(false);
+      }
+    });
   });
 
   describe('matchWildcard', () => {
