@@ -12,6 +12,7 @@ import {
   type McpConfig,
   type McpServer,
   parseMcpConfig,
+  setCustomMcpConfigPath,
   watchMcpConfig,
   withDecryptedSecrets,
 } from '../../mcp-loader';
@@ -31,12 +32,15 @@ vi.mock('node:fs', () => ({
   default: {
     watch: vi.fn(),
   },
+  existsSync: vi.fn(),
 }));
 
 vi.mock('node:fs/promises', () => ({
   default: {
     mkdir: vi.fn(),
     readFile: vi.fn(),
+    writeFile: vi.fn(),
+    unlink: vi.fn(),
   },
 }));
 
@@ -44,12 +48,32 @@ vi.mock('node:fs/promises', () => ({
 const mockedSafeStorage = vi.mocked(safeStorage);
 const mockedFs = vi.mocked(fs as unknown as { watch: ReturnType<typeof vi.fn> });
 const mockedFsp = vi.mocked(
-  fsp as unknown as { mkdir: ReturnType<typeof vi.fn>; readFile: ReturnType<typeof vi.fn> }
+  fsp as unknown as {
+    mkdir: ReturnType<typeof vi.fn>;
+    readFile: ReturnType<typeof vi.fn>;
+    writeFile: ReturnType<typeof vi.fn>;
+    unlink: ReturnType<typeof vi.fn>;
+  }
 );
 
 describe('mcp-loader comprehensive tests', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Default behavior: custom path file does not exist
+    mockedFsp.readFile.mockImplementation(async (path) => {
+      if (path.toString().endsWith('mcp-custom-path.txt')) {
+        const error: any = new Error('File not found');
+        error.code = 'ENOENT';
+        throw error;
+      }
+      return undefined as never;
+    });
+    // Ensure we start with a clean state for custom path
+    try {
+      await setCustomMcpConfigPath(null);
+    } catch {
+      // Ignore errors during reset
+    }
   });
 
   afterEach(() => {
@@ -414,7 +438,14 @@ describe('mcp-loader comprehensive tests', () => {
       const mockConfig = {
         servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }],
       };
-      mockedFsp.readFile.mockResolvedValue(JSON.stringify(mockConfig) as never);
+      mockedFsp.readFile.mockImplementation(async (path) => {
+        if (path.toString().endsWith('mcp-custom-path.txt')) {
+          const error: any = new Error('File not found');
+          error.code = 'ENOENT';
+          throw error;
+        }
+        return JSON.stringify(mockConfig) as never;
+      });
 
       const result = await loadMcpConfig();
 
@@ -427,9 +458,16 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should handle file not found', async () => {
       type NodeError = Error & { code?: string };
-      const error: NodeError = new Error('File not found');
-      error.code = 'ENOENT';
-      mockedFsp.readFile.mockRejectedValue(error as never);
+      mockedFsp.readFile.mockImplementation(async (path) => {
+        if (path.toString().endsWith('mcp-custom-path.txt')) {
+          const error: any = new Error('File not found');
+          error.code = 'ENOENT';
+          throw error;
+        }
+        const error: NodeError = new Error('File not found');
+        error.code = 'ENOENT';
+        throw error;
+      });
 
       const result = await loadMcpConfig();
 
@@ -439,8 +477,14 @@ describe('mcp-loader comprehensive tests', () => {
     });
 
     it('should handle no such file error message', async () => {
-      const error = new Error('no such file or directory');
-      mockedFsp.readFile.mockRejectedValue(error as never);
+      mockedFsp.readFile.mockImplementation(async (path) => {
+        if (path.toString().endsWith('mcp-custom-path.txt')) {
+          const error: any = new Error('File not found');
+          error.code = 'ENOENT';
+          throw error;
+        }
+        throw new Error('no such file or directory');
+      });
 
       const result = await loadMcpConfig();
 
@@ -448,7 +492,14 @@ describe('mcp-loader comprehensive tests', () => {
     });
 
     it('should handle other errors', async () => {
-      mockedFsp.readFile.mockRejectedValue(new Error('Permission denied') as never);
+      mockedFsp.readFile.mockImplementation(async (path) => {
+        if (path.toString().endsWith('mcp-custom-path.txt')) {
+          const error: any = new Error('File not found');
+          error.code = 'ENOENT';
+          throw error;
+        }
+        throw new Error('Permission denied');
+      });
 
       const result = await loadMcpConfig();
 
@@ -458,7 +509,14 @@ describe('mcp-loader comprehensive tests', () => {
     });
 
     it('should handle invalid JSON', async () => {
-      mockedFsp.readFile.mockResolvedValue('invalid json' as never);
+      mockedFsp.readFile.mockImplementation(async (path) => {
+        if (path.toString().endsWith('mcp-custom-path.txt')) {
+          const error: any = new Error('File not found');
+          error.code = 'ENOENT';
+          throw error;
+        }
+        return 'invalid json' as never;
+      });
 
       const result = await loadMcpConfig();
 
@@ -485,7 +543,14 @@ describe('mcp-loader comprehensive tests', () => {
       const mockConfig = {
         servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }],
       };
-      mockedFsp.readFile.mockResolvedValue(JSON.stringify(mockConfig) as never);
+      mockedFsp.readFile.mockImplementation(async (path) => {
+        if (path.toString().endsWith('mcp-custom-path.txt')) {
+          const error: any = new Error('File not found');
+          error.code = 'ENOENT';
+          throw error;
+        }
+        return JSON.stringify(mockConfig) as never;
+      });
 
       const watcher = await watchMcpConfig(onChange);
 
@@ -528,7 +593,14 @@ describe('mcp-loader comprehensive tests', () => {
       const mockConfig = {
         servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }],
       };
-      mockedFsp.readFile.mockResolvedValue(JSON.stringify(mockConfig) as never);
+      mockedFsp.readFile.mockImplementation(async (path) => {
+        if (path.toString().endsWith('mcp-custom-path.txt')) {
+          const error: any = new Error('File not found');
+          error.code = 'ENOENT';
+          throw error;
+        }
+        return JSON.stringify(mockConfig) as never;
+      });
 
       await watchMcpConfig(onChange);
 
