@@ -132,11 +132,15 @@ function getCustomPathStorageFile(): string | null {
 async function loadCustomConfigPath(): Promise<string | null> {
   try {
     const file = getCustomPathStorageFile();
-    if (file && fs.existsSync(file)) {
-      const content = await fsp.readFile(file, 'utf-8');
-      return content.trim() || null;
+    if (!file) {
+      return null;
     }
+    const content = await fsp.readFile(file, 'utf-8');
+    return content.trim() || null;
   } catch (error) {
+    if ((error as { code?: string }).code === 'ENOENT') {
+      return null;
+    }
     logger.error('Failed to load custom MCP config path', { error });
   }
   return null;
@@ -152,9 +156,14 @@ async function saveCustomConfigPath(configPath: string | null): Promise<void> {
     await fsp.mkdir(path.dirname(file), { recursive: true });
     if (configPath) {
       await fsp.writeFile(file, configPath, 'utf-8');
-    } else if (fs.existsSync(file)) {
-      // Delete the file if path is null
-      await fsp.unlink(file);
+    } else {
+      try {
+        await fsp.unlink(file);
+      } catch (err) {
+        if ((err as { code?: string }).code !== 'ENOENT') {
+          throw err;
+        }
+      }
     }
   } catch (error) {
     logger.error('Failed to save custom MCP config path', { error });
