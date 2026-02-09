@@ -20,7 +20,6 @@ function validateDenseArray(arr: number[]): void {
  * @param embedding2 - Array of numbers
  * @throws {Error} If embeddings have different dimensions or are empty.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: performance optimization
 export function calculateCosineSimilarity(
   embedding1: number[],
   embedding2: number[]
@@ -40,16 +39,17 @@ export function calculateCosineSimilarity(
   let i = 0;
   // Unrolled loop (stride 4) for performance
   // Removed sparse checks from hot loop for ~5x-30x speedup
+  // We use `as number` to bypass strict TS checks (optimistic execution)
   const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
-    const v3 = embedding1[i + 1];
-    const v4 = embedding2[i + 1];
-    const v5 = embedding1[i + 2];
-    const v6 = embedding2[i + 2];
-    const v7 = embedding1[i + 3];
-    const v8 = embedding2[i + 3];
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
+    const v3 = embedding1[i + 1] as number;
+    const v4 = embedding2[i + 1] as number;
+    const v5 = embedding1[i + 2] as number;
+    const v6 = embedding2[i + 2] as number;
+    const v7 = embedding1[i + 3] as number;
+    const v8 = embedding2[i + 3] as number;
 
     dotProduct += v1 * v2 + v3 * v4 + v5 * v6 + v7 * v8;
     norm1 += v1 * v1 + v3 * v3 + v5 * v5 + v7 * v7;
@@ -57,8 +57,8 @@ export function calculateCosineSimilarity(
   }
 
   for (; i < len; i++) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
     dotProduct += v1 * v2;
     norm1 += v1 * v1;
     norm2 += v2 * v2;
@@ -110,16 +110,17 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
 
   let i = 0;
   // Unrolled loop (stride 4)
+  // We use `as number` to bypass strict TS checks (optimistic execution)
   const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
-    const v3 = embedding1[i + 1];
-    const v4 = embedding2[i + 1];
-    const v5 = embedding1[i + 2];
-    const v6 = embedding2[i + 2];
-    const v7 = embedding1[i + 3];
-    const v8 = embedding2[i + 3];
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
+    const v3 = embedding1[i + 1] as number;
+    const v4 = embedding2[i + 1] as number;
+    const v5 = embedding1[i + 2] as number;
+    const v6 = embedding2[i + 2] as number;
+    const v7 = embedding1[i + 3] as number;
+    const v8 = embedding2[i + 3] as number;
 
     const diff1 = v1 - v2;
     const diff2 = v3 - v4;
@@ -130,8 +131,8 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
   }
 
   for (; i < len; i++) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
     const diff = v1 - v2;
     squaredDistance += diff * diff;
   }
@@ -171,23 +172,24 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
 
   let i = 0;
   // Unrolled loop (stride 4)
+  // We use `as number` to bypass strict TS checks (optimistic execution)
   const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
-    const v3 = embedding1[i + 1];
-    const v4 = embedding2[i + 1];
-    const v5 = embedding1[i + 2];
-    const v6 = embedding2[i + 2];
-    const v7 = embedding1[i + 3];
-    const v8 = embedding2[i + 3];
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
+    const v3 = embedding1[i + 1] as number;
+    const v4 = embedding2[i + 1] as number;
+    const v5 = embedding1[i + 2] as number;
+    const v6 = embedding2[i + 2] as number;
+    const v7 = embedding1[i + 3] as number;
+    const v8 = embedding2[i + 3] as number;
 
     dotProduct += v1 * v2 + v3 * v4 + v5 * v6 + v7 * v8;
   }
 
   for (; i < len; i++) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
     dotProduct += v1 * v2;
   }
 
@@ -216,17 +218,18 @@ export function normalize(embedding: number[]): number[] {
   let i = 0;
 
   // Unrolled loop for norm calculation
+  // We use `as number` to bypass strict TS checks (optimistic execution)
   const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
-    const v1 = embedding[i];
-    const v2 = embedding[i+1];
-    const v3 = embedding[i+2];
-    const v4 = embedding[i+3];
+    const v1 = embedding[i] as number;
+    const v2 = embedding[i + 1] as number;
+    const v3 = embedding[i + 2] as number;
+    const v4 = embedding[i + 3] as number;
     norm += v1 * v1 + v2 * v2 + v3 * v3 + v4 * v4;
   }
 
   for (; i < len; i++) {
-    const val = embedding[i];
+    const val = embedding[i] as number;
     norm += val * val;
   }
 
@@ -243,7 +246,7 @@ export function normalize(embedding: number[]): number[] {
 
   // Division loop - array is already validated dense
   for (let j = 0; j < len; j++) {
-    result[j] = embedding[j] / normSqrt;
+    result[j] = (embedding[j] as number) / normSqrt;
   }
   return result;
 }
@@ -260,18 +263,19 @@ export function magnitude(embedding: number[]): number {
   let sum = 0;
   let i = 0;
   // Unrolled loop (stride 4)
+  // We use `as number` to bypass strict TS checks (optimistic execution)
   const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
-    const v1 = embedding[i];
-    const v2 = embedding[i + 1];
-    const v3 = embedding[i + 2];
-    const v4 = embedding[i + 3];
+    const v1 = embedding[i] as number;
+    const v2 = embedding[i + 1] as number;
+    const v3 = embedding[i + 2] as number;
+    const v4 = embedding[i + 3] as number;
 
     sum += v1 * v1 + v2 * v2 + v3 * v3 + v4 * v4;
   }
 
   for (; i < len; i++) {
-    const val = embedding[i];
+    const val = embedding[i] as number;
     sum += val * val;
   }
 
