@@ -16,6 +16,10 @@ function validateDenseArray(arr: number[]): void {
 /**
  * Calculate cosine similarity between two embeddings.
  *
+ * Performance Note: Uses "optimistic execution" pattern. Array access is cast `as number`
+ * to skip per-element validation in the hot loop. Data integrity is verified at the end
+ * by checking for `NaN` (which results from arithmetic with `undefined`).
+ *
  * @param embedding1 - Array of numbers
  * @param embedding2 - Array of numbers
  * @throws {Error} If embeddings have different dimensions or are empty.
@@ -64,12 +68,12 @@ export function calculateCosineSimilarity(
     norm2 += v2 * v2;
   }
 
-  // Safety check: if results are NaN, it implies sparse input or invalid values
+  // Safety check: if results are NaN, it implies sparse input OR input contained NaN.
   if (Number.isNaN(dotProduct) || Number.isNaN(norm1) || Number.isNaN(norm2)) {
     validateDenseArray(embedding1);
     validateDenseArray(embedding2);
     // If we are here, arrays are dense but contained NaN/Infinity/etc.
-    // Allow original NaN behavior to proceed or propagate.
+    // We intentionally return NaN in this case to match original behavior.
   }
 
   if (norm1 === 0 || norm2 === 0) {
@@ -80,8 +84,8 @@ export function calculateCosineSimilarity(
     };
   }
 
-  // Optimization: One sqrt call
-  const similarity = dotProduct / Math.sqrt(norm1 * norm2);
+  // Use separate sqrts to avoid overflow if norm1 * norm2 > Number.MAX_VALUE
+  const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
 
   return {
     similarity,
@@ -92,6 +96,10 @@ export function calculateCosineSimilarity(
 
 /**
  * Calculate L2 (Euclidean) distance between two embeddings.
+ *
+ * Performance Note: Uses "optimistic execution" pattern. Array access is cast `as number`
+ * to skip per-element validation in the hot loop. Data integrity is verified at the end
+ * by checking for `NaN` (which results from arithmetic with `undefined`).
  *
  * @param embedding1 - Array of numbers
  * @param embedding2 - Array of numbers
@@ -155,6 +163,10 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
 /**
  * Calculate dot product similarity between two embeddings.
  *
+ * Performance Note: Uses "optimistic execution" pattern. Array access is cast `as number`
+ * to skip per-element validation in the hot loop. Data integrity is verified at the end
+ * by checking for `NaN` (which results from arithmetic with `undefined`).
+ *
  * @param embedding1 - Array of numbers
  * @param embedding2 - Array of numbers
  * @throws {Error} If embeddings have different dimensions or are empty.
@@ -207,6 +219,10 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
 
 /**
  * Normalize an embedding vector to unit length
+ *
+ * Performance Note: Uses "optimistic execution" pattern. Array access is cast `as number`
+ * to skip per-element validation in the hot loop. Data integrity is verified at the end
+ * by checking for `NaN`.
  */
 export function normalize(embedding: number[]): number[] {
   const len = embedding.length;
@@ -253,6 +269,10 @@ export function normalize(embedding: number[]): number[] {
 
 /**
  * Calculate the magnitude (L2 norm) of an embedding vector
+ *
+ * Performance Note: Uses "optimistic execution" pattern. Array access is cast `as number`
+ * to skip per-element validation in the hot loop. Data integrity is verified at the end
+ * by checking for `NaN`.
  */
 export function magnitude(embedding: number[]): number {
   const len = embedding.length;
