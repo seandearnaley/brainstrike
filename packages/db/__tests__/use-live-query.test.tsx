@@ -1,103 +1,242 @@
-import type { LiveQueryResults } from '@electric-sql/pglite/live';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { usePGliteLiveQuery } from '../src/use-live-query.js';
+import { deepEqual, usePGliteLiveQuery } from '../src/use-live-query.js';
 
+// Mock the database provider
 vi.mock('../src/db-provider.js', () => ({
-  usePGliteDatabase: () => null,
+  usePGliteDatabase: vi.fn(),
 }));
 
-interface UpdatePayload {
-  id: number;
-  results: LiveQueryResults<unknown>;
-}
+import { usePGliteDatabase } from '../src/db-provider.js';
 
-describe('usePGliteLiveQuery', () => {
-  let updateCallback: ((payload: UpdatePayload) => void) | null = null;
-  let start: ReturnType<typeof vi.fn>;
-  let stop: ReturnType<typeof vi.fn>;
-  let refresh: ReturnType<typeof vi.fn>;
-  let onUpdate: ReturnType<typeof vi.fn>;
+describe('usePGliteLiveQuery Performance', () => {
+  let mockSubscribe: ReturnType<typeof vi.fn>;
+  let mockUnsubscribe: ReturnType<typeof vi.fn>;
+  let mockQuery: ReturnType<typeof vi.fn>;
+  let mockLiveNamespace: any;
 
   beforeEach(() => {
-    updateCallback = null;
-    start = vi.fn().mockResolvedValue({
-      id: 1,
-      initialResults: { rows: [{ id: 1 }] } as LiveQueryResults<{ id: number }>,
-    });
-    stop = vi.fn().mockResolvedValue(undefined);
-    refresh = vi.fn().mockResolvedValue(undefined);
-    onUpdate = vi.fn((callback: (payload: UpdatePayload) => void) => {
-      updateCallback = callback;
-      return () => {
-        updateCallback = null;
-      };
+    mockSubscribe = vi.fn();
+    mockUnsubscribe = vi.fn();
+    mockQuery = vi.fn().mockReturnValue({
+      initialResults: { rows: [] },
+      subscribe: mockSubscribe,
+      unsubscribe: mockUnsubscribe,
+      refresh: vi.fn(),
     });
 
-    (window as typeof window & { electronAPI?: unknown }).electronAPI = {
-      dbLive: {
-        start,
-        stop,
-        refresh,
-        onUpdate,
-      },
+    mockLiveNamespace = {
+      query: mockQuery,
+      incrementalQuery: mockQuery,
     };
+
+    (usePGliteDatabase as any).mockReturnValue({
+      raw: {
+        live: mockLiveNamespace,
+      },
+    });
   });
 
   afterEach(() => {
-    (window as typeof window & { electronAPI?: unknown }).electronAPI = undefined;
+    vi.clearAllMocks();
   });
 
-  it('does not resubscribe when select changes and reprocesses existing rows', async () => {
-    const selectInitial = vi.fn((rows: Array<{ id: number }>) =>
-      rows.map((row) => ({ ...row, label: 'initial' }))
-    );
-    const selectUpdated = vi.fn((rows: Array<{ id: number }>) =>
-      rows.map((row) => ({ ...row, label: 'updated' }))
-    );
+  function TestComponent({ params, select }: { params?: unknown[]; select?: any }) {
+    usePGliteLiveQuery({
+      query: 'SELECT * FROM test WHERE id = $1',
+      params,
+      select,
+    });
+    return null;
+  }
 
-    const { rerender, result } = renderHook(
-      ({ select }) =>
-        usePGliteLiveQuery({
-          query: 'select * from files',
-          select,
-        }),
-      {
-        initialProps: { select: selectInitial },
-      }
-    );
+  it('should not resubscribe when params array reference changes but content is identical', () => {
+    const { rerender } = render(<TestComponent params={[1]} />);
 
-    await waitFor(() => {
-      expect(start).toHaveBeenCalledTimes(1);
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    // Rerender with new array reference but same content
+    rerender(<TestComponent params={[1]} />);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('should not resubscribe when select function reference changes', () => {
+    const select1 = (rows: any[]) => rows;
+    const { rerender } = render(<TestComponent params={[1]} select={select1} />);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+
+    const select2 = (rows: any[]) => rows;
+    rerender(<TestComponent params={[1]} select={select2} />);
+
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Electron Live Query', () => {
+  let mockBridge: any;
+  let mockUnsubscribe: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    // Reset DB mock to simulate Electron (no direct PGlite)
+    (usePGliteDatabase as any).mockReturnValue(null);
+
+    mockUnsubscribe = vi.fn();
+    mockBridge = {
+      start: vi.fn().mockResolvedValue({ id: 123, initialResults: { rows: [] } }),
+      stop: vi.fn().mockResolvedValue(undefined),
+      refresh: vi.fn().mockResolvedValue(undefined),
+      onUpdate: vi.fn().mockReturnValue(mockUnsubscribe),
+    };
+
+    // Mock window.electronAPI
+    vi.stubGlobal('window', {
+      electronAPI: {
+        dbLive: mockBridge,
+      },
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function TestComponent({ params }: { params?: unknown[] }) {
+    usePGliteLiveQuery({
+      query: 'SELECT * FROM test',
+      params,
+    });
+    return null;
+  }
+
+  it('should use Electron bridge when PGlite is not available', async () => {
+    render(<TestComponent params={[1]} />);
+
+    // Wait for effect
+    await vi.waitFor(() => {
+      expect(mockBridge.start).toHaveBeenCalledWith(
+        expect.objectContaining({
+          query: 'SELECT * FROM test',
+          params: [1],
+        })
+      );
+    });
+  });
+
+  it('should unsubscribe from bridge on unmount', async () => {
+    const { unmount } = render(<TestComponent params={[1]} />);
+
+    await vi.waitFor(() => {
+      expect(mockBridge.start).toHaveBeenCalled();
     });
 
-    await waitFor(() => {
-      expect(selectInitial).toHaveBeenCalled();
-    });
+    unmount();
 
-    await waitFor(() => {
-      expect(result.current.rows).toEqual([{ id: 1, label: 'initial' }]);
+    await vi.waitFor(() => {
+      expect(mockUnsubscribe).toHaveBeenCalled();
+      expect(mockBridge.stop).toHaveBeenCalledWith(123);
     });
+  });
+});
 
-    rerender({ select: selectUpdated });
+describe('Error Handling', () => {
+  beforeEach(() => {
+    // Make query creation fail immediately for initial load error handling.
+    const mockFailingQuery = vi.fn().mockRejectedValue(new Error('Query failed'));
 
-    await waitFor(() => {
-      expect(start).toHaveBeenCalledTimes(1);
+    const mockLiveNamespace = {
+      query: mockFailingQuery,
+      incrementalQuery: mockFailingQuery,
+    };
+
+    (usePGliteDatabase as any).mockReturnValue({
+      raw: {
+        live: mockLiveNamespace,
+      },
     });
+  });
 
-    await waitFor(() => {
-      expect(result.current.rows).toEqual([{ id: 1, label: 'updated' }]);
+  function ErrorComponent() {
+    const { error } = usePGliteLiveQuery({
+      query: 'SELECT * FROM fail',
     });
+    return <div>{error ? error.message : 'No error'}</div>;
+  }
 
-    act(() => {
-      updateCallback?.({
-        id: 1,
-        results: { rows: [{ id: 2 }] } as LiveQueryResults<{ id: number }>,
-      });
-    });
+  it('should catch and expose subscription errors', async () => {
+    const { findByText } = render(<ErrorComponent />);
+    expect(await findByText('Query failed')).toBeDefined();
+  });
+});
 
-    await waitFor(() => {
-      expect(selectUpdated).toHaveBeenCalled();
-    });
+describe('deepEqual', () => {
+  it('should return true for identical primitives', () => {
+    expect(deepEqual(1, 1)).toBe(true);
+    expect(deepEqual('a', 'a')).toBe(true);
+    expect(deepEqual(true, true)).toBe(true);
+    expect(deepEqual(null, null)).toBe(true);
+    expect(deepEqual(undefined, undefined)).toBe(true);
+  });
+
+  it('should return false for different primitives', () => {
+    expect(deepEqual(1, 2)).toBe(false);
+    expect(deepEqual('a', 'b')).toBe(false);
+    expect(deepEqual(true, false)).toBe(false);
+    expect(deepEqual(null, undefined)).toBe(false);
+    expect(deepEqual(1, '1')).toBe(false);
+  });
+
+  it('should handle type mismatches correctly', () => {
+    expect(deepEqual([], {})).toBe(false);
+    expect(deepEqual(new Date(), {})).toBe(false);
+    expect(deepEqual({}, null)).toBe(false);
+  });
+
+  it('should compare arrays correctly', () => {
+    expect(deepEqual([], [])).toBe(true);
+    expect(deepEqual([1, 2, 3], [1, 2, 3])).toBe(true);
+    expect(deepEqual([1, 2, 3], [1, 2, 4])).toBe(false);
+    expect(deepEqual([1, 2], [1, 2, 3])).toBe(false);
+    expect(deepEqual([{ a: 1 }], [{ a: 1 }])).toBe(true);
+  });
+
+  it('should compare Dates correctly', () => {
+    const now = new Date();
+    const same = new Date(now.getTime());
+    const different = new Date(now.getTime() + 1000);
+    expect(deepEqual(now, same)).toBe(true);
+    expect(deepEqual(now, different)).toBe(false);
+  });
+
+  it('should compare Uint8Arrays correctly', () => {
+    expect(deepEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2]))).toBe(true);
+    expect(deepEqual(new Uint8Array([1, 2]), new Uint8Array([1, 3]))).toBe(false);
+    expect(deepEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2, 3]))).toBe(false);
+  });
+
+  it('should compare RegExps correctly', () => {
+    expect(deepEqual(/abc/g, /abc/g)).toBe(true);
+    expect(deepEqual(/abc/g, /abc/i)).toBe(false);
+    expect(deepEqual(/abc/g, /def/g)).toBe(false);
+  });
+
+  it('should compare Objects correctly', () => {
+    expect(deepEqual({}, {})).toBe(true);
+    expect(deepEqual({ a: 1 }, { a: 1 })).toBe(true);
+    expect(deepEqual({ a: 1, b: 2 }, { a: 1, b: 2 })).toBe(true);
+    expect(deepEqual({ a: 1 }, { a: 2 })).toBe(false);
+    expect(deepEqual({ a: 1 }, { a: 1, b: 2 })).toBe(false);
+    expect(deepEqual({ a: 1, b: 2 }, { a: 1 })).toBe(false);
+    expect(deepEqual({ a: 1 }, { b: 1 })).toBe(false); // Same value, different key
+  });
+
+  it('should handle nested structures', () => {
+    const obj1 = { a: [1, { b: new Date(1000) }] };
+    const obj2 = { a: [1, { b: new Date(1000) }] };
+    const obj3 = { a: [1, { b: new Date(2000) }] };
+
+    expect(deepEqual(obj1, obj2)).toBe(true);
+    expect(deepEqual(obj1, obj3)).toBe(false);
   });
 });

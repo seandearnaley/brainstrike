@@ -306,19 +306,24 @@ export function magnitude(embedding: number[]): number {
 
   let sum = 0;
   let i = 0;
-  const len4 = len - (len % 4);
-
   // Unrolled loop (stride 4)
+  const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
     const v1 = embedding[i];
     const v2 = embedding[i + 1];
     const v3 = embedding[i + 2];
     const v4 = embedding[i + 3];
 
-    if (v1 === undefined || v2 === undefined) {
+    if (v1 === undefined) {
       throw new Error('Sparse arrays are not supported');
     }
-    if (v3 === undefined || v4 === undefined) {
+    if (v2 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v3 === undefined) {
+      throw new Error('Sparse arrays are not supported');
+    }
+    if (v4 === undefined) {
       throw new Error('Sparse arrays are not supported');
     }
 

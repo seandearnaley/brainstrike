@@ -321,7 +321,27 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
   }
 
   try {
-    return texts.reduce((total, text) => total + encoder(text).length, 0);
+    let total = 0;
+    let lastYield = performance.now();
+    const YieldThresholdMs = 5;
+    const textCount = texts.length;
+
+    for (let i = 0; i < textCount; i++) {
+      const text = texts[i];
+      if (text) {
+        total += encoder(text).length;
+      }
+
+      // Yield every 20 items if time threshold exceeded to avoid blocking the event loop
+      if (i % 20 === 0) {
+        const now = performance.now();
+        if (now - lastYield > YieldThresholdMs) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          lastYield = performance.now();
+        }
+      }
+    }
+    return total;
   } catch (error) {
     if (!loadFailureLogged) {
       loadFailureLogged = true;

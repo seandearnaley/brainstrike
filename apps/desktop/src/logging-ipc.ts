@@ -4,7 +4,9 @@ import type { LoggingSettingsPayload } from './logging-shared';
 
 export interface LoggingIpcHandlers {
   getState: () => LoggingSettingsPayload;
-  setPreferences: (preferences: LoggingPreferences) => LoggingSettingsPayload;
+  setPreferences: (
+    preferences: LoggingPreferences
+  ) => LoggingSettingsPayload | Promise<LoggingSettingsPayload>;
   selectDestination: () => Promise<string | null>;
   openDestination: (target: string | null) => Promise<boolean>;
   getBufferedLogs: () => readonly LogRecord[];
@@ -13,12 +15,24 @@ export interface LoggingIpcHandlers {
 export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): void {
   ipcMain.handle('logging:get-preferences', () => handlers.getState());
 
+  let preferencesUpdateQueue: Promise<void> = Promise.resolve();
+
   ipcMain.handle(
     'logging:set-preferences',
     async (_event, preferences: LoggingPreferences): Promise<LoggingSettingsPayload> => {
-      const payload = handlers.setPreferences(preferences);
-      broadcastLoggingPreferences(payload.preferences);
-      return payload;
+      const runUpdate = async (): Promise<LoggingSettingsPayload> => {
+        const payload = await handlers.setPreferences(preferences);
+        broadcastLoggingPreferences(payload.preferences);
+        return payload;
+      };
+
+      const queuedUpdate = preferencesUpdateQueue.then(runUpdate, runUpdate);
+      preferencesUpdateQueue = queuedUpdate.then(
+        () => undefined,
+        () => undefined
+      );
+
+      return queuedUpdate;
     }
   );
 

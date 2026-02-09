@@ -715,6 +715,50 @@ describe('ElectronFileSystemAdapter', () => {
       expect(totalSeen).toBeLessThan(20);
     });
 
+    it('should not emit pending nodes after abort before batch flush', async () => {
+      for (let i = 0; i < 6; i++) {
+        fs.writeFileSync(path.join(tempDir, `file${i}.txt`), `content${i}`);
+      }
+
+      const handle: DirectoryHandle = {
+        path: tempDir,
+        name: path.basename(tempDir),
+        kind: 'directory',
+        platform: 'electron',
+      };
+
+      const controller = new AbortController();
+      const dirents = fs.readdirSync(tempDir, { withFileTypes: true });
+      const close = vi.fn().mockResolvedValue(undefined);
+
+      vi.spyOn(fsPromises, 'opendir').mockResolvedValue({
+        close,
+        async *[Symbol.asyncIterator]() {
+          for (const [index, dirent] of dirents.entries()) {
+            yield dirent;
+            if (index === 0) {
+              controller.abort();
+            }
+          }
+        },
+      } as unknown as Awaited<ReturnType<typeof fsPromises.opendir>>);
+
+      const batches: { nodes: unknown[]; done: boolean; total: number }[] = [];
+      await adapter.readDirectoryStreaming(
+        handle,
+        (nodes, meta) => {
+          batches.push({ nodes: [...nodes], done: meta.done, total: meta.total });
+        },
+        { batchSize: 50, signal: controller.signal }
+      );
+
+      expect(batches.length).toBe(1);
+      expect(batches[0]?.done).toBe(true);
+      expect(batches[0]?.total).toBe(0);
+      expect(batches[0]?.nodes.length).toBe(0);
+      expect(close).toHaveBeenCalledOnce();
+    });
+
     it('should handle empty directories', async () => {
       const handle: DirectoryHandle = {
         path: tempDir,

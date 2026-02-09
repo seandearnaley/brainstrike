@@ -282,6 +282,33 @@ describe('Token Utils - calculateGroupTokens error handling', () => {
 
     expect(groupResult).toBe(expectedSum);
   });
+
+  it('should not count texts appended while yielding', async () => {
+    const performanceNowSpy = vi.spyOn(performance, 'now');
+    performanceNowSpy.mockReturnValueOnce(0).mockReturnValueOnce(10).mockReturnValue(10);
+
+    const { calculateGroupTokens, countTokensAccurate } = await import('../token-utils');
+
+    const initialTexts = Array.from({ length: 21 }, (_value, index) => `token-text-${index}`);
+    const mutableTexts = [...initialTexts];
+    const appendedText = 'appended-after-yield';
+
+    let expectedWithoutAppend = 0;
+    for (const text of initialTexts) {
+      expectedWithoutAppend += await countTokensAccurate(text);
+    }
+    const appendedTextTokens = await countTokensAccurate(appendedText);
+    expect(appendedTextTokens).toBeGreaterThan(0);
+
+    setTimeout(() => {
+      mutableTexts.push(appendedText);
+    }, 0);
+
+    const result = await calculateGroupTokens(mutableTexts);
+
+    expect(result).toBe(expectedWithoutAppend);
+    expect(result).toBeLessThan(expectedWithoutAppend + appendedTextTokens);
+  });
 });
 
 describe('Token Utils - countTokensAccurate error paths', () => {
