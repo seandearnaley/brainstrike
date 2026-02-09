@@ -20,6 +20,10 @@ function validateDenseArray(arr: number[]): void {
  * to skip per-element validation in the hot loop. Data integrity is verified at the end
  * by checking for `NaN` (which results from arithmetic with `undefined`).
  *
+ * Behavior for non-finite inputs:
+ * - Returns `NaN` if inputs contain `NaN`.
+ * - Returns `NaN` if inputs contain `Infinity` (due to Infinity / Infinity division).
+ *
  * @param embedding1 - Array of numbers
  * @param embedding2 - Array of numbers
  * @throws {Error} If embeddings have different dimensions or are empty.
@@ -68,7 +72,7 @@ export function calculateCosineSimilarity(
     norm2 += v2 * v2;
   }
 
-  // Safety check: if results are NaN, it implies sparse input OR input contained NaN.
+  // Safety check: if results are NaN, it implies sparse input OR input contained NaN/Infinity.
   if (Number.isNaN(dotProduct) || Number.isNaN(norm1) || Number.isNaN(norm2)) {
     validateDenseArray(embedding1);
     validateDenseArray(embedding2);
@@ -100,6 +104,10 @@ export function calculateCosineSimilarity(
  * Performance Note: Uses "optimistic execution" pattern. Array access is cast `as number`
  * to skip per-element validation in the hot loop. Data integrity is verified at the end
  * by checking for `NaN` (which results from arithmetic with `undefined`).
+ *
+ * Behavior for non-finite inputs:
+ * - Returns `NaN` distance if inputs contain `NaN`.
+ * - Returns `Infinity` distance if inputs contain `Infinity`.
  *
  * @param embedding1 - Array of numbers
  * @param embedding2 - Array of numbers
@@ -167,6 +175,10 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
  * to skip per-element validation in the hot loop. Data integrity is verified at the end
  * by checking for `NaN` (which results from arithmetic with `undefined`).
  *
+ * Behavior for non-finite inputs:
+ * - Returns `NaN` if inputs contain `NaN`.
+ * - Returns `Infinity` if inputs contain `Infinity`.
+ *
  * @param embedding1 - Array of numbers
  * @param embedding2 - Array of numbers
  * @throws {Error} If embeddings have different dimensions or are empty.
@@ -223,6 +235,10 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
  * Performance Note: Uses "optimistic execution" pattern. Array access is cast `as number`
  * to skip per-element validation in the hot loop. Data integrity is verified at the end
  * by checking for `NaN`.
+ *
+ * Behavior for non-finite inputs:
+ * - Returns vector of `NaN`s if inputs contain `NaN`.
+ * - Returns vector of `NaN`/0 if inputs contain `Infinity`.
  */
 export function normalize(embedding: number[]): number[] {
   const len = embedding.length;
@@ -273,6 +289,10 @@ export function normalize(embedding: number[]): number[] {
  * Performance Note: Uses "optimistic execution" pattern. Array access is cast `as number`
  * to skip per-element validation in the hot loop. Data integrity is verified at the end
  * by checking for `NaN`.
+ *
+ * Behavior for non-finite inputs:
+ * - Returns `NaN` if inputs contain `NaN`.
+ * - Returns `Infinity` if inputs contain `Infinity`.
  */
 export function magnitude(embedding: number[]): number {
   const len = embedding.length;
