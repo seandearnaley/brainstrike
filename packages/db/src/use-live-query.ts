@@ -9,13 +9,6 @@ import { usePGliteDatabase } from './db-provider.js';
 
 interface BaseLiveQueryOptions {
   readonly query: string;
-  /**
-   * IMPORTANT: Memoize this array to prevent unnecessary re-subscriptions.
-   *
-   * @example
-   * const params = useMemo(() => [userId, status], [userId, status]);
-   * usePGliteLiveQuery({ query: '...', params });
-   */
   readonly params?: readonly unknown[];
   readonly offset?: number;
   readonly limit?: number;
@@ -38,13 +31,6 @@ type InternalLiveQueryOptions = BaseLiveQueryOptions & {
 };
 
 export type UsePGliteLiveQueryOptions<T> = (IncrementalOptions | StandardOptions) & {
-  /**
-   * IMPORTANT: Memoize this callback to avoid unnecessary row recomputation.
-   *
-   * @example
-   * const select = useCallback((rows) => rows.filter((row) => row.enabled), []);
-   * usePGliteLiveQuery({ query: '...', select });
-   */
   readonly select?: (rows: T[]) => T[];
 };
 
@@ -96,6 +82,79 @@ interface ElectronLiveBridge {
 type LiveSource =
   | { kind: 'pglite'; live: LiveNamespace }
   | { kind: 'electron'; bridge: ElectronLiveBridge };
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Deep comparison requires complex logic
+// biome-ignore lint/suspicious/noExplicitAny: Deep comparison handles any type
+export function deepEqual(a: any, b: any): boolean {
+  if (a === b) {
+    return true;
+  }
+
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
+    return false;
+  }
+
+  if (a.constructor !== b.constructor) {
+    return false;
+  }
+
+  if (Array.isArray(a)) {
+    if (a.length !== b.length) {
+      return false;
+    }
+    for (let i = 0; i < a.length; i++) {
+      if (!deepEqual(a[i], b[i])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (a instanceof Date) {
+    return a.getTime() === b.getTime();
+  }
+
+  if (a instanceof Uint8Array) {
+    if (a.length !== b.length) {
+      return false;
+    }
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  if (a instanceof RegExp) {
+    return a.source === b.source && a.flags === b.flags;
+  }
+
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+
+  if (keysA.length !== keysB.length) {
+    return false;
+  }
+
+  for (const key of keysA) {
+    if (!(Object.hasOwn(b, key) && deepEqual(a[key], b[key]))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function useDeepCompareMemoize<T>(value: T): T {
+  const ref = useRef<T>(value);
+
+  if (!deepEqual(value, ref.current)) {
+    ref.current = value;
+  }
+
+  return ref.current;
+}
 
 const noopAsync = async () => {};
 
@@ -246,165 +305,103 @@ export function usePGliteLiveQuery<T = Record<string, unknown>>(
 ): LiveQueryHookResult<T> {
   const db = usePGliteDatabase();
   const source = useMemo(() => resolveLiveSource(db), [db]);
-  const [rows, setRows] = useState<T[]>([]);
-  const {
-    enabled: enabledOption,
-    key,
-    limit,
-    mode: modeOption,
-    offset,
-    params,
-    query,
-    select,
-  } = options;
-  const [loading, setLoading] = useState<boolean>(Boolean(enabledOption ?? true));
+  const stableParams = useDeepCompareMemoize(options.params);
+  const [rawRows, setRawRows] = useState<T[]>([]);
+  const [loading, setLoading] = useState<boolean>(Boolean(options.enabled ?? true));
   const [error, setError] = useState<Error | null>(null);
   const refreshRef = useRef<() => Promise<void>>(noopAsync);
-  const unsubscribeRef = useRef<Promise<void> | null>(null);
-  const selectRef = useRef(select);
-  const rawRowsRef = useRef<T[]>([]);
 
-  useEffect(() => {
-    selectRef.current = select;
-    const rawRows = rawRowsRef.current;
-    const selector = selectRef.current;
-    setRows((selector ? selector(rawRows) : rawRows) as T[]);
-  }, [select]);
-
-  const mode: 'query' | 'incremental' = modeOption ?? 'query';
+  const mode: 'query' | 'incremental' = options.mode ?? 'query';
   const requiresKey = mode === 'incremental';
-  const hasKey = !requiresKey || typeof key === 'string';
-  const enabled = Boolean(enabledOption ?? true) && Boolean(source) && (!requiresKey || hasKey);
+  const hasKey = !requiresKey || typeof options.key === 'string';
+  const enabled = Boolean(options.enabled ?? true) && Boolean(source) && (!requiresKey || hasKey);
+  const select = options.select;
 
   // biome-ignore lint/plugin: Live query subscription management - async data with cleanup
   useEffect(() => {
     let cancelled = false;
     let subscription: LiveSubscription<T> | null = null;
 
-    const waitForPendingUnsubscribe = async () => {
-      const pending = unsubscribeRef.current;
-      if (!pending) {
-        return;
-      }
-      try {
-        await pending;
-      } catch {
-        // Ignore unsubscribe failures; new subscription will still proceed.
-      } finally {
-        if (unsubscribeRef.current === pending) {
-          unsubscribeRef.current = null;
-        }
-      }
-    };
+    if (!enabled) {
+      // Keep existing rows cached when disabled - don't clear to avoid UI flicker
+      // Only stop the subscription and mark as not loading
+      setError(null);
+      setLoading(false);
+      refreshRef.current = noopAsync;
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const handleUpdate = (results: LiveQueryResults<T>) => {
       if (cancelled) {
         return;
       }
-      rawRowsRef.current = results.rows;
-      const selector = selectRef.current;
-      setRows((selector ? selector(results.rows) : results.rows) as T[]);
+      setRawRows(results.rows as T[]);
     };
 
-    const resetDisabledState = () => {
-      setError(null);
-      setLoading(false);
-      refreshRef.current = noopAsync;
-    };
+    setLoading(true);
+    setError(null);
 
-    const applySubscriptionResult = (result: LiveSubscription<T>) => {
-      subscription = result;
-      refreshRef.current = async () => {
-        await result.refresh();
-      };
-      rawRowsRef.current = result.initialResults.rows;
-      const selector = selectRef.current;
-      setRows(
-        (selector ? selector(result.initialResults.rows) : result.initialResults.rows) as T[]
-      );
-      setLoading(false);
-    };
-
-    const handleSubscriptionError = (err: unknown) => {
-      const normalized = err instanceof Error ? err : new Error(String(err));
-      setError(normalized);
-      rawRowsRef.current = [];
-      setRows([]);
-      setLoading(false);
-      refreshRef.current = noopAsync;
-    };
-
-    const buildOptions = (): InternalLiveQueryOptions => ({
-      query,
+    const normalizedOptions: InternalLiveQueryOptions = {
+      query: options.query,
       mode,
-      ...(params !== undefined ? { params } : {}),
-      ...(offset !== undefined ? { offset } : {}),
-      ...(limit !== undefined ? { limit } : {}),
-      ...(key ? { key } : {}),
-    });
-
-    const unsubscribeCancelled = async (result: LiveSubscription<T>) => {
-      const pending = result.unsubscribe();
-      unsubscribeRef.current = pending;
-      try {
-        await pending;
-      } catch {
-        // Ignore unsubscribe errors during cancellation.
-      }
+      ...(stableParams !== undefined ? { params: stableParams } : {}),
+      ...(options.offset !== undefined ? { offset: options.offset } : {}),
+      ...(options.limit !== undefined ? { limit: options.limit } : {}),
+      ...(options.key ? { key: options.key } : {}),
     };
 
-    const startSubscription = async () => {
-      await waitForPendingUnsubscribe();
-      if (cancelled) {
-        return;
-      }
-
-      if (!enabled) {
-        // Keep existing rows cached when disabled - don't clear to avoid UI flicker
-        // Only stop the subscription and mark as not loading
-        resetDisabledState();
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        const result = await subscribeToLiveSource<T>(
-          source as LiveSource,
-          buildOptions(),
-          handleUpdate
-        );
+    void subscribeToLiveSource<T>(source as LiveSource, normalizedOptions, handleUpdate)
+      .then((result) => {
         if (cancelled) {
-          await unsubscribeCancelled(result);
+          void result.unsubscribe();
           return;
         }
-
-        applySubscriptionResult(result);
-      } catch (err) {
+        subscription = result;
+        refreshRef.current = async () => {
+          await result.refresh();
+        };
+        setRawRows(result.initialResults.rows as T[]);
+        setLoading(false);
+      })
+      .catch((err) => {
         if (cancelled) {
           return;
         }
-        handleSubscriptionError(err);
-      }
-    };
-
-    void startSubscription();
+        const normalized = err instanceof Error ? err : new Error(String(err));
+        setError(normalized);
+        setRawRows([]);
+        setLoading(false);
+        refreshRef.current = noopAsync;
+      });
 
     return () => {
       cancelled = true;
       refreshRef.current = noopAsync;
       if (subscription) {
-        const pending = subscription.unsubscribe();
-        unsubscribeRef.current = pending;
-        void pending.catch(() => {});
+        void subscription.unsubscribe();
       }
     };
-  }, [enabled, mode, key, limit, offset, params, query, source]);
+  }, [
+    enabled,
+    mode,
+    options.key,
+    options.limit,
+    options.offset,
+    stableParams,
+    options.query,
+    // select intentionally omitted to prevent re-subscription
+    source,
+  ]);
 
   const refresh = useCallback(async () => {
     await refreshRef.current();
   }, []);
+
+  const rows = useMemo(() => {
+    return (select ? select(rawRows) : rawRows) as T[];
+  }, [select, rawRows]);
 
   return useMemo(
     () => ({
