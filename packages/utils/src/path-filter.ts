@@ -7,6 +7,17 @@ import { createLogger } from './logger';
  */
 const DEFAULT_IGNORE_PATTERNS = ['.git', 'node_modules', '.next', 'dist', 'build', '.DS_Store'];
 
+// Pre-compile the ignore regex for performance
+// Matches any path segment that equals one of the ignore patterns
+// (?:^|[\\/]) matches start of string or a separator
+// (?:$|[\\/]) matches end of string or a separator
+const IGNORE_REGEX = new RegExp(
+  `(?:^|[\\\\/])(?:${DEFAULT_IGNORE_PATTERNS.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?:$|[\\\\/])`
+);
+
+// Cache compiled regex patterns to avoid recompilation overhead
+const regexCache = new Map<string, RegExp>();
+
 /**
  * Utilities for filtering files and directories
  */
@@ -15,8 +26,7 @@ export const fileFilter = {
    * Checks if a path should be ignored based on default patterns
    */
   shouldIgnorePath(path: string): boolean {
-    const normalizedPath = path.replace(/\\/g, '/');
-    return DEFAULT_IGNORE_PATTERNS.some((pattern) => normalizedPath.split('/').includes(pattern));
+    return IGNORE_REGEX.test(path);
   },
 
   /**
@@ -30,13 +40,18 @@ export const fileFilter = {
    * Matches a string against a regex pattern
    */
   matchRegex(str: string, pattern: string): boolean {
-    try {
-      return new RegExp(pattern).test(str);
-    } catch (_error) {
-      const logger = createLogger('fileFilter');
-      logger.warn(`Invalid regex pattern: ${pattern}`, _error);
-      return false;
+    let regex = regexCache.get(pattern);
+    if (!regex) {
+      try {
+        regex = new RegExp(pattern);
+        regexCache.set(pattern, regex);
+      } catch (_error) {
+        const logger = createLogger('fileFilter');
+        logger.warn(`Invalid regex pattern: ${pattern}`, _error);
+        return false;
+      }
     }
+    return regex.test(str);
   },
 
   /**
