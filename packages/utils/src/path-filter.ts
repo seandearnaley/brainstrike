@@ -37,14 +37,8 @@ export const fileFilter = {
   matchWildcard(str: string, pattern: string): boolean {
     let matcher = minimatchCache.get(pattern);
     if (!matcher) {
-      try {
-        matcher = new Minimatch(pattern, { dot: true });
-        minimatchCache.set(pattern, matcher);
-      } catch (_error) {
-        const logger = createLogger('fileFilter');
-        logger.warn(`Invalid glob pattern: ${pattern}`, _error);
-        return false;
-      }
+      matcher = new Minimatch(pattern, { dot: true });
+      minimatchCache.set(pattern, matcher);
     }
     return matcher.match(str);
   },
