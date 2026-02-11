@@ -7,7 +7,6 @@ import type { SimilarityResult } from './types';
  * @param embedding2 - Array of numbers
  * @throws {Error} If embeddings have different dimensions or are empty.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: performance optimization
 export function calculateCosineSimilarity(
   embedding1: number[],
   embedding2: number[]
@@ -31,32 +30,27 @@ export function calculateCosineSimilarity(
   // We check for NaN at the end and fall back to slow validation if needed.
   const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
-    const v3 = embedding1[i + 1];
-    const v4 = embedding2[i + 1];
-    const v5 = embedding1[i + 2];
-    const v6 = embedding2[i + 2];
-    const v7 = embedding1[i + 3];
-    const v8 = embedding2[i + 3];
+    // Cast to number to avoid per-element checks and non-null assertions
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
+    const v3 = embedding1[i + 1] as number;
+    const v4 = embedding2[i + 1] as number;
+    const v5 = embedding1[i + 2] as number;
+    const v6 = embedding2[i + 2] as number;
+    const v7 = embedding1[i + 3] as number;
+    const v8 = embedding2[i + 3] as number;
 
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    dotProduct += v1! * v2! + v3! * v4! + v5! * v6! + v7! * v8!;
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    norm1 += v1! * v1! + v3! * v3! + v5! * v5! + v7! * v7!;
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    norm2 += v2! * v2! + v4! * v4! + v6! * v6! + v8! * v8!;
+    dotProduct += v1 * v2 + v3 * v4 + v5 * v6 + v7 * v8;
+    norm1 += v1 * v1 + v3 * v3 + v5 * v5 + v7 * v7;
+    norm2 += v2 * v2 + v4 * v4 + v6 * v6 + v8 * v8;
   }
 
   for (; i < len; i++) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    dotProduct += v1! * v2!;
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    norm1 += v1! * v1!;
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    norm2 += v2! * v2!;
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
+    dotProduct += v1 * v2;
+    norm1 += v1 * v1;
+    norm2 += v2 * v2;
   }
 
   // Check for NaN which indicates either sparse array (undefined * number = NaN)
@@ -65,6 +59,9 @@ export function calculateCosineSimilarity(
     for (let k = 0; k < len; k++) {
       if (embedding1[k] === undefined || embedding2[k] === undefined) {
         throw new Error('Sparse arrays are not supported');
+      }
+      if (Number.isNaN(embedding1[k]) || Number.isNaN(embedding2[k])) {
+        throw new Error('Embeddings must not contain NaN');
       }
     }
   }
@@ -77,7 +74,7 @@ export function calculateCosineSimilarity(
     };
   }
 
-  const similarity = dotProduct / Math.sqrt(norm1 * norm2);
+  const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
 
   return {
     similarity,
@@ -93,7 +90,6 @@ export function calculateCosineSimilarity(
  * @param embedding2 - Array of numbers
  * @throws {Error} If embeddings have different dimensions or are empty.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: performance optimization
 export function calculateL2Distance(embedding1: number[], embedding2: number[]): SimilarityResult {
   const len = embedding1.length;
   if (len === 0 || embedding2.length === 0) {
@@ -109,32 +105,27 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
   // Unrolled loop (stride 4)
   const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
-    const v3 = embedding1[i + 1];
-    const v4 = embedding2[i + 1];
-    const v5 = embedding1[i + 2];
-    const v6 = embedding2[i + 2];
-    const v7 = embedding1[i + 3];
-    const v8 = embedding2[i + 3];
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
+    const v3 = embedding1[i + 1] as number;
+    const v4 = embedding2[i + 1] as number;
+    const v5 = embedding1[i + 2] as number;
+    const v6 = embedding2[i + 2] as number;
+    const v7 = embedding1[i + 3] as number;
+    const v8 = embedding2[i + 3] as number;
 
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    const diff1 = v1! - v2!;
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    const diff2 = v3! - v4!;
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    const diff3 = v5! - v6!;
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    const diff4 = v7! - v8!;
+    const diff1 = v1 - v2;
+    const diff2 = v3 - v4;
+    const diff3 = v5 - v6;
+    const diff4 = v7 - v8;
 
     squaredDistance += diff1 * diff1 + diff2 * diff2 + diff3 * diff3 + diff4 * diff4;
   }
 
   for (; i < len; i++) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    const diff = v1! - v2!;
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
+    const diff = v1 - v2;
     squaredDistance += diff * diff;
   }
 
@@ -142,6 +133,9 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
     for (let k = 0; k < len; k++) {
       if (embedding1[k] === undefined || embedding2[k] === undefined) {
         throw new Error('Sparse arrays are not supported');
+      }
+      if (Number.isNaN(embedding1[k]) || Number.isNaN(embedding2[k])) {
+        throw new Error('Embeddings must not contain NaN');
       }
     }
   }
@@ -163,7 +157,6 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
  * @param embedding2 - Array of numbers
  * @throws {Error} If embeddings have different dimensions or are empty.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: performance optimization
 export function calculateDotProduct(embedding1: number[], embedding2: number[]): SimilarityResult {
   const len = embedding1.length;
   if (len === 0 || embedding2.length === 0) {
@@ -179,30 +172,31 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
   // Unrolled loop (stride 4)
   const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
-    const v3 = embedding1[i + 1];
-    const v4 = embedding2[i + 1];
-    const v5 = embedding1[i + 2];
-    const v6 = embedding2[i + 2];
-    const v7 = embedding1[i + 3];
-    const v8 = embedding2[i + 3];
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
+    const v3 = embedding1[i + 1] as number;
+    const v4 = embedding2[i + 1] as number;
+    const v5 = embedding1[i + 2] as number;
+    const v6 = embedding2[i + 2] as number;
+    const v7 = embedding1[i + 3] as number;
+    const v8 = embedding2[i + 3] as number;
 
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    dotProduct += v1! * v2! + v3! * v4! + v5! * v6! + v7! * v8!;
+    dotProduct += v1 * v2 + v3 * v4 + v5 * v6 + v7 * v8;
   }
 
   for (; i < len; i++) {
-    const v1 = embedding1[i];
-    const v2 = embedding2[i];
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    dotProduct += v1! * v2!;
+    const v1 = embedding1[i] as number;
+    const v2 = embedding2[i] as number;
+    dotProduct += v1 * v2;
   }
 
   if (Number.isNaN(dotProduct)) {
     for (let k = 0; k < len; k++) {
       if (embedding1[k] === undefined || embedding2[k] === undefined) {
         throw new Error('Sparse arrays are not supported');
+      }
+      if (Number.isNaN(embedding1[k]) || Number.isNaN(embedding2[k])) {
+        throw new Error('Embeddings must not contain NaN');
       }
     }
   }
@@ -217,7 +211,6 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
 /**
  * Normalize an embedding vector to unit length
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: performance optimization
 export function normalize(embedding: number[]): number[] {
   const len = embedding.length;
   if (len === 0) {
@@ -230,24 +223,25 @@ export function normalize(embedding: number[]): number[] {
 
   // Unrolled loop (stride 4)
   for (; i < len4; i += 4) {
-    const v1 = embedding[i];
-    const v2 = embedding[i + 1];
-    const v3 = embedding[i + 2];
-    const v4 = embedding[i + 3];
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    norm += v1! * v1! + v2! * v2! + v3! * v3! + v4! * v4!;
+    const v1 = embedding[i] as number;
+    const v2 = embedding[i + 1] as number;
+    const v3 = embedding[i + 2] as number;
+    const v4 = embedding[i + 3] as number;
+    norm += v1 * v1 + v2 * v2 + v3 * v3 + v4 * v4;
   }
 
   for (; i < len; i++) {
-    const val = embedding[i];
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    norm += val! * val!;
+    const val = embedding[i] as number;
+    norm += val * val;
   }
 
   if (Number.isNaN(norm)) {
     for (let k = 0; k < len; k++) {
       if (embedding[k] === undefined) {
         throw new Error('Sparse arrays are not supported');
+      }
+      if (Number.isNaN(embedding[k])) {
+        throw new Error('Embeddings must not contain NaN');
       }
     }
   }
@@ -261,20 +255,15 @@ export function normalize(embedding: number[]): number[] {
 
   i = 0;
   for (; i < len4; i += 4) {
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    result[i] = embedding[i]! / normSqrt;
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    result[i + 1] = embedding[i + 1]! / normSqrt;
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    result[i + 2] = embedding[i + 2]! / normSqrt;
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    result[i + 3] = embedding[i + 3]! / normSqrt;
+    result[i] = (embedding[i] as number) / normSqrt;
+    result[i + 1] = (embedding[i + 1] as number) / normSqrt;
+    result[i + 2] = (embedding[i + 2] as number) / normSqrt;
+    result[i + 3] = (embedding[i + 3] as number) / normSqrt;
   }
 
   for (; i < len; i++) {
-    const val = embedding[i];
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    result[i] = val! / normSqrt;
+    const val = embedding[i] as number;
+    result[i] = val / normSqrt;
   }
   return result;
 }
@@ -282,7 +271,6 @@ export function normalize(embedding: number[]): number[] {
 /**
  * Calculate the magnitude (L2 norm) of an embedding vector
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: performance optimization
 export function magnitude(embedding: number[]): number {
   const len = embedding.length;
   if (len === 0) {
@@ -294,25 +282,26 @@ export function magnitude(embedding: number[]): number {
   // Unrolled loop (stride 4)
   const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
-    const v1 = embedding[i];
-    const v2 = embedding[i + 1];
-    const v3 = embedding[i + 2];
-    const v4 = embedding[i + 3];
+    const v1 = embedding[i] as number;
+    const v2 = embedding[i + 1] as number;
+    const v3 = embedding[i + 2] as number;
+    const v4 = embedding[i + 3] as number;
 
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    sum += v1! * v1! + v2! * v2! + v3! * v3! + v4! * v4!;
+    sum += v1 * v1 + v2 * v2 + v3 * v3 + v4 * v4;
   }
 
   for (; i < len; i++) {
-    const val = embedding[i];
-    // biome-ignore lint/style/noNonNullAssertion: performance optimization
-    sum += val! * val!;
+    const val = embedding[i] as number;
+    sum += val * val;
   }
 
   if (Number.isNaN(sum)) {
     for (let k = 0; k < len; k++) {
       if (embedding[k] === undefined) {
         throw new Error('Sparse arrays are not supported');
+      }
+      if (Number.isNaN(embedding[k])) {
+        throw new Error('Embeddings must not contain NaN');
       }
     }
   }
