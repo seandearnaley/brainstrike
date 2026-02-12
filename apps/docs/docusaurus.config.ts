@@ -10,8 +10,8 @@ const config: Config = {
   url: 'https://docs.brainstrike.ai',
   baseUrl: '/',
 
-  organizationName: 'brainstrike-ai',
-  projectName: 'brainstrike-docs',
+  organizationName: 'seandearnaley',
+  projectName: 'brainstrike',
 
   onBrokenLinks: 'throw',
   onBrokenAnchors: 'throw',
@@ -72,7 +72,7 @@ const config: Config = {
           label: 'Docs',
         },
         {
-          href: 'https://github.com/brainstrike-ai/brainstrike',
+          href: 'https://github.com/seandearnaley/brainstrike',
           label: 'GitHub',
           position: 'right',
         },

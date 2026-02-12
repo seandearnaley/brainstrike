@@ -7,7 +7,7 @@ superseded_by: "none"
 
 # Release Notes: Embeddings, Database & Vector System Enhancements
 
-&gt; **2025-10 update:** The renderer now auto-starts the embedding worker when the database is ready, replacing the old `EMBED_QUEUE_ENABLED` toggle. References to that flag in the original notes remain for historical context.
+> **2025-10 update:** The renderer now auto-starts the embedding worker when the database is ready, replacing the old `EMBED_QUEUE_ENABLED` toggle. References to that flag in the original notes remain for historical context.
 
 ## 🚀 Overview
 
