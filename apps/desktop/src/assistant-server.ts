@@ -206,6 +206,7 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
 
 const ASSISTANT_CORS_ALLOWED_HEADERS = 'Accept, Content-Type, Last-Event-ID';
 const ASSISTANT_CORS_ALLOWED_METHODS = 'GET, POST, OPTIONS';
+const ASSISTANT_CORS_ALLOW_CREDENTIALS = 'true';
 const ASSISTANT_CORS_NULL_ORIGIN = 'null';
 const ASSISTANT_CORS_ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
@@ -247,6 +248,7 @@ function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerRe
   res.setHeader('Access-Control-Allow-Origin', resolveRequestOrigin(req));
   res.setHeader('Access-Control-Allow-Headers', ASSISTANT_CORS_ALLOWED_HEADERS);
   res.setHeader('Access-Control-Allow-Methods', ASSISTANT_CORS_ALLOWED_METHODS);
+  res.setHeader('Access-Control-Allow-Credentials', ASSISTANT_CORS_ALLOW_CREDENTIALS);
   res.setHeader('Access-Control-Max-Age', '86400');
   res.setHeader('Vary', 'Origin');
 }

@@ -234,6 +234,7 @@ describe('assistant-server', () => {
       expect(response.status).toBe(200);
       expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
       expect(response.headers['access-control-allow-methods']).toContain('OPTIONS');
+      expect(response.headers['access-control-allow-credentials']).toBe('true');
       const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
       // 'local' provider is always available (no API key required)
       expect(data).toEqual({ enabled: true, providers: ['openai', 'local'] });
@@ -265,6 +266,7 @@ describe('assistant-server', () => {
       expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
       expect(response.headers['access-control-allow-headers']).toContain('Content-Type');
       expect(response.headers['access-control-allow-methods']).toContain('POST');
+      expect(response.headers['access-control-allow-credentials']).toBe('true');
     });
 
     it('should return 204 for OPTIONS on unknown routes', async () => {
