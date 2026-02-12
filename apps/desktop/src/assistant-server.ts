@@ -233,7 +233,7 @@ function isAllowedAssistantOrigin(origin: string): boolean {
 function resolveRequestOrigin(req: http.IncomingMessage): string {
   const origin = req.headers.origin;
   if (typeof origin !== 'string' || origin.length === 0) {
-    return '*';
+    return ASSISTANT_CORS_NULL_ORIGIN;
   }
 
   if (isAllowedAssistantOrigin(origin)) {
@@ -252,7 +252,9 @@ function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerRe
 }
 
 function isAssistantCorsPreflight(req: http.IncomingMessage): boolean {
-  return req.method === 'OPTIONS';
+  return (
+    req.method === 'OPTIONS' && typeof req.headers['access-control-request-method'] === 'string'
+  );
 }
 
 function resolveRequestedProvider(data: RuntimeData | undefined): string | undefined {

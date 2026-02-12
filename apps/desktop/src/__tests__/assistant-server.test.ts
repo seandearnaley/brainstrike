@@ -254,7 +254,10 @@ describe('assistant-server', () => {
       const response = await runRequest({
         method: 'OPTIONS',
         url: '/assistant/status?source=test',
-        headers: { origin: 'http://localhost:8081' },
+        headers: {
+          origin: 'http://localhost:8081',
+          'access-control-request-method': 'POST',
+        },
       });
 
       expect(response.status).toBe(204);
@@ -268,11 +271,25 @@ describe('assistant-server', () => {
       const response = await runRequest({
         method: 'OPTIONS',
         url: '/unknown?source=test',
-        headers: { origin: 'http://localhost:8081' },
+        headers: {
+          origin: 'http://localhost:8081',
+          'access-control-request-method': 'POST',
+        },
       });
 
       expect(response.status).toBe(204);
       expect(response.body).toBe('');
+    });
+
+    it('should not treat non-preflight OPTIONS requests as CORS preflight', async () => {
+      const response = await runRequest({
+        method: 'OPTIONS',
+        url: '/assistant/status',
+        headers: { origin: 'http://localhost:8081' },
+      });
+
+      expect(response.status).toBe(404);
+      expect(response.body).toBe('not found');
     });
 
     it('should allow null origin for packaged Electron renderer requests', async () => {
@@ -280,6 +297,16 @@ describe('assistant-server', () => {
         method: 'GET',
         url: '/assistant/status',
         headers: { origin: 'null' },
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+    });
+
+    it('should default missing Origin header to null CORS origin', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
       });
 
       expect(response.status).toBe(200);
