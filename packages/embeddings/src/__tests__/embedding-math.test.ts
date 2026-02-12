@@ -32,7 +32,7 @@ describe('embedding-math', () => {
     ['cosine', calculateCosineSimilarity],
     ['L2', calculateL2Distance],
     ['dot', calculateDotProduct],
-  ])('%s similarity edge cases', (_name, fn) => {
+  ])('%s similarity edge cases', (name, fn) => {
     it('throws on length mismatch', () => {
       expect(() => fn([1], [1, 2])).toThrow('same dimensions');
     });
@@ -82,6 +82,14 @@ describe('embedding-math', () => {
       expect(() => fn(withInfinity, normal)).toThrow('Embeddings must contain only finite numbers');
       expect(() => fn(normal, withInfinity)).toThrow('Embeddings must contain only finite numbers');
     });
+
+    it('throws on finite inputs that overflow the accumulator', () => {
+      const huge = [1e200, 1e200, 1e200, 1e200];
+      const other = name === 'L2' ? [-1e200, -1e200, -1e200, -1e200] : huge;
+      expect(() => fn(huge, other)).toThrow(
+        'Embedding operation produced non-finite intermediate values'
+      );
+    });
   });
 
   describe.each([
@@ -124,5 +132,18 @@ describe('embedding-math', () => {
         'Embeddings must contain only finite numbers'
       );
     });
+
+    it('throws on finite inputs that overflow the accumulator', () => {
+      expect(() => fn([1e200, 1e200, 1e200, 1e200])).toThrow(
+        'Embedding operation produced non-finite intermediate values'
+      );
+    });
+  });
+
+  it('returns a copy for zero-norm normalization', () => {
+    const zeroVector = [0, 0, 0, 0];
+    const normalized = normalize(zeroVector);
+    expect(normalized).toEqual([0, 0, 0, 0]);
+    expect(normalized).not.toBe(zeroVector);
   });
 });

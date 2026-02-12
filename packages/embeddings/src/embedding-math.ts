@@ -71,6 +71,7 @@ export function calculateCosineSimilarity(
   // Unrolled loop (stride 4) with optimistic execution for hot-path performance.
   const len4 = len - (len % 4);
   for (; i < len4; i += 4) {
+    // Casts are intentional: sparse/non-finite checks are deferred to the fallback validation path.
     const v1 = embedding1[i] as number;
     const v2 = embedding2[i] as number;
     const v3 = embedding1[i + 1] as number;
@@ -264,7 +265,7 @@ export function normalize(embedding: number[]): number[] {
   }
 
   if (norm === 0) {
-    return embedding;
+    return embedding.slice();
   }
 
   const normSqrt = Math.sqrt(norm);
