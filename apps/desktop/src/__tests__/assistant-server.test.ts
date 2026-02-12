@@ -385,6 +385,19 @@ describe('assistant-server', () => {
       expect(data.error).toBe('forbidden_origin');
     });
 
+    it('should reject comma-separated multi-origin header values', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+        headers: { origin: 'http://localhost:8081, https://evil.example' },
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
     it('should reject localhost origins over https', async () => {
       const response = await runRequest({
         method: 'GET',

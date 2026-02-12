@@ -56,7 +56,9 @@ export interface AssistantServerOptions {
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
   const server = http.createServer(async (req, res) => {
     await handleAssistantRequest(req, res).catch(() => {
-      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.statusCode = 500;
       res.end(JSON.stringify({ error: 'assistant server error' }));
     });
   });
@@ -193,13 +195,13 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
     const payload = enabled
       ? { enabled, providers }
       : { enabled, reason: 'no_providers_configured', providers: [] as string[] };
-    res.writeHead(200, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-    });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.statusCode = 200;
     res.end(JSON.stringify(payload));
   } catch (error) {
-    res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.statusCode = 500;
     res.end(
       JSON.stringify({
         error: 'assistant_status_failed',
@@ -398,7 +400,8 @@ function respondJson(
   status: number,
   payload: { error: string; message: string }
 ): void {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.statusCode = status;
   res.end(JSON.stringify(payload));
 }
 
