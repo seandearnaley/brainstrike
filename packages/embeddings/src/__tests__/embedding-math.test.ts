@@ -54,6 +54,18 @@ describe('embedding-math', () => {
       expect(() => fn(sparse, normal)).toThrow('Sparse arrays are not supported');
       expect(() => fn(normal, sparse)).toThrow('Sparse arrays are not supported');
     });
+
+    it('throws on NaN values', () => {
+      expect(() => fn([1, Number.NaN, 3], [1, 2, 3])).toThrow('Embeddings must not contain NaN');
+      expect(() => fn([1, 2, 3], [1, Number.NaN, 3])).toThrow('Embeddings must not contain NaN');
+    });
+
+    it('throws on NaN values (unrolled loop path)', () => {
+      const withNaN = [1, 2, 3, 4, Number.NaN, 6, 7, 8];
+      const normal = [1, 2, 3, 4, 5, 6, 7, 8];
+      expect(() => fn(withNaN, normal)).toThrow('Embeddings must not contain NaN');
+      expect(() => fn(normal, withNaN)).toThrow('Embeddings must not contain NaN');
+    });
   });
 
   describe.each([
@@ -68,6 +80,16 @@ describe('embedding-math', () => {
       // biome-ignore lint/suspicious/noSparseArray: Testing sparse array detection
       const sparse = [1, , 3] as number[];
       expect(() => fn(sparse)).toThrow('Sparse arrays are not supported');
+    });
+
+    it('throws on NaN values', () => {
+      expect(() => fn([1, Number.NaN, 3])).toThrow('Embeddings must not contain NaN');
+    });
+
+    it('throws on NaN values (unrolled loop path)', () => {
+      expect(() => fn([1, 2, 3, 4, Number.NaN, 6, 7, 8])).toThrow(
+        'Embeddings must not contain NaN'
+      );
     });
   });
 });
