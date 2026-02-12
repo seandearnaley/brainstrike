@@ -93,6 +93,6 @@ pnpm biome check packages/queue/src packages/file-import/src packages/vector-man
 - Current plan docs: `docs/embedding-queue-plan-2025-10-13.md`, `docs/handoffs/20251013-153615-embedding-queue-migration.md`
 
 ## Prompt for Next Agent / Contractor
-&gt; Telemetry sink, collector CLI, and HUD trendlines are in place. Deploy the collector, ship aggregated telemetry snapshots, polish import feedback, and deepen E2E coverage with simulated queue churn. Read `docs/embedding-queue-plan-2025-10-13.md` and this handoff. Stay headless (no `pnpm dev`). Follow the Action Plan above, update docs afterwards, and record any follow-ups. Use queue provider hooks instead of instantiating new queues. Keep tests green.
+> Telemetry sink, collector CLI, and HUD trendlines are in place. Deploy the collector, ship aggregated telemetry snapshots, polish import feedback, and deepen E2E coverage with simulated queue churn. Read `docs/embedding-queue-plan-2025-10-13.md` and this handoff. Stay headless (no `pnpm dev`). Follow the Action Plan above, update docs afterwards, and record any follow-ups. Use queue provider hooks instead of instantiating new queues. Keep tests green.
 
 Good luck!

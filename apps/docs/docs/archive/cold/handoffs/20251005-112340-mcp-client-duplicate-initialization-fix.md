@@ -47,8 +47,8 @@ const mcpClient = hasServers
 ```
 
 This follows option #1 from the MCPClient error message:
-&gt; If you need multiple MCPClient class instances with identical server configurations, 
-&gt; set an id when configuring: new MCPClient(\{ id: "my-unique-id" \})
+> If you need multiple MCPClient class instances with identical server configurations, 
+> set an id when configuring: new MCPClient(\{ id: "my-unique-id" \})
 
 ## Why This Fixes Both Failures
 

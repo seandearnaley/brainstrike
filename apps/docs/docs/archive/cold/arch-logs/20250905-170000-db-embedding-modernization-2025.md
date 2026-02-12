@@ -7,11 +7,11 @@ superseded_by: "none"
 
 # DB + Embeddings Modernization Plan
 
-&gt; **2025-10 update:** The renderer-managed embedding worker now auto-starts once the database is available, so `EMBED_QUEUE_ENABLED` references inside this plan reflect historical rollout checkpoints rather than current configuration requirements.
+> **2025-10 update:** The renderer-managed embedding worker now auto-starts once the database is available, so `EMBED_QUEUE_ENABLED` references inside this plan reflect historical rollout checkpoints rather than current configuration requirements.
 
 *Phased, checklist-driven, with clear cut-offs, outputs, and validation gates.*
 
-&gt; **Goal:** make the DB the source of truth, add a **local-first queue**, harden chunking/import, and support multiple embedding models **without** foot-guns (dimension drift, pgvector availability, etc.).
+> **Goal:** make the DB the source of truth, add a **local-first queue**, harden chunking/import, and support multiple embedding models **without** foot-guns (dimension drift, pgvector availability, etc.).
 
 ---
 
@@ -75,7 +75,7 @@ superseded_by: "none"
 
 **— Gate 0: ✅ COMPLETED - Phase 0 fully implemented and production-tested.**
 
-&gt; **🎯 Next Developer**: See [`20250905-100000-phase-0-handoff.md`](pathname:///archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-100000-phase-0-handoff) for complete implementation details and Phase 1 preparation.
+> **🎯 Next Developer**: See [`20250905-100000-phase-0-handoff.md`](/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-100000-phase-0-handoff) for complete implementation details and Phase 1 preparation.
 
 ### Phase 0 Implementation Summary
 
@@ -110,8 +110,8 @@ superseded_by: "none"
 
 * [x] Update `searchSimilar` to **try SQL** path when `vectorEnabled`
 
-  * [x]◻ Use `embedding &lt;=&gt; $query` with **cosine index** (when available)
-  * [x]◻ Ensure `ORDER BY embedding &lt;=&gt; $query` + `threshold` semantics match cosine
+  * [x]◻ Use `embedding <=> $query` with **cosine index** (when available)
+  * [x]◻ Ensure `ORDER BY embedding <=> $query` + `threshold` semantics match cosine
 * [x] Add **client-side fallback**
 
   * [x]◻ SELECT candidate rows (cast `embedding::text`), parse, compute cosine in JS, rank & threshold
@@ -144,7 +144,7 @@ superseded_by: "none"
 
 **What was built:**
 - ✅ **Dual-path search**: `searchSimilar()` branches on `vectorEnabled` flag between SQL and client-side computation
-- ✅ **SQL path**: Uses `embedding &lt;=&gt; $query` with proper cosine similarity when pgvector available
+- ✅ **SQL path**: Uses `embedding <=> $query` with proper cosine similarity when pgvector available
 - ✅ **Client-side fallback**: Parses embeddings with `parseEmbeddingLoose()`, computes cosine similarity in JavaScript
 - ✅ **Robust similarity computation**: Handles edge cases (NaN, infinite, dimension mismatches, zero vectors)
 - ✅ **Consistent API**: Both paths return `\{ chunk, similarity ∈ [0,1], rank \}` format
@@ -212,7 +212,7 @@ Tasks
   - [x]◻ Apply `threshold` in SQL path
   - [x]◻ Require `embeddingSetId` (or enforce dimension) when `vectorEnabled`
 - [ ] Distance operator alignment
-  - [ ]◻ Choose operator by set distance (`&lt;=&gt;` cosine, `&lt;-&gt;` L2, `&lt;#&gt;` IP)
+  - [ ]◻ Choose operator by set distance (`<=>` cosine, `<->` L2, `<#>` IP)
   - [ ]◻ Document/normalize non‑cosine distances → `[0,1]` (or gate to cosine only for now)
 - [ ] Upsert semantics
   - [ ]◻ Reconcile `UNIQUE(file_record_id, chunk_index)` with upsert target (composite or deterministic id)
@@ -294,7 +294,7 @@ Notes
 
 **— Gate 3: ✅ COMPLETED - queue schema stable, producers working, infrastructure hardened.**
 
-&gt; **🎯 Next Developer**: See [`PHASE_3_HANDOFF.md`](pathname:///archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff) for complete implementation details and Phase 4 preparation.
+> **🎯 Next Developer**: See [`PHASE_3_HANDOFF.md`](/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff) for complete implementation details and Phase 4 preparation.
 
 ### Phase 3 Implementation Summary
 
@@ -543,7 +543,7 @@ type Job = {
   * \[ ]◻ `pnpm -w test -- --run`
   * \[ ]◻ Headless CI environments: `pnpm run check:headless` (prepends display/sandbox setup)
 
-&gt; Status: Up through Gate 5 is complete. Proceed to Phase 6 (UI/API integration & developer affordances). See [PHASE_4_HANDOFF.md](pathname:///archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-140000-phase-4-handoff) for a self‑contained handoff.
+> Status: Up through Gate 5 is complete. Proceed to Phase 6 (UI/API integration & developer affordances). See [PHASE_4_HANDOFF.md](/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-140000-phase-4-handoff) for a self-contained handoff.
 * \[ ]🧪 **E2E**
 
   * \[ ]◻ Web: `pnpm --filter ./apps/web test:e2e` *(or project script)*
@@ -555,7 +555,7 @@ type Job = {
   * \[ ]◻ Run a search; verify top result sanity
   * [x] Legacy toggle `DISABLE_VECTOR_EXTENSION` removed; pgvector must remain enabled
 
-&gt; *Note:* adjust filter names/commands if your package names differ. Keep these **as checklists in MRs**.
+> *Note:* adjust filter names/commands if your package names differ. Keep these **as checklists in MRs**.
 
 ---
 
@@ -602,7 +602,7 @@ Why the web often shows pgvector: off while desktop shows on — and what that m
 
 - Compute vs DB vectors:
   - Compute (transformers.js + WebGPU/CPU): used by the worker to generate embeddings. This runs in both desktop and web and uses your GPU when available.
-  - DB vectors (pgvector in PGlite): enables SQL similarity search (e.g., `embedding &lt;=&gt; $query`) with server-side ranking/thresholds. The Vector Status “pgvector” badge reflects this capability only.
+  - DB vectors (pgvector in PGlite): enables SQL similarity search (e.g., `embedding <=> $query`) with server-side ranking/thresholds. The Vector Status “pgvector” badge reflects this capability only.
 
 - Defaults by app:
   - Desktop: requires pgvector and verifies the extension at boot. SQL search path is used for performance and determinism.
