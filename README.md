@@ -58,7 +58,7 @@ packages/
   token-cache/, workers/, file-import/, storage adapters, styles, fonts
 ```
 
-See also: [`docs/onboarding.md`](docs/onboarding.md) and [`docs/monorepo-docs.md`](docs/monorepo-docs.md) for deep dives into architecture, development workflow, and code extraction patterns.
+See also: [`apps/docs/docs/getting-started/onboarding.md`](apps/docs/docs/getting-started/onboarding.md) and [`apps/docs/docs/development/monorepo-workflow.md`](apps/docs/docs/development/monorepo-workflow.md) for deep dives into architecture and workflow.
 
 ---
 
@@ -110,7 +110,7 @@ Performance tests are separated from functional E2E tests to speed up developmen
 - **PR performance testing**: Add `run-perf` label to any PR to trigger performance tests
 - **Manual execution**: GitHub Actions → "Performance E2E" → Run workflow
 
-See `docs/performance-testing.md` for detailed documentation.
+See [`apps/docs/docs/testing/performance-testing.md`](apps/docs/docs/testing/performance-testing.md) for detailed documentation.
 
 ---
 

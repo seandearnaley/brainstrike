@@ -54,7 +54,7 @@
     "@types/node": "^25.0.8",
     "@types/react": "^19.2.8",
     "happy-dom": "20.1.0",
-    "react": "^19.2.3",
+    "react": "^19.2.4",
     "rimraf": "^6.1.2",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
