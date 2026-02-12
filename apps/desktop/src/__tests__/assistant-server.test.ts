@@ -324,6 +324,7 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
     });
 
     it('should reject assistant POST requests from disallowed origins', async () => {
@@ -355,6 +356,7 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
     });
 
     it('should reject requests from disallowed origins', async () => {

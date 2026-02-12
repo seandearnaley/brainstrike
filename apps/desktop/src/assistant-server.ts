@@ -262,10 +262,13 @@ function hasDisallowedAssistantOrigin(req: http.IncomingMessage): boolean {
 }
 
 function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
-  res.setHeader('Access-Control-Allow-Origin', resolveRequestOrigin(req));
+  const origin = resolveRequestOrigin(req);
+  res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Headers', ASSISTANT_CORS_ALLOWED_HEADERS);
   res.setHeader('Access-Control-Allow-Methods', ASSISTANT_CORS_ALLOWED_METHODS);
-  res.setHeader('Access-Control-Allow-Credentials', ASSISTANT_CORS_ALLOW_CREDENTIALS);
+  if (origin !== ASSISTANT_CORS_NULL_ORIGIN) {
+    res.setHeader('Access-Control-Allow-Credentials', ASSISTANT_CORS_ALLOW_CREDENTIALS);
+  }
   res.setHeader('Access-Control-Max-Age', '86400');
   res.setHeader('Vary', 'Origin');
 }
@@ -400,10 +403,6 @@ function respondJson(
 }
 
 function respondForbiddenOrigin(res: http.ServerResponse): void {
-  res.removeHeader('Access-Control-Allow-Headers');
-  res.removeHeader('Access-Control-Allow-Methods');
-  res.removeHeader('Access-Control-Allow-Credentials');
-  res.removeHeader('Access-Control-Max-Age');
   res.setHeader('Access-Control-Allow-Origin', ASSISTANT_CORS_NULL_ORIGIN);
   res.setHeader('Vary', 'Origin');
 
