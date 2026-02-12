@@ -24,6 +24,9 @@
     "deploy:preview": "vercel",
     "deploy": "vercel --prod",
     "dev": "turbo run dev",
+    "docs:dev": "pnpm --filter @brainstrike/docs dev",
+    "docs:build": "pnpm --filter @brainstrike/docs build",
+    "docs:start": "pnpm --filter @brainstrike/docs start",
     "format-and-lint:fix": "biome check . --write",
     "format-and-lint": "biome check .",
     "format": "biome format . --write",
@@ -106,6 +109,8 @@
       "sharp"
     ],
     "overrides": {
+      "react": "19.2.4",
+      "react-dom": "19.2.4",
       "react-helmet-async>react": "^19.0.0",
       "react-helmet-async>react-dom": "^19.0.0"
     }

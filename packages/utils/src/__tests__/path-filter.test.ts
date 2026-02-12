@@ -78,10 +78,10 @@ describe('fileFilter', () => {
     it('should NOT ignore partial matches of default patterns', () => {
       const partialMatches = [
         'src/distributed/file.ts', // contains 'dist'
-        'rebuild/file.ts',         // contains 'build'
-        'my-dist-folder/file.ts',  // contains 'dist'
-        'redistribution/file.ts',  // contains 'dist'
-        'builder/file.ts',         // contains 'build'
+        'rebuild/file.ts', // contains 'build'
+        'my-dist-folder/file.ts', // contains 'dist'
+        'redistribution/file.ts', // contains 'dist'
+        'builder/file.ts', // contains 'build'
         'my_node_modules/file.ts', // contains 'node_modules'
       ];
 
