@@ -56,7 +56,14 @@ export interface AssistantServerOptions {
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
   const server = http.createServer(async (req, res) => {
     await handleAssistantRequest(req, res).catch(() => {
-      res.setHeader('Vary', 'Origin');
+      if (res.headersSent || res.writableEnded) {
+        if (!res.writableEnded) {
+          res.end();
+        }
+        return;
+      }
+
+      applyAssistantCorsHeaders(req, res);
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.statusCode = 500;
       res.end(JSON.stringify({ error: 'assistant server error' }));
@@ -152,7 +159,8 @@ async function handleAssistantPost(
   }
 
   if (!hasNonEmptyPrompt(messages)) {
-    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.statusCode = 400;
     res.end(JSON.stringify({ error: 'empty_prompt' }));
     return;
   }
