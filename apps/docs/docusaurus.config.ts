@@ -1,6 +1,8 @@
 import type * as Preset from '@docusaurus/preset-classic';
+import type { Config } from '@docusaurus/types';
+import searchLocalPlugin from '@easyops-cn/docusaurus-search-local';
 
-const config = {
+const config: Config = {
   title: 'Brainstrike Docs',
   tagline: 'Local-first architecture and implementation docs',
   favicon: 'img/favicon.svg',
@@ -29,7 +31,7 @@ const config = {
 
   plugins: [
     [
-      '@easyops-cn/docusaurus-search-local',
+      searchLocalPlugin,
       {
         docsRouteBasePath: '/',
         indexBlog: false,
