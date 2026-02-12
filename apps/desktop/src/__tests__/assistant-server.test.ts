@@ -350,14 +350,27 @@ describe('assistant-server', () => {
       expect(response.headers['access-control-allow-origin']).toBe('null');
     });
 
-    it('should block non-loopback origins from being reflected in CORS headers', async () => {
+    it('should reject requests from disallowed origins', async () => {
       const response = await runRequest({
         method: 'GET',
         url: '/assistant/status',
         headers: { origin: 'https://evil.example' },
       });
 
-      expect(response.status).toBe(200);
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
+    it('should reject localhost origins over https', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+        headers: { origin: 'https://localhost:8081' },
+      });
+
+      expect(response.status).toBe(403);
       expect(response.headers['access-control-allow-origin']).toBe('null');
     });
 
