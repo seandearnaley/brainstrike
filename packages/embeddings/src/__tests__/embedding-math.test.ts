@@ -82,6 +82,11 @@ describe('embedding-math', () => {
       expect(() => fn(sparse)).toThrow('Sparse arrays are not supported');
     });
 
+    it('throws on sparse arrays (unrolled loop path)', () => {
+      const sparse = [1, 2, 3, 4, undefined, 6, 7, 8] as number[];
+      expect(() => fn(sparse)).toThrow('Sparse arrays are not supported');
+    });
+
     it('throws on NaN values', () => {
       expect(() => fn([1, Number.NaN, 3])).toThrow('Embeddings must not contain NaN');
     });
