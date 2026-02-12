@@ -13,7 +13,7 @@ import {
   installRendererErrorHooks,
   LogLevel,
 } from '@brainstrike/utils';
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import './styles.css';
@@ -200,8 +200,4 @@ if (!rootElement) {
   throw new Error("Failed to find the root element with ID 'root'");
 }
 
-ReactDOM.createRoot(rootElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>
-);
+ReactDOM.createRoot(rootElement).render(<App />);

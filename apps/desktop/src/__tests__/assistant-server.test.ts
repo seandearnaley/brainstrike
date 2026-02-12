@@ -138,7 +138,11 @@ describe('assistant-server', () => {
     }
   }
 
-  async function runRequest(input: RequestInput): Promise<{ status: number; body: string }> {
+  async function runRequest(input: RequestInput): Promise<{
+    status: number;
+    body: string;
+    headers: Record<string, string>;
+  }> {
     const req = new MockRequest(input);
     const res = new MockResponse();
     const finished = new Promise<void>((resolve) => res.once('finish', resolve));
@@ -152,6 +156,7 @@ describe('assistant-server', () => {
     return {
       status: res.statusCode,
       body: Buffer.concat(res.bodyChunks).toString('utf-8'),
+      headers: res.headers,
     };
   }
 
@@ -223,13 +228,30 @@ describe('assistant-server', () => {
       const response = await runRequest({
         method: 'GET',
         url: '/assistant/status',
+        headers: { origin: 'http://localhost:8081' },
       });
 
       expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+      expect(response.headers['access-control-allow-methods']).toContain('OPTIONS');
       const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
       // 'local' provider is always available (no API key required)
       expect(data).toEqual({ enabled: true, providers: ['openai', 'local'] });
     }, 10_000);
+
+    it('should handle CORS preflight for assistant routes', async () => {
+      const response = await runRequest({
+        method: 'OPTIONS',
+        url: '/assistant',
+        headers: { origin: 'http://localhost:8081' },
+      });
+
+      expect(response.status).toBe(204);
+      expect(response.body).toBe('');
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+      expect(response.headers['access-control-allow-headers']).toContain('Content-Type');
+      expect(response.headers['access-control-allow-methods']).toContain('POST');
+    });
 
     it('should handle status route with missing API key', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');

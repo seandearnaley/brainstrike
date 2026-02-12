@@ -86,6 +86,14 @@ export async function handleAssistantRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
+  applyAssistantCorsHeaders(req, res);
+
+  if (isAssistantCorsPreflight(req)) {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   const route = resolveAssistantRoute(req);
   if (route === 'status') {
     await handleAssistantStatus(res);
@@ -194,6 +202,39 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
       })
     );
   }
+}
+
+const ASSISTANT_CORS_ALLOWED_HEADERS = 'Accept, Content-Type, Last-Event-ID';
+const ASSISTANT_CORS_ALLOWED_METHODS = 'GET, POST, OPTIONS';
+
+function resolveRequestOrigin(req: http.IncomingMessage): string {
+  const origin = req.headers.origin;
+  if (typeof origin === 'string' && origin.length > 0) {
+    return origin;
+  }
+  return '*';
+}
+
+function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
+  res.setHeader('Access-Control-Allow-Origin', resolveRequestOrigin(req));
+  res.setHeader('Access-Control-Allow-Headers', ASSISTANT_CORS_ALLOWED_HEADERS);
+  res.setHeader('Access-Control-Allow-Methods', ASSISTANT_CORS_ALLOWED_METHODS);
+  res.setHeader('Access-Control-Max-Age', '86400');
+  res.setHeader('Vary', 'Origin');
+}
+
+function isAssistantCorsPreflight(req: http.IncomingMessage): boolean {
+  if (req.method !== 'OPTIONS') {
+    return false;
+  }
+
+  const url = req.url ?? '';
+  return (
+    url.endsWith('/assistant') ||
+    url.endsWith('/assistant/status') ||
+    url === '/' ||
+    url === '/status'
+  );
 }
 
 function resolveRequestedProvider(data: RuntimeData | undefined): string | undefined {
