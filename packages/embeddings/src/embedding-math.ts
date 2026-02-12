@@ -7,7 +7,8 @@ const NON_FINITE_ACCUMULATOR_ERROR = 'Embedding operation produced non-finite in
 
 /**
  * Safety contract for hot-path loops:
- * `as number` casts avoid per-element branching in tight loops.
+ * `as number` casts avoid per-element branching in tight loops and intentionally bypass
+ * `noUncheckedIndexedAccess` in these hot paths.
  * Sparse/NaN/non-finite inputs poison accumulators and are diagnosed by post-loop finite checks.
  */
 

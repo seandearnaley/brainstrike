@@ -91,6 +91,7 @@ describe('embedding-math', () => {
 
     it('throws on finite inputs that overflow the accumulator', () => {
       const huge = [1e200, 1e200, 1e200, 1e200];
+      // L2 needs opposing values so (huge - -huge)^2 overflows; dot/cosine overflow from direct products.
       const other = fn === calculateL2Distance ? [-1e200, -1e200, -1e200, -1e200] : huge;
       expect(() => fn(huge, other)).toThrow(
         'Embedding operation produced non-finite intermediate values'
