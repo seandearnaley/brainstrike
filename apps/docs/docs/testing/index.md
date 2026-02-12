@@ -3,7 +3,7 @@ title: Testing Strategy
 sidebar_position: 1
 ---
 
-![Testing strategy matrix](/img/testing/testing-strategy-matrix.png)
+![Testing strategy matrix](/img/testing/testing-strategy-matrix.webp)
 
 Testing in Brainstrike is layered:
 

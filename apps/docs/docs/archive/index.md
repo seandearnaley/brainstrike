@@ -4,11 +4,11 @@ sidebar_position: 1
 slug: /archive
 ---
 
-![Archive timeline map](/img/archive/archive-timeline-map.png)
+![Archive timeline map](/img/archive/archive-timeline-map.webp)
 
-![Historical records map](/img/archive/historical-records-map.png)
+![Historical records map](/img/archive/historical-records-map.webp)
 
-![Docs migration blueprint](/img/archive/2026-02-12-00-21-00-docs-migration-blueprint.png)
+![Docs migration blueprint](/img/archive/2026-02-12-00-21-00-docs-migration-blueprint.webp)
 
 Archive stores historical engineering records that remain useful for context:
 

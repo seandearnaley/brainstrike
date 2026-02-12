@@ -3,7 +3,7 @@ title: Development Workflow
 sidebar_position: 1
 ---
 
-![Monorepo development workflow](/img/development/monorepo-workflow.png)
+![Monorepo development workflow](/img/development/monorepo-workflow.webp)
 
 This section defines daily engineering workflow in the Brainstrike monorepo:
 

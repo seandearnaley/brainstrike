@@ -14,6 +14,7 @@ const config: Config = {
   projectName: 'brainstrike-docs',
 
   onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
 
   i18n: {
     defaultLocale: 'en',
@@ -60,7 +61,7 @@ const config: Config = {
   ],
 
   themeConfig: {
-    image: 'img/architecture/brainstrike-architecture-hero.png',
+    image: 'img/architecture/brainstrike-architecture-hero.webp',
     navbar: {
       title: 'Brainstrike Docs',
       items: [

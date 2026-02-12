@@ -3,7 +3,7 @@ title: AI and Embeddings
 sidebar_position: 1
 ---
 
-![Embedding model decision map](/img/ai/embedding-model-decision-map.png)
+![Embedding model decision map](/img/ai/embedding-model-decision-map.webp)
 
 This section covers model selection and vector architecture:
 
