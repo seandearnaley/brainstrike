@@ -89,16 +89,18 @@ export async function handleAssistantRequest(
   applyAssistantCorsHeaders(req, res);
 
   if (isAssistantCorsPreflight(req)) {
+    if (hasDisallowedAssistantOrigin(req)) {
+      respondForbiddenOrigin(res);
+      return;
+    }
+
     res.writeHead(204);
     res.end();
     return;
   }
 
   if (hasDisallowedAssistantOrigin(req)) {
-    respondJson(res, 403, {
-      error: 'forbidden_origin',
-      message: 'Requests from this origin are not allowed.',
-    });
+    respondForbiddenOrigin(res);
     return;
   }
 
@@ -397,6 +399,13 @@ function respondJson(
 ): void {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(payload));
+}
+
+function respondForbiddenOrigin(res: http.ServerResponse): void {
+  respondJson(res, 403, {
+    error: 'forbidden_origin',
+    message: 'Requests from this origin are not allowed.',
+  });
 }
 
 async function parseAssistantRequestPayload(

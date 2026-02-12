@@ -293,9 +293,10 @@ describe('assistant-server', () => {
         },
       });
 
-      expect(response.status).toBe(204);
-      expect(response.body).toBe('');
+      expect(response.status).toBe(403);
       expect(response.headers['access-control-allow-origin']).toBe('null');
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
     });
 
     it('should not treat non-preflight OPTIONS requests as CORS preflight', async () => {
