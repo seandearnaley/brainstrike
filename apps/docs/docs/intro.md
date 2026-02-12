@@ -4,7 +4,7 @@ title: Brainstrike Official Documentation
 sidebar_position: 1
 ---
 
-![Brainstrike architecture map](/img/architecture/architecture-docs-map.png)
+![Brainstrike architecture map](/img/architecture/architecture-docs-map.webp)
 
 This site is the canonical engineering documentation for Brainstrike.
 

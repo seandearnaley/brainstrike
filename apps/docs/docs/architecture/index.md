@@ -4,8 +4,8 @@ sidebar_position: 1
 slug: /architecture
 ---
 
-![Architecture system map](/img/architecture/brainstrike-architecture-hero.png)
-![Runtime trust boundaries map](/img/architecture/2026-02-12-00-19-24-runtime-trust-boundaries.png)
+![Architecture system map](/img/architecture/brainstrike-architecture-hero.webp)
+![Runtime trust boundaries map](/img/architecture/2026-02-12-00-19-24-runtime-trust-boundaries.webp)
 
 This architecture set documents Brainstrike's current production shape across web, desktop, shared packages, and AI infrastructure.
 

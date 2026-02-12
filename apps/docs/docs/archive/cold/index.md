@@ -6,7 +6,7 @@ date: "2026-02-12"
 superseded_by: "none"
 ---
 
-![Cold archive records map](/img/archive/cold-archive-map.png)
+![Cold archive records map](/img/archive/cold-archive-map.webp)
 
 Cold Archive stores legacy operational records migrated with minimal editorial normalization.
 

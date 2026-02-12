@@ -3,7 +3,7 @@ title: Getting Started
 sidebar_position: 1
 ---
 
-![Engineering onboarding roadmap](/img/getting-started/onboarding-path.png)
+![Engineering onboarding roadmap](/img/getting-started/onboarding-path.webp)
 
 This section is the canonical onboarding path for contributors and agents.
 

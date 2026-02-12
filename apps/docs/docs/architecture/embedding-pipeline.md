@@ -5,7 +5,7 @@ sidebar_position: 4
 
 # Embedding Pipeline (Flows, Sequences, and State)
 
-![Embedding queue lifecycle and recovery](/img/architecture/2026-02-12-00-20-10-embedding-queue-lifecycle-recovery.png)
+![Embedding queue lifecycle and recovery](/img/architecture/2026-02-12-00-20-10-embedding-queue-lifecycle-recovery.webp)
 
 ## 3.1 High-Level Flow
 

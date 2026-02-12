@@ -4,7 +4,7 @@ sidebar_position: 1
 slug: /reference
 ---
 
-![Reference knowledge map](/img/reference/reference-knowledge-map.png)
+![Reference knowledge map](/img/reference/reference-knowledge-map.webp)
 
 Reference contains durable technical guidance that supports day-to-day engineering work:
 
