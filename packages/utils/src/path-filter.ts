@@ -1,5 +1,5 @@
 import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
-import { minimatch } from 'minimatch';
+import { Minimatch, minimatch } from 'minimatch';
 import { createLogger } from './logger';
 
 /**
@@ -18,6 +18,9 @@ const IGNORE_REGEX = new RegExp(
 // Cache compiled regex patterns to avoid recompilation overhead
 const regexCache = new Map<string, RegExp>();
 
+// Cache compiled minimatch patterns to avoid recompilation overhead
+const minimatchCache = new Map<string, Minimatch>();
+
 /**
  * Utilities for filtering files and directories
  */
@@ -33,7 +36,19 @@ export const fileFilter = {
    * Matches a string against a wildcard pattern
    */
   matchWildcard(str: string, pattern: string): boolean {
-    return minimatch(str, pattern, { dot: true });
+    let mm = minimatchCache.get(pattern);
+    if (!mm) {
+      try {
+        mm = new Minimatch(pattern, { dot: true });
+        minimatchCache.set(pattern, mm);
+      } catch (_error) {
+        // Fallback to non-cached version if compilation fails, though Minimatch usually doesn't throw on creation
+        // but rather on match if pattern is invalid, or it might just work.
+        // To be safe and consistent with original behavior:
+        return minimatch(str, pattern, { dot: true });
+      }
+    }
+    return mm.match(str);
   },
 
   /**
