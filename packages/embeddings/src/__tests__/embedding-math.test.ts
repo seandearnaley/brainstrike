@@ -28,11 +28,17 @@ describe('embedding-math', () => {
     expect(l2.method).toBe('l2');
   });
 
+  it('computes dot product for large finite values that cancel out', () => {
+    const dot = calculateDotProduct([1e200, -1e200, 1e200, -1e200], [1, 1, 1, 1]);
+    expect(Number.isFinite(dot.similarity)).toBe(true);
+    expect(dot.similarity).toBe(0);
+  });
+
   describe.each([
     ['cosine', calculateCosineSimilarity],
     ['L2', calculateL2Distance],
     ['dot', calculateDotProduct],
-  ])('%s similarity edge cases', (name, fn) => {
+  ])('%s similarity edge cases', (_name, fn) => {
     it('throws on length mismatch', () => {
       expect(() => fn([1], [1, 2])).toThrow('same dimensions');
     });
@@ -85,7 +91,7 @@ describe('embedding-math', () => {
 
     it('throws on finite inputs that overflow the accumulator', () => {
       const huge = [1e200, 1e200, 1e200, 1e200];
-      const other = name === 'L2' ? [-1e200, -1e200, -1e200, -1e200] : huge;
+      const other = fn === calculateL2Distance ? [-1e200, -1e200, -1e200, -1e200] : huge;
       expect(() => fn(huge, other)).toThrow(
         'Embedding operation produced non-finite intermediate values'
       );

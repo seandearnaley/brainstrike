@@ -6,6 +6,12 @@ const NON_FINITE_INPUT_ERROR = 'Embeddings must contain only finite numbers';
 const NON_FINITE_ACCUMULATOR_ERROR = 'Embedding operation produced non-finite intermediate values';
 
 /**
+ * Safety contract for hot-path loops:
+ * `as number` casts avoid per-element branching in tight loops.
+ * Sparse/NaN/non-finite inputs poison accumulators and are diagnosed by post-loop finite checks.
+ */
+
+/**
  * Fast-path loops intentionally skip per-element validation.
  * This helper validates inputs only when a NaN accumulator indicates invalid data.
  */
@@ -15,6 +21,7 @@ function validateArrayValues(embedding: number[], len: number): void {
     if (value === undefined) {
       throw new Error(SPARSE_ARRAY_ERROR);
     }
+    // Keep this check before isFinite() so NaN receives a specific diagnostic.
     if (Number.isNaN(value)) {
       throw new Error(NAN_INPUT_ERROR);
     }
@@ -35,6 +42,7 @@ function validatePairedArrayValues(embedding1: number[], embedding2: number[], l
     if (value1 === undefined || value2 === undefined) {
       throw new Error(SPARSE_ARRAY_ERROR);
     }
+    // Keep this check before isFinite() so NaN receives a specific diagnostic.
     if (Number.isNaN(value1) || Number.isNaN(value2)) {
       throw new Error(NAN_INPUT_ERROR);
     }
