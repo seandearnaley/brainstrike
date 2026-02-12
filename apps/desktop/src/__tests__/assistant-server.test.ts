@@ -283,6 +283,21 @@ describe('assistant-server', () => {
       expect(response.body).toBe('');
     });
 
+    it('should return null CORS origin for preflight requests from disallowed origins', async () => {
+      const response = await runRequest({
+        method: 'OPTIONS',
+        url: '/assistant/status?source=test',
+        headers: {
+          origin: 'https://evil.example',
+          'access-control-request-method': 'POST',
+        },
+      });
+
+      expect(response.status).toBe(204);
+      expect(response.body).toBe('');
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+    });
+
     it('should not treat non-preflight OPTIONS requests as CORS preflight', async () => {
       const response = await runRequest({
         method: 'OPTIONS',
@@ -303,6 +318,26 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers['access-control-allow-origin']).toBe('null');
+    });
+
+    it('should reject assistant POST requests from disallowed origins', async () => {
+      const response = await runRequest({
+        method: 'POST',
+        url: '/assistant',
+        headers: {
+          origin: 'https://evil.example',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: { provider: 'openai' },
+        }),
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
     });
 
     it('should default missing Origin header to null CORS origin', async () => {

@@ -105,6 +105,14 @@ export async function handleAssistantRequest(
     return;
   }
 
+  if (hasDisallowedAssistantOrigin(req)) {
+    respondJson(res, 403, {
+      error: 'forbidden_origin',
+      message: 'Requests from this origin are not allowed.',
+    });
+    return;
+  }
+
   await handleAssistantPost(req, res);
 }
 
@@ -242,6 +250,15 @@ function resolveRequestOrigin(req: http.IncomingMessage): string {
   }
 
   return ASSISTANT_CORS_NULL_ORIGIN;
+}
+
+function hasDisallowedAssistantOrigin(req: http.IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string' || origin.length === 0) {
+    return false;
+  }
+
+  return !isAllowedAssistantOrigin(origin);
 }
 
 function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
