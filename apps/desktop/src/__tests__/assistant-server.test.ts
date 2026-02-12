@@ -111,6 +111,10 @@ describe('assistant-server', () => {
       this.headers[name.toLowerCase()] = Array.isArray(value) ? value.join(',') : String(value);
     }
 
+    removeHeader(name: string): void {
+      delete this.headers[name.toLowerCase()];
+    }
+
     writeHead(status: number, headers?: Record<string, string>): this {
       this.statusCode = status;
       if (headers) {
@@ -295,6 +299,7 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(403);
       expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
       const data = JSON.parse(response.body) as { error: string };
       expect(data.error).toBe('forbidden_origin');
     });
@@ -337,6 +342,7 @@ describe('assistant-server', () => {
 
       expect(response.status).toBe(403);
       expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
       const data = JSON.parse(response.body) as { error: string };
       expect(data.error).toBe('forbidden_origin');
     });
@@ -356,6 +362,19 @@ describe('assistant-server', () => {
         method: 'GET',
         url: '/assistant/status',
         headers: { origin: 'https://evil.example' },
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
+    it('should reject malformed origin headers', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+        headers: { origin: 'not-a-url' },
       });
 
       expect(response.status).toBe(403);

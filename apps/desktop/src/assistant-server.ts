@@ -86,21 +86,16 @@ export async function handleAssistantRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
-  applyAssistantCorsHeaders(req, res);
-
-  if (isAssistantCorsPreflight(req)) {
-    if (hasDisallowedAssistantOrigin(req)) {
-      respondForbiddenOrigin(res);
-      return;
-    }
-
-    res.writeHead(204);
-    res.end();
+  if (hasDisallowedAssistantOrigin(req)) {
+    respondForbiddenOrigin(res);
     return;
   }
 
-  if (hasDisallowedAssistantOrigin(req)) {
-    respondForbiddenOrigin(res);
+  applyAssistantCorsHeaders(req, res);
+
+  if (isAssistantCorsPreflight(req)) {
+    res.writeHead(204);
+    res.end();
     return;
   }
 
@@ -222,6 +217,8 @@ const ASSISTANT_CORS_ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 
 function isAllowedAssistantOrigin(origin: string): boolean {
   // Packaged Electron loads from file:// and sends Origin: null.
+  // This is a deliberate trade-off for desktop compatibility while the server
+  // remains loopback-only.
   if (origin === ASSISTANT_CORS_NULL_ORIGIN) {
     return true;
   }
@@ -238,6 +235,7 @@ function isAllowedAssistantOrigin(origin: string): boolean {
     return false;
   }
 
+  // Intentionally allow any localhost port to support custom dev port mappings.
   return ASSISTANT_CORS_ALLOWED_HOSTS.has(parsedOrigin.hostname);
 }
 
@@ -402,6 +400,13 @@ function respondJson(
 }
 
 function respondForbiddenOrigin(res: http.ServerResponse): void {
+  res.removeHeader('Access-Control-Allow-Headers');
+  res.removeHeader('Access-Control-Allow-Methods');
+  res.removeHeader('Access-Control-Allow-Credentials');
+  res.removeHeader('Access-Control-Max-Age');
+  res.setHeader('Access-Control-Allow-Origin', ASSISTANT_CORS_NULL_ORIGIN);
+  res.setHeader('Vary', 'Origin');
+
   respondJson(res, 403, {
     error: 'forbidden_origin',
     message: 'Requests from this origin are not allowed.',
