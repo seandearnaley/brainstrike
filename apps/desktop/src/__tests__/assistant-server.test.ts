@@ -239,10 +239,21 @@ describe('assistant-server', () => {
       expect(data).toEqual({ enabled: true, providers: ['openai', 'local'] });
     }, 10_000);
 
+    it('should handle status route with query parameters', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status?source=healthcheck',
+        headers: { origin: 'http://localhost:8081' },
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+    });
+
     it('should handle CORS preflight for assistant routes', async () => {
       const response = await runRequest({
         method: 'OPTIONS',
-        url: '/assistant',
+        url: '/assistant/status?source=test',
         headers: { origin: 'http://localhost:8081' },
       });
 
@@ -251,6 +262,39 @@ describe('assistant-server', () => {
       expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
       expect(response.headers['access-control-allow-headers']).toContain('Content-Type');
       expect(response.headers['access-control-allow-methods']).toContain('POST');
+    });
+
+    it('should return 204 for OPTIONS on unknown routes', async () => {
+      const response = await runRequest({
+        method: 'OPTIONS',
+        url: '/unknown?source=test',
+        headers: { origin: 'http://localhost:8081' },
+      });
+
+      expect(response.status).toBe(204);
+      expect(response.body).toBe('');
+    });
+
+    it('should allow null origin for packaged Electron renderer requests', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+        headers: { origin: 'null' },
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+    });
+
+    it('should block non-loopback origins from being reflected in CORS headers', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+        headers: { origin: 'https://evil.example' },
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
     });
 
     it('should handle status route with missing API key', async () => {

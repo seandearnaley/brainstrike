@@ -148,6 +148,7 @@ apps/desktop/build/
 icons/.generated/
 
 .codanna/
+.codex/
 
 .beads/*.db
 

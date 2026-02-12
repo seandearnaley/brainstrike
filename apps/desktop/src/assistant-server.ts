@@ -206,13 +206,41 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
 
 const ASSISTANT_CORS_ALLOWED_HEADERS = 'Accept, Content-Type, Last-Event-ID';
 const ASSISTANT_CORS_ALLOWED_METHODS = 'GET, POST, OPTIONS';
+const ASSISTANT_CORS_NULL_ORIGIN = 'null';
+const ASSISTANT_CORS_ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
+function isAllowedAssistantOrigin(origin: string): boolean {
+  // Packaged Electron loads from file:// and sends Origin: null.
+  if (origin === ASSISTANT_CORS_NULL_ORIGIN) {
+    return true;
+  }
+
+  let parsedOrigin: URL;
+  try {
+    parsedOrigin = new URL(origin);
+  } catch {
+    return false;
+  }
+
+  const isHttpProtocol = parsedOrigin.protocol === 'http:' || parsedOrigin.protocol === 'https:';
+  if (!isHttpProtocol) {
+    return false;
+  }
+
+  return ASSISTANT_CORS_ALLOWED_HOSTS.has(parsedOrigin.hostname);
+}
 
 function resolveRequestOrigin(req: http.IncomingMessage): string {
   const origin = req.headers.origin;
-  if (typeof origin === 'string' && origin.length > 0) {
+  if (typeof origin !== 'string' || origin.length === 0) {
+    return '*';
+  }
+
+  if (isAllowedAssistantOrigin(origin)) {
     return origin;
   }
-  return '*';
+
+  return ASSISTANT_CORS_NULL_ORIGIN;
 }
 
 function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
@@ -224,17 +252,7 @@ function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerRe
 }
 
 function isAssistantCorsPreflight(req: http.IncomingMessage): boolean {
-  if (req.method !== 'OPTIONS') {
-    return false;
-  }
-
-  const url = req.url ?? '';
-  return (
-    url.endsWith('/assistant') ||
-    url.endsWith('/assistant/status') ||
-    url === '/' ||
-    url === '/status'
-  );
+  return req.method === 'OPTIONS';
 }
 
 function resolveRequestedProvider(data: RuntimeData | undefined): string | undefined {
@@ -328,14 +346,23 @@ function readLastEventId(req: http.IncomingMessage): string | undefined {
 }
 
 function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute {
-  const url = req.url ?? '';
-  if (req.method === 'GET' && (url.endsWith('/assistant/status') || url === '/status')) {
+  const requestPath = resolveRequestPath(req);
+  if (req.method === 'GET' && (requestPath === '/assistant/status' || requestPath === '/status')) {
     return 'status';
   }
-  if (req.method === 'POST' && (url.endsWith('/assistant') || url === '/')) {
+  if (req.method === 'POST' && (requestPath === '/assistant' || requestPath === '/')) {
     return 'assistant';
   }
   return 'not-found';
+}
+
+function resolveRequestPath(req: http.IncomingMessage): string {
+  const rawUrl = req.url ?? '/';
+  try {
+    return new URL(rawUrl, 'http://127.0.0.1').pathname;
+  } catch {
+    return rawUrl;
+  }
 }
 
 function respondNotFound(res: http.ServerResponse): void {
