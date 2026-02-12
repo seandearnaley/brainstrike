@@ -111,6 +111,10 @@ describe('assistant-server', () => {
       this.headers[name.toLowerCase()] = Array.isArray(value) ? value.join(',') : String(value);
     }
 
+    removeHeader(name: string): void {
+      delete this.headers[name.toLowerCase()];
+    }
+
     writeHead(status: number, headers?: Record<string, string>): this {
       this.statusCode = status;
       if (headers) {
@@ -138,7 +142,11 @@ describe('assistant-server', () => {
     }
   }
 
-  async function runRequest(input: RequestInput): Promise<{ status: number; body: string }> {
+  async function runRequest(input: RequestInput): Promise<{
+    status: number;
+    body: string;
+    headers: Record<string, string>;
+  }> {
     const req = new MockRequest(input);
     const res = new MockResponse();
     const finished = new Promise<void>((resolve) => res.once('finish', resolve));
@@ -152,6 +160,7 @@ describe('assistant-server', () => {
     return {
       status: res.statusCode,
       body: Buffer.concat(res.bodyChunks).toString('utf-8'),
+      headers: res.headers,
     };
   }
 
@@ -223,13 +232,182 @@ describe('assistant-server', () => {
       const response = await runRequest({
         method: 'GET',
         url: '/assistant/status',
+        headers: { origin: 'http://localhost:8081' },
       });
 
       expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+      expect(response.headers['access-control-allow-methods']).toContain('OPTIONS');
+      expect(response.headers['access-control-allow-credentials']).toBe('true');
       const data = JSON.parse(response.body) as { enabled: boolean; providers: string[] };
       // 'local' provider is always available (no API key required)
       expect(data).toEqual({ enabled: true, providers: ['openai', 'local'] });
     }, 10_000);
+
+    it('should handle status route with query parameters', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status?source=healthcheck',
+        headers: { origin: 'http://localhost:8081' },
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+    });
+
+    it('should handle CORS preflight for assistant routes', async () => {
+      const response = await runRequest({
+        method: 'OPTIONS',
+        url: '/assistant/status?source=test',
+        headers: {
+          origin: 'http://localhost:8081',
+          'access-control-request-method': 'POST',
+        },
+      });
+
+      expect(response.status).toBe(204);
+      expect(response.body).toBe('');
+      expect(response.headers['access-control-allow-origin']).toBe('http://localhost:8081');
+      expect(response.headers['access-control-allow-headers']).toContain('Content-Type');
+      expect(response.headers['access-control-allow-methods']).toContain('POST');
+      expect(response.headers['access-control-allow-credentials']).toBe('true');
+    });
+
+    it('should return 204 for OPTIONS on unknown routes', async () => {
+      const response = await runRequest({
+        method: 'OPTIONS',
+        url: '/unknown?source=test',
+        headers: {
+          origin: 'http://localhost:8081',
+          'access-control-request-method': 'POST',
+        },
+      });
+
+      expect(response.status).toBe(204);
+      expect(response.body).toBe('');
+    });
+
+    it('should return null CORS origin for preflight requests from disallowed origins', async () => {
+      const response = await runRequest({
+        method: 'OPTIONS',
+        url: '/assistant/status?source=test',
+        headers: {
+          origin: 'https://evil.example',
+          'access-control-request-method': 'POST',
+        },
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
+    it('should not treat non-preflight OPTIONS requests as CORS preflight', async () => {
+      const response = await runRequest({
+        method: 'OPTIONS',
+        url: '/assistant/status',
+        headers: { origin: 'http://localhost:8081' },
+      });
+
+      expect(response.status).toBe(404);
+      expect(response.body).toBe('not found');
+    });
+
+    it('should allow null origin for packaged Electron renderer requests', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+        headers: { origin: 'null' },
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
+    });
+
+    it('should reject assistant POST requests from disallowed origins', async () => {
+      const response = await runRequest({
+        method: 'POST',
+        url: '/assistant',
+        headers: {
+          origin: 'https://evil.example',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: { provider: 'openai' },
+        }),
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
+    it('should default missing Origin header to null CORS origin', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+      });
+
+      expect(response.status).toBe(200);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      expect(response.headers['access-control-allow-credentials']).toBeUndefined();
+    });
+
+    it('should reject requests from disallowed origins', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+        headers: { origin: 'https://evil.example' },
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
+    it('should reject malformed origin headers', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+        headers: { origin: 'not-a-url' },
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
+    it('should reject comma-separated multi-origin header values', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+        headers: { origin: 'http://localhost:8081, https://evil.example' },
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+      const data = JSON.parse(response.body) as { error: string };
+      expect(data.error).toBe('forbidden_origin');
+    });
+
+    it('should reject localhost origins over https', async () => {
+      const response = await runRequest({
+        method: 'GET',
+        url: '/assistant/status',
+        headers: { origin: 'https://localhost:8081' },
+      });
+
+      expect(response.status).toBe(403);
+      expect(response.headers['access-control-allow-origin']).toBe('null');
+    });
 
     it('should handle status route with missing API key', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');

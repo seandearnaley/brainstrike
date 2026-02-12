@@ -56,7 +56,16 @@ export interface AssistantServerOptions {
 export function startAssistantServer(portHint?: number, options: AssistantServerOptions = {}) {
   const server = http.createServer(async (req, res) => {
     await handleAssistantRequest(req, res).catch(() => {
-      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      if (res.headersSent || res.writableEnded) {
+        if (!res.writableEnded) {
+          res.end();
+        }
+        return;
+      }
+
+      applyAssistantCorsHeaders(req, res);
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.statusCode = 500;
       res.end(JSON.stringify({ error: 'assistant server error' }));
     });
   });
@@ -86,6 +95,19 @@ export async function handleAssistantRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
+  if (hasDisallowedAssistantOrigin(req)) {
+    respondForbiddenOrigin(res);
+    return;
+  }
+
+  applyAssistantCorsHeaders(req, res);
+
+  if (isAssistantCorsPreflight(req)) {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
+
   const route = resolveAssistantRoute(req);
   if (route === 'status') {
     await handleAssistantStatus(res);
@@ -137,7 +159,8 @@ async function handleAssistantPost(
   }
 
   if (!hasNonEmptyPrompt(messages)) {
-    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.statusCode = 400;
     res.end(JSON.stringify({ error: 'empty_prompt' }));
     return;
   }
@@ -180,13 +203,13 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
     const payload = enabled
       ? { enabled, providers }
       : { enabled, reason: 'no_providers_configured', providers: [] as string[] };
-    res.writeHead(200, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-    });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.statusCode = 200;
     res.end(JSON.stringify(payload));
   } catch (error) {
-    res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.statusCode = 500;
     res.end(
       JSON.stringify({
         error: 'assistant_status_failed',
@@ -194,6 +217,76 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
       })
     );
   }
+}
+
+const ASSISTANT_CORS_ALLOWED_HEADERS = 'Accept, Content-Type, Last-Event-ID';
+const ASSISTANT_CORS_ALLOWED_METHODS = 'GET, POST, OPTIONS';
+const ASSISTANT_CORS_ALLOW_CREDENTIALS = 'true';
+const ASSISTANT_CORS_NULL_ORIGIN = 'null';
+const ASSISTANT_CORS_ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
+function isAllowedAssistantOrigin(origin: string): boolean {
+  // Packaged Electron loads from file:// and sends Origin: null.
+  // This is a deliberate trade-off for desktop compatibility while the server
+  // remains loopback-only.
+  if (origin === ASSISTANT_CORS_NULL_ORIGIN) {
+    return true;
+  }
+
+  let parsedOrigin: URL;
+  try {
+    parsedOrigin = new URL(origin);
+  } catch {
+    return false;
+  }
+
+  const isHttpProtocol = parsedOrigin.protocol === 'http:';
+  if (!isHttpProtocol) {
+    return false;
+  }
+
+  // Intentionally allow any localhost port to support custom dev port mappings.
+  return ASSISTANT_CORS_ALLOWED_HOSTS.has(parsedOrigin.hostname);
+}
+
+function resolveRequestOrigin(req: http.IncomingMessage): string {
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string' || origin.length === 0) {
+    return ASSISTANT_CORS_NULL_ORIGIN;
+  }
+
+  if (isAllowedAssistantOrigin(origin)) {
+    return origin;
+  }
+
+  return ASSISTANT_CORS_NULL_ORIGIN;
+}
+
+function hasDisallowedAssistantOrigin(req: http.IncomingMessage): boolean {
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string' || origin.length === 0) {
+    return false;
+  }
+
+  return !isAllowedAssistantOrigin(origin);
+}
+
+function applyAssistantCorsHeaders(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const origin = resolveRequestOrigin(req);
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Headers', ASSISTANT_CORS_ALLOWED_HEADERS);
+  res.setHeader('Access-Control-Allow-Methods', ASSISTANT_CORS_ALLOWED_METHODS);
+  if (origin !== ASSISTANT_CORS_NULL_ORIGIN) {
+    res.setHeader('Access-Control-Allow-Credentials', ASSISTANT_CORS_ALLOW_CREDENTIALS);
+  }
+  res.setHeader('Access-Control-Max-Age', '86400');
+  res.setHeader('Vary', 'Origin');
+}
+
+function isAssistantCorsPreflight(req: http.IncomingMessage): boolean {
+  return (
+    req.method === 'OPTIONS' && typeof req.headers['access-control-request-method'] === 'string'
+  );
 }
 
 function resolveRequestedProvider(data: RuntimeData | undefined): string | undefined {
@@ -287,14 +380,23 @@ function readLastEventId(req: http.IncomingMessage): string | undefined {
 }
 
 function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute {
-  const url = req.url ?? '';
-  if (req.method === 'GET' && (url.endsWith('/assistant/status') || url === '/status')) {
+  const requestPath = resolveRequestPath(req);
+  if (req.method === 'GET' && (requestPath === '/assistant/status' || requestPath === '/status')) {
     return 'status';
   }
-  if (req.method === 'POST' && (url.endsWith('/assistant') || url === '/')) {
+  if (req.method === 'POST' && (requestPath === '/assistant' || requestPath === '/')) {
     return 'assistant';
   }
   return 'not-found';
+}
+
+function resolveRequestPath(req: http.IncomingMessage): string {
+  const rawUrl = req.url ?? '/';
+  try {
+    return new URL(rawUrl, 'http://127.0.0.1').pathname;
+  } catch {
+    return rawUrl;
+  }
 }
 
 function respondNotFound(res: http.ServerResponse): void {
@@ -306,8 +408,19 @@ function respondJson(
   status: number,
   payload: { error: string; message: string }
 ): void {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.statusCode = status;
   res.end(JSON.stringify(payload));
+}
+
+function respondForbiddenOrigin(res: http.ServerResponse): void {
+  res.setHeader('Access-Control-Allow-Origin', ASSISTANT_CORS_NULL_ORIGIN);
+  res.setHeader('Vary', 'Origin');
+
+  respondJson(res, 403, {
+    error: 'forbidden_origin',
+    message: 'Requests from this origin are not allowed.',
+  });
 }
 
 async function parseAssistantRequestPayload(
