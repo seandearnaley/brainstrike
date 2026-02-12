@@ -2,6 +2,8 @@ import type { SimilarityResult } from './types';
 
 const SPARSE_ARRAY_ERROR = 'Sparse arrays are not supported';
 const NAN_INPUT_ERROR = 'Embeddings must not contain NaN';
+const NON_FINITE_INPUT_ERROR = 'Embeddings must contain only finite numbers';
+const NON_FINITE_ACCUMULATOR_ERROR = 'Embedding operation produced non-finite intermediate values';
 
 /**
  * Fast-path loops intentionally skip per-element validation.
@@ -15,6 +17,9 @@ function validateArrayValues(embedding: number[], len: number): void {
     }
     if (Number.isNaN(value)) {
       throw new Error(NAN_INPUT_ERROR);
+    }
+    if (!Number.isFinite(value)) {
+      throw new Error(NON_FINITE_INPUT_ERROR);
     }
   }
 }
@@ -33,6 +38,9 @@ function validatePairedArrayValues(embedding1: number[], embedding2: number[], l
     if (Number.isNaN(value1) || Number.isNaN(value2)) {
       throw new Error(NAN_INPUT_ERROR);
     }
+    if (!(Number.isFinite(value1) && Number.isFinite(value2))) {
+      throw new Error(NON_FINITE_INPUT_ERROR);
+    }
   }
 }
 
@@ -41,7 +49,7 @@ function validatePairedArrayValues(embedding1: number[], embedding2: number[], l
  *
  * @param embedding1 - Array of numbers
  * @param embedding2 - Array of numbers
- * @throws {Error} If embeddings have different dimensions, are empty, sparse, or contain NaN.
+ * @throws {Error} If embeddings have different dimensions, are empty, sparse, or contain non-finite values.
  */
 export function calculateCosineSimilarity(
   embedding1: number[],
@@ -85,8 +93,9 @@ export function calculateCosineSimilarity(
     norm2 += v2 * v2;
   }
 
-  if (Number.isNaN(dotProduct) || Number.isNaN(norm1) || Number.isNaN(norm2)) {
+  if (!(Number.isFinite(dotProduct) && Number.isFinite(norm1) && Number.isFinite(norm2))) {
     validatePairedArrayValues(embedding1, embedding2, len);
+    throw new Error(NON_FINITE_ACCUMULATOR_ERROR);
   }
 
   if (norm1 === 0 || norm2 === 0) {
@@ -111,7 +120,7 @@ export function calculateCosineSimilarity(
  *
  * @param embedding1 - Array of numbers
  * @param embedding2 - Array of numbers
- * @throws {Error} If embeddings have different dimensions, are empty, sparse, or contain NaN.
+ * @throws {Error} If embeddings have different dimensions, are empty, sparse, or contain non-finite values.
  */
 export function calculateL2Distance(embedding1: number[], embedding2: number[]): SimilarityResult {
   const len = embedding1.length;
@@ -152,8 +161,9 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
     squaredDistance += diff * diff;
   }
 
-  if (Number.isNaN(squaredDistance)) {
+  if (!Number.isFinite(squaredDistance)) {
     validatePairedArrayValues(embedding1, embedding2, len);
+    throw new Error(NON_FINITE_ACCUMULATOR_ERROR);
   }
 
   const distance = Math.sqrt(squaredDistance);
@@ -171,7 +181,7 @@ export function calculateL2Distance(embedding1: number[], embedding2: number[]):
  *
  * @param embedding1 - Array of numbers
  * @param embedding2 - Array of numbers
- * @throws {Error} If embeddings have different dimensions, are empty, sparse, or contain NaN.
+ * @throws {Error} If embeddings have different dimensions, are empty, sparse, or contain non-finite values.
  */
 export function calculateDotProduct(embedding1: number[], embedding2: number[]): SimilarityResult {
   const len = embedding1.length;
@@ -206,8 +216,9 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
     dotProduct += v1 * v2;
   }
 
-  if (Number.isNaN(dotProduct)) {
+  if (!Number.isFinite(dotProduct)) {
     validatePairedArrayValues(embedding1, embedding2, len);
+    throw new Error(NON_FINITE_ACCUMULATOR_ERROR);
   }
 
   return {
@@ -220,7 +231,7 @@ export function calculateDotProduct(embedding1: number[], embedding2: number[]):
 /**
  * Normalize an embedding vector to unit length
  *
- * @throws {Error} If embedding is empty, sparse, or contains NaN.
+ * @throws {Error} If embedding is empty, sparse, or contains non-finite values.
  */
 export function normalize(embedding: number[]): number[] {
   const len = embedding.length;
@@ -247,8 +258,9 @@ export function normalize(embedding: number[]): number[] {
     norm += val * val;
   }
 
-  if (Number.isNaN(norm)) {
+  if (!Number.isFinite(norm)) {
     validateArrayValues(embedding, len);
+    throw new Error(NON_FINITE_ACCUMULATOR_ERROR);
   }
 
   if (norm === 0) {
@@ -276,7 +288,7 @@ export function normalize(embedding: number[]): number[] {
 /**
  * Calculate the magnitude (L2 norm) of an embedding vector
  *
- * @throws {Error} If embedding is empty, sparse, or contains NaN.
+ * @throws {Error} If embedding is empty, sparse, or contains non-finite values.
  */
 export function magnitude(embedding: number[]): number {
   const len = embedding.length;
@@ -302,8 +314,9 @@ export function magnitude(embedding: number[]): number {
     sum += val * val;
   }
 
-  if (Number.isNaN(sum)) {
+  if (!Number.isFinite(sum)) {
     validateArrayValues(embedding, len);
+    throw new Error(NON_FINITE_ACCUMULATOR_ERROR);
   }
 
   return Math.sqrt(sum);

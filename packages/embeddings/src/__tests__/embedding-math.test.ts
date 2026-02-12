@@ -66,6 +66,22 @@ describe('embedding-math', () => {
       expect(() => fn(withNaN, normal)).toThrow('Embeddings must not contain NaN');
       expect(() => fn(normal, withNaN)).toThrow('Embeddings must not contain NaN');
     });
+
+    it('throws on non-finite values', () => {
+      expect(() => fn([1, Number.POSITIVE_INFINITY, 3], [1, 2, 3])).toThrow(
+        'Embeddings must contain only finite numbers'
+      );
+      expect(() => fn([1, 2, 3], [1, Number.NEGATIVE_INFINITY, 3])).toThrow(
+        'Embeddings must contain only finite numbers'
+      );
+    });
+
+    it('throws on non-finite values (unrolled loop path)', () => {
+      const withInfinity = [1, 2, 3, 4, Number.POSITIVE_INFINITY, 6, 7, 8];
+      const normal = [1, 2, 3, 4, 5, 6, 7, 8];
+      expect(() => fn(withInfinity, normal)).toThrow('Embeddings must contain only finite numbers');
+      expect(() => fn(normal, withInfinity)).toThrow('Embeddings must contain only finite numbers');
+    });
   });
 
   describe.each([
@@ -94,6 +110,18 @@ describe('embedding-math', () => {
     it('throws on NaN values (unrolled loop path)', () => {
       expect(() => fn([1, 2, 3, 4, Number.NaN, 6, 7, 8])).toThrow(
         'Embeddings must not contain NaN'
+      );
+    });
+
+    it('throws on non-finite values', () => {
+      expect(() => fn([1, Number.POSITIVE_INFINITY, 3])).toThrow(
+        'Embeddings must contain only finite numbers'
+      );
+    });
+
+    it('throws on non-finite values (unrolled loop path)', () => {
+      expect(() => fn([1, 2, 3, 4, Number.NEGATIVE_INFINITY, 6, 7, 8])).toThrow(
+        'Embeddings must contain only finite numbers'
       );
     });
   });
