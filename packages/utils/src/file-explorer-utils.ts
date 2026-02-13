@@ -104,37 +104,59 @@ export const fileExplorer = {
     useRegex: boolean
   ): string {
     const lines: string[] = [];
+    const filterOptions = {
+      includeFilters,
+      excludeFilters,
+      useRegex,
+    };
 
-    const traverse = (node: IFileNode, depth: number) => {
+    // Helper to traverse the ALREADY FILTERED tree
+    const printNode = (node: IFileNode, depth: number) => {
       const indent = '  '.repeat(depth);
       const prefix = node.type === 'directory' ? '📁 ' : '📄 ';
       lines.push(`${indent}${prefix}${node.name}`);
 
       if (node.type === 'directory' && node.children) {
-        const filteredChildren = node.children
-          .map((child) =>
-            fileFilter.filterNode(child, {
-              includeFilters,
-              excludeFilters,
-              useRegex,
-            })
-          )
-          .filter((child): child is IFileNode => child !== null)
-          .sort((a, b) => {
-            if (a.type !== b.type) {
-              return a.type === 'directory' ? -1 : 1;
-            }
-            return a.name.localeCompare(b.name);
-          });
+        // Since the node is already filtered, its children are also filtered.
+        // We just need to sort and recurse.
+        const sortedChildren = [...node.children].sort((a, b) => {
+          if (a.type !== b.type) {
+            return a.type === 'directory' ? -1 : 1;
+          }
+          return a.name.localeCompare(b.name);
+        });
 
-        for (const child of filteredChildren) {
-          traverse(child, depth + 1);
+        for (const child of sortedChildren) {
+          printNode(child, depth + 1);
         }
       }
     };
 
     for (const root of fileTree) {
-      traverse(root, 0);
+      // We always print the root node (preserving original behavior)
+      const indent = '';
+      const prefix = root.type === 'directory' ? '📁 ' : '📄 ';
+      lines.push(`${indent}${prefix}${root.name}`);
+
+      if (root.type === 'directory' && root.children) {
+        // Filter the children ONCE here.
+        // fileFilter.filterNode returns a node with fully filtered subtree.
+        const filteredChildren = root.children
+          .map((child) => fileFilter.filterNode(child, filterOptions))
+          .filter((child): child is IFileNode => child !== null);
+
+        // Sort the top-level filtered children
+        const sortedChildren = filteredChildren.sort((a, b) => {
+          if (a.type !== b.type) {
+            return a.type === 'directory' ? -1 : 1;
+          }
+          return a.name.localeCompare(b.name);
+        });
+
+        for (const child of sortedChildren) {
+          printNode(child, 1);
+        }
+      }
     }
 
     return lines.join('\n');
