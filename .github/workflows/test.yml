@@ -42,92 +42,57 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
         with:
-          node-version-file: '.nvmrc'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-v2-
-
-      - name: Cache Turborepo
-        uses: actions/cache@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-v4-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      # Desktop unit tests require Electron binary (mcp-loader, secrets, ipc-secrets tests)
-      - name: Get Electron version
-        id: electron-version
-        run: echo "version=$(node -e "console.log(require('./apps/desktop/package.json').devDependencies['electron'])")" >> $GITHUB_OUTPUT
-
-      - name: Cache Electron binaries
-        id: electron-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
-
-      - name: Ensure Electron binary is installed
-        # install.js is idempotent - it checks ~/.cache/electron and only downloads if missing
-        # We always run it to handle cache miss and verify binary exists
-        run: |
-          cd apps/desktop/node_modules/electron
-          # install.js checks cache first, only downloads if binary missing
-          node install.js
-          # Verify binary was installed by requiring electron module
-          node -e "const e = require('.'); console.log('✅ Electron binary verified at:', e)"
+          skip-electron: 'false'
 
       - name: Lint
-        run: pnpm run lint
+        run: |
+          echo "::group::Lint timing"
+          START=$SECONDS
+          pnpm run lint
+          echo "lint_duration=$(( SECONDS - START ))s" >> $GITHUB_STEP_SUMMARY
+          echo "::endgroup::"
 
       - name: Type check
-        run: pnpm run type-check
+        run: |
+          echo "::group::Type check timing"
+          START=$SECONDS
+          pnpm run type-check
+          echo "type_check_duration=$(( SECONDS - START ))s" >> $GITHUB_STEP_SUMMARY
+          echo "::endgroup::"
 
       - name: Build all packages
         run: |
+          echo "::group::Build timing"
+          START=$SECONDS
           # Build with Tailwind debug output
           TAILWIND_DEBUG=1 pnpm run build
-          
+          echo "build_duration=$(( SECONDS - START ))s" >> $GITHUB_STEP_SUMMARY
+          echo "::endgroup::"
+
+      - name: Validate CSS bundle
+        run: |
           # Check CSS bundle size (must be >= 50kB)
           CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
           echo "CSS bundle size: ${CSS_SIZE} bytes"
-          
+
           if [ "$CSS_SIZE" -lt 50000 ]; then
-            echo "❌ CSS bundle too small: ${CSS_SIZE} bytes (expected >= 50,000 bytes)"
-            echo "This indicates Tailwind may not be scanning all package sources correctly"
+            echo "::error::CSS bundle too small: ${CSS_SIZE} bytes (expected >= 50,000 bytes). Tailwind may not be scanning all package sources."
             exit 1
           else
-            echo "✅ CSS bundle size OK: ${CSS_SIZE} bytes"
+            echo "CSS bundle size OK: ${CSS_SIZE} bytes"
           fi
-          
+
           # Check for duplicate Tailwind layers
           PAT='*,:after,:before,::backdrop{box-sizing:border-box'
           DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
           if [ "$DUPLICATE_COUNT" -ne 1 ]; then
-            echo "❌ Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies)"
-            echo "This indicates duplicate @import \"tailwindcss\" statements in package styles.css files"
+            echo "::error::Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies). Check for duplicate @import \"tailwindcss\" statements."
             exit 1
           else
-            echo "✅ No duplicate CSS layers detected"
+            echo "No duplicate CSS layers detected"
           fi
 
       - name: Clear coverage directories
@@ -135,7 +100,12 @@ jobs:
           find packages apps -type d -name "coverage" -maxdepth 3 -prune -exec rm -rf {} +
 
       - name: Run unit tests with coverage
-        run: pnpm run test:coverage
+        run: |
+          echo "::group::Test timing"
+          START=$SECONDS
+          pnpm run test:coverage
+          echo "test_duration=$(( SECONDS - START ))s" >> $GITHUB_STEP_SUMMARY
+          echo "::endgroup::"
         env:
           NODE_ENV: "test"
 
@@ -245,7 +215,7 @@ jobs:
           mkdir -p coverage-bundle
           find . -name "coverage-final.json" -path "*/coverage/*" -exec cp --parents {} coverage-bundle/ \;
           if [ ! "$(ls -A coverage-bundle 2>/dev/null)" ]; then
-            echo "⚠️ No coverage files found, creating empty marker"
+            echo "No coverage files found, creating empty marker"
             touch coverage-bundle/.empty
           fi
           tar -cvf coverage-bundle.tar coverage-bundle/
@@ -258,6 +228,13 @@ jobs:
           name: unit-coverage
           path: coverage-bundle.tar
           retention-days: 1
+
+      - name: Print step timing summary
+        if: always()
+        run: |
+          echo "## CI Step Durations" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check the step timings above for optimization opportunities." >> $GITHUB_STEP_SUMMARY
 
   # Vitest 4 Browser Mode tests (WASM/IndexedDB validation)
   browser-tests:
@@ -273,37 +250,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-v2-
-
-      - name: Cache Turborepo
-        uses: actions/cache@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-v4-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
 
       - name: Get Playwright version
         id: playwright-version
@@ -366,37 +314,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-v2-
-
-      - name: Cache Turborepo
-        uses: actions/cache@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-v4-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
 
       - name: Get Playwright version
         id: playwright-version
@@ -440,7 +359,7 @@ jobs:
             ls -lh blob-report-${{ matrix.shardIndex }}.tar
             echo "Bundled $(find blob-report -type f | wc -l) files in tar"
           else
-            echo "⚠️ No blob report found for shard ${{ matrix.shardIndex }}"
+            echo "No blob report found for shard ${{ matrix.shardIndex }}"
           fi
 
       - name: Upload blob report
@@ -475,58 +394,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
         with:
-          node-version-file: '.nvmrc'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-v2-
-
-      - name: Cache Turborepo
-        uses: actions/cache@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-v4-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Get Electron version
-        id: electron-version
-        run: echo "version=$(node -e "console.log(require('./apps/desktop/package.json').devDependencies['electron'])")" >> $GITHUB_OUTPUT
-
-      - name: Cache Electron binaries
-        id: electron-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/electron
-          key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
-
-      - name: Ensure Electron binary is installed
-        # install.js is idempotent - it checks ~/.cache/electron and only downloads if missing
-        # We always run it to handle cache miss and verify binary exists
-        run: |
-          cd apps/desktop/node_modules/electron
-          # install.js checks cache first, only downloads if binary missing
-          node install.js
-          # Verify binary was installed by requiring electron module
-          node -e "const e = require('.'); console.log('✅ Electron binary verified at:', e)"
+          skip-electron: 'false'
 
       - name: Install system dependencies for Electron
         run: |
@@ -595,7 +466,7 @@ jobs:
             ls -lh desktop-blob-report-${{ matrix.shardIndex }}.tar
             echo "Bundled $(find blob-report -type f | wc -l) files in tar"
           else
-            echo "⚠️ No blob report found for desktop shard ${{ matrix.shardIndex }}"
+            echo "No blob report found for desktop shard ${{ matrix.shardIndex }}"
           fi
 
       - name: Upload blob report (desktop shard)
@@ -618,37 +489,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-v2-
-
-      - name: Cache Turborepo
-        uses: actions/cache@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-v4-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
 
       - name: Build packages (required for Playwright config)
         run: pnpm run build
@@ -704,10 +546,10 @@ jobs:
         run: |
           echo "Contents of blob report directories:"
           ls -la all-blob-reports/*/
-          
+
           # Create a single directory with all blob files
           mkdir -p merged-blob-reports
-          
+
           # Copy all blob report files to the merged directory
           for dir in all-blob-reports/*/; do
             if [ -d "$dir/blob-report" ]; then
@@ -715,15 +557,15 @@ jobs:
               cp -r "$dir"/blob-report/* merged-blob-reports/ || true
             fi
           done
-          
+
           echo "Merged blob reports directory contents:"
           ls -la merged-blob-reports/
-          
+
           # Debug: Check if merge config exists and is valid
           echo "Checking merge config..."
           ls -la playwright-merge.config.js
           node -c playwright-merge.config.js
-          
+
           # Merge reports using custom merge config to handle both web and desktop
           echo "Starting merge process..."
           pnpm exec playwright merge-reports --config playwright-merge.config.js merged-blob-reports
@@ -747,15 +589,15 @@ jobs:
           echo "Finding coverage files..."
           if [ -d "unit-coverage" ]; then
             find unit-coverage -name "coverage-final.json" -type f
-            
+
             # Create .nyc_output directory
             mkdir -p .nyc_output
-            
+
             # Merge coverage if files exist
             if find unit-coverage -name "coverage-final.json" -type f | head -1 | grep -q .; then
               echo "Merging coverage files..."
               pnpm coverage:merge -- --quiet unit-coverage
-              
+
               # Generate reports
               pnpm coverage:report
               echo "Coverage reports generated successfully"
@@ -799,37 +641,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-v2-
-
-      - name: Cache Turborepo
-        uses: actions/cache@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-v4-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Setup monorepo
+        uses: ./.github/actions/setup-monorepo
 
       - name: Build packages (required for Knip)
         run: pnpm run build
@@ -844,12 +657,12 @@ jobs:
           REPORT_FILE="knip-report.md"
           OUTPUT=$(pnpm run knip -c knip.jsonc --cache --reporter markdown || true)
           echo "$OUTPUT"
-          
+
           if echo "$OUTPUT" | grep -q "Unused"; then
             echo "$OUTPUT" > $REPORT_FILE
             echo "has_issues=true" >> $GITHUB_OUTPUT
           else
-            echo "## ✅ No unused code detected!" > $REPORT_FILE
+            echo "## No unused code detected!" > $REPORT_FILE
             echo "" >> $REPORT_FILE
             echo "Great job! Knip didn't find any unused files, exports, or dependencies." >> $REPORT_FILE
             echo "has_issues=false" >> $GITHUB_OUTPUT
@@ -866,16 +679,16 @@ jobs:
             if (fs.existsSync('knip-report.md')) {
               knipReport = fs.readFileSync('knip-report.md', 'utf8');
             }
-            
-            const body = `## 🔍 Code Quality Analysis
-            
+
+            const body = `## Code Quality Analysis
+
             ${knipReport}
-            
+
             > Knip helps identify unused code to reduce bundle size and improve maintainability.
             > This check is non-blocking but please consider cleaning up unused code.
-            > 
+            >
             > [Learn more about Knip](https://knip.dev)`;
-            
+
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
