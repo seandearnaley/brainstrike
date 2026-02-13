@@ -38,8 +38,8 @@ export default defineConfig({
     },
     // Use forks pool with parallelization for better performance
     pool: 'forks',
-    // Vitest 4: use maxWorkers instead of poolOptions.forks.maxForks
-    maxWorkers: 4,
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
   },
   resolve: {
     alias: {

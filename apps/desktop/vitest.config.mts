@@ -14,8 +14,8 @@ export default defineConfig({
     testTimeout: getAdjustedTimeout('uiComponent'),
     // Use threads pool to avoid process forks (prevents EPERM kills in constrained sandboxes)
     pool: 'threads',
-    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
-    maxWorkers: 8,
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

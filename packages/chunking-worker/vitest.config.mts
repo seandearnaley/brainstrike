@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
+const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+
 export default defineConfig({
   test: {
     environment: 'node',
@@ -8,9 +10,10 @@ export default defineConfig({
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
     pool: 'threads',
-    maxWorkers: 4,
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
     coverage: {
-      enabled: true,
+      enabled: coverageEnabled,
       provider: 'v8',
       include: ['src/**/*.ts'],
       exclude: ['**/*.d.ts', '**/*.config.*', '**/dist/**', 'src/chunking.worker.ts'],

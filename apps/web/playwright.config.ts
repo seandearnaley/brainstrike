@@ -71,7 +71,7 @@ export default defineConfig({
     }),
 
     // Tracing and media capture
-    trace: config.isCI ? 'on' : 'on-first-retry',
+    trace: config.isCI ? 'retain-on-failure' : 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     testIdAttribute: 'data-testid',

@@ -8,10 +8,9 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
-    // Use all available cores for faster test execution
     pool: 'threads',
-    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
-    maxWorkers: 4,
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
     coverage: {
       // Only include actual source files (not type declarations or dist)
       include: ['src/**/*.{ts,tsx}'],

@@ -1,0 +1,71 @@
+name: 'Setup Monorepo'
+description: 'Shared setup for Node.js, pnpm, caching, and dependency installation. Must be called AFTER actions/checkout.'
+
+inputs:
+  skip-electron:
+    description: 'Skip Electron binary download/verification'
+    required: false
+    default: 'true'
+
+outputs:
+  pnpm-store-path:
+    description: 'Path to the pnpm store'
+    value: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: '.nvmrc'
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+
+    - name: Get pnpm store directory
+      id: pnpm-cache
+      shell: bash
+      run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+    - name: Cache pnpm store
+      uses: actions/cache@v4
+      with:
+        path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-v2-
+
+    - name: Cache Turborepo
+      uses: actions/cache@v4
+      with:
+        path: .turbo
+        key: ${{ runner.os }}-node22-turbo-v4-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
+        restore-keys: |
+          ${{ runner.os }}-turbo-v4-
+
+    - name: Install dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    # Electron binary setup (opt-in)
+    - name: Get Electron version
+      if: inputs.skip-electron == 'false'
+      id: electron-version
+      shell: bash
+      run: echo "version=$(node -e 'console.log(require("./apps/desktop/package.json").devDependencies["electron"])')" >> $GITHUB_OUTPUT
+
+    - name: Cache Electron binaries
+      if: inputs.skip-electron == 'false'
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/electron
+        key: ${{ runner.os }}-electron-v2-${{ steps.electron-version.outputs.version }}
+
+    - name: Ensure Electron binary is installed
+      if: inputs.skip-electron == 'false'
+      shell: bash
+      run: |
+        cd apps/desktop/node_modules/electron
+        node install.js
+        node -e "const e = require('.'); console.log('Electron binary verified at:', e)"

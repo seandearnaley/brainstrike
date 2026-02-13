@@ -12,10 +12,9 @@ export default defineConfig({
     unstubGlobals: true,
     testTimeout: 30_000,
     hookTimeout: 30_000,
-    // Use all available cores for faster test execution
     pool: 'threads',
-    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
-    maxWorkers: 4,
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     // Coverage consolidated at root vitest.config.mts

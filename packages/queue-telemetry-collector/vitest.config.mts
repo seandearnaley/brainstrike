@@ -11,7 +11,7 @@ export default defineConfig({
     restoreMocks: true,
     clearMocks: true,
     coverage: {
-      enabled: true,
+      enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',
       provider: 'v8',
       include: ['src/**/*.ts', 'src/**/*.tsx'],
       exclude: ['**/*.d.ts', '**/*.config.*', '**/dist/**'],
