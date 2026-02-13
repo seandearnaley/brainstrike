@@ -8,7 +8,7 @@ export default defineConfig({
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
     coverage: {
-      enabled: true,
+      enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',
       provider: 'v8',
       include: ['src/**/*.ts', 'src/**/*.tsx'],
       exclude: [

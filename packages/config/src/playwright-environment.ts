@@ -39,7 +39,7 @@ export const getWorkerCount = (env?: ReturnType<typeof detectEnvironment>) => {
     return 1; // Codex has very limited resources
   }
   if (isGitHubActions) {
-    return 2; // GitHub Actions free runners have 2 cores
+    return 2; // GitHub Actions private-repo runners have 2 vCPU (public repos get 4)
   }
   if (isCI) {
     return 1; // Other CI environments, be conservative

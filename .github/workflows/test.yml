@@ -452,11 +452,13 @@ jobs:
           retention-days: 1
           if-no-files-found: warn
 
-  # Desktop E2E tests - runs in parallel with web E2E after checks pass
-  # Each GitHub Actions runner is fully isolated, so no resource contention occurs
+  # Desktop E2E tests - runs AFTER web E2E to prevent Electron flakiness
+  # WARNING: Do NOT change to parallel execution. See docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md
+  # PR #544 tried parallel (needs: [checks]) and flakiness returned within 5 days (PR #555).
+  # Root cause: too many concurrent GHA jobs overwhelm infrastructure, not runner isolation.
   desktop-e2e:
     name: Desktop E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
-    needs: [checks] # Only wait for build/lint/tests - runners are isolated
+    needs: [checks, e2e] # Sequential - wait for web E2E to complete first
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

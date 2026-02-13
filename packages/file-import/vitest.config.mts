@@ -18,7 +18,7 @@ export default defineConfig({
     maxWorkers: 4,
     // Coverage consolidated at root vitest.config.mts
     coverage: {
-      enabled: true,
+      enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',
       provider: 'v8',
       include: ['src/**/*.ts', 'src/**/*.tsx'],
       exclude: ['**/*.d.ts', '**/*.config.*', '**/dist/**'],
