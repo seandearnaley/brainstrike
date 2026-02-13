@@ -134,6 +134,19 @@ describe('fileFilter', () => {
       expect(fileFilter.matchWildcard('test/a/b/file.tsx', 'test/**/*.tsx')).toBe(true);
       expect(fileFilter.matchWildcard('file.test.js', '*.test.*')).toBe(true);
     });
+
+    // NEW: Test cache hit
+    it('should reuse cached minimatch instances', () => {
+      const pattern = '*.cache.js';
+      const file1 = 'file1.cache.js';
+      const file2 = 'file2.cache.js';
+
+      // First call - cache miss
+      expect(fileFilter.matchWildcard(file1, pattern)).toBe(true);
+
+      // Second call - cache hit (should work identically)
+      expect(fileFilter.matchWildcard(file2, pattern)).toBe(true);
+    });
   });
 
   describe('matchRegex', () => {

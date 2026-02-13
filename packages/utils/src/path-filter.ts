@@ -1,5 +1,5 @@
 import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
-import { minimatch } from 'minimatch';
+import { Minimatch } from 'minimatch';
 import { createLogger } from './logger';
 
 /**
@@ -17,6 +17,8 @@ const IGNORE_REGEX = new RegExp(
 
 // Cache compiled regex patterns to avoid recompilation overhead
 const regexCache = new Map<string, RegExp>();
+// Cache compiled minimatch patterns to avoid recompilation overhead
+const minimatchCache = new Map<string, Minimatch>();
 
 /**
  * Utilities for filtering files and directories
@@ -33,7 +35,12 @@ export const fileFilter = {
    * Matches a string against a wildcard pattern
    */
   matchWildcard(str: string, pattern: string): boolean {
-    return minimatch(str, pattern, { dot: true });
+    let matcher = minimatchCache.get(pattern);
+    if (!matcher) {
+      matcher = new Minimatch(pattern, { dot: true });
+      minimatchCache.set(pattern, matcher);
+    }
+    return matcher.match(str);
   },
 
   /**
