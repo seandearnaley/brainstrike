@@ -13,7 +13,8 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 // Vitest 4: use maxWorkers instead of poolOptions
 const poolConfig = {
   pool: 'forks' as const,
-  maxWorkers: 4,
+  // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+  maxWorkers: process.env['CI'] ? '50%' : '100%',
 };
 
 export default defineConfig({
