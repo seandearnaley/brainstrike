@@ -33,19 +33,19 @@ superseded_by: "none"
     ]
   }
   ```
-- Use `initializeQueueTelemetrySink(\{ endpoint, apiKey, metadata \})` directly if you need Node/Electron-main coverage.
+- Use `initializeQueueTelemetrySink( { endpoint, apiKey, metadata })` directly if you need Node/Electron-main coverage.
 - Sink disables itself when `fetch` is unavailable; failed deliveries requeue events and log a warning through `EmbeddingQueueTelemetrySink` logger.
 
 ## UI & Event Contracts
 - `packages/vector-management/src/vector-status.tsx` now formats jobs/min, completed counts, and latency Avg/P50/P95 using telemetry snapshots.
-- `packages/file-import/src/browser-queue-port.ts` dispatches `brainstrike:queue-progress` with `\{ pending, processed, failed, totalQueued, lastError, lastEvent \}` on queue transitions.
+- `packages/file-import/src/browser-queue-port.ts` dispatches `brainstrike:queue-progress` with ` { pending, processed, failed, totalQueued, lastError, lastEvent }` on queue transitions.
 - `packages/db-explorer/src/enhanced-file-import-service.ts` subscribes to that event and stores progress in `EnhancedImportProgress.queueProgress`, rendered by `ImportProgressDisplay`.
 
 ## Follow-Ups
 1. Deploy ingestion target (Datadog/log stream/serverless) and wire secrets for `VITE_QUEUE_TELEMETRY_ENDPOINT` / API keys.
 2. Stream collected metrics into dashboards and consider trendlines or sparklines in the HUD once historical data exists.
 3. Extend import UI with per-file badges/toasts fed by `brainstrike:queue-progress` and surface last error externally.
-4. Add Playwright coverage for import -&gt; queue -&gt; completion flows using the new queue progress events.
+4. Add Playwright coverage for import -> queue -> completion flows using the new queue progress events.
 5. Update ops/onboarding docs once the collector and dashboards are in place.
 
 ## Verification

@@ -1,5 +1,5 @@
 ---
-title: "20250915 120000 Assistant Ui Unification Next Dev Handoff"
+title: "20250915 120000 Assistant UI Unification Next Dev Handoff"
 status: "cold-archive"
 date: "2025-09-13"
 superseded_by: "none"
@@ -83,7 +83,7 @@ How To Run/Verify
 - Type-check: `pnpm turbo run type-check --filter ./...`
 - Lint/format: `pnpm turbo run lint --filter ./...`
 - Build: `pnpm turbo run build --filter ./...`
-- Unit/integration: `pnpm turbo run test --filter &lt;pkg&gt;` (examples: @brainstrike/agent, @brainstrike/web, @brainstrike/desktop, @brainstrike/ui)
+- Unit/integration: `pnpm turbo run test --filter <pkg>` (examples: @brainstrike/agent, @brainstrike/web, @brainstrike/desktop, @brainstrike/ui)
 - Web E2E: `pnpm --filter @brainstrike/web run test:e2e` (headless)
 - Assistant env vars: set one of `OPENAI_API_KEY`, `BRAINSTRIKE_OPENAI_API_KEY`, or `BS_OPENAI_API_KEY` before invoking `/api/chat` or `/api/assistant`. Without any of these set the endpoints now return `503 assistant_disabled`.
 - Desktop assistant server also respects the same env vars before falling back to safeStorage secrets.
@@ -136,5 +136,5 @@ Acceptance Checklist for Your Changes
 - Guardrails/telemetry in place with docs updated.
 
 Appendix — Contracts
-- Stream chunks (server → client): `\{ type: 'text-delta', value \} | \{ type: 'tool-event', name, status, payload \}` where `status ∈ \{ start, progress, success, error \}`.
-- Request shape (client → server): `\{ messages: AgentMessage[]; data?: RuntimeData \}`, with `runtime.callTool(name, params, \{ onProgress \})` used when available.
+- Stream chunks (server → client): ` { type: 'text-delta', value } |  { type: 'tool-event', name, status, payload }` where `status ∈  { start, progress, success, error }`.
+- Request shape (client → server): ` { messages: AgentMessage[]; data?: RuntimeData }`, with `runtime.callTool(name, params,  { onProgress })` used when available.

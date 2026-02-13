@@ -1,5 +1,5 @@
 ---
-title: "20250905 170000 Db Embedding Modernization 2025"
+title: "20250905 170000 DB Embedding Modernization 2025"
 status: "cold-archive"
 date: "2025-09-05"
 superseded_by: "none"
@@ -118,8 +118,8 @@ superseded_by: "none"
   * [x]◻ Validate **dimensions match**; skip mismatches
 * [x] Normalize similarity contract
 
-  * [x]◻ Always return `\{ chunk, similarity ∈ [0,1], rank \}` (cosine)
-  * [x]◻ Document `options: \{ limit, threshold, fileRecordId, chunkType \}`
+  * [x]◻ Always return ` { chunk, similarity ∈ [0,1], rank }` (cosine)
+  * [x]◻ Document `options:  { limit, threshold, fileRecordId, chunkType }`
 
 ### Outputs
 
@@ -147,7 +147,7 @@ superseded_by: "none"
 - ✅ **SQL path**: Uses `embedding <=> $query` with proper cosine similarity when pgvector available
 - ✅ **Client-side fallback**: Parses embeddings with `parseEmbeddingLoose()`, computes cosine similarity in JavaScript
 - ✅ **Robust similarity computation**: Handles edge cases (NaN, infinite, dimension mismatches, zero vectors)
-- ✅ **Consistent API**: Both paths return `\{ chunk, similarity ∈ [0,1], rank \}` format
+- ✅ **Consistent API**: Both paths return ` { chunk, similarity ∈ [0,1], rank }` format
 - ✅ **Comprehensive testing**: 25+ test cases covering both paths, similarity functions, and edge cases
 - ✅ **Production safety**: Graceful handling of unparseable embeddings and dimension mismatches
 
@@ -254,8 +254,8 @@ Notes
   * [x]◻ Pick indexes: `(queue, state, run_at)`, `(state, leased_until)`
 * [x] `packages/db/src/queue/job-queue.ts` (new, DB-agnostic)
 
-  * [x]◻ `enqueue(\{queue, job_type, payload, dedupe_key, run_at?\})`
-  * [x]◻ `claim(\{queue, leaseMs\}): Job | null` (atomic UPDATE … RETURNING)
+  * [x]◻ `enqueue( {queue, job_type, payload, dedupe_key, run_at?})`
+  * [x]◻ `claim( {queue, leaseMs}): Job | null` (atomic UPDATE … RETURNING)
   * [x]◻ `heartbeat(id, lease_token, extendMs)`
   * [x]◻ `complete(id, lease_token)` / `fail(id, lease_token, error)` with backoff
   * [x]◻ `retryPolicy(attempts)` (exp backoff, jitter)
@@ -330,7 +330,7 @@ Notes
 
 * [x] Worker module `packages/embeddings/src/worker/embedding-worker.ts`
 
-  * [x]◻ `startEmbeddingWorker(\{ concurrency, leaseMs \})`
+  * [x]◻ `startEmbeddingWorker( { concurrency, leaseMs })`
   * [x]◻ On boot: resolve/create **embedding set** and init model (WebGPU/CPU auto)
   * [x]◻ Loop: claim → process `embed_chunk` → heartbeat 10s → complete/fail
   * [x]◻ Processing:
@@ -551,7 +551,7 @@ type Job = {
 * \[ ]👤 **User smoke** (5 minutes)
 
   * \[ ]◻ Import small folder (mix code/md)
-  * \[ ]◻ See chunks count &gt; 0; if queue enabled, see jobs drain
+  * \[ ]◻ See chunks count > 0; if queue enabled, see jobs drain
   * \[ ]◻ Run a search; verify top result sanity
   * [x] Legacy toggle `DISABLE_VECTOR_EXTENSION` removed; pgvector must remain enabled
 

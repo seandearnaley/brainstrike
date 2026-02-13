@@ -1,5 +1,5 @@
 ---
-title: "20250930 094210 Assistant Ui Layout Fix Postmortem"
+title: "20250930 094210 Assistant UI Layout Fix Postmortem"
 status: "cold-archive"
 date: "2025-09-30"
 superseded_by: "none"
@@ -97,7 +97,7 @@ The Assistant UI composer was being pushed down (shunted) as message content fil
 **Hypothesis:** Height wasn't properly flowing from parent to child containers.
 
 **Changes:**
-- Removed `h-full` from `&lt;section&gt;` element (broke height chain)
+- Removed `h-full` from `<section>` element (broke height chain)
 - Added it back when DevTools showed `height: 0px`
 - Modified `TabsContent` to ensure proper flex constraints
 - Removed default `mt-2` margin from `TabsContent` component
@@ -112,7 +112,7 @@ The Assistant UI composer was being pushed down (shunted) as message content fil
 **Hypothesis:** The `Panel` component's default `overflow: hidden` was blocking internal scrolling.
 
 **Changes:**
-- Added `style=\{\{ overflow: 'clip' \}\}` to `Panel` component
+- Added `style= { { overflow: 'clip' }}` to `Panel` component
 
 **Result:** No difference.
 
@@ -185,7 +185,7 @@ After repeated failures, we examined the actual `@assistant-ui/react` library CS
 - **Result:** Fighting the library's intended DOM structure
 
 ### 3. **Missing Height Constraint on Section**
-- **Issue:** `&lt;section className="flex flex-col h-full min-h-0"&gt;` but parent `CardContent` has `p-0`
+- **Issue:** `<section className="flex flex-col h-full min-h-0">` but parent `CardContent` has `p-0`
 - **Result:** Height calculation issues due to padding override
 
 ### 4. **Viewport Is Flex Container with `flex-col`**
@@ -210,7 +210,7 @@ After repeated failures, we examined the actual `@assistant-ui/react` library CS
 - **Result:** Panel children might not get correct height constraints
 
 ### 9. **Assistant Message Bottom Margin ⚠️ CRITICAL**
-- **Library applies:** `.aui-assistant-message-root \{ ... last:mb-24; \}`
+- **Library applies:** `.aui-assistant-message-root  { ... last:mb-24; }`
 - **Result:** **96px (24rem) bottom margin** on last message, designed for sticky footer pattern
 - **Impact:** This huge margin pushes content down
 

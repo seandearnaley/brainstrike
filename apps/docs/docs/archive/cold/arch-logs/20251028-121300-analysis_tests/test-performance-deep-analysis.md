@@ -354,7 +354,7 @@ if (isCI) {
 - Genuinely slow tests (legitimately need 20s+)
 - Tests that are too slow (should be optimized)
 
-**Recommendation**: Audit which tests need &gt;10s timeouts and why
+**Recommendation**: Audit which tests need >10s timeouts and why
 
 ---
 
@@ -372,7 +372,7 @@ if (isCI) {
 7. worker-storage.test.ts: 771 lines (tests)
 8. preview-panel.integration.test.tsx: 744 lines (tests)
 
-**Recommendation**: Split files &gt;600 lines into logical units
+**Recommendation**: Split files >600 lines into logical units
 - **preview-panel.test.tsx**: Split into:
   - preview-panel.empty.test.tsx (empty state)
   - preview-panel.display.test.tsx (rendering)
@@ -400,7 +400,7 @@ if (isCI) {
 **Current Practice**: Tests use `describe()` for organization
 
 **Missing**: No `test.skip()`, `test.only()`, or test tags for:
-- Slow tests (&gt;5s each)
+- Slow tests (>5s each)
 - Flaky tests
 - Platform-specific tests (Electron only)
 - UI only vs headless compatible
@@ -433,7 +433,7 @@ test.only('focused test', async () => {
 
 | Issue | Files Affected | Effort | Estimated Gain |
 |-------|----------------|--------|-----------------|
-| Split monolithic test files | 8 files &gt;700 lines | 8 hours | 20% parallel improvement |
+| Split monolithic test files | 8 files >700 lines | 8 hours | 20% parallel improvement |
 | Replace large test data | db tests, db-explorer tests | 4 hours | 30% memory, 15% startup |
 | Fix coverage overhead | Root vitest config | 2 hours | 20-40% local speedup |
 | Audit timeout values | 10+ files | 3 hours | Identify legitimately slow tests |
@@ -533,4 +533,3 @@ await migrate(db); // Database migration for every test
 - **E2E Test Files**: 24 for web app
 - **Database Test Files**: 36
 - **Configuration Inconsistencies**: 4 different pool strategies across packages
-

@@ -1,5 +1,5 @@
 ---
-title: "20250915 130000 Web Assistant Ui Default On"
+title: "20250915 130000 Web Assistant UI Default On"
 status: "cold-archive"
 date: "2025-09-13"
 superseded_by: "none"

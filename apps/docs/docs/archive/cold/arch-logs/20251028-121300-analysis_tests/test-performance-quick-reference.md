@@ -202,7 +202,7 @@ time pnpm test 2>&1 | tail -5
 
 ### Performance Regression Prevention
 - Set test execution time budgets per package
-- Alert if test time increases &gt;5%
+- Alert if test time increases >5%
 - Track metrics in CI/CD pipeline
 
 ---

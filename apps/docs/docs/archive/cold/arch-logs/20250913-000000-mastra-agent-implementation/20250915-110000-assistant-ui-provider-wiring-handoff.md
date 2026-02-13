@@ -1,5 +1,5 @@
 ---
-title: "20250915 110000 Assistant Ui Provider Wiring Handoff"
+title: "20250915 110000 Assistant UI Provider Wiring Handoff"
 status: "cold-archive"
 date: "2025-09-13"
 superseded_by: "none"
@@ -28,7 +28,7 @@ Critical constraints:
 
 Do the following in order:
 1. Verify `openai` provider streaming via SSE in desktop. Prompt: "Summarize this repo in two sentences." Confirm the reply streams fully and ends cleanly (no hanging dot).
-2. Implement assistant-ui ToolCall parts in `AssistantUiPanel`: pretty JSON for args + result, collapsible sections, header Copy buttons, and status badge for `start|progress|success|error`. Keep `data-testid="tool-part" data-tool="&lt;name&gt;"`.
+2. Implement assistant-ui ToolCall parts in `AssistantUiPanel`: pretty JSON for args + result, collapsible sections, header Copy buttons, and status badge for `start|progress|success|error`. Keep `data-testid="tool-part" data-tool="<name>"`.
 3. Re-enable assistant-ui on web (set `globalThis.__VITE_ASSISTANT_UI__ = true` in `apps/web/vite.config.mts`), then adapt the two assistant-panel E2E specs to assistant-stream semantics.
 4. Run only targeted tests first (desktop assistant panel, web assistant panel), then full E2E if time allows.
 
@@ -101,7 +101,7 @@ E2E and typing:
 - Composer input: `#assistant-input`
 - Buttons (role=button): `Send`, `Stop`, `Retry`, `Copy code`
 - Labels within messages: `You:`, `Assistant:` (may appear multiple times; use `.first()`)
-- Tool cards (required): `data-testid="tool-part" data-tool="&lt;toolName&gt;"`
+- Tool cards (required): `data-testid="tool-part" data-tool="<toolName>"`
 
 ---
 
@@ -133,7 +133,7 @@ E2E and typing:
   - Pretty JSON for tool args/result; large payloads collapsed by default.
   - Copy buttons for args and result.
   - Status badge: `start|progress|success|error`.
-  - Keep selectors: `data-testid="tool-part" data-tool="&lt;name&gt;"`.
+  - Keep selectors: `data-testid="tool-part" data-tool="<name>"`.
 
 2) Re-enable assistant-ui on web
 - In `apps/web/vite.config.mts`, set `globalThis.__VITE_ASSISTANT_UI__ = true`.
@@ -151,7 +151,7 @@ E2E and typing:
 ## Troubleshooting
 
 - Provider returns 401/403 or empty: verify `openai` key saved via Settings; check it’s injected from secrets in the desktop server.
-- TypeScript failures in E2E for window bridges: cast `(window as unknown as \{ mcp?: \{...\}; secrets?: \{...\} \})` within `evaluate()`; bridges are exposed by preload.
+- TypeScript failures in E2E for window bridges: cast `(window as unknown as  { mcp?:  {...}; secrets?:  {...} })` within `evaluate()`; bridges are exposed by preload.
 - Vite plugin types: `@ts-expect-error` acceptable in config; do not ship broken types into app code.
 
 ---

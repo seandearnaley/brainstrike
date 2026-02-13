@@ -1,5 +1,5 @@
 ---
-title: "20251004 141505 Assistant Panel E2e Fix"
+title: "20251004 141505 Assistant Panel E2E Fix"
 status: "cold-archive"
 date: "2025-10-04"
 superseded_by: "none"
@@ -19,7 +19,7 @@ The desktop E2E test `assistant-panel.desktop.test.ts` was failing because the a
 4. `getAvailableProviders()` calls `window.secrets.list()` **synchronously during mount**
 5. At this point, the mocked `window.secrets` may not be fully initialized, causing it to return `[]`
 6. With no providers, the store sets `availableProviders = []`
-7. The wrapper computes `isProviderReady = false` → composer gets `disabled=\{true\}`
+7. The wrapper computes `isProviderReady = false` → composer gets `disabled= {true}`
 8. The test's **post-reload mock injection** (via `page.evaluate()`) runs **too late** - the store already initialized with empty providers and never re-checks
 
 ## Why Web Tests Pass
@@ -110,7 +110,7 @@ await page.evaluate(async () => {
 ## Additional Issue Fixed: Test Hanging During Cleanup
 During testing, we discovered the test was hanging during the cleanup phase (waiting for port cleanup). This was caused by the mock stream not sending a proper finish signal, causing assistant-ui to wait indefinitely for more data.
 
-**Solution:** Updated the mock stream to send a finish chunk (`d:\{"finishReason":"stop",...\}`) which properly signals stream completion to the assistant-ui library.
+**Solution:** Updated the mock stream to send a finish chunk (`d: {"finishReason":"stop",...}`) which properly signals stream completion to the assistant-ui library.
 
 ## Note on CI
 The local Electron launch issue (`--remote-debugging-port=0` error) is a local environment problem unrelated to these changes. The CI environment should handle Electron correctly.

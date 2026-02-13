@@ -1,5 +1,5 @@
 ---
-title: "20250915 090000 Assistant Ui Next Phase Handoff"
+title: "20250915 090000 Assistant UI Next Phase Handoff"
 status: "cold-archive"
 date: "2025-09-13"
 superseded_by: "none"
@@ -35,7 +35,7 @@ Tasks you should perform:
   - Desktop e2e: `pnpm run test:e2e:desktop`
 - Tool UI polish (assistant‑ui):
   - Render tool call cards with: tool name, status badge (start/progress/success/error), pretty JSON (args + result), expand/collapse toggles, and Copy buttons.
-  - Maintain selectors: `data-testid="tool-part" data-tool="&lt;name&gt;"` for each card.
+  - Maintain selectors: `data-testid="tool-part" data-tool="<name>"` for each card.
   - Ensure progress lines format as: `step (percent%) — note`.
 - Fix e2e failures:
   - Assistant interactions copy: ensure Copy button for code payload writes to clipboard in desktop (Electron clipboard bridge).
@@ -107,7 +107,7 @@ Current status:
   - Consistent card with: tool name, status badge (start/progress/success/error), args preview (pretty JSON), ongoing progress lines (`step (percent%) — note`), final result (pretty JSON), Copy buttons for args & result.
   - Add expand/collapse toggles for long JSON; default collapsed for large payloads.
   - Maintain selectors:
-    - Card container: `data-testid="tool-part" data-tool="&lt;toolName&gt;"`.
+    - Card container: `data-testid="tool-part" data-tool="<toolName>"`.
 
 Suggested locations:
 - Extend `packages/ui/src/assistant-ui-panel/assistant-ui-panel.tsx` to provide custom components for ToolCall parts (similar to how Text is overridden via `MarkdownText`).

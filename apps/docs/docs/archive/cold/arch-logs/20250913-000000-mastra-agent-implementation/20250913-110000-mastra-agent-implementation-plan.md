@@ -47,7 +47,7 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
   - Added web route `apps/web/src/app/api/chat/route.ts` streaming JSON lines from `@brainstrike/agent`.
   - Inserted `ChatPanelStub` under the Right Panel Properties tab (`data-testid="chat-panel"`).
   - Lints and unit tests pass for new code.
-  - Added zod validation to `/api/chat` for `\{ messages, data \}` and improved error responses.
+  - Added zod validation to `/api/chat` for ` { messages, data }` and improved error responses.
   - Implemented shared `ChatPanel` in `@brainstrike/ui` with local persistence and default web transport to `/api/chat`.
   - Wired `ChatPanel` into the Right Panel Props tab, replacing the stub.
   - Added unit tests: route schema/streaming (`apps/web`), ChatPanel streaming (`packages/ui`).
@@ -141,7 +141,7 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
 ### Phase 2 — Web integration (cut: chat streams in web)
 - [x] Server route in `apps/web` streams from agent
   - [x] Implement POST `/api/chat` → returns newline-delimited JSON chunks
-  - [x] Accept `\{ messages, data \}` with schema validation (zod)
+  - [x] Accept ` { messages, data }` with schema validation (zod)
 - [ ] UI hookup
   - [x] Add chat panel component from `packages/ui` and wire to `/api/chat`
   - [x] Use AI SDK v5-compatible stream consumption (custom transport) for now
@@ -202,8 +202,8 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
 - Client factory: `apps/desktop/src/mcp-clients.ts`
   - Supports `stdio` "filesystem" demo via Node `fs` for `filesystem.list` (validates command presence but does not speak full MCP yet).
   - SSE transport now implements request/response over SSE:
-    - Connects to `&lt;base&gt;/sse` and POSTs tool requests to `&lt;base&gt;/request` with `\{ id, tool, params \}`.
-    - Correlates replies via SSE `event: tool-result|tool-error` with JSON `data: \{ id, result|error \}`.
+    - Connects to `&lt;base&gt;/sse` and POSTs tool requests to `&lt;base&gt;/request` with ` { id, tool, params }`.
+    - Correlates replies via SSE `event: tool-result|tool-error` with JSON `data:  { id, result|error }`.
     - Header forwarding supported; timeout via `MCP_SSE_CALL_TIMEOUT_MS`.
     - Env overrides: `MCP_SSE_EVENTS_PATH`, `MCP_SSE_REQUEST_PATH`, legacy fallback `MCP_SSE_CALL_PATH`.
   - Additional stdio tools:
@@ -211,7 +211,7 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
     - `filesystem.search` (recursive filename match with caps, ignores: `node_modules`, `.git`, `dist`, `build`, `.turbo`, `coverage`)
   - Progress events:
     - Agent emits `tool-event` with `status: 'progress'` while a tool runs.
-    - SSE `tool-progress` events are parsed in desktop and forwarded to the agent via `callTool(..., \{ onProgress \})`.
+    - SSE `tool-progress` events are parsed in desktop and forwarded to the agent via `callTool(...,  { onProgress })`.
     - Agent normalizes progress payloads (step/percent/note) before emitting to UI.
 
   - Local SSE demo (for smoke tests):
@@ -243,14 +243,14 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
 - Hot-reload: `apps/desktop/src/ipc-mcp.ts`
   - Initializes clients on `mcp:config:get` and re-inits on file changes while watching.
 - Agent integration: `packages/agent/src/workflows/plan-then-act.ts`
-  - Parses prompts like `list files [in &lt;path&gt;]` and, when `runtime.mcpEnabled` is true, calls `runtime.callTool('filesystem.list', \{ path \})`.
+  - Parses prompts like `list files [in &lt;path&gt;]` and, when `runtime.mcpEnabled` is true, calls `runtime.callTool('filesystem.list', { path })`.
   - Emits tool-event chunks (`start|success|error`) consumed by ChatPanel.
   - New steps: `filesystem.read` via “read file &lt;path&gt;” and `filesystem.search` via “search files &lt;query&gt; [in &lt;path&gt;]”.
   - Progress: optional `status: 'progress'` event between `start` and `success` on slow tool calls.
 - Desktop runtime bridge: `apps/desktop/src/ipc-agent.ts`
   - Injects `runtime.callTool` backed by desktop `mcp-clients` and forwards to agent workflow.
 - UI: `packages/app-shell/src/right-panel.tsx`
-  - Passes `runtime: \{ mcpEnabled: true \}` to `ChatPanel` for desktop transport.
+  - Passes `runtime:  { mcpEnabled: true }` to `ChatPanel` for desktop transport.
   - Renders MCP banner (`McpBanner`) to indicate config presence and server count.
   - Database tab is lazy‑loaded behind a flag to keep bundles lean.
   - ChatPanel polish: friendly progress line shows `step (percent%) — note` when available; example hints above the composer help smoke tests.
@@ -323,7 +323,7 @@ How to toggle:
 - [ ] Rate limits/backoff; concurrency caps in workflows
 - Validation
   - [ ] Chaos tests: tool failure, provider timeout, reconnect
-  - [ ] Performance budget: first token &lt; 1.5s (cloud), stream steady
+  - [ ] Performance budget: first token < 1.5s (cloud), stream steady
 
 ---
 
@@ -341,11 +341,11 @@ How to toggle:
 ### Output formats and contracts
 - Agent messages (server → client)
   - Text deltas (stream)
-  - Structured tool events: `\{ type: 'tool', id, name, status, payload \}`
+  - Structured tool events: ` { type: 'tool', id, name, status, payload }`
   - Final message object with citations/steps taken
 - Client requests (client → server)
-  - Progress payload (normalized): `\{ step?: string; percent?: number; note?: string \}`
-  - `\{ messages: Message[]; data?: \{ projectId, provider, model, mcpEnabled \} \}`
+  - Progress payload (normalized): ` { step?: string; percent?: number; note?: string }`
+  - ` { messages: Message[]; data?:  { projectId, provider, model, mcpEnabled } }`
 - Validation schemas with zod in both directions
 
 ---
@@ -412,7 +412,7 @@ How to toggle:
       "transport": "sse",
       "url": "http://localhost:7801/sse",
       "headers": {
-        "AuthorizationEncrypted": "<base64>"
+        "AuthorizationEncrypted": "&lt;base64&gt;"
       }
     }
   ]
@@ -444,9 +444,9 @@ How to toggle:
   - Right panel persisted tab store: `packages/app-shell/src/stores/right-panel-store.ts`
     - Tuple/selector patterns; persist `activeTab` under `right-panel.v1`
   - IDE layout injection points: `packages/app-shell/src/root-layout-content.tsx`
-    - `rightPanelContent=\{rightPanelContent\}` via `IdeLayout`; panel visibility via `PanelLayoutProvider`
+    - `rightPanelContent= {rightPanelContent}` via `IdeLayout`; panel visibility via `PanelLayoutProvider`
   - E2E persistence patterns: `apps/web/e2e/right-panel-persistence.test.ts`
-    - Use `getByRole('tab', \{ name: 'Search' \}).or(getByRole('button', \{ name: 'Search' \}))`
+    - Use `getByRole('tab',  { name: 'Search' }).or(getByRole('button',  { name: 'Search' }))`
     - Visibility toggles via `getPanelElements(page)` helpers
 
 ---
@@ -463,7 +463,7 @@ How to toggle:
 - `apps/web/`
   - Route: `src/app/api/chat/route.ts`
     - Mirror `lv-neon-exp` `mastra-assistant/route.ts` pattern, but call `@brainstrike/agent` `streamForAiSdk`
-    - Validate `\{ messages, data \}` with zod
+    - Validate ` { messages, data }` with zod
   - UI: use AssistantUiPanel from `@brainstrike/ui/assistant-ui-panel` in the right panel’s Props tab
 
 - `apps/desktop/`

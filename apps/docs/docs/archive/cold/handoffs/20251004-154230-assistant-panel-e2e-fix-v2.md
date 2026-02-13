@@ -1,5 +1,5 @@
 ---
-title: "20251004 154230 Assistant Panel E2e Fix V2"
+title: "20251004 154230 Assistant Panel E2E Fix V2"
 status: "cold-archive"
 date: "2025-10-04"
 superseded_by: "none"
@@ -131,7 +131,7 @@ await page.addInitScript(() => {
 ## Additional Fix: Mock Stream Format
 The mock assistant response stream was also fixed to match the AI SDK data stream protocol:
 - Added text chunk: `0:"Hello from desktop assistant!"`
-- Added finish chunk: `d:\{"finishReason":"stop","usage":\{...\}\}`
+- Added finish chunk: `d: {"finishReason":"stop","usage": {...}}`
 - Updated headers to include `x-vercel-ai-data-stream: v1`
 
 This prevents the test from hanging while waiting for stream completion.

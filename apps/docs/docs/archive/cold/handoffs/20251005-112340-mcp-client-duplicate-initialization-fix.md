@@ -1,5 +1,5 @@
 ---
-title: "20251005 112340 Mcp Client Duplicate Initialization Fix"
+title: "20251005 112340 MCP Client Duplicate Initialization Fix"
 status: "cold-archive"
 date: "2025-10-05"
 superseded_by: "none"
@@ -48,7 +48,7 @@ const mcpClient = hasServers
 
 This follows option #1 from the MCPClient error message:
 > If you need multiple MCPClient class instances with identical server configurations, 
-> set an id when configuring: new MCPClient(\{ id: "my-unique-id" \})
+> set an id when configuring: `new MCPClient({ id: "my-unique-id" })`
 
 ## Why This Fixes Both Failures
 
