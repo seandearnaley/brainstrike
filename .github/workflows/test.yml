@@ -47,30 +47,29 @@ jobs:
         with:
           skip-electron: 'false'
 
+      - name: Initialize timing table
+        run: |
+          echo "## CI Step Durations" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Duration |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|----------|" >> $GITHUB_STEP_SUMMARY
+
       - name: Lint
         run: |
-          echo "::group::Lint timing"
           START=$SECONDS
           pnpm run lint
-          echo "lint_duration=$(( SECONDS - START ))s" >> $GITHUB_STEP_SUMMARY
-          echo "::endgroup::"
+          echo "| Lint | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Type check
         run: |
-          echo "::group::Type check timing"
           START=$SECONDS
           pnpm run type-check
-          echo "type_check_duration=$(( SECONDS - START ))s" >> $GITHUB_STEP_SUMMARY
-          echo "::endgroup::"
+          echo "| Type check | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Build all packages
         run: |
-          echo "::group::Build timing"
           START=$SECONDS
-          # Build with Tailwind debug output
           TAILWIND_DEBUG=1 pnpm run build
-          echo "build_duration=$(( SECONDS - START ))s" >> $GITHUB_STEP_SUMMARY
-          echo "::endgroup::"
+          echo "| Build | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
 
       - name: Validate CSS bundle
         run: |
@@ -101,11 +100,9 @@ jobs:
 
       - name: Run unit tests with coverage
         run: |
-          echo "::group::Test timing"
           START=$SECONDS
           pnpm run test:coverage
-          echo "test_duration=$(( SECONDS - START ))s" >> $GITHUB_STEP_SUMMARY
-          echo "::endgroup::"
+          echo "| Test | $(( SECONDS - START ))s |" >> $GITHUB_STEP_SUMMARY
         env:
           NODE_ENV: "test"
 
@@ -228,13 +225,6 @@ jobs:
           name: unit-coverage
           path: coverage-bundle.tar
           retention-days: 1
-
-      - name: Print step timing summary
-        if: always()
-        run: |
-          echo "## CI Step Durations" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Check the step timings above for optimization opportunities." >> $GITHUB_STEP_SUMMARY
 
   # Vitest 4 Browser Mode tests (WASM/IndexedDB validation)
   browser-tests:
