@@ -202,7 +202,7 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
 - Client factory: `apps/desktop/src/mcp-clients.ts`
   - Supports `stdio` "filesystem" demo via Node `fs` for `filesystem.list` (validates command presence but does not speak full MCP yet).
   - SSE transport now implements request/response over SSE:
-    - Connects to `&lt;base&gt;/sse` and POSTs tool requests to `&lt;base&gt;/request` with ` { id, tool, params }`.
+    - Connects to `<base>/sse` and POSTs tool requests to `<base>/request` with ` { id, tool, params }`.
     - Correlates replies via SSE `event: tool-result|tool-error` with JSON `data:  { id, result|error }`.
     - Header forwarding supported; timeout via `MCP_SSE_CALL_TIMEOUT_MS`.
     - Env overrides: `MCP_SSE_EVENTS_PATH`, `MCP_SSE_REQUEST_PATH`, legacy fallback `MCP_SSE_CALL_PATH`.
@@ -243,9 +243,9 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
 - Hot-reload: `apps/desktop/src/ipc-mcp.ts`
   - Initializes clients on `mcp:config:get` and re-inits on file changes while watching.
 - Agent integration: `packages/agent/src/workflows/plan-then-act.ts`
-  - Parses prompts like `list files [in &lt;path&gt;]` and, when `runtime.mcpEnabled` is true, calls `runtime.callTool('filesystem.list', { path })`.
+  - Parses prompts like `list files [in <path>]` and, when `runtime.mcpEnabled` is true, calls `runtime.callTool('filesystem.list', { path })`.
   - Emits tool-event chunks (`start|success|error`) consumed by ChatPanel.
-  - New steps: `filesystem.read` via “read file &lt;path&gt;” and `filesystem.search` via “search files &lt;query&gt; [in &lt;path&gt;]”.
+- New steps: `filesystem.read` via “`read file <path>`” and `filesystem.search` via “`search files <query> [in <path>]`”.
   - Progress: optional `status: 'progress'` event between `start` and `success` on slow tool calls.
 - Desktop runtime bridge: `apps/desktop/src/ipc-agent.ts`
   - Injects `runtime.callTool` backed by desktop `mcp-clients` and forwards to agent workflow.
@@ -383,7 +383,7 @@ How to toggle:
 - Type-check: `pnpm turbo run type-check --filter ./...`
 - Lint/format: `pnpm turbo run lint --filter ./...` / `pnpm turbo run format --filter ./...`
 - Build: `pnpm turbo run build --filter ./...`
-- Tests: `pnpm turbo run test --filter &lt;pkg&gt;`
+- Tests: `pnpm turbo run test --filter <pkg>`
 - E2E: `pnpm run test:e2e` (apps/web)
 
 ---
@@ -412,7 +412,7 @@ How to toggle:
       "transport": "sse",
       "url": "http://localhost:7801/sse",
       "headers": {
-        "AuthorizationEncrypted": "&lt;base64&gt;"
+        "AuthorizationEncrypted": "<base64>"
       }
     }
   ]
