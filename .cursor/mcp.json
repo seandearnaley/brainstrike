@@ -17,17 +17,6 @@
         "-y",
         "@assistant-ui/mcp-docs-server"
       ]
-    },
-    "paperbanana": {
-      "command": "uvx",
-      "args": [
-        "--from",
-        "paperbanana[mcp]",
-        "paperbanana-mcp"
-      ],
-      "env": {
-        "GOOGLE_API_KEY": "AIzaSyBLnp7WeWqS44t-ex87evCMSOWQkhcsFBY"
-      }
     }
   }
 }
