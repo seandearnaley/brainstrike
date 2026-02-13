@@ -27,8 +27,8 @@ export default defineConfig({
     setupFiles: [],
     testTimeout: 15_000, // UI component tests with async operations
     pool: 'threads',
-    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
-    maxWorkers: 4,
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
     coverage: {
       enabled: coverageEnabled,
       provider: 'v8',

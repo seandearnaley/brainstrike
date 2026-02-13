@@ -14,8 +14,8 @@ export default defineConfig({
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
     pool: 'threads',
-    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
-    maxWorkers: 4,
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
     // Coverage consolidated at root vitest.config.mts
     coverage: {
       enabled: process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true',

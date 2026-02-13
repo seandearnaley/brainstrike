@@ -20,8 +20,8 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     // Use threads pool with increased parallelization for better CPU utilization
     pool: 'threads',
-    // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
-    maxWorkers: 8,
+    // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
+    maxWorkers: process.env['CI'] ? '50%' : '100%',
     // Ensure coverage only counts actual source files to avoid skew from configs/e2e utils.
     coverage: {
       enabled: coverageEnabled,
