@@ -691,7 +691,9 @@ describe('AssistantUiPanelWrapper', () => {
     );
 
     expect(mcpApi.listTools).toHaveBeenCalled();
-    expect(screen.getByTestId('tool-menu-loading')).toHaveTextContent('false');
+    await waitFor(() => {
+      expect(screen.getByTestId('tool-menu-loading')).toHaveTextContent('false');
+    });
   });
 
   test('refreshes MCP tools when requested', async () => {
