@@ -27,7 +27,7 @@ Key Decisions
 Desktop transport: IPC to main with pseudo-stream in renderer; Stop is cancel via iterator.cancel
 Dynamic import: Desktop main uses eval-based import('@brainstrike/agent') and types it as any to avoid TS/bundler coupling
 MCP config: Stored at app.getPath('userData')/mcp/mcp.config.json; hot-reloaded; encrypted headers/env supported via safeStorage; dev fallback base64
-SSE client convention (temporary): Derive base from &lt;url&gt;/sse and POST tool calls to &lt;base&gt;/call with \{ tool, params \}; header forwarding supported; override call path via MCP_SSE_CALL_PATH
+SSE client convention (temporary): Derive base from &lt;url&gt;/sse and POST tool calls to &lt;base&gt;/call with `{ tool, params }`; header forwarding supported; override call path via MCP_SSE_CALL_PATH
 CI: Desktop MCP E2E test is skipped in CI (Electron 38 + Playwright 1.54.2 passes --remote-debugging-port=0 which Electron rejects). E2E runs locally or xvfb.
 TypeScript strictness: exactOptionalPropertyTypes true; do not assign undefined to non-optional schema fields; prefer bracket access on index signatures to avoid TS4111
 What Was Implemented
@@ -35,19 +35,19 @@ What Was Implemented
 Desktop MCP clients
 apps/desktop/src/mcp-clients.ts
 stdio filesystem client: supports filesystem.list using Node fs (demo-level)
-sse client: connects in background; tool calls via POST &lt;base&gt;/call; returns JSON or \{ error \}; abortable via dispose()
+sse client: connects in background; tool calls via POST &lt;base&gt;/call; returns JSON or `{ error }`; abortable via dispose()
 Loader + hot-reload + IPC
 apps/desktop/src/mcp-loader.ts, apps/desktop/src/ipc-mcp.ts, apps/desktop/src/preload.ts
 Decrypt headers/env; watch config; preload exposes window.mcp.getConfig/watch/unwatch
 Agent runtime + validation
-packages/agent/src/index.ts: RuntimeData.callTool?: (name, params) =&gt; Promise&lt;unknown&gt;
+packages/agent/src/index.ts: RuntimeData.callTool?: (name, params) => Promise&lt;unknown&gt;
 packages/agent/src/tools/schemas.ts: zod schemas for filesystem.list and web.echo
 packages/agent/src/workflows/plan-then-act.ts: plan → search (simulated) → tools (filesystem.list, web.echo) → synthesize; emits tool-event chunks with start/success/error
 UI rendering
  Update 2025‑09‑15: ChatPanel removed. Assistant‑ui renders tool parts and progress.
 apps/desktop/src/renderer/components/settings/mcp-config-status.tsx: status card shows path, loaded/missing badge, and servers
 Desktop IPC chat transport
-packages/app-shell/src/right-panel.tsx: desktop transport calls window.agent.chat; passes runtime: \{ mcpEnabled: true \}
+packages/app-shell/src/right-panel.tsx: desktop transport calls window.agent.chat; passes runtime: `{ mcpEnabled: true }`
 Tests
 Agent: tool schema tests, workflow tests
 Desktop: mcp-clients stdio + sse tests; sse-call test with a tiny local HTTP server; preload + IPC unit tests

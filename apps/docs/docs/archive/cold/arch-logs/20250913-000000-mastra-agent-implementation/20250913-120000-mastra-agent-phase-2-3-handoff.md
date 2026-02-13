@@ -59,6 +59,6 @@ Scope: Web chat UI wiring (Phase 2) + Desktop secrets and local agent IPC (Phase
 - Desktop Option B (local HTTP) if needed; otherwise continue with IPC-only to minimize surface.
 
 ### Appendix: API surfaces
-- `POST /api/chat` (web): `\{ messages, data \}` → newline-delimited JSON `StreamChunk` lines
+- `POST /api/chat` (web): ` { messages, data }` → newline-delimited JSON `StreamChunk` lines
 - `window.secrets`: `saveKey(provider, key)`, `getKey(provider)`, `deleteKey(provider)`, `list()`
 - `window.agent.chat(messages, runtime?)` → `StreamChunk[]` (renderer pseudo-streams)

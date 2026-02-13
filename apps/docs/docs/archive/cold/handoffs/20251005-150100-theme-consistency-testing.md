@@ -86,7 +86,7 @@ E2E tests verify all color variables (`background`, `foreground`, `card`, `prima
 Tests ensure:
 - Dark theme is navy (blue hue 200-250, high saturation), not black/gray
 - Sufficient color separation (≥5% lightness difference) for visible gradients
-- Light theme has high lightness (&gt;90%)
+- Light theme has high lightness (>90%)
 
 ## How To Run
 

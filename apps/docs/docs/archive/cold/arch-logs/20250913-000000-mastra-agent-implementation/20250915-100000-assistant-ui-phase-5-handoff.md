@@ -1,5 +1,5 @@
 ---
-title: "20250915 100000 Assistant Ui Phase 5 Handoff"
+title: "20250915 100000 Assistant UI Phase 5 Handoff"
 status: "cold-archive"
 date: "2025-09-13"
 superseded_by: "none"
@@ -21,7 +21,7 @@ Audience: Next developer/agent continuing assistant-ui work
 1) Assistant Markdown copy reliability improvements
 - File: `packages/ui/src/assistant-ui-panel/markdown-text.tsx`
   - Added deterministic data attachment for block code:
-    - Block `&lt;code&gt;` now includes `data-code-text` and a unique `data-code-id` registered in a module map.
+    - Block `<code>` now includes `data-code-text` and a unique `data-code-id` registered in a module map.
     - Stored last rendered code id for fallback.
   - Copy handler lookup order (for header and global handler):
     1. Adjacent sibling: `code[data-code-text]` or `code[data-code-id]` (registry lookup)
@@ -80,7 +80,7 @@ Resolved by:
   - Tool name, status badge (start/progress/success/error)
   - Pretty JSON for args/result with collapsible sections
   - Copy buttons for args and result
-  - Selectors: `data-testid="tool-part" data-tool="&lt;name&gt;"`
+  - Selectors: `data-testid="tool-part" data-tool="<name>"`
   - Progress line format: `step (percent%) — note`
 
 Suggested approach:

@@ -1,5 +1,5 @@
 ---
-title: "20250915 140000 Web Assistant Ui Flag Fix And Agent Cleanup"
+title: "20250915 140000 Web Assistant UI Flag Fix And Agent Cleanup"
 status: "cold-archive"
 date: "2025-09-13"
 superseded_by: "none"

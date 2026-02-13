@@ -1,5 +1,5 @@
 ---
-title: "20250905 160000 Release Notes Embeddings Db Vector"
+title: "20250905 160000 Release Notes Embeddings DB Vector"
 status: "cold-archive"
 date: "2025-09-05"
 superseded_by: "none"
