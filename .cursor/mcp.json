@@ -1,40 +1,33 @@
 {
-    "mcpServers": {
-      "Atlassian": {
-        "url": "https://mcp.atlassian.com/v1/sse",
-        "headers": {}
-      },
-      "Vercel": {
-        "url": "https://mcp.vercel.com",
-        "headers": {}
-      },
-      "Mastra": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@mastra/mcp-docs-server"
-        ]
-      },
-      "assistant-ui": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@assistant-ui/mcp-docs-server"
-        ]
-      },
-      "beads": {
-        "command": "beads-mcp"
-      },
-      "codanna": {
-        "command": "codanna",
-        "args": [
-          "serve",
-          "--watch"
-        ]
-      },
-      "ultracite": {
-        "command": "npx",
-        "args": ["-y", "mcp-remote", "https://www.ultracite.ai/api/mcp/mcp"]
+  "mcpServers": {
+    "Vercel": {
+      "url": "https://mcp.vercel.com",
+      "headers": {}
+    },
+    "Mastra": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@mastra/mcp-docs-server"
+      ]
+    },
+    "assistant-ui": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@assistant-ui/mcp-docs-server"
+      ]
+    },
+    "paperbanana": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "paperbanana[mcp]",
+        "paperbanana-mcp"
+      ],
+      "env": {
+        "GOOGLE_API_KEY": "AIzaSyBLnp7WeWqS44t-ex87evCMSOWQkhcsFBY"
       }
     }
   }
+}
