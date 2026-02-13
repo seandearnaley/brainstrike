@@ -207,7 +207,7 @@ const mockEmbeddingService = { ... };
 3. Some packages have isolate: true (slow), others don't configure it
 
 **Recommendations**:
-- Packages with &lt;10s total test time: Remove isolate, use maxThreads: 4
+- Packages with `<10s` total test time: Remove isolate, use maxThreads: 4
 - Packages with DB operations: Keep singleThread: true
 - React/UI packages: maxThreads: 2 with isolate: false for speed
 
