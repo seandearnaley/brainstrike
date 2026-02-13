@@ -58,12 +58,6 @@ Tests are configured in `playwright.config.ts` at the root of the web applicatio
   - Panel resize persistence
   - Complex layout state management
   - Error handling and recovery scenarios
-- `layout-advanced.test.ts` - Advanced layout scenarios and edge cases
-  - Performance testing for rapid operations
-  - Accessibility and keyboard navigation
-  - Viewport size handling
-  - Focus management
-
 ### Test Utilities
 - `utils/layout-helpers.ts` - Helper functions for layout testing
 - `utils/mock-fs.ts` - File system mocking utilities
