@@ -24,7 +24,7 @@
   "typescript.preferences.useAliasesForRenames": false,
   "typescript.workspaceSymbols.scope": "allOpenProjects",
   "[jsonc]": {
-    "editor.defaultFormatter": "biomejs.biome"
+    "editor.defaultFormatter": "vscode.json-language-features"
   },
   "vitest.maximumConfigs": 50,
   "[css]": {
