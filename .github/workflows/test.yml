@@ -229,10 +229,8 @@ jobs:
       - name: Print step timing summary
         if: always()
         run: |
-          echo "## CI Step Durations" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Check the step timings above for optimization opportunities." >> $GITHUB_STEP_SUMMARY
-
+          echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
   # Vitest 4 Browser Mode tests (WASM/IndexedDB validation)
   browser-tests:
     name: Browser Tests (Vitest 4)
