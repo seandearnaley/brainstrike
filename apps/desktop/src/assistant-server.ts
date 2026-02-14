@@ -196,6 +196,12 @@ async function handleAssistantPost(
   } catch (error) {
     if (!signal.aborted) {
       logger.error('Assistant stream error', { error });
+      if (!res.headersSent) {
+        respondJson(res, 500, {
+          error: 'assistant_stream_failed',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
   } finally {
     cleanup();
@@ -551,14 +557,8 @@ async function buildContextReport(
     return;
   }
 
-  const contextOptions = runtimeData as RuntimeData & {
-    includeFileReport?: boolean;
-    includeProjectTree?: boolean;
-    contextTokenCount?: number;
-  };
-
-  const includeFileReport = contextOptions.includeFileReport ?? true;
-  const includeProjectTree = contextOptions.includeProjectTree ?? false;
+  const includeFileReport = runtimeData.includeFileReport ?? true;
+  const includeProjectTree = runtimeData.includeProjectTree ?? false;
   if (!(includeFileReport || includeProjectTree)) {
     return;
   }
@@ -574,9 +574,9 @@ async function buildContextReport(
   }
 
   const isOverBudget =
-    typeof contextOptions.contextTokenCount === 'number' &&
+    typeof runtimeData.contextTokenCount === 'number' &&
     typeof runtimeData.tokenBudget === 'number' &&
-    contextOptions.contextTokenCount > runtimeData.tokenBudget;
+    runtimeData.contextTokenCount > runtimeData.tokenBudget;
   const maxFiles = isOverBudget ? Math.min(20, MAX_CONTEXT_FILES) : MAX_CONTEXT_FILES;
   const selectedForContext = normalizedSelection.slice(0, maxFiles);
 
@@ -674,8 +674,6 @@ async function initializeAgentStream(
   mcpConfig: McpConfig | undefined,
   signal: AbortSignal
 ): Promise<AgentStreamResult> {
-  const messagesWithContext = await prependContextMessageIfNeeded(messages, runtimeData);
-
   // Build runtime context with abort signal for cancellation support
   // The signal is embedded in RuntimeData and flows through to:
   // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
@@ -690,6 +688,7 @@ async function initializeAgentStream(
   };
 
   try {
+    const messagesWithContext = await prependContextMessageIfNeeded(messages, runtimeData);
     const stream = await toAiSdkStyleStream(messagesWithContext, runtime);
     logger.info('Assistant stream initialized');
     return { ok: true, stream };

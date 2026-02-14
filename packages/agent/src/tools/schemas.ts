@@ -115,8 +115,6 @@ export const ReembedCollectionInputSchema = z
   })
   .strict();
 
-export type ReembedCollectionInput = z.infer<typeof ReembedCollectionInputSchema>;
-
 // ============================================================================
 // Workspace Tool Schemas
 // ============================================================================
@@ -188,7 +186,7 @@ export const UpdatePreviewContextFilesInputSchema = z
     mode: z
       .enum(['replace', 'add', 'remove'])
       .optional()
-      .describe('Selection update strategy for preview context files (default: remove)'),
+      .describe('Selection update strategy for preview context files (default: add)'),
     folderId: z
       .string()
       .min(1)
@@ -238,23 +236,6 @@ const FilesystemSearchInput = z
 export type FilesystemSearchInput = z.infer<typeof FilesystemSearchInput>;
 
 const EchoInput = z.object({ text: z.string().min(1) }).strict();
-
-const WebSearchDocsInput = z
-  .object({
-    query: z.string().min(2).max(200),
-    limit: z.number().int().positive().max(10).optional(),
-  })
-  .strict();
-
-export type WebSearchDocsInput = z.infer<typeof WebSearchDocsInput>;
-
-const WebDocSummaryInput = z
-  .object({
-    docId: z.string().min(1).max(120),
-  })
-  .strict();
-
-export type WebDocSummaryInput = z.infer<typeof WebDocSummaryInput>;
 
 export const RetrievalContextInputSchema = z
   .object({

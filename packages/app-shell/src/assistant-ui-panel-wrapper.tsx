@@ -551,6 +551,8 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     };
   }, [db, includeProjectTree]);
 
+  const tokenCacheVersion = tokenCache?.cacheVersion;
+
   const tokensFromCache = useMemo(() => {
     if (!(tokenCache && selectionData.folderId && selectionData.filePaths.length > 0)) {
       return 0;
@@ -563,7 +565,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       }
     }
     return total;
-  }, [tokenCache, tokenCache?.cacheVersion, selectionData.filePaths, selectionData.folderId]);
+  }, [tokenCache, tokenCacheVersion, selectionData.filePaths, selectionData.folderId]);
 
   const contextTokenCount = useMemo(() => {
     const selectedTokens = Math.max(tokensFromCache, selectionTokensFromDb);
@@ -598,7 +600,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         return;
       }
 
-      clearSelectionRules();
       if (payload.mode === 'add') {
         addMultipleSelectedFiles(payload.folderId, normalizedPaths);
         return;
@@ -608,13 +609,30 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         return;
       }
 
+      clearSelectionRules();
       const next = new Set<string>();
+      for (const compositeKey of effectiveSelection) {
+        try {
+          const decoded = decodeFileSelection(compositeKey);
+          if (decoded.folderId !== payload.folderId) {
+            next.add(compositeKey);
+          }
+        } catch {
+          next.add(compositeKey);
+        }
+      }
       for (const path of normalizedPaths) {
         next.add(encodeFileSelection(payload.folderId, path));
       }
       setSelectedFiles(next);
     },
-    [addMultipleSelectedFiles, clearSelectionRules, removeMultipleSelectedFiles, setSelectedFiles]
+    [
+      addMultipleSelectedFiles,
+      clearSelectionRules,
+      effectiveSelection,
+      removeMultipleSelectedFiles,
+      setSelectedFiles,
+    ]
   );
 
   useEffect(() => {

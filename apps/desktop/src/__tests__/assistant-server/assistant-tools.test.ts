@@ -99,6 +99,40 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('rejects symlink escapes outside the workspace root', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const outsideRoot = await fsPromises.mkdtemp(
+      path.join(os.tmpdir(), 'brainstrike-agent-outside-')
+    );
+    const outsideFile = path.join(outsideRoot, 'secret.txt');
+    const linkedFile = path.join(workspaceRootPath, 'src', 'escape.txt');
+    await fsPromises.writeFile(outsideFile, 'outside', 'utf8');
+
+    try {
+      try {
+        await fsPromises.symlink(outsideFile, linkedFile, 'file');
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === 'EPERM' || code === 'EACCES') {
+          return;
+        }
+        throw error;
+      }
+
+      const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+      const tool = tools['brainstrike.readWorkspaceFile'];
+
+      await expect(
+        tool.execute({
+          path: '/src/escape.txt',
+        })
+      ).rejects.toThrow('is outside the selected workspace root');
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+      await fsPromises.rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
   it('reads a workspace directory in compact form', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 

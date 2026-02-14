@@ -89,6 +89,8 @@ const UpdatePreviewContextFilesToolInputSchema = z
 type ToolExecuteInput<T> = { context: T } | T;
 
 function resolveToolExecuteInput<T>(input: ToolExecuteInput<T>): T {
+  // Mastra sometimes wraps tool args as { context: T } for compatibility.
+  // Assumption: none of our direct tool input shapes define a top-level `context` field.
   const maybeWrapped = input as { context?: T };
   if (
     typeof input === 'object' &&
@@ -110,8 +112,8 @@ function normalizeWorkspacePath(value: string): string {
 
 function normalizeWorkspacePaths(paths: readonly string[]): string[] {
   const unique = new Set<string>();
-  for (const path of paths) {
-    const normalized = normalizeWorkspacePath(path);
+  for (const filePath of paths) {
+    const normalized = normalizeWorkspacePath(filePath);
     if (normalized.length > 0) {
       unique.add(normalized);
     }
@@ -140,25 +142,28 @@ function resolveWorkspaceRootPath(runtimeData: RuntimeData | undefined): string 
   return rootPath;
 }
 
-function resolveWorkspaceAbsolutePath(
+async function resolveWorkspaceAbsolutePath(
   rootPath: string,
   workspacePath: string
-): { workspacePath: string; absolutePath: string } {
+): Promise<{ workspacePath: string; absolutePath: string }> {
   const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
   const relativePath =
     normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
   const absolutePath = path.resolve(rootPath, relativePath);
-  const relativeFromRoot = path.relative(rootPath, absolutePath);
+  const canonicalRootPath = await fsPromises.realpath(rootPath).catch(() => rootPath);
+  const canonicalAbsolutePath = await fsPromises.realpath(absolutePath).catch(() => absolutePath);
+  const relativeFromRoot = path.relative(canonicalRootPath, canonicalAbsolutePath);
   if (
     relativeFromRoot.startsWith('..') ||
     relativeFromRoot.includes(`${path.sep}..${path.sep}`) ||
-    relativeFromRoot === '..'
+    relativeFromRoot === '..' ||
+    path.isAbsolute(relativeFromRoot)
   ) {
     throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return {
     workspacePath: normalizedWorkspacePath,
-    absolutePath,
+    absolutePath: canonicalAbsolutePath,
   };
 }
 
@@ -206,7 +211,7 @@ async function runReadWorkspaceFile(
 }> {
   const rootPath = resolveWorkspaceRootPath(runtimeData);
   const requestedPath = typeof input.path === 'string' ? input.path : '';
-  const resolved = resolveWorkspaceAbsolutePath(rootPath, requestedPath);
+  const resolved = await resolveWorkspaceAbsolutePath(rootPath, requestedPath);
 
   const stat = await fsPromises.stat(resolved.absolutePath);
   if (!stat.isFile()) {
@@ -252,8 +257,8 @@ function joinSegments(baseSegments: readonly string[], childSegments: readonly s
   return `/${merged.join('/')}`;
 }
 
-function isHiddenPath(path: string): boolean {
-  return toPathSegments(path).some((segment) => segment.startsWith('.'));
+function isHiddenPath(entryPath: string): boolean {
+  return toPathSegments(entryPath).some((segment) => segment.startsWith('.'));
 }
 
 type FsDirent = import('node:fs').Dirent;
@@ -375,7 +380,7 @@ async function runReadWorkspaceDirectory(
   const rootPath = resolveWorkspaceRootPath(runtimeData);
   const requestedPath = typeof input.path === 'string' ? input.path : '/';
   const normalizedPath = normalizeWorkspacePath(requestedPath);
-  const resolvedBase = resolveWorkspaceAbsolutePath(rootPath, normalizedPath);
+  const resolvedBase = await resolveWorkspaceAbsolutePath(rootPath, normalizedPath);
 
   const baseStats = await fsPromises.stat(resolvedBase.absolutePath);
   if (!baseStats.isDirectory()) {
@@ -534,7 +539,7 @@ function runUpdatePreviewContextFiles(
     throw new Error('No valid file paths were provided for preview context selection.');
   }
 
-  const mode = input.mode ?? 'remove';
+  const mode = input.mode ?? 'add';
   const windowsNotified = broadcastSelectionUpdate(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, {
     folderId,
     filePaths,
