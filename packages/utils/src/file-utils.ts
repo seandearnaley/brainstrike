@@ -125,12 +125,26 @@ const binaryFileExtensions = new Set([
 ]);
 
 export function isTextExtension(extension: string): boolean {
-  const ext = extension.toLowerCase().replace(/^\./, '');
+  // Fast path: check if extension is already normalized (lowercase, no dot)
+  if (textFileExtensions.has(extension)) {
+    return true;
+  }
+  let ext = extension.toLowerCase();
+  if (ext.startsWith('.')) {
+    ext = ext.slice(1);
+  }
   return textFileExtensions.has(ext);
 }
 
 export function isBinaryExtension(extension: string): boolean {
-  const ext = extension.toLowerCase().replace(/^\./, '');
+  // Fast path: check if extension is already normalized (lowercase, no dot)
+  if (binaryFileExtensions.has(extension)) {
+    return true;
+  }
+  let ext = extension.toLowerCase();
+  if (ext.startsWith('.')) {
+    ext = ext.slice(1);
+  }
   return binaryFileExtensions.has(ext);
 }
 
