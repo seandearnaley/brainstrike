@@ -117,7 +117,7 @@ describe('chat route schema', () => {
     expect(payload).toMatchObject({ error: 'assistant_disabled' });
   });
 
-  it('streams web.searchDocs tool events for documentation queries', async () => {
+  it('streams tool events emitted by the assistant runtime', async () => {
     const body = {
       messages: [
         {
@@ -132,13 +132,13 @@ describe('chat route schema', () => {
       createStream(
         {
           type: 'tool-event',
-          name: 'web.searchDocs',
+          name: 'brainstrike.readWorkspaceDirectory',
           status: 'start',
-          payload: { callId: 'abc', input: { query: 'telemetry checklist' } },
+          payload: { callId: 'abc', input: { path: '/src', depth: 1 } },
         },
         {
           type: 'tool-event',
-          name: 'web.searchDocs',
+          name: 'brainstrike.readWorkspaceDirectory',
           status: 'success',
           payload: {
             callId: 'abc',
@@ -169,12 +169,14 @@ describe('chat route schema', () => {
       .map((line) => JSON.parse(line) as Record<string, unknown>);
 
     const start = lines.find(
-      (chunk) => chunk['name'] === 'web.searchDocs' && chunk['status'] === 'start'
+      (chunk) =>
+        chunk['name'] === 'brainstrike.readWorkspaceDirectory' && chunk['status'] === 'start'
     );
     expect(start).toBeDefined();
 
     const success = lines.find(
-      (chunk) => chunk['name'] === 'web.searchDocs' && chunk['status'] === 'success'
+      (chunk) =>
+        chunk['name'] === 'brainstrike.readWorkspaceDirectory' && chunk['status'] === 'success'
     );
     expect(success).toBeDefined();
 

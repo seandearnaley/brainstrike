@@ -42,379 +42,136 @@ export interface ToolSchemaDisplay {
  * This is a browser-safe representation of the Zod schemas.
  */
 export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
-  'brainstrike.hybridSearch': {
-    toolId: 'brainstrike.hybridSearch',
-    description: 'Search across documents using hybrid semantic and keyword search with RRF fusion',
-    parameters: [
-      {
-        name: 'query',
-        type: 'string',
-        description: 'Search query text',
-        required: true,
-        minLength: 1,
-        maxLength: 2000,
-      },
-      {
-        name: 'embeddingSetId',
-        type: 'string',
-        description: 'Embedding set ID for vector search',
-        required: true,
-      },
-      {
-        name: 'limit',
-        type: 'number',
-        description: 'Maximum results to return',
-        required: false,
-        default: 10,
-        min: 1,
-        max: 100,
-      },
-      {
-        name: 'vectorWeight',
-        type: 'number',
-        description: 'Weight for vector search (default 1.0)',
-        required: false,
-        default: 1.0,
-        min: 0,
-        max: 2,
-      },
-      {
-        name: 'ftsWeight',
-        type: 'number',
-        description: 'Weight for full-text search (default 1.0)',
-        required: false,
-        default: 1.0,
-        min: 0,
-        max: 2,
-      },
-      {
-        name: 'vectorThreshold',
-        type: 'number',
-        description: 'Minimum similarity threshold',
-        required: false,
-        min: 0,
-        max: 1,
-      },
-      {
-        name: 'filePaths',
-        type: 'array',
-        description: 'Filter to specific file paths',
-        required: false,
-        arrayItemType: 'string',
-      },
-      {
-        name: 'chunkType',
-        type: 'enum',
-        description: 'Filter by chunk type',
-        required: false,
-        enumValues: ['text', 'code', 'sentence', 'recursive'],
-      },
-    ],
-    returns: 'Array of search results with scores, file paths, and content snippets',
-  },
-
-  'brainstrike.retrieveContext': {
-    toolId: 'brainstrike.retrieveContext',
-    description: 'Retrieve relevant context from indexed documents with token budgeting',
-    parameters: [
-      {
-        name: 'query',
-        type: 'string',
-        description: 'Search query for context retrieval',
-        required: true,
-        minLength: 1,
-        maxLength: 2000,
-      },
-      {
-        name: 'limit',
-        type: 'number',
-        description: 'Maximum number of results',
-        required: false,
-        default: 10,
-        max: 100,
-      },
-      {
-        name: 'threshold',
-        type: 'number',
-        description: 'Minimum similarity threshold (0-1)',
-        required: false,
-        min: 0,
-        max: 1,
-      },
-      {
-        name: 'tokenBudget',
-        type: 'number',
-        description: 'Maximum tokens for returned context',
-        required: false,
-        max: 200_000,
-      },
-      {
-        name: 'maxChunks',
-        type: 'number',
-        description: 'Maximum chunks to return',
-        required: false,
-        max: 100,
-      },
-      {
-        name: 'embeddingSetId',
-        type: 'string',
-        description: 'Specific embedding set to search',
-        required: false,
-      },
-      {
-        name: 'filePaths',
-        type: 'array',
-        description: 'Filter to specific file paths',
-        required: false,
-        arrayItemType: 'string',
-      },
-      {
-        name: 'selectionSnapshotId',
-        type: 'string',
-        description: 'Selection snapshot for scoped retrieval',
-        required: false,
-      },
-    ],
-    returns: 'Formatted context string with source citations',
-  },
-
-  'brainstrike.queueStatus': {
-    toolId: 'brainstrike.queueStatus',
-    description: 'Check embedding queue health, coverage, and latency',
-    parameters: [
-      {
-        name: 'embeddingSetId',
-        type: 'string',
-        description: 'Filter to specific embedding set',
-        required: false,
-      },
-    ],
-    returns: 'Queue statistics including pending jobs, coverage percentage, and processing latency',
-  },
-
-  'brainstrike.packContext': {
-    toolId: 'brainstrike.packContext',
-    description: 'Pack retrieved chunks into token-budgeted context',
-    parameters: [
-      {
-        name: 'chunks',
-        type: 'array',
-        description: 'Chunks to pack',
-        required: true,
-        arrayItemType: 'object',
-      },
-      {
-        name: 'tokenBudget',
-        type: 'number',
-        description: 'Maximum tokens for output',
-        required: true,
-      },
-    ],
-    returns: 'Formatted context string within token budget',
-  },
-
-  'brainstrike.listEmbeddingSets': {
-    toolId: 'brainstrike.listEmbeddingSets',
-    description: 'List available embedding collections',
-    parameters: [
-      {
-        name: 'includeStats',
-        type: 'boolean',
-        description: 'Include coverage statistics',
-        required: false,
-        default: false,
-      },
-    ],
-    returns: 'Array of embedding sets with IDs, names, models, and optional stats',
-  },
-
-  'brainstrike.createEmbeddingSet': {
-    toolId: 'brainstrike.createEmbeddingSet',
-    description: 'Create a new embedding collection',
-    parameters: [
-      {
-        name: 'name',
-        type: 'string',
-        description: 'Name for the embedding set',
-        required: true,
-        minLength: 1,
-        maxLength: 100,
-      },
-      {
-        name: 'modelKey',
-        type: 'string',
-        description: 'Model key (provider::model format)',
-        required: true,
-      },
-      {
-        name: 'description',
-        type: 'string',
-        description: 'Optional description',
-        required: false,
-        maxLength: 500,
-      },
-    ],
-    returns: 'Created embedding set with ID and configuration',
-  },
-
-  'brainstrike.createSelectionScope': {
-    toolId: 'brainstrike.createSelectionScope',
-    description: 'Create a scoped retrieval context from selected files',
-    parameters: [
-      {
-        name: 'filePaths',
-        type: 'array',
-        description: 'File paths to include in scope',
-        required: true,
-        arrayItemType: 'string',
-      },
-      {
-        name: 'name',
-        type: 'string',
-        description: 'Name for the selection scope',
-        required: false,
-      },
-    ],
-    returns: 'Selection snapshot ID for scoped retrieval',
-  },
-
-  'brainstrike.queryFileTree': {
-    toolId: 'brainstrike.queryFileTree',
-    description: 'Query directories and search files in imported folders',
+  'brainstrike.readWorkspaceFile': {
+    toolId: 'brainstrike.readWorkspaceFile',
+    description:
+      'Read a workspace file from the selected root. Supports line ranges and output truncation for token efficiency.',
     parameters: [
       {
         name: 'path',
         type: 'string',
-        description: 'Directory path to query (defaults to root)',
-        required: false,
+        description: 'Workspace-relative file path to read',
+        required: true,
+        minLength: 1,
       },
       {
-        name: 'pattern',
-        type: 'string',
-        description: 'Glob pattern to filter files',
-        required: false,
-      },
-      {
-        name: 'maxDepth',
+        name: 'startLine',
         type: 'number',
-        description: 'Maximum depth to traverse',
+        description: '1-based starting line (inclusive)',
         required: false,
         min: 1,
-        max: 10,
+      },
+      {
+        name: 'endLine',
+        type: 'number',
+        description: '1-based ending line (inclusive)',
+        required: false,
+        min: 1,
+      },
+      {
+        name: 'maxChars',
+        type: 'number',
+        description: 'Maximum characters to return before truncating',
+        required: false,
+        default: 12_000,
+        min: 200,
+        max: 50_000,
+      },
+    ],
+    returns:
+      'File content payload with metadata, including truncation status and approximate token count',
+  },
+
+  'brainstrike.readWorkspaceDirectory': {
+    toolId: 'brainstrike.readWorkspaceDirectory',
+    description:
+      'List workspace directory entries in a compact format with bounded depth and entry limits.',
+    parameters: [
+      {
+        name: 'path',
+        type: 'string',
+        description: 'Directory path to list (defaults to workspace root)',
+        required: false,
+      },
+      {
+        name: 'depth',
+        type: 'number',
+        description: 'Maximum directory depth to traverse',
+        required: false,
+        default: 1,
+        min: 0,
+        max: 5,
+      },
+      {
+        name: 'maxEntries',
+        type: 'number',
+        description: 'Maximum entries to return',
+        required: false,
+        default: 150,
+        min: 1,
+        max: 500,
+      },
+      {
+        name: 'includeFiles',
+        type: 'boolean',
+        description: 'Include file entries',
+        required: false,
+        default: true,
+      },
+      {
+        name: 'includeDirectories',
+        type: 'boolean',
+        description: 'Include directory entries',
+        required: false,
+        default: true,
       },
       {
         name: 'includeHidden',
         type: 'boolean',
-        description: 'Include hidden files/directories',
+        description: 'Include hidden files and directories',
         required: false,
         default: false,
       },
     ],
-    returns: 'File tree structure with paths, types, and sizes',
+    returns: 'Directory summary with compact entries and truncation metadata',
   },
 
-  'brainstrike.importFiles': {
-    toolId: 'brainstrike.importFiles',
-    description: 'Batch import and index documents',
+  'brainstrike.batchSelectWorkspaceFiles': {
+    toolId: 'brainstrike.batchSelectWorkspaceFiles',
+    description:
+      'Batch select or unselect files so they appear in both the root file tree and context explorer.',
     parameters: [
       {
         name: 'filePaths',
         type: 'array',
-        description: 'File paths to import',
+        description: 'Workspace-relative file paths to update in selection',
         required: true,
         arrayItemType: 'string',
       },
       {
-        name: 'embeddingSetId',
-        type: 'string',
-        description: 'Target embedding set for indexing',
-        required: true,
-      },
-      {
-        name: 'recursive',
-        type: 'boolean',
-        description: 'Import directories recursively',
+        name: 'mode',
+        type: 'enum',
+        description: 'How to apply the batch update',
         required: false,
-        default: false,
+        enumValues: ['replace', 'add', 'remove'],
+        default: 'replace',
       },
-    ],
-    returns: 'Import results with success/failure counts',
-  },
-
-  'brainstrike.systemDiagnostics': {
-    toolId: 'brainstrike.systemDiagnostics',
-    description: 'Check database, queue, and worker health',
-    parameters: [
       {
-        name: 'categories',
-        type: 'array',
-        description: 'Diagnostic categories to check',
+        name: 'selectionTarget',
+        type: 'enum',
+        description: 'UI surfaces to reflect the selection update',
         required: false,
-        arrayItemType: 'enum',
-        enumValues: ['database', 'queue', 'worker', 'storage', 'all'],
-      },
-    ],
-    returns: 'Diagnostic report with status, metrics, and any errors',
-  },
-
-  'brainstrike.reembedCollection': {
-    toolId: 'brainstrike.reembedCollection',
-    description: 'Trigger re-embedding for a collection',
-    parameters: [
-      {
-        name: 'embeddingSetId',
-        type: 'string',
-        description: 'Embedding set ID to re-embed',
-        required: true,
+        enumValues: ['leftRootFileTree', 'contextExplorer', 'both'],
+        default: 'both',
       },
       {
-        name: 'reason',
+        name: 'folderId',
         type: 'string',
-        description: 'Reason for re-embedding',
+        description: 'Optional folder identifier when multiple roots are present',
         required: false,
-        maxLength: 200,
       },
     ],
-    returns: 'Job ID and estimated completion time',
-  },
-
-  'web.searchDocs': {
-    toolId: 'web.searchDocs',
-    description: 'Search documentation',
-    parameters: [
-      {
-        name: 'query',
-        type: 'string',
-        description: 'Search query',
-        required: true,
-        minLength: 2,
-        maxLength: 200,
-      },
-      {
-        name: 'limit',
-        type: 'number',
-        description: 'Maximum results',
-        required: false,
-        default: 5,
-        max: 10,
-      },
-    ],
-    returns: 'Array of matching documentation entries',
-  },
-
-  'web.docSummary': {
-    toolId: 'web.docSummary',
-    description: 'Get summary of a documentation page',
-    parameters: [
-      {
-        name: 'docId',
-        type: 'string',
-        description: 'Document ID',
-        required: true,
-        maxLength: 120,
-      },
-    ],
-    returns: 'Summary text and metadata',
+    returns: 'Selection update summary with applied path counts and target surfaces',
   },
 };
 

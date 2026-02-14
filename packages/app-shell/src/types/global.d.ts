@@ -28,6 +28,26 @@ declare global {
       enableTools?: (toolIds: string[]) => Promise<void>;
       disableTools?: (toolIds: string[]) => Promise<void>;
     };
+    tools?: {
+      execute?: (
+        toolId: string,
+        input: unknown
+      ) => Promise<{
+        success: boolean;
+        result?: unknown;
+        error?: string;
+        durationMs: number;
+      }>;
+      onBatchSelectFiles?: (
+        callback: (payload: {
+          folderId: string;
+          filePaths: string[];
+          mode: 'replace' | 'add' | 'remove';
+          selectionTarget: 'leftRootFileTree' | 'contextExplorer' | 'both';
+          selectionScope?: 'rootFileTree' | 'contextExplorer' | 'both';
+        }) => void
+      ) => (() => void) | undefined;
+    };
   }
 }
 

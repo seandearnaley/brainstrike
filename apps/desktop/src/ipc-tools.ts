@@ -156,7 +156,7 @@ export function registerToolsIpcHandlers(): void {
       logger.debug('Executing tool', { toolId: normalizedToolId });
 
       try {
-        // Check if it's an executable native tool (web.searchDocs, web.docSummary)
+        // Check if it's an executable native tool (currently none are exposed in playground)
         if (isExecutableNativeTool(normalizedToolId)) {
           const sanitizedInput = sanitizeMcpInput(input);
           if (!sanitizedInput.ok) {
@@ -173,7 +173,7 @@ export function registerToolsIpcHandlers(): void {
           return await executeNativeTool(normalizedToolId, sanitizedInput.value);
         }
 
-        // Check if it's a native tool that requires database access (brainstrike.*)
+        // Check if it's a native tool that requires workspace/database context (brainstrike.*)
         // These can't be executed in the playground - they need the full runtime
         if (isNativeTool(normalizedToolId)) {
           return {

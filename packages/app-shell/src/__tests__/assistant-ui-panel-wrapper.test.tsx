@@ -8,111 +8,251 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
-// Track enabled models in a mutable Set for testing toggle functionality
-const testEnabledModels = new Set<string>([
-  'gpt-5.2', // OpenAI default
-  'claude-sonnet-4-5', // Anthropic default
-  'gemini-3-flash-preview', // Google default
-  'openai/gpt-5.2', // OpenRouter default
-]);
+const { testEnabledModels } = vi.hoisted(() => ({
+  // Track enabled models in a mutable Set for testing toggle functionality
+  testEnabledModels: new Set<string>([
+    'gpt-5.2', // OpenAI default
+    'claude-sonnet-4-5', // Anthropic default
+    'gemini-3-flash-preview', // Google default
+    'openai/gpt-5.2', // OpenRouter default
+  ]),
+}));
 
-// Mock the model registry store - this is the source of truth for enabled models
-vi.mock('@brainstrike/preferences', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
-  return {
-    ...actual,
-    useEnsureModelRegistry: vi.fn(),
-    useModelRegistryStore: vi.fn((selector) => {
-      const state = {
-        models: [
-          // OpenAI models
-          {
-            id: 'gpt-5.2',
-            providerId: 'openai',
-            isEnabled: testEnabledModels.has('gpt-5.2'),
-            capabilities: { type: 'llm' },
+// Mock preferences stores with lightweight Zustand stores to avoid loading the full package graph.
+vi.mock('@brainstrike/preferences', async () => {
+  const { create } = await import('zustand');
+
+  const buildEnabledModelsByProvider = (): Record<string, string[]> => ({
+    openai: testEnabledModels.has('gpt-5.2') ? ['gpt-5.2'] : [],
+    anthropic: testEnabledModels.has('claude-sonnet-4-5') ? ['claude-sonnet-4-5'] : [],
+    google: testEnabledModels.has('gemini-3-flash-preview') ? ['gemini-3-flash-preview'] : [],
+    openrouter: [
+      testEnabledModels.has('openai/gpt-5.2') ? 'openai/gpt-5.2' : undefined,
+      testEnabledModels.has('anthropic/claude-sonnet-4.5')
+        ? 'anthropic/claude-sonnet-4.5'
+        : undefined,
+      testEnabledModels.has('google/gemini-3-flash-preview')
+        ? 'google/gemini-3-flash-preview'
+        : undefined,
+    ].filter((modelId): modelId is string => Boolean(modelId)),
+  });
+
+  const buildRegistryModels = () => [
+    {
+      id: 'gpt-5.2',
+      providerId: 'openai',
+      isEnabled: testEnabledModels.has('gpt-5.2'),
+      capabilities: { type: 'llm' as const },
+    },
+    {
+      id: 'claude-sonnet-4-5',
+      providerId: 'anthropic',
+      isEnabled: testEnabledModels.has('claude-sonnet-4-5'),
+      capabilities: { type: 'llm' as const },
+    },
+    {
+      id: 'gemini-3-flash-preview',
+      providerId: 'google',
+      isEnabled: testEnabledModels.has('gemini-3-flash-preview'),
+      capabilities: { type: 'llm' as const },
+    },
+    {
+      id: 'openai/gpt-5.2',
+      providerId: 'openrouter',
+      isEnabled: testEnabledModels.has('openai/gpt-5.2'),
+      capabilities: { type: 'llm' as const },
+    },
+    {
+      id: 'anthropic/claude-sonnet-4.5',
+      providerId: 'openrouter',
+      isEnabled: testEnabledModels.has('anthropic/claude-sonnet-4.5'),
+      capabilities: { type: 'llm' as const },
+    },
+    {
+      id: 'google/gemini-3-flash-preview',
+      providerId: 'openrouter',
+      isEnabled: testEnabledModels.has('google/gemini-3-flash-preview'),
+      capabilities: { type: 'llm' as const },
+    },
+  ];
+
+  interface AssistantPreferencesState {
+    selectedProvider: SupportedProvider | null;
+    selectedModel: string | null;
+    modelsByProvider: Record<string, string>;
+    enabledModelsByProvider: Record<string, string[]>;
+    providerSettings: Record<string, Record<string, unknown>>;
+    setModel: (compositeKey: string) => void;
+    clearModel: () => void;
+    getAvailableProviders: () => Promise<SupportedProvider[]>;
+    getSelectedProvider: () => SupportedProvider | null;
+    getSelectedModel: () => string | null;
+    setProviderSettings: (providerId: string, updates: Record<string, unknown>) => void;
+  }
+
+  const useAssistantPreferencesStore = create<AssistantPreferencesState>((set, get) => ({
+    selectedProvider: null,
+    selectedModel: null,
+    modelsByProvider: {},
+    enabledModelsByProvider: buildEnabledModelsByProvider(),
+    providerSettings: {},
+    setModel: (compositeKey: string) => {
+      const [provider, model] = compositeKey.split('::');
+      if (!(provider && model)) {
+        return;
+      }
+      set((state) => ({
+        selectedProvider: provider as SupportedProvider,
+        selectedModel: compositeKey,
+        modelsByProvider: { ...state.modelsByProvider, [provider]: model },
+      }));
+    },
+    clearModel: () => {
+      set({
+        selectedProvider: null,
+        selectedModel: null,
+      });
+    },
+    getAvailableProviders: async () => ['openai', 'anthropic', 'google', 'openrouter'],
+    getSelectedProvider: () => get().selectedProvider,
+    getSelectedModel: () => get().selectedModel,
+    setProviderSettings: (providerId: string, updates: Record<string, unknown>) => {
+      set((state) => ({
+        providerSettings: {
+          ...state.providerSettings,
+          [providerId]: {
+            ...(state.providerSettings[providerId] ?? {}),
+            ...updates,
           },
-          // Anthropic models
-          {
-            id: 'claude-sonnet-4-5',
-            providerId: 'anthropic',
-            isEnabled: testEnabledModels.has('claude-sonnet-4-5'),
-            capabilities: { type: 'llm' },
-          },
-          // Google models
-          {
-            id: 'gemini-3-flash-preview',
-            providerId: 'google',
-            isEnabled: testEnabledModels.has('gemini-3-flash-preview'),
-            capabilities: { type: 'llm' },
-          },
-          // OpenRouter models
-          {
-            id: 'openai/gpt-5.2',
-            providerId: 'openrouter',
-            isEnabled: testEnabledModels.has('openai/gpt-5.2'),
-            capabilities: { type: 'llm' },
-          },
-          {
-            id: 'anthropic/claude-sonnet-4.5',
-            providerId: 'openrouter',
-            isEnabled: testEnabledModels.has('anthropic/claude-sonnet-4.5'),
-            capabilities: { type: 'llm' },
-          },
-          {
-            id: 'google/gemini-3-flash-preview',
-            providerId: 'openrouter',
-            isEnabled: testEnabledModels.has('google/gemini-3-flash-preview'),
-            capabilities: { type: 'llm' },
-          },
-        ],
-        hasLoaded: true,
-        toggleModel: vi.fn((_db, modelId: string, enabled: boolean) => {
-          if (enabled) {
-            testEnabledModels.add(modelId);
-          } else {
-            testEnabledModels.delete(modelId);
-          }
-        }),
+        },
+      }));
+    },
+  }));
+
+  const nativeToolPreferencesState: {
+    toolStates: Record<string, boolean>;
+    setToolEnabled: (toolId: string, enabled: boolean) => void;
+  } = {
+    toolStates: {},
+    setToolEnabled: (toolId: string, enabled: boolean) => {
+      nativeToolPreferencesState.toolStates = {
+        ...nativeToolPreferencesState.toolStates,
+        [toolId]: enabled,
       };
-      return selector ? selector(state) : state;
-    }),
-    useSecretsStore: vi.fn((selector) => {
-      const state = { secretsVersion: 0 };
-      return selector ? selector(state) : state;
-    }),
-    useVectorStatusUIStore: vi.fn((selector) => {
-      const state = { activeEmbeddingSetId: null };
-      return selector ? selector(state) : state;
-    }),
+    },
+  };
+
+  const useNativeToolPreferencesStore = <T,>(
+    selector: (state: typeof nativeToolPreferencesState) => T
+  ): T => selector(nativeToolPreferencesState);
+
+  const useSecretsStore = <T,>(selector: (state: { secretsVersion: number }) => T): T =>
+    selector({ secretsVersion: 0 });
+
+  const useVectorStatusUIStore = <T,>(
+    selector: (state: { activeEmbeddingSetId: string | null }) => T
+  ): T => selector({ activeEmbeddingSetId: null });
+
+  const useModelRegistryStore = <T,>(
+    selector: (state: {
+      models: ReturnType<typeof buildRegistryModels>;
+      hasLoaded: boolean;
+      error: Error | null;
+      toggleModel: (_db: unknown, modelId: string, enabled: boolean) => void;
+    }) => T
+  ): T =>
+    selector({
+      models: buildRegistryModels(),
+      hasLoaded: true,
+      error: null,
+      toggleModel: (_db: unknown, modelId: string, enabled: boolean) => {
+        if (enabled) {
+          testEnabledModels.add(modelId);
+        } else {
+          testEnabledModels.delete(modelId);
+        }
+        useAssistantPreferencesStore.setState({
+          enabledModelsByProvider: buildEnabledModelsByProvider(),
+        });
+      },
+    });
+
+  const __resetAssistantPreferencesStoreForTests = () => {
+    useAssistantPreferencesStore.setState({
+      selectedProvider: null,
+      selectedModel: null,
+      modelsByProvider: {},
+      enabledModelsByProvider: buildEnabledModelsByProvider(),
+      providerSettings: {},
+    });
+    nativeToolPreferencesState.toolStates = {};
+  };
+
+  return {
+    __resetAssistantPreferencesStoreForTests,
+    useAssistantPreferencesStore,
+    useEnsureModelRegistry: vi.fn(),
+    useModelRegistryStore,
+    useNativeToolPreferencesStore,
+    useSecretsStore,
+    useVectorStatusUIStore,
   };
 });
 
+const { mockDb } = vi.hoisted(() => ({
+  mockDb: {
+    query: vi.fn().mockResolvedValue({ rows: [] }),
+  },
+}));
+
 // Mock the DB hook
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: vi.fn(() => ({})),
+  usePGliteDatabase: vi.fn(() => mockDb),
   useDbInitializing: vi.fn(() => false),
   useDbProviderError: vi.fn(() => null),
 }));
 
 vi.mock('@brainstrike/file-explorer-ui', () => {
+  const setIncludeProjectTree = vi.fn();
+  const setSelectedFiles = vi.fn();
+  const addMultipleSelectedFiles = vi.fn();
+  const removeMultipleSelectedFiles = vi.fn();
+  const clearSelectionRules = vi.fn();
   const store = (
     selector?: (state: {
       tokenBudget: number;
       currentFolderId: string | null;
+      rootDirectoryHandle: { path: string; name: string } | null;
+      includeProjectTree: boolean;
       setTokenBudget: (budget: number) => void;
+      setIncludeProjectTree: (value: boolean) => void;
+      setSelectedFiles: (files: ReadonlySet<string>) => void;
+      addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+      removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+      clearSelectionRules: () => void;
     }) => unknown
   ) => {
     const state = {
       tokenBudget: 100_000,
       currentFolderId: 'test-folder',
+      rootDirectoryHandle: {
+        path: '/tmp/test-workspace',
+        name: 'test-workspace',
+      },
+      includeProjectTree: false,
       setTokenBudget: vi.fn(),
+      setIncludeProjectTree,
+      setSelectedFiles,
+      addMultipleSelectedFiles,
+      removeMultipleSelectedFiles,
+      clearSelectionRules,
     };
     return selector ? selector(state) : state;
   };
   return {
     useSelectionManager: () => ({ effectiveSelection: new Set<string>() }),
     useFileExplorerStoreContext: () => store,
+    useOptionalTokenCacheContext: () => null,
   };
 });
 
@@ -371,6 +511,7 @@ function resetTestEnabledModels() {
 beforeEach(() => {
   resetTestEnabledModels();
   __resetAssistantPreferencesStoreForTests();
+  window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
 });
 
 afterEach(() => {

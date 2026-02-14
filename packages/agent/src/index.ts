@@ -264,8 +264,16 @@ export interface RuntimeData {
   selectionSnapshotId?: string;
   /** Optional folder id for selection/token cache resolution. */
   selectionFolderId?: string;
+  /** Optional absolute workspace root path for workspace read tools. */
+  workspaceRootPath?: string;
   /** Optional token budget override for context packing. */
   tokenBudget?: number;
+  /** Include a selected-file report block in assistant context. */
+  includeFileReport?: boolean;
+  /** Include a workspace tree block in assistant context. */
+  includeProjectTree?: boolean;
+  /** Approximate context token count from the UI token counter. */
+  contextTokenCount?: number;
   /** Optional model-level settings (e.g., max output tokens). */
   modelSettings?: RuntimeModelSettings;
   /** Optional provider-specific runtime options. */
@@ -365,14 +373,18 @@ export { webTools } from './mastra/web-tools';
 // Memory store for early development
 export { InMemoryMemoryStore } from './memory/in-memory';
 export {
+  type BatchSelectWorkspaceFilesInput,
+  BatchSelectWorkspaceFilesInputSchema,
   type FilesystemListInput,
   type FilesystemReadInput,
   type FilesystemSearchInput,
+  type ReadWorkspaceDirectoryInput,
+  ReadWorkspaceDirectoryInputSchema,
+  type ReadWorkspaceFileInput,
+  ReadWorkspaceFileInputSchema,
   type RetrievalContextInput,
   RetrievalContextInputSchema,
   validateToolInput,
-  type WebDocSummaryInput,
-  type WebSearchDocsInput,
 } from './tools/schemas';
 
 // Adapter to Vercel AI SDK v5 style data stream if needed by routes
@@ -638,20 +650,3 @@ export {
   type RetrievalToolResult,
   SAFE_ERROR_MESSAGES,
 } from './tools/retrieval-tool';
-// Tool schemas
-export {
-  type CreateEmbeddingSetInput,
-  CreateEmbeddingSetInputSchema,
-  type HybridSearchInput,
-  HybridSearchInputSchema,
-  type ListEmbeddingSetsInput,
-  ListEmbeddingSetsInputSchema,
-  type QueryFileTreeInput,
-  QueryFileTreeInputSchema,
-  type QueueStatusInput,
-  QueueStatusInputSchema,
-  type ReembedCollectionInput,
-  ReembedCollectionInputSchema,
-  type SystemDiagnosticsInput,
-  SystemDiagnosticsInputSchema,
-} from './tools/schemas';

@@ -41,11 +41,11 @@ describe('tool schemas', () => {
     expect(bad.ok).toBe(false);
   });
 
-  it('validates retrieval context tool input', () => {
-    const ok = validateToolInput('brainstrike.retrieveContext', {
-      query: 'find embedding worker',
-      limit: 5,
-      threshold: 0.4,
+  it('validates batch workspace selection input', () => {
+    const ok = validateToolInput('brainstrike.batchSelectWorkspaceFiles', {
+      filePaths: ['/src/main.ts', '/src/utils.ts'],
+      mode: 'add',
+      selectionTarget: 'both',
     });
     expect(ok.ok).toBe(true);
   });

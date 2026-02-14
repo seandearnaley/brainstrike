@@ -21,6 +21,14 @@ interface ElectronLiveQueryResults {
   limit?: number;
 }
 
+interface AssistantBatchSelectPayload {
+  folderId: string;
+  filePaths: string[];
+  mode: 'replace' | 'add' | 'remove';
+  selectionTarget: 'leftRootFileTree' | 'contextExplorer' | 'both';
+  selectionScope?: 'rootFileTree' | 'contextExplorer' | 'both';
+}
+
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
   interface Window {
@@ -154,6 +162,9 @@ declare global {
             durationMs: number;
           }
       >;
+      onBatchSelectFiles: (
+        callback: (payload: AssistantBatchSelectPayload) => void
+      ) => (() => void) | undefined;
     };
   }
 }

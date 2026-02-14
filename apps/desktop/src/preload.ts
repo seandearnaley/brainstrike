@@ -1,6 +1,7 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer, clipboard } = require('electron');
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
+const ASSISTANT_BATCH_SELECT_EVENT = 'assistant:batch-select-files';
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
@@ -111,6 +112,30 @@ contextBridge.exposeInMainWorld('mcp', {
 // Tool execution API (for playground testing)
 contextBridge.exposeInMainWorld('tools', {
   execute: (toolId: string, input: unknown) => ipcRenderer.invoke('tools:execute', toolId, input),
+  onBatchSelectFiles: (
+    callback: (payload: {
+      folderId: string;
+      filePaths: string[];
+      mode: 'replace' | 'add' | 'remove';
+      selectionTarget: 'leftRootFileTree' | 'contextExplorer' | 'both';
+      selectionScope?: 'rootFileTree' | 'contextExplorer' | 'both';
+    }) => void
+  ) => {
+    const listener = (
+      _event: unknown,
+      payload: {
+        folderId: string;
+        filePaths: string[];
+        mode: 'replace' | 'add' | 'remove';
+        selectionTarget: 'leftRootFileTree' | 'contextExplorer' | 'both';
+        selectionScope?: 'rootFileTree' | 'contextExplorer' | 'both';
+      }
+    ) => callback(payload);
+    ipcRenderer.on(ASSISTANT_BATCH_SELECT_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(ASSISTANT_BATCH_SELECT_EVENT, listener);
+    };
+  },
 });
 
 // Assistant UI (data stream) endpoint helper

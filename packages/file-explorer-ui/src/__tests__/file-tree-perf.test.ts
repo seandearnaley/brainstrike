@@ -59,6 +59,33 @@ function flattenTree(
   return acc;
 }
 
+const SCALING_MIN_ITERATIONS = 25;
+const SCALING_MAX_ITERATIONS = 10_000;
+const SCALING_TARGET_MEASURE_MS = 25;
+
+function measureFlattenTreeAverageMs(
+  tree: TreeNode[],
+  expandedPaths: Set<string>
+): { averageMs: number; iterations: number } {
+  let iterations = 0;
+  const start = performance.now();
+  let elapsedMs = 0;
+
+  while (
+    iterations < SCALING_MAX_ITERATIONS &&
+    (iterations < SCALING_MIN_ITERATIONS || elapsedMs < SCALING_TARGET_MEASURE_MS)
+  ) {
+    flattenTree(tree, expandedPaths);
+    iterations += 1;
+    elapsedMs = performance.now() - start;
+  }
+
+  return {
+    averageMs: elapsedMs / iterations,
+    iterations,
+  };
+}
+
 describe('FileTree Performance (BST-145)', () => {
   describe('flattenTree budget compliance', () => {
     it('should flatten small tree (~100 nodes) within FLATTEN_TREE budget', () => {
@@ -185,14 +212,16 @@ describe('FileTree Performance (BST-145)', () => {
   });
 
   describe('scaling behavior', () => {
+    const runScalingPerfBenchmark = process.env['RUN_SCALING_PERF_BENCHMARK'] === '1';
+
     // Skip in CI - this test is for local baseline recording only.
     // CI runners have variable CPU performance and timer resolution issues
     // that cause false failures. The individual budget tests above still
     // validate that performance is acceptable.
-    it.skipIf(Boolean(process.env['CI']))(
+    it.skipIf(Boolean(process.env['CI']) || !runScalingPerfBenchmark)(
       'should demonstrate O(n) scaling for flatten operation',
       () => {
-        const results: { nodes: number; timeMs: number }[] = [];
+        const results: { nodes: number; averageMs: number; iterations: number }[] = [];
 
         // Test with increasing tree sizes
         const configs = [
@@ -212,24 +241,25 @@ describe('FileTree Performance (BST-145)', () => {
           flattenTree(tree, expandedPaths);
           flattenTree(tree, expandedPaths);
 
-          // Measure
-          const start = performance.now();
-          flattenTree(tree, expandedPaths);
-          const durationMs = performance.now() - start;
+          const measurement = measureFlattenTreeAverageMs(tree, expandedPaths);
 
-          results.push({ nodes: allNodes.length, timeMs: durationMs });
+          results.push({
+            nodes: allNodes.length,
+            averageMs: measurement.averageMs,
+            iterations: measurement.iterations,
+          });
         }
 
         // Log results for baseline recording
         console.log('[PERF] Scaling results:');
         for (const r of results) {
           console.log(
-            `  ${r.nodes} nodes: ${r.timeMs.toFixed(2)}ms (${((r.timeMs / r.nodes) * 1000).toFixed(2)}μs/node)`
+            `  ${r.nodes} nodes: ${r.averageMs.toFixed(4)}ms avg over ${r.iterations} runs (${((r.averageMs / r.nodes) * 1000).toFixed(2)}μs/node)`
           );
         }
 
         // Verify scaling is roughly linear (time/node should be relatively constant)
-        const timePerNode = results.map((r) => r.timeMs / r.nodes);
+        const timePerNode = results.map((r) => r.averageMs / r.nodes);
         const maxRatio = Math.max(...timePerNode) / Math.min(...timePerNode);
 
         // Allow up to 5x variance in per-node time (accounts for overhead in small trees)

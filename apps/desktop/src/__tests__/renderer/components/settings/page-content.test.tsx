@@ -131,9 +131,9 @@ describe('Desktop SettingsPageContent', () => {
     fireEvent.click(toolsButton);
 
     const toolsPane = await screen.findByTestId('settings-category-ai-tools');
-    // Should show the unified tools settings with stats (13 native tools enabled by default)
+    // Should show the unified tools settings with stats (3 native tools enabled by default)
     // Use getAllByText since "enabled" appears in both stats bar and group headers
-    const enabledElements = await within(toolsPane).findAllByText(/13 enabled/i);
+    const enabledElements = await within(toolsPane).findAllByText(/3 enabled/i);
     expect(enabledElements.length).toBeGreaterThan(0);
   });
 
