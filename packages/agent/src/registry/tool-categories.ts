@@ -137,7 +137,13 @@ export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
     requiresApproval: false,
     estimatedTokens: 120,
   },
-  'brainstrike.batchSelectWorkspaceFiles': {
+  'brainstrike.selectRootTreeFiles': {
+    category: 'action',
+    loadingTier: 'conditional',
+    requiresApproval: true,
+    estimatedTokens: 110,
+  },
+  'brainstrike.updatePreviewContextFiles': {
     category: 'action',
     loadingTier: 'conditional',
     requiresApproval: true,

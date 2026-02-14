@@ -136,33 +136,25 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
     returns: 'Directory summary with compact entries and truncation metadata',
   },
 
-  'brainstrike.batchSelectWorkspaceFiles': {
-    toolId: 'brainstrike.batchSelectWorkspaceFiles',
+  'brainstrike.selectRootTreeFiles': {
+    toolId: 'brainstrike.selectRootTreeFiles',
     description:
-      'Batch select or unselect files so they appear in both the root file tree and context explorer.',
+      'Batch select files from the left root tree so they populate the preview/context panel candidate set.',
     parameters: [
       {
         name: 'filePaths',
         type: 'array',
-        description: 'Workspace-relative file paths to update in selection',
+        description: 'Workspace-relative file paths to update in root-tree selection',
         required: true,
         arrayItemType: 'string',
       },
       {
         name: 'mode',
         type: 'enum',
-        description: 'How to apply the batch update',
+        description: 'How to apply the root-tree batch update',
         required: false,
         enumValues: ['replace', 'add', 'remove'],
-        default: 'replace',
-      },
-      {
-        name: 'selectionTarget',
-        type: 'enum',
-        description: 'UI surfaces to reflect the selection update',
-        required: false,
-        enumValues: ['leftRootFileTree', 'contextExplorer', 'both'],
-        default: 'both',
+        default: 'add',
       },
       {
         name: 'folderId',
@@ -171,7 +163,37 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         required: false,
       },
     ],
-    returns: 'Selection update summary with applied path counts and target surfaces',
+    returns: 'Root-tree selection update summary with applied path counts',
+  },
+
+  'brainstrike.updatePreviewContextFiles': {
+    toolId: 'brainstrike.updatePreviewContextFiles',
+    description:
+      'Batch add, remove, or replace files in the preview context selection used by the agent.',
+    parameters: [
+      {
+        name: 'filePaths',
+        type: 'array',
+        description: 'Workspace-relative file paths to update in preview context selection',
+        required: true,
+        arrayItemType: 'string',
+      },
+      {
+        name: 'mode',
+        type: 'enum',
+        description: 'How to apply the preview-context batch update',
+        required: false,
+        enumValues: ['replace', 'add', 'remove'],
+        default: 'remove',
+      },
+      {
+        name: 'folderId',
+        type: 'string',
+        description: 'Optional folder identifier when multiple roots are present',
+        required: false,
+      },
+    ],
+    returns: 'Preview-context selection update summary with applied path counts',
   },
 };
 

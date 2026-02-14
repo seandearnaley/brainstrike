@@ -38,13 +38,18 @@ declare global {
         error?: string;
         durationMs: number;
       }>;
-      onBatchSelectFiles?: (
+      onRootTreeSelectionUpdate?: (
         callback: (payload: {
           folderId: string;
           filePaths: string[];
           mode: 'replace' | 'add' | 'remove';
-          selectionTarget: 'leftRootFileTree' | 'contextExplorer' | 'both';
-          selectionScope?: 'rootFileTree' | 'contextExplorer' | 'both';
+        }) => void
+      ) => (() => void) | undefined;
+      onPreviewContextSelectionUpdate?: (
+        callback: (payload: {
+          folderId: string;
+          filePaths: string[];
+          mode: 'replace' | 'add' | 'remove';
         }) => void
       ) => (() => void) | undefined;
     };

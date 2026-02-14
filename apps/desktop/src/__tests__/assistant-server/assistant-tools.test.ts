@@ -143,7 +143,7 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
-  it('batch-selects workspace files across both UI surfaces', async () => {
+  it('selects root tree files for preview population', async () => {
     const sendMock = vi.fn();
     getAllWindowsMock.mockReturnValue([
       {
@@ -154,30 +154,27 @@ describe('assistant-tools', () => {
 
     const runtimeData = { selectionFolderId: 'root-1' } as RuntimeData;
     const tools = buildDesktopAssistantTools(runtimeData);
-    const tool = tools['brainstrike.batchSelectWorkspaceFiles'];
+    const tool = tools['brainstrike.selectRootTreeFiles'];
 
     const result = await tool.execute({
       context: {
         filePaths: ['/src/main.ts', '/src/utils.ts'],
         mode: 'add',
-        selectionTarget: 'both',
       },
     });
 
     expect(result.folderId).toBe('root-1');
+    expect(result.selectionSet).toBe('rootTree');
     expect(result.mode).toBe('add');
-    expect(result.selectionTarget).toBe('both');
     expect(result.appliedCount).toBe(2);
-    expect(sendMock).toHaveBeenCalledWith('assistant:batch-select-files', {
+    expect(sendMock).toHaveBeenCalledWith('assistant:root-tree-selection-update', {
       folderId: 'root-1',
       filePaths: ['/src/main.ts', '/src/utils.ts'],
       mode: 'add',
-      selectionTarget: 'both',
-      selectionScope: 'both',
     });
   });
 
-  it('batch-selects workspace files when execute receives direct args', async () => {
+  it('updates preview context files when execute receives direct args', async () => {
     const sendMock = vi.fn();
     getAllWindowsMock.mockReturnValue([
       {
@@ -188,16 +185,20 @@ describe('assistant-tools', () => {
 
     const runtimeData = { selectionFolderId: 'root-1' } as RuntimeData;
     const tools = buildDesktopAssistantTools(runtimeData);
-    const tool = tools['brainstrike.batchSelectWorkspaceFiles'];
+    const tool = tools['brainstrike.updatePreviewContextFiles'];
 
     const result = await tool.execute({
       filePaths: ['/src/main.ts'],
-      mode: 'replace',
-      selectionTarget: 'both',
+      mode: 'remove',
     });
 
+    expect(result.selectionSet).toBe('previewContext');
     expect(result.appliedCount).toBe(1);
-    expect(sendMock).toHaveBeenCalled();
+    expect(sendMock).toHaveBeenCalledWith('assistant:preview-context-selection-update', {
+      folderId: 'root-1',
+      filePaths: ['/src/main.ts'],
+      mode: 'remove',
+    });
   });
 
   it('fails explicitly when workspace root is missing for directory reads', async () => {

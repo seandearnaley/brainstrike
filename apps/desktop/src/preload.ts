@@ -1,7 +1,8 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer, clipboard } = require('electron');
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
-const ASSISTANT_BATCH_SELECT_EVENT = 'assistant:batch-select-files';
+const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
+const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type {
@@ -112,13 +113,11 @@ contextBridge.exposeInMainWorld('mcp', {
 // Tool execution API (for playground testing)
 contextBridge.exposeInMainWorld('tools', {
   execute: (toolId: string, input: unknown) => ipcRenderer.invoke('tools:execute', toolId, input),
-  onBatchSelectFiles: (
+  onRootTreeSelectionUpdate: (
     callback: (payload: {
       folderId: string;
       filePaths: string[];
       mode: 'replace' | 'add' | 'remove';
-      selectionTarget: 'leftRootFileTree' | 'contextExplorer' | 'both';
-      selectionScope?: 'rootFileTree' | 'contextExplorer' | 'both';
     }) => void
   ) => {
     const listener = (
@@ -127,13 +126,31 @@ contextBridge.exposeInMainWorld('tools', {
         folderId: string;
         filePaths: string[];
         mode: 'replace' | 'add' | 'remove';
-        selectionTarget: 'leftRootFileTree' | 'contextExplorer' | 'both';
-        selectionScope?: 'rootFileTree' | 'contextExplorer' | 'both';
       }
     ) => callback(payload);
-    ipcRenderer.on(ASSISTANT_BATCH_SELECT_EVENT, listener);
+    ipcRenderer.on(ASSISTANT_ROOT_TREE_SELECTION_EVENT, listener);
     return () => {
-      ipcRenderer.removeListener(ASSISTANT_BATCH_SELECT_EVENT, listener);
+      ipcRenderer.removeListener(ASSISTANT_ROOT_TREE_SELECTION_EVENT, listener);
+    };
+  },
+  onPreviewContextSelectionUpdate: (
+    callback: (payload: {
+      folderId: string;
+      filePaths: string[];
+      mode: 'replace' | 'add' | 'remove';
+    }) => void
+  ) => {
+    const listener = (
+      _event: unknown,
+      payload: {
+        folderId: string;
+        filePaths: string[];
+        mode: 'replace' | 'add' | 'remove';
+      }
+    ) => callback(payload);
+    ipcRenderer.on(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, listener);
+    return () => {
+      ipcRenderer.removeListener(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, listener);
     };
   },
 });

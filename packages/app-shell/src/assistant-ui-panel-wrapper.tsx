@@ -84,14 +84,10 @@ const TREE_CONTEXT_LINE_LIMIT = 400;
 const TREE_TOKEN_ESTIMATE_PER_LINE = 4;
 const FILE_REPORT_OVERHEAD_PER_FILE = 8;
 
-type SelectionTarget = 'leftRootFileTree' | 'contextExplorer' | 'both';
-
-interface BatchSelectionPayload {
+interface SelectionUpdatePayload {
   folderId: string;
   filePaths: string[];
   mode: 'replace' | 'add' | 'remove';
-  selectionTarget: SelectionTarget;
-  selectionScope?: 'rootFileTree' | 'contextExplorer' | 'both';
 }
 
 interface TokenCountRow {
@@ -585,21 +581,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     tokensFromCache,
   ]);
 
-  const handleBatchFileSelection = useCallback(
-    (payload: BatchSelectionPayload) => {
+  const handleSelectionUpdate = useCallback(
+    (payload: SelectionUpdatePayload) => {
       if (!(payload.folderId && Array.isArray(payload.filePaths) && payload.filePaths.length > 0)) {
         return;
       }
-
-      const resolvedLegacyScope =
-        payload.selectionScope === 'rootFileTree' ? 'leftRootFileTree' : payload.selectionScope;
-      const scope: SelectionTarget = payload.selectionTarget ?? resolvedLegacyScope ?? 'both';
-      if (scope !== 'leftRootFileTree' && scope !== 'contextExplorer' && scope !== 'both') {
-        return;
-      }
-
-      // Both "leftRootFileTree" and "contextExplorer" map to the same selection state.
-      // Applying once keeps both surfaces in sync.
       const normalizedPaths = Array.from(
         new Set(
           payload.filePaths
@@ -632,18 +618,32 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   );
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.tools?.onBatchSelectFiles) {
+    if (typeof window === 'undefined' || !window.tools?.onRootTreeSelectionUpdate) {
       return;
     }
 
-    const unsubscribe = window.tools.onBatchSelectFiles((payload) => {
-      handleBatchFileSelection(payload);
+    const unsubscribe = window.tools.onRootTreeSelectionUpdate((payload) => {
+      handleSelectionUpdate(payload);
     });
 
     return () => {
       unsubscribe?.();
     };
-  }, [handleBatchFileSelection]);
+  }, [handleSelectionUpdate]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.tools?.onPreviewContextSelectionUpdate) {
+      return;
+    }
+
+    const unsubscribe = window.tools.onPreviewContextSelectionUpdate((payload) => {
+      handleSelectionUpdate(payload);
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [handleSelectionUpdate]);
 
   const nativeToolItems = useMemo<AssistantToolMenuItem[]>(() => {
     return Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => ({

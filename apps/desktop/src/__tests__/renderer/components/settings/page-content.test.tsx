@@ -1,3 +1,4 @@
+import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
 import {
   __resetAssistantPreferencesStoreForTests,
   __resetNativeToolPreferencesStoreForTests,
@@ -131,9 +132,12 @@ describe('Desktop SettingsPageContent', () => {
     fireEvent.click(toolsButton);
 
     const toolsPane = await screen.findByTestId('settings-category-ai-tools');
-    // Should show the unified tools settings with stats (3 native tools enabled by default)
+    const expectedEnabledCount = Object.keys(NATIVE_TOOL_DEFAULTS).length;
+    // Should show the unified tools settings with stats (all native tools enabled by default)
     // Use getAllByText since "enabled" appears in both stats bar and group headers
-    const enabledElements = await within(toolsPane).findAllByText(/3 enabled/i);
+    const enabledElements = await within(toolsPane).findAllByText(
+      new RegExp(`${expectedEnabledCount} enabled`, 'i')
+    );
     expect(enabledElements.length).toBeGreaterThan(0);
   });
 

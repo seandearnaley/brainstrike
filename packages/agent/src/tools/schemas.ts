@@ -157,31 +157,17 @@ export const ReadWorkspaceDirectoryInputSchema = z
 
 export type ReadWorkspaceDirectoryInput = z.infer<typeof ReadWorkspaceDirectoryInputSchema>;
 
-export const BatchSelectWorkspaceFilesInputSchema = z
+export const SelectRootTreeFilesInputSchema = z
   .object({
     filePaths: z
       .array(z.string().min(1))
       .min(1)
       .max(5000)
-      .describe('Workspace-relative file paths to add/remove'),
+      .describe('Workspace-relative file paths to add to the left root tree selection'),
     mode: z
       .enum(['replace', 'add', 'remove'])
       .optional()
-      .describe('Selection update strategy (default: replace)'),
-    selectionTarget: z
-      .enum(['leftRootFileTree', 'contextExplorer', 'both'])
-      .optional()
-      .describe(
-        'Where selection should be reflected: left root file tree, context explorer, or both (default: both)'
-      ),
-    selectionScope: z
-      .enum(['rootFileTree', 'contextExplorer', 'both'])
-      .optional()
-      .describe('Deprecated alias for selectionTarget; use selectionTarget instead'),
-    targetSurface: z
-      .enum(['rootFileTree', 'contextExplorer', 'both', 'bothPanels'])
-      .optional()
-      .describe('Deprecated alias for selectionTarget; use selectionTarget instead'),
+      .describe('Selection update strategy for root tree selection (default: add)'),
     folderId: z
       .string()
       .min(1)
@@ -190,7 +176,28 @@ export const BatchSelectWorkspaceFilesInputSchema = z
   })
   .strict();
 
-export type BatchSelectWorkspaceFilesInput = z.infer<typeof BatchSelectWorkspaceFilesInputSchema>;
+export type SelectRootTreeFilesInput = z.infer<typeof SelectRootTreeFilesInputSchema>;
+
+export const UpdatePreviewContextFilesInputSchema = z
+  .object({
+    filePaths: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(5000)
+      .describe('Workspace-relative file paths to adjust in the preview context selection'),
+    mode: z
+      .enum(['replace', 'add', 'remove'])
+      .optional()
+      .describe('Selection update strategy for preview context files (default: remove)'),
+    folderId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Optional folder identifier when multiple roots are present'),
+  })
+  .strict();
+
+export type UpdatePreviewContextFilesInput = z.infer<typeof UpdatePreviewContextFilesInputSchema>;
 
 // ============================================================================
 // Existing Schemas (Filesystem, Retrieval)
@@ -274,7 +281,8 @@ const schemaMap: Record<string, z.ZodSchema> = {
   // Minimal BrainStrike native tools
   'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
   'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
-  'brainstrike.batchSelectWorkspaceFiles': BatchSelectWorkspaceFilesInputSchema,
+  'brainstrike.selectRootTreeFiles': SelectRootTreeFilesInputSchema,
+  'brainstrike.updatePreviewContextFiles': UpdatePreviewContextFilesInputSchema,
 };
 
 function formatZodIssue(issue: z.ZodIssue): string {

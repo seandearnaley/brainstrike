@@ -23,21 +23,28 @@ interface ReadWorkspaceDirectoryInput {
   includeHidden?: boolean;
 }
 
-interface BatchSelectWorkspaceFilesInput {
+type WorkspaceSelectionMode = 'replace' | 'add' | 'remove';
+
+interface SelectRootTreeFilesInput {
   filePaths: string[];
-  mode?: 'replace' | 'add' | 'remove';
-  selectionTarget?: 'leftRootFileTree' | 'contextExplorer' | 'both';
-  selectionScope?: 'rootFileTree' | 'contextExplorer' | 'both';
-  targetSurface?: 'rootFileTree' | 'contextExplorer' | 'both' | 'bothPanels';
+  mode?: WorkspaceSelectionMode;
+  folderId?: string;
+}
+
+interface UpdatePreviewContextFilesInput {
+  filePaths: string[];
+  mode?: WorkspaceSelectionMode;
   folderId?: string;
 }
 
 const logger = createLogger('DesktopAssistantTools');
-const ASSISTANT_BATCH_SELECT_EVENT = 'assistant:batch-select-files';
+const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
+const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
 
 const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
 const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
-const BATCH_SELECT_WORKSPACE_FILES_TOOL_ID = 'brainstrike.batchSelectWorkspaceFiles' as const;
+const SELECT_ROOT_TREE_FILES_TOOL_ID = 'brainstrike.selectRootTreeFiles' as const;
+const UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID = 'brainstrike.updatePreviewContextFiles' as const;
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
@@ -63,13 +70,18 @@ const ReadWorkspaceDirectoryToolInputSchema = z
   })
   .strict();
 
-const BatchSelectWorkspaceFilesToolInputSchema = z
+const SelectRootTreeFilesToolInputSchema = z
   .object({
     filePaths: z.array(z.string().min(1)).min(1).max(5000),
     mode: z.enum(['replace', 'add', 'remove']).optional(),
-    selectionTarget: z.enum(['leftRootFileTree', 'contextExplorer', 'both']).optional(),
-    selectionScope: z.enum(['rootFileTree', 'contextExplorer', 'both']).optional(),
-    targetSurface: z.enum(['rootFileTree', 'contextExplorer', 'both', 'bothPanels']).optional(),
+    folderId: z.string().min(1).optional(),
+  })
+  .strict();
+
+const UpdatePreviewContextFilesToolInputSchema = z
+  .object({
+    filePaths: z.array(z.string().min(1)).min(1).max(5000),
+    mode: z.enum(['replace', 'add', 'remove']).optional(),
     folderId: z.string().min(1).optional(),
   })
   .strict();
@@ -444,22 +456,23 @@ async function runReadWorkspaceDirectory(
   };
 }
 
-function broadcastBatchSelection(payload: {
-  folderId: string;
-  filePaths: string[];
-  mode: 'replace' | 'add' | 'remove';
-  selectionTarget: 'leftRootFileTree' | 'contextExplorer' | 'both';
-  selectionScope: 'rootFileTree' | 'contextExplorer' | 'both';
-}): number {
+function broadcastSelectionUpdate(
+  eventName: string,
+  payload: {
+    folderId: string;
+    filePaths: string[];
+    mode: WorkspaceSelectionMode;
+  }
+): number {
   const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
   for (const win of windows) {
-    win.webContents.send(ASSISTANT_BATCH_SELECT_EVENT, payload);
+    win.webContents.send(eventName, payload);
   }
   return windows.length;
 }
 
 function resolveBatchFolderId(
-  input: BatchSelectWorkspaceFilesInput,
+  input: SelectRootTreeFilesInput | UpdatePreviewContextFilesInput,
   runtimeData?: RuntimeData
 ): string {
   const folderId =
@@ -470,13 +483,13 @@ function resolveBatchFolderId(
   return folderId;
 }
 
-function runBatchSelectWorkspaceFiles(
-  input: BatchSelectWorkspaceFilesInput,
+function runSelectRootTreeFiles(
+  input: SelectRootTreeFilesInput,
   runtimeData: RuntimeData | undefined
 ): {
   folderId: string;
-  mode: 'replace' | 'add' | 'remove';
-  selectionTarget: 'leftRootFileTree' | 'contextExplorer' | 'both';
+  selectionSet: 'rootTree';
+  mode: WorkspaceSelectionMode;
   requestedCount: number;
   appliedCount: number;
   windowsNotified: number;
@@ -484,34 +497,54 @@ function runBatchSelectWorkspaceFiles(
   const folderId = resolveBatchFolderId(input, runtimeData);
   const filePaths = normalizeWorkspacePaths(input.filePaths);
   if (filePaths.length === 0) {
-    throw new Error('No valid file paths were provided for batch selection.');
+    throw new Error('No valid file paths were provided for root tree selection.');
   }
 
-  const mode = input.mode ?? 'replace';
-  const resolvedLegacyScope =
-    input.targetSurface === 'bothPanels'
-      ? 'both'
-      : input.targetSurface === 'rootFileTree'
-        ? 'leftRootFileTree'
-        : input.targetSurface;
-  const resolvedSelectionScope =
-    input.selectionScope === 'rootFileTree' ? 'leftRootFileTree' : input.selectionScope;
-  const selectionTarget =
-    input.selectionTarget ?? resolvedSelectionScope ?? resolvedLegacyScope ?? 'both';
-  const legacySelectionScope: 'rootFileTree' | 'contextExplorer' | 'both' =
-    selectionTarget === 'leftRootFileTree' ? 'rootFileTree' : selectionTarget;
-  const windowsNotified = broadcastBatchSelection({
+  const mode = input.mode ?? 'add';
+  const windowsNotified = broadcastSelectionUpdate(ASSISTANT_ROOT_TREE_SELECTION_EVENT, {
     folderId,
     filePaths,
     mode,
-    selectionTarget,
-    selectionScope: legacySelectionScope,
   });
 
   return {
     folderId,
+    selectionSet: 'rootTree',
     mode,
-    selectionTarget,
+    requestedCount: input.filePaths.length,
+    appliedCount: filePaths.length,
+    windowsNotified,
+  };
+}
+
+function runUpdatePreviewContextFiles(
+  input: UpdatePreviewContextFilesInput,
+  runtimeData: RuntimeData | undefined
+): {
+  folderId: string;
+  selectionSet: 'previewContext';
+  mode: WorkspaceSelectionMode;
+  requestedCount: number;
+  appliedCount: number;
+  windowsNotified: number;
+} {
+  const folderId = resolveBatchFolderId(input, runtimeData);
+  const filePaths = normalizeWorkspacePaths(input.filePaths);
+  if (filePaths.length === 0) {
+    throw new Error('No valid file paths were provided for preview context selection.');
+  }
+
+  const mode = input.mode ?? 'remove';
+  const windowsNotified = broadcastSelectionUpdate(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, {
+    folderId,
+    filePaths,
+    mode,
+  });
+
+  return {
+    folderId,
+    selectionSet: 'previewContext',
+    mode,
     requestedCount: input.filePaths.length,
     appliedCount: filePaths.length,
     windowsNotified,
@@ -553,17 +586,32 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
         }
       },
     },
-    [BATCH_SELECT_WORKSPACE_FILES_TOOL_ID]: {
-      id: BATCH_SELECT_WORKSPACE_FILES_TOOL_ID,
+    [SELECT_ROOT_TREE_FILES_TOOL_ID]: {
+      id: SELECT_ROOT_TREE_FILES_TOOL_ID,
       description:
-        'Batch update selected files so they appear in both the left root file tree and context explorer.',
-      inputSchema: BatchSelectWorkspaceFilesToolInputSchema,
-      execute: async (input: ToolExecuteInput<BatchSelectWorkspaceFilesInput>) => {
+        'Select files from the left root tree so they populate the preview/context panel candidate set.',
+      inputSchema: SelectRootTreeFilesToolInputSchema,
+      execute: async (input: ToolExecuteInput<SelectRootTreeFilesInput>) => {
         const resolvedInput = resolveToolExecuteInput(input);
         try {
-          return runBatchSelectWorkspaceFiles(resolvedInput, runtimeData);
+          return runSelectRootTreeFiles(resolvedInput, runtimeData);
         } catch (error) {
-          logger.error('batchSelectWorkspaceFiles failed', { error, input: resolvedInput });
+          logger.error('selectRootTreeFiles failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID]: {
+      id: UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID,
+      description:
+        'Add, remove, or replace files in the preview/context selection used as agent context.',
+      inputSchema: UpdatePreviewContextFilesToolInputSchema,
+      execute: async (input: ToolExecuteInput<UpdatePreviewContextFilesInput>) => {
+        const resolvedInput = resolveToolExecuteInput(input);
+        try {
+          return runUpdatePreviewContextFiles(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('updatePreviewContextFiles failed', { error, input: resolvedInput });
           throw error;
         }
       },

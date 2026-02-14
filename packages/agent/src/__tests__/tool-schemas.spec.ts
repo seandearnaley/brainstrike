@@ -41,11 +41,18 @@ describe('tool schemas', () => {
     expect(bad.ok).toBe(false);
   });
 
-  it('validates batch workspace selection input', () => {
-    const ok = validateToolInput('brainstrike.batchSelectWorkspaceFiles', {
+  it('validates root-tree selection input', () => {
+    const ok = validateToolInput('brainstrike.selectRootTreeFiles', {
       filePaths: ['/src/main.ts', '/src/utils.ts'],
       mode: 'add',
-      selectionTarget: 'both',
+    });
+    expect(ok.ok).toBe(true);
+  });
+
+  it('validates preview-context selection input', () => {
+    const ok = validateToolInput('brainstrike.updatePreviewContextFiles', {
+      filePaths: ['/src/main.ts'],
+      mode: 'remove',
     });
     expect(ok.ok).toBe(true);
   });

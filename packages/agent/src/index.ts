@@ -373,8 +373,6 @@ export { webTools } from './mastra/web-tools';
 // Memory store for early development
 export { InMemoryMemoryStore } from './memory/in-memory';
 export {
-  type BatchSelectWorkspaceFilesInput,
-  BatchSelectWorkspaceFilesInputSchema,
   type FilesystemListInput,
   type FilesystemReadInput,
   type FilesystemSearchInput,
@@ -384,6 +382,10 @@ export {
   ReadWorkspaceFileInputSchema,
   type RetrievalContextInput,
   RetrievalContextInputSchema,
+  type SelectRootTreeFilesInput,
+  SelectRootTreeFilesInputSchema,
+  type UpdatePreviewContextFilesInput,
+  UpdatePreviewContextFilesInputSchema,
   validateToolInput,
 } from './tools/schemas';
 

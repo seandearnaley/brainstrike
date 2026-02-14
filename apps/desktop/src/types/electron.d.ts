@@ -21,12 +21,10 @@ interface ElectronLiveQueryResults {
   limit?: number;
 }
 
-interface AssistantBatchSelectPayload {
+interface AssistantSelectionUpdatePayload {
   folderId: string;
   filePaths: string[];
   mode: 'replace' | 'add' | 'remove';
-  selectionTarget: 'leftRootFileTree' | 'contextExplorer' | 'both';
-  selectionScope?: 'rootFileTree' | 'contextExplorer' | 'both';
 }
 
 // Type definitions for the Electron API exposed via contextBridge
@@ -162,8 +160,11 @@ declare global {
             durationMs: number;
           }
       >;
-      onBatchSelectFiles: (
-        callback: (payload: AssistantBatchSelectPayload) => void
+      onRootTreeSelectionUpdate: (
+        callback: (payload: AssistantSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
+      onPreviewContextSelectionUpdate: (
+        callback: (payload: AssistantSelectionUpdatePayload) => void
       ) => (() => void) | undefined;
     };
   }
