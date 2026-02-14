@@ -1,5 +1,5 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { IFileNode } from '@brainstrike/types';
+import type { AssistantSelectionUpdatePayload, IFileNode } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
   LayoutPersistenceResult,
@@ -19,12 +19,6 @@ interface ElectronLiveQueryResults {
   totalCount?: number;
   offset?: number;
   limit?: number;
-}
-
-interface AssistantSelectionUpdatePayload {
-  folderId: string;
-  filePaths: string[];
-  mode: 'replace' | 'add' | 'remove';
 }
 
 // Type definitions for the Electron API exposed via contextBridge

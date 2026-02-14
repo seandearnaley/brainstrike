@@ -5,6 +5,7 @@ const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-updat
 const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
   LayoutPersistenceResult,
@@ -113,41 +114,19 @@ contextBridge.exposeInMainWorld('mcp', {
 // Tool execution API (for playground testing)
 contextBridge.exposeInMainWorld('tools', {
   execute: (toolId: string, input: unknown) => ipcRenderer.invoke('tools:execute', toolId, input),
-  onRootTreeSelectionUpdate: (
-    callback: (payload: {
-      folderId: string;
-      filePaths: string[];
-      mode: 'replace' | 'add' | 'remove';
-    }) => void
-  ) => {
-    const listener = (
-      _event: unknown,
-      payload: {
-        folderId: string;
-        filePaths: string[];
-        mode: 'replace' | 'add' | 'remove';
-      }
-    ) => callback(payload);
+  onRootTreeSelectionUpdate: (callback: (payload: AssistantSelectionUpdatePayload) => void) => {
+    const listener = (_event: unknown, payload: AssistantSelectionUpdatePayload) =>
+      callback(payload);
     ipcRenderer.on(ASSISTANT_ROOT_TREE_SELECTION_EVENT, listener);
     return () => {
       ipcRenderer.removeListener(ASSISTANT_ROOT_TREE_SELECTION_EVENT, listener);
     };
   },
   onPreviewContextSelectionUpdate: (
-    callback: (payload: {
-      folderId: string;
-      filePaths: string[];
-      mode: 'replace' | 'add' | 'remove';
-    }) => void
+    callback: (payload: AssistantSelectionUpdatePayload) => void
   ) => {
-    const listener = (
-      _event: unknown,
-      payload: {
-        folderId: string;
-        filePaths: string[];
-        mode: 'replace' | 'add' | 'remove';
-      }
-    ) => callback(payload);
+    const listener = (_event: unknown, payload: AssistantSelectionUpdatePayload) =>
+      callback(payload);
     ipcRenderer.on(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, listener);
     return () => {
       ipcRenderer.removeListener(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, listener);
