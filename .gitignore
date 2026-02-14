@@ -147,10 +147,7 @@ apps/web/performance-metrics/
 apps/desktop/build/
 icons/.generated/
 
-.codanna/
 .codex/
-
-.beads/*.db
 
 .pnpm-store/
 packages/db/__tests__/__screenshots__/

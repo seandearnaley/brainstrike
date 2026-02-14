@@ -1540,7 +1540,7 @@ export const syncLogger = {
 - [ ] Confirm conflict policy: LWW + revision preservation for content conflicts
 - [ ] Confirm serverless requirement: Neon Auth + Data API only
 - [ ] Review and approve this plan document
-- [ ] Create Jira epic and child tickets
+- [ ] Create an issue-tracker epic and child tickets
 
 ### Phase 1: Server Schema and RLS (1-2 weeks)
 - [ ] Create Neon project with Data API enabled

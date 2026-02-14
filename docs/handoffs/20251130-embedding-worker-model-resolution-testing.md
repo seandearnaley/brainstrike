@@ -10,7 +10,7 @@
 
 We fixed a critical bug where local embedding models stopped working after transitioning from a static registry to database-driven model configuration. The system now uses **HuggingFace IDs everywhere** (e.g., `jinaai/jina-embeddings-v2-base-code`) - no more short keys like `jina-code`. The static registry is marked deprecated and will be removed via follow-up tickets.
 
-### Follow-up Jira Tickets
+### Follow-up Work Items
 
 | Ticket | Summary |
 |--------|---------|
@@ -470,4 +470,4 @@ Reach out if you need clarification on:
 
 ## Future Work
 
-The static model registry (`model-registry.ts`) is deprecated and will be removed in BST-78. See the Jira epic BST-72 for the full migration plan. The database is now the single source of truth for model configuration.
+The static model registry (`model-registry.ts`) is deprecated and will be removed in BST-78. See work item BST-72 for the full migration plan. The database is now the single source of truth for model configuration.

@@ -32,7 +32,6 @@
       "!**/*.css",
       "!**/*.md",
       "!**/*.html",
-      "!.beads",
       "!.claude",
       "!.pnpm-store",
       "!**/*.bundled_*.mjs"
