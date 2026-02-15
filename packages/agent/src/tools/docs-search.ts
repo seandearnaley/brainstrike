@@ -57,7 +57,7 @@ const DOCS_INDEX: readonly WebDocEntry[] = [
     title: 'Assistant UI Integration Guide',
     summary:
       'Embed the Assistant-UI panel into the Brainstrike IDE right panel and wire transports for both web and desktop.',
-    url: '/archive/plans/tool-execution-ipc-bridge-2026-02-02',
+    url: '/archive/arch-logs/assistant-ui-runtime-handoff-2025-09-14',
     tags: ['assistant-ui', 'web', 'desktop'],
     sections: [
       'Enable Assistant-UI globally unless the APP_SHELL_ASSISTANT_UI flag is explicitly disabled.',
@@ -85,7 +85,7 @@ const DOCS_INDEX: readonly WebDocEntry[] = [
     title: 'Desktop Safe Storage & Secrets',
     summary:
       'Describes how provider API keys are encrypted via Electron safeStorage and surfaced to the renderer through IPC.',
-    url: '/archive/plans/tool-execution-ipc-bridge-2026-02-02',
+    url: '/archive/plans/ai-tools-settings-implementation-2026-02-01',
     tags: ['desktop', 'security', 'safeStorage'],
     sections: [
       'Keys are encrypted before writing to disk and decrypted lazily on demand by the assistant server.',
@@ -99,7 +99,7 @@ const DOCS_INDEX: readonly WebDocEntry[] = [
     title: 'MCP Hot Reload Lifecycle',
     summary:
       'Documents the filesystem watcher that reloads Model Context Protocol servers when mcp.config.json changes.',
-    url: '/archive/plans/tool-execution-ipc-bridge-2026-02-02',
+    url: '/archive/cold/handoffs/20251005-112340-mcp-client-duplicate-initialization-fix',
     tags: ['desktop', 'mcp', 'tools'],
     sections: [
       'Watchers debounce file writes and rebuild MCP clients with decrypted credentials.',
@@ -113,7 +113,7 @@ const DOCS_INDEX: readonly WebDocEntry[] = [
     title: 'Guardrails & Telemetry Checklist',
     summary:
       'Checklist for validating tool input/output schemas, enforcing rate limits, and capturing assistant telemetry.',
-    url: '/archive/plans/tool-execution-ipc-bridge-2026-02-02',
+    url: '/archive/cold/handoffs/20250214-embedding-queue-telemetry-sink',
     tags: ['guardrails', 'telemetry', 'quality'],
     sections: [
       'Wrap tool dispatches with structured logging for latency and token usage.',
