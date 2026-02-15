@@ -157,16 +157,32 @@ let db: any = null;
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
 let dbInitializationPromise: Promise<any> | null = null;
-let initializationAttemptCount = 0;
-let lastInitializationStartedAt: string | null = null;
-let lastInitializationSucceededAt: string | null = null;
-let lastInitializationFailure: DatabaseInitFailureSnapshot | null = null;
-let runtimeCorruptionRecoveryCount = 0;
-let lastRuntimeCorruptionAt: string | null = null;
-let lastRuntimeCorruptionContext: string | null = null;
-let cachedDatabaseProfile: string | null = null;
-let cachedGitProfileContext: GitProfileContext | null | undefined;
-let dbProcessLockPath: string | null = null;
+interface DatabaseMutableState {
+  initializationAttemptCount: number;
+  lastInitializationStartedAt: string | null;
+  lastInitializationSucceededAt: string | null;
+  lastInitializationFailure: DatabaseInitFailureSnapshot | null;
+  runtimeCorruptionRecoveryCount: number;
+  lastRuntimeCorruptionAt: string | null;
+  lastRuntimeCorruptionContext: string | null;
+  cachedDatabaseProfile: string | null;
+  // `undefined` means "not resolved yet"; `null` means "resolved but git metadata unavailable".
+  cachedGitProfileContext: GitProfileContext | null | undefined;
+  dbProcessLockPath: string | null;
+}
+
+const mutableState: DatabaseMutableState = {
+  initializationAttemptCount: 0,
+  lastInitializationStartedAt: null,
+  lastInitializationSucceededAt: null,
+  lastInitializationFailure: null,
+  runtimeCorruptionRecoveryCount: 0,
+  lastRuntimeCorruptionAt: null,
+  lastRuntimeCorruptionContext: null,
+  cachedDatabaseProfile: null,
+  cachedGitProfileContext: undefined,
+  dbProcessLockPath: null,
+};
 
 const DB_PROFILE_ENV = 'BRAINSTRIKE_DB_PROFILE' as const;
 const PROFILES_DIRECTORY_NAME = 'profiles' as const;
@@ -354,22 +370,22 @@ function resolveGitContextFromDirectory(startDir: string): GitProfileContext | n
 }
 
 function getGitProfileContext(): GitProfileContext | null {
-  if (cachedGitProfileContext !== undefined) {
-    return cachedGitProfileContext;
+  if (mutableState.cachedGitProfileContext !== undefined) {
+    return mutableState.cachedGitProfileContext;
   }
 
-  cachedGitProfileContext = resolveGitContextFromDirectory(process.cwd());
-  return cachedGitProfileContext;
+  mutableState.cachedGitProfileContext = resolveGitContextFromDirectory(process.cwd());
+  return mutableState.cachedGitProfileContext;
 }
 
 function getDatabaseProfile(): string {
-  if (cachedDatabaseProfile !== null) {
-    return cachedDatabaseProfile;
+  if (mutableState.cachedDatabaseProfile !== null) {
+    return mutableState.cachedDatabaseProfile;
   }
 
   if (process.env['NODE_ENV'] === 'test') {
-    cachedDatabaseProfile = 'test';
-    return cachedDatabaseProfile;
+    mutableState.cachedDatabaseProfile = 'test';
+    return mutableState.cachedDatabaseProfile;
   }
 
   const explicitProfile = process.env[DB_PROFILE_ENV];
@@ -379,26 +395,26 @@ function getDatabaseProfile(): string {
     normalizedExplicitProfile.length > 0 &&
     normalizedExplicitProfile.toLowerCase() !== 'undefined'
   ) {
-    cachedDatabaseProfile = sanitizeProfileSegment(normalizedExplicitProfile);
-    return cachedDatabaseProfile;
+    mutableState.cachedDatabaseProfile = sanitizeProfileSegment(normalizedExplicitProfile);
+    return mutableState.cachedDatabaseProfile;
   }
 
   if (process.env['NODE_ENV'] === 'production') {
-    cachedDatabaseProfile = 'default';
-    return cachedDatabaseProfile;
+    mutableState.cachedDatabaseProfile = 'default';
+    return mutableState.cachedDatabaseProfile;
   }
 
   const gitContext = getGitProfileContext();
   if (gitContext?.branch) {
-    cachedDatabaseProfile = createWorktreeScopedProfile(
+    mutableState.cachedDatabaseProfile = createWorktreeScopedProfile(
       gitContext.branch,
       gitContext.workspaceSeed
     );
-    return cachedDatabaseProfile;
+    return mutableState.cachedDatabaseProfile;
   }
 
-  cachedDatabaseProfile = 'dev-default';
-  return cachedDatabaseProfile;
+  mutableState.cachedDatabaseProfile = 'dev-default';
+  return mutableState.cachedDatabaseProfile;
 }
 
 function getDatabaseRootPath(): string {
@@ -486,6 +502,8 @@ function readLockOwnerPid(lockPath: string): number | null {
 function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
+    // PID reuse can produce a false positive if the original owner exits and the OS
+    // assigns the same pid to an unrelated process between lock checks.
     return true;
   } catch (error) {
     const code =
@@ -509,7 +527,7 @@ function throwLockHeldError(lockOwnerPid: number | null): never {
 }
 
 function acquireDatabaseProcessLock(appDataDir: string): void {
-  if (dbProcessLockPath !== null) {
+  if (mutableState.dbProcessLockPath !== null) {
     return;
   }
 
@@ -520,7 +538,7 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
     // Use a single atomic create+write to avoid a race where a second process reads
     // an empty lock file before the owner PID is written.
     writeFileSync(lockPath, String(process.pid), { encoding: 'utf8', flag: 'wx' });
-    dbProcessLockPath = lockPath;
+    mutableState.dbProcessLockPath = lockPath;
   };
 
   try {
@@ -538,7 +556,7 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
 
   const lockOwnerPid = readLockOwnerPid(lockPath);
   if (lockOwnerPid === process.pid) {
-    dbProcessLockPath = lockPath;
+    mutableState.dbProcessLockPath = lockPath;
     return;
   }
 
@@ -547,6 +565,7 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
   }
 
   // Stale lock file from a dead process (or unreadable pid) - clear and retry exactly once.
+  // There is still a TOCTOU window between unlink and create where another process can win.
   try {
     unlinkSync(lockPath);
   } catch {
@@ -563,7 +582,7 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
     if (code === 'EEXIST') {
       const nextLockOwnerPid = readLockOwnerPid(lockPath);
       if (nextLockOwnerPid === process.pid) {
-        dbProcessLockPath = lockPath;
+        mutableState.dbProcessLockPath = lockPath;
         return;
       }
       throwLockHeldError(nextLockOwnerPid);
@@ -573,12 +592,12 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
 }
 
 function releaseDatabaseProcessLock(): void {
-  if (!dbProcessLockPath) {
+  if (!mutableState.dbProcessLockPath) {
     return;
   }
 
-  const lockPath = dbProcessLockPath;
-  dbProcessLockPath = null;
+  const lockPath = mutableState.dbProcessLockPath;
+  mutableState.dbProcessLockPath = null;
 
   try {
     unlinkSync(lockPath);
@@ -704,7 +723,7 @@ function classifyInitializationFailure(
 
 function recordInitializationFailure(stage: DatabaseInitStage, error: unknown): void {
   const details = getErrorDetails(error);
-  lastInitializationFailure = {
+  mutableState.lastInitializationFailure = {
     ...details,
     stage,
     category: classifyInitializationFailure(stage, error),
@@ -713,8 +732,8 @@ function recordInitializationFailure(stage: DatabaseInitStage, error: unknown): 
 }
 
 function recordInitializationSuccess(): void {
-  lastInitializationSucceededAt = new Date().toISOString();
-  lastInitializationFailure = null;
+  mutableState.lastInitializationSucceededAt = new Date().toISOString();
+  mutableState.lastInitializationFailure = null;
 }
 
 function formatOpenDatabaseFailureMessage(
@@ -739,21 +758,42 @@ function formatOpenDatabaseFailureMessage(
 export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
   return {
     nodeEnv: process.env['NODE_ENV'] ?? null,
-    databaseProfile: process.env['NODE_ENV'] === 'test' ? 'test' : getDatabaseProfile(),
+    databaseProfile: getDatabaseProfile(),
     dataDir: getDatabasePath(),
     appDataDir: getAppDataPath(),
-    initializationAttemptCount,
+    initializationAttemptCount: mutableState.initializationAttemptCount,
     initializationInFlight: dbInitializationPromise !== null,
     hasDatabaseHandle: Boolean(db),
-    databaseLockHeld: dbProcessLockPath !== null,
-    databaseLockPath: dbProcessLockPath,
-    lastInitializationStartedAt,
-    lastInitializationSucceededAt,
-    lastInitializationFailure: lastInitializationFailure ? { ...lastInitializationFailure } : null,
-    runtimeCorruptionRecoveryCount,
-    lastRuntimeCorruptionAt,
-    lastRuntimeCorruptionContext,
+    databaseLockHeld: mutableState.dbProcessLockPath !== null,
+    databaseLockPath: mutableState.dbProcessLockPath,
+    lastInitializationStartedAt: mutableState.lastInitializationStartedAt,
+    lastInitializationSucceededAt: mutableState.lastInitializationSucceededAt,
+    lastInitializationFailure: mutableState.lastInitializationFailure
+      ? { ...mutableState.lastInitializationFailure }
+      : null,
+    runtimeCorruptionRecoveryCount: mutableState.runtimeCorruptionRecoveryCount,
+    lastRuntimeCorruptionAt: mutableState.lastRuntimeCorruptionAt,
+    lastRuntimeCorruptionContext: mutableState.lastRuntimeCorruptionContext,
   };
+}
+
+export function __resetDatabaseMutableStateForTests(): void {
+  if (process.env['NODE_ENV'] !== 'test') {
+    throw new Error('__resetDatabaseMutableStateForTests can only be used in test mode');
+  }
+
+  db = null;
+  dbInitializationPromise = null;
+  releaseDatabaseProcessLock();
+  mutableState.initializationAttemptCount = 0;
+  mutableState.lastInitializationStartedAt = null;
+  mutableState.lastInitializationSucceededAt = null;
+  mutableState.lastInitializationFailure = null;
+  mutableState.runtimeCorruptionRecoveryCount = 0;
+  mutableState.lastRuntimeCorruptionAt = null;
+  mutableState.lastRuntimeCorruptionContext = null;
+  mutableState.cachedDatabaseProfile = null;
+  mutableState.cachedGitProfileContext = undefined;
 }
 
 /**
@@ -829,8 +869,8 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     return db;
   }
 
-  initializationAttemptCount += 1;
-  lastInitializationStartedAt = new Date().toISOString();
+  mutableState.initializationAttemptCount += 1;
+  mutableState.lastInitializationStartedAt = new Date().toISOString();
   const dataDir = getDatabasePath();
   const appDataDir = getAppDataPath();
 
@@ -848,7 +888,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     logger.error('Failed to load required PGlite modules', {
       dataDir,
       appDataDir,
-      failure: lastInitializationFailure,
+      failure: mutableState.lastInitializationFailure,
     });
     throw err instanceof Error ? err : new Error(getErrorDetails(err).message);
   }
@@ -874,9 +914,11 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     logger.error('Failed to initialize database with pgvector', {
       dataDir,
       appDataDir,
-      failure: lastInitializationFailure,
+      failure: mutableState.lastInitializationFailure,
     });
-    throw new Error(formatOpenDatabaseFailureMessage(lastInitializationFailure?.category, msg));
+    throw new Error(
+      formatOpenDatabaseFailureMessage(mutableState.lastInitializationFailure?.category, msg)
+    );
   }
 
   // Run migrations
@@ -893,7 +935,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     logger.error('Database migrations failed', {
       dataDir,
       appDataDir,
-      failure: lastInitializationFailure,
+      failure: mutableState.lastInitializationFailure,
     });
     throw new Error(`Database migrations failed with pgvector: ${msg}`);
   }
@@ -973,9 +1015,9 @@ export async function reinitializeDatabase(): Promise<any> {
  */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
 export async function handleRuntimeCorruption(context: string): Promise<any> {
-  runtimeCorruptionRecoveryCount += 1;
-  lastRuntimeCorruptionAt = new Date().toISOString();
-  lastRuntimeCorruptionContext = context;
+  mutableState.runtimeCorruptionRecoveryCount += 1;
+  mutableState.lastRuntimeCorruptionAt = new Date().toISOString();
+  mutableState.lastRuntimeCorruptionContext = context;
   logger.warn(`Runtime corruption detected during ${context}. Resetting database...`);
   await safeCloseDatabase();
   await resetLocalDatabase();

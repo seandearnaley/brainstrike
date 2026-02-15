@@ -169,7 +169,13 @@ function formatDesktopDatabaseInitError(
   return `${fallbackMessage}${failureDetail}`;
 }
 
-function normalizeFailureMessage(message: unknown): string | null {
+const NORMALIZE_FAILURE_MESSAGE_MAX_DEPTH = 5 as const;
+
+function normalizeFailureMessage(message: unknown, depth = 0): string | null {
+  if (depth > NORMALIZE_FAILURE_MESSAGE_MAX_DEPTH) {
+    return null;
+  }
+
   if (typeof message === 'string') {
     const trimmed = message.trim();
     if (!trimmed.length) {
@@ -184,7 +190,7 @@ function normalizeFailureMessage(message: unknown): string | null {
   if (message && typeof message === 'object') {
     if ('message' in message) {
       const nestedMessage = (message as { message?: unknown }).message;
-      const normalizedNestedMessage = normalizeFailureMessage(nestedMessage);
+      const normalizedNestedMessage = normalizeFailureMessage(nestedMessage, depth + 1);
       if (normalizedNestedMessage) {
         return normalizedNestedMessage;
       }
@@ -204,6 +210,20 @@ function normalizeFailureMessage(message: unknown): string | null {
   }
 
   return String(message);
+}
+
+async function getElectronDiagnostics(
+  electronDB: ElectronDatabaseAPI
+): Promise<DatabaseDiagnosticsSnapshot | null> {
+  if (!electronDB.diagnostics) {
+    return null;
+  }
+  try {
+    return await electronDB.diagnostics();
+  } catch (error) {
+    logger.warn('Failed to fetch desktop database diagnostics', { error });
+    return null;
+  }
 }
 
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
@@ -244,18 +264,6 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       logger.info('Database test passed:', testResult.message);
     } catch (error) {
       logger.warn('Database test not available or failed:', error);
-    }
-  }, []);
-
-  const getElectronDiagnostics = useCallback(async (electronDB: ElectronDatabaseAPI) => {
-    if (!electronDB.diagnostics) {
-      return null;
-    }
-    try {
-      return await electronDB.diagnostics();
-    } catch (error) {
-      logger.warn('Failed to fetch desktop database diagnostics', { error });
-      return null;
     }
   }, []);
 
@@ -340,7 +348,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       return true;
     },
-    [useElectronIPC, testElectronConnection, getElectronDiagnostics]
+    [useElectronIPC, testElectronConnection]
   );
 
   const initializeDirectPGlite = useCallback(

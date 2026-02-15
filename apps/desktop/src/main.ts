@@ -369,6 +369,9 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
 let signalShutdownInFlight = false;
+let allowImmediateQuit = false;
+let gracefulShutdownPromise: Promise<void> | null = null;
+let forcedProcessExitTimeout: NodeJS.Timeout | null = null;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
@@ -386,13 +389,52 @@ async function handleResetLocal(): Promise<{ success: boolean; message?: string 
 }
 
 function scheduleForcedProcessExit(signal: NodeJS.Signals): void {
-  const timeoutHandle = setTimeout(() => {
+  if (forcedProcessExitTimeout) {
+    clearTimeout(forcedProcessExitTimeout);
+  }
+
+  forcedProcessExitTimeout = setTimeout(() => {
     logger.error('Timed out waiting for graceful shutdown after process signal; forcing exit', {
       signal,
     });
     process.exit(1);
   }, SIGNAL_SHUTDOWN_TIMEOUT_MS);
-  timeoutHandle.unref();
+  forcedProcessExitTimeout.unref();
+}
+
+function clearForcedProcessExitTimer(): void {
+  if (!forcedProcessExitTimeout) {
+    return;
+  }
+  clearTimeout(forcedProcessExitTimeout);
+  forcedProcessExitTimeout = null;
+}
+
+async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<void> {
+  if (gracefulShutdownPromise) {
+    await gracefulShutdownPromise;
+    return;
+  }
+
+  gracefulShutdownPromise = (async () => {
+    try {
+      if (stopAssistantServer) {
+        await stopAssistantServer();
+        stopAssistantServer = null;
+      }
+      await closeDatabase();
+    } finally {
+      clearForcedProcessExitTimer();
+    }
+  })();
+
+  try {
+    await gracefulShutdownPromise;
+  } catch (error) {
+    logger.error('Failed during graceful shutdown', { trigger, error });
+  } finally {
+    gracefulShutdownPromise = null;
+  }
 }
 
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
@@ -404,20 +446,13 @@ async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
   logger.warn('Received shutdown signal, attempting graceful desktop shutdown', { signal });
   scheduleForcedProcessExit(signal);
 
-  try {
-    if (stopAssistantServer) {
-      await stopAssistantServer();
-      stopAssistantServer = null;
-    }
-    await closeDatabase();
-  } catch (error) {
-    logger.error('Failed during signal-triggered shutdown', { signal, error });
-  } finally {
-    if (app.isReady()) {
-      app.quit();
-    } else {
-      process.exit(0);
-    }
+  await runGracefulShutdown('signal');
+
+  allowImmediateQuit = true;
+  if (app.isReady()) {
+    app.quit();
+  } else {
+    process.exit(0);
   }
 }
 
@@ -625,18 +660,19 @@ app.on('window-all-closed', () => {
 });
 
 // Clean shutdown
-app.on('before-quit', async () => {
+app.on('before-quit', (event) => {
   // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
   console.log('--- RAW CONSOLE LOG: BEFORE-QUIT TRIGGERED ---');
-  try {
-    if (stopAssistantServer) {
-      await stopAssistantServer();
-      stopAssistantServer = null;
-    }
-    await closeDatabase();
-  } catch (error) {
-    logger.error('Error closing database:', error);
+  if (allowImmediateQuit) {
+    return;
   }
+
+  event.preventDefault();
+  void (async () => {
+    await runGracefulShutdown('before-quit');
+    allowImmediateQuit = true;
+    app.quit();
+  })();
 });
 
 app.on('will-quit', () => {
