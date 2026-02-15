@@ -169,7 +169,7 @@ function formatDesktopDatabaseInitError(
   return `${fallbackMessage}${failureDetail}`;
 }
 
-const NORMALIZE_FAILURE_MESSAGE_MAX_DEPTH = 5 as const;
+const NORMALIZE_FAILURE_MESSAGE_MAX_DEPTH = 5;
 
 function normalizeFailureMessage(message: unknown, depth = 0): string | null {
   if (depth > NORMALIZE_FAILURE_MESSAGE_MAX_DEPTH) {

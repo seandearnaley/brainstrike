@@ -404,13 +404,13 @@ describe('db-main lifecycle', () => {
   });
 
   it('exposes a test-only helper to reset mutable diagnostics state', async () => {
-    const { initializeMainDatabase, getDatabaseDiagnostics, __resetDatabaseMutableStateForTests } =
+    const { initializeMainDatabase, getDatabaseDiagnostics, __resetDatabaseModuleStateForTests } =
       await import('../../db-main');
 
     await initializeMainDatabase();
     expect(getDatabaseDiagnostics().initializationAttemptCount).toBeGreaterThan(0);
 
-    __resetDatabaseMutableStateForTests();
+    __resetDatabaseModuleStateForTests();
 
     const diagnostics = getDatabaseDiagnostics();
     expect(diagnostics.initializationAttemptCount).toBe(0);

@@ -426,15 +426,11 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     } finally {
       clearForcedProcessExitTimer();
     }
-  })();
-
-  try {
-    await gracefulShutdownPromise;
-  } catch (error) {
+  })().catch((error) => {
     logger.error('Failed during graceful shutdown', { trigger, error });
-  } finally {
-    gracefulShutdownPromise = null;
-  }
+  });
+
+  await gracefulShutdownPromise;
 }
 
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
@@ -446,6 +442,8 @@ async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
   logger.warn('Received shutdown signal, attempting graceful desktop shutdown', { signal });
   scheduleForcedProcessExit(signal);
 
+  // runGracefulShutdown logs and resolves even when cleanup fails, so we always continue
+  // to quit the process rather than hanging on a partial shutdown.
   await runGracefulShutdown('signal');
 
   allowImmediateQuit = true;
@@ -669,7 +667,11 @@ app.on('before-quit', (event) => {
 
   event.preventDefault();
   void (async () => {
-    await runGracefulShutdown('before-quit');
+    try {
+      await runGracefulShutdown('before-quit');
+    } catch (error) {
+      logger.error('Graceful shutdown failed in before-quit handler', { error });
+    }
     allowImmediateQuit = true;
     app.quit();
   })();

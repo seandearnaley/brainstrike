@@ -150,6 +150,9 @@ const getPGlite = async () => {
 };
 
 // Database instance for main process
+// These runtime handles intentionally live outside mutableState because they carry
+// live process resources (`any` PGlite instance + single-flight Promise), while
+// mutableState is focused on diagnostic/profile metadata snapshots.
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
 let db: any = null;
 // Single-flight guard for startup/runtime callers that hit getDatabase() concurrently.
@@ -777,9 +780,9 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
   };
 }
 
-export function __resetDatabaseMutableStateForTests(): void {
+export function __resetDatabaseModuleStateForTests(): void {
   if (process.env['NODE_ENV'] !== 'test') {
-    throw new Error('__resetDatabaseMutableStateForTests can only be used in test mode');
+    throw new Error('__resetDatabaseModuleStateForTests can only be used in test mode');
   }
 
   db = null;
@@ -794,6 +797,11 @@ export function __resetDatabaseMutableStateForTests(): void {
   mutableState.lastRuntimeCorruptionContext = null;
   mutableState.cachedDatabaseProfile = null;
   mutableState.cachedGitProfileContext = undefined;
+}
+
+// Backward-compatible alias for existing tests/importers.
+export function __resetDatabaseMutableStateForTests(): void {
+  __resetDatabaseModuleStateForTests();
 }
 
 /**
