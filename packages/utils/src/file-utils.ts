@@ -15,6 +15,7 @@ export function getFileExtension(filename: string): string {
   return filename.slice(lastDotIndex + 1).toLowerCase();
 }
 
+// Invariant: entries must be lowercase and must not include a leading dot.
 const textFileExtensions = new Set([
   'txt',
   'md',
@@ -60,6 +61,7 @@ const textFileExtensions = new Set([
   'svelte',
 ]);
 
+// Invariant: entries must be lowercase and must not include a leading dot.
 const binaryFileExtensions = new Set([
   // Images
   'jpg',
@@ -132,12 +134,20 @@ function normalizeExtension(extension: string): string {
   return lowerCaseExtension;
 }
 
+/**
+ * Fast path relies on normalized extension sets and normalized output from `getFileExtension`.
+ * Non-normalized callers still work via the `normalizeExtension` fallback.
+ */
+function hasExtensionInSet(extension: string, extensionSet: ReadonlySet<string>): boolean {
+  return extensionSet.has(extension) || extensionSet.has(normalizeExtension(extension));
+}
+
 export function isTextExtension(extension: string): boolean {
-  return textFileExtensions.has(normalizeExtension(extension));
+  return hasExtensionInSet(extension, textFileExtensions);
 }
 
 export function isBinaryExtension(extension: string): boolean {
-  return binaryFileExtensions.has(normalizeExtension(extension));
+  return hasExtensionInSet(extension, binaryFileExtensions);
 }
 
 /**
@@ -146,8 +156,7 @@ export function isBinaryExtension(extension: string): boolean {
  * @returns True if the file is likely a text file
  */
 export function isTextFile(filename: string): boolean {
-  const ext = getFileExtension(filename);
-  return isTextExtension(ext);
+  return textFileExtensions.has(getFileExtension(filename));
 }
 
 /**
@@ -156,8 +165,7 @@ export function isTextFile(filename: string): boolean {
  * @returns True if the file is likely a binary file
  */
 export function isBinaryFile(filename: string): boolean {
-  const ext = getFileExtension(filename);
-  return isBinaryExtension(ext);
+  return binaryFileExtensions.has(getFileExtension(filename));
 }
 
 /**

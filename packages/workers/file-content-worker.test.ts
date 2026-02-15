@@ -180,7 +180,7 @@ describe('file-content-worker', () => {
     const results = await worker([req]);
 
     expect(results[req.compositeKey]).toMatch('Binary file - preview not available');
-    expect(utils.isTextExtension).toHaveBeenCalledWith('.txt');
+    expect(utils.isTextExtension).toHaveBeenCalledWith('txt');
     expect(fileContent.isTextContent).toHaveBeenCalledWith('binary-data');
   });
 

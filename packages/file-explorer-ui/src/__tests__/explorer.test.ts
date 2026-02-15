@@ -134,15 +134,15 @@ describe('fileExplorer', () => {
   });
 
   describe('getFileExtension', () => {
-    it('should return file extension including the dot', () => {
-      expect(fileExplorer.getFileExtension('file.txt')).toBe('.txt');
-      expect(fileExplorer.getFileExtension('image.png')).toBe('.png');
-      expect(fileExplorer.getFileExtension('script.js')).toBe('.js');
+    it('should return file extension without dot and normalized to lowercase', () => {
+      expect(fileExplorer.getFileExtension('file.txt')).toBe('txt');
+      expect(fileExplorer.getFileExtension('image.png')).toBe('png');
+      expect(fileExplorer.getFileExtension('script.js')).toBe('js');
     });
 
     it('should handle paths with multiple dots', () => {
-      expect(fileExplorer.getFileExtension('file.test.js')).toBe('.js');
-      expect(fileExplorer.getFileExtension('version.1.0.2.min.css')).toBe('.css');
+      expect(fileExplorer.getFileExtension('file.test.js')).toBe('js');
+      expect(fileExplorer.getFileExtension('version.1.0.2.min.css')).toBe('css');
     });
 
     it('should return empty string for files without extension', () => {
@@ -151,8 +151,12 @@ describe('fileExplorer', () => {
     });
 
     it('should handle paths with directories', () => {
-      expect(fileExplorer.getFileExtension('/path/to/file.txt')).toBe('.txt');
-      expect(fileExplorer.getFileExtension('src/components/Button.tsx')).toBe('.tsx');
+      expect(fileExplorer.getFileExtension('/path/to/file.txt')).toBe('txt');
+      expect(fileExplorer.getFileExtension('src/components/Button.tsx')).toBe('tsx');
+    });
+
+    it('should normalize uppercase extensions', () => {
+      expect(fileExplorer.getFileExtension('src/components/Button.TSX')).toBe('tsx');
     });
   });
 

@@ -42,6 +42,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage",
+    "bench": "vitest bench",
     "mutation": "npx @stryker-mutator/core run"
   },
   "dependencies": {

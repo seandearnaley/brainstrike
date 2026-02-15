@@ -25,8 +25,9 @@ describe('file-explorer-utils', () => {
     expect(miss).toBeNull();
   });
 
-  it('getFileExtension returns extension with dot or empty string', () => {
-    expect(fileExplorer.getFileExtension('test/file.tsx')).toBe('.tsx');
+  it('getFileExtension returns normalized extension without dot or empty string', () => {
+    expect(fileExplorer.getFileExtension('test/file.tsx')).toBe('tsx');
+    expect(fileExplorer.getFileExtension('test/file.TSX')).toBe('tsx');
     expect(fileExplorer.getFileExtension('testfile')).toBe('');
   });
 

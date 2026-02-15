@@ -60,7 +60,7 @@ describe('DirectFileContentProcessor', () => {
     const { fileContent, fileExplorer } = await import('@brainstrike/utils');
 
     mockReadFile.mockResolvedValue('file content');
-    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('.txt');
+    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('txt');
     vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
     vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
     vi.mocked(fileContent.isTextContent).mockReturnValue(true);
@@ -84,7 +84,7 @@ describe('DirectFileContentProcessor', () => {
     const processor = new DirectFileContentProcessor();
     const { fileContent, fileExplorer } = await import('@brainstrike/utils');
 
-    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('.png');
+    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('png');
     vi.mocked(fileContent.isBinaryExtension).mockReturnValue(true);
 
     const results = await processor.processFiles([mockRequest]);
@@ -126,7 +126,7 @@ describe('DirectFileContentProcessor', () => {
     const { fileContent, fileExplorer } = await import('@brainstrike/utils');
 
     mockReadFile.mockResolvedValue('content');
-    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('.txt');
+    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('txt');
     vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
     vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
     vi.mocked(fileContent.isTextContent).mockReturnValue(true);
@@ -147,7 +147,7 @@ describe('DirectFileContentProcessor', () => {
     const { fileContent, fileExplorer } = await import('@brainstrike/utils');
 
     mockReadFile.mockImplementation(async (handle) => `content-${handle.name}`);
-    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('.txt');
+    vi.mocked(fileExplorer.getFileExtension).mockReturnValue('txt');
     vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
     vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
     vi.mocked(fileContent.isTextContent).mockReturnValue(true);

@@ -68,7 +68,10 @@ export const fileExplorer = {
    */
   getFileExtension(filePath: string): string {
     const lastDotIndex = filePath.lastIndexOf('.');
-    return lastDotIndex > -1 ? filePath.slice(lastDotIndex) : '';
+    if (lastDotIndex === -1 || lastDotIndex === 0) {
+      return '';
+    }
+    return filePath.slice(lastDotIndex + 1).toLowerCase();
   },
 
   /**
