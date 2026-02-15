@@ -4,7 +4,7 @@
  * Validates the standardized pause/resume/cancel/drain semantics
  * defined in ADR-0002 using a mock adapter implementation.
  *
- * @see docs/adr/0002-queue-boundaries.md
+ * @see apps/docs/docs/reference/adr/queue-boundaries.md
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { QueueAdapter, QueueResult, TaskPayload } from '../types';

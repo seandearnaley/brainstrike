@@ -1,0 +1,90 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import type { Category, Prompt } from '../../types';
+import { PromptCard } from '../prompt-card';
+
+const category: Category = {
+  id: 'coding',
+  name: 'Coding',
+  color: '#3b82f6',
+  icon: 'Code',
+};
+
+const prompt: Prompt = {
+  id: 'prompt-1',
+  title: 'Refactor React hook',
+  content: 'Refactor this hook for better readability and performance.',
+  categoryId: 'coding',
+  tags: ['react', 'hooks', 'typescript', 'performance'],
+  modelSettings: {
+    model: 'openai:gpt-4o-mini',
+    temperature: 0.4,
+    topP: 1,
+  },
+  revisions: [],
+  rating: 5,
+  site: 'https://docs.example.com/guide',
+  isFavorite: false,
+  createdAt: 1_700_000_000_000,
+  updatedAt: 1_700_000_000_100,
+};
+
+describe('PromptCard', () => {
+  it('renders prompt metadata and forwards actions', () => {
+    const onEdit = vi.fn();
+    const onDelete = vi.fn();
+    const onToggleFavorite = vi.fn();
+    const onCopy = vi.fn();
+
+    render(
+      <PromptCard
+        category={category}
+        onCopy={onCopy}
+        onDelete={onDelete}
+        onEdit={onEdit}
+        onToggleFavorite={onToggleFavorite}
+        prompt={prompt}
+      />
+    );
+
+    expect(screen.getByText('Refactor React hook')).toBeInTheDocument();
+    expect(screen.getByText('Coding')).toBeInTheDocument();
+    expect(screen.getByText('openai:gpt-4o-mini')).toBeInTheDocument();
+    expect(screen.getByText('docs.example.com')).toBeInTheDocument();
+    expect(screen.getByText('#react')).toBeInTheDocument();
+    expect(screen.getByText('#hooks')).toBeInTheDocument();
+    expect(screen.getByText('#typescript')).toBeInTheDocument();
+    expect(screen.getByText('+1')).toBeInTheDocument();
+
+    const buttons = screen.getAllByRole('button');
+    fireEvent.click(buttons[0] as HTMLElement);
+    expect(onToggleFavorite).toHaveBeenCalledWith('prompt-1');
+
+    fireEvent.pointerDown(buttons[1] as HTMLElement);
+    fireEvent.click(screen.getByText('Copy Content'));
+    fireEvent.pointerDown(buttons[1] as HTMLElement);
+    fireEvent.click(screen.getByText('Edit'));
+    fireEvent.pointerDown(buttons[1] as HTMLElement);
+    fireEvent.click(screen.getByText('Delete'));
+
+    expect(onCopy).toHaveBeenCalledWith(prompt.content);
+    expect(onEdit).toHaveBeenCalledWith('prompt-1');
+    expect(onDelete).toHaveBeenCalledWith('prompt-1');
+  });
+
+  it('renders uncategorized fallback when category is missing', () => {
+    const { site: _site, ...promptWithoutSite } = prompt;
+
+    render(
+      <PromptCard
+        onCopy={() => {}}
+        onDelete={() => {}}
+        onEdit={() => {}}
+        onToggleFavorite={() => {}}
+        prompt={promptWithoutSite}
+      />
+    );
+
+    expect(screen.getByText('Uncategorized')).toBeInTheDocument();
+  });
+});

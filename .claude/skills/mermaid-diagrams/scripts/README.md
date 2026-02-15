@@ -27,7 +27,7 @@ node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
 - Node.js built-in modules (`fs/promises`, `child_process`, `util`)
 
 **Project Integration**:
-- Scans `docs/architecture/*.md` files by default
+- Scans `apps/docs/docs/architecture/*.md` files by default
 - Can be customized to scan other directories by modifying the glob pattern
 
 ### test-one-diagram.mjs
@@ -76,7 +76,7 @@ This skill folder is designed to be self-contained and shareable:
 ### Project-Specific Integration
 
 The validation script is configured for the BrainStrike project structure:
-- Scans `docs/architecture/*.md` by default
+- Scans `apps/docs/docs/architecture/*.md` by default
 - Can be customized for other project structures by editing the glob pattern in `validate-mermaid.mjs`
 
 When sharing this skill with other projects, update the glob pattern to match their documentation structure.
@@ -88,4 +88,3 @@ When adding new validation rules:
 2. Add examples to `../EXAMPLES.md`
 3. Update `../SKILL.md` with the new pattern
 4. Test with real diagrams to ensure accuracy
-

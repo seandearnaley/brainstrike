@@ -413,7 +413,7 @@ const ChatThreadUI: FC<{
      * to override the library's defaults.
      *
      * See: packages/ui/src/assistant-ui-panel/overrides.css
-     * Post-mortem: docs/2025-09-30-assistant-ui-layout-fix-postmortem.md
+     * Post-mortem: apps/docs/docs/archive/cold/handoffs/20250930-094210-assistant-ui-layout-fix-postmortem.md
      */}
     <ThreadPrimitive.Viewport
       aria-atomic="false"

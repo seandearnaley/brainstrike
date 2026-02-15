@@ -323,4 +323,3 @@ This architecture enables:
 - [@brainstrike/db](../db/README.md) - Database operations
 - [@brainstrike/embeddings](../embeddings/README.md) - Embedding models
 - [@brainstrike/queue](../queue/README.md) - Queue management
-- [Chunking Strategies Guide](../../docs/guides/chunking-strategies.md)

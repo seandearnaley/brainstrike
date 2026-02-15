@@ -170,7 +170,7 @@ stateDiagram-v2
 
 ## Resources
 
-- Full guide: `docs/mermaid-guide.md`
+- Full guide: `apps/docs/docs/reference/tooling/mermaid-guide.md`
 - Examples: See `EXAMPLES.md` in this skill
 - Live editor: https://mermaid.live/
 - Documentation: https://mermaid.js.org/
@@ -199,4 +199,3 @@ A["Web App - React"]
 ```
 
 **Remember**: When in doubt, quote the label!
-

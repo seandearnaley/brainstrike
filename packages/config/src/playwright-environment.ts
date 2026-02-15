@@ -135,12 +135,22 @@ export const getEnvironmentConfig = (): EnvironmentConfig => {
  * Log environment configuration for debugging
  */
 export const logEnvironmentConfig = (
-  _appName: string,
-  _config: EnvironmentConfig,
+  appName: string,
+  config: EnvironmentConfig,
   baseURL?: string
 ) => {
-  if (baseURL) {
-  }
+  const details = [
+    `isCodex=${String(config.isCodex)}`,
+    `isGitHubActions=${String(config.isGitHubActions)}`,
+    `isCI=${String(config.isCI)}`,
+    `workers=${String(config.workers)}`,
+    `globalTimeout=${String(config.globalTimeout)}`,
+    `retries=${String(config.retries)}`,
+    `headless=${String(config.headless)}`,
+    `fullyParallel=${String(config.fullyParallel)}`,
+  ];
+  const basePart = baseURL ? ` baseURL=${baseURL}` : '';
+  process.stdout.write(`[playwright:${appName}] ${details.join(' ')}${basePart}\n`);
 };
 
 /**
@@ -161,7 +171,8 @@ export const validateEnvironmentConfig = (config: EnvironmentConfig) => {
   }
 
   // Log warnings
-  for (const _warning of warnings) {
+  for (const warning of warnings) {
+    process.stderr.write(`[playwright:warning] ${warning}\n`);
   }
 
   return warnings;

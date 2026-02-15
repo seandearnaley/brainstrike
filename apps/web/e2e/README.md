@@ -2,7 +2,7 @@
 
 This directory contains end-to-end tests using Playwright for the Brainstrike web application.
 
-For general Playwright guidance see [docs/playwright-ci-optimization.md](../../../docs/playwright-ci-optimization.md).
+For general Playwright guidance see [apps/docs/docs/testing/playwright-ci-optimization.md](../../../apps/docs/docs/testing/playwright-ci-optimization.md).
 
 ## Running Tests
 

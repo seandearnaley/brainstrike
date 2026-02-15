@@ -348,7 +348,7 @@ Node shapes:
 - {Label}          = diamond
 
 Always validate before commit.
-See docs/mermaid-guide.md for details.
+See apps/docs/docs/reference/tooling/mermaid-guide.md for details.
 
 ---
 

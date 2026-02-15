@@ -3,9 +3,9 @@ import biome from '../../../biome.json';
 import baseTsconfig from '../tsconfig/base.json';
 import reactLibrary from '../tsconfig/react-library.json';
 
-// Ensure package entry can be imported without error
-it('imports package entry without throwing', () => {
-  expect(() => require('..')).not.toThrow();
+it('imports runtime export modules without throwing', async () => {
+  await expect(import('../src/playwright-environment')).resolves.toBeTruthy();
+  await expect(import('../src/vitest-browser')).resolves.toBeTruthy();
 });
 
 describe('biome configuration', () => {

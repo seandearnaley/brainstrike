@@ -117,4 +117,4 @@ function MyIde() {
 }
 ```
 
-See [`docs/ide-layout.md`](../../docs/ide-layout.md) for a deeper overview.
+See [`ide-layout.md`](../../apps/docs/docs/reference/platform/ide-layout.md) for a deeper overview.

@@ -189,7 +189,7 @@ Tips for MCP integration:
 - Do not include secrets directly in `mcp.config.json` – instead, supply  
     credentials via environment variables and read them in the remote process.
     
-- Use the hot reload mechanism (see `apps/desktop/docs/mcp-hot-reload`) to  
+- Use the MCP hot reload mechanism to 
     rebuild remote clients on changes; this emits progress events so the UI  
     remains responsive.
     
@@ -240,7 +240,7 @@ Tips for MCP integration:
 
 * Keep remote tool processes isolated and sandboxed. Avoid passing unvalidated user input to remote commands.
 * Do not include secrets directly in `mcp.config.json` – instead, supply credentials via environment variables and read them in the remote process.
-* Use the hot reload mechanism (see `apps/desktop/docs/mcp-hot-reload`) to rebuild remote clients on changes; this emits progress events so the UI remains responsive.
+* Use the MCP hot reload mechanism to rebuild remote clients on changes; this emits progress events so the UI remains responsive.
 * **Transport security** - ensure MCP transports use secure protocols and proper authentication.
 * **Least privilege** - grant MCP servers only the minimum permissions required.
 

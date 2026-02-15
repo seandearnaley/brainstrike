@@ -5,7 +5,7 @@
  * - 'workerpool': Ephemeral in-memory workerpool (browser compute)
  * - 'custom': Custom/third-party queue implementations
  *
- * @see docs/adr/0002-queue-boundaries.md for queue mental model
+ * @see apps/docs/docs/reference/adr/queue-boundaries.md for queue mental model
  */
 export type QueueTelemetryAdapter = 'job-queue' | 'workerpool' | 'custom';
 
