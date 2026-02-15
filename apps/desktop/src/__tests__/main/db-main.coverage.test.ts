@@ -13,6 +13,7 @@ vi.mock('node:fs', async (importOriginal) => {
     existsSync: vi.fn(() => true),
     mkdirSync: vi.fn(),
     rmSync: vi.fn(),
+    cpSync: vi.fn(),
   };
   return {
     ...mod,

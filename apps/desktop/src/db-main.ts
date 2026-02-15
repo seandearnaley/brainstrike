@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils';
 import { app } from 'electron';
@@ -232,6 +232,25 @@ function getAppDataPath(): string {
   return path.join(app.getPath('documents'), dbDirName);
 }
 
+function createResetBackup(appDataDir: string): string | null {
+  if (process.env['NODE_ENV'] === 'test' || !existsSync(appDataDir)) {
+    return null;
+  }
+
+  const backupRootDir = path.join(path.dirname(appDataDir), 'backups');
+  mkdirSync(backupRootDir, { recursive: true });
+  const backupSuffix = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupDir = path.join(backupRootDir, `${path.basename(appDataDir)}-${backupSuffix}`);
+
+  cpSync(appDataDir, backupDir, {
+    recursive: true,
+    errorOnExist: true,
+    force: false,
+  });
+
+  return backupDir;
+}
+
 /**
  * Known PostgreSQL error codes that indicate index/data corruption requiring full reset.
  *
@@ -260,6 +279,13 @@ const CORRUPTION_ERROR_PATTERNS = [
   'page verification failed',
 ] as const;
 
+const WASM_ABORT_ERROR_PATTERNS = [
+  'aborted(). build with -sassertions for more info.',
+  'aborted()',
+  'runtimeerror: unreachable',
+  'wasm trap',
+] as const;
+
 /**
  * Check if an error indicates database corruption that requires a full reset
  */
@@ -278,6 +304,16 @@ export function isCorruptionError(error: unknown): boolean {
 
   const lowerMessage = message.toLowerCase();
   return CORRUPTION_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern.toLowerCase()));
+}
+
+export function isWasmAbortError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const lowerMessage = message.toLowerCase();
+  return WASM_ABORT_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern));
 }
 
 const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR'] as const;
@@ -374,8 +410,12 @@ async function safeCloseDatabase(): Promise<void> {
  * Attempt corruption recovery by resetting and reinitializing the database.
  * Throws if recovery fails.
  */
-async function attemptCorruptionRecovery(context: string): Promise<void> {
-  logger.warn(`Database corruption detected during ${context}. Attempting auto-recovery...`);
+async function attemptCorruptionRecovery(
+  context: string,
+  reason: 'corruption' | 'wasm-abort'
+): Promise<void> {
+  const reasonLabel = reason === 'corruption' ? 'database corruption' : 'WASM initialization abort';
+  logger.warn(`Recoverable ${reasonLabel} detected during ${context}. Attempting auto-recovery...`);
   await safeCloseDatabase();
   await resetLocalDatabase();
   logger.info('Database reset complete. Retrying initialization...');
@@ -393,22 +433,29 @@ async function handleCorruptionError(
 ): Promise<any> {
   await safeCloseDatabase();
 
-  if (!(retryAfterCorruption && isCorruptionError(err))) {
+  const hasCorruptionSignal = isCorruptionError(err);
+  const hasWasmAbortSignal = isWasmAbortError(err);
+  if (!(retryAfterCorruption && (hasCorruptionSignal || hasWasmAbortSignal))) {
     return null; // Signal that we didn't handle it
   }
 
+  const recoveryReason: 'corruption' | 'wasm-abort' = hasCorruptionSignal
+    ? 'corruption'
+    : 'wasm-abort';
+
   try {
-    await attemptCorruptionRecovery(context);
+    await attemptCorruptionRecovery(context, recoveryReason);
     return await initializeMainDatabaseInternal(false);
   } catch (resetErr) {
     recordInitializationFailure('runtime-corruption-recovery', resetErr);
     logger.error('Auto-recovery failed', {
       context,
+      recoveryReason,
       error: getErrorDetails(resetErr),
       originalError: getErrorDetails(err),
     });
     throw new Error(
-      `Database corruption detected during ${context} and auto-recovery failed. Please manually delete the BrainStrike data folder and restart the app.`
+      `Database initialization failed during ${context} and auto-recovery failed. Please manually delete the BrainStrike data folder and restart the app.`
     );
   }
 }
@@ -587,6 +634,20 @@ export async function resetLocalDatabase(): Promise<void> {
 
   const appDataDir = getAppDataPath();
   const dataDir = getDatabasePath();
+  let backupDir: string | null = null;
+
+  try {
+    backupDir = createResetBackup(appDataDir);
+    if (backupDir) {
+      logger.warn(`Created database backup before reset: ${backupDir}`);
+    }
+  } catch (err) {
+    logger.error('Failed to backup app data directory before reset', {
+      appDataDir,
+      error: getErrorDetails(err),
+    });
+    throw err;
+  }
 
   // Delete the entire app data directory (parent folder) for a complete reset
   try {

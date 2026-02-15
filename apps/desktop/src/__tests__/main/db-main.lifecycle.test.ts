@@ -4,11 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const existsSyncMock = vi.fn();
 const mkdirSyncMock = vi.fn();
 const rmSyncMock = vi.fn();
+const cpSyncMock = vi.fn();
 vi.mock('node:fs', () => ({
   existsSync: existsSyncMock,
   mkdirSync: mkdirSyncMock,
   rmSync: rmSyncMock,
-  default: { existsSync: existsSyncMock, mkdirSync: mkdirSyncMock, rmSync: rmSyncMock },
+  cpSync: cpSyncMock,
+  default: {
+    existsSync: existsSyncMock,
+    mkdirSync: mkdirSyncMock,
+    rmSync: rmSyncMock,
+    cpSync: cpSyncMock,
+  },
 }));
 
 const appGetPathMock = vi.fn(() => '/mock/documents');
@@ -126,6 +133,21 @@ describe('db-main lifecycle', () => {
     expect(db).toBeDefined();
   });
 
+  it('auto-recovers from wasm abort during initialization', async () => {
+    const wasmAbort = new Error('Aborted(). Build with -sASSERTIONS for more info.');
+
+    PGliteMock.mockImplementationOnce(function (this: Record<string, unknown>) {
+      Object.assign(this, {});
+      throw wasmAbort;
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    const db = await initializeMainDatabase();
+
+    expect(rmSyncMock).toHaveBeenCalled();
+    expect(db).toBeDefined();
+  });
+
   it('throws if auto-recovery fails', async () => {
     const corruptionError = new Error("right sibling's left-link doesn't match") as Error & {
       code: string;
@@ -152,6 +174,11 @@ describe('db-main lifecycle', () => {
 
     // Should delete the parent BrainStrike-dev folder, not just pgdata
     const expectedAppDataPath = path.join('/mock/documents', 'BrainStrike-dev');
+    expect(cpSyncMock).toHaveBeenCalledWith(
+      expectedAppDataPath,
+      expect.stringContaining(path.join('/mock/documents', 'backups', 'BrainStrike-dev-')),
+      { recursive: true, errorOnExist: true, force: false }
+    );
     expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { recursive: true, force: true });
   });
 
