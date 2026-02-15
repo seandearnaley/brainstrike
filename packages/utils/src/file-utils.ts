@@ -124,14 +124,20 @@ const binaryFileExtensions = new Set([
   'lock',
 ]);
 
+function normalizeExtension(extension: string): string {
+  const lowerCaseExtension = extension.toLowerCase();
+  if (lowerCaseExtension.startsWith('.')) {
+    return lowerCaseExtension.slice(1);
+  }
+  return lowerCaseExtension;
+}
+
 export function isTextExtension(extension: string): boolean {
-  const ext = extension.toLowerCase().replace(/^\./, '');
-  return textFileExtensions.has(ext);
+  return textFileExtensions.has(normalizeExtension(extension));
 }
 
 export function isBinaryExtension(extension: string): boolean {
-  const ext = extension.toLowerCase().replace(/^\./, '');
-  return binaryFileExtensions.has(ext);
+  return binaryFileExtensions.has(normalizeExtension(extension));
 }
 
 /**

@@ -226,6 +226,12 @@ jobs:
           path: coverage-bundle.tar
           retention-days: 1
 
+      - name: Append timing table footer
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Check the step timings above for optimization opportunities._" >> $GITHUB_STEP_SUMMARY
+
   # Vitest 4 Browser Mode tests (WASM/IndexedDB validation)
   browser-tests:
     name: Browser Tests (Vitest 4)
