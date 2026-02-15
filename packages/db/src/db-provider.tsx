@@ -131,7 +131,12 @@ function formatDesktopDatabaseInitError(
   fallbackMessage: string
 ): string {
   const failure = diagnostics?.lastInitializationFailure;
-  const failureDetail = failure?.message ? ` Last failure: ${failure.message}` : '';
+  const rawFailureMessage =
+    failure && typeof failure === 'object' && 'message' in failure
+      ? (failure as { message?: unknown }).message
+      : null;
+  const failureMessage = normalizeFailureMessage(rawFailureMessage);
+  const failureDetail = failureMessage ? ` Last failure: ${failureMessage}` : '';
 
   if (!failure) {
     return `pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.${failureDetail}`;
@@ -162,6 +167,43 @@ function formatDesktopDatabaseInitError(
   }
 
   return `${fallbackMessage}${failureDetail}`;
+}
+
+function normalizeFailureMessage(message: unknown): string | null {
+  if (typeof message === 'string') {
+    const trimmed = message.trim();
+    if (!trimmed.length) {
+      return null;
+    }
+    if (trimmed === '[object Object]') {
+      return null;
+    }
+    return trimmed;
+  }
+
+  if (message && typeof message === 'object') {
+    if ('message' in message) {
+      const nestedMessage = (message as { message?: unknown }).message;
+      const normalizedNestedMessage = normalizeFailureMessage(nestedMessage);
+      if (normalizedNestedMessage) {
+        return normalizedNestedMessage;
+      }
+    }
+    try {
+      const serialized = JSON.stringify(message);
+      if (serialized && serialized !== '{}') {
+        return serialized;
+      }
+    } catch {
+      return String(message);
+    }
+  }
+
+  if (message === null || message === undefined) {
+    return null;
+  }
+
+  return String(message);
 }
 
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
