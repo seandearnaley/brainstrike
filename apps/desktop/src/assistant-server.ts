@@ -126,7 +126,22 @@ async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
-  const { rawMessages, data } = await parseAssistantRequestPayload(req);
+  let rawMessages: AssistantUiMessage[];
+  let data: RuntimeData | undefined;
+  try {
+    const payload = await parseAssistantRequestPayload(req);
+    rawMessages = payload.rawMessages;
+    data = payload.data;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      respondJson(res, 400, {
+        error: 'invalid_json',
+        message: 'Request body must be valid JSON.',
+      });
+      return;
+    }
+    throw error;
+  }
   const messages = convertAssistantUiMessages(rawMessages);
   const provider = resolveRequestedProvider(data);
 
