@@ -228,7 +228,8 @@ const ASSISTANT_CORS_ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
 function isAllowedAssistantOrigin(origin: string): boolean {
   // Packaged Electron loads from file:// and sends Origin: null.
   // This is a deliberate trade-off for desktop compatibility while the server
-  // remains loopback-only.
+  // remains loopback-only. If this server is ever exposed beyond loopback,
+  // remove this allowance and require explicit origin whitelisting.
   if (origin === ASSISTANT_CORS_NULL_ORIGIN) {
     return true;
   }
