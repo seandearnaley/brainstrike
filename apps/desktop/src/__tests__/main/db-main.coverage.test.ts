@@ -55,6 +55,21 @@ describe('db-main coverage helpers', () => {
     expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
   });
 
+  it('classifies wasm abort during extension load as wasm-runtime', async () => {
+    vi.doMock('@electric-sql/pglite/vector', () => {
+      return {
+        get vector() {
+          throw new Error('Aborted(). Build with -sASSERTIONS for more info.');
+        },
+      };
+    });
+    const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(/aborted/i);
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.lastInitializationFailure?.category).toBe('wasm-runtime');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
+  });
+
   it('resetLocalDatabase completes without throwing', async () => {
     const { resetLocalDatabase } = await import('../../db-main');
     await expect(resetLocalDatabase()).resolves.toBeUndefined();

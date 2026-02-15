@@ -207,6 +207,47 @@ const DB_LOCK_FILENAME = '.db-process.lock' as const;
 const WORKTREE_PROFILE_HASH_LENGTH = 8 as const;
 const WORKTREE_PROFILE_BRANCH_MAX = 40 as const;
 
+interface PGliteInstanceShape {
+  close?: () => Promise<void> | void;
+  query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+  syncToFs?: () => Promise<void>;
+}
+
+async function trySyncToFs(instance: PGliteInstanceShape, context: string): Promise<void> {
+  if (typeof instance.syncToFs !== 'function') {
+    return;
+  }
+
+  try {
+    await instance.syncToFs();
+  } catch (error) {
+    logger.warn('Failed to sync database files to disk', {
+      context,
+      error: getErrorDetails(error),
+    });
+    throw error;
+  }
+}
+
+async function tryCloseDatabaseInstance(
+  instance: PGliteInstanceShape,
+  context: string
+): Promise<void> {
+  if (typeof instance.close !== 'function') {
+    return;
+  }
+
+  try {
+    await instance.close();
+  } catch (error) {
+    logger.warn('Failed to close database instance cleanly', {
+      context,
+      error: getErrorDetails(error),
+    });
+  }
+}
+
 // Helper to create and validate a PGlite instance with pgvector
 async function createVectorDatabase(
   PGliteCtor: unknown,
@@ -222,13 +263,21 @@ async function createVectorDatabase(
     // biome-ignore lint/suspicious/noExplicitAny: PGlite vector extension type not available at compile time
     extensions: { vector: vector as any, live: live as any },
   });
-  await instance.query('SELECT 1');
-  await instance.exec('CREATE EXTENSION IF NOT EXISTS vector');
-  const res = await instance.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
-  if (!res.rows.length) {
-    throw new Error('pgvector extension not registered in database');
+
+  try {
+    await instance.query('SELECT 1');
+    await instance.exec('CREATE EXTENSION IF NOT EXISTS vector');
+    const res = await instance.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+    if (!res.rows.length) {
+      throw new Error('pgvector extension not registered in database');
+    }
+    // Force an initial sync barrier so startup writes are persisted before continuing.
+    await trySyncToFs(instance as PGliteInstanceShape, 'initialization');
+    return instance;
+  } catch (error) {
+    await tryCloseDatabaseInstance(instance as PGliteInstanceShape, 'initialization-failure');
+    throw error;
   }
-  return instance;
 }
 
 function sanitizeProfileSegment(raw: string): string {
@@ -596,6 +645,10 @@ function classifyInitializationFailure(
   const details = getErrorDetails(error);
   const message = details.message.toLowerCase();
 
+  if (isWasmAbortError(error)) {
+    return 'wasm-runtime';
+  }
+
   if (
     stage === 'load-extensions' ||
     message.includes('@electric-sql/pglite/vector') ||
@@ -652,6 +705,25 @@ function recordInitializationSuccess(): void {
   lastInitializationFailure = null;
 }
 
+function formatOpenDatabaseFailureMessage(
+  category: DatabaseInitFailureCategory | undefined,
+  details: string
+): string {
+  if (category === 'missing-extension') {
+    return `pgvector extension is required and failed to initialize via PGlite: ${details}.`;
+  }
+  if (category === 'wasm-runtime') {
+    return `PGlite runtime aborted while opening the desktop database: ${details}.`;
+  }
+  if (category === 'concurrency') {
+    return details;
+  }
+  if (category === 'filesystem') {
+    return `Desktop database filesystem access failed while opening database: ${details}.`;
+  }
+  return `Desktop database failed to initialize via PGlite: ${details}.`;
+}
+
 export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
   return {
     nodeEnv: process.env['NODE_ENV'] ?? null,
@@ -677,8 +749,8 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
  */
 async function safeCloseDatabase(): Promise<void> {
   try {
-    if (db && typeof db.close === 'function') {
-      await db.close();
+    if (db) {
+      await tryCloseDatabaseInstance(db as PGliteInstanceShape, 'safe-close');
     }
   } catch {
     // ignore close errors
@@ -795,7 +867,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
       appDataDir,
       failure: lastInitializationFailure,
     });
-    throw new Error(`pgvector extension is required and failed to initialize via PGlite: ${msg}.`);
+    throw new Error(formatOpenDatabaseFailureMessage(lastInitializationFailure?.category, msg));
   }
 
   // Run migrations
@@ -867,6 +939,7 @@ export async function getDatabase(): Promise<any> {
 export async function closeDatabase(): Promise<void> {
   try {
     if (db) {
+      await trySyncToFs(db as PGliteInstanceShape, 'closeDatabase');
       await db.close();
       logger.info('Database connection closed');
     }

@@ -252,6 +252,21 @@ describe('db-main lifecycle', () => {
     expect(diagnostics.lastInitializationFailure?.stage).toBe('open-database');
   });
 
+  it('closes partially initialized database instance when startup validation fails', async () => {
+    const wasmAbort = new Error('Aborted(). Build with -sASSERTIONS for more info.');
+    queryMock.mockRejectedValueOnce(wasmAbort);
+
+    const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(/aborted/i);
+
+    expect(closeMock).toHaveBeenCalledTimes(1);
+    expect(rmSyncMock).not.toHaveBeenCalled();
+
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.lastInitializationFailure?.category).toBe('wasm-runtime');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('open-database');
+  });
+
   it('throws if auto-recovery fails', async () => {
     const corruptionError = new Error("right sibling's left-link doesn't match") as Error & {
       code: string;
