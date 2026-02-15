@@ -4,12 +4,12 @@
 
 ## What this package is
 
-A reusable **React 19** application shell and IDE chrome for Brainstrike apps. It provides the outer layout, navigation, tools panel (Assistant, Embeddings, Vectors, Database), CSV export utilities, and light state slices (Zustand). It intentionally keeps business logic thin and delegates to sibling packages (`@brainstrike/ui`, `@brainstrike/db`, `@brainstrike/embeddings`, `@brainstrike/file-explorer-*`, etc.).
+A reusable **React 19** application shell and IDE chrome for Brainstrike apps. It provides the outer layout, navigation, tools panel (Assistant, Database), CSV export utilities, and light state slices (Zustand). It intentionally keeps business logic thin and delegates to sibling packages (`@brainstrike/ui`, `@brainstrike/db`, `@brainstrike/embeddings`, `@brainstrike/file-explorer-*`, etc.).
 
 ### Key exports (from `src/`)
 
 * **Layout:** `AppLayout`, `createAppConfig`, `RootLayoutContent`, `PageWrapper`, `navigationItems`
-* **Tools panel:** `ToolsPanel` (tabs: Assistant / Embeddings / Vectors / Database)
+* **Tools panel:** `ToolsPanel` (tabs: Assistant / Database)
 * **Database utilities:** `DatabaseDemoPanel`, `VectorStatusWithDb`, `QueueHud`
 * **CSV:** `generateCSV`, `createCSVBlob`, `generateCSVFilename`, and richer exporters for files/chunks/embeddings
 * **Stores (Zustand):** `panel-layout-store`, `tools-panel-store`, `search-panel-store`, `db-panel-store`, `import-settings-store`, `vector-*` stores
@@ -56,7 +56,7 @@ export function App() {
 
 ### Heavy component lazy-loading
 
-Heavy components (Database, Assistant, Vectors) are lazy-loaded via `React.lazy()` for automatic code splitting and bundle optimization. This keeps the initial bundle lean while making all features available.
+Heavy components (Database and Assistant) are lazy-loaded via `React.lazy()` for automatic code splitting and bundle optimization. This keeps the initial bundle lean while making all features available.
 
 **Assistant status resolution:** The Assistant panel calls `GET {base}/assistant/status`. In web builds it defaults to `/api/assistant/status`; in Electron you can provide `window.assistant.getUrl()` or `window.assistant.url` to override (see `resolveAssistantStatusUrl()`).
 
@@ -68,7 +68,7 @@ Heavy components (Database, Assistant, Vectors) are lazy-loaded via `React.lazy(
 
 ### The “App Shell” concept
 
-This package **renders the shell fast** and defers heavy features. It separates persistent UI (nav/sidebar/footer/panels) from feature content and uses lazy imports for DB/embedding panes. This mirrors modern **PWA/App-Shell** guidance: cache the shell, hydrate quickly, stream content/work later. ([Medium][3])
+This package **renders the shell fast** and defers heavy features. It separates persistent UI (nav/sidebar/footer/panels) from feature content and uses lazy imports for DB-centric panes. This mirrors modern **PWA/App-Shell** guidance: cache the shell, hydrate quickly, stream content/work later. ([Medium][3])
 
 ### React 19 expectations
 
@@ -87,7 +87,7 @@ All slices are compact, selector-first, and **SSR/test-safe** via `createJSONSto
 
 ### Vector, embeddings & queue integration
 
-The shell surfaces a **Vector Status** panel (Vectors tab), an **Embeddings** playground, and a compact **Queue** summary in the status bar. The heavy lifting lives in sibling packages, but there are app-shell specific UX expectations:
+The shell surfaces vector status/queue controls in DB-centric views and a compact **Queue** summary in the status bar. The heavy lifting lives in sibling packages, but there are app-shell specific UX expectations:
 
 * **Devices:** we heuristically detect the best device (WebGPU when available) and let users override to WASM/CPU. WebGPU drastically improves on-device inference latency; fall back to WASM where unsupported. ([ONNX Runtime][7])
 * **Backfilling:** when an embedding set becomes active **and** coverage is partial, the shell attempts an auto-backfill (enqueue jobs) if the local worker is running.
@@ -119,7 +119,7 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 2. **Don’t start servers** or background daemons from here. The shell reflects state; it doesn’t own it.
 3. **Streaming UX only.** Long-running actions must emit progress. Never block the main thread (no tight loops in render; push work to workers or async tasks).
 4. **Keep stores tiny.** Export tuple selectors; persist only primitives necessary across reloads.
-5. **Lazy loading** for heavyweight panels (DB/Embeddings) to optimize bundle size.
+5. **Lazy loading** for heavyweight panels (primarily DB and Assistant surfaces) to optimize bundle size.
 6. **No secrets in code.** If you need keys, they must be supplied by the host app through env/bridges, not hard-coded.
 7. **Tests:** Use Vitest + RTL. Mock heavy modules (`@brainstrike/db`, `@brainstrike/embeddings`, Electron bridges) like existing tests do. Prefer role/text/`data-testid` queries. ([Next.js][12])
 8. **Build discipline:** Keep `tsconfig` references accurate; use `tsc -b` for libraries. This allows Turborepo to cache and parallelize correctly. ([Turborepo][1])
@@ -127,8 +127,7 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 ## Tools panel contracts (for host apps & tools)
 
 * **Assistant:** calls `GET {assistantBase}/assistant/status -> {enabled:boolean,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing.
-* **Embeddings panel:** uses `SimpleEmbeddingService` (browser-local). It’s demo-scale by design; for production retrieval, lean on pgvector+queue path exposed in the DB views.
-* **Vectors tab:** hosts `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `ToolsPanel` into this tab.
+* **Vector status surfaces:** host `VectorStatusWithDialog` for embedding set management, worker controls, and queue health. The embedding queue adapter must flow through `ToolsPanel` into DB-facing views.
 * **Search panel (optional):** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.
 * **DB tab:** lazy-loaded chunk that initializes PGlite when the tab is accessed.
 

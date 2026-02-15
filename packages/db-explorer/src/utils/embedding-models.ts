@@ -74,15 +74,6 @@ export function getLocalEmbeddingModels(models: DbModel[]): DbModel[] {
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-export function getEmbeddingsPanelModels(models: DbModel[]): DbModel[] {
-  return getLocalEmbeddingModels(models).filter((model) => model.isEnabled);
-}
-
-export function getDefaultLocalEmbeddingModel(models: DbModel[]): DbModel | null {
-  const candidates = getEmbeddingsPanelModels(models);
-  return candidates[0] ?? null;
-}
-
 export function buildLocalEmbeddingModelConfigMap(models: DbModel[]): Map<string, ModelConfig> {
   const map = new Map<string, ModelConfig>();
   for (const model of getLocalEmbeddingModels(models).filter((model) => model.isEnabled)) {

@@ -29,12 +29,12 @@ test.describe('Embedding Worker in Renderer', () => {
   }
 
   async function assertToolsPanelResponsive(page: Page): Promise<void> {
-    const embeddingsTab = page.getByRole('tab', { name: /embeddings/i });
+    const assistantTab = page.getByRole('tab', { name: /assistant/i });
     const databaseTab = page.getByRole('tab', { name: /database/i });
 
-    await expect(embeddingsTab).toBeVisible({ timeout: 10_000 });
-    await embeddingsTab.click({ timeout: 5000 });
-    await expect(embeddingsTab).toHaveAttribute('data-state', 'active');
+    await expect(assistantTab).toBeVisible({ timeout: 10_000 });
+    await assistantTab.click({ timeout: 5000 });
+    await expect(assistantTab).toHaveAttribute('data-state', 'active');
 
     await expect(databaseTab).toBeVisible({ timeout: 10_000 });
     await databaseTab.click({ timeout: 5000 });

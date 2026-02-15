@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const LEGACY_STORE_NAME = 'right-panel.v1' as const;
 const STORE_NAME = 'tools-panel.v1' as const;
 const legacyState = JSON.stringify({ state: { activeTab: 'database' }, version: 1 });
+const deprecatedEmbeddingsState = JSON.stringify({
+  state: { activeTab: 'embeddings' },
+  version: 1,
+});
 
 function setLocalStorageItem(key: string, value: string): void {
   localStorage.setItem(key, value);
@@ -24,28 +28,36 @@ describe('tools-panel-store migration', () => {
 
     const { useToolsPanelStore } = await import('./tools-panel-store');
 
-    expect(useToolsPanelStore.getState().activeTab).toBeDefined();
-    expect(localStorage.getItem(STORE_NAME)).toBe(legacyState);
+    expect(useToolsPanelStore.getState().activeTab).toBe('database');
+    expect(localStorage.getItem(STORE_NAME)).toBeTruthy();
     expect(localStorage.getItem(LEGACY_STORE_NAME)).toBeNull();
   });
 
   it('does not migrate when legacy storage is missing', async () => {
     const { useToolsPanelStore } = await import('./tools-panel-store');
 
-    expect(useToolsPanelStore.getState().activeTab).toBeDefined();
+    expect(useToolsPanelStore.getState().activeTab).toBe('assistant');
     expect(localStorage.getItem(STORE_NAME)).toBeNull();
   });
 
   it('preserves existing tools panel storage without overwriting', async () => {
-    const existingState = JSON.stringify({ state: { activeTab: 'assistant' }, version: 1 });
+    const existingState = JSON.stringify({ state: { activeTab: 'database' }, version: 2 });
     setLocalStorageItem(LEGACY_STORE_NAME, legacyState);
     setLocalStorageItem(STORE_NAME, existingState);
 
     const { useToolsPanelStore } = await import('./tools-panel-store');
 
-    expect(useToolsPanelStore.getState().activeTab).toBeDefined();
+    expect(useToolsPanelStore.getState().activeTab).toBe('database');
     expect(localStorage.getItem(STORE_NAME)).toBe(existingState);
     expect(localStorage.getItem(LEGACY_STORE_NAME)).toBe(legacyState);
+  });
+
+  it('migrates deprecated embeddings tab state to assistant', async () => {
+    setLocalStorageItem(STORE_NAME, deprecatedEmbeddingsState);
+
+    const { useToolsPanelStore } = await import('./tools-panel-store');
+
+    expect(useToolsPanelStore.getState().activeTab).toBe('assistant');
   });
 
   it('reset helper clears storage and resets state', async () => {
@@ -83,5 +95,14 @@ describe('tools-panel-store migration', () => {
     const { useToolsPanelStore } = await import('./tools-panel-store');
 
     expect(useToolsPanelStore.getState().activeTab).toBe('assistant');
+  });
+
+  it('sanitizes invalid tab values', async () => {
+    const { sanitizeToolsPanelTab } = await import('./tools-panel-store');
+
+    expect(sanitizeToolsPanelTab('assistant')).toBe('assistant');
+    expect(sanitizeToolsPanelTab('database')).toBe('database');
+    expect(sanitizeToolsPanelTab('embeddings')).toBe('assistant');
+    expect(sanitizeToolsPanelTab('invalid')).toBe('assistant');
   });
 });

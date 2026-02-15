@@ -58,22 +58,6 @@ vi.mock('../file-import-service', () => ({
   }),
 }));
 
-vi.mock('@brainstrike/db-explorer', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/db-explorer')>(
-    '@brainstrike/db-explorer'
-  );
-  return {
-    ...actual,
-    DatabaseDemoPanel: () => <div data-testid="mock-database-panel">DatabasePanel</div>,
-    EmbeddingsPanel: () => (
-      <div data-testid="mock-embeddings-panel">
-        <div>Embedding Playground</div>
-        <div>Test individual models and similarity (not tied to your vector DB)</div>
-      </div>
-    ),
-  };
-});
-
 // Mock the file explorer hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
@@ -101,12 +85,11 @@ vi.mock('../database-tab', () => ({
 }));
 
 describe('ToolsPanel', () => {
-  test('renders with all tabs', async () => {
+  test('renders with assistant and database tabs', async () => {
     render(<ToolsPanel />);
 
     // Check that all tab triggers are present
     expect(screen.getByRole('tab', { name: /assistant/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /embed/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /database/i })).toBeInTheDocument();
 
     // Wait for async state updates to complete
@@ -127,14 +110,6 @@ describe('ToolsPanel', () => {
     render(<ToolsPanel />);
 
     await screen.findByTestId('assistant-chat-card');
-
-    // Click on the embeddings tab
-    await user.click(screen.getByRole('tab', { name: /embed/i }));
-
-    expect(await screen.findByText('Embedding Playground')).toBeInTheDocument();
-    expect(
-      await screen.findByText('Test individual models and similarity (not tied to your vector DB)')
-    ).toBeInTheDocument();
 
     // Click on the database tab
     await user.click(screen.getByRole('tab', { name: /database/i }));
@@ -160,12 +135,11 @@ describe('ToolsPanel', () => {
     expect(tabList).toBeInTheDocument();
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(3);
+    expect(tabs).toHaveLength(2);
 
     // Each tab should have text content
     expect(tabs[0]).toHaveTextContent('Assistant');
-    expect(tabs[1]).toHaveTextContent('Embed');
-    expect(tabs[2]).toHaveTextContent('DB');
+    expect(tabs[1]).toHaveTextContent('DB');
   });
 
   test('maintains content state when switching tabs', async () => {
@@ -174,14 +148,8 @@ describe('ToolsPanel', () => {
 
     await screen.findByTestId('assistant-chat-card');
 
-    await user.click(screen.getByRole('tab', { name: /embed/i }));
-    expect(await screen.findByText('Embedding Playground')).toBeInTheDocument();
-
     await user.click(screen.getByRole('tab', { name: /assistant/i }));
     expect(await screen.findByText(/Assistant disabled/i)).toBeInTheDocument();
-
-    await user.click(screen.getByRole('tab', { name: /embed/i }));
-    expect(await screen.findByText('Embedding Playground')).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /database/i }));
     const dbPanel = await screen.findByRole('tabpanel', { name: /database/i });

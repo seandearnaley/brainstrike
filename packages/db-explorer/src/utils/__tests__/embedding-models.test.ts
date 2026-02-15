@@ -3,8 +3,6 @@ import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import {
   buildLocalEmbeddingModelConfigMap,
-  getDefaultLocalEmbeddingModel,
-  getEmbeddingsPanelModels,
   getLocalEmbeddingModels,
   isEmbeddingModel,
   isLocalProviderId,
@@ -96,36 +94,6 @@ describe('embedding-models utilities', () => {
 
     const local = getLocalEmbeddingModels(models);
     expect(local.map((model) => model.id)).toEqual(['local-1', 'local-2']);
-  });
-
-  it('prefers enabled local models for embeddings panel', () => {
-    const models = [
-      makeModel({ id: 'disabled', isEnabled: false, sortOrder: 0 }),
-      makeModel({ id: 'enabled', isEnabled: true, sortOrder: 1 }),
-    ];
-
-    const panel = getEmbeddingsPanelModels(models);
-    expect(panel.map((model) => model.id)).toEqual(['enabled']);
-  });
-
-  it('returns no models when none are enabled', () => {
-    const models = [
-      makeModel({ id: 'disabled-1', isEnabled: false, sortOrder: 0 }),
-      makeModel({ id: 'disabled-2', isEnabled: false, sortOrder: 1 }),
-    ];
-
-    const panel = getEmbeddingsPanelModels(models);
-    expect(panel).toEqual([]);
-  });
-
-  it('selects the default local embedding model', () => {
-    const models = [
-      makeModel({ id: 'secondary', sortOrder: 2 }),
-      makeModel({ id: 'primary', sortOrder: 0, isEnabled: true }),
-    ];
-
-    const defaultModel = getDefaultLocalEmbeddingModel(models);
-    expect(defaultModel?.id).toBe('primary');
   });
 
   it('builds a config map for local embedding models', () => {

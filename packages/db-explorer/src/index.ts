@@ -9,7 +9,6 @@ export * from './contexts';
 // Utils
 export * from './csv-export-utils';
 export * from './database-demo-panel';
-export { EmbeddingsPanel } from './embeddings-panel';
 // Hooks
 export * from './hooks';
 // Stores
@@ -23,7 +22,6 @@ export {
   useCollectionBrowserStore,
 } from './stores/collection-browser-store';
 export { useDatabaseDemoStore } from './stores/database-demo-store';
-export { useEmbeddingsPanelStore } from './stores/embeddings-panel-store';
 // Types
 export * from './types';
 // Core Hooks
