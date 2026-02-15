@@ -1,5 +1,5 @@
 ---
-title: "Ai Tools Settings Redesign 2026 02 01"
+title: "AI Tools Settings Redesign 2026 02 01"
 ---
 
 # AI Tools Settings Redesign

@@ -1,5 +1,5 @@
 ---
-title: "Tool Execution Ipc Bridge 2026 02 02"
+title: "Tool Execution IPC Bridge 2026 02 02"
 ---
 
 # Tool Execution IPC Bridge Implementation Plan

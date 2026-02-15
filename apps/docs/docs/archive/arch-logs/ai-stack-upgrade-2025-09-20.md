@@ -1,5 +1,5 @@
 ---
-title: "Ai Stack Upgrade 2025 09 20"
+title: "AI Stack Upgrade 2025 09 20"
 ---
 
 # 2025-09-20 – AI Stack Upgrade (Mastra & Vercel AI SDK)
