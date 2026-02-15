@@ -388,14 +388,14 @@ async function handleResetLocal(): Promise<{ success: boolean; message?: string 
   return { success: true };
 }
 
-function scheduleForcedProcessExit(signal: NodeJS.Signals): void {
+function scheduleForcedProcessExit(trigger: NodeJS.Signals | 'before-quit'): void {
   if (forcedProcessExitTimeout) {
     clearTimeout(forcedProcessExitTimeout);
   }
 
   forcedProcessExitTimeout = setTimeout(() => {
-    logger.error('Timed out waiting for graceful shutdown after process signal; forcing exit', {
-      signal,
+    logger.error('Timed out waiting for graceful shutdown; forcing exit', {
+      trigger,
     });
     process.exit(1);
   }, SIGNAL_SHUTDOWN_TIMEOUT_MS);
@@ -412,7 +412,11 @@ function clearForcedProcessExitTimer(): void {
 
 async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<void> {
   if (gracefulShutdownPromise) {
-    await gracefulShutdownPromise;
+    try {
+      await gracefulShutdownPromise;
+    } catch (error) {
+      logger.error('Failed during graceful shutdown', { trigger, error });
+    }
     return;
   }
 
@@ -426,11 +430,13 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
     } finally {
       clearForcedProcessExitTimer();
     }
-  })().catch((error) => {
-    logger.error('Failed during graceful shutdown', { trigger, error });
-  });
+  })();
 
-  await gracefulShutdownPromise;
+  try {
+    await gracefulShutdownPromise;
+  } catch (error) {
+    logger.error('Failed during graceful shutdown', { trigger, error });
+  }
 }
 
 async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
@@ -666,6 +672,7 @@ app.on('before-quit', (event) => {
   }
 
   event.preventDefault();
+  scheduleForcedProcessExit('before-quit');
   void (async () => {
     try {
       await runGracefulShutdown('before-quit');

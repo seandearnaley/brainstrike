@@ -799,11 +799,6 @@ export function __resetDatabaseModuleStateForTests(): void {
   mutableState.cachedGitProfileContext = undefined;
 }
 
-// Backward-compatible alias for existing tests/importers.
-export function __resetDatabaseMutableStateForTests(): void {
-  __resetDatabaseModuleStateForTests();
-}
-
 /**
  * Safely close the database connection, ignoring errors
  */
