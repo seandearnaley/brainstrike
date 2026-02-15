@@ -181,8 +181,9 @@ export function isBinaryFile(filename: string): boolean {
  * @returns The filename without extension
  */
 export function getBaseFilename(filename: string): string {
-  const lastSlashIndex = filename.lastIndexOf('/');
-  const nameWithExtension = lastSlashIndex === -1 ? filename : filename.slice(lastSlashIndex + 1);
+  const lastPathSeparatorIndex = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
+  const nameWithExtension =
+    lastPathSeparatorIndex === -1 ? filename : filename.slice(lastPathSeparatorIndex + 1);
   const lastDotIndex = nameWithExtension.lastIndexOf('.');
   if (lastDotIndex === -1 || lastDotIndex === 0) {
     return nameWithExtension;

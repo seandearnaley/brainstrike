@@ -17,6 +17,8 @@ describe('file-utils', () => {
 
   it('extracts base filename correctly', () => {
     expect(getBaseFilename('/path/to/file.txt')).toBe('file');
+    expect(getBaseFilename('C:\\Users\\name\\file.txt')).toBe('file');
+    expect(getBaseFilename('C:\\Users\\name\\.gitignore')).toBe('.gitignore');
     expect(getBaseFilename('file')).toBe('file');
   });
 

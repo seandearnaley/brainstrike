@@ -48,7 +48,7 @@ vi.mock('@brainstrike/utils', async () => {
   return {
     ...actual,
     fileExplorer: {
-      getFileExtension: vi.fn(() => '.ts'),
+      getFileExtension: vi.fn(() => 'ts'),
     },
     createLogger: vi.fn(() => ({
       info: vi.fn(),

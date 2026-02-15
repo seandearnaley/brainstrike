@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { getFileExtension as getNormalizedFileExtension } from './file-utils';
 import { fileFilter } from './path-filter';
 
 /**
@@ -67,14 +68,7 @@ export const fileExplorer = {
    * Gets the extension of a file
    */
   getFileExtension(filePath: string): string {
-    const lastPathSeparatorIndex = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'));
-    const basename =
-      lastPathSeparatorIndex === -1 ? filePath : filePath.slice(lastPathSeparatorIndex + 1);
-    const lastDotIndex = basename.lastIndexOf('.');
-    if (lastDotIndex <= 0) {
-      return '';
-    }
-    return basename.slice(lastDotIndex + 1).toLowerCase();
+    return getNormalizedFileExtension(filePath);
   },
 
   /**
