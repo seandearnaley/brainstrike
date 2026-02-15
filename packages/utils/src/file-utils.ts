@@ -140,15 +140,6 @@ export function isBinaryExtension(extension: string): boolean {
   return binaryFileExtensions.has(extension) || binaryFileExtensions.has(normalizeExtension(extension));
 }
 
-export function isBinaryExtension(extension: string): boolean {
-  // Fast path: check if the extension is already normalized (lowercase, no dot) and in the set.
-  // This avoids the overhead of `normalizeExtension` (toLowerCase + string allocation) for the most common case.
-  if (binaryFileExtensions.has(extension)) {
-    return true;
-  }
-  return binaryFileExtensions.has(normalizeExtension(extension));
-}
-
 /**
  * Checks if a file is a text file based on its extension
  * @param filename The filename to check
