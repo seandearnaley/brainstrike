@@ -39,8 +39,28 @@ describe('file-explorer-utils', () => {
   it('generateFullFolderTreeText prints tree respecting filters', () => {
     const tree = buildSampleTree();
     const text = fileExplorer.generateFullFolderTreeText([tree], ['**/*.ts'], [], false);
+    const lines = text.split('\n');
     expect(text).toContain('📁 root');
     expect(text).toContain('📄 a.ts');
     expect(text).toContain('📄 b.ts');
+    expect(lines.indexOf('  📁 sub')).toBeLessThan(lines.indexOf('  📄 a.ts'));
+  });
+
+  it('generateFullFolderTreeText keeps root files while filtering directory children', () => {
+    const readme = createFileNode({ name: 'README.md', path: '/README.md' });
+    const root = createDirectoryNode({
+      name: 'root',
+      path: '/root',
+      children: [
+        createFileNode({ name: 'keep.ts', path: '/root/keep.ts' }),
+        createFileNode({ name: 'skip.md', path: '/root/skip.md' }),
+      ],
+    });
+
+    const text = fileExplorer.generateFullFolderTreeText([root, readme], ['**/*.ts'], [], false);
+    expect(text).toContain('📁 root');
+    expect(text).toContain('  📄 keep.ts');
+    expect(text).not.toContain('skip.md');
+    expect(text).toContain('📄 README.md');
   });
 });
