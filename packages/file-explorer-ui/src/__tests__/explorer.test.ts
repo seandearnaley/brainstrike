@@ -158,6 +158,12 @@ describe('fileExplorer', () => {
     it('should normalize uppercase extensions', () => {
       expect(fileExplorer.getFileExtension('src/components/Button.TSX')).toBe('tsx');
     });
+
+    it('should treat dotfiles as extensionless even in full paths', () => {
+      expect(fileExplorer.getFileExtension('.gitignore')).toBe('');
+      expect(fileExplorer.getFileExtension('/path/to/.gitignore')).toBe('');
+      expect(fileExplorer.getFileExtension('/path/to/.env.local')).toBe('local');
+    });
   });
 
   describe('getFolderFileCount', () => {

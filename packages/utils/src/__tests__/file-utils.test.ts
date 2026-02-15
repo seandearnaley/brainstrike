@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   formatFileSize,
   getBaseFilename,
+  getFileExtension,
   isBinaryExtension,
   isBinaryFile,
   isTextExtension,
@@ -17,6 +18,12 @@ describe('file-utils', () => {
   it('extracts base filename correctly', () => {
     expect(getBaseFilename('/path/to/file.txt')).toBe('file');
     expect(getBaseFilename('file')).toBe('file');
+  });
+
+  it('handles dotfiles consistently in full paths', () => {
+    expect(getFileExtension('.gitignore')).toBe('');
+    expect(getFileExtension('/home/user/.gitignore')).toBe('');
+    expect(getFileExtension('/home/user/.env.local')).toBe('local');
   });
 
   it('normalizes extension checks with uppercase and leading dots', () => {

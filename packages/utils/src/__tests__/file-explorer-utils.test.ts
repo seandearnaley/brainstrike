@@ -29,6 +29,8 @@ describe('file-explorer-utils', () => {
     expect(fileExplorer.getFileExtension('test/file.tsx')).toBe('tsx');
     expect(fileExplorer.getFileExtension('test/file.TSX')).toBe('tsx');
     expect(fileExplorer.getFileExtension('testfile')).toBe('');
+    expect(fileExplorer.getFileExtension('/home/user/.gitignore')).toBe('');
+    expect(fileExplorer.getFileExtension('/home/user/.env.local')).toBe('local');
   });
 
   it('getFolderFileCount counts nested files', () => {
