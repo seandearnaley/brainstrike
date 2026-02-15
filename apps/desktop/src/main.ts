@@ -368,6 +368,8 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 
 let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
+let signalShutdownInFlight = false;
+const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
   // Note: Embedding worker runs in renderer, not main process, so no need to stop it here
@@ -381,6 +383,55 @@ async function handleResetLocal(): Promise<{ success: boolean; message?: string 
   }
 
   return { success: true };
+}
+
+function scheduleForcedProcessExit(signal: NodeJS.Signals): void {
+  const timeoutHandle = setTimeout(() => {
+    logger.error('Timed out waiting for graceful shutdown after process signal; forcing exit', {
+      signal,
+    });
+    process.exit(1);
+  }, SIGNAL_SHUTDOWN_TIMEOUT_MS);
+  timeoutHandle.unref();
+}
+
+async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
+  if (signalShutdownInFlight) {
+    return;
+  }
+  signalShutdownInFlight = true;
+
+  logger.warn('Received shutdown signal, attempting graceful desktop shutdown', { signal });
+  scheduleForcedProcessExit(signal);
+
+  try {
+    if (stopAssistantServer) {
+      await stopAssistantServer();
+      stopAssistantServer = null;
+    }
+    await closeDatabase();
+  } catch (error) {
+    logger.error('Failed during signal-triggered shutdown', { signal, error });
+  } finally {
+    if (app.isReady()) {
+      app.quit();
+    } else {
+      process.exit(0);
+    }
+  }
+}
+
+function registerShutdownSignalHandlers(): void {
+  if (process.env['NODE_ENV'] === 'test') {
+    return;
+  }
+
+  const shutdownSignals: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
+  for (const signal of shutdownSignals) {
+    process.once(signal, () => {
+      void handleShutdownSignal(signal);
+    });
+  }
 }
 
 const fileSystem = new ElectronFileSystemAdapter();
@@ -407,6 +458,7 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled promise rejection', { reason, promise });
 });
+registerShutdownSignalHandlers();
 
 const singleInstanceLockAcquired =
   typeof app.requestSingleInstanceLock === 'function' ? app.requestSingleInstanceLock() : true;
