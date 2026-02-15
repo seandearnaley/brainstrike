@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   cpSync,
   existsSync,
@@ -64,6 +65,11 @@ interface ExtensionModuleShape {
   default?: unknown;
   vector?: unknown;
   live?: unknown;
+}
+
+interface GitProfileContext {
+  branch: string | null;
+  workspaceSeed: string;
 }
 
 function extractExtensionExport(module: unknown, field: 'vector' | 'live'): unknown {
@@ -191,12 +197,15 @@ let runtimeCorruptionRecoveryCount = 0;
 let lastRuntimeCorruptionAt: string | null = null;
 let lastRuntimeCorruptionContext: string | null = null;
 let cachedDatabaseProfile: string | null = null;
+let cachedGitProfileContext: GitProfileContext | null | undefined;
 let dbProcessLockPath: string | null = null;
 
 const DB_PROFILE_ENV = 'BRAINSTRIKE_DB_PROFILE' as const;
 const PROFILES_DIRECTORY_NAME = 'profiles' as const;
 const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
 const DB_LOCK_FILENAME = '.db-process.lock' as const;
+const WORKTREE_PROFILE_HASH_LENGTH = 8 as const;
+const WORKTREE_PROFILE_BRANCH_MAX = 40 as const;
 
 // Helper to create and validate a PGlite instance with pgvector
 async function createVectorDatabase(
@@ -234,6 +243,15 @@ function sanitizeProfileSegment(raw: string): string {
   return sanitized.slice(0, 64);
 }
 
+function hashProfileSeed(seed: string): string {
+  return createHash('sha1').update(seed).digest('hex').slice(0, WORKTREE_PROFILE_HASH_LENGTH);
+}
+
+function createWorktreeScopedProfile(branch: string, workspaceSeed: string): string {
+  const branchSegment = sanitizeProfileSegment(branch).slice(0, WORKTREE_PROFILE_BRANCH_MAX);
+  return sanitizeProfileSegment(`branch-${branchSegment}-wt-${hashProfileSeed(workspaceSeed)}`);
+}
+
 function parseGitHeadToBranch(headContent: string): string | null {
   const trimmed = headContent.trim();
   if (!trimmed.length) {
@@ -268,7 +286,7 @@ function tryResolveGitDirFromPointer(currentDir: string, gitPointerPath: string)
   return path.resolve(currentDir, gitDirMatch[1].trim());
 }
 
-function tryReadGitBranchAtDirectory(currentDir: string): string | null {
+function tryReadGitContextAtDirectory(currentDir: string): GitProfileContext | null {
   const gitPath = path.join(currentDir, '.git');
   if (!existsSync(gitPath)) {
     return null;
@@ -278,13 +296,19 @@ function tryReadGitBranchAtDirectory(currentDir: string): string | null {
     const stats = lstatSync(gitPath);
 
     if (stats.isDirectory()) {
-      return tryReadGitBranchFromGitDir(gitPath);
+      return {
+        branch: tryReadGitBranchFromGitDir(gitPath),
+        workspaceSeed: path.resolve(currentDir),
+      };
     }
 
     if (stats.isFile()) {
       const resolvedGitDir = tryResolveGitDirFromPointer(currentDir, gitPath);
       if (resolvedGitDir) {
-        return tryReadGitBranchFromGitDir(resolvedGitDir);
+        return {
+          branch: tryReadGitBranchFromGitDir(resolvedGitDir),
+          workspaceSeed: path.resolve(currentDir),
+        };
       }
     }
   } catch {
@@ -294,13 +318,13 @@ function tryReadGitBranchAtDirectory(currentDir: string): string | null {
   return null;
 }
 
-function resolveGitBranchFromDirectory(startDir: string): string | null {
+function resolveGitContextFromDirectory(startDir: string): GitProfileContext | null {
   let currentDir = path.resolve(startDir);
 
   while (true) {
-    const branchAtCurrentDir = tryReadGitBranchAtDirectory(currentDir);
-    if (branchAtCurrentDir) {
-      return branchAtCurrentDir;
+    const contextAtCurrentDir = tryReadGitContextAtDirectory(currentDir);
+    if (contextAtCurrentDir) {
+      return contextAtCurrentDir;
     }
 
     const parentDir = path.dirname(currentDir);
@@ -309,6 +333,22 @@ function resolveGitBranchFromDirectory(startDir: string): string | null {
     }
     currentDir = parentDir;
   }
+}
+
+function getGitProfileContext(): GitProfileContext | null {
+  if (cachedGitProfileContext !== undefined) {
+    return cachedGitProfileContext;
+  }
+
+  cachedGitProfileContext = resolveGitContextFromDirectory(process.cwd());
+  return cachedGitProfileContext;
+}
+
+function getLegacyBranchOnlyProfileName(context: GitProfileContext | null): string | null {
+  if (!context?.branch) {
+    return null;
+  }
+  return sanitizeProfileSegment(`branch-${context.branch}`);
 }
 
 function getDatabaseProfile(): string {
@@ -337,9 +377,12 @@ function getDatabaseProfile(): string {
     return cachedDatabaseProfile;
   }
 
-  const gitBranch = resolveGitBranchFromDirectory(process.cwd());
-  if (gitBranch) {
-    cachedDatabaseProfile = sanitizeProfileSegment(`branch-${gitBranch}`);
+  const gitContext = getGitProfileContext();
+  if (gitContext?.branch) {
+    cachedDatabaseProfile = createWorktreeScopedProfile(
+      gitContext.branch,
+      gitContext.workspaceSeed
+    );
     return cachedDatabaseProfile;
   }
 
@@ -399,6 +442,53 @@ function migrateLegacyDatabasePathIfNeeded(dataDir: string): void {
     from: legacyDataDir,
     to: dataDir,
     profile: getDatabaseProfile(),
+  });
+}
+
+function migrateLegacyBranchProfilePathIfNeeded(appDataDir: string, dataDir: string): void {
+  if (process.env['NODE_ENV'] === 'test' || process.env['NODE_ENV'] === 'production') {
+    return;
+  }
+
+  const explicitProfile = process.env[DB_PROFILE_ENV]?.trim();
+  if (
+    explicitProfile &&
+    explicitProfile.length > 0 &&
+    explicitProfile.toLowerCase() !== 'undefined'
+  ) {
+    return;
+  }
+
+  const legacyProfileName = getLegacyBranchOnlyProfileName(getGitProfileContext());
+  if (!legacyProfileName) {
+    return;
+  }
+
+  const legacyAppDataDir = path.join(
+    getDatabaseRootPath(),
+    PROFILES_DIRECTORY_NAME,
+    legacyProfileName
+  );
+  if (legacyAppDataDir === appDataDir) {
+    return;
+  }
+
+  if (existsSync(appDataDir) || existsSync(dataDir) || !existsSync(legacyAppDataDir)) {
+    return;
+  }
+
+  mkdirSync(path.dirname(appDataDir), { recursive: true });
+  cpSync(legacyAppDataDir, appDataDir, {
+    recursive: true,
+    errorOnExist: false,
+    force: false,
+  });
+
+  logger.warn('Migrated legacy branch-scoped database directory into worktree-scoped path', {
+    from: legacyAppDataDir,
+    to: appDataDir,
+    profile: getDatabaseProfile(),
+    legacyProfile: legacyProfileName,
   });
 }
 
@@ -746,6 +836,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
   const appDataDir = getAppDataPath();
 
   migrateLegacyDatabasePathIfNeeded(dataDir);
+  migrateLegacyBranchProfilePathIfNeeded(appDataDir, dataDir);
 
   if (!existsSync(dataDir)) {
     mkdirSync(dataDir, { recursive: true });

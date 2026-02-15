@@ -137,6 +137,100 @@ describe('db-main lifecycle', () => {
     );
   });
 
+  it('derives a worktree-scoped profile when no explicit profile is set', async () => {
+    process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+
+    const worktreeRoot = '/repo/worktrees/wt-a';
+    const gitPointerPath = path.join(worktreeRoot, '.git');
+    const resolvedGitDir = '/repo/main/.git/worktrees/wt-a';
+    const gitHeadPath = path.join(resolvedGitDir, 'HEAD');
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(worktreeRoot);
+
+    existsSyncMock.mockImplementation((candidate: string) => {
+      return candidate === gitPointerPath || candidate === gitHeadPath;
+    });
+    lstatSyncMock.mockImplementation((candidate: string) => ({
+      isDirectory: () => false,
+      isFile: () => candidate === gitPointerPath,
+    }));
+    readFileSyncMock.mockImplementation((candidate: string) => {
+      if (candidate === gitPointerPath) {
+        return `gitdir: ${resolvedGitDir}`;
+      }
+      if (candidate === gitHeadPath) {
+        return 'ref: refs/heads/feature/awesome';
+      }
+      return '';
+    });
+
+    try {
+      const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+      await initializeMainDatabase();
+
+      const diagnostics = getDatabaseDiagnostics();
+      expect(diagnostics.databaseProfile).toMatch(/^branch-feature-awesome-wt-[a-f0-9]{8}$/);
+      expect(diagnostics.dataDir).toContain(
+        path.join('profiles', diagnostics.databaseProfile ?? '', 'pgdata')
+      );
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
+  it('migrates legacy branch-scoped profile path into worktree-scoped path', async () => {
+    process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
+
+    const worktreeRoot = '/repo/worktrees/wt-a';
+    const gitPointerPath = path.join(worktreeRoot, '.git');
+    const resolvedGitDir = '/repo/main/.git/worktrees/wt-a';
+    const gitHeadPath = path.join(resolvedGitDir, 'HEAD');
+    const legacyBranchProfilePath = path.join(
+      '/mock/documents',
+      'BrainStrike-dev',
+      'profiles',
+      'branch-feature-awesome'
+    );
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(worktreeRoot);
+
+    existsSyncMock.mockImplementation((candidate: string) => {
+      return (
+        candidate === gitPointerPath ||
+        candidate === gitHeadPath ||
+        candidate === legacyBranchProfilePath
+      );
+    });
+    lstatSyncMock.mockImplementation((candidate: string) => ({
+      isDirectory: () => false,
+      isFile: () => candidate === gitPointerPath,
+    }));
+    readFileSyncMock.mockImplementation((candidate: string) => {
+      if (candidate === gitPointerPath) {
+        return `gitdir: ${resolvedGitDir}`;
+      }
+      if (candidate === gitHeadPath) {
+        return 'ref: refs/heads/feature/awesome';
+      }
+      return '';
+    });
+
+    try {
+      const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+      await initializeMainDatabase();
+
+      const diagnostics = getDatabaseDiagnostics();
+      expect(diagnostics.databaseProfile).toMatch(/^branch-feature-awesome-wt-[a-f0-9]{8}$/);
+      expect(cpSyncMock).toHaveBeenCalledWith(legacyBranchProfilePath, diagnostics.appDataDir, {
+        recursive: true,
+        errorOnExist: false,
+        force: false,
+      });
+    } finally {
+      cwdSpy.mockRestore();
+    }
+  });
+
   it('fails fast with concurrency category when lock is held by another process', async () => {
     const lockError = new Error('lock exists') as Error & { code: string };
     lockError.code = 'EEXIST';
