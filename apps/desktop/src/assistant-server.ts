@@ -135,59 +135,11 @@ async function handleAssistantPost(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
-  let rawMessages: AssistantUiMessage[];
-  let data: RuntimeData | undefined;
-  try {
-    const payload = await parseAssistantRequestPayload(req);
-    rawMessages = payload.rawMessages;
-    data = payload.data;
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      respondJson(res, 400, {
-        error: 'invalid_json',
-        message: 'Request body must be valid JSON.',
-      });
-      return;
-    }
-    throw error;
-  }
-  const messages = convertAssistantUiMessages(rawMessages);
-  const provider = resolveRequestedProvider(data);
-
-  if (!provider) {
-    respondJson(res, 400, {
-      error: 'missing_provider',
-      message: 'No provider specified or provider is not supported.',
-    });
+  const prepared = await prepareAssistantPostRequest(req, res);
+  if (!prepared) {
     return;
   }
-
-  const runtimeData = data ? { ...data, provider } : { provider };
-
-  // Local provider runs entirely client-side and doesn't need an API key
-  const isLocalProvider = provider === 'local';
-  const apiKey = isLocalProvider ? '' : await resolveProviderApiKey(provider);
-
-  logger.info('Assistant request received', {
-    messageCount: messages.length,
-    provider,
-    hasApiKey: Boolean(apiKey) || isLocalProvider,
-  });
-
-  if (!(apiKey || isLocalProvider)) {
-    respondJson(res, 400, {
-      error: 'missing_api_key',
-      message: `No API key configured for provider "${provider}".`,
-    });
-    return;
-  }
-
-  if (!hasNonEmptyPrompt(messages)) {
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.statusCode = 400;
-    res.end(JSON.stringify({ error: 'empty_prompt' }));
-    return;
-  }
+  const { messages, runtimeData, apiKey } = prepared;
 
   const lastEventId = readLastEventId(req);
   if (await resumeStreamIfAvailable(res, lastEventId)) {
@@ -224,6 +176,76 @@ async function handleAssistantPost(
   } finally {
     cleanup();
   }
+}
+
+interface PreparedAssistantPostRequest {
+  messages: AgentMessage[];
+  runtimeData: RuntimeData;
+  apiKey: string;
+}
+
+async function prepareAssistantPostRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<PreparedAssistantPostRequest | undefined> {
+  let rawMessages: AssistantUiMessage[];
+  let data: RuntimeData | undefined;
+  try {
+    const payload = await parseAssistantRequestPayload(req);
+    rawMessages = payload.rawMessages;
+    data = payload.data;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      respondJson(res, 400, {
+        error: 'invalid_json',
+        message: 'Request body must be valid JSON.',
+      });
+      return;
+    }
+    throw error;
+  }
+
+  const messages = convertAssistantUiMessages(rawMessages);
+  const provider = resolveRequestedProvider(data);
+
+  if (!provider) {
+    respondJson(res, 400, {
+      error: 'missing_provider',
+      message: 'No provider specified or provider is not supported.',
+    });
+    return;
+  }
+
+  const runtimeData: RuntimeData = data ? { ...data, provider } : { provider };
+  const isLocalProvider = provider === 'local';
+  const apiKey = isLocalProvider ? '' : await resolveProviderApiKey(provider);
+
+  logger.info('Assistant request received', {
+    messageCount: messages.length,
+    provider,
+    hasApiKey: Boolean(apiKey) || isLocalProvider,
+  });
+
+  if (!(apiKey || isLocalProvider)) {
+    respondJson(res, 400, {
+      error: 'missing_api_key',
+      message: `No API key configured for provider "${provider}".`,
+    });
+    return;
+  }
+
+  if (!hasNonEmptyPrompt(messages)) {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.statusCode = 400;
+    res.end(JSON.stringify({ error: 'empty_prompt' }));
+    return;
+  }
+
+  return {
+    messages,
+    runtimeData,
+    apiKey: apiKey ?? '',
+  };
 }
 
 async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
