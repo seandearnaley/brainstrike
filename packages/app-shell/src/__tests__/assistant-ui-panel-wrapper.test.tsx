@@ -3,12 +3,35 @@ import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
 } from '@brainstrike/preferences';
+import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
+import { encodeFileSelection } from '@brainstrike/utils';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
+import { usePanelLayoutStore } from '../stores/panel-layout-store';
 
-const { testEnabledModels } = vi.hoisted(() => ({
+const { fileExplorerMocks, testEnabledModels } = vi.hoisted(() => ({
+  fileExplorerMocks: {
+    addMultipleSelectedFiles: vi.fn<(folderId: string, paths: string[]) => void>(),
+    clearSelectionRules: vi.fn<() => void>(),
+    currentFolderId: 'test-folder' as string | null,
+    effectiveSelection: new Set<string>(),
+    includeProjectTree: false,
+    removeMultipleSelectedFiles: vi.fn<(folderId: string, paths: string[]) => void>(),
+    rootDirectoryHandle: {
+      name: 'test-workspace',
+      path: '/tmp/test-workspace',
+    } as { path: string; name: string } | null,
+    setIncludeProjectTree: vi.fn<(value: boolean) => void>(),
+    setSelectedFiles: vi.fn<(files: ReadonlySet<string>) => void>(),
+    setTokenBudget: vi.fn<(budget: number) => void>(),
+    tokenBudget: 100_000,
+    tokenCache: null as null | {
+      cacheVersion: number;
+      getTokenCount: (folderId: string, path: string) => number | undefined;
+    },
+  },
   // Track enabled models in a mutable Set for testing toggle functionality
   testEnabledModels: new Set<string>([
     'gpt-5.2', // OpenAI default
@@ -25,7 +48,10 @@ vi.mock('@brainstrike/preferences', async () => {
   const buildEnabledModelsByProvider = (): Record<string, string[]> => ({
     openai: testEnabledModels.has('gpt-5.2') ? ['gpt-5.2'] : [],
     anthropic: testEnabledModels.has('claude-sonnet-4-5') ? ['claude-sonnet-4-5'] : [],
-    google: testEnabledModels.has('gemini-3-flash-preview') ? ['gemini-3-flash-preview'] : [],
+    google: [
+      testEnabledModels.has('gemini-3-flash-preview') ? 'gemini-3-flash-preview' : undefined,
+      testEnabledModels.has('gemini-3-pro-preview') ? 'gemini-3-pro-preview' : undefined,
+    ].filter((modelId): modelId is string => Boolean(modelId)),
     openrouter: [
       testEnabledModels.has('openai/gpt-5.2') ? 'openai/gpt-5.2' : undefined,
       testEnabledModels.has('anthropic/claude-sonnet-4.5')
@@ -54,6 +80,12 @@ vi.mock('@brainstrike/preferences', async () => {
       id: 'gemini-3-flash-preview',
       providerId: 'google',
       isEnabled: testEnabledModels.has('gemini-3-flash-preview'),
+      capabilities: { type: 'llm' as const },
+    },
+    {
+      id: 'gemini-3-pro-preview',
+      providerId: 'google',
+      isEnabled: testEnabledModels.has('gemini-3-pro-preview'),
       capabilities: { type: 'llm' as const },
     },
     {
@@ -213,11 +245,6 @@ vi.mock('@brainstrike/db', () => ({
 }));
 
 vi.mock('@brainstrike/file-explorer-ui', () => {
-  const setIncludeProjectTree = vi.fn();
-  const setSelectedFiles = vi.fn();
-  const addMultipleSelectedFiles = vi.fn();
-  const removeMultipleSelectedFiles = vi.fn();
-  const clearSelectionRules = vi.fn();
   const store = (
     selector?: (state: {
       tokenBudget: number;
@@ -233,26 +260,23 @@ vi.mock('@brainstrike/file-explorer-ui', () => {
     }) => unknown
   ) => {
     const state = {
-      tokenBudget: 100_000,
-      currentFolderId: 'test-folder',
-      rootDirectoryHandle: {
-        path: '/tmp/test-workspace',
-        name: 'test-workspace',
-      },
-      includeProjectTree: false,
-      setTokenBudget: vi.fn(),
-      setIncludeProjectTree,
-      setSelectedFiles,
-      addMultipleSelectedFiles,
-      removeMultipleSelectedFiles,
-      clearSelectionRules,
+      tokenBudget: fileExplorerMocks.tokenBudget,
+      currentFolderId: fileExplorerMocks.currentFolderId,
+      rootDirectoryHandle: fileExplorerMocks.rootDirectoryHandle,
+      includeProjectTree: fileExplorerMocks.includeProjectTree,
+      setTokenBudget: fileExplorerMocks.setTokenBudget,
+      setIncludeProjectTree: fileExplorerMocks.setIncludeProjectTree,
+      setSelectedFiles: fileExplorerMocks.setSelectedFiles,
+      addMultipleSelectedFiles: fileExplorerMocks.addMultipleSelectedFiles,
+      removeMultipleSelectedFiles: fileExplorerMocks.removeMultipleSelectedFiles,
+      clearSelectionRules: fileExplorerMocks.clearSelectionRules,
     };
     return selector ? selector(state) : state;
   };
   return {
-    useSelectionManager: () => ({ effectiveSelection: new Set<string>() }),
+    useSelectionManager: () => ({ effectiveSelection: fileExplorerMocks.effectiveSelection }),
     useFileExplorerStoreContext: () => store,
-    useOptionalTokenCacheContext: () => null,
+    useOptionalTokenCacheContext: () => fileExplorerMocks.tokenCache,
   };
 });
 
@@ -280,6 +304,7 @@ vi.mock('@brainstrike/agent/client', () => {
       capabilities: { llm: true, embeddings: true, streaming: true },
       models: [
         { id: 'gemini-3-flash-preview', type: 'llm', default: true, supportsStreaming: true },
+        { id: 'gemini-3-pro-preview', type: 'llm', supportsStreaming: true },
       ],
     },
     openrouter: {
@@ -364,6 +389,8 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     selectedModel,
     onModelChange,
     onModelToggle,
+    contextMenu,
+    requestData,
     disabled,
     disabledReason,
     toolMenu,
@@ -381,6 +408,8 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     selectedModel?: string;
     onModelChange?: (compositeKey: string) => void;
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
+    contextMenu?: Record<string, unknown>;
+    requestData?: Record<string, unknown>;
     disabled?: boolean;
     disabledReason?: string;
     toolMenu?: {
@@ -388,6 +417,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
       isLoading?: boolean;
       onToggleTool?: (toolId: string, enabled: boolean) => void;
       onRefresh?: () => void;
+      onOpenSettings?: () => void;
     };
   }) => {
     const providers = providerGroups?.flatMap((group) => group.providers) ?? [];
@@ -409,6 +439,8 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     return (
       <div data-testid="assistant-ui-panel">
         <div data-testid="panel-disabled">{String(disabled)}</div>
+        <div data-testid="request-data">{JSON.stringify(requestData ?? {})}</div>
+        <div data-testid="context-menu">{JSON.stringify(contextMenu ?? {})}</div>
         {disabledReason && <div data-testid="disabled-reason">{disabledReason}</div>}
         <div data-testid="tool-menu-count">{toolMenu?.items.length ?? 0}</div>
         <div data-testid="tool-menu-loading">{String(toolMenu?.isLoading ?? false)}</div>
@@ -418,6 +450,13 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
           type="button"
         >
           Refresh tools
+        </button>
+        <button
+          data-testid="tool-menu-open-settings"
+          onClick={() => toolMenu?.onOpenSettings?.()}
+          type="button"
+        >
+          Open settings
         </button>
         {toolMenu?.items.map((item) => (
           <div data-testid={`tool-menu-item-${item.id}`} key={item.id}>
@@ -511,11 +550,29 @@ function resetTestEnabledModels() {
 beforeEach(() => {
   resetTestEnabledModels();
   __resetAssistantPreferencesStoreForTests();
+  fileExplorerMocks.effectiveSelection = new Set<string>();
+  fileExplorerMocks.tokenCache = null;
+  fileExplorerMocks.currentFolderId = 'test-folder';
+  fileExplorerMocks.includeProjectTree = false;
+  fileExplorerMocks.rootDirectoryHandle = {
+    path: '/tmp/test-workspace',
+    name: 'test-workspace',
+  };
+  fileExplorerMocks.tokenBudget = 100_000;
+  fileExplorerMocks.addMultipleSelectedFiles.mockReset();
+  fileExplorerMocks.clearSelectionRules.mockReset();
+  fileExplorerMocks.removeMultipleSelectedFiles.mockReset();
+  fileExplorerMocks.setIncludeProjectTree.mockReset();
+  fileExplorerMocks.setSelectedFiles.mockReset();
+  fileExplorerMocks.setTokenBudget.mockReset();
+  mockDb.query.mockReset();
+  mockDb.query.mockResolvedValue({ rows: [] });
   window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
 });
 
 afterEach(() => {
   __resetAssistantPreferencesStoreForTests();
+  Reflect.deleteProperty(window, 'tools');
   Reflect.deleteProperty(window, 'mcp');
 });
 
@@ -553,6 +610,18 @@ const setMcpApi = (overrides: Partial<McpApi> = {}) => {
   (window as typeof window & { mcp?: McpApi }).mcp = api;
   return api;
 };
+
+const readPanelRequestData = (): Record<string, unknown> =>
+  JSON.parse(screen.getByTestId('request-data').textContent ?? '{}') as Record<string, unknown>;
+
+const readPanelContextMenu = (): Record<string, unknown> =>
+  JSON.parse(screen.getByTestId('context-menu').textContent ?? '{}') as Record<string, unknown>;
+
+type SelectionUpdateHandler = (
+  payload: Omit<AssistantSelectionUpdatePayload, 'mode'> & {
+    mode?: AssistantSelectionUpdatePayload['mode'];
+  }
+) => void;
 
 describe('AssistantUiPanelWrapper', () => {
   test('auto-selects first provider and default model when none selected', async () => {
@@ -889,6 +958,280 @@ describe('AssistantUiPanelWrapper', () => {
     await waitFor(() => {
       expect(mcpApi.listTools).toHaveBeenCalledTimes(2);
     });
+  });
+
+  test('applies root-tree selection updates with default add mode and unsubscribes on unmount', async () => {
+    let handler: SelectionUpdateHandler | undefined;
+    const unsubscribe = vi.fn();
+    (
+      window as typeof window & {
+        tools?: { onRootTreeSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
+      }
+    ).tools = {
+      onRootTreeSelectionUpdate: (cb) => {
+        handler = cb as SelectionUpdateHandler;
+        return unsubscribe;
+      },
+    };
+
+    const { unmount } = await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    act(() => {
+      handler?.({
+        folderId: 'test-folder',
+        filePaths: ['alpha.ts', '/beta.ts', 'alpha.ts'],
+      });
+    });
+
+    expect(fileExplorerMocks.addMultipleSelectedFiles).toHaveBeenCalledWith('test-folder', [
+      '/alpha.ts',
+      '/beta.ts',
+    ]);
+
+    unmount();
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  test('applies preview-context selection updates in remove mode', async () => {
+    let handler: SelectionUpdateHandler | undefined;
+    (
+      window as typeof window & {
+        tools?: { onPreviewContextSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
+      }
+    ).tools = {
+      onPreviewContextSelectionUpdate: (cb) => {
+        handler = cb as SelectionUpdateHandler;
+        return vi.fn();
+      },
+    };
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    act(() => {
+      handler?.({
+        folderId: 'test-folder',
+        filePaths: ['/remove-me.ts'],
+        mode: 'remove',
+      });
+    });
+
+    expect(fileExplorerMocks.removeMultipleSelectedFiles).toHaveBeenCalledWith('test-folder', [
+      '/remove-me.ts',
+    ]);
+  });
+
+  test('replace mode preserves other-folder selections and bad keys', async () => {
+    let handler: SelectionUpdateHandler | undefined;
+    (
+      window as typeof window & {
+        tools?: { onRootTreeSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
+      }
+    ).tools = {
+      onRootTreeSelectionUpdate: (cb) => {
+        handler = cb as SelectionUpdateHandler;
+        return vi.fn();
+      },
+    };
+    fileExplorerMocks.effectiveSelection = new Set<string>([
+      encodeFileSelection('other-folder', '/keep.ts'),
+      encodeFileSelection('test-folder', '/drop.ts'),
+      'bad-selection-key',
+    ]);
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    act(() => {
+      handler?.({
+        folderId: 'test-folder',
+        filePaths: ['new-file.ts', '/new-file.ts'],
+        mode: 'replace',
+      });
+    });
+
+    expect(fileExplorerMocks.clearSelectionRules).toHaveBeenCalledTimes(1);
+    expect(fileExplorerMocks.setSelectedFiles).toHaveBeenCalledTimes(1);
+    const nextSelection = fileExplorerMocks.setSelectedFiles.mock.calls[0]?.[0] as
+      | Set<string>
+      | undefined;
+    expect(nextSelection).toBeDefined();
+    expect(nextSelection?.has(encodeFileSelection('other-folder', '/keep.ts'))).toBe(true);
+    expect(nextSelection?.has('bad-selection-key')).toBe(true);
+    expect(nextSelection?.has(encodeFileSelection('test-folder', '/new-file.ts'))).toBe(true);
+    expect(nextSelection?.has(encodeFileSelection('test-folder', '/drop.ts'))).toBe(false);
+  });
+
+  test('ignores invalid selection update payloads', async () => {
+    let handler: SelectionUpdateHandler | undefined;
+    (
+      window as typeof window & {
+        tools?: { onRootTreeSelectionUpdate: (cb: SelectionUpdateHandler) => () => void };
+      }
+    ).tools = {
+      onRootTreeSelectionUpdate: (cb) => {
+        handler = cb as SelectionUpdateHandler;
+        return vi.fn();
+      },
+    };
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect(screen.getByTestId('assistant-ui-panel')).toBeInTheDocument();
+      })
+    );
+
+    act(() => {
+      handler?.({
+        folderId: '',
+        filePaths: [],
+      });
+    });
+
+    expect(fileExplorerMocks.addMultipleSelectedFiles).not.toHaveBeenCalled();
+    expect(fileExplorerMocks.removeMultipleSelectedFiles).not.toHaveBeenCalled();
+    expect(fileExplorerMocks.setSelectedFiles).not.toHaveBeenCalled();
+  });
+
+  test('computes context token count using DB totals, cache totals, and tree estimate', async () => {
+    fileExplorerMocks.effectiveSelection = new Set<string>([
+      encodeFileSelection('test-folder', '/alpha.ts'),
+      encodeFileSelection('test-folder', '/beta.ts'),
+    ]);
+    fileExplorerMocks.includeProjectTree = true;
+    fileExplorerMocks.tokenCache = {
+      cacheVersion: 1,
+      getTokenCount: (_folderId: string, path: string) => {
+        if (path === '/alpha.ts') {
+          return 40;
+        }
+        if (path === '/beta.ts') {
+          return 60;
+        }
+        return 0;
+      },
+    };
+    mockDb.query.mockImplementation(async (sql: string) => {
+      if (sql.includes('token_count')) {
+        return {
+          rows: [
+            { path: '/alpha.ts', tokenCount: 200 },
+            { path: '/beta.ts', tokenCount: 120 },
+          ],
+        };
+      }
+      if (sql.includes('COUNT(*)')) {
+        return { rows: [{ count: '5' }] };
+      }
+      return { rows: [] };
+    });
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const contextMenu = readPanelContextMenu();
+        expect(contextMenu['contextTokenCount']).toBe(360);
+      })
+    );
+  });
+
+  test('builds model and provider options for openai settings', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'openai',
+      selectedModel: 'openai::gpt-5.2',
+      modelsByProvider: { ...state.modelsByProvider, openai: 'gpt-5.2' },
+      providerSettings: {
+        ...state.providerSettings,
+        openai: {
+          ...state.providerSettings.openai,
+          maxOutputTokens: 513.9,
+          reasoningEffort: 'high',
+          reasoningSummary: 'auto',
+        },
+      },
+    }));
+
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['modelSettings']).toEqual({ maxOutputTokens: 513 });
+        expect(requestData['providerOptions']).toEqual({
+          openai: {
+            reasoningEffort: 'high',
+            reasoningSummary: 'auto',
+          },
+        });
+      })
+    );
+  });
+
+  test('builds provider options for anthropic settings', async () => {
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'anthropic',
+      selectedModel: 'anthropic::claude-sonnet-4-5',
+      modelsByProvider: { ...state.modelsByProvider, anthropic: 'claude-sonnet-4-5' },
+      providerSettings: {
+        ...state.providerSettings,
+        anthropic: {
+          ...state.providerSettings.anthropic,
+          anthropicEffort: 'medium',
+          anthropicThinkingBudgetTokens: 422.2,
+        },
+      },
+    }));
+    await renderAssistantPanel(['anthropic'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['providerOptions']).toEqual({
+          anthropic: {
+            effort: 'medium',
+            thinking: {
+              type: 'enabled',
+              budgetTokens: 422,
+            },
+          },
+        });
+      })
+    );
+  });
+
+  test('drops invalid google thinking level for gemini-3-pro-preview and opens tool settings', async () => {
+    testEnabledModels.add('gemini-3-pro-preview');
+    useAssistantPreferencesStore.setState((state) => ({
+      selectedProvider: 'google',
+      selectedModel: 'google::gemini-3-pro-preview',
+      modelsByProvider: { ...state.modelsByProvider, google: 'gemini-3-pro-preview' },
+      providerSettings: {
+        ...state.providerSettings,
+        google: {
+          ...state.providerSettings.google,
+          googleThinkingLevel: 'minimal',
+        },
+      },
+    }));
+    usePanelLayoutStore.setState({ activeTab: 'explorer' });
+    window.location.hash = '';
+
+    const user = userEvent.setup();
+    await renderAssistantPanel(['google'], () =>
+      waitFor(() => {
+        const requestData = readPanelRequestData();
+        expect(requestData['providerOptions']).toBeUndefined();
+      })
+    );
+
+    await user.click(screen.getByTestId('tool-menu-open-settings'));
+    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
+    expect(window.location.hash).toBe('#settings/ai-tools');
   });
 
   test('does not update state after unmount during MCP load', async () => {
