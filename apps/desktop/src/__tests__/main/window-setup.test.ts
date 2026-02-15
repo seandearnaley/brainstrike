@@ -197,13 +197,12 @@ describe('window setup', () => {
     isDevEnvMock.mockReturnValue(false);
     process.env['CI'] = 'false';
 
-    mockBrowserWindowInstance.loadURL
-      .mockRejectedValueOnce(new Error('fail1'))
-      .mockResolvedValueOnce(undefined);
+    mockBrowserWindowInstance.loadURL.mockResolvedValueOnce(undefined);
 
     const { createWindow } = await import('../../main');
     await createWindow();
 
+    expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledTimes(1);
     expect(mockBrowserWindowInstance.loadURL).toHaveBeenCalledWith('http://localhost:8081');
     const attemptedUrls = mockBrowserWindowInstance.loadURL.mock.calls.map(
       (call: [string]) => call[0]

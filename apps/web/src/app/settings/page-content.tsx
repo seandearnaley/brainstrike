@@ -1,4 +1,4 @@
-import { isNativeTool, NATIVE_TOOL_DEFAULTS } from '@brainstrike/agent/client';
+import { isNativeTool, NATIVE_TOOL_DEFAULTS, TOOL_DESCRIPTIONS } from '@brainstrike/agent/client';
 import { createSystemDiagnosticsSettingsCategory } from '@brainstrike/app-shell';
 import { useRestoreAccess } from '@brainstrike/file-explorer-hooks';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui';
@@ -44,22 +44,7 @@ function getNativeToolsAsDisplayMetadata(
  * Get human-readable description for native tools.
  */
 function getToolDescription(toolId: string): string {
-  const descriptions: Record<string, string> = {
-    'brainstrike.retrieveContext': 'Retrieve relevant context from indexed documents',
-    'brainstrike.hybridSearch': 'Semantic + keyword search with RRF fusion',
-    'brainstrike.queueStatus': 'Check embedding queue health and coverage',
-    'brainstrike.packContext': 'Token-budgeted context formatting',
-    'brainstrike.listEmbeddingSets': 'List available embedding collections',
-    'brainstrike.createEmbeddingSet': 'Create a new embedding collection',
-    'brainstrike.createSelectionScope': 'Create scoped retrieval context',
-    'brainstrike.queryFileTree': 'Query directories and search files',
-    'brainstrike.importFiles': 'Batch document ingestion',
-    'brainstrike.systemDiagnostics': 'Database/queue/worker health diagnostics',
-    'brainstrike.reembedCollection': 'Trigger re-embedding for a collection',
-    'web.searchDocs': 'Search documentation',
-    'web.docSummary': 'Summarize documentation',
-  };
-  return descriptions[toolId] ?? `Native tool: ${toolId}`;
+  return TOOL_DESCRIPTIONS[toolId] ?? `Native tool: ${toolId}`;
 }
 
 function ModelSelectionCategory() {

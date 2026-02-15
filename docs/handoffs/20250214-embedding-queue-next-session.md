@@ -12,7 +12,7 @@
 
 ## Current State Snapshot
 - ✅ `pnpm build`, `pnpm type-check`, `pnpm test` (including `@brainstrike/file-import`, `@brainstrike/vector-management`, `@brainstrike/queue`, `@brainstrike/embedding-worker`) all pass.
-- ✅ Docs updated (`AGENTS.md`, queue plan, migration handoffs) and Codanna indexing is configured under `.codanna/`.
+- ✅ Docs updated (`AGENTS.md`, queue plan, migration handoffs).
 - ✅ Browser & Electron renderers share a singleton queue (`apps/*/src/create-embedding-queue.ts`) and pipe it through `@brainstrike/app-shell`.
 - ✅ `TransformersBackend` prefers the worker queue, with warm-up, dtype tracking, and fallback to local pipeline.
 - ✅ Telemetry sink now initializes in web/desktop entry points; batched events post to `VITE_QUEUE_TELEMETRY_ENDPOINT` (API key optional) and remain silent while `NODE_ENV=test`.

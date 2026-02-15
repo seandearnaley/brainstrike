@@ -1,3 +1,5 @@
+import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
+
 declare global {
   interface Window {
     agent?: {
@@ -28,7 +30,22 @@ declare global {
       enableTools?: (toolIds: string[]) => Promise<void>;
       disableTools?: (toolIds: string[]) => Promise<void>;
     };
+    tools?: {
+      execute?: (
+        toolId: string,
+        input: unknown
+      ) => Promise<{
+        success: boolean;
+        result?: unknown;
+        error?: string;
+        durationMs: number;
+      }>;
+      onRootTreeSelectionUpdate?: (
+        callback: (payload: AssistantSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
+      onPreviewContextSelectionUpdate?: (
+        callback: (payload: AssistantSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
+    };
   }
 }
-
-export {};

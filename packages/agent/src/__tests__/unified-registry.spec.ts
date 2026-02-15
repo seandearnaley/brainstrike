@@ -37,11 +37,11 @@ describe('UnifiedToolRegistry', () => {
 
     it('applies known native tool defaults', () => {
       registry.registerNativeTool({
-        id: 'brainstrike.hybridSearch',
-        description: 'Hybrid search tool',
+        id: 'brainstrike.readWorkspaceFile',
+        description: 'Read workspace file tool',
       });
 
-      const tool = registry.getTool('brainstrike.hybridSearch');
+      const tool = registry.getTool('brainstrike.readWorkspaceFile');
       expect(tool?.category).toBe('retrieval');
       expect(tool?.loadingTier).toBe('critical');
       expect(tool?.requiresApproval).toBe(false);

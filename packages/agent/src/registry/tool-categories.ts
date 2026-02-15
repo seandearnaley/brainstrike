@@ -124,90 +124,30 @@ export interface NativeToolDefaultMetadata {
  * Tool IDs follow the namespace.toolName pattern.
  */
 export const NATIVE_TOOL_DEFAULTS: Record<string, NativeToolDefaultMetadata> = {
-  // Tier 1: Critical (Always Loaded)
-  'brainstrike.retrieveContext': {
+  // Core workspace reading tools
+  'brainstrike.readWorkspaceFile': {
     category: 'retrieval',
     loadingTier: 'critical',
     requiresApproval: false,
-    estimatedTokens: 150,
+    estimatedTokens: 140,
   },
-  'brainstrike.hybridSearch': {
-    category: 'retrieval',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 200,
-  },
-  'brainstrike.queueStatus': {
-    category: 'analysis',
-    loadingTier: 'critical',
-    requiresApproval: false,
-    estimatedTokens: 100,
-  },
-  'brainstrike.packContext': {
+  'brainstrike.readWorkspaceDirectory': {
     category: 'retrieval',
     loadingTier: 'critical',
     requiresApproval: false,
     estimatedTokens: 120,
   },
-
-  // Tier 2: Conditional (Search-Discovered)
-  'brainstrike.listEmbeddingSets': {
-    category: 'retrieval',
-    loadingTier: 'conditional',
-    requiresApproval: false,
-    estimatedTokens: 80,
-  },
-  'brainstrike.createEmbeddingSet': {
+  'brainstrike.selectRootTreeFiles': {
     category: 'action',
     loadingTier: 'conditional',
     requiresApproval: true,
-    estimatedTokens: 150,
+    estimatedTokens: 110,
   },
-  'brainstrike.createSelectionScope': {
+  'brainstrike.updatePreviewContextFiles': {
     category: 'action',
     loadingTier: 'conditional',
-    requiresApproval: false,
-    estimatedTokens: 100,
-  },
-  'brainstrike.queryFileTree': {
-    category: 'retrieval',
-    loadingTier: 'conditional',
-    requiresApproval: false,
-    estimatedTokens: 120,
-  },
-
-  // Tier 3: Deferred (On-Demand)
-  'brainstrike.importFiles': {
-    category: 'action',
-    loadingTier: 'deferred',
     requiresApproval: true,
-    estimatedTokens: 180,
-  },
-  'brainstrike.systemDiagnostics': {
-    category: 'analysis',
-    loadingTier: 'deferred',
-    requiresApproval: false,
-    estimatedTokens: 100,
-  },
-  'brainstrike.reembedCollection': {
-    category: 'action',
-    loadingTier: 'deferred',
-    requiresApproval: true,
-    estimatedTokens: 120,
-  },
-
-  // Existing web tools
-  'web.searchDocs': {
-    category: 'retrieval',
-    loadingTier: 'conditional',
-    requiresApproval: false,
-    estimatedTokens: 80,
-  },
-  'web.docSummary': {
-    category: 'analysis',
-    loadingTier: 'conditional',
-    requiresApproval: false,
-    estimatedTokens: 60,
+    estimatedTokens: 110,
   },
 };
 

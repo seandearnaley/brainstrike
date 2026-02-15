@@ -121,6 +121,17 @@ export interface ElectronLiveQueryAPI {
 }
 
 /**
+ * Assistant file-selection update payload shared across main/preload/renderer.
+ */
+export type AssistantSelectionMode = 'replace' | 'add' | 'remove';
+
+export interface AssistantSelectionUpdatePayload {
+  folderId: string;
+  filePaths: string[];
+  mode: AssistantSelectionMode;
+}
+
+/**
  * Electron API exposed to renderer process via preload script
  *
  * This is the top-level API object available on window.electronAPI

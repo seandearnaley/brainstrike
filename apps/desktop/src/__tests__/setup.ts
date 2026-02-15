@@ -264,6 +264,7 @@ vi.mock('@brainstrike/agent/client', async (importOriginal) => {
     isSupportedProvider: (provider: string) => providerIdSet.has(provider as MockProviderId),
     // Tool-related exports (pass through from actual module)
     NATIVE_TOOL_DEFAULTS: actual.NATIVE_TOOL_DEFAULTS,
+    TOOL_DESCRIPTIONS: actual.TOOL_DESCRIPTIONS,
     TOOL_CATEGORIES: actual.TOOL_CATEGORIES,
     TOOL_LOADING_TIERS: actual.TOOL_LOADING_TIERS,
     getNativeToolDefaults: actual.getNativeToolDefaults,

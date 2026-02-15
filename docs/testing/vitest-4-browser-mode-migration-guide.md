@@ -332,4 +332,4 @@ The `--project` flag may not work correctly with inline project definitions. Use
 - [Vitest Browser Configuration](https://vitest.dev/guide/browser/config)
 - [Playwright Documentation](https://playwright.dev/)
 - [BrainStrike Research Document](../20251102-vitest-4-browser-mode-research.md)
-- [Jira Ticket BST-27](https://brainstrike.atlassian.net/browse/BST-27)
+- [Work Item BST-27](../handoffs/20251130-embedding-worker-model-resolution-testing.md#follow-up-work-items)
