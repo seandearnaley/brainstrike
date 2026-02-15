@@ -390,7 +390,7 @@ async function handleResetLocal(): Promise<{ success: boolean; message?: string 
 
 function scheduleForcedProcessExit(trigger: NodeJS.Signals | 'before-quit'): void {
   if (forcedProcessExitTimeout) {
-    clearTimeout(forcedProcessExitTimeout);
+    return;
   }
 
   forcedProcessExitTimeout = setTimeout(() => {
@@ -421,15 +421,12 @@ async function runGracefulShutdown(trigger: 'before-quit' | 'signal'): Promise<v
   }
 
   gracefulShutdownPromise = (async () => {
-    try {
-      if (stopAssistantServer) {
-        await stopAssistantServer();
-        stopAssistantServer = null;
-      }
-      await closeDatabase();
-    } finally {
-      clearForcedProcessExitTimer();
+    if (stopAssistantServer) {
+      await stopAssistantServer();
+      stopAssistantServer = null;
     }
+    await closeDatabase();
+    clearForcedProcessExitTimer();
   })();
 
   try {
@@ -687,6 +684,7 @@ app.on('before-quit', (event) => {
 app.on('will-quit', () => {
   // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
   console.log('--- RAW CONSOLE LOG: WILL-QUIT TRIGGERED ---');
+  clearForcedProcessExitTimer();
   if (unregisterMainIpcHandlers) {
     unregisterMainIpcHandlers();
     unregisterMainIpcHandlers = null;
