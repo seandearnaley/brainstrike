@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getToolSchemaDisplay } from '../registry/tool-schemas-display';
 import { validateToolInput } from '../tools/schemas';
 
 describe('tool schemas', () => {
@@ -41,12 +42,25 @@ describe('tool schemas', () => {
     expect(bad.ok).toBe(false);
   });
 
-  it('validates retrieval context tool input', () => {
-    const ok = validateToolInput('brainstrike.retrieveContext', {
-      query: 'find embedding worker',
-      limit: 5,
-      threshold: 0.4,
+  it('validates root-tree selection input', () => {
+    const ok = validateToolInput('brainstrike.selectRootTreeFiles', {
+      filePaths: ['/src/main.ts', '/src/utils.ts'],
+      mode: 'add',
     });
     expect(ok.ok).toBe(true);
+  });
+
+  it('validates preview-context selection input', () => {
+    const ok = validateToolInput('brainstrike.updatePreviewContextFiles', {
+      filePaths: ['/src/main.ts'],
+      mode: 'remove',
+    });
+    expect(ok.ok).toBe(true);
+  });
+
+  it('uses add as the preview-context default mode in display metadata', () => {
+    const schema = getToolSchemaDisplay('brainstrike.updatePreviewContextFiles');
+    const modeParam = schema?.parameters.find((param) => param.name === 'mode');
+    expect(modeParam?.default).toBe('add');
   });
 });

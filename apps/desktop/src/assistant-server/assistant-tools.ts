@@ -1,857 +1,588 @@
-import type {
-  DiagnosticsToolDependencies,
-  EmbeddingSetsToolDependencies,
-  FileEntry,
-  FileTreeToolDependencies,
-  HybridSearchServiceMetadata,
-  HybridSearchServiceResult,
-  HybridSearchToolDependencies,
-  QueueStatusToolDependencies,
-  VectorQueueSnapshot,
-} from '@brainstrike/agent';
+import fsPromises from 'node:fs/promises';
+import path from 'node:path';
 import {
-  buildToolsWithDiagnostics,
-  buildToolsWithEmbeddingSets,
-  buildToolsWithFileTree,
-  buildToolsWithHybridSearch,
-  buildToolsWithQueueStatus,
-  EMBEDDING_SETS_ERROR_MESSAGES,
-  HYBRID_SEARCH_ERROR_MESSAGES,
+  type ReadWorkspaceDirectoryInput,
+  ReadWorkspaceDirectoryInputSchema,
+  type ReadWorkspaceFileInput,
+  ReadWorkspaceFileInputSchema,
   type RuntimeData,
+  type SelectRootTreeFilesInput,
+  SelectRootTreeFilesInputSchema,
+  type UpdatePreviewContextFilesInput,
+  UpdatePreviewContextFilesInputSchema,
 } from '@brainstrike/agent';
-import type { EmbeddingDistance, IDatabase } from '@brainstrike/db';
-import {
-  EmbeddingSetsRepository,
-  FileChunkRepository,
-  FileRecordRepository,
-  HybridSearchService,
-  JobQueue,
-} from '@brainstrike/db';
-import {
-  CohereEmbeddingProvider,
-  GoogleEmbeddingProvider,
-  type HostedProviderType,
-  isHostedProvider,
-  OpenAIEmbeddingProvider,
-  parseProviderModelKey,
-  resolveHostedProviderApiKey,
-  VoyageEmbeddingProvider,
-} from '@brainstrike/embeddings';
-import { createLogger, fileFilter } from '@brainstrike/utils';
-import type { PGlite } from '@electric-sql/pglite';
-import { getDatabase } from '../db-main';
-import { getSecretsService } from '../secrets';
+import { countTokensHeuristic, createLogger } from '@brainstrike/utils';
+import { BrowserWindow } from 'electron';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
+type WorkspaceSelectionMode = 'replace' | 'add' | 'remove';
+
 const logger = createLogger('DesktopAssistantTools');
+const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
+const ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT = 'assistant:preview-context-selection-update';
 
-const EMBEDDINGS_QUEUE_NAME = 'embeddings';
+const READ_WORKSPACE_FILE_TOOL_ID = 'brainstrike.readWorkspaceFile' as const;
+const READ_WORKSPACE_DIRECTORY_TOOL_ID = 'brainstrike.readWorkspaceDirectory' as const;
+const SELECT_ROOT_TREE_FILES_TOOL_ID = 'brainstrike.selectRootTreeFiles' as const;
+const UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID = 'brainstrike.updatePreviewContextFiles' as const;
 
-function isPGliteDatabase(value: unknown): value is PGlite {
-  if (!value || typeof value !== 'object') {
-    return false;
+const DEFAULT_FILE_MAX_CHARS = 12_000;
+const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
+const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
+const DEFAULT_DIRECTORY_DEPTH = 1;
+
+type ToolExecuteInput<T> = { context: T } | T;
+
+function resolveToolExecuteInput<T>(input: ToolExecuteInput<T>): T {
+  // Mastra sometimes wraps tool args as { context: T } for compatibility.
+  // Assumption: none of our direct tool input shapes define a top-level `context` field.
+  const maybeWrapped = input as { context?: T };
+  if (
+    typeof input === 'object' &&
+    input !== null &&
+    'context' in input &&
+    maybeWrapped.context !== undefined
+  ) {
+    return maybeWrapped.context;
   }
-  const candidate = value as { query?: unknown; exec?: unknown };
-  return typeof candidate.query === 'function' && typeof candidate.exec === 'function';
+  return input as T;
 }
 
-async function getPGliteDatabase(): Promise<PGlite> {
-  const db = await getDatabase();
-  if (!isPGliteDatabase(db)) {
-    throw new Error('Database instance is not a valid PGlite client.');
-  }
-  return db;
-}
-
-function normalizePath(value: string): string {
+function normalizeWorkspacePath(value: string): string {
   const trimmed = value.trim().replace(/\\/g, '/');
-  if (trimmed === '/') {
-    return '/';
-  }
   const withoutDotPrefix = trimmed.startsWith('./') ? trimmed.slice(2) : trimmed;
-  return withoutDotPrefix.replace(/\/+$/, '');
+  const withoutTrailing = withoutDotPrefix.replace(/\/+$/, '');
+  return withoutTrailing.length > 0 ? withoutTrailing : '/';
 }
 
-function joinPath(base: string, segment: string): string {
-  if (!base) {
-    return segment;
+function normalizeWorkspacePaths(paths: readonly string[]): string[] {
+  const unique = new Set<string>();
+  for (const filePath of paths) {
+    const normalized = normalizeWorkspacePath(filePath);
+    if (normalized.length > 0) {
+      unique.add(normalized);
+    }
   }
-  if (base === '/') {
-    return `/${segment}`;
-  }
-  return `${base}/${segment}`;
+  return Array.from(unique);
 }
 
-function isHiddenPath(path: string): boolean {
-  return path.split('/').some((segment) => segment.startsWith('.'));
-}
-
-function getDirName(path: string): string {
-  const normalized = normalizePath(path);
-  const parts = normalized.split('/').filter((segment) => segment.length > 0);
-  if (parts.length === 0) {
-    return normalized === '/' ? '/' : normalized;
-  }
-  return parts.at(-1) ?? normalized;
-}
-
-function normalizeText(value: string | null | undefined): string | undefined {
-  if (!value) {
+function normalizeWorkspaceRootPath(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') {
     return;
   }
   const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  if (trimmed.length === 0 || !path.isAbsolute(trimmed)) {
+    return;
+  }
+  return path.resolve(trimmed);
 }
 
-async function queryRows<T>(db: PGlite, sql: string, params?: unknown[]): Promise<T[]> {
-  const result = await db.query(sql, params);
-  return result.rows as T[];
+function resolveWorkspaceRootPath(runtimeData: RuntimeData | undefined): string {
+  const rootPath = normalizeWorkspaceRootPath(runtimeData?.workspaceRootPath);
+  if (!rootPath) {
+    throw new Error(
+      'No workspace root is available. Open/select a folder in the left file tree first.'
+    );
+  }
+  return rootPath;
 }
 
-function createDbAdapter(db: PGlite): IDatabase {
+async function resolveWorkspaceAbsolutePath(
+  rootPath: string,
+  workspacePath: string
+): Promise<{ workspacePath: string; absolutePath: string }> {
+  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
+  const relativePath =
+    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
+  const absolutePath = path.resolve(rootPath, relativePath);
+  const canonicalRootPath = await fsPromises.realpath(rootPath);
+  const canonicalAbsolutePath = await fsPromises.realpath(absolutePath);
+  const relativeFromRoot = path.relative(canonicalRootPath, canonicalAbsolutePath);
+  if (
+    relativeFromRoot.startsWith('..') ||
+    relativeFromRoot.includes(`${path.sep}..${path.sep}`) ||
+    relativeFromRoot === '..' ||
+    path.isAbsolute(relativeFromRoot)
+  ) {
+    throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
+  }
   return {
-    query: async <T = unknown>(sql: string, params?: unknown[]) => {
-      const result = await db.query(sql, params ?? []);
-      return { rows: result.rows as T[] };
-    },
+    workspacePath: normalizedWorkspacePath,
+    absolutePath: canonicalAbsolutePath,
   };
 }
 
-interface EmbeddingSetsDb {
-  exec: (sql: string, params?: unknown) => Promise<unknown>;
-  query: <T = unknown>(sql: string, params?: unknown) => Promise<{ rows: T[] }>;
+function sliceContentByLineRange(
+  content: string,
+  startLine: number | undefined,
+  endLine: number | undefined
+): { content: string; startLine: number; endLine: number; totalLines: number } {
+  const lines = content.split('\n');
+  const totalLines = lines.length;
+  const resolvedStart = Math.max(1, Math.min(startLine ?? 1, totalLines));
+  const resolvedEnd = Math.max(resolvedStart, Math.min(endLine ?? totalLines, totalLines));
+  const sliced = lines.slice(resolvedStart - 1, resolvedEnd).join('\n');
+  return { content: sliced, startLine: resolvedStart, endLine: resolvedEnd, totalLines };
 }
 
-function createEmbeddingSetsDbAdapter(db: PGlite): EmbeddingSetsDb {
+function truncateContent(
+  content: string,
+  maxChars: number
+): { content: string; truncated: boolean; omittedChars: number } {
+  if (content.length <= maxChars) {
+    return { content, truncated: false, omittedChars: 0 };
+  }
   return {
-    exec: async (sql: string) => await db.exec(sql),
-    query: async <T = unknown>(sql: string, params?: unknown) => {
-      const parameters = Array.isArray(params) ? (params as unknown[]) : undefined;
-      const result = await db.query(sql, parameters);
-      return { rows: result.rows as T[] };
-    },
+    content: content.slice(0, maxChars),
+    truncated: true,
+    omittedChars: content.length - maxChars,
   };
 }
 
-function createEmbeddingSetsRepository(db: PGlite): EmbeddingSetsRepository {
-  return new EmbeddingSetsRepository(createEmbeddingSetsDbAdapter(db));
-}
-
-async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
-  const secrets = getSecretsService();
-  const fromSecrets = await secrets.getKey(provider);
-  const normalized = normalizeText(fromSecrets ?? undefined);
-  if (normalized) {
-    return normalized;
-  }
-  return resolveHostedProviderApiKey(provider);
-}
-
-type HostedEmbeddingProvider =
-  | OpenAIEmbeddingProvider
-  | GoogleEmbeddingProvider
-  | CohereEmbeddingProvider
-  | VoyageEmbeddingProvider;
-
-function resolveHostedProviderMetadata(
-  provider: HostedProviderType,
-  modelId: string
-): { dimensions: number; distance: EmbeddingDistance } | null {
-  try {
-    switch (provider) {
-      case 'openai': {
-        const probe = new OpenAIEmbeddingProvider({ modelId, targetDimensions: 1 });
-        const info = probe.getModelInfo(modelId);
-        if (!info) {
-          return null;
-        }
-        const configured = new OpenAIEmbeddingProvider({
-          modelId,
-          targetDimensions: info.dimensions,
-        });
-        const metadata = configured.getMetadata(modelId);
-        return metadata ? { dimensions: metadata.dimensions, distance: metadata.distance } : null;
-      }
-      case 'google': {
-        const providerInstance = new GoogleEmbeddingProvider({ modelId });
-        const metadata = providerInstance.getMetadata(modelId);
-        return metadata ? { dimensions: metadata.dimensions, distance: metadata.distance } : null;
-      }
-      case 'cohere': {
-        const providerInstance = new CohereEmbeddingProvider({ modelId });
-        const metadata = providerInstance.getMetadata(modelId);
-        return metadata ? { dimensions: metadata.dimensions, distance: metadata.distance } : null;
-      }
-      case 'voyage': {
-        const providerInstance = new VoyageEmbeddingProvider({ modelId });
-        const metadata = providerInstance.getMetadata(modelId);
-        return metadata ? { dimensions: metadata.dimensions, distance: metadata.distance } : null;
-      }
-      default:
-        return null;
-    }
-  } catch {
-    return null;
-  }
-}
-
-function createHostedProvider(
-  provider: HostedProviderType,
-  modelId: string,
-  dimensions: number,
-  apiKey: string
-): HostedEmbeddingProvider {
-  switch (provider) {
-    case 'openai':
-      return new OpenAIEmbeddingProvider({ modelId, targetDimensions: dimensions, apiKey });
-    case 'google':
-      return new GoogleEmbeddingProvider({ modelId, outputDimensions: dimensions, apiKey });
-    case 'cohere':
-      return new CohereEmbeddingProvider({ modelId, inputType: 'search_query', apiKey });
-    case 'voyage':
-      return new VoyageEmbeddingProvider({ modelId, inputType: 'query', apiKey });
-    default:
-      throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.unsupportedProvider);
-  }
-}
-
-async function generateHostedQueryEmbedding(
-  db: PGlite,
-  embeddingSetId: string,
-  query: string
-): Promise<{ embedding: number[]; embeddingSetDimensions: number; embeddingSetModelId: string }> {
-  const embeddingSetsRepository = createEmbeddingSetsRepository(db);
-  const embeddingSet = await embeddingSetsRepository.getById(embeddingSetId);
-  if (!embeddingSet) {
-    throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.embeddingSetNotFound);
-  }
-
-  const parsed = parseProviderModelKey(embeddingSet.modelKey);
-  if (!(parsed && isHostedProvider(parsed.provider))) {
-    throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.unsupportedProvider);
-  }
-
-  const apiKey = await resolveEmbeddingApiKey(parsed.provider);
-  if (!apiKey) {
-    throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.missingApiKey);
-  }
-
-  const provider = createHostedProvider(
-    parsed.provider,
-    embeddingSet.modelId,
-    embeddingSet.dimensions,
-    apiKey
-  );
-
-  const result = await provider.embed({ text: query, modelId: embeddingSet.modelId });
-  if (!result.ok) {
-    logger.warn('Embedding provider returned error', { provider: parsed.provider, error: result });
-    throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.embeddingFailed);
-  }
-
-  const embedding = result.value.embedding;
-  if (embedding.length !== embeddingSet.dimensions) {
-    throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.embeddingFailed);
-  }
-
-  return {
-    embedding,
-    embeddingSetDimensions: embeddingSet.dimensions,
-    embeddingSetModelId: embeddingSet.modelId,
-  };
-}
-
-function calculateLatency(rows: Array<{ runAt: string; updatedAt: string }>): {
-  avgMs: number;
-  p50Ms: number;
-  p95Ms: number;
-} {
-  if (rows.length === 0) {
-    return { avgMs: 0, p50Ms: 0, p95Ms: 0 };
-  }
-
-  const durations = rows
-    .map((row) => {
-      const startedAt = Date.parse(row.runAt);
-      const finishedAt = Date.parse(row.updatedAt);
-      if (!(Number.isFinite(startedAt) && Number.isFinite(finishedAt))) {
-        return null;
-      }
-      return Math.max(0, finishedAt - startedAt);
-    })
-    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
-    .sort((a, b) => a - b);
-
-  if (durations.length === 0) {
-    return { avgMs: 0, p50Ms: 0, p95Ms: 0 };
-  }
-
-  const average = Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length);
-  const percentile = (q: number): number => {
-    const index = Math.min(durations.length - 1, Math.floor(q * durations.length));
-    return durations[index] ?? average;
-  };
-
-  return {
-    avgMs: average,
-    p50Ms: Math.round(percentile(0.5)),
-    p95Ms: Math.round(percentile(0.95)),
-  };
-}
-
-async function buildQueueSnapshot(
-  db: PGlite,
-  embeddingSetId: string | null
-): Promise<VectorQueueSnapshot> {
-  const executor = createDbAdapter(db);
-  const jobQueue = new JobQueue(executor);
-
-  const since = new Date(Date.now() - 60_000).toISOString();
-
-  const [queueStats, throughputRows, lastErrorRows, latencyRows, coverage] = await Promise.all([
-    jobQueue.getQueueStats(EMBEDDINGS_QUEUE_NAME),
-    executor.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count
-         FROM job_queue
-        WHERE queue = $1 AND state = 'succeeded' AND updated_at >= $2`,
-      [EMBEDDINGS_QUEUE_NAME, since]
-    ),
-    executor.query<{ error: string | null }>(
-      `SELECT error
-         FROM job_queue
-        WHERE state = 'failed'
-          AND queue = $1
-     ORDER BY updated_at DESC
-        LIMIT 1`,
-      [EMBEDDINGS_QUEUE_NAME]
-    ),
-    executor.query<{ runAt: string; updatedAt: string }>(
-      `SELECT run_at AS "runAt", updated_at AS "updatedAt"
-         FROM job_queue
-        WHERE queue = $1
-          AND state = 'succeeded'
-          AND updated_at >= $2
-     ORDER BY updated_at DESC
-        LIMIT 200`,
-      [EMBEDDINGS_QUEUE_NAME, since]
-    ),
-    embeddingSetId
-      ? new FileChunkRepository(db).getCoverageForSet(embeddingSetId)
-      : Promise.resolve({ totalChunks: 0, chunksWithEmbeddingsForSet: 0 }),
-  ]);
-
-  const stats = queueStats[0];
-  const queueCounts = stats
-    ? {
-        queued: stats.queued,
-        running: stats.running,
-        failed: stats.failed,
-        succeeded: stats.succeeded,
-      }
-    : { queued: 0, running: 0, failed: 0, succeeded: 0 };
-
-  const throughput = Number(throughputRows.rows[0]?.count ?? 0);
-  const lastError = lastErrorRows.rows[0]?.error ?? null;
-  const latency = calculateLatency(latencyRows.rows);
-
-  const coverageSnapshot =
-    embeddingSetId && coverage.totalChunks > 0
-      ? { total: coverage.totalChunks, withSet: coverage.chunksWithEmbeddingsForSet }
-      : null;
-
-  return {
-    coverage: coverageSnapshot,
-    queueCounts,
-    throughput,
-    lastError,
-    latency,
-  };
-}
-
-function createEmbeddingSetsDeps(): EmbeddingSetsToolDependencies {
-  return {
-    listSets: async () => {
-      const db = await getPGliteDatabase();
-      return await createEmbeddingSetsRepository(db).findAll();
-    },
-    createSet: async (modelKey: string, name: string, description?: string) => {
-      const parsed = parseProviderModelKey(modelKey);
-      if (!parsed) {
-        throw new Error(EMBEDDING_SETS_ERROR_MESSAGES.invalidModelKey);
-      }
-
-      if (!isHostedProvider(parsed.provider)) {
-        throw new Error(EMBEDDING_SETS_ERROR_MESSAGES.invalidModelKey);
-      }
-
-      const db = await getPGliteDatabase();
-      const repo = createEmbeddingSetsRepository(db);
-
-      const providerMetadata = resolveHostedProviderMetadata(parsed.provider, parsed.modelId);
-      if (!providerMetadata) {
-        throw new Error(EMBEDDING_SETS_ERROR_MESSAGES.modelNotFound);
-      }
-
-      const dimensions = providerMetadata.dimensions;
-      const distance = providerMetadata.distance;
-
-      const existingSets = await repo.getByModelKey(modelKey);
-      const existing = existingSets
-        .filter(
-          (set) =>
-            set.modelId === parsed.modelId &&
-            set.dimensions === dimensions &&
-            set.distance === distance
-        )
-        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-        .at(0);
-      if (existing) {
-        return { set: existing, created: false };
-      }
-
-      const set = await repo.getOrCreateSet(modelKey, parsed.modelId, dimensions, distance, {
-        name,
-        ...(description ? { description } : {}),
-      });
-      return { set, created: true };
-    },
-    getCoverageStats: async () => {
-      const db = await getPGliteDatabase();
-      const sets = await createEmbeddingSetsRepository(db).findAll();
-      const chunkRepository = new FileChunkRepository(db);
-
-      const stats: Record<
-        string,
-        { totalChunks: number; embeddedChunks: number; coveragePercent: number }
-      > = {};
-
-      for (const set of sets) {
-        const coverage = await chunkRepository.getCoverageForSet(set.id);
-        const totalChunks = coverage.totalChunks;
-        const embeddedChunks = coverage.chunksWithEmbeddingsForSet;
-        const coveragePercent = totalChunks > 0 ? (embeddedChunks / totalChunks) * 100 : 0;
-        stats[set.id] = { totalChunks, embeddedChunks, coveragePercent };
-      }
-
-      return stats;
-    },
-    logger,
-  };
-}
-
-interface FileTreeRecord {
-  id: string;
-  name: string;
+async function runReadWorkspaceFile(
+  input: ReadWorkspaceFileInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
   path: string;
   size: number;
   tokenCount: number | null;
-  updatedAt: string;
-}
+  startLine: number;
+  endLine: number;
+  totalLines: number;
+  truncated: boolean;
+  omittedChars: number;
+  approxOutputTokens: number;
+  content: string;
+}> {
+  const rootPath = resolveWorkspaceRootPath(runtimeData);
+  const requestedPath = input.path;
+  const resolved = await resolveWorkspaceAbsolutePath(rootPath, requestedPath);
 
-async function fetchFileTreeRecords(
-  db: PGlite,
-  prefix: string,
-  limit: number
-): Promise<FileTreeRecord[]> {
-  const rows = await queryRows<{
-    id: string;
-    name: string;
-    path: string;
-    size: number;
-    tokenCount: number | null;
-    updatedAt: string;
-  }>(
-    db,
-    prefix
-      ? `SELECT id, name, path, size, token_count AS "tokenCount", updated_at AS "updatedAt"
-           FROM file_records
-          WHERE path LIKE $1
-       ORDER BY path
-          LIMIT $2`
-      : `SELECT id, name, path, size, token_count AS "tokenCount", updated_at AS "updatedAt"
-           FROM file_records
-       ORDER BY path
-          LIMIT $1`,
-    prefix ? [`${prefix}%`, limit] : [limit]
-  );
-
-  return rows
-    .map((row) => ({
-      id: row.id,
-      name: row.name,
-      path: normalizePath(row.path),
-      size: Number(row.size),
-      tokenCount: row.tokenCount !== null ? Number(row.tokenCount) : null,
-      updatedAt: row.updatedAt,
-    }))
-    .filter((row) => row.path.startsWith(prefix));
-}
-
-function filterFileTreeRecords(
-  rows: readonly FileTreeRecord[],
-  options: {
-    prefix: string;
-    maxDepth: number;
-    includeHidden: boolean;
-    pattern?: string | undefined;
+  const stat = await fsPromises.stat(resolved.absolutePath);
+  if (!stat.isFile()) {
+    throw new Error(`Path "${requestedPath}" is not a file.`);
   }
-): FileTreeRecord[] {
-  return rows.filter((row) => {
-    if (!options.includeHidden && isHiddenPath(row.path)) {
-      return false;
-    }
+  if (stat.size > MAX_READ_WORKSPACE_FILE_BYTES) {
+    throw new Error(
+      `Path "${requestedPath}" exceeds ${MAX_READ_WORKSPACE_FILE_BYTES} bytes and cannot be read in full.`
+    );
+  }
 
-    if (options.pattern && !fileFilter.matchWildcard(row.path, options.pattern)) {
-      return false;
+  const fileBuffer = await fsPromises.readFile(resolved.absolutePath);
+  const binaryProbeLength = Math.min(fileBuffer.length, 4096);
+  for (let index = 0; index < binaryProbeLength; index += 1) {
+    if (fileBuffer[index] === 0) {
+      throw new Error(`Path "${requestedPath}" is a binary file and cannot be read as text.`);
     }
+  }
 
-    const relative = options.prefix ? row.path.slice(options.prefix.length) : row.path;
-    const segments = relative.split('/').filter((segment) => segment.length > 0);
-    return segments.length <= options.maxDepth;
+  const content = fileBuffer.toString('utf8');
+  const ranged = sliceContentByLineRange(content, input.startLine, input.endLine);
+  const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
+  const truncated = truncateContent(ranged.content, maxChars);
+
+  return {
+    path: resolved.workspacePath,
+    size: Number(stat.size),
+    tokenCount: null,
+    startLine: ranged.startLine,
+    endLine: ranged.endLine,
+    totalLines: ranged.totalLines,
+    truncated: truncated.truncated,
+    omittedChars: truncated.omittedChars,
+    approxOutputTokens: countTokensHeuristic(truncated.content),
+    content: truncated.content,
+  };
+}
+
+interface DirectoryEntry {
+  path: string;
+  type: 'directory' | 'file';
+  depth: number;
+  size?: number;
+  tokenCount?: number;
+}
+
+function toPathSegments(workspacePath: string): string[] {
+  return workspacePath
+    .replace(/^\/+/, '')
+    .split('/')
+    .filter((segment) => segment.length > 0);
+}
+
+function joinSegments(baseSegments: readonly string[], childSegments: readonly string[]): string {
+  const merged = [...baseSegments, ...childSegments].filter((segment) => segment.length > 0);
+  return `/${merged.join('/')}`;
+}
+
+function isHiddenPath(entryPath: string): boolean {
+  return toPathSegments(entryPath).some((segment) => segment.startsWith('.'));
+}
+
+type FsDirent = import('node:fs').Dirent;
+
+interface DirectoryTraversalOptions {
+  baseSegments: readonly string[];
+  includeHidden: boolean;
+  includeDirectories: boolean;
+  includeFiles: boolean;
+  depth: number;
+}
+
+interface DirectoryTraversalState {
+  entries: DirectoryEntry[];
+  maxEntries: number;
+  truncated: boolean;
+  totalMatchedFiles: number;
+}
+
+interface DirectoryVisitContext {
+  childAbsolutePath: string;
+  childSegments: string[];
+  childPath: string;
+  childDepth: number;
+}
+
+function sortDirectoryEntries(entries: FsDirent[]): FsDirent[] {
+  return entries.sort((a, b) => {
+    if (a.isDirectory() !== b.isDirectory()) {
+      return a.isDirectory() ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
   });
 }
 
-async function fetchChunkedFileRecordIds(
-  db: PGlite,
-  fileIds: readonly string[]
-): Promise<Set<string>> {
-  if (fileIds.length === 0) {
-    return new Set();
-  }
-
-  const rows = await queryRows<{ fileRecordId: string }>(
-    db,
-    'SELECT DISTINCT file_record_id AS "fileRecordId" FROM file_chunks WHERE file_record_id = ANY($1::uuid[])',
-    [fileIds]
-  );
-
-  return new Set(rows.map((row) => row.fileRecordId));
-}
-
-function recordDirectoryChild(
-  directoryChildren: Map<string, Set<string>>,
-  parent: string,
-  child: string
-): void {
-  const existing = directoryChildren.get(parent);
-  if (existing) {
-    existing.add(child);
+function pushDirectoryEntry(state: DirectoryTraversalState, entry: DirectoryEntry): void {
+  if (state.entries.length >= state.maxEntries) {
+    state.truncated = true;
     return;
   }
-  directoryChildren.set(parent, new Set([child]));
+  state.entries.push(entry);
 }
 
-function buildDirectoryIndex(
-  files: readonly FileTreeRecord[],
-  options: { prefix: string; normalizedDir: string; maxDepth: number }
-): { directoryChildren: Map<string, Set<string>>; directoryPaths: Set<string> } {
-  const directoryChildren = new Map<string, Set<string>>();
-  const directoryPaths = new Set<string>();
+function buildDirectoryVisitContext(
+  dirent: FsDirent,
+  currentAbsolutePath: string,
+  relativeSegments: readonly string[],
+  options: DirectoryTraversalOptions
+): DirectoryVisitContext | undefined {
+  const childSegments = [...relativeSegments, dirent.name];
+  const childPath = joinSegments(options.baseSegments, childSegments);
+  if (!options.includeHidden && isHiddenPath(childPath)) {
+    return;
+  }
+  return {
+    childAbsolutePath: path.join(currentAbsolutePath, dirent.name),
+    childSegments,
+    childPath,
+    childDepth: childSegments.length,
+  };
+}
 
-  for (const file of files) {
-    const relative = options.prefix ? file.path.slice(options.prefix.length) : file.path;
-    const segments = relative.split('/').filter((segment) => segment.length > 0);
+function processDirectoryEntry(
+  context: DirectoryVisitContext,
+  options: DirectoryTraversalOptions,
+  state: DirectoryTraversalState
+): boolean {
+  if (options.includeDirectories && context.childDepth <= options.depth) {
+    pushDirectoryEntry(state, {
+      path: context.childPath,
+      type: 'directory',
+      depth: context.childDepth,
+    });
+  }
+  return context.childDepth <= options.depth;
+}
 
-    const rootDir = options.normalizedDir || (file.path.startsWith('/') ? '/' : '');
-    let currentDir = rootDir;
-    for (let index = 0; index < segments.length; index += 1) {
-      const segment = segments[index];
-      if (!segment) {
+async function processFileEntry(
+  context: DirectoryVisitContext,
+  options: DirectoryTraversalOptions,
+  state: DirectoryTraversalState
+): Promise<void> {
+  state.totalMatchedFiles += 1;
+  if (!(options.includeFiles && context.childDepth <= options.depth + 1)) {
+    return;
+  }
+
+  let size: number | undefined;
+  try {
+    const stat = await fsPromises.stat(context.childAbsolutePath);
+    size = stat.size;
+  } catch {
+    size = undefined;
+  }
+
+  pushDirectoryEntry(state, {
+    path: context.childPath,
+    type: 'file',
+    depth: context.childDepth,
+    ...(typeof size === 'number' ? { size } : {}),
+  });
+}
+
+async function runReadWorkspaceDirectory(
+  input: ReadWorkspaceDirectoryInput,
+  runtimeData: RuntimeData | undefined
+): Promise<{
+  path: string;
+  depth: number;
+  maxEntries: number;
+  includeFiles: boolean;
+  includeDirectories: boolean;
+  includeHidden: boolean;
+  entries: DirectoryEntry[];
+  count: number;
+  totalMatchedFiles: number;
+  truncated: boolean;
+}> {
+  const rootPath = resolveWorkspaceRootPath(runtimeData);
+  const requestedPath = input.path ?? '/';
+  const normalizedPath = normalizeWorkspacePath(requestedPath);
+  const resolvedBase = await resolveWorkspaceAbsolutePath(rootPath, normalizedPath);
+
+  const baseStats = await fsPromises.stat(resolvedBase.absolutePath);
+  if (!baseStats.isDirectory()) {
+    throw new Error(`Path "${normalizedPath}" is not a directory.`);
+  }
+
+  const depth = input.depth ?? DEFAULT_DIRECTORY_DEPTH;
+  const maxEntries = input.maxEntries ?? DEFAULT_DIRECTORY_MAX_ENTRIES;
+  const includeFiles = input.includeFiles ?? true;
+  const includeDirectories = input.includeDirectories ?? true;
+  const includeHidden = input.includeHidden ?? false;
+
+  const options: DirectoryTraversalOptions = {
+    baseSegments: normalizedPath === '/' ? [] : toPathSegments(normalizedPath),
+    includeHidden,
+    includeDirectories,
+    includeFiles,
+    depth,
+  };
+  const state: DirectoryTraversalState = {
+    entries: [],
+    maxEntries,
+    truncated: false,
+    totalMatchedFiles: 0,
+  };
+
+  const visit = async (currentAbsolutePath: string, relativeSegments: readonly string[]) => {
+    if (state.truncated) {
+      return;
+    }
+
+    const dirEntries = sortDirectoryEntries(
+      await fsPromises.readdir(currentAbsolutePath, { withFileTypes: true })
+    );
+
+    for (const dirent of dirEntries) {
+      if (state.truncated) {
+        return;
+      }
+
+      const context = buildDirectoryVisitContext(
+        dirent,
+        currentAbsolutePath,
+        relativeSegments,
+        options
+      );
+      if (!context) {
         continue;
       }
 
-      recordDirectoryChild(directoryChildren, currentDir, segment);
-
-      const nextDir = joinPath(currentDir, segment);
-      const isLeaf = index === segments.length - 1;
-      if (!isLeaf && index + 1 <= options.maxDepth) {
-        directoryPaths.add(nextDir);
+      if (dirent.isDirectory()) {
+        const shouldRecurse = processDirectoryEntry(context, options, state);
+        if (shouldRecurse) {
+          await visit(context.childAbsolutePath, context.childSegments);
+        }
+        continue;
       }
-      currentDir = nextDir;
+
+      if (dirent.isFile()) {
+        await processFileEntry(context, options, state);
+      }
     }
-  }
+  };
 
-  return { directoryChildren, directoryPaths };
-}
+  await visit(resolvedBase.absolutePath, []);
 
-function buildDirectoryEntries(
-  directoryPaths: Set<string>,
-  directoryChildren: Map<string, Set<string>>
-): FileEntry[] {
-  return Array.from(directoryPaths)
-    .sort((a, b) => a.localeCompare(b))
-    .map((dirPath) => {
-      const childCount = directoryChildren.get(dirPath)?.size;
-      return {
-        id: `dir:${dirPath}`,
-        name: getDirName(dirPath),
-        path: dirPath,
-        isDirectory: true,
-        size: null,
-        tokenCount: null,
-        isChunked: false,
-        ...(typeof childCount === 'number' ? { childCount } : {}),
-      };
-    });
-}
-
-function buildFileEntries(files: readonly FileTreeRecord[], chunkedIds: Set<string>): FileEntry[] {
-  return [...files]
-    .sort((a, b) => a.path.localeCompare(b.path))
-    .map((file) => ({
-      id: file.id,
-      name: file.name,
-      path: file.path,
-      isDirectory: false,
-      size: file.size,
-      tokenCount: file.tokenCount,
-      isChunked: chunkedIds.has(file.id),
-      modifiedAt: file.updatedAt,
-    }));
-}
-
-function compareFileEntries(a: FileEntry, b: FileEntry): number {
-  if (a.path !== b.path) {
-    return a.path.localeCompare(b.path);
-  }
-  if (a.isDirectory !== b.isDirectory) {
-    return a.isDirectory ? -1 : 1;
-  }
-  return a.name.localeCompare(b.name);
-}
-
-interface FileTreeListOptions {
-  pattern?: string;
-  maxDepth?: number;
-  includeHidden?: boolean;
-  limit?: number;
-}
-
-interface HybridSearchOptions {
-  embeddingSetId: string;
-  limit: number;
-  vectorWeight: number;
-  ftsWeight: number;
-  vectorThreshold?: number;
-  filePaths?: readonly string[];
-  chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
-}
-
-function createFileTreeDeps(): FileTreeToolDependencies {
   return {
-    listFiles: async (path: string, options: FileTreeListOptions) => {
-      const normalizedDir = normalizePath(path);
-      const prefix = normalizedDir === '/' ? '/' : normalizedDir ? `${normalizedDir}/` : '';
-
-      const maxDepth = options.maxDepth ?? 3;
-      const includeHidden = options.includeHidden ?? false;
-      const limit = options.limit ?? 100;
-      const pattern = options.pattern;
-
-      const db = await getPGliteDatabase();
-
-      const sqlLimit = Math.max(limit * 10, limit);
-      const fileRecords = await fetchFileTreeRecords(db, prefix, sqlLimit);
-      const filteredFiles = filterFileTreeRecords(fileRecords, {
-        prefix,
-        maxDepth,
-        includeHidden,
-        pattern,
-      });
-
-      const fileIds = filteredFiles.map((row) => row.id);
-      const chunkedIds = await fetchChunkedFileRecordIds(db, fileIds);
-
-      const { directoryChildren, directoryPaths } = buildDirectoryIndex(filteredFiles, {
-        prefix,
-        normalizedDir,
-        maxDepth,
-      });
-      const directoryEntries = buildDirectoryEntries(directoryPaths, directoryChildren);
-      const fileEntries = buildFileEntries(filteredFiles, chunkedIds);
-
-      const combined = [...directoryEntries, ...fileEntries].sort(compareFileEntries);
-
-      const truncated = combined.length > limit;
-      const entries = truncated ? combined.slice(0, limit) : combined;
-
-      return { entries, truncated };
-    },
-    logger,
+    path: normalizedPath,
+    depth,
+    maxEntries,
+    includeFiles,
+    includeDirectories,
+    includeHidden,
+    entries: state.entries,
+    count: state.entries.length,
+    totalMatchedFiles: state.totalMatchedFiles,
+    truncated: state.truncated,
   };
 }
 
-function createHybridSearchDeps(): HybridSearchToolDependencies {
+function broadcastSelectionUpdate(
+  eventName: string,
+  payload: {
+    folderId: string;
+    filePaths: string[];
+    mode: WorkspaceSelectionMode;
+  }
+): number {
+  const windows = BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed());
+  for (const win of windows) {
+    win.webContents.send(eventName, payload);
+  }
+  return windows.length;
+}
+
+function resolveBatchFolderId(
+  input: SelectRootTreeFilesInput | UpdatePreviewContextFilesInput,
+  runtimeData?: RuntimeData
+): string {
+  const folderId =
+    typeof input.folderId === 'string' ? input.folderId : runtimeData?.selectionFolderId;
+  if (!(typeof folderId === 'string' && folderId.trim().length > 0)) {
+    throw new Error('No folder context available. Provide folderId when selecting files.');
+  }
+  return folderId;
+}
+
+function runSelectRootTreeFiles(
+  input: SelectRootTreeFilesInput,
+  runtimeData: RuntimeData | undefined
+): {
+  folderId: string;
+  selectionSet: 'rootTree';
+  mode: WorkspaceSelectionMode;
+  requestedCount: number;
+  appliedCount: number;
+  windowsNotified: number;
+} {
+  const folderId = resolveBatchFolderId(input, runtimeData);
+  const filePaths = normalizeWorkspacePaths(input.filePaths);
+  if (filePaths.length === 0) {
+    throw new Error('No valid file paths were provided for root tree selection.');
+  }
+
+  const mode = input.mode ?? 'add';
+  const windowsNotified = broadcastSelectionUpdate(ASSISTANT_ROOT_TREE_SELECTION_EVENT, {
+    folderId,
+    filePaths,
+    mode,
+  });
+
   return {
-    generateQueryEmbedding: async (embeddingSetId: string, query: string) => {
-      const db = await getPGliteDatabase();
-      const { embedding } = await generateHostedQueryEmbedding(db, embeddingSetId, query);
-      return embedding;
-    },
-    performHybridSearch: async (
-      queryText: string,
-      queryEmbedding: number[],
-      options: HybridSearchOptions
-    ) => {
-      const db = await getPGliteDatabase();
-
-      const service = new HybridSearchService(new FileChunkRepository(db));
-      const response = await service.search(queryText, queryEmbedding, {
-        embeddingSetId: options.embeddingSetId,
-        limit: options.limit,
-        vectorWeight: options.vectorWeight,
-        ftsWeight: options.ftsWeight,
-        ...(options.vectorThreshold !== undefined
-          ? { vectorThreshold: options.vectorThreshold }
-          : {}),
-        ...(options.filePaths !== undefined ? { filePaths: options.filePaths } : {}),
-        ...(options.chunkType !== undefined ? { chunkType: options.chunkType } : {}),
-      });
-
-      const results: HybridSearchServiceResult[] = response.results.map((result) => ({
-        chunk: {
-          id: result.chunk.id,
-          content: result.chunk.content,
-          chunkIndex: result.chunk.chunkIndex,
-          chunkType: result.chunk.chunkType,
-          fileRecordId: result.chunk.fileRecordId,
-        },
-        rrfScore: result.rrfScore,
-        sourceCount: result.sourceCount,
-        ...(result.vectorSimilarity !== undefined
-          ? { vectorSimilarity: result.vectorSimilarity }
-          : {}),
-        ...(result.ftsRank !== undefined ? { ftsRank: result.ftsRank } : {}),
-        ...(result.headline !== undefined ? { headline: result.headline } : {}),
-        position: result.position,
-      }));
-
-      const metadata: HybridSearchServiceMetadata = {
-        vectorResultCount: response.metadata.vectorResultCount,
-        ftsResultCount: response.metadata.ftsResultCount,
-        fusedResultCount: response.metadata.fusedResultCount,
-        totalMs: response.metadata.totalMs,
-      };
-
-      return { results, metadata };
-    },
-    resolveFileRecords: async (fileRecordIds: string[]) => {
-      const db = await getPGliteDatabase();
-      const repo = new FileRecordRepository(db);
-      const records = await repo.findByIds(fileRecordIds);
-      const map = new Map<string, { id: string; name: string; path: string }>();
-      for (const record of records) {
-        map.set(record.id, { id: record.id, name: record.name, path: record.path });
-      }
-      return map;
-    },
-    logger,
+    folderId,
+    selectionSet: 'rootTree',
+    mode,
+    requestedCount: input.filePaths.length,
+    appliedCount: filePaths.length,
+    windowsNotified,
   };
 }
 
-function createQueueStatusDeps(runtimeData: RuntimeData | undefined): QueueStatusToolDependencies {
+function runUpdatePreviewContextFiles(
+  input: UpdatePreviewContextFilesInput,
+  runtimeData: RuntimeData | undefined
+): {
+  folderId: string;
+  selectionSet: 'previewContext';
+  mode: WorkspaceSelectionMode;
+  requestedCount: number;
+  appliedCount: number;
+  windowsNotified: number;
+} {
+  const folderId = resolveBatchFolderId(input, runtimeData);
+  const filePaths = normalizeWorkspacePaths(input.filePaths);
+  if (filePaths.length === 0) {
+    throw new Error('No valid file paths were provided for preview context selection.');
+  }
+
+  const mode = input.mode ?? 'add';
+  const windowsNotified = broadcastSelectionUpdate(ASSISTANT_PREVIEW_CONTEXT_SELECTION_EVENT, {
+    folderId,
+    filePaths,
+    mode,
+  });
+
   return {
-    getQueueSnapshot: async (embeddingSetId: string | null) => {
-      const db = await getPGliteDatabase();
-      const resolvedSetId = embeddingSetId ?? runtimeData?.embeddingSetId ?? null;
-      return await buildQueueSnapshot(db, resolvedSetId);
-    },
-    getEmbeddingSetName: async (embeddingSetId: string) => {
-      const db = await getPGliteDatabase();
-      const set = await createEmbeddingSetsRepository(db).getById(embeddingSetId);
-      return set?.name;
-    },
-    logger,
-  };
-}
-
-function createDiagnosticsDeps(runtimeData: RuntimeData | undefined): DiagnosticsToolDependencies {
-  return {
-    getDatabaseHealth: async () => {
-      try {
-        const db = await getPGliteDatabase();
-        const [fileRecords, chunks, embeddings, sets] = await Promise.all([
-          queryRows<{ count: string }>(db, 'SELECT COUNT(*)::text AS count FROM file_records'),
-          queryRows<{ count: string }>(db, 'SELECT COUNT(*)::text AS count FROM file_chunks'),
-          queryRows<{ count: string }>(
-            db,
-            'SELECT COUNT(*)::text AS count FROM file_chunks WHERE embedding IS NOT NULL'
-          ),
-          queryRows<{ count: string }>(db, 'SELECT COUNT(*)::text AS count FROM embedding_sets'),
-        ]);
-
-        return {
-          status: 'healthy',
-          connected: true,
-          tables: {
-            fileRecords: Number(fileRecords[0]?.count ?? 0),
-            chunks: Number(chunks[0]?.count ?? 0),
-            embeddings: Number(embeddings[0]?.count ?? 0),
-            embeddingSets: Number(sets[0]?.count ?? 0),
-          },
-          sizeBytes: 0,
-        };
-      } catch (error) {
-        logger.error('Database diagnostics failed', { error });
-        return {
-          status: 'unhealthy',
-          connected: false,
-          tables: { fileRecords: 0, chunks: 0, embeddings: 0, embeddingSets: 0 },
-          sizeBytes: 0,
-        };
-      }
-    },
-    getQueueHealth: async () => {
-      const db = await getPGliteDatabase();
-      const executor = createDbAdapter(db);
-      const jobQueue = new JobQueue(executor);
-      const stats = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE_NAME);
-      const snapshot = await buildQueueSnapshot(db, runtimeData?.embeddingSetId ?? null);
-      const recentErrors = await executor.query<{ error: string | null }>(
-        `SELECT error
-           FROM job_queue
-          WHERE state = 'failed'
-            AND queue = $1
-       ORDER BY updated_at DESC
-          LIMIT 5`,
-        [EMBEDDINGS_QUEUE_NAME]
-      );
-
-      const queueCounts = stats[0] ?? { queued: 0, running: 0, failed: 0, succeeded: 0 };
-      const status = queueCounts.failed > 0 ? 'degraded' : 'healthy';
-
-      return {
-        status,
-        durableQueue: {
-          queued: queueCounts.queued,
-          running: queueCounts.running,
-          failed: queueCounts.failed,
-          succeeded: queueCounts.succeeded,
-        },
-        ephemeralQueue: { pending: 0, processing: 0 },
-        throughput: snapshot.throughput,
-        recentErrors: recentErrors.rows
-          .map((row) => row.error)
-          .filter((value): value is string => typeof value === 'string' && value.trim().length > 0),
-      };
-    },
-    logger,
+    folderId,
+    selectionSet: 'previewContext',
+    mode,
+    requestedCount: input.filePaths.length,
+    appliedCount: filePaths.length,
+    windowsNotified,
   };
 }
 
 /**
  * Builds the Mastra ToolsInput for the desktop assistant server.
- * Note: `brainstrike.retrieveContext` is added separately via buildAssistantTools().
  */
 export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined): MastraTools {
-  const tools: MastraTools = {
-    ...buildToolsWithEmbeddingSets(createEmbeddingSetsDeps()),
-    ...buildToolsWithFileTree(createFileTreeDeps()),
-    ...buildToolsWithHybridSearch(createHybridSearchDeps()),
-    ...buildToolsWithQueueStatus(createQueueStatusDeps(runtimeData)),
-    ...buildToolsWithDiagnostics(createDiagnosticsDeps(runtimeData)),
+  return {
+    [READ_WORKSPACE_FILE_TOOL_ID]: {
+      id: READ_WORKSPACE_FILE_TOOL_ID,
+      description:
+        'Read a workspace file from the selected root. Use line ranges and maxChars to keep context efficient.',
+      inputSchema: ReadWorkspaceFileInputSchema,
+      execute: async (input: ToolExecuteInput<ReadWorkspaceFileInput>) => {
+        const resolvedInput = ReadWorkspaceFileInputSchema.parse(resolveToolExecuteInput(input));
+        try {
+          return await runReadWorkspaceFile(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('readWorkspaceFile failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [READ_WORKSPACE_DIRECTORY_TOOL_ID]: {
+      id: READ_WORKSPACE_DIRECTORY_TOOL_ID,
+      description:
+        'List workspace directory entries in a compact token-efficient format. Use depth and maxEntries to bound output.',
+      inputSchema: ReadWorkspaceDirectoryInputSchema,
+      execute: async (input: ToolExecuteInput<ReadWorkspaceDirectoryInput>) => {
+        const resolvedInput = ReadWorkspaceDirectoryInputSchema.parse(
+          resolveToolExecuteInput(input)
+        );
+        try {
+          return await runReadWorkspaceDirectory(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('readWorkspaceDirectory failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [SELECT_ROOT_TREE_FILES_TOOL_ID]: {
+      id: SELECT_ROOT_TREE_FILES_TOOL_ID,
+      description:
+        'Select files from the left root tree so they populate the preview/context panel candidate set.',
+      inputSchema: SelectRootTreeFilesInputSchema,
+      execute: async (input: ToolExecuteInput<SelectRootTreeFilesInput>) => {
+        const resolvedInput = SelectRootTreeFilesInputSchema.parse(resolveToolExecuteInput(input));
+        try {
+          return runSelectRootTreeFiles(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('selectRootTreeFiles failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
+    [UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID]: {
+      id: UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID,
+      description:
+        'Add, remove, or replace files in the preview/context selection used as agent context.',
+      inputSchema: UpdatePreviewContextFilesInputSchema,
+      execute: async (input: ToolExecuteInput<UpdatePreviewContextFilesInput>) => {
+        const resolvedInput = UpdatePreviewContextFilesInputSchema.parse(
+          resolveToolExecuteInput(input)
+        );
+        try {
+          return runUpdatePreviewContextFiles(resolvedInput, runtimeData);
+        } catch (error) {
+          logger.error('updatePreviewContextFiles failed', { error, input: resolvedInput });
+          throw error;
+        }
+      },
+    },
   };
-
-  return tools;
 }

@@ -17,7 +17,11 @@ import {
   TOOL_DESCRIPTIONS,
 } from '@brainstrike/agent/client';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db';
-import { useFileExplorerStoreContext, useSelectionManager } from '@brainstrike/file-explorer-ui';
+import {
+  useFileExplorerStoreContext,
+  useOptionalTokenCacheContext,
+  useSelectionManager,
+} from '@brainstrike/file-explorer-ui';
 import {
   useAssistantPreferencesStore,
   useEnsureModelRegistry,
@@ -26,6 +30,8 @@ import {
   useSecretsStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
+import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
+import { buildWorkspaceLookupCandidates, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import {
   type AssistantContextMenuConfig,
   type AssistantProviderSettings,
@@ -37,7 +43,7 @@ import {
   type ModelPickerProvider,
   type ProviderGroupConfig,
 } from '@brainstrike/ui/assistant-ui-panel';
-import { decodeFileSelection } from '@brainstrike/utils';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { usePanelLayoutStore } from './stores/panel-layout-store';
 
@@ -73,6 +79,70 @@ function formatToolLabel(toolId: string): string {
 
 function getToolDescription(toolId: string): string {
   return TOOL_DESCRIPTIONS[toolId] ?? `Tool: ${toolId}`;
+}
+
+const INCLUDE_FILE_REPORT_STORAGE_KEY = 'brainstrike.assistant.include-file-report.v1';
+const TREE_CONTEXT_LINE_LIMIT = 400;
+const TREE_TOKEN_ESTIMATE_PER_LINE = 4;
+const FILE_REPORT_OVERHEAD_PER_FILE = 8;
+
+interface TokenCountRow {
+  path: string;
+  tokenCount: number | null;
+}
+
+interface TotalFilesRow {
+  count: string | number;
+}
+
+interface QueryableTokenDatabase {
+  query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+}
+
+function loadStoredIncludeFileReport(): boolean {
+  if (typeof window === 'undefined') {
+    return true;
+  }
+  const raw = window.localStorage.getItem(INCLUDE_FILE_REPORT_STORAGE_KEY);
+  if (raw === null) {
+    return true;
+  }
+  return raw === '1';
+}
+
+async function estimateSelectionTokenCountFromDb(
+  db: QueryableTokenDatabase,
+  filePaths: readonly string[]
+): Promise<number> {
+  const candidates = buildWorkspaceLookupCandidates(filePaths);
+  if (candidates.length === 0) {
+    return 0;
+  }
+
+  const result = await db.query<TokenCountRow>(
+    `SELECT path, token_count AS "tokenCount"
+     FROM file_records
+     WHERE path = ANY($1::text[])`,
+    [candidates]
+  );
+
+  const byPath = new Map<string, number>();
+  for (const row of result.rows) {
+    const normalized = normalizeWorkspaceLookupPath(row.path);
+    if (typeof row.tokenCount === 'number') {
+      byPath.set(normalized, row.tokenCount);
+    }
+  }
+
+  let total = 0;
+  for (const filePath of filePaths) {
+    const normalized = normalizeWorkspaceLookupPath(filePath);
+    const tokenCount = byPath.get(normalized);
+    if (typeof tokenCount === 'number') {
+      total += tokenCount;
+    }
+  }
+  return total;
 }
 
 interface McpToolDescriptor {
@@ -242,6 +312,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const registryError = useModelRegistryStore((state) => state.error);
   const toggleModelInDb = useModelRegistryStore((state) => state.toggleModel);
   const db = usePGliteDatabase();
+  const tokenCache = useOptionalTokenCacheContext();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
   const setActiveTab = usePanelLayoutStore((state) => state.setActiveTab);
@@ -328,13 +399,46 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   );
   const activeEmbeddingSetId = useVectorStatusUIStore((s) => s.activeEmbeddingSetId);
   const store = useFileExplorerStoreContext();
-  const [tokenBudget, currentFolderId, setTokenBudget] = store(
-    (s) => [s.tokenBudget, s.currentFolderId, s.setTokenBudget] as const
+  const [
+    tokenBudget,
+    currentFolderId,
+    rootDirectoryHandle,
+    includeProjectTree,
+    setTokenBudget,
+    setIncludeProjectTree,
+    setSelectedFiles,
+    addMultipleSelectedFiles,
+    removeMultipleSelectedFiles,
+    clearSelectionRules,
+  ] = store(
+    (s) =>
+      [
+        s.tokenBudget,
+        s.currentFolderId,
+        s.rootDirectoryHandle,
+        s.includeProjectTree,
+        s.setTokenBudget,
+        s.setIncludeProjectTree,
+        s.setSelectedFiles,
+        s.addMultipleSelectedFiles,
+        s.removeMultipleSelectedFiles,
+        s.clearSelectionRules,
+      ] as const
   );
+  const [includeFileReport, setIncludeFileReport] = useState<boolean>(() =>
+    loadStoredIncludeFileReport()
+  );
+  const [selectionTokensFromDb, setSelectionTokensFromDb] = useState<number>(0);
+  const [projectTreeTokensEstimate, setProjectTreeTokensEstimate] = useState<number>(0);
   const handleSelectionLimitExceeded = useCallback(() => {}, []);
   const { effectiveSelection } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitExceeded,
   });
+  const effectiveSelectionRef = useRef(effectiveSelection);
+
+  useEffect(() => {
+    effectiveSelectionRef.current = effectiveSelection;
+  }, [effectiveSelection]);
 
   const selectionData = useMemo(() => {
     const filePaths = new Set<string>();
@@ -361,6 +465,178 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       folderId: resolvedFolderId,
     };
   }, [effectiveSelection, currentFolderId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(INCLUDE_FILE_REPORT_STORAGE_KEY, includeFileReport ? '1' : '0');
+  }, [includeFileReport]);
+
+  useEffect(() => {
+    const folderId = selectionData.folderId;
+    if (!(db && folderId && selectionData.filePaths.length > 0)) {
+      setSelectionTokensFromDb(0);
+      return;
+    }
+
+    let cancelled = false;
+    void estimateSelectionTokenCountFromDb(db as QueryableTokenDatabase, selectionData.filePaths)
+      .then((total) => {
+        if (!cancelled) {
+          setSelectionTokensFromDb(total);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSelectionTokensFromDb(0);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [db, selectionData.filePaths, selectionData.folderId]);
+
+  useEffect(() => {
+    if (!(db && includeProjectTree)) {
+      setProjectTreeTokensEstimate(0);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await db.query<TotalFilesRow>('SELECT COUNT(*) AS count FROM file_records');
+        if (cancelled) {
+          return;
+        }
+        const countValue = result.rows[0]?.count;
+        const totalFiles =
+          typeof countValue === 'number'
+            ? countValue
+            : Number.parseInt(String(countValue ?? '0'), 10) || 0;
+        const estimatedLines =
+          Math.min(totalFiles, TREE_CONTEXT_LINE_LIMIT) + (totalFiles > 0 ? 1 : 0);
+        setProjectTreeTokensEstimate(estimatedLines * TREE_TOKEN_ESTIMATE_PER_LINE);
+      } catch {
+        if (!cancelled) {
+          setProjectTreeTokensEstimate(0);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [db, includeProjectTree]);
+
+  const tokenCacheVersion = tokenCache?.cacheVersion;
+
+  const tokensFromCache = useMemo(() => {
+    if (!(tokenCache && selectionData.folderId && selectionData.filePaths.length > 0)) {
+      return 0;
+    }
+    let total = 0;
+    for (const path of selectionData.filePaths) {
+      const count = tokenCache.getTokenCount(selectionData.folderId, path);
+      if (typeof count === 'number' && Number.isFinite(count)) {
+        total += count;
+      }
+    }
+    return total;
+  }, [tokenCache, tokenCacheVersion, selectionData.filePaths, selectionData.folderId]);
+
+  const contextTokenCount = useMemo(() => {
+    const selectedTokens = Math.max(tokensFromCache, selectionTokensFromDb);
+    const reportOverhead = includeFileReport
+      ? selectionData.filePaths.length * FILE_REPORT_OVERHEAD_PER_FILE
+      : 0;
+    const treeTokens = includeProjectTree ? projectTreeTokensEstimate : 0;
+    return selectedTokens + reportOverhead + treeTokens;
+  }, [
+    includeFileReport,
+    includeProjectTree,
+    projectTreeTokensEstimate,
+    selectionData.filePaths.length,
+    selectionTokensFromDb,
+    tokensFromCache,
+  ]);
+
+  const handleSelectionUpdate = useCallback(
+    (payload: AssistantSelectionUpdatePayload) => {
+      if (!(payload.folderId && Array.isArray(payload.filePaths) && payload.filePaths.length > 0)) {
+        return;
+      }
+      const mode = payload.mode ?? 'add';
+      const normalizedPaths = Array.from(
+        new Set(
+          payload.filePaths
+            .map((filePath) => normalizeWorkspaceLookupPath(String(filePath)))
+            .filter((path) => path.length > 0)
+            .map((path) => (path.startsWith('/') ? path : `/${path}`))
+        )
+      );
+      if (normalizedPaths.length === 0) {
+        return;
+      }
+
+      if (mode === 'add') {
+        addMultipleSelectedFiles(payload.folderId, normalizedPaths);
+        return;
+      }
+      if (mode === 'remove') {
+        removeMultipleSelectedFiles(payload.folderId, normalizedPaths);
+        return;
+      }
+
+      clearSelectionRules();
+      const next = new Set<string>();
+      for (const compositeKey of effectiveSelectionRef.current) {
+        try {
+          const decoded = decodeFileSelection(compositeKey);
+          if (decoded.folderId !== payload.folderId) {
+            next.add(compositeKey);
+          }
+        } catch {
+          next.add(compositeKey);
+        }
+      }
+      for (const path of normalizedPaths) {
+        next.add(encodeFileSelection(payload.folderId, path));
+      }
+      setSelectedFiles(next);
+    },
+    [addMultipleSelectedFiles, clearSelectionRules, removeMultipleSelectedFiles, setSelectedFiles]
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.tools?.onRootTreeSelectionUpdate) {
+      return;
+    }
+
+    const unsubscribe = window.tools.onRootTreeSelectionUpdate((payload) => {
+      handleSelectionUpdate(payload);
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [handleSelectionUpdate]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.tools?.onPreviewContextSelectionUpdate) {
+      return;
+    }
+
+    const unsubscribe = window.tools.onPreviewContextSelectionUpdate((payload) => {
+      handleSelectionUpdate(payload);
+    });
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [handleSelectionUpdate]);
 
   const nativeToolItems = useMemo<AssistantToolMenuItem[]>(() => {
     return Object.entries(NATIVE_TOOL_DEFAULTS).map(([toolId, metadata]) => ({
@@ -464,12 +740,26 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
     return {
       selectionCount,
+      includeFileReport,
+      includeProjectTree,
+      contextTokenCount,
+      onIncludeFileReportChange: setIncludeFileReport,
+      onIncludeProjectTreeChange: setIncludeProjectTree,
       onTokenBudgetChange: setTokenBudget,
       ...(selectionLabel ? { selectionLabel } : {}),
       ...(typeof activeEmbeddingSetId === 'string' ? { embeddingSetId: activeEmbeddingSetId } : {}),
       ...(typeof tokenBudget === 'number' ? { tokenBudget } : {}),
     };
-  }, [activeEmbeddingSetId, selectionCount, setTokenBudget, tokenBudget]);
+  }, [
+    activeEmbeddingSetId,
+    contextTokenCount,
+    includeFileReport,
+    includeProjectTree,
+    selectionCount,
+    setIncludeProjectTree,
+    setTokenBudget,
+    tokenBudget,
+  ]);
 
   const requestData = useMemo(() => {
     const data: Record<string, unknown> = {};
@@ -482,9 +772,15 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     if (selectionData.folderId) {
       data['selectionFolderId'] = selectionData.folderId;
     }
+    if (rootDirectoryHandle?.path) {
+      data['workspaceRootPath'] = rootDirectoryHandle.path;
+    }
     if (typeof tokenBudget === 'number') {
       data['tokenBudget'] = tokenBudget;
     }
+    data['includeFileReport'] = includeFileReport;
+    data['includeProjectTree'] = includeProjectTree;
+    data['contextTokenCount'] = contextTokenCount;
     if (modelSettings) {
       data['modelSettings'] = modelSettings;
     }
@@ -492,7 +788,17 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       data['providerOptions'] = providerOptions;
     }
     return data;
-  }, [activeEmbeddingSetId, selectionData, tokenBudget, modelSettings, providerOptions]);
+  }, [
+    activeEmbeddingSetId,
+    contextTokenCount,
+    includeFileReport,
+    includeProjectTree,
+    modelSettings,
+    providerOptions,
+    rootDirectoryHandle?.path,
+    selectionData,
+    tokenBudget,
+  ]);
 
   // Check if a model is enabled - always use DB as source of truth
   const isModelEnabled = useCallback(

@@ -1,13 +1,7 @@
 /**
  * Native tool executor for the Tool Playground.
- * Executes self-contained web tools that don't require database access.
+ * Executes self-contained native tools that can run in the main process.
  */
-import {
-  docSummaryExecute,
-  docSummaryInputSchema,
-  searchDocsExecute,
-  searchDocsInputSchema,
-} from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils';
 import type { z } from 'zod';
 
@@ -40,18 +34,10 @@ const logger = createLogger('NativeToolExecutor');
 
 /**
  * Registry of executable native tools.
- * These tools are self-contained, deterministic, and safe to run in the renderer.
+ * Intentionally empty: Brainstrike native tools currently require live workspace context
+ * and execute through the assistant runtime (not the settings playground bridge).
  */
-const NATIVE_TOOLS: Record<string, ToolDefinition> = {
-  'web.searchDocs': {
-    schema: searchDocsInputSchema,
-    execute: (input) => searchDocsExecute(input as z.infer<typeof searchDocsInputSchema>),
-  },
-  'web.docSummary': {
-    schema: docSummaryInputSchema,
-    execute: (input) => docSummaryExecute(input as z.infer<typeof docSummaryInputSchema>),
-  },
-};
+const NATIVE_TOOLS: Record<string, ToolDefinition> = {};
 
 // ============================================================================
 // Public API

@@ -115,10 +115,90 @@ export const ReembedCollectionInputSchema = z
   })
   .strict();
 
-export type ReembedCollectionInput = z.infer<typeof ReembedCollectionInputSchema>;
+// ============================================================================
+// Workspace Tool Schemas
+// ============================================================================
+
+export const ReadWorkspaceFileInputSchema = z
+  .object({
+    path: z.string().min(1).describe('Workspace-relative file path'),
+    startLine: z.number().int().positive().optional().describe('Optional starting line (1-based)'),
+    endLine: z.number().int().positive().optional().describe('Optional ending line (1-based)'),
+    maxChars: z
+      .number()
+      .int()
+      .positive()
+      .max(50_000)
+      .optional()
+      .describe('Maximum characters to return before truncation'),
+  })
+  .strict();
+
+export type ReadWorkspaceFileInput = z.infer<typeof ReadWorkspaceFileInputSchema>;
+
+export const ReadWorkspaceDirectoryInputSchema = z
+  .object({
+    path: z.string().optional().describe('Directory path (defaults to root)'),
+    depth: z.number().int().min(0).max(5).optional().describe('Maximum traversal depth'),
+    maxEntries: z
+      .number()
+      .int()
+      .positive()
+      .max(500)
+      .optional()
+      .describe('Maximum entries to return'),
+    includeFiles: z.boolean().optional().describe('Include files in the listing'),
+    includeDirectories: z.boolean().optional().describe('Include directories in the listing'),
+    includeHidden: z.boolean().optional().describe('Include hidden files and directories'),
+  })
+  .strict();
+
+export type ReadWorkspaceDirectoryInput = z.infer<typeof ReadWorkspaceDirectoryInputSchema>;
+
+export const SelectRootTreeFilesInputSchema = z
+  .object({
+    filePaths: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(5000)
+      .describe('Workspace-relative file paths to add to the left root tree selection'),
+    mode: z
+      .enum(['replace', 'add', 'remove'])
+      .optional()
+      .describe('Selection update strategy for root tree selection (default: add)'),
+    folderId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Optional folder identifier when multiple roots are present'),
+  })
+  .strict();
+
+export type SelectRootTreeFilesInput = z.infer<typeof SelectRootTreeFilesInputSchema>;
+
+export const UpdatePreviewContextFilesInputSchema = z
+  .object({
+    filePaths: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(5000)
+      .describe('Workspace-relative file paths to adjust in the preview context selection'),
+    mode: z
+      .enum(['replace', 'add', 'remove'])
+      .optional()
+      .describe('Selection update strategy for preview context files (default: add)'),
+    folderId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Optional folder identifier when multiple roots are present'),
+  })
+  .strict();
+
+export type UpdatePreviewContextFilesInput = z.infer<typeof UpdatePreviewContextFilesInputSchema>;
 
 // ============================================================================
-// Existing Schemas (Filesystem, Web, Retrieval)
+// Existing Schemas (Filesystem, Retrieval)
 // ============================================================================
 
 const FilesystemListInput = z
@@ -157,23 +237,6 @@ export type FilesystemSearchInput = z.infer<typeof FilesystemSearchInput>;
 
 const EchoInput = z.object({ text: z.string().min(1) }).strict();
 
-const WebSearchDocsInput = z
-  .object({
-    query: z.string().min(2).max(200),
-    limit: z.number().int().positive().max(10).optional(),
-  })
-  .strict();
-
-export type WebSearchDocsInput = z.infer<typeof WebSearchDocsInput>;
-
-const WebDocSummaryInput = z
-  .object({
-    docId: z.string().min(1).max(120),
-  })
-  .strict();
-
-export type WebDocSummaryInput = z.infer<typeof WebDocSummaryInput>;
-
 export const RetrievalContextInputSchema = z
   .object({
     query: z.string().min(1).max(2000),
@@ -196,17 +259,11 @@ const schemaMap: Record<string, z.ZodSchema> = {
   'filesystem.search': FilesystemSearchInput,
   // Web tools
   'web.echo': EchoInput,
-  'web.searchDocs': WebSearchDocsInput,
-  'web.docSummary': WebDocSummaryInput,
-  // BrainStrike native tools
-  'brainstrike.retrieveContext': RetrievalContextInputSchema,
-  'brainstrike.hybridSearch': HybridSearchInputSchema,
-  'brainstrike.queueStatus': QueueStatusInputSchema,
-  'brainstrike.listEmbeddingSets': ListEmbeddingSetsInputSchema,
-  'brainstrike.createEmbeddingSet': CreateEmbeddingSetInputSchema,
-  'brainstrike.queryFileTree': QueryFileTreeInputSchema,
-  'brainstrike.systemDiagnostics': SystemDiagnosticsInputSchema,
-  'brainstrike.reembedCollection': ReembedCollectionInputSchema,
+  // Minimal BrainStrike native tools
+  'brainstrike.readWorkspaceFile': ReadWorkspaceFileInputSchema,
+  'brainstrike.readWorkspaceDirectory': ReadWorkspaceDirectoryInputSchema,
+  'brainstrike.selectRootTreeFiles': SelectRootTreeFilesInputSchema,
+  'brainstrike.updatePreviewContextFiles': UpdatePreviewContextFilesInputSchema,
 };
 
 function formatZodIssue(issue: z.ZodIssue): string {

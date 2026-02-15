@@ -298,7 +298,7 @@ PR9 (Polish & Tests)
 ## Current Status
 
 - ✅ **PR4**: Code complete, ready for testing and PR creation
-- ⏳ **PR5-9**: Planned, tasks created in beads
+- ⏳ **PR5-9**: Planned, tasks created in the project tracker
 
 ## Next Steps for PR4
 

@@ -120,7 +120,12 @@ export interface AssistantContextMenuConfig {
   selectionCount?: number;
   selectionLabel?: string;
   embeddingSetId?: string;
+  includeFileReport?: boolean;
+  includeProjectTree?: boolean;
+  contextTokenCount?: number;
   tokenBudget?: number;
+  onIncludeFileReportChange?: (value: boolean) => void;
+  onIncludeProjectTreeChange?: (value: boolean) => void;
   onTokenBudgetChange?: (value: number) => void;
 }
 
@@ -984,6 +989,240 @@ function truncateMiddle(value: string, head = 12, tail = 6): string {
   return `${value.slice(0, head)}…${value.slice(-tail)}`;
 }
 
+type BudgetStatus = 'over' | 'near' | 'within';
+
+function resolveBudgetStatus(
+  contextMenu: AssistantContextMenuConfig | undefined
+): BudgetStatus | undefined {
+  if (
+    !(
+      typeof contextMenu?.tokenBudget === 'number' &&
+      typeof contextMenu?.contextTokenCount === 'number'
+    )
+  ) {
+    return;
+  }
+
+  if (contextMenu.contextTokenCount > contextMenu.tokenBudget) {
+    return 'over';
+  }
+  if (contextMenu.contextTokenCount >= contextMenu.tokenBudget * 0.85) {
+    return 'near';
+  }
+  return 'within';
+}
+
+const ContextControlsSection: FC<{
+  contextMenu: AssistantContextMenuConfig;
+  budgetStatus: BudgetStatus | undefined;
+}> = ({ contextMenu, budgetStatus }) => (
+  <div className="space-y-2">
+    <DropdownMenuLabel className="px-1 text-[10px] text-muted-foreground uppercase tracking-wide">
+      Context
+    </DropdownMenuLabel>
+    <div className="space-y-2 rounded-md border border-border/70 bg-background/80 p-2 text-xs">
+      <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+        <span className="text-muted-foreground">Selection</span>
+        <span className="font-medium">
+          {contextMenu.selectionLabel ??
+            (contextMenu.selectionCount ? `${contextMenu.selectionCount} files` : 'None')}
+        </span>
+      </div>
+      {contextMenu.embeddingSetId && (
+        <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+          <span className="text-muted-foreground">Embedding set</span>
+          <span className="font-medium">{truncateMiddle(contextMenu.embeddingSetId, 10, 6)}</span>
+        </div>
+      )}
+      <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+        <span className="text-muted-foreground">Include file report</span>
+        <div className="flex justify-end">
+          <Switch
+            checked={contextMenu.includeFileReport ?? true}
+            onCheckedChange={(checked) => contextMenu.onIncludeFileReportChange?.(checked)}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+        <span className="text-muted-foreground">Include file tree</span>
+        <div className="flex justify-end">
+          <Switch
+            checked={contextMenu.includeProjectTree ?? false}
+            onCheckedChange={(checked) => contextMenu.onIncludeProjectTreeChange?.(checked)}
+          />
+        </div>
+      </div>
+      {typeof contextMenu.tokenBudget === 'number' && (
+        <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+          <Label className="text-muted-foreground">Token budget</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              className="h-7 text-xs"
+              disabled={!contextMenu.onTokenBudgetChange}
+              inputMode="numeric"
+              onChange={(event) => {
+                if (!contextMenu.onTokenBudgetChange) {
+                  return;
+                }
+                const parsed = parseNumber(event.target.value);
+                if (parsed === undefined) {
+                  return;
+                }
+                contextMenu.onTokenBudgetChange(parsed);
+              }}
+              type="number"
+              value={contextMenu.tokenBudget}
+            />
+            <span className="text-[10px] text-muted-foreground">
+              {settingsNumberFormatter.format(contextMenu.tokenBudget)}
+            </span>
+          </div>
+        </div>
+      )}
+      {typeof contextMenu.contextTokenCount === 'number' && (
+        <div className="grid grid-cols-[120px_1fr] items-center gap-2">
+          <span className="text-muted-foreground">Est. context tokens</span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-medium">
+              {settingsNumberFormatter.format(contextMenu.contextTokenCount)} tokens
+            </span>
+            {budgetStatus && (
+              <Badge
+                variant={
+                  budgetStatus === 'over'
+                    ? 'destructive'
+                    : budgetStatus === 'near'
+                      ? 'secondary'
+                      : 'outline'
+                }
+              >
+                {budgetStatus === 'over'
+                  ? 'Over budget'
+                  : budgetStatus === 'near'
+                    ? 'Near budget'
+                    : 'Within budget'}
+              </Badge>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+const ReasoningControlsSection: FC<{
+  hasReasoning: boolean;
+  modelName: string | undefined;
+  onProviderSettingsChange:
+    | ((providerId: string, updates: AssistantProviderSettingsUpdate) => void)
+    | undefined;
+  providerId: string | undefined;
+  settings: AssistantProviderSettings | undefined;
+}> = ({ hasReasoning, modelName, onProviderSettingsChange, providerId, settings }) => {
+  if (!hasReasoning) {
+    return null;
+  }
+
+  return (
+    <>
+      <DropdownMenuSeparator className="my-2" />
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger className="text-sm">Reasoning & Output</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-[420px] p-2">
+          <ProviderSettingsPanel
+            modelName={modelName}
+            onSettingsChange={onProviderSettingsChange}
+            providerId={providerId}
+            settings={settings}
+          />
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+    </>
+  );
+};
+
+const ToolsControlsSection: FC<{
+  groupedTools: ToolMenuGroup[];
+  hasTools: boolean;
+  onToggleTool: (toolId: string, enabled: boolean) => void;
+  toolMenu: AssistantToolMenuConfig;
+  toolSummary: string;
+}> = ({ groupedTools, hasTools, onToggleTool, toolMenu, toolSummary }) => {
+  if (!hasTools) {
+    return null;
+  }
+
+  return (
+    <>
+      <DropdownMenuSeparator className="my-2" />
+      <DropdownMenuLabel className="px-1 text-[10px] text-muted-foreground uppercase tracking-wide">
+        AI Tools
+      </DropdownMenuLabel>
+      {toolMenu.isLoading && (
+        <div className="px-2 py-2 text-muted-foreground text-xs">Loading tools…</div>
+      )}
+      {!toolMenu.isLoading && groupedTools.length === 0 && (
+        <div className="px-2 py-2 text-muted-foreground text-xs">No tools detected.</div>
+      )}
+      {!toolMenu.isLoading &&
+        groupedTools.map((group) => {
+          const enabledCount = group.items.filter((tool) => tool.enabled).length;
+          return (
+            <DropdownMenuSub key={group.id}>
+              <DropdownMenuSubTrigger className="text-sm">
+                <span className="flex-1 truncate">{group.label}</span>
+                <span className="text-[10px] text-muted-foreground">
+                  {enabledCount}/{group.items.length}
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-[320px] p-1">
+                {group.items.map((tool) => (
+                  <DropdownMenuItem
+                    className="flex items-start justify-between gap-3"
+                    key={tool.id}
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-sm">{tool.label}</p>
+                      {tool.description && (
+                        <p className="text-muted-foreground text-xs">{tool.description}</p>
+                      )}
+                    </div>
+                    <Switch
+                      checked={tool.enabled}
+                      className="mt-0.5"
+                      disabled={tool.disabled}
+                      onCheckedChange={(checked) => onToggleTool(tool.id, checked)}
+                    />
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          );
+        })}
+      {toolSummary && (
+        <div className="px-2 pt-2 text-[10px] text-muted-foreground">{toolSummary}</div>
+      )}
+      {toolMenu.onRefresh && (
+        <DropdownMenuItem
+          className="mt-1"
+          onSelect={(event) => {
+            event.preventDefault();
+            void toolMenu.onRefresh?.();
+          }}
+        >
+          Refresh tools
+        </DropdownMenuItem>
+      )}
+      {toolMenu.onOpenSettings && (
+        <DropdownMenuItem onSelect={() => toolMenu.onOpenSettings?.()}>
+          Manage tools…
+        </DropdownMenuItem>
+      )}
+    </>
+  );
+};
+
 const ControlsMenu: FC<ControlsMenuProps> = ({
   contextMenu,
   toolMenu,
@@ -1062,6 +1301,7 @@ const ControlsMenu: FC<ControlsMenuProps> = ({
   }
 
   const activeSettings = selectedProvider ? providerSettings?.[selectedProvider] : undefined;
+  const budgetStatus = resolveBudgetStatus(contextMenu);
 
   return (
     <DropdownMenu>
@@ -1077,147 +1317,24 @@ const ControlsMenu: FC<ControlsMenuProps> = ({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-[340px] p-2">
-        {hasContext && (
-          <div className="space-y-2">
-            <DropdownMenuLabel className="px-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-              Context
-            </DropdownMenuLabel>
-            <div className="space-y-2 rounded-md border border-border/70 bg-background/80 p-2 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-muted-foreground">Selection</span>
-                <span className="font-medium">
-                  {contextMenu?.selectionLabel ??
-                    (contextMenu?.selectionCount ? `${contextMenu.selectionCount} files` : 'None')}
-                </span>
-              </div>
-              {contextMenu?.embeddingSetId && (
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Embedding set</span>
-                  <span className="font-medium">
-                    {truncateMiddle(contextMenu.embeddingSetId, 10, 6)}
-                  </span>
-                </div>
-              )}
-              {typeof contextMenu?.tokenBudget === 'number' && (
-                <div className="space-y-1">
-                  <Label className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                    Token budget
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      className="h-7 text-xs"
-                      disabled={!contextMenu.onTokenBudgetChange}
-                      inputMode="numeric"
-                      onChange={(event) => {
-                        if (!contextMenu.onTokenBudgetChange) {
-                          return;
-                        }
-                        const parsed = parseNumber(event.target.value);
-                        if (parsed === undefined) {
-                          return;
-                        }
-                        contextMenu.onTokenBudgetChange(parsed);
-                      }}
-                      type="number"
-                      value={contextMenu.tokenBudget}
-                    />
-                    <span className="text-[10px] text-muted-foreground">
-                      {settingsNumberFormatter.format(contextMenu.tokenBudget)}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+        {hasContext && contextMenu && (
+          <ContextControlsSection budgetStatus={budgetStatus} contextMenu={contextMenu} />
         )}
-
-        {hasReasoning && (
-          <>
-            <DropdownMenuSeparator className="my-2" />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="text-sm">
-                Reasoning & Output
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-[420px] p-2">
-                <ProviderSettingsPanel
-                  modelName={modelName}
-                  onSettingsChange={onProviderSettingsChange}
-                  providerId={selectedProvider}
-                  settings={activeSettings}
-                />
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          </>
-        )}
-
-        {hasTools && (
-          <>
-            <DropdownMenuSeparator className="my-2" />
-            <DropdownMenuLabel className="px-1 text-[10px] text-muted-foreground uppercase tracking-wide">
-              AI Tools
-            </DropdownMenuLabel>
-            {toolMenu?.isLoading && (
-              <div className="px-2 py-2 text-muted-foreground text-xs">Loading tools…</div>
-            )}
-            {!toolMenu?.isLoading && groupedTools.length === 0 && (
-              <div className="px-2 py-2 text-muted-foreground text-xs">No tools detected.</div>
-            )}
-            {!toolMenu?.isLoading &&
-              groupedTools.map((group) => {
-                const enabledCount = group.items.filter((tool) => tool.enabled).length;
-                return (
-                  <DropdownMenuSub key={group.id}>
-                    <DropdownMenuSubTrigger className="text-sm">
-                      <span className="flex-1 truncate">{group.label}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {enabledCount}/{group.items.length}
-                      </span>
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent className="w-[320px] p-1">
-                      {group.items.map((tool) => (
-                        <DropdownMenuItem
-                          className="flex items-start justify-between gap-3"
-                          key={tool.id}
-                          onSelect={(event) => event.preventDefault()}
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-sm">{tool.label}</p>
-                            {tool.description && (
-                              <p className="text-muted-foreground text-xs">{tool.description}</p>
-                            )}
-                          </div>
-                          <Switch
-                            checked={tool.enabled}
-                            className="mt-0.5"
-                            disabled={tool.disabled}
-                            onCheckedChange={(checked) => handleToggleTool(tool.id, checked)}
-                          />
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
-                );
-              })}
-            {toolSummary && (
-              <div className="px-2 pt-2 text-[10px] text-muted-foreground">{toolSummary}</div>
-            )}
-            {toolMenu?.onRefresh && (
-              <DropdownMenuItem
-                className="mt-1"
-                onSelect={(event) => {
-                  event.preventDefault();
-                  void toolMenu.onRefresh?.();
-                }}
-              >
-                Refresh tools
-              </DropdownMenuItem>
-            )}
-            {toolMenu?.onOpenSettings && (
-              <DropdownMenuItem onSelect={() => toolMenu.onOpenSettings?.()}>
-                Manage tools…
-              </DropdownMenuItem>
-            )}
-          </>
+        <ReasoningControlsSection
+          hasReasoning={hasReasoning}
+          modelName={modelName}
+          onProviderSettingsChange={onProviderSettingsChange}
+          providerId={selectedProvider}
+          settings={activeSettings}
+        />
+        {toolMenu && (
+          <ToolsControlsSection
+            groupedTools={groupedTools}
+            hasTools={hasTools}
+            onToggleTool={handleToggleTool}
+            toolMenu={toolMenu}
+            toolSummary={toolSummary}
+          />
         )}
       </DropdownMenuContent>
     </DropdownMenu>
@@ -1249,6 +1366,20 @@ const ContextSummaryRow: FC<{ contextMenu?: AssistantContextMenuConfig | undefin
       label: `${settingsNumberFormatter.format(contextMenu.tokenBudget)} tokens`,
     });
   }
+  if (typeof contextMenu.contextTokenCount === 'number') {
+    badges.push({
+      key: 'estimate',
+      label: `${settingsNumberFormatter.format(contextMenu.contextTokenCount)} est.`,
+    });
+  }
+  badges.push({
+    key: 'report',
+    label: `Report ${(contextMenu.includeFileReport ?? true) ? 'on' : 'off'}`,
+  });
+  badges.push({
+    key: 'tree',
+    label: `Tree ${contextMenu.includeProjectTree ? 'on' : 'off'}`,
+  });
 
   if (badges.length === 0) {
     return null;

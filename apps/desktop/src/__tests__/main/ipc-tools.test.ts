@@ -67,10 +67,14 @@ describe('ipc-tools', () => {
         durationMs: 10,
       });
 
-      const result = await toolsExecuteHandler(mockEvent, 'web.searchDocs', { query: 'test' });
+      const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', {
+        path: '/README.md',
+      });
 
-      expect(isExecutableNativeTool).toHaveBeenCalledWith('web.searchDocs');
-      expect(executeNativeTool).toHaveBeenCalledWith('web.searchDocs', { query: 'test' });
+      expect(isExecutableNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile');
+      expect(executeNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile', {
+        path: '/README.md',
+      });
       expect(result).toEqual({
         success: true,
         result: { data: 'test' },
@@ -90,7 +94,10 @@ describe('ipc-tools', () => {
     it('rejects non-object inputs for native tools', async () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(true);
 
-      const result = await toolsExecuteHandler(mockEvent, 'web.searchDocs', ['not', 'object']);
+      const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', [
+        'not',
+        'object',
+      ]);
 
       expect(executeNativeTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
@@ -110,7 +117,11 @@ describe('ipc-tools', () => {
         cursor = next;
       }
 
-      const result = await toolsExecuteHandler(mockEvent, 'web.searchDocs', deepInput);
+      const result = await toolsExecuteHandler(
+        mockEvent,
+        'brainstrike.readWorkspaceDirectory',
+        deepInput
+      );
 
       expect(executeNativeTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
@@ -138,12 +149,12 @@ describe('ipc-tools', () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(false);
       vi.mocked(isNativeTool).mockReturnValue(true);
 
-      const result = await toolsExecuteHandler(mockEvent, 'brainstrike.retrieveContext', {
-        query: 'test',
+      const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', {
+        path: '/README.md',
       });
 
-      expect(isExecutableNativeTool).toHaveBeenCalledWith('brainstrike.retrieveContext');
-      expect(isNativeTool).toHaveBeenCalledWith('brainstrike.retrieveContext');
+      expect(isExecutableNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile');
+      expect(isNativeTool).toHaveBeenCalledWith('brainstrike.readWorkspaceFile');
       expect(callTool).not.toHaveBeenCalled();
       expect(result).toMatchObject({
         success: false,
@@ -181,7 +192,9 @@ describe('ipc-tools', () => {
       vi.mocked(isExecutableNativeTool).mockReturnValue(true);
       vi.mocked(executeNativeTool).mockRejectedValue(new Error('Native tool crashed'));
 
-      const result = await toolsExecuteHandler(mockEvent, 'web.searchDocs', { query: 'test' });
+      const result = await toolsExecuteHandler(mockEvent, 'brainstrike.readWorkspaceFile', {
+        path: '/README.md',
+      });
 
       expect(result).toMatchObject({
         success: false,

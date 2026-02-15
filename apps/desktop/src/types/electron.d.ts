@@ -1,5 +1,5 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { IFileNode } from '@brainstrike/types';
+import type { AssistantSelectionUpdatePayload, IFileNode } from '@brainstrike/types';
 import type {
   LayoutLoadResult,
   LayoutPersistenceResult,
@@ -154,6 +154,12 @@ declare global {
             durationMs: number;
           }
       >;
+      onRootTreeSelectionUpdate: (
+        callback: (payload: AssistantSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
+      onPreviewContextSelectionUpdate: (
+        callback: (payload: AssistantSelectionUpdatePayload) => void
+      ) => (() => void) | undefined;
     };
   }
 }

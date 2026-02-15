@@ -11,25 +11,25 @@ describe('native-tool-preferences-store', () => {
 
   it('defaults to enabled for known tools', () => {
     const snapshot = useNativeToolPreferencesStore.getState();
-    expect(snapshot.isToolEnabled('brainstrike.hybridSearch')).toBe(true);
+    expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(true);
   });
 
   it('tracks disabled tools and re-enables them', () => {
     const snapshot = useNativeToolPreferencesStore.getState();
-    snapshot.setToolEnabled('brainstrike.hybridSearch', false);
+    snapshot.setToolEnabled('brainstrike.readWorkspaceFile', false);
 
-    expect(snapshot.isToolEnabled('brainstrike.hybridSearch')).toBe(false);
+    expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(false);
 
-    snapshot.setToolEnabled('brainstrike.hybridSearch', true);
-    expect(snapshot.isToolEnabled('brainstrike.hybridSearch')).toBe(true);
+    snapshot.setToolEnabled('brainstrike.readWorkspaceFile', true);
+    expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(true);
   });
 
   it('resets tool state to defaults', () => {
     const snapshot = useNativeToolPreferencesStore.getState();
-    snapshot.setToolEnabled('brainstrike.hybridSearch', false);
-    expect(snapshot.isToolEnabled('brainstrike.hybridSearch')).toBe(false);
+    snapshot.setToolEnabled('brainstrike.readWorkspaceFile', false);
+    expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(false);
 
     snapshot.resetTools();
-    expect(snapshot.isToolEnabled('brainstrike.hybridSearch')).toBe(true);
+    expect(snapshot.isToolEnabled('brainstrike.readWorkspaceFile')).toBe(true);
   });
 });
