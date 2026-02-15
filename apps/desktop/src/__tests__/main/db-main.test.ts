@@ -3,10 +3,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const existsSyncMock = vi.fn();
 const mkdirSyncMock = vi.fn();
+const openSyncMock = vi.fn(() => 123);
+const writeFileSyncMock = vi.fn();
+const closeSyncMock = vi.fn();
+const unlinkSyncMock = vi.fn();
+const readFileSyncMock = vi.fn(() => '');
+const lstatSyncMock = vi.fn(() => ({
+  isDirectory: () => false,
+  isFile: () => false,
+}));
 vi.mock('node:fs', () => ({
   existsSync: existsSyncMock,
   mkdirSync: mkdirSyncMock,
-  default: { existsSync: existsSyncMock, mkdirSync: mkdirSyncMock },
+  openSync: openSyncMock,
+  writeFileSync: writeFileSyncMock,
+  closeSync: closeSyncMock,
+  unlinkSync: unlinkSyncMock,
+  readFileSync: readFileSyncMock,
+  lstatSync: lstatSyncMock,
+  cpSync: vi.fn(),
+  rmSync: vi.fn(),
+  default: {
+    existsSync: existsSyncMock,
+    mkdirSync: mkdirSyncMock,
+    openSync: openSyncMock,
+    writeFileSync: writeFileSyncMock,
+    closeSync: closeSyncMock,
+    unlinkSync: unlinkSyncMock,
+    readFileSync: readFileSyncMock,
+    lstatSync: lstatSyncMock,
+  },
 }));
 
 const appGetPathMock = vi.fn(() => '/mock/documents');
@@ -47,6 +73,7 @@ describe('initializeMainDatabase', () => {
     vi.resetModules();
     vi.clearAllMocks();
     process.env['NODE_ENV'] = 'test';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
   });
 
   it('creates directory, migrates, and returns singleton instance', async () => {

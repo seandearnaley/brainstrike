@@ -1,4 +1,15 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import {
+  closeSync,
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/utils';
 import { app } from 'electron';
@@ -8,6 +19,7 @@ const logger = createLogger('DatabaseMain');
 export type DatabaseInitFailureCategory =
   | 'missing-extension'
   | 'corruption'
+  | 'concurrency'
   | 'wasm-runtime'
   | 'filesystem'
   | 'migration'
@@ -34,11 +46,14 @@ export interface DatabaseInitFailureSnapshot extends ErrorDetails {
 
 export interface DatabaseDiagnosticsSnapshot {
   nodeEnv: string | null;
+  databaseProfile: string | null;
   dataDir: string;
   appDataDir: string;
   initializationAttemptCount: number;
   initializationInFlight: boolean;
   hasDatabaseHandle: boolean;
+  databaseLockHeld: boolean;
+  databaseLockPath: string | null;
   lastInitializationStartedAt: string | null;
   lastInitializationSucceededAt: string | null;
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;
@@ -177,6 +192,14 @@ let lastInitializationFailure: DatabaseInitFailureSnapshot | null = null;
 let runtimeCorruptionRecoveryCount = 0;
 let lastRuntimeCorruptionAt: string | null = null;
 let lastRuntimeCorruptionContext: string | null = null;
+let cachedDatabaseProfile: string | null = null;
+let dbProcessLockFd: number | null = null;
+let dbProcessLockPath: string | null = null;
+
+const DB_PROFILE_ENV = 'BRAINSTRIKE_DB_PROFILE' as const;
+const PROFILES_DIRECTORY_NAME = 'profiles' as const;
+const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
+const DB_LOCK_FILENAME = '.db-process.lock' as const;
 
 // Helper to create and validate a PGlite instance with pgvector
 async function createVectorDatabase(
@@ -202,29 +225,134 @@ async function createVectorDatabase(
   return instance;
 }
 
-/**
- * Get the database directory path
- * Uses a different directory for development vs production
- */
-function getDatabasePath(): string {
-  // In test mode, store the database within the isolated User Data directory.
-  // This ensures that parallel test shards (which have unique User Data dirs)
-  // do not conflict over the same database lock file in the shared Documents folder.
-  if (process.env['NODE_ENV'] === 'test') {
-    return path.join(app.getPath('userData'), 'pgdata');
+function sanitizeProfileSegment(raw: string): string {
+  const sanitized = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!sanitized) {
+    return 'default';
   }
-
-  const isProduction = process.env['NODE_ENV'] === 'production';
-  const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
-  return path.join(app.getPath('documents'), dbDirName, 'pgdata');
+  return sanitized.slice(0, 64);
 }
 
-/**
- * Get the parent application data directory (contains pgdata and potentially other app files)
- */
-function getAppDataPath(): string {
+function parseGitHeadToBranch(headContent: string): string | null {
+  const trimmed = headContent.trim();
+  if (!trimmed.length) {
+    return null;
+  }
+
+  if (trimmed.startsWith('ref:')) {
+    const ref = trimmed.slice(4).trim();
+    if (ref.startsWith('refs/heads/')) {
+      return ref.slice('refs/heads/'.length);
+    }
+    return ref;
+  }
+
+  return `detached-${trimmed.slice(0, 12)}`;
+}
+
+function tryReadGitBranchFromGitDir(gitDirPath: string): string | null {
+  const headPath = path.join(gitDirPath, 'HEAD');
+  if (!existsSync(headPath)) {
+    return null;
+  }
+  return parseGitHeadToBranch(readFileSync(headPath, 'utf8'));
+}
+
+function tryResolveGitDirFromPointer(currentDir: string, gitPointerPath: string): string | null {
+  const gitPointer = readFileSync(gitPointerPath, 'utf8').trim();
+  const gitDirMatch = /^gitdir:\s*(.+)$/i.exec(gitPointer);
+  if (!gitDirMatch?.[1]) {
+    return null;
+  }
+  return path.resolve(currentDir, gitDirMatch[1].trim());
+}
+
+function tryReadGitBranchAtDirectory(currentDir: string): string | null {
+  const gitPath = path.join(currentDir, '.git');
+  if (!existsSync(gitPath)) {
+    return null;
+  }
+
+  try {
+    const stats = lstatSync(gitPath);
+
+    if (stats.isDirectory()) {
+      return tryReadGitBranchFromGitDir(gitPath);
+    }
+
+    if (stats.isFile()) {
+      const resolvedGitDir = tryResolveGitDirFromPointer(currentDir, gitPath);
+      if (resolvedGitDir) {
+        return tryReadGitBranchFromGitDir(resolvedGitDir);
+      }
+    }
+  } catch {
+    // Ignore git metadata parsing errors and fall back to default profile.
+  }
+
+  return null;
+}
+
+function resolveGitBranchFromDirectory(startDir: string): string | null {
+  let currentDir = path.resolve(startDir);
+
+  while (true) {
+    const branchAtCurrentDir = tryReadGitBranchAtDirectory(currentDir);
+    if (branchAtCurrentDir) {
+      return branchAtCurrentDir;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      return null;
+    }
+    currentDir = parentDir;
+  }
+}
+
+function getDatabaseProfile(): string {
+  if (cachedDatabaseProfile) {
+    return cachedDatabaseProfile;
+  }
+
   if (process.env['NODE_ENV'] === 'test') {
-    return path.join(app.getPath('userData'), 'pgdata');
+    cachedDatabaseProfile = 'test';
+    return cachedDatabaseProfile;
+  }
+
+  const explicitProfile = process.env[DB_PROFILE_ENV];
+  const normalizedExplicitProfile = explicitProfile?.trim();
+  if (
+    normalizedExplicitProfile &&
+    normalizedExplicitProfile.length > 0 &&
+    normalizedExplicitProfile.toLowerCase() !== 'undefined'
+  ) {
+    cachedDatabaseProfile = sanitizeProfileSegment(normalizedExplicitProfile);
+    return cachedDatabaseProfile;
+  }
+
+  if (process.env['NODE_ENV'] === 'production') {
+    cachedDatabaseProfile = 'default';
+    return cachedDatabaseProfile;
+  }
+
+  const gitBranch = resolveGitBranchFromDirectory(process.cwd());
+  if (gitBranch) {
+    cachedDatabaseProfile = sanitizeProfileSegment(`branch-${gitBranch}`);
+    return cachedDatabaseProfile;
+  }
+
+  cachedDatabaseProfile = 'dev-default';
+  return cachedDatabaseProfile;
+}
+
+function getDatabaseRootPath(): string {
+  if (process.env['NODE_ENV'] === 'test') {
+    return app.getPath('userData');
   }
 
   const isProduction = process.env['NODE_ENV'] === 'production';
@@ -232,12 +360,57 @@ function getAppDataPath(): string {
   return path.join(app.getPath('documents'), dbDirName);
 }
 
+function getLegacyDatabasePath(): string {
+  if (process.env['NODE_ENV'] === 'test') {
+    return path.join(app.getPath('userData'), 'pgdata');
+  }
+  return path.join(getDatabaseRootPath(), 'pgdata');
+}
+
+function getAppDataPath(): string {
+  if (process.env['NODE_ENV'] === 'test') {
+    return path.join(app.getPath('userData'), 'pgdata');
+  }
+  return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
+}
+
+function getDatabasePath(): string {
+  if (process.env['NODE_ENV'] === 'test') {
+    return path.join(app.getPath('userData'), 'pgdata');
+  }
+  return path.join(getAppDataPath(), 'pgdata');
+}
+
+function migrateLegacyDatabasePathIfNeeded(dataDir: string): void {
+  if (process.env['NODE_ENV'] === 'test') {
+    return;
+  }
+
+  const legacyDataDir = getLegacyDatabasePath();
+  if (legacyDataDir === dataDir || existsSync(dataDir) || !existsSync(legacyDataDir)) {
+    return;
+  }
+
+  mkdirSync(path.dirname(dataDir), { recursive: true });
+  cpSync(legacyDataDir, dataDir, {
+    recursive: true,
+    errorOnExist: false,
+    force: false,
+  });
+
+  logger.warn('Migrated legacy database directory into profiled path', {
+    from: legacyDataDir,
+    to: dataDir,
+    profile: getDatabaseProfile(),
+  });
+}
+
 function createResetBackup(appDataDir: string): string | null {
   if (process.env['NODE_ENV'] === 'test' || !existsSync(appDataDir)) {
     return null;
   }
 
-  const backupRootDir = path.join(path.dirname(appDataDir), 'backups');
+  const backupRootDir = path.join(getDatabaseRootPath(), PROFILE_BACKUPS_DIRECTORY_NAME);
   mkdirSync(backupRootDir, { recursive: true });
   const backupSuffix = new Date().toISOString().replace(/[:.]/g, '-');
   const backupDir = path.join(backupRootDir, `${path.basename(appDataDir)}-${backupSuffix}`);
@@ -249,6 +422,105 @@ function createResetBackup(appDataDir: string): string | null {
   });
 
   return backupDir;
+}
+
+function getDatabaseLockPath(appDataDir: string): string {
+  return path.join(appDataDir, DB_LOCK_FILENAME);
+}
+
+function readLockOwnerPid(lockPath: string): number | null {
+  try {
+    const pidText = readFileSync(lockPath, 'utf8').trim();
+    const parsedPid = Number.parseInt(pidText, 10);
+    if (!Number.isFinite(parsedPid) || parsedPid <= 0) {
+      return null;
+    }
+    return parsedPid;
+  } catch {
+    return null;
+  }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: string }).code
+        : undefined;
+    // EPERM means process exists but this process has no permission to signal it.
+    return code === 'EPERM';
+  }
+}
+
+function acquireDatabaseProcessLock(appDataDir: string): void {
+  if (dbProcessLockFd !== null) {
+    return;
+  }
+
+  const lockPath = getDatabaseLockPath(appDataDir);
+  mkdirSync(appDataDir, { recursive: true });
+
+  const createLock = (): void => {
+    const fd = openSync(lockPath, 'wx');
+    writeFileSync(fd, String(process.pid), 'utf8');
+    dbProcessLockFd = fd;
+    dbProcessLockPath = lockPath;
+  };
+
+  try {
+    createLock();
+    return;
+  } catch (error) {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: string }).code
+        : undefined;
+    if (code !== 'EEXIST') {
+      throw error;
+    }
+  }
+
+  const lockOwnerPid = readLockOwnerPid(lockPath);
+  if (lockOwnerPid && isPidAlive(lockOwnerPid) && lockOwnerPid !== process.pid) {
+    throw new Error(
+      `Database lock is held by process ${lockOwnerPid}. Close other BrainStrike windows/processes and retry.`
+    );
+  }
+
+  // Stale lock file from a dead process (or unreadable pid) - clear and retry exactly once.
+  try {
+    unlinkSync(lockPath);
+  } catch {
+    // Ignore stale lock cleanup errors; lock acquisition below will surface true conflicts.
+  }
+
+  createLock();
+}
+
+function releaseDatabaseProcessLock(): void {
+  if (dbProcessLockFd === null || !dbProcessLockPath) {
+    return;
+  }
+
+  const lockPath = dbProcessLockPath;
+  const fd = dbProcessLockFd;
+  dbProcessLockFd = null;
+  dbProcessLockPath = null;
+
+  try {
+    closeSync(fd);
+  } catch {
+    // Ignore lock close failures during shutdown/reset.
+  }
+
+  try {
+    unlinkSync(lockPath);
+  } catch {
+    // Ignore lock unlink failures (e.g. file already removed by reset cleanup).
+  }
 }
 
 /**
@@ -334,6 +606,13 @@ function classifyInitializationFailure(
     return 'missing-extension';
   }
 
+  if (
+    message.includes('database lock is held') ||
+    message.includes('close other brainstrike windows/processes')
+  ) {
+    return 'concurrency';
+  }
+
   if (isCorruptionError(error)) {
     return 'corruption';
   }
@@ -377,11 +656,14 @@ function recordInitializationSuccess(): void {
 export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
   return {
     nodeEnv: process.env['NODE_ENV'] ?? null,
+    databaseProfile: process.env['NODE_ENV'] === 'test' ? 'test' : getDatabaseProfile(),
     dataDir: getDatabasePath(),
     appDataDir: getAppDataPath(),
     initializationAttemptCount,
     initializationInFlight: dbInitializationPromise !== null,
     hasDatabaseHandle: Boolean(db),
+    databaseLockHeld: dbProcessLockFd !== null,
+    databaseLockPath: dbProcessLockPath,
     lastInitializationStartedAt,
     lastInitializationSucceededAt,
     lastInitializationFailure,
@@ -403,6 +685,7 @@ async function safeCloseDatabase(): Promise<void> {
     // ignore close errors
   } finally {
     db = null;
+    releaseDatabaseProcessLock();
   }
 }
 
@@ -474,6 +757,10 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
   initializationAttemptCount += 1;
   lastInitializationStartedAt = new Date().toISOString();
   const dataDir = getDatabasePath();
+  const appDataDir = getAppDataPath();
+
+  migrateLegacyDatabasePathIfNeeded(dataDir);
+
   if (!existsSync(dataDir)) {
     mkdirSync(dataDir, { recursive: true });
     logger.info(`Created database directory: ${dataDir}`);
@@ -487,7 +774,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     recordInitializationFailure('load-extensions', err);
     logger.error('Failed to load required PGlite modules', {
       dataDir,
-      appDataDir: getAppDataPath(),
+      appDataDir,
       failure: lastInitializationFailure,
     });
     throw err instanceof Error ? err : new Error(getErrorDetails(err).message);
@@ -498,6 +785,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     if (!loadedPGlite) {
       throw new Error('PGlite modules were not loaded');
     }
+    acquireDatabaseProcessLock(appDataDir);
     db = await createVectorDatabase(
       loadedPGlite.PGlite,
       dataDir,
@@ -515,7 +803,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Failed to initialize database with pgvector', {
       dataDir,
-      appDataDir: getAppDataPath(),
+      appDataDir,
       failure: lastInitializationFailure,
     });
     throw new Error(`pgvector extension is required and failed to initialize via PGlite: ${msg}.`);
@@ -537,7 +825,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Database migrations failed', {
       dataDir,
-      appDataDir: getAppDataPath(),
+      appDataDir,
       failure: lastInitializationFailure,
     });
     throw new Error(`Database migrations failed with pgvector: ${msg}`);
@@ -588,10 +876,14 @@ export async function getDatabase(): Promise<any> {
  * Close the database connection
  */
 export async function closeDatabase(): Promise<void> {
-  if (db) {
-    await db.close();
+  try {
+    if (db) {
+      await db.close();
+      logger.info('Database connection closed');
+    }
+  } finally {
     db = null;
-    logger.info('Database connection closed');
+    releaseDatabaseProcessLock();
   }
 }
 
@@ -619,9 +911,8 @@ export async function handleRuntimeCorruption(context: string): Promise<any> {
 }
 
 /**
- * Reset local database by removing the entire app data directory and closing any open connection.
- * This deletes both the pgdata folder AND the parent BrainStrike/BrainStrike-dev folder
- * to ensure a complete clean slate, including any lock files or corrupted state.
+ * Reset local database by removing the active profile directory and closing any open connection.
+ * This deletes the profile-scoped pgdata and lock files while leaving other profiles untouched.
  * Next access will lazily recreate and migrate from scratch.
  */
 export async function resetLocalDatabase(): Promise<void> {
@@ -649,7 +940,7 @@ export async function resetLocalDatabase(): Promise<void> {
     throw err;
   }
 
-  // Delete the entire app data directory (parent folder) for a complete reset
+  // Delete the active profile directory for a complete profile-scoped reset.
   try {
     rmSync(appDataDir, { recursive: true, force: true });
     logger.info(`Removed app data directory: ${appDataDir}`);

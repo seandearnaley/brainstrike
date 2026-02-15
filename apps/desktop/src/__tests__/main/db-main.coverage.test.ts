@@ -14,6 +14,15 @@ vi.mock('node:fs', async (importOriginal) => {
     mkdirSync: vi.fn(),
     rmSync: vi.fn(),
     cpSync: vi.fn(),
+    openSync: vi.fn(() => 123),
+    writeFileSync: vi.fn(),
+    closeSync: vi.fn(),
+    unlinkSync: vi.fn(),
+    readFileSync: vi.fn(() => ''),
+    lstatSync: vi.fn(() => ({
+      isDirectory: () => false,
+      isFile: () => false,
+    })),
   };
   return {
     ...mod,
@@ -25,6 +34,8 @@ vi.mock('node:fs', async (importOriginal) => {
 describe('db-main coverage helpers', () => {
   beforeEach(() => {
     vi.resetModules();
+    process.env['NODE_ENV'] = 'test';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
     vi.doMock('@electric-sql/pglite/vector', () => ({ vector: { name: 'vector' } }));
   });
 

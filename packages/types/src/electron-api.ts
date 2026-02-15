@@ -11,6 +11,7 @@ export interface DatabaseTestResult {
 export type DatabaseInitFailureCategory =
   | 'missing-extension'
   | 'corruption'
+  | 'concurrency'
   | 'wasm-runtime'
   | 'filesystem'
   | 'migration'
@@ -34,11 +35,14 @@ export interface DatabaseInitFailureSnapshot {
 
 export interface DatabaseDiagnosticsSnapshot {
   nodeEnv: string | null;
+  databaseProfile: string | null;
   dataDir: string;
   appDataDir: string;
   initializationAttemptCount: number;
   initializationInFlight: boolean;
   hasDatabaseHandle: boolean;
+  databaseLockHeld: boolean;
+  databaseLockPath: string | null;
   lastInitializationStartedAt: string | null;
   lastInitializationSucceededAt: string | null;
   lastInitializationFailure: DatabaseInitFailureSnapshot | null;

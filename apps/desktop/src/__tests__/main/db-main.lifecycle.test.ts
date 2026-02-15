@@ -5,16 +5,37 @@ const existsSyncMock = vi.fn();
 const mkdirSyncMock = vi.fn();
 const rmSyncMock = vi.fn();
 const cpSyncMock = vi.fn();
+const openSyncMock = vi.fn(() => 123);
+const writeFileSyncMock = vi.fn();
+const closeSyncMock = vi.fn();
+const unlinkSyncMock = vi.fn();
+const readFileSyncMock = vi.fn(() => '');
+const lstatSyncMock = vi.fn(() => ({
+  isDirectory: () => false,
+  isFile: () => false,
+}));
 vi.mock('node:fs', () => ({
   existsSync: existsSyncMock,
   mkdirSync: mkdirSyncMock,
   rmSync: rmSyncMock,
   cpSync: cpSyncMock,
+  openSync: openSyncMock,
+  writeFileSync: writeFileSyncMock,
+  closeSync: closeSyncMock,
+  unlinkSync: unlinkSyncMock,
+  readFileSync: readFileSyncMock,
+  lstatSync: lstatSyncMock,
   default: {
     existsSync: existsSyncMock,
     mkdirSync: mkdirSyncMock,
     rmSync: rmSyncMock,
     cpSync: cpSyncMock,
+    openSync: openSyncMock,
+    writeFileSync: writeFileSyncMock,
+    closeSync: closeSyncMock,
+    unlinkSync: unlinkSyncMock,
+    readFileSync: readFileSyncMock,
+    lstatSync: lstatSyncMock,
   },
 }));
 
@@ -56,6 +77,7 @@ describe('db-main lifecycle', () => {
     vi.resetModules();
     vi.clearAllMocks();
     process.env['NODE_ENV'] = 'test';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = '';
     existsSyncMock.mockReturnValue(true);
   });
 
@@ -86,13 +108,53 @@ describe('db-main lifecycle', () => {
 
   it('computes production data dir when NODE_ENV=production', async () => {
     process.env['NODE_ENV'] = 'production';
+    existsSyncMock.mockImplementation(() => false);
     const { initializeMainDatabase } = await import('../../db-main');
-    // Force create case to exercise mkdir path and dataDir computation
-    existsSyncMock.mockReturnValueOnce(false);
     await initializeMainDatabase();
-    const expectedPath = path.join('/mock/documents', 'BrainStrike', 'pgdata');
+    const expectedPath = path.join(
+      '/mock/documents',
+      'BrainStrike',
+      'profiles',
+      'default',
+      'pgdata'
+    );
     expect(mkdirSyncMock).not.toHaveBeenCalledWith(expect.not.stringContaining('BrainStrike-dev'));
     expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
+  });
+
+  it('uses profile-scoped data directory in development mode', async () => {
+    process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'feature-branch';
+    existsSyncMock.mockImplementation(() => false);
+
+    const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    await initializeMainDatabase();
+
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.databaseProfile).toBe('feature-branch');
+    expect(diagnostics.dataDir).toBe(
+      path.join('/mock/documents', 'BrainStrike-dev', 'profiles', 'feature-branch', 'pgdata')
+    );
+  });
+
+  it('fails fast with concurrency category when lock is held by another process', async () => {
+    const lockError = new Error('lock exists') as Error & { code: string };
+    lockError.code = 'EEXIST';
+    openSyncMock.mockImplementationOnce(() => {
+      throw lockError;
+    });
+    readFileSyncMock.mockReturnValueOnce('424242');
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => undefined);
+
+    try {
+      const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+      await expect(initializeMainDatabase()).rejects.toThrow(/Database lock is held by process/);
+      const diagnostics = getDatabaseDiagnostics();
+      expect(diagnostics.lastInitializationFailure?.category).toBe('concurrency');
+      expect(diagnostics.lastInitializationFailure?.stage).toBe('open-database');
+    } finally {
+      killSpy.mockRestore();
+    }
   });
 
   it('auto-recovers from database corruption during initialization', async () => {
@@ -167,16 +229,24 @@ describe('db-main lifecycle', () => {
 
   it('resetLocalDatabase deletes parent app data directory', async () => {
     process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
     vi.resetModules();
 
     const { resetLocalDatabase } = await import('../../db-main');
     await resetLocalDatabase();
 
-    // Should delete the parent BrainStrike-dev folder, not just pgdata
-    const expectedAppDataPath = path.join('/mock/documents', 'BrainStrike-dev');
+    // Should delete only the active profile directory.
+    const expectedAppDataPath = path.join(
+      '/mock/documents',
+      'BrainStrike-dev',
+      'profiles',
+      'test-profile'
+    );
     expect(cpSyncMock).toHaveBeenCalledWith(
       expectedAppDataPath,
-      expect.stringContaining(path.join('/mock/documents', 'backups', 'BrainStrike-dev-')),
+      expect.stringContaining(
+        path.join('/mock/documents', 'BrainStrike-dev', 'backups', 'test-profile-')
+      ),
       { recursive: true, errorOnExist: true, force: false }
     );
     expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { recursive: true, force: true });

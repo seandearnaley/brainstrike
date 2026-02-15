@@ -27,12 +27,15 @@ const {
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
   const getDatabaseDiagnosticsMock = vi.fn(() => ({
-    dataDir: '/mock/documents/BrainStrike-dev/pgdata',
-    appDataDir: '/mock/documents/BrainStrike-dev',
+    databaseProfile: 'test',
+    dataDir: '/mock/documents/BrainStrike-dev/profiles/test/pgdata',
+    appDataDir: '/mock/documents/BrainStrike-dev/profiles/test',
     nodeEnv: 'test',
     initializationAttemptCount: 1,
     initializationInFlight: false,
     hasDatabaseHandle: true,
+    databaseLockHeld: true,
+    databaseLockPath: '/mock/documents/BrainStrike-dev/profiles/test/.db-process.lock',
     lastInitializationStartedAt: '2026-02-15T00:00:00.000Z',
     lastInitializationSucceededAt: '2026-02-15T00:00:01.000Z',
     lastInitializationFailure: null,
@@ -419,12 +422,15 @@ describe('database IPC handlers', () => {
 
     expect(getDatabaseDiagnosticsMock).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
-      dataDir: '/mock/documents/BrainStrike-dev/pgdata',
-      appDataDir: '/mock/documents/BrainStrike-dev',
+      databaseProfile: 'test',
+      dataDir: '/mock/documents/BrainStrike-dev/profiles/test/pgdata',
+      appDataDir: '/mock/documents/BrainStrike-dev/profiles/test',
       nodeEnv: 'test',
       initializationAttemptCount: 1,
       initializationInFlight: false,
       hasDatabaseHandle: true,
+      databaseLockHeld: true,
+      databaseLockPath: '/mock/documents/BrainStrike-dev/profiles/test/.db-process.lock',
       lastInitializationStartedAt: '2026-02-15T00:00:00.000Z',
       lastInitializationSucceededAt: '2026-02-15T00:00:01.000Z',
       lastInitializationFailure: null,

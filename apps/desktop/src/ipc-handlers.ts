@@ -10,7 +10,7 @@ import type { LayoutLoadResult, LayoutPersistenceResult } from '@brainstrike/ui'
 import { createLogger } from '@brainstrike/utils';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
-import { app, ipcMain } from 'electron';
+import { ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { z } from 'zod';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -647,12 +647,8 @@ export function registerIpcHandlers(
 
   // Database path IPC handler for PGlite directory
   registerHandler('db:getUserDataPath', async (_e: IpcMainInvokeEvent) => {
-    if (process.env['NODE_ENV'] === 'test') {
-      return path.join(app.getPath('userData'), 'pgdata');
-    }
-    const isProduction = process.env['NODE_ENV'] === 'production';
-    const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
-    return path.join(app.getPath('documents'), dbDirName, 'pgdata');
+    const { getDatabaseDiagnostics } = await import('./db-main');
+    return getDatabaseDiagnostics().dataDir;
   });
 
   return () => {
