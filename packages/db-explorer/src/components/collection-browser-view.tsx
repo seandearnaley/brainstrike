@@ -352,6 +352,11 @@ export function CollectionBrowserView({
     return buildSelectedNodeData(selectedNodeType, selectedNodeId, records, chunks);
   }, [selectedId, selectedNodeType, selectedNodeId, records, chunks]);
 
+  const hasInspectableSelection = useMemo(
+    () => selectedNodeType !== null && selectedNodeId !== null && actualSelectedNodeData !== null,
+    [selectedNodeType, selectedNodeId, actualSelectedNodeData]
+  );
+
   // Handle expansion state changes
   const handleExpandedIdsChange = useCallback(
     (ids: Set<string>) => {
@@ -559,7 +564,7 @@ export function CollectionBrowserView({
       {/* Main content area */}
       <div className="relative flex min-h-0 flex-1 border-t">
         {/* Chip handle for collapsed inspector panel */}
-        {isInspectorCollapsed && (
+        {hasInspectableSelection && isInspectorCollapsed && (
           <div className="absolute top-1/2 right-0 z-10 -translate-y-1/2">
             <Button
               aria-label="Show inspector panel"
@@ -577,7 +582,9 @@ export function CollectionBrowserView({
           {/* Main browser */}
           <Panel
             className="min-w-0"
-            defaultSize={`${100 - (isInspectorCollapsed ? 0 : inspectorWidth)}%`}
+            defaultSize={`${
+              hasInspectableSelection && !isInspectorCollapsed ? 100 - inspectorWidth : 100
+            }%`}
             minSize="30%"
           >
             <CollectionBrowser
@@ -602,7 +609,7 @@ export function CollectionBrowserView({
             />
           </Panel>
 
-          {!isInspectorCollapsed && (
+          {hasInspectableSelection && !isInspectorCollapsed && (
             <>
               <Separator className="w-1 bg-border transition-colors hover:bg-primary/20" />
 
