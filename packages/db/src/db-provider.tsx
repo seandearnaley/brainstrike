@@ -1,4 +1,4 @@
-import type { ElectronDatabaseAPI } from '@brainstrike/types';
+import type { DatabaseDiagnosticsSnapshot, ElectronDatabaseAPI } from '@brainstrike/types';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
@@ -126,6 +126,44 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
   return handle;
 }
 
+function formatDesktopDatabaseInitError(
+  diagnostics: DatabaseDiagnosticsSnapshot | null,
+  fallbackMessage: string
+): string {
+  const failure = diagnostics?.lastInitializationFailure;
+  const failureDetail = failure?.message ? ` Last failure: ${failure.message}` : '';
+
+  if (!failure) {
+    return `pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.${failureDetail}`;
+  }
+
+  if (failure.category === 'concurrency') {
+    return `Desktop database is already in use by another BrainStrike process. Close other instances and restart.${failureDetail}`;
+  }
+
+  if (failure.category === 'corruption') {
+    return `Desktop database files appear corrupted and cannot be opened safely.${failureDetail}`;
+  }
+
+  if (failure.category === 'wasm-runtime') {
+    return `Desktop database runtime aborted while opening the database.${failureDetail}`;
+  }
+
+  if (failure.category === 'filesystem') {
+    return `Desktop database filesystem access failed.${failureDetail}`;
+  }
+
+  if (failure.category === 'migration') {
+    return `Desktop database migration failed.${failureDetail}`;
+  }
+
+  if (failure.category === 'missing-extension') {
+    return `pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.${failureDetail}`;
+  }
+
+  return `${fallbackMessage}${failureDetail}`;
+}
+
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
   const [fileRecordRepository, setFileRecordRepository] = useState<
@@ -217,10 +255,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       if (!hasVector) {
         const diagnostics = await getElectronDiagnostics(electronDB);
         logger.error('Desktop database initialization missing pgvector extension', { diagnostics });
-        const lastFailureMessage = diagnostics?.lastInitializationFailure?.message;
-        const failureDetail = lastFailureMessage ? ` Last failure: ${lastFailureMessage}` : '';
         throw new Error(
-          `pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.${failureDetail}`
+          formatDesktopDatabaseInitError(diagnostics, 'Desktop database failed to initialize.')
         );
       }
       const chunkRepo = new ElectronFileChunkRepository({

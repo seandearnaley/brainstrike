@@ -1,10 +1,8 @@
 import {
-  closeSync,
   cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
-  openSync,
   readFileSync,
   rmSync,
   unlinkSync,
@@ -193,7 +191,6 @@ let runtimeCorruptionRecoveryCount = 0;
 let lastRuntimeCorruptionAt: string | null = null;
 let lastRuntimeCorruptionContext: string | null = null;
 let cachedDatabaseProfile: string | null = null;
-let dbProcessLockFd: number | null = null;
 let dbProcessLockPath: string | null = null;
 
 const DB_PROFILE_ENV = 'BRAINSTRIKE_DB_PROFILE' as const;
@@ -456,7 +453,7 @@ function isPidAlive(pid: number): boolean {
 }
 
 function acquireDatabaseProcessLock(appDataDir: string): void {
-  if (dbProcessLockFd !== null) {
+  if (dbProcessLockPath !== null) {
     return;
   }
 
@@ -464,9 +461,9 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
   mkdirSync(appDataDir, { recursive: true });
 
   const createLock = (): void => {
-    const fd = openSync(lockPath, 'wx');
-    writeFileSync(fd, String(process.pid), 'utf8');
-    dbProcessLockFd = fd;
+    // Use a single atomic create+write to avoid a race where a second process reads
+    // an empty lock file before the owner PID is written.
+    writeFileSync(lockPath, String(process.pid), { encoding: 'utf8', flag: 'wx' });
     dbProcessLockPath = lockPath;
   };
 
@@ -484,6 +481,11 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
   }
 
   const lockOwnerPid = readLockOwnerPid(lockPath);
+  if (lockOwnerPid === process.pid) {
+    dbProcessLockPath = lockPath;
+    return;
+  }
+
   if (lockOwnerPid && isPidAlive(lockOwnerPid) && lockOwnerPid !== process.pid) {
     throw new Error(
       `Database lock is held by process ${lockOwnerPid}. Close other BrainStrike windows/processes and retry.`
@@ -501,20 +503,12 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
 }
 
 function releaseDatabaseProcessLock(): void {
-  if (dbProcessLockFd === null || !dbProcessLockPath) {
+  if (!dbProcessLockPath) {
     return;
   }
 
   const lockPath = dbProcessLockPath;
-  const fd = dbProcessLockFd;
-  dbProcessLockFd = null;
   dbProcessLockPath = null;
-
-  try {
-    closeSync(fd);
-  } catch {
-    // Ignore lock close failures during shutdown/reset.
-  }
 
   try {
     unlinkSync(lockPath);
@@ -662,7 +656,7 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
     initializationAttemptCount,
     initializationInFlight: dbInitializationPromise !== null,
     hasDatabaseHandle: Boolean(db),
-    databaseLockHeld: dbProcessLockFd !== null,
+    databaseLockHeld: dbProcessLockPath !== null,
     databaseLockPath: dbProcessLockPath,
     lastInitializationStartedAt,
     lastInitializationSucceededAt,
@@ -693,12 +687,10 @@ async function safeCloseDatabase(): Promise<void> {
  * Attempt corruption recovery by resetting and reinitializing the database.
  * Throws if recovery fails.
  */
-async function attemptCorruptionRecovery(
-  context: string,
-  reason: 'corruption' | 'wasm-abort'
-): Promise<void> {
-  const reasonLabel = reason === 'corruption' ? 'database corruption' : 'WASM initialization abort';
-  logger.warn(`Recoverable ${reasonLabel} detected during ${context}. Attempting auto-recovery...`);
+async function attemptCorruptionRecovery(context: string): Promise<void> {
+  logger.warn(
+    `Recoverable database corruption detected during ${context}. Attempting auto-recovery...`
+  );
   await safeCloseDatabase();
   await resetLocalDatabase();
   logger.info('Database reset complete. Retrying initialization...');
@@ -717,23 +709,17 @@ async function handleCorruptionError(
   await safeCloseDatabase();
 
   const hasCorruptionSignal = isCorruptionError(err);
-  const hasWasmAbortSignal = isWasmAbortError(err);
-  if (!(retryAfterCorruption && (hasCorruptionSignal || hasWasmAbortSignal))) {
+  if (!(retryAfterCorruption && hasCorruptionSignal)) {
     return null; // Signal that we didn't handle it
   }
 
-  const recoveryReason: 'corruption' | 'wasm-abort' = hasCorruptionSignal
-    ? 'corruption'
-    : 'wasm-abort';
-
   try {
-    await attemptCorruptionRecovery(context, recoveryReason);
+    await attemptCorruptionRecovery(context);
     return await initializeMainDatabaseInternal(false);
   } catch (resetErr) {
     recordInitializationFailure('runtime-corruption-recovery', resetErr);
     logger.error('Auto-recovery failed', {
       context,
-      recoveryReason,
       error: getErrorDetails(resetErr),
       originalError: getErrorDetails(err),
     });

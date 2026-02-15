@@ -140,7 +140,7 @@ describe('db-main lifecycle', () => {
   it('fails fast with concurrency category when lock is held by another process', async () => {
     const lockError = new Error('lock exists') as Error & { code: string };
     lockError.code = 'EEXIST';
-    openSyncMock.mockImplementationOnce(() => {
+    writeFileSyncMock.mockImplementationOnce(() => {
       throw lockError;
     });
     readFileSyncMock.mockReturnValueOnce('424242');
@@ -195,7 +195,7 @@ describe('db-main lifecycle', () => {
     expect(db).toBeDefined();
   });
 
-  it('auto-recovers from wasm abort during initialization', async () => {
+  it('does not auto-recover from wasm abort during initialization', async () => {
     const wasmAbort = new Error('Aborted(). Build with -sASSERTIONS for more info.');
 
     PGliteMock.mockImplementationOnce(function (this: Record<string, unknown>) {
@@ -203,11 +203,12 @@ describe('db-main lifecycle', () => {
       throw wasmAbort;
     });
 
-    const { initializeMainDatabase } = await import('../../db-main');
-    const db = await initializeMainDatabase();
-
-    expect(rmSyncMock).toHaveBeenCalled();
-    expect(db).toBeDefined();
+    const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(/aborted/i);
+    expect(rmSyncMock).not.toHaveBeenCalled();
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.lastInitializationFailure?.category).toBe('wasm-runtime');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('open-database');
   });
 
   it('throws if auto-recovery fails', async () => {
