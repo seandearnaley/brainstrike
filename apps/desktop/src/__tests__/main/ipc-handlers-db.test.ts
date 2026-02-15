@@ -9,6 +9,7 @@ const {
   isCorruptionErrorMock,
   handleRuntimeCorruptionMock,
   resetLocalDatabaseMock,
+  getDatabaseDiagnosticsMock,
 } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mockDb = {
@@ -25,6 +26,20 @@ const {
   const isCorruptionErrorMock = vi.fn(() => false);
   const handleRuntimeCorruptionMock = vi.fn();
   const resetLocalDatabaseMock = vi.fn();
+  const getDatabaseDiagnosticsMock = vi.fn(() => ({
+    dataDir: '/mock/documents/BrainStrike-dev/pgdata',
+    appDataDir: '/mock/documents/BrainStrike-dev',
+    nodeEnv: 'test',
+    initializationAttemptCount: 1,
+    initializationInFlight: false,
+    hasDatabaseHandle: true,
+    lastInitializationStartedAt: '2026-02-15T00:00:00.000Z',
+    lastInitializationSucceededAt: '2026-02-15T00:00:01.000Z',
+    lastInitializationFailure: null,
+    runtimeCorruptionRecoveryCount: 0,
+    lastRuntimeCorruptionAt: null,
+    lastRuntimeCorruptionContext: null,
+  }));
   return {
     handlers,
     mockDb,
@@ -33,6 +48,7 @@ const {
     isCorruptionErrorMock,
     handleRuntimeCorruptionMock,
     resetLocalDatabaseMock,
+    getDatabaseDiagnosticsMock,
   };
 });
 
@@ -91,6 +107,7 @@ vi.mock('../../db-main', () => ({
   isCorruptionError: isCorruptionErrorMock,
   handleRuntimeCorruption: handleRuntimeCorruptionMock,
   resetLocalDatabase: resetLocalDatabaseMock,
+  getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
 }));
 
 vi.mock('@brainstrike/utils', async (importOriginal) => {
@@ -390,6 +407,31 @@ describe('database IPC handlers', () => {
     expect(String(prodPath)).toContain('BrainStrike');
 
     process.env['NODE_ENV'] = originalEnv;
+  });
+
+  it('db:diagnostics returns main-process diagnostics snapshot', async () => {
+    const handler = handlers.get('db:diagnostics');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const result = await handler({} as unknown);
+
+    expect(getDatabaseDiagnosticsMock).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      dataDir: '/mock/documents/BrainStrike-dev/pgdata',
+      appDataDir: '/mock/documents/BrainStrike-dev',
+      nodeEnv: 'test',
+      initializationAttemptCount: 1,
+      initializationInFlight: false,
+      hasDatabaseHandle: true,
+      lastInitializationStartedAt: '2026-02-15T00:00:00.000Z',
+      lastInitializationSucceededAt: '2026-02-15T00:00:01.000Z',
+      lastInitializationFailure: null,
+      runtimeCorruptionRecoveryCount: 0,
+      lastRuntimeCorruptionAt: null,
+      lastRuntimeCorruptionContext: null,
+    });
   });
 
   it('db:test success path', async () => {

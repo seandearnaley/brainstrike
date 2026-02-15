@@ -5,6 +5,48 @@ import { app } from 'electron';
 
 const logger = createLogger('DatabaseMain');
 
+export type DatabaseInitFailureCategory =
+  | 'missing-extension'
+  | 'corruption'
+  | 'wasm-runtime'
+  | 'filesystem'
+  | 'migration'
+  | 'unknown';
+
+export type DatabaseInitStage =
+  | 'load-extensions'
+  | 'open-database'
+  | 'migration'
+  | 'runtime-corruption-recovery';
+
+interface ErrorDetails {
+  message: string;
+  stack?: string;
+  name?: string;
+  code?: string;
+}
+
+export interface DatabaseInitFailureSnapshot extends ErrorDetails {
+  stage: DatabaseInitStage;
+  category: DatabaseInitFailureCategory;
+  timestamp: string;
+}
+
+export interface DatabaseDiagnosticsSnapshot {
+  nodeEnv: string | null;
+  dataDir: string;
+  appDataDir: string;
+  initializationAttemptCount: number;
+  initializationInFlight: boolean;
+  hasDatabaseHandle: boolean;
+  lastInitializationStartedAt: string | null;
+  lastInitializationSucceededAt: string | null;
+  lastInitializationFailure: DatabaseInitFailureSnapshot | null;
+  runtimeCorruptionRecoveryCount: number;
+  lastRuntimeCorruptionAt: string | null;
+  lastRuntimeCorruptionContext: string | null;
+}
+
 interface ExtensionModuleShape {
   default?: unknown;
   vector?: unknown;
@@ -28,26 +70,44 @@ function extractExtensionExport(module: unknown, field: 'vector' | 'live'): unkn
   return module;
 }
 
-function getErrorDetails(error: unknown) {
+function getErrorDetails(error: unknown): ErrorDetails {
+  const errorCode =
+    error && typeof error === 'object' && 'code' in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  const code = typeof errorCode === 'string' ? errorCode : undefined;
+
   if (error instanceof Error) {
-    return {
+    const details: ErrorDetails = {
       message: error.message,
-      stack: error.stack,
-      name: error.name,
     };
+    if (error.stack) {
+      details.stack = error.stack;
+    }
+    if (error.name) {
+      details.name = error.name;
+    }
+    if (code) {
+      details.code = code;
+    }
+    return details;
   }
   if (error === null || error === undefined) {
-    return {
+    const details: ErrorDetails = {
       message: 'unknown error',
-      stack: undefined,
-      name: undefined,
     };
+    if (code) {
+      details.code = code;
+    }
+    return details;
   }
-  return {
+  const details: ErrorDetails = {
     message: String(error),
-    stack: undefined,
-    name: undefined,
   };
+  if (code) {
+    details.code = code;
+  }
+  return details;
 }
 
 async function loadPgVectorExtension(): Promise<unknown> {
@@ -110,6 +170,13 @@ let db: any = null;
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
 let dbInitializationPromise: Promise<any> | null = null;
+let initializationAttemptCount = 0;
+let lastInitializationStartedAt: string | null = null;
+let lastInitializationSucceededAt: string | null = null;
+let lastInitializationFailure: DatabaseInitFailureSnapshot | null = null;
+let runtimeCorruptionRecoveryCount = 0;
+let lastRuntimeCorruptionAt: string | null = null;
+let lastRuntimeCorruptionContext: string | null = null;
 
 // Helper to create and validate a PGlite instance with pgvector
 async function createVectorDatabase(
@@ -213,6 +280,81 @@ export function isCorruptionError(error: unknown): boolean {
   return CORRUPTION_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern.toLowerCase()));
 }
 
+const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR'] as const;
+
+function classifyInitializationFailure(
+  stage: DatabaseInitStage,
+  error: unknown
+): DatabaseInitFailureCategory {
+  const details = getErrorDetails(error);
+  const message = details.message.toLowerCase();
+
+  if (
+    stage === 'load-extensions' ||
+    message.includes('@electric-sql/pglite/vector') ||
+    message.includes('vector export missing') ||
+    message.includes('failed to load via esm import')
+  ) {
+    return 'missing-extension';
+  }
+
+  if (isCorruptionError(error)) {
+    return 'corruption';
+  }
+
+  if (
+    (details.code &&
+      FILESYSTEM_ERROR_CODES.includes(details.code as (typeof FILESYSTEM_ERROR_CODES)[number])) ||
+    message.includes('permission denied') ||
+    message.includes('read-only file system') ||
+    message.includes('no such file')
+  ) {
+    return 'filesystem';
+  }
+
+  if (stage === 'migration' || message.includes('migrations failed')) {
+    return 'migration';
+  }
+
+  if (message.includes('aborted()') || message.includes('wasm')) {
+    return 'wasm-runtime';
+  }
+
+  return 'unknown';
+}
+
+function recordInitializationFailure(stage: DatabaseInitStage, error: unknown): void {
+  const details = getErrorDetails(error);
+  lastInitializationFailure = {
+    ...details,
+    stage,
+    category: classifyInitializationFailure(stage, error),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function recordInitializationSuccess(): void {
+  lastInitializationSucceededAt = new Date().toISOString();
+  lastInitializationFailure = null;
+}
+
+export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
+  return {
+    nodeEnv: process.env['NODE_ENV'] ?? null,
+    dataDir: getDatabasePath(),
+    appDataDir: getAppDataPath(),
+    initializationAttemptCount,
+    initializationInFlight: dbInitializationPromise !== null,
+    hasDatabaseHandle: Boolean(db),
+    lastInitializationStartedAt,
+    lastInitializationSucceededAt,
+    lastInitializationFailure,
+    runtimeCorruptionRecoveryCount,
+    lastRuntimeCorruptionAt,
+    lastRuntimeCorruptionContext,
+  };
+}
+
 /**
  * Safely close the database connection, ignoring errors
  */
@@ -259,7 +401,12 @@ async function handleCorruptionError(
     await attemptCorruptionRecovery(context);
     return await initializeMainDatabaseInternal(false);
   } catch (resetErr) {
-    logger.error('Auto-recovery failed:', resetErr);
+    recordInitializationFailure('runtime-corruption-recovery', resetErr);
+    logger.error('Auto-recovery failed', {
+      context,
+      error: getErrorDetails(resetErr),
+      originalError: getErrorDetails(err),
+    });
     throw new Error(
       `Database corruption detected during ${context} and auto-recovery failed. Please manually delete the BrainStrike data folder and restart the app.`
     );
@@ -277,43 +424,79 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     return db;
   }
 
+  initializationAttemptCount += 1;
+  lastInitializationStartedAt = new Date().toISOString();
   const dataDir = getDatabasePath();
   if (!existsSync(dataDir)) {
     mkdirSync(dataDir, { recursive: true });
     logger.info(`Created database directory: ${dataDir}`);
   }
 
-  const { PGlite, migrate, vector, live } = await getPGlite();
+  let loadedPGlite: Awaited<ReturnType<typeof getPGlite>> | null = null;
+
+  try {
+    loadedPGlite = await getPGlite();
+  } catch (err) {
+    recordInitializationFailure('load-extensions', err);
+    logger.error('Failed to load required PGlite modules', {
+      dataDir,
+      appDataDir: getAppDataPath(),
+      failure: lastInitializationFailure,
+    });
+    throw err instanceof Error ? err : new Error(getErrorDetails(err).message);
+  }
 
   // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension
   try {
-    db = await createVectorDatabase(PGlite, dataDir, vector, live);
+    if (!loadedPGlite) {
+      throw new Error('PGlite modules were not loaded');
+    }
+    db = await createVectorDatabase(
+      loadedPGlite.PGlite,
+      dataDir,
+      loadedPGlite.vector,
+      loadedPGlite.live
+    );
     logger.info('Database initialized with pgvector extension at:', dataDir);
   } catch (err) {
+    recordInitializationFailure('open-database', err);
     const recovered = await handleCorruptionError(err, 'initialization', retryAfterCorruption);
     if (recovered) {
       return recovered;
     }
 
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Failed to initialize database with pgvector:', msg);
+    logger.error('Failed to initialize database with pgvector', {
+      dataDir,
+      appDataDir: getAppDataPath(),
+      failure: lastInitializationFailure,
+    });
     throw new Error(`pgvector extension is required and failed to initialize via PGlite: ${msg}.`);
   }
 
   // Run migrations
   try {
-    await migrate(db);
+    if (!loadedPGlite) {
+      throw new Error('Database migration function is unavailable');
+    }
+    await loadedPGlite.migrate(db);
   } catch (err) {
+    recordInitializationFailure('migration', err);
     const recovered = await handleCorruptionError(err, 'migration', retryAfterCorruption);
     if (recovered) {
       return recovered;
     }
 
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Database migrations failed:', msg);
+    logger.error('Database migrations failed', {
+      dataDir,
+      appDataDir: getAppDataPath(),
+      failure: lastInitializationFailure,
+    });
     throw new Error(`Database migrations failed with pgvector: ${msg}`);
   }
 
+  recordInitializationSuccess();
   logger.info(`Database initialized successfully at: ${dataDir}`);
   return db;
 }
@@ -378,6 +561,9 @@ export async function reinitializeDatabase(): Promise<any> {
  */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
 export async function handleRuntimeCorruption(context: string): Promise<any> {
+  runtimeCorruptionRecoveryCount += 1;
+  lastRuntimeCorruptionAt = new Date().toISOString();
+  lastRuntimeCorruptionContext = context;
   logger.warn(`Runtime corruption detected during ${context}. Resetting database...`);
   await safeCloseDatabase();
   await resetLocalDatabase();

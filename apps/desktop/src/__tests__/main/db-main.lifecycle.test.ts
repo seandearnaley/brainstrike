@@ -154,4 +154,26 @@ describe('db-main lifecycle', () => {
     const expectedAppDataPath = path.join('/mock/documents', 'BrainStrike-dev');
     expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { recursive: true, force: true });
   });
+
+  it('tracks runtime corruption recovery in diagnostics', async () => {
+    // Ensure we reset any prior constructor override from previous tests
+    PGliteMock.mockImplementation(function (this: {
+      close: () => Promise<void>;
+      query: () => Promise<unknown>;
+      exec: () => Promise<void>;
+    }) {
+      this.close = closeMock;
+      this.query = queryMock;
+      this.exec = execMock;
+    });
+
+    const { handleRuntimeCorruption, getDatabaseDiagnostics } = await import('../../db-main');
+
+    await handleRuntimeCorruption('db:query');
+
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.runtimeCorruptionRecoveryCount).toBe(1);
+    expect(diagnostics.lastRuntimeCorruptionContext).toBe('db:query');
+    expect(diagnostics.lastRuntimeCorruptionAt).not.toBeNull();
+  });
 });

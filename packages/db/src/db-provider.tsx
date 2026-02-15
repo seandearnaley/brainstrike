@@ -167,6 +167,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
   }, []);
 
+  const getElectronDiagnostics = useCallback(async (electronDB: ElectronDatabaseAPI) => {
+    if (!electronDB.diagnostics) {
+      return null;
+    }
+    try {
+      return await electronDB.diagnostics();
+    } catch (error) {
+      logger.warn('Failed to fetch desktop database diagnostics', { error });
+      return null;
+    }
+  }, []);
+
   const initializeElectronIPC = useCallback(
     async (cancelled: { value: boolean }) => {
       if (!(useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.db)) {
@@ -198,12 +210,17 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         const res = await electronDB.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
         hasVector = Array.isArray(res.rows) && res.rows.length > 0;
       } catch (error) {
+        const diagnostics = await getElectronDiagnostics(electronDB);
         hasVector = false;
-        logger.warn('Failed to detect pgvector extension over IPC', { error });
+        logger.warn('Failed to detect pgvector extension over IPC', { error, diagnostics });
       }
       if (!hasVector) {
+        const diagnostics = await getElectronDiagnostics(electronDB);
+        logger.error('Desktop database initialization missing pgvector extension', { diagnostics });
+        const lastFailureMessage = diagnostics?.lastInitializationFailure?.message;
+        const failureDetail = lastFailureMessage ? ` Last failure: ${lastFailureMessage}` : '';
         throw new Error(
-          'pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.'
+          `pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.${failureDetail}`
         );
       }
       const chunkRepo = new ElectronFileChunkRepository({
@@ -242,7 +259,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       return true;
     },
-    [useElectronIPC, testElectronConnection]
+    [useElectronIPC, testElectronConnection, getElectronDiagnostics]
   );
 
   const initializeDirectPGlite = useCallback(

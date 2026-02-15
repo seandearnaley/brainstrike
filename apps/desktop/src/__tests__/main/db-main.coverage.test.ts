@@ -35,8 +35,12 @@ describe('db-main coverage helpers', () => {
     vi.doMock('@electric-sql/pglite/vector', () => {
       throw new Error('vector module missing');
     });
-    const { initializeMainDatabase } = await import('../../db-main');
+    const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
     await expect(initializeMainDatabase()).rejects.toThrow(/pgvector extension is required/i);
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.initializationAttemptCount).toBeGreaterThan(0);
+    expect(diagnostics.lastInitializationFailure?.category).toBe('missing-extension');
+    expect(diagnostics.lastInitializationFailure?.stage).toBe('load-extensions');
   });
 
   it('resetLocalDatabase completes without throwing', async () => {

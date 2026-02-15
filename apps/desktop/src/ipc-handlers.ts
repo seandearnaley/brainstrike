@@ -523,6 +523,11 @@ export function registerIpcHandlers(
     return { success: true, message: 'ping' };
   });
 
+  registerHandler('db:diagnostics', async (_e: IpcMainInvokeEvent) => {
+    const { getDatabaseDiagnostics } = await import('./db-main');
+    return getDatabaseDiagnostics();
+  });
+
   // Database test handler for full connection validation
   registerHandler('db:test', async (_e: IpcMainInvokeEvent) => {
     try {

@@ -8,6 +8,45 @@ export interface DatabaseTestResult {
   message: string;
 }
 
+export type DatabaseInitFailureCategory =
+  | 'missing-extension'
+  | 'corruption'
+  | 'wasm-runtime'
+  | 'filesystem'
+  | 'migration'
+  | 'unknown';
+
+export type DatabaseInitStage =
+  | 'load-extensions'
+  | 'open-database'
+  | 'migration'
+  | 'runtime-corruption-recovery';
+
+export interface DatabaseInitFailureSnapshot {
+  stage: DatabaseInitStage;
+  category: DatabaseInitFailureCategory;
+  timestamp: string;
+  message: string;
+  stack?: string;
+  name?: string;
+  code?: string;
+}
+
+export interface DatabaseDiagnosticsSnapshot {
+  nodeEnv: string | null;
+  dataDir: string;
+  appDataDir: string;
+  initializationAttemptCount: number;
+  initializationInFlight: boolean;
+  hasDatabaseHandle: boolean;
+  lastInitializationStartedAt: string | null;
+  lastInitializationSucceededAt: string | null;
+  lastInitializationFailure: DatabaseInitFailureSnapshot | null;
+  runtimeCorruptionRecoveryCount: number;
+  lastRuntimeCorruptionAt: string | null;
+  lastRuntimeCorruptionContext: string | null;
+}
+
 /**
  * Query result containing rows of data
  */
@@ -53,6 +92,11 @@ export interface ElectronDatabaseAPI {
    * Basic connectivity check
    */
   ping?: () => Promise<unknown>;
+
+  /**
+   * Snapshot of database initialization diagnostics from main process.
+   */
+  diagnostics?: () => Promise<DatabaseDiagnosticsSnapshot>;
 
   /**
    * Test database connection health
