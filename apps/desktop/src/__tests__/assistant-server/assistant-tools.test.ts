@@ -177,6 +177,37 @@ describe('assistant-tools', () => {
     await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
   });
 
+  it('rejects invalid directory payloads instead of crashing', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.readWorkspaceDirectory'];
+
+    await expect(
+      tool.execute({
+        path: null,
+      } as unknown as { path: string })
+    ).rejects.toThrow();
+
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
+  it('rejects binary files for text reads', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const binaryPath = path.join(workspaceRootPath, 'src', 'image.bin');
+    await fsPromises.writeFile(binaryPath, Buffer.from([0, 255, 17, 23]));
+
+    const tools = buildDesktopAssistantTools({ workspaceRootPath } as RuntimeData);
+    const tool = tools['brainstrike.readWorkspaceFile'];
+
+    await expect(
+      tool.execute({
+        path: '/src/image.bin',
+      })
+    ).rejects.toThrow('is a binary file and cannot be read as text');
+
+    await fsPromises.rm(workspaceRootPath, { recursive: true, force: true });
+  });
+
   it('selects root tree files for preview population', async () => {
     const sendMock = vi.fn();
     getAllWindowsMock.mockReturnValue([

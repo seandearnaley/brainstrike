@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import type {
   AgentMessage,
@@ -15,6 +16,7 @@ import {
   toAiSdkStyleStream,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
+import { buildWorkspaceLookupCandidates, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 
 type AssistantUiMessage = AssistantUiMessageStrict;
@@ -52,6 +54,7 @@ export const desktopAssistantServerLogger = logger;
 const MAX_CONTEXT_FILES = 80;
 const MAX_FILE_CONTEXT_CHARS = 3500;
 const MAX_TREE_CONTEXT_LINES = 400;
+const MAX_TREE_CONTEXT_ROWS = 5000;
 const MAX_CONTEXT_REPORT_CHARS = 60_000;
 
 export interface AssistantServerOptions {
@@ -484,30 +487,13 @@ function isQueryableDatabase(
   );
 }
 
-function normalizeWorkspacePathForLookup(path: string): string {
-  return path
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\.\/+/, '')
-    .replace(/^\/+/, '');
-}
-
 function buildContextPathCandidates(paths: readonly string[]): string[] {
-  const candidates = new Set<string>();
-  for (const path of paths) {
-    const normalized = normalizeWorkspacePathForLookup(path);
-    if (normalized.length === 0) {
-      continue;
-    }
-    candidates.add(normalized);
-    candidates.add(`/${normalized}`);
-  }
-  return Array.from(candidates);
+  return buildWorkspaceLookupCandidates(paths);
 }
 
 function buildPathTree(paths: readonly string[], maxLines: number): string {
   const sorted = Array.from(
-    new Set(paths.map(normalizeWorkspacePathForLookup).filter(Boolean))
+    new Set(paths.map(normalizeWorkspaceLookupPath).filter(Boolean))
   ).sort();
   if (sorted.length === 0) {
     return '';
@@ -550,6 +536,15 @@ function clampFileContent(content: string): string {
   return `${content.slice(0, MAX_FILE_CONTEXT_CHARS)}\n[truncated]`;
 }
 
+function escapeXmlAttribute(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
 async function buildContextReport(
   runtimeData: RuntimeData | undefined
 ): Promise<string | undefined> {
@@ -567,7 +562,7 @@ async function buildContextReport(
     ? runtimeData.selectionFilePaths.map((path) => String(path))
     : [];
   const normalizedSelection = Array.from(
-    new Set(selection.map((path) => normalizeWorkspacePathForLookup(path)).filter(Boolean))
+    new Set(selection.map((filePath) => normalizeWorkspaceLookupPath(filePath)).filter(Boolean))
   );
   if (normalizedSelection.length === 0) {
     return;
@@ -590,20 +585,22 @@ async function buildContextReport(
   if (includeFileReport) {
     const candidates = buildContextPathCandidates(selectedForContext);
     const fileRowsResult = await db.query(
-      'SELECT path, content\n       FROM file_records\n       WHERE path = ANY($1::text[])',
+      `SELECT path, content
+       FROM file_records
+       WHERE path = ANY($1::text[])`,
       [candidates]
     );
     const fileRows = fileRowsResult.rows as FileContextRow[];
     const byNormalizedPath = new Map<string, FileContextRow>();
     for (const row of fileRows) {
-      byNormalizedPath.set(normalizeWorkspacePathForLookup(row.path), row);
+      byNormalizedPath.set(normalizeWorkspaceLookupPath(row.path), row);
     }
 
     const filesBlock = selectedForContext
       .map((path) => {
         const row = byNormalizedPath.get(path);
         const content = clampFileContent(row?.content ?? `Unable to read file content for ${path}`);
-        return `<file path="${path}">\n${content}\n</file>`;
+        return `<file path="${escapeXmlAttribute(path)}">\n${content}\n</file>`;
       })
       .join('\n');
 
@@ -613,7 +610,9 @@ async function buildContextReport(
   }
 
   if (includeProjectTree) {
-    const pathRowsResult = await db.query('SELECT path FROM file_records ORDER BY path');
+    const pathRowsResult = await db.query('SELECT path FROM file_records ORDER BY path LIMIT $1', [
+      MAX_TREE_CONTEXT_ROWS,
+    ]);
     const pathRows = pathRowsResult.rows as PathContextRow[];
     const treeText = buildPathTree(
       pathRows.map((row) => row.path),
@@ -659,7 +658,7 @@ async function prependContextMessageIfNeeded(
 
   return [
     {
-      id: `context-${Date.now()}`,
+      id: `context-${randomUUID()}`,
       role: 'system',
       parts: [contextPart],
     },

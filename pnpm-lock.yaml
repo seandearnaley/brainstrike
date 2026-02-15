@@ -517,6 +517,9 @@ importers:
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui

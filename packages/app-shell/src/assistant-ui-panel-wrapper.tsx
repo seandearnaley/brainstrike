@@ -30,6 +30,8 @@ import {
   useSecretsStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
+import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
+import { buildWorkspaceLookupCandidates, normalizeWorkspaceLookupPath } from '@brainstrike/types';
 import {
   type AssistantContextMenuConfig,
   type AssistantProviderSettings,
@@ -84,12 +86,6 @@ const TREE_CONTEXT_LINE_LIMIT = 400;
 const TREE_TOKEN_ESTIMATE_PER_LINE = 4;
 const FILE_REPORT_OVERHEAD_PER_FILE = 8;
 
-interface SelectionUpdatePayload {
-  folderId: string;
-  filePaths: string[];
-  mode: 'replace' | 'add' | 'remove';
-}
-
 interface TokenCountRow {
   path: string;
   tokenCount: number | null;
@@ -101,27 +97,6 @@ interface TotalFilesRow {
 
 interface QueryableTokenDatabase {
   query: <T = unknown>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
-}
-
-function normalizeWorkspacePath(path: string): string {
-  return path
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\.\/+/, '')
-    .replace(/^\/+/, '');
-}
-
-function buildPathLookupCandidates(paths: readonly string[]): string[] {
-  const candidates = new Set<string>();
-  for (const path of paths) {
-    const normalized = normalizeWorkspacePath(path);
-    if (!normalized) {
-      continue;
-    }
-    candidates.add(normalized);
-    candidates.add(`/${normalized}`);
-  }
-  return Array.from(candidates);
 }
 
 function loadStoredIncludeFileReport(): boolean {
@@ -139,7 +114,7 @@ async function estimateSelectionTokenCountFromDb(
   db: QueryableTokenDatabase,
   filePaths: readonly string[]
 ): Promise<number> {
-  const candidates = buildPathLookupCandidates(filePaths);
+  const candidates = buildWorkspaceLookupCandidates(filePaths);
   if (candidates.length === 0) {
     return 0;
   }
@@ -153,15 +128,15 @@ async function estimateSelectionTokenCountFromDb(
 
   const byPath = new Map<string, number>();
   for (const row of result.rows) {
-    const normalized = normalizeWorkspacePath(row.path);
+    const normalized = normalizeWorkspaceLookupPath(row.path);
     if (typeof row.tokenCount === 'number') {
       byPath.set(normalized, row.tokenCount);
     }
   }
 
   let total = 0;
-  for (const path of filePaths) {
-    const normalized = normalizeWorkspacePath(path);
+  for (const filePath of filePaths) {
+    const normalized = normalizeWorkspaceLookupPath(filePath);
     const tokenCount = byPath.get(normalized);
     if (typeof tokenCount === 'number') {
       total += tokenCount;
@@ -459,6 +434,11 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   const { effectiveSelection } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitExceeded,
   });
+  const effectiveSelectionRef = useRef(effectiveSelection);
+
+  useEffect(() => {
+    effectiveSelectionRef.current = effectiveSelection;
+  }, [effectiveSelection]);
 
   const selectionData = useMemo(() => {
     const filePaths = new Set<string>();
@@ -584,14 +564,15 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   ]);
 
   const handleSelectionUpdate = useCallback(
-    (payload: SelectionUpdatePayload) => {
+    (payload: AssistantSelectionUpdatePayload) => {
       if (!(payload.folderId && Array.isArray(payload.filePaths) && payload.filePaths.length > 0)) {
         return;
       }
+      const mode = payload.mode ?? 'add';
       const normalizedPaths = Array.from(
         new Set(
           payload.filePaths
-            .map((path) => normalizeWorkspacePath(String(path)))
+            .map((filePath) => normalizeWorkspaceLookupPath(String(filePath)))
             .filter((path) => path.length > 0)
             .map((path) => (path.startsWith('/') ? path : `/${path}`))
         )
@@ -600,18 +581,18 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
         return;
       }
 
-      if (payload.mode === 'add') {
+      if (mode === 'add') {
         addMultipleSelectedFiles(payload.folderId, normalizedPaths);
         return;
       }
-      if (payload.mode === 'remove') {
+      if (mode === 'remove') {
         removeMultipleSelectedFiles(payload.folderId, normalizedPaths);
         return;
       }
 
       clearSelectionRules();
       const next = new Set<string>();
-      for (const compositeKey of effectiveSelection) {
+      for (const compositeKey of effectiveSelectionRef.current) {
         try {
           const decoded = decodeFileSelection(compositeKey);
           if (decoded.folderId !== payload.folderId) {
@@ -626,13 +607,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
       }
       setSelectedFiles(next);
     },
-    [
-      addMultipleSelectedFiles,
-      clearSelectionRules,
-      effectiveSelection,
-      removeMultipleSelectedFiles,
-      setSelectedFiles,
-    ]
+    [addMultipleSelectedFiles, clearSelectionRules, removeMultipleSelectedFiles, setSelectedFiles]
   );
 
   useEffect(() => {

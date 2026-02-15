@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { getToolSchemaDisplay } from '../registry/tool-schemas-display';
 import { validateToolInput } from '../tools/schemas';
 
 describe('tool schemas', () => {
@@ -55,5 +56,11 @@ describe('tool schemas', () => {
       mode: 'remove',
     });
     expect(ok.ok).toBe(true);
+  });
+
+  it('uses add as the preview-context default mode in display metadata', () => {
+    const schema = getToolSchemaDisplay('brainstrike.updatePreviewContextFiles');
+    const modeParam = schema?.parameters.find((param) => param.name === 'mode');
+    expect(modeParam?.default).toBe('add');
   });
 });

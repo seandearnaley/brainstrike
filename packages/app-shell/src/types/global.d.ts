@@ -1,3 +1,5 @@
+import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
+
 declare global {
   interface Window {
     agent?: {
@@ -39,21 +41,11 @@ declare global {
         durationMs: number;
       }>;
       onRootTreeSelectionUpdate?: (
-        callback: (payload: {
-          folderId: string;
-          filePaths: string[];
-          mode: 'replace' | 'add' | 'remove';
-        }) => void
+        callback: (payload: AssistantSelectionUpdatePayload) => void
       ) => (() => void) | undefined;
       onPreviewContextSelectionUpdate?: (
-        callback: (payload: {
-          folderId: string;
-          filePaths: string[];
-          mode: 'replace' | 'add' | 'remove';
-        }) => void
+        callback: (payload: AssistantSelectionUpdatePayload) => void
       ) => (() => void) | undefined;
     };
   }
 }
-
-export {};

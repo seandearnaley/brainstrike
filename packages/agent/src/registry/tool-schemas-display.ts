@@ -184,7 +184,7 @@ export const NATIVE_TOOL_SCHEMAS: Record<string, ToolSchemaDisplay> = {
         description: 'How to apply the preview-context batch update',
         required: false,
         enumValues: ['replace', 'add', 'remove'],
-        default: 'remove',
+        default: 'add',
       },
       {
         name: 'folderId',

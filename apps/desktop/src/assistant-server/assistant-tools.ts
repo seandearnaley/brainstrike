@@ -1,41 +1,22 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import type { RuntimeData } from '@brainstrike/agent';
+import {
+  type ReadWorkspaceDirectoryInput,
+  ReadWorkspaceDirectoryInputSchema,
+  type ReadWorkspaceFileInput,
+  ReadWorkspaceFileInputSchema,
+  type RuntimeData,
+  type SelectRootTreeFilesInput,
+  SelectRootTreeFilesInputSchema,
+  type UpdatePreviewContextFilesInput,
+  UpdatePreviewContextFilesInputSchema,
+} from '@brainstrike/agent';
 import { countTokensHeuristic, createLogger } from '@brainstrike/utils';
 import { BrowserWindow } from 'electron';
-import { z } from 'zod';
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 
-interface ReadWorkspaceFileInput {
-  path: string;
-  startLine?: number;
-  endLine?: number;
-  maxChars?: number;
-}
-
-interface ReadWorkspaceDirectoryInput {
-  path?: string;
-  depth?: number;
-  maxEntries?: number;
-  includeFiles?: boolean;
-  includeDirectories?: boolean;
-  includeHidden?: boolean;
-}
-
 type WorkspaceSelectionMode = 'replace' | 'add' | 'remove';
-
-interface SelectRootTreeFilesInput {
-  filePaths: string[];
-  mode?: WorkspaceSelectionMode;
-  folderId?: string;
-}
-
-interface UpdatePreviewContextFilesInput {
-  filePaths: string[];
-  mode?: WorkspaceSelectionMode;
-  folderId?: string;
-}
 
 const logger = createLogger('DesktopAssistantTools');
 const ASSISTANT_ROOT_TREE_SELECTION_EVENT = 'assistant:root-tree-selection-update';
@@ -47,44 +28,9 @@ const SELECT_ROOT_TREE_FILES_TOOL_ID = 'brainstrike.selectRootTreeFiles' as cons
 const UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID = 'brainstrike.updatePreviewContextFiles' as const;
 
 const DEFAULT_FILE_MAX_CHARS = 12_000;
+const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
 const DEFAULT_DIRECTORY_MAX_ENTRIES = 150;
 const DEFAULT_DIRECTORY_DEPTH = 1;
-
-const ReadWorkspaceFileToolInputSchema = z
-  .object({
-    path: z.string().min(1),
-    startLine: z.number().int().positive().optional(),
-    endLine: z.number().int().positive().optional(),
-    maxChars: z.number().int().positive().max(50_000).optional(),
-  })
-  .strict();
-
-const ReadWorkspaceDirectoryToolInputSchema = z
-  .object({
-    path: z.string().optional(),
-    depth: z.number().int().min(0).max(5).optional(),
-    maxEntries: z.number().int().positive().max(500).optional(),
-    includeFiles: z.boolean().optional(),
-    includeDirectories: z.boolean().optional(),
-    includeHidden: z.boolean().optional(),
-  })
-  .strict();
-
-const SelectRootTreeFilesToolInputSchema = z
-  .object({
-    filePaths: z.array(z.string().min(1)).min(1).max(5000),
-    mode: z.enum(['replace', 'add', 'remove']).optional(),
-    folderId: z.string().min(1).optional(),
-  })
-  .strict();
-
-const UpdatePreviewContextFilesToolInputSchema = z
-  .object({
-    filePaths: z.array(z.string().min(1)).min(1).max(5000),
-    mode: z.enum(['replace', 'add', 'remove']).optional(),
-    folderId: z.string().min(1).optional(),
-  })
-  .strict();
 
 type ToolExecuteInput<T> = { context: T } | T;
 
@@ -150,8 +96,8 @@ async function resolveWorkspaceAbsolutePath(
   const relativePath =
     normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
   const absolutePath = path.resolve(rootPath, relativePath);
-  const canonicalRootPath = await fsPromises.realpath(rootPath).catch(() => rootPath);
-  const canonicalAbsolutePath = await fsPromises.realpath(absolutePath).catch(() => absolutePath);
+  const canonicalRootPath = await fsPromises.realpath(rootPath);
+  const canonicalAbsolutePath = await fsPromises.realpath(absolutePath);
   const relativeFromRoot = path.relative(canonicalRootPath, canonicalAbsolutePath);
   if (
     relativeFromRoot.startsWith('..') ||
@@ -210,15 +156,28 @@ async function runReadWorkspaceFile(
   content: string;
 }> {
   const rootPath = resolveWorkspaceRootPath(runtimeData);
-  const requestedPath = typeof input.path === 'string' ? input.path : '';
+  const requestedPath = input.path;
   const resolved = await resolveWorkspaceAbsolutePath(rootPath, requestedPath);
 
   const stat = await fsPromises.stat(resolved.absolutePath);
   if (!stat.isFile()) {
     throw new Error(`Path "${requestedPath}" is not a file.`);
   }
+  if (stat.size > MAX_READ_WORKSPACE_FILE_BYTES) {
+    throw new Error(
+      `Path "${requestedPath}" exceeds ${MAX_READ_WORKSPACE_FILE_BYTES} bytes and cannot be read in full.`
+    );
+  }
 
-  const content = await fsPromises.readFile(resolved.absolutePath, 'utf8');
+  const fileBuffer = await fsPromises.readFile(resolved.absolutePath);
+  const binaryProbeLength = Math.min(fileBuffer.length, 4096);
+  for (let index = 0; index < binaryProbeLength; index += 1) {
+    if (fileBuffer[index] === 0) {
+      throw new Error(`Path "${requestedPath}" is a binary file and cannot be read as text.`);
+    }
+  }
+
+  const content = fileBuffer.toString('utf8');
   const ranged = sliceContentByLineRange(content, input.startLine, input.endLine);
   const maxChars = input.maxChars ?? DEFAULT_FILE_MAX_CHARS;
   const truncated = truncateContent(ranged.content, maxChars);
@@ -245,8 +204,8 @@ interface DirectoryEntry {
   tokenCount?: number;
 }
 
-function toPathSegments(path: string): string[] {
-  return path
+function toPathSegments(workspacePath: string): string[] {
+  return workspacePath
     .replace(/^\/+/, '')
     .split('/')
     .filter((segment) => segment.length > 0);
@@ -310,7 +269,7 @@ function buildDirectoryVisitContext(
 ): DirectoryVisitContext | undefined {
   const childSegments = [...relativeSegments, dirent.name];
   const childPath = joinSegments(options.baseSegments, childSegments);
-  if (!(options.includeHidden || !isHiddenPath(childPath))) {
+  if (!options.includeHidden && isHiddenPath(childPath)) {
     return;
   }
   return {
@@ -378,7 +337,7 @@ async function runReadWorkspaceDirectory(
   truncated: boolean;
 }> {
   const rootPath = resolveWorkspaceRootPath(runtimeData);
-  const requestedPath = typeof input.path === 'string' ? input.path : '/';
+  const requestedPath = input.path ?? '/';
   const normalizedPath = normalizeWorkspacePath(requestedPath);
   const resolvedBase = await resolveWorkspaceAbsolutePath(rootPath, normalizedPath);
 
@@ -565,9 +524,9 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
       id: READ_WORKSPACE_FILE_TOOL_ID,
       description:
         'Read a workspace file from the selected root. Use line ranges and maxChars to keep context efficient.',
-      inputSchema: ReadWorkspaceFileToolInputSchema,
+      inputSchema: ReadWorkspaceFileInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceFileInput>) => {
-        const resolvedInput = resolveToolExecuteInput(input);
+        const resolvedInput = ReadWorkspaceFileInputSchema.parse(resolveToolExecuteInput(input));
         try {
           return await runReadWorkspaceFile(resolvedInput, runtimeData);
         } catch (error) {
@@ -580,9 +539,11 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
       id: READ_WORKSPACE_DIRECTORY_TOOL_ID,
       description:
         'List workspace directory entries in a compact token-efficient format. Use depth and maxEntries to bound output.',
-      inputSchema: ReadWorkspaceDirectoryToolInputSchema,
+      inputSchema: ReadWorkspaceDirectoryInputSchema,
       execute: async (input: ToolExecuteInput<ReadWorkspaceDirectoryInput>) => {
-        const resolvedInput = resolveToolExecuteInput(input);
+        const resolvedInput = ReadWorkspaceDirectoryInputSchema.parse(
+          resolveToolExecuteInput(input)
+        );
         try {
           return await runReadWorkspaceDirectory(resolvedInput, runtimeData);
         } catch (error) {
@@ -595,9 +556,9 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
       id: SELECT_ROOT_TREE_FILES_TOOL_ID,
       description:
         'Select files from the left root tree so they populate the preview/context panel candidate set.',
-      inputSchema: SelectRootTreeFilesToolInputSchema,
+      inputSchema: SelectRootTreeFilesInputSchema,
       execute: async (input: ToolExecuteInput<SelectRootTreeFilesInput>) => {
-        const resolvedInput = resolveToolExecuteInput(input);
+        const resolvedInput = SelectRootTreeFilesInputSchema.parse(resolveToolExecuteInput(input));
         try {
           return runSelectRootTreeFiles(resolvedInput, runtimeData);
         } catch (error) {
@@ -610,9 +571,11 @@ export function buildDesktopAssistantTools(runtimeData: RuntimeData | undefined)
       id: UPDATE_PREVIEW_CONTEXT_FILES_TOOL_ID,
       description:
         'Add, remove, or replace files in the preview/context selection used as agent context.',
-      inputSchema: UpdatePreviewContextFilesToolInputSchema,
+      inputSchema: UpdatePreviewContextFilesInputSchema,
       execute: async (input: ToolExecuteInput<UpdatePreviewContextFilesInput>) => {
-        const resolvedInput = resolveToolExecuteInput(input);
+        const resolvedInput = UpdatePreviewContextFilesInputSchema.parse(
+          resolveToolExecuteInput(input)
+        );
         try {
           return runUpdatePreviewContextFiles(resolvedInput, runtimeData);
         } catch (error) {
