@@ -1,5 +1,5 @@
 ---
-title: "Search Collections Pr Strategy"
+title: "Search Collections PR Strategy"
 ---
 
 # Search Collections UX Redesign - PR Strategy

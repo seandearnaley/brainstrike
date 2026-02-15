@@ -1,5 +1,5 @@
 ---
-title: "Unified Tools Ui Design 2026 02 01"
+title: "Unified Tools UI Design 2026 02 01"
 ---
 
 # Unified Tools UI Design

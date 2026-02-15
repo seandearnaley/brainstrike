@@ -1,5 +1,5 @@
 ---
-title: "Assistant Ui Runtime Handoff 2025 09 14"
+title: "Assistant UI Runtime Handoff 2025 09 14"
 ---
 
 # Brainstrike Assistant UI — Desktop Runtime Handoff (2025‑09‑14)

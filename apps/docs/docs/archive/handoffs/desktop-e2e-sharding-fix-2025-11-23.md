@@ -1,5 +1,5 @@
 ---
-title: "Desktop E2e Sharding Fix 2025 11 23"
+title: "Desktop E2E Sharding Fix 2025 11 23"
 ---
 
 # Handoff: Desktop E2E Sharding Fix (Port Collision)
@@ -68,7 +68,6 @@ function createLaunchOptions(..., debugPort?: number) {
 - **Worker Fixture Scope:** In Playwright `scope: 'worker'` fixtures, the 3rd argument is `workerInfo` (type `WorkerInfo`), NOT `testInfo`.
 - **Shard Info Location:** `WorkerInfo` does not have a `shard` property directly. Shard info is located in `workerInfo.config.shard`.
 - **Port Isolation:** When debugging parallel process crashes, always suspect resource collisions (ports, user data dirs) first. Explicitly assigning resources based on worker/shard index is a robust fix.
-
 
 
 
