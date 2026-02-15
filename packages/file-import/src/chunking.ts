@@ -21,20 +21,20 @@ export function getChunkingStrategy(
 
   const extension = fileExplorer.getFileExtension(filePath);
   const codeExtensions = [
-    '.js',
-    '.ts',
-    '.jsx',
-    '.tsx',
-    '.py',
-    '.java',
-    '.cpp',
-    '.c',
-    '.h',
-    '.cs',
-    '.php',
-    '.rb',
-    '.go',
-    '.rs',
+    'js',
+    'ts',
+    'jsx',
+    'tsx',
+    'py',
+    'java',
+    'cpp',
+    'c',
+    'h',
+    'cs',
+    'php',
+    'rb',
+    'go',
+    'rs',
   ];
 
   if (codeExtensions.includes(extension)) {

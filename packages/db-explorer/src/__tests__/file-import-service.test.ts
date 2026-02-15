@@ -37,7 +37,7 @@ vi.mock('@brainstrike/utils', () => ({
   },
   fileExplorer: {
     findNodeByPath: vi.fn().mockReturnValue(null),
-    getFileExtension: vi.fn().mockReturnValue('.txt'),
+    getFileExtension: vi.fn().mockReturnValue('txt'),
   },
   createLogger: vi.fn(() => ({
     info: vi.fn(),

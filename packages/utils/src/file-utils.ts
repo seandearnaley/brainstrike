@@ -8,13 +8,17 @@
  * @returns The file extension (without the dot) or empty string if no extension
  */
 export function getFileExtension(filename: string): string {
-  const lastDotIndex = filename.lastIndexOf('.');
-  if (lastDotIndex === -1 || lastDotIndex === 0) {
+  const lastPathSeparatorIndex = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
+  const basename =
+    lastPathSeparatorIndex === -1 ? filename : filename.slice(lastPathSeparatorIndex + 1);
+  const lastDotIndex = basename.lastIndexOf('.');
+  if (lastDotIndex <= 0) {
     return '';
   }
-  return filename.slice(lastDotIndex + 1).toLowerCase();
+  return basename.slice(lastDotIndex + 1).toLowerCase();
 }
 
+// Invariant: entries must be lowercase and must not include a leading dot.
 const textFileExtensions = new Set([
   'txt',
   'md',
@@ -60,6 +64,7 @@ const textFileExtensions = new Set([
   'svelte',
 ]);
 
+// Invariant: entries must be lowercase and must not include a leading dot.
 const binaryFileExtensions = new Set([
   // Images
   'jpg',
@@ -132,32 +137,42 @@ function normalizeExtension(extension: string): string {
   return lowerCaseExtension;
 }
 
+/**
+ * Fast path relies on normalized extension sets and normalized output from `getFileExtension`.
+ * Non-normalized callers still work via the `normalizeExtension` fallback.
+ */
+function hasExtensionInSet(extension: string, extensionSet: ReadonlySet<string>): boolean {
+  return extensionSet.has(extension) || extensionSet.has(normalizeExtension(extension));
+}
+
 export function isTextExtension(extension: string): boolean {
-  return textFileExtensions.has(normalizeExtension(extension));
+  return hasExtensionInSet(extension, textFileExtensions);
 }
 
 export function isBinaryExtension(extension: string): boolean {
-  return binaryFileExtensions.has(normalizeExtension(extension));
+  return hasExtensionInSet(extension, binaryFileExtensions);
 }
 
 /**
  * Checks if a file is a text file based on its extension
+ * Uses direct set lookup because `getFileExtension` already returns
+ * a lowercase, dot-free extension.
  * @param filename The filename to check
  * @returns True if the file is likely a text file
  */
 export function isTextFile(filename: string): boolean {
-  const ext = getFileExtension(filename);
-  return isTextExtension(ext);
+  return textFileExtensions.has(getFileExtension(filename));
 }
 
 /**
  * Checks if a file is a binary file based on its extension
+ * Uses direct set lookup because `getFileExtension` already returns
+ * a lowercase, dot-free extension.
  * @param filename The filename to check
  * @returns True if the file is likely a binary file
  */
 export function isBinaryFile(filename: string): boolean {
-  const ext = getFileExtension(filename);
-  return isBinaryExtension(ext);
+  return binaryFileExtensions.has(getFileExtension(filename));
 }
 
 /**
@@ -166,8 +181,9 @@ export function isBinaryFile(filename: string): boolean {
  * @returns The filename without extension
  */
 export function getBaseFilename(filename: string): string {
-  const lastSlashIndex = filename.lastIndexOf('/');
-  const nameWithExtension = lastSlashIndex === -1 ? filename : filename.slice(lastSlashIndex + 1);
+  const lastPathSeparatorIndex = Math.max(filename.lastIndexOf('/'), filename.lastIndexOf('\\'));
+  const nameWithExtension =
+    lastPathSeparatorIndex === -1 ? filename : filename.slice(lastPathSeparatorIndex + 1);
   const lastDotIndex = nameWithExtension.lastIndexOf('.');
   if (lastDotIndex === -1 || lastDotIndex === 0) {
     return nameWithExtension;
