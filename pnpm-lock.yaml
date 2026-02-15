@@ -1602,9 +1602,9 @@ importers:
       '@types/react':
         specifier: ^19.2.8
         version: 19.2.8
-      happy-dom:
-        specifier: 20.1.0
-        version: 20.1.0
+      jsdom:
+        specifier: 27.4.0
+        version: 27.4.0
       react:
         specifier: 19.2.4
         version: 19.2.4
@@ -1648,9 +1648,6 @@ importers:
       '@types/react':
         specifier: ^19.2.8
         version: 19.2.8
-      happy-dom:
-        specifier: 20.1.0
-        version: 20.1.0
       react:
         specifier: 19.2.4
         version: 19.2.4
