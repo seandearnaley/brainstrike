@@ -10,6 +10,7 @@ const writeFileSyncMock = vi.fn();
 const closeSyncMock = vi.fn();
 const unlinkSyncMock = vi.fn();
 const readFileSyncMock = vi.fn(() => '');
+const readdirSyncMock = vi.fn(() => []);
 const lstatSyncMock = vi.fn(() => ({
   isDirectory: () => false,
   isFile: () => false,
@@ -24,6 +25,7 @@ vi.mock('node:fs', () => ({
   closeSync: closeSyncMock,
   unlinkSync: unlinkSyncMock,
   readFileSync: readFileSyncMock,
+  readdirSync: readdirSyncMock,
   lstatSync: lstatSyncMock,
   default: {
     existsSync: existsSyncMock,
@@ -35,6 +37,7 @@ vi.mock('node:fs', () => ({
     closeSync: closeSyncMock,
     unlinkSync: unlinkSyncMock,
     readFileSync: readFileSyncMock,
+    readdirSync: readdirSyncMock,
     lstatSync: lstatSyncMock,
   },
 }));
@@ -198,6 +201,38 @@ describe('db-main lifecycle', () => {
     }
   });
 
+  it('surfaces a friendly concurrency error when lock is claimed during stale-lock recovery', async () => {
+    const lockError = new Error('lock exists') as Error & { code: string };
+    lockError.code = 'EEXIST';
+    writeFileSyncMock.mockImplementationOnce(() => {
+      throw lockError;
+    });
+    writeFileSyncMock.mockImplementationOnce(() => {
+      throw lockError;
+    });
+    readFileSyncMock.mockReturnValueOnce('11111').mockReturnValueOnce('22222');
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((pid) => {
+      if (pid === 11_111) {
+        const missingProcessError = new Error('process does not exist') as Error & { code: string };
+        missingProcessError.code = 'ESRCH';
+        throw missingProcessError;
+      }
+      return true;
+    });
+
+    try {
+      const { initializeMainDatabase, getDatabaseDiagnostics } = await import('../../db-main');
+      await expect(initializeMainDatabase()).rejects.toThrow(
+        /Database lock is held by process 22222/
+      );
+      const diagnostics = getDatabaseDiagnostics();
+      expect(diagnostics.lastInitializationFailure?.category).toBe('concurrency');
+      expect(diagnostics.lastInitializationFailure?.stage).toBe('open-database');
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
   it('auto-recovers from database corruption during initialization', async () => {
     const corruptionError = new Error("right sibling's left-link doesn't match") as Error & {
       code: string;
@@ -307,6 +342,31 @@ describe('db-main lifecycle', () => {
       { recursive: true, errorOnExist: true, force: false }
     );
     expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { recursive: true, force: true });
+  });
+
+  it('prunes stale profile backups during reset', async () => {
+    process.env['NODE_ENV'] = 'development';
+    process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
+    vi.resetModules();
+    readdirSyncMock.mockReturnValueOnce([
+      { name: 'test-profile-2026-02-15T07-00-00-000Z', isDirectory: () => true },
+      { name: 'test-profile-2026-02-14T07-00-00-000Z', isDirectory: () => true },
+      { name: 'test-profile-2026-02-13T07-00-00-000Z', isDirectory: () => true },
+      { name: 'test-profile-2026-02-12T07-00-00-000Z', isDirectory: () => true },
+      { name: 'test-profile-2026-02-11T07-00-00-000Z', isDirectory: () => true },
+      { name: 'test-profile-2026-02-10T07-00-00-000Z', isDirectory: () => true },
+      { name: 'other-profile-2026-02-10T07-00-00-000Z', isDirectory: () => true },
+    ]);
+
+    const { resetLocalDatabase } = await import('../../db-main');
+    await resetLocalDatabase();
+
+    const backupRootPath = path.join('/mock/documents', 'BrainStrike-dev', 'backups');
+    expect(readdirSyncMock).toHaveBeenCalledWith(backupRootPath, { withFileTypes: true });
+    expect(rmSyncMock).toHaveBeenCalledWith(
+      path.join(backupRootPath, 'test-profile-2026-02-10T07-00-00-000Z'),
+      { recursive: true, force: true }
+    );
   });
 
   it('tracks runtime corruption recovery in diagnostics', async () => {

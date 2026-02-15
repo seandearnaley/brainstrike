@@ -8,6 +8,7 @@ const writeFileSyncMock = vi.fn();
 const closeSyncMock = vi.fn();
 const unlinkSyncMock = vi.fn();
 const readFileSyncMock = vi.fn(() => '');
+const readdirSyncMock = vi.fn(() => []);
 const lstatSyncMock = vi.fn(() => ({
   isDirectory: () => false,
   isFile: () => false,
@@ -20,6 +21,7 @@ vi.mock('node:fs', () => ({
   closeSync: closeSyncMock,
   unlinkSync: unlinkSyncMock,
   readFileSync: readFileSyncMock,
+  readdirSync: readdirSyncMock,
   lstatSync: lstatSyncMock,
   cpSync: vi.fn(),
   rmSync: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock('node:fs', () => ({
     closeSync: closeSyncMock,
     unlinkSync: unlinkSyncMock,
     readFileSync: readFileSyncMock,
+    readdirSync: readdirSyncMock,
     lstatSync: lstatSyncMock,
   },
 }));

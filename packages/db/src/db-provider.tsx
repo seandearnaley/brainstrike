@@ -244,16 +244,19 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       });
       // Detect pgvector extension availability over IPC
       let hasVector = false;
+      let diagnostics: DatabaseDiagnosticsSnapshot | null = null;
       try {
         const res = await electronDB.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
         hasVector = Array.isArray(res.rows) && res.rows.length > 0;
       } catch (error) {
-        const diagnostics = await getElectronDiagnostics(electronDB);
+        diagnostics = await getElectronDiagnostics(electronDB);
         hasVector = false;
         logger.warn('Failed to detect pgvector extension over IPC', { error, diagnostics });
       }
       if (!hasVector) {
-        const diagnostics = await getElectronDiagnostics(electronDB);
+        if (!diagnostics) {
+          diagnostics = await getElectronDiagnostics(electronDB);
+        }
         logger.error('Desktop database initialization missing pgvector extension', { diagnostics });
         throw new Error(
           formatDesktopDatabaseInitError(diagnostics, 'Desktop database failed to initialize.')

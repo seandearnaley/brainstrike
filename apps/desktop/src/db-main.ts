@@ -4,61 +4,29 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
+import type {
+  DatabaseDiagnosticsSnapshot,
+  DatabaseInitFailureCategory,
+  DatabaseInitFailureSnapshot,
+  DatabaseInitStage,
+} from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import { app } from 'electron';
 
 const logger = createLogger('DatabaseMain');
-
-export type DatabaseInitFailureCategory =
-  | 'missing-extension'
-  | 'corruption'
-  | 'concurrency'
-  | 'wasm-runtime'
-  | 'filesystem'
-  | 'migration'
-  | 'unknown';
-
-export type DatabaseInitStage =
-  | 'load-extensions'
-  | 'open-database'
-  | 'migration'
-  | 'runtime-corruption-recovery';
 
 interface ErrorDetails {
   message: string;
   stack?: string;
   name?: string;
   code?: string;
-}
-
-export interface DatabaseInitFailureSnapshot extends ErrorDetails {
-  stage: DatabaseInitStage;
-  category: DatabaseInitFailureCategory;
-  timestamp: string;
-}
-
-export interface DatabaseDiagnosticsSnapshot {
-  nodeEnv: string | null;
-  databaseProfile: string | null;
-  dataDir: string;
-  appDataDir: string;
-  initializationAttemptCount: number;
-  initializationInFlight: boolean;
-  hasDatabaseHandle: boolean;
-  databaseLockHeld: boolean;
-  databaseLockPath: string | null;
-  lastInitializationStartedAt: string | null;
-  lastInitializationSucceededAt: string | null;
-  lastInitializationFailure: DatabaseInitFailureSnapshot | null;
-  runtimeCorruptionRecoveryCount: number;
-  lastRuntimeCorruptionAt: string | null;
-  lastRuntimeCorruptionContext: string | null;
 }
 
 interface ExtensionModuleShape {
@@ -203,6 +171,7 @@ let dbProcessLockPath: string | null = null;
 const DB_PROFILE_ENV = 'BRAINSTRIKE_DB_PROFILE' as const;
 const PROFILES_DIRECTORY_NAME = 'profiles' as const;
 const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
+const PROFILE_BACKUPS_RETENTION_COUNT = 5 as const;
 const DB_LOCK_FILENAME = '.db-process.lock' as const;
 const WORKTREE_PROFILE_HASH_LENGTH = 8 as const;
 const WORKTREE_PROFILE_BRANCH_MAX = 40 as const;
@@ -394,7 +363,7 @@ function getGitProfileContext(): GitProfileContext | null {
 }
 
 function getDatabaseProfile(): string {
-  if (cachedDatabaseProfile) {
+  if (cachedDatabaseProfile !== null) {
     return cachedDatabaseProfile;
   }
 
@@ -462,17 +431,39 @@ function createResetBackup(appDataDir: string): string | null {
   }
 
   const backupRootDir = path.join(getDatabaseRootPath(), PROFILE_BACKUPS_DIRECTORY_NAME);
+  const profileName = path.basename(appDataDir);
   mkdirSync(backupRootDir, { recursive: true });
   const backupSuffix = new Date().toISOString().replace(/[:.]/g, '-');
-  const backupDir = path.join(backupRootDir, `${path.basename(appDataDir)}-${backupSuffix}`);
+  const backupDir = path.join(backupRootDir, `${profileName}-${backupSuffix}`);
 
   cpSync(appDataDir, backupDir, {
     recursive: true,
     errorOnExist: true,
     force: false,
   });
+  pruneProfileResetBackups(backupRootDir, profileName);
 
   return backupDir;
+}
+
+function pruneProfileResetBackups(backupRootDir: string, profileName: string): void {
+  try {
+    const profilePrefix = `${profileName}-`;
+    const backupNames = readdirSync(backupRootDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith(profilePrefix))
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left));
+    const staleBackupNames = backupNames.slice(PROFILE_BACKUPS_RETENTION_COUNT);
+    for (const staleBackupName of staleBackupNames) {
+      rmSync(path.join(backupRootDir, staleBackupName), { recursive: true, force: true });
+    }
+  } catch (error) {
+    logger.warn('Failed to prune database reset backups', {
+      backupRootDir,
+      profileName,
+      error: getErrorDetails(error),
+    });
+  }
 }
 
 function getDatabaseLockPath(appDataDir: string): string {
@@ -504,6 +495,17 @@ function isPidAlive(pid: number): boolean {
     // EPERM means process exists but this process has no permission to signal it.
     return code === 'EPERM';
   }
+}
+
+function throwLockHeldError(lockOwnerPid: number | null): never {
+  if (lockOwnerPid && isPidAlive(lockOwnerPid)) {
+    throw new Error(
+      `Database lock is held by process ${lockOwnerPid}. Close other BrainStrike windows/processes and retry.`
+    );
+  }
+  throw new Error(
+    'Database lock is held by another process. Close other BrainStrike windows/processes and retry.'
+  );
 }
 
 function acquireDatabaseProcessLock(appDataDir: string): void {
@@ -540,10 +542,8 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
     return;
   }
 
-  if (lockOwnerPid && isPidAlive(lockOwnerPid) && lockOwnerPid !== process.pid) {
-    throw new Error(
-      `Database lock is held by process ${lockOwnerPid}. Close other BrainStrike windows/processes and retry.`
-    );
+  if (lockOwnerPid && isPidAlive(lockOwnerPid)) {
+    throwLockHeldError(lockOwnerPid);
   }
 
   // Stale lock file from a dead process (or unreadable pid) - clear and retry exactly once.
@@ -553,7 +553,23 @@ function acquireDatabaseProcessLock(appDataDir: string): void {
     // Ignore stale lock cleanup errors; lock acquisition below will surface true conflicts.
   }
 
-  createLock();
+  try {
+    createLock();
+  } catch (error) {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: string }).code
+        : undefined;
+    if (code === 'EEXIST') {
+      const nextLockOwnerPid = readLockOwnerPid(lockPath);
+      if (nextLockOwnerPid === process.pid) {
+        dbProcessLockPath = lockPath;
+        return;
+      }
+      throwLockHeldError(nextLockOwnerPid);
+    }
+    throw error;
+  }
 }
 
 function releaseDatabaseProcessLock(): void {
@@ -683,10 +699,6 @@ function classifyInitializationFailure(
     return 'migration';
   }
 
-  if (message.includes('aborted()') || message.includes('wasm')) {
-    return 'wasm-runtime';
-  }
-
   return 'unknown';
 }
 
@@ -737,7 +749,7 @@ export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
     databaseLockPath: dbProcessLockPath,
     lastInitializationStartedAt,
     lastInitializationSucceededAt,
-    lastInitializationFailure,
+    lastInitializationFailure: lastInitializationFailure ? { ...lastInitializationFailure } : null,
     runtimeCorruptionRecoveryCount,
     lastRuntimeCorruptionAt,
     lastRuntimeCorruptionContext,
@@ -827,7 +839,7 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     logger.info(`Created database directory: ${dataDir}`);
   }
 
-  let loadedPGlite: Awaited<ReturnType<typeof getPGlite>> | null = null;
+  let loadedPGlite: Awaited<ReturnType<typeof getPGlite>>;
 
   try {
     loadedPGlite = await getPGlite();
@@ -843,9 +855,6 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
 
   // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension
   try {
-    if (!loadedPGlite) {
-      throw new Error('PGlite modules were not loaded');
-    }
     acquireDatabaseProcessLock(appDataDir);
     db = await createVectorDatabase(
       loadedPGlite.PGlite,
@@ -872,9 +881,6 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
 
   // Run migrations
   try {
-    if (!loadedPGlite) {
-      throw new Error('Database migration function is unavailable');
-    }
     await loadedPGlite.migrate(db);
   } catch (err) {
     recordInitializationFailure('migration', err);

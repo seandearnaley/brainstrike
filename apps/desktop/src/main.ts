@@ -463,11 +463,6 @@ registerShutdownSignalHandlers();
 const singleInstanceLockAcquired =
   typeof app.requestSingleInstanceLock === 'function' ? app.requestSingleInstanceLock() : true;
 
-if (!singleInstanceLockAcquired) {
-  logger.warn('Another BrainStrike desktop process is already running. Exiting this process.');
-  app.quit();
-}
-
 if (singleInstanceLockAcquired) {
   app.on('second-instance', () => {
     const existingWindow = BrowserWindow.getAllWindows()[0];
@@ -618,6 +613,9 @@ if (singleInstanceLockAcquired) {
       app.quit();
     }
   });
+} else {
+  logger.warn('Another BrainStrike desktop process is already running. Exiting this process.');
+  app.quit();
 }
 
 app.on('window-all-closed', () => {
