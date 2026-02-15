@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { formatFileSize, getBaseFilename, isBinaryFile, isTextFile } from '../file-utils';
+import {
+  formatFileSize,
+  getBaseFilename,
+  isBinaryExtension,
+  isBinaryFile,
+  isTextExtension,
+  isTextFile,
+} from '../file-utils';
 
 describe('file-utils', () => {
   it('treats svg files as text', () => {
@@ -10,6 +17,13 @@ describe('file-utils', () => {
   it('extracts base filename correctly', () => {
     expect(getBaseFilename('/path/to/file.txt')).toBe('file');
     expect(getBaseFilename('file')).toBe('file');
+  });
+
+  it('normalizes extension checks with uppercase and leading dots', () => {
+    expect(isTextExtension('TXT')).toBe(true);
+    expect(isTextExtension('.Md')).toBe(true);
+    expect(isBinaryExtension('PNG')).toBe(true);
+    expect(isBinaryExtension('.Pdf')).toBe(true);
   });
 
   describe('formatFileSize', () => {

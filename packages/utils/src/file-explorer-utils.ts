@@ -104,37 +104,44 @@ export const fileExplorer = {
     useRegex: boolean
   ): string {
     const lines: string[] = [];
+    const filterOptions = {
+      includeFilters,
+      excludeFilters,
+      useRegex,
+    };
 
-    const traverse = (node: IFileNode, depth: number) => {
+    const sortNodes = (a: IFileNode, b: IFileNode): number => {
+      if (a.type !== b.type) {
+        return a.type === 'directory' ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    };
+
+    const printNode = (node: IFileNode, depth: number): void => {
       const indent = '  '.repeat(depth);
       const prefix = node.type === 'directory' ? '📁 ' : '📄 ';
       lines.push(`${indent}${prefix}${node.name}`);
 
       if (node.type === 'directory' && node.children) {
-        const filteredChildren = node.children
-          .map((child) =>
-            fileFilter.filterNode(child, {
-              includeFilters,
-              excludeFilters,
-              useRegex,
-            })
-          )
-          .filter((child): child is IFileNode => child !== null)
-          .sort((a, b) => {
-            if (a.type !== b.type) {
-              return a.type === 'directory' ? -1 : 1;
-            }
-            return a.name.localeCompare(b.name);
-          });
+        const sortedChildren = [...node.children].sort(sortNodes);
 
-        for (const child of filteredChildren) {
-          traverse(child, depth + 1);
+        for (const child of sortedChildren) {
+          printNode(child, depth + 1);
         }
       }
     };
 
     for (const root of fileTree) {
-      traverse(root, 0);
+      if (root.type === 'directory' && root.children) {
+        const filteredChildren = root.children
+          .map((child) => fileFilter.filterNode(child, filterOptions))
+          .filter((child): child is IFileNode => child !== null);
+
+        printNode({ ...root, children: filteredChildren }, 0);
+        continue;
+      }
+
+      printNode(root, 0);
     }
 
     return lines.join('\n');
