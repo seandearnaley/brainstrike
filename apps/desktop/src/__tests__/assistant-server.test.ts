@@ -469,6 +469,39 @@ describe('assistant-server', () => {
       expect(data.error).toBe('missing_provider');
     }, 10_000);
 
+    it('should reject assistant route when provider API key is missing', async () => {
+      mockSecretsService.getKey.mockResolvedValueOnce(null);
+
+      const response = await runRequest({
+        method: 'POST',
+        url: '/assistant',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: { provider: 'openai' },
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      const data = JSON.parse(response.body) as { error: string; message: string };
+      expect(data.error).toBe('missing_api_key');
+      expect(data.message).toContain('openai');
+    }, 10_000);
+
+    it('should reject assistant route with invalid JSON payload', async () => {
+      const response = await runRequest({
+        method: 'POST',
+        url: '/assistant',
+        headers: { 'content-type': 'application/json' },
+        body: '{"messages":[{"role":"user","parts":[{"type":"text","text":"Hello"}]}],',
+      });
+
+      expect(response.status).toBe(400);
+      const data = JSON.parse(response.body) as { error: string; message: string };
+      expect(data.error).toBe('invalid_json');
+      expect(data.message).toBe('Request body must be valid JSON.');
+    }, 10_000);
+
     it('should handle POST to assistant route with valid message', async () => {
       const loggerInfoSpy = vi
         .spyOn(desktopAssistantServerLogger, 'info')
