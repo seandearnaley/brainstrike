@@ -945,8 +945,13 @@ export async function getDatabase(): Promise<any> {
 export async function closeDatabase(): Promise<void> {
   try {
     if (db) {
-      await trySyncToFs(db as PGliteInstanceShape, 'closeDatabase');
-      await db.close();
+      const currentDatabase = db as PGliteInstanceShape;
+      try {
+        await trySyncToFs(currentDatabase, 'closeDatabase');
+      } catch {
+        // trySyncToFs already logs sync failures; still close the handle to avoid leaks.
+      }
+      await tryCloseDatabaseInstance(currentDatabase, 'closeDatabase');
       logger.info('Database connection closed');
     }
   } finally {

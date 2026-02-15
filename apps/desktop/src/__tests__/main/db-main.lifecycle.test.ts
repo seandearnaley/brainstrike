@@ -49,14 +49,17 @@ const migrateMock = vi.fn();
 const closeMock = vi.fn(async () => {});
 const queryMock = vi.fn(async () => ({ rows: [{ '?column?': 1 }] }));
 const execMock = vi.fn(async () => {});
+const syncToFsMock = vi.fn(async () => {});
 const PGliteMock = vi.fn().mockImplementation(function (this: {
   close: () => Promise<void>;
   query: () => Promise<unknown>;
   exec: () => Promise<void>;
+  syncToFs: () => Promise<void>;
 }) {
   this.close = closeMock;
   this.query = queryMock;
   this.exec = execMock;
+  this.syncToFs = syncToFsMock;
 });
 vi.mock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
 vi.mock('@electric-sql/pglite/vector', () => ({ vector: { name: 'vector' } }));
@@ -92,6 +95,15 @@ describe('db-main lifecycle', () => {
     // Re-initialize should allocate a new instance
     const after = await initializeMainDatabase();
     expect(after).not.toBe(before);
+    expect(closeMock).toHaveBeenCalled();
+  });
+
+  it('closeDatabase still closes handle when syncToFs fails', async () => {
+    const { initializeMainDatabase, closeDatabase } = await import('../../db-main');
+    await initializeMainDatabase();
+    syncToFsMock.mockRejectedValueOnce(new Error('sync failed'));
+    await expect(closeDatabase()).resolves.toBeUndefined();
+    expect(syncToFsMock).toHaveBeenCalled();
     expect(closeMock).toHaveBeenCalled();
   });
 
