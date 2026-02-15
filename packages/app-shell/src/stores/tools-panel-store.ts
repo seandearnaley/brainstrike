@@ -2,7 +2,10 @@ import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type ToolsPanelTab = 'assistant' | 'embeddings' | 'database';
+export type ToolsPanelTab = 'assistant' | 'database';
+
+const DEFAULT_TAB = 'assistant' as const;
+const VALID_TABS = new Set<ToolsPanelTab>([DEFAULT_TAB, 'database']);
 
 interface ToolsPanelData {
   activeTab: ToolsPanelTab;
@@ -16,7 +19,7 @@ export type ToolsPanelStore = ToolsPanelData & ToolsPanelActions;
 
 const LEGACY_STORE_NAME = 'right-panel.v1' as const;
 const STORE_NAME = 'tools-panel.v1' as const;
-const STORE_VERSION = 1 as const;
+const STORE_VERSION = 2 as const;
 
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
@@ -46,17 +49,29 @@ migrateLegacyRightPanelStorage(storageAdapter);
 
 const storage = createJSONStorage(() => storageAdapter);
 
+export function sanitizeToolsPanelTab(value: unknown): ToolsPanelTab {
+  return typeof value === 'string' && VALID_TABS.has(value as ToolsPanelTab)
+    ? (value as ToolsPanelTab)
+    : DEFAULT_TAB;
+}
+
 export const useToolsPanelStore = create<ToolsPanelStore>()(
   persist(
     (set) => ({
-      activeTab: 'assistant',
-      setActiveTab: (tab) => set({ activeTab: tab }),
+      activeTab: DEFAULT_TAB,
+      setActiveTab: (tab) => set({ activeTab: sanitizeToolsPanelTab(tab) }),
     }),
     {
       name: STORE_NAME,
       version: STORE_VERSION,
       storage,
       partialize: (s) => ({ activeTab: s.activeTab }),
+      migrate: (persistedState) => {
+        const state = persistedState as { activeTab?: unknown } | undefined;
+        return {
+          activeTab: sanitizeToolsPanelTab(state?.activeTab),
+        };
+      },
     }
   )
 );
@@ -78,5 +93,5 @@ export function __resetToolsPanelStoreForTests() {
   } catch {
     // Intentionally silent in tests - storage errors should not fail test resets.
   }
-  useToolsPanelStore.setState({ activeTab: 'assistant' });
+  useToolsPanelStore.setState({ activeTab: DEFAULT_TAB });
 }
