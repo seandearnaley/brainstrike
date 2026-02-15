@@ -133,11 +133,21 @@ function normalizeExtension(extension: string): string {
 }
 
 export function isTextExtension(extension: string): boolean {
-  return textFileExtensions.has(extension) || textFileExtensions.has(normalizeExtension(extension));
+  // Fast path: check if the extension is already normalized (lowercase, no dot) and in the set.
+  // This avoids the overhead of `normalizeExtension` (toLowerCase + string allocation) for the most common case.
+  if (textFileExtensions.has(extension)) {
+    return true;
+  }
+  return textFileExtensions.has(normalizeExtension(extension));
 }
 
 export function isBinaryExtension(extension: string): boolean {
-  return binaryFileExtensions.has(extension) || binaryFileExtensions.has(normalizeExtension(extension));
+  // Fast path: check if the extension is already normalized (lowercase, no dot) and in the set.
+  // This avoids the overhead of `normalizeExtension` (toLowerCase + string allocation) for the most common case.
+  if (binaryFileExtensions.has(extension)) {
+    return true;
+  }
+  return binaryFileExtensions.has(normalizeExtension(extension));
 }
 
 /**
