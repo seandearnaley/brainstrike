@@ -337,7 +337,7 @@ flowchart LR
 
 ## Example 8: Real Project Architecture Diagram
 
-This is from `docs/architecture/02-container-view.md` (simplified):
+This is from `apps/docs/docs/architecture/02-container-view.md` (simplified):
 
 ```mermaid
 flowchart TB
@@ -401,10 +401,10 @@ flowchart TB
 ```bash
 $ node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
 
-Checking docs/architecture/01-system-context.md...
+Checking apps/docs/docs/architecture/01-system-context.md...
   ✓ Diagram 1: Syntax looks valid
 
-Checking docs/architecture/02-container-view.md...
+Checking apps/docs/docs/architecture/02-container-view.md...
   ✓ Diagram 1: Syntax looks valid
   ✓ Diagram 2: Syntax looks valid
 
@@ -416,7 +416,7 @@ Checking docs/architecture/02-container-view.md...
 ```bash
 $ node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
 
-Checking docs/architecture/new-diagram.md...
+Checking apps/docs/docs/architecture/new-diagram.md...
   ✗ Diagram 1: SYNTAX ERRORS
     Line 3: Parentheses in unquoted label: A[Web App (React)]
     Line 5: Parentheses in unquoted label: DB[(PostgreSQL (PG))]
@@ -446,5 +446,4 @@ These examples show the most common Mermaid syntax errors in the BrainStrike pro
 4. **Cylinder syntax** for databases: `[("Label")]`
 5. **Always validate** after editing
 
-For more examples, see the existing architecture diagrams in `docs/architecture/*.md`.
-
+For more examples, see the existing architecture diagrams in `apps/docs/docs/architecture/*.md`.

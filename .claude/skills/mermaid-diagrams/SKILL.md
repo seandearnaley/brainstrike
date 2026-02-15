@@ -280,7 +280,7 @@ stateDiagram-v2
 
 ## Architecture Diagrams (Project-Specific)
 
-**Location**: `docs/architecture/*.md`
+**Location**: `apps/docs/docs/architecture/*.md`
 
 **Naming convention**: Use 2-digit numbers: `01-system-context.md`, `02-container-view.md`, etc.
 
@@ -361,13 +361,13 @@ stateDiagram-v2
 
 ## Resources
 
-- **Full Guide**: `docs/mermaid-guide.md` (comprehensive reference)
+- **Full Guide**: `apps/docs/docs/reference/tooling/mermaid-guide.md` (comprehensive reference)
 - **Mermaid Documentation**: https://mermaid.js.org/
 - **Live Editor**: https://mermaid.live/ (test diagrams interactively)
 - **Syntax Reference**: https://mermaid.js.org/syntax/
 - **Validation Script**: `.claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs`
 - **Test Script**: `.claude/skills/mermaid-diagrams/scripts/test-one-diagram.mjs`
-- **Architecture Docs**: `docs/architecture/` (examples of well-formed diagrams)
+- **Architecture Docs**: `apps/docs/docs/architecture/` (examples of well-formed diagrams)
 
 ## Instructions for Claude
 
@@ -405,8 +405,8 @@ When creating or editing Mermaid diagrams:
    - Keep related concepts together
 
 7. **Reference the full guide** when needed:
-   - For detailed syntax rules: `docs/mermaid-guide.md`
-   - For examples: `docs/architecture/*.md`
+   - For detailed syntax rules: `apps/docs/docs/reference/tooling/mermaid-guide.md`
+   - For examples: `apps/docs/docs/architecture/*.md`
 
 ## Example: Creating a Valid Diagram
 
@@ -463,7 +463,6 @@ node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
 - ✅ **Use `<br/>`** for line breaks
 - ✅ **NO comments** in ER diagrams
 - ✅ **Test before commit**: Validation must pass
-- ✅ **Reference full guide**: `docs/mermaid-guide.md`
+- ✅ **Reference full guide**: `apps/docs/docs/reference/tooling/mermaid-guide.md`
 
 **Remember**: Manual edits to Mermaid diagrams are error-prone. Validation is not optional - it's mandatory!
-

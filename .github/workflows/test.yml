@@ -413,7 +413,7 @@ jobs:
           [ -f "$LOCK_FILE" ] && sudo rm -f "$LOCK_FILE"
 
           # Start Xvfb in background with explicit pre-warming
-          # See: docs/DESKTOP-E2E-FLAKINESS-HANDOFF.md - Xvfb timing theory
+          # See: apps/docs/docs/testing/electron-headless-testing.md (Xvfb timing and fallback guidance)
           echo "Starting Xvfb on display ${DISPLAY} for shard ${{ matrix.shardIndex }}"
           Xvfb ${DISPLAY} -screen 0 1280x960x24 -ac +extension GLX &
           XVFB_PID=$!

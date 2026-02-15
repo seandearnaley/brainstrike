@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 
 const execAsync = promisify(exec);
 
-const files = await glob('docs/architecture/*.md');
+const files = await glob('apps/docs/docs/architecture/*.md');
 
 let hasErrors = false;
 

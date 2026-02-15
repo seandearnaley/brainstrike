@@ -17,7 +17,7 @@ This document outlines the optimizations made to our Playwright configurations f
 
 ### Browser Coverage Strategy
 - **Default**: Chromium-only for speed and resource efficiency
-- **Full Coverage**: Use `pnpm run test:e2e:full-browsers` to test across Chromium, Firefox, and WebKit
+- **Full Coverage**: Use `pnpm --filter @brainstrike/web run test:e2e:full-browsers` to test across Chromium, Firefox, and WebKit
 - **Recommendation**: Run full browser tests in staging or before major releases
 
 ## Environment Detection

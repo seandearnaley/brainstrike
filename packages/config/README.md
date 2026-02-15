@@ -215,4 +215,4 @@ Applications may need additional settings:
 
 - [TypeScript Handbook - tsconfig.json](https://www.typescriptlang.org/tsconfig)
 - [Playwright Configuration](https://playwright.dev/docs/test-configuration)
-- [BrainStrike Onboarding Guide](../../../docs/onboarding.md)
+- [BrainStrike Onboarding Guide](../../apps/docs/docs/getting-started/onboarding.md)

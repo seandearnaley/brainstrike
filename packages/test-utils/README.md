@@ -429,4 +429,4 @@ pnpm mutation
 - [Vitest Documentation](https://vitest.dev/)
 - [React Testing Library](https://testing-library.com/react)
 - [@testing-library/jest-dom](https://github.com/testing-library/jest-dom)
-- [BrainStrike Testing Guidelines](../../docs/testing.md)
+- [BrainStrike Testing Guidelines](../../apps/docs/docs/testing/index.md)

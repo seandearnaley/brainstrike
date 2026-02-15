@@ -105,8 +105,13 @@
       }
     },
     "packages/config": {
+      "entry": [
+        "src/playwright-environment.ts",
+        "src/vitest-browser.ts"
+      ],
       "project": ["**/*.{js,json,ts}"],
       "ignore": [],
+      "ignoreDependencies": ["playwright"],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -187,7 +192,9 @@
     },
     "packages/test-utils": {
       "entry": [
-        "src/test-timeouts.ts" // Used by vitest configs across the monorepo
+        "src/test-timeouts.ts", // Used by vitest configs across the monorepo
+        "src/playwright/failure-artifacts.ts",
+        "src/vitest.setup.ts"
       ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [

@@ -65,12 +65,12 @@ See the scripts README for detailed usage and customization options.
 This skill is **self-contained** but integrates with project-specific paths:
 
 **Validation Target** (configurable):
-- Default: `docs/architecture/*.md` (BrainStrike project structure)
+- Default: `apps/docs/docs/architecture/*.md` (BrainStrike project structure)
 - Customizable: Edit glob pattern in `scripts/validate-mermaid.mjs` for other projects
 
 **Reference Documentation** (project-specific):
-- `docs/mermaid-guide.md` - Complete Mermaid guide for this project
-- `docs/architecture/*.md` - Example diagrams in this project
+- `apps/docs/docs/reference/tooling/mermaid-guide.md` - Complete Mermaid guide for this project
+- `apps/docs/docs/architecture/*.md` - Example diagrams in this project
 - `AGENTS.md` - Repository guidelines including Mermaid section
 
 These references are specific to the BrainStrike project. When sharing this skill with other projects, update the validation script's glob pattern to match their documentation structure.
@@ -115,7 +115,7 @@ The skill uses progressive disclosure to avoid overwhelming context:
 1. **Quick Reference** loaded first for common patterns
 2. **Main skill** provides comprehensive guidance
 3. **Examples** loaded only when needed for complex cases
-4. **Full guide** (`docs/mermaid-guide.md`) referenced for deep dives
+4. **Full guide** (`apps/docs/docs/reference/tooling/mermaid-guide.md`) referenced for deep dives
 
 ## Key Features
 
@@ -265,8 +265,8 @@ node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
 
 ### Project Documentation
 
-- `docs/mermaid-guide.md` - Complete Mermaid guide
-- `docs/architecture/*.md` - Example diagrams
+- `apps/docs/docs/reference/tooling/mermaid-guide.md` - Complete Mermaid guide
+- `apps/docs/docs/architecture/*.md` - Example diagrams
 - `.claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs` - Validation script
 - `AGENTS.md` - Repository guidelines (includes Mermaid section)
 
@@ -317,4 +317,3 @@ This skill captures the collective knowledge about Mermaid diagrams in the Brain
 - ✅ Is maintainable and clear
 
 **Result**: Higher quality architecture documentation with fewer errors and faster reviews! 🎉
-

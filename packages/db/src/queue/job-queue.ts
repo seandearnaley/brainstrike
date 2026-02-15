@@ -36,7 +36,7 @@ const logger = createLogger('JobQueue');
 
 /**
  * Telemetry adapter identifier for the durable DB-backed JobQueue.
- * @see docs/adr/0002-queue-boundaries.md for queue mental model
+ * @see apps/docs/docs/reference/adr/queue-boundaries.md for queue mental model
  */
 const JOB_QUEUE_TELEMETRY_ADAPTER: QueueTelemetryAdapter = 'job-queue';
 

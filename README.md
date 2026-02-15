@@ -80,7 +80,9 @@ See also: [`apps/docs/docs/getting-started/onboarding.md`](apps/docs/docs/gettin
 - **Pipeline package**: `@brainstrike/pipeline` ships chunking/embedding stages, progress aggregation, controller, and schema health checks. It is currently exercised in tests and not yet wired into the apps.
 - **Embedding cache (opt-in)**: `@brainstrike/db` provides an embedding cache table and repository; `startEmbeddingWorker({ embeddingCache })` can use it for content-level dedupe but it is not wired by default.
 
-Refer to `docs/arch_logs/20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff.md` (Post-Review Deltas) and `docs/arch_logs/20250905-170000-db-embedding-modernization-2025.md` for the phased plan. API shapes: `docs/arch_logs/20250905-000000-db-embedding-modernization/20250905-090000-api-contracts.md`.
+Refer to [`apps/docs/docs/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff.md`](apps/docs/docs/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff.md) (Post-Review Deltas) and
+[`apps/docs/docs/archive/cold/arch-logs/20250905-170000-db-embedding-modernization-2025.md`](apps/docs/docs/archive/cold/arch-logs/20250905-170000-db-embedding-modernization-2025.md) for the phased plan. API shapes:
+[`apps/docs/docs/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-090000-api-contracts.md`](apps/docs/docs/archive/cold/arch-logs/20250905-000000-db-embedding-modernization/20250905-090000-api-contracts.md).
 
 Web UX notes:
 - Vector Status (Right Panel → DB) surfaces Start/Stop/Reset for optional manual control and exposes coverage, throughput, and retry actions.

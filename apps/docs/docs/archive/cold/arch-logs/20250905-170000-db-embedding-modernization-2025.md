@@ -538,7 +538,7 @@ type Job = {
 * \[ ]🧪 **Repo-wide checks**
 
   * \[ ]◻ `pnpm -w lint`
-  * \[ ]◻ `pnpm -w typecheck` *(add if missing)*
+  * \[ ]◻ `pnpm -w type-check` *(add if missing)*
   * \[ ]◻ `pnpm -w build`
   * \[ ]◻ `pnpm -w test -- --run`
   * \[ ]◻ Headless CI environments: `pnpm run check:headless` (prepends display/sandbox setup)
