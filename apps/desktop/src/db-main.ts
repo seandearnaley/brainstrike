@@ -344,13 +344,6 @@ function getGitProfileContext(): GitProfileContext | null {
   return cachedGitProfileContext;
 }
 
-function getLegacyBranchOnlyProfileName(context: GitProfileContext | null): string | null {
-  if (!context?.branch) {
-    return null;
-  }
-  return sanitizeProfileSegment(`branch-${context.branch}`);
-}
-
 function getDatabaseProfile(): string {
   if (cachedDatabaseProfile) {
     return cachedDatabaseProfile;
@@ -400,13 +393,6 @@ function getDatabaseRootPath(): string {
   return path.join(app.getPath('documents'), dbDirName);
 }
 
-function getLegacyDatabasePath(): string {
-  if (process.env['NODE_ENV'] === 'test') {
-    return path.join(app.getPath('userData'), 'pgdata');
-  }
-  return path.join(getDatabaseRootPath(), 'pgdata');
-}
-
 function getAppDataPath(): string {
   if (process.env['NODE_ENV'] === 'test') {
     return path.join(app.getPath('userData'), 'pgdata');
@@ -419,77 +405,6 @@ function getDatabasePath(): string {
     return path.join(app.getPath('userData'), 'pgdata');
   }
   return path.join(getAppDataPath(), 'pgdata');
-}
-
-function migrateLegacyDatabasePathIfNeeded(dataDir: string): void {
-  if (process.env['NODE_ENV'] === 'test') {
-    return;
-  }
-
-  const legacyDataDir = getLegacyDatabasePath();
-  if (legacyDataDir === dataDir || existsSync(dataDir) || !existsSync(legacyDataDir)) {
-    return;
-  }
-
-  mkdirSync(path.dirname(dataDir), { recursive: true });
-  cpSync(legacyDataDir, dataDir, {
-    recursive: true,
-    errorOnExist: false,
-    force: false,
-  });
-
-  logger.warn('Migrated legacy database directory into profiled path', {
-    from: legacyDataDir,
-    to: dataDir,
-    profile: getDatabaseProfile(),
-  });
-}
-
-function migrateLegacyBranchProfilePathIfNeeded(appDataDir: string, dataDir: string): void {
-  if (process.env['NODE_ENV'] === 'test' || process.env['NODE_ENV'] === 'production') {
-    return;
-  }
-
-  const explicitProfile = process.env[DB_PROFILE_ENV]?.trim();
-  if (
-    explicitProfile &&
-    explicitProfile.length > 0 &&
-    explicitProfile.toLowerCase() !== 'undefined'
-  ) {
-    return;
-  }
-
-  const legacyProfileName = getLegacyBranchOnlyProfileName(getGitProfileContext());
-  if (!legacyProfileName) {
-    return;
-  }
-
-  const legacyAppDataDir = path.join(
-    getDatabaseRootPath(),
-    PROFILES_DIRECTORY_NAME,
-    legacyProfileName
-  );
-  if (legacyAppDataDir === appDataDir) {
-    return;
-  }
-
-  if (existsSync(appDataDir) || existsSync(dataDir) || !existsSync(legacyAppDataDir)) {
-    return;
-  }
-
-  mkdirSync(path.dirname(appDataDir), { recursive: true });
-  cpSync(legacyAppDataDir, appDataDir, {
-    recursive: true,
-    errorOnExist: false,
-    force: false,
-  });
-
-  logger.warn('Migrated legacy branch-scoped database directory into worktree-scoped path', {
-    from: legacyAppDataDir,
-    to: appDataDir,
-    profile: getDatabaseProfile(),
-    legacyProfile: legacyProfileName,
-  });
 }
 
 function createResetBackup(appDataDir: string): string | null {
@@ -834,9 +749,6 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
   lastInitializationStartedAt = new Date().toISOString();
   const dataDir = getDatabasePath();
   const appDataDir = getAppDataPath();
-
-  migrateLegacyDatabasePathIfNeeded(dataDir);
-  migrateLegacyBranchProfilePathIfNeeded(appDataDir, dataDir);
 
   if (!existsSync(dataDir)) {
     mkdirSync(dataDir, { recursive: true });
