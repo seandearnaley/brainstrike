@@ -1,14 +1,43 @@
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import path from 'node:path';
+import type {
+  DatabaseDiagnosticsSnapshot,
+  DatabaseInitFailureCategory,
+  DatabaseInitFailureSnapshot,
+  DatabaseInitStage,
+} from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import { app } from 'electron';
 
 const logger = createLogger('DatabaseMain');
 
+interface ErrorDetails {
+  message: string;
+  stack?: string;
+  name?: string;
+  code?: string;
+}
+
 interface ExtensionModuleShape {
   default?: unknown;
   vector?: unknown;
   live?: unknown;
+}
+
+interface GitProfileContext {
+  branch: string | null;
+  workspaceSeed: string;
 }
 
 function extractExtensionExport(module: unknown, field: 'vector' | 'live'): unknown {
@@ -28,26 +57,44 @@ function extractExtensionExport(module: unknown, field: 'vector' | 'live'): unkn
   return module;
 }
 
-function getErrorDetails(error: unknown) {
+function getErrorDetails(error: unknown): ErrorDetails {
+  const errorCode =
+    error && typeof error === 'object' && 'code' in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  const code = typeof errorCode === 'string' ? errorCode : undefined;
+
   if (error instanceof Error) {
-    return {
+    const details: ErrorDetails = {
       message: error.message,
-      stack: error.stack,
-      name: error.name,
     };
+    if (error.stack) {
+      details.stack = error.stack;
+    }
+    if (error.name) {
+      details.name = error.name;
+    }
+    if (code) {
+      details.code = code;
+    }
+    return details;
   }
   if (error === null || error === undefined) {
-    return {
+    const details: ErrorDetails = {
       message: 'unknown error',
-      stack: undefined,
-      name: undefined,
     };
+    if (code) {
+      details.code = code;
+    }
+    return details;
   }
-  return {
+  const details: ErrorDetails = {
     message: String(error),
-    stack: undefined,
-    name: undefined,
   };
+  if (code) {
+    details.code = code;
+  }
+  return details;
 }
 
 async function loadPgVectorExtension(): Promise<unknown> {
@@ -110,6 +157,65 @@ let db: any = null;
 // nondeterministic wasm aborts and noisy pgvector initialization failures.
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
 let dbInitializationPromise: Promise<any> | null = null;
+let initializationAttemptCount = 0;
+let lastInitializationStartedAt: string | null = null;
+let lastInitializationSucceededAt: string | null = null;
+let lastInitializationFailure: DatabaseInitFailureSnapshot | null = null;
+let runtimeCorruptionRecoveryCount = 0;
+let lastRuntimeCorruptionAt: string | null = null;
+let lastRuntimeCorruptionContext: string | null = null;
+let cachedDatabaseProfile: string | null = null;
+let cachedGitProfileContext: GitProfileContext | null | undefined;
+let dbProcessLockPath: string | null = null;
+
+const DB_PROFILE_ENV = 'BRAINSTRIKE_DB_PROFILE' as const;
+const PROFILES_DIRECTORY_NAME = 'profiles' as const;
+const PROFILE_BACKUPS_DIRECTORY_NAME = 'backups' as const;
+const PROFILE_BACKUPS_RETENTION_COUNT = 5 as const;
+const DB_LOCK_FILENAME = '.db-process.lock' as const;
+const WORKTREE_PROFILE_HASH_LENGTH = 8 as const;
+const WORKTREE_PROFILE_BRANCH_MAX = 40 as const;
+
+interface PGliteInstanceShape {
+  close?: () => Promise<void> | void;
+  query?: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+  syncToFs?: () => Promise<void>;
+}
+
+async function trySyncToFs(instance: PGliteInstanceShape, context: string): Promise<void> {
+  if (typeof instance.syncToFs !== 'function') {
+    return;
+  }
+
+  try {
+    await instance.syncToFs();
+  } catch (error) {
+    logger.warn('Failed to sync database files to disk', {
+      context,
+      error: getErrorDetails(error),
+    });
+    throw error;
+  }
+}
+
+async function tryCloseDatabaseInstance(
+  instance: PGliteInstanceShape,
+  context: string
+): Promise<void> {
+  if (typeof instance.close !== 'function') {
+    return;
+  }
+
+  try {
+    await instance.close();
+  } catch (error) {
+    logger.warn('Failed to close database instance cleanly', {
+      context,
+      error: getErrorDetails(error),
+    });
+  }
+}
 
 // Helper to create and validate a PGlite instance with pgvector
 async function createVectorDatabase(
@@ -126,43 +232,359 @@ async function createVectorDatabase(
     // biome-ignore lint/suspicious/noExplicitAny: PGlite vector extension type not available at compile time
     extensions: { vector: vector as any, live: live as any },
   });
-  await instance.query('SELECT 1');
-  await instance.exec('CREATE EXTENSION IF NOT EXISTS vector');
-  const res = await instance.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
-  if (!res.rows.length) {
-    throw new Error('pgvector extension not registered in database');
+
+  try {
+    await instance.query('SELECT 1');
+    await instance.exec('CREATE EXTENSION IF NOT EXISTS vector');
+    const res = await instance.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+    if (!res.rows.length) {
+      throw new Error('pgvector extension not registered in database');
+    }
+    // Force an initial sync barrier so startup writes are persisted before continuing.
+    await trySyncToFs(instance as PGliteInstanceShape, 'initialization');
+    return instance;
+  } catch (error) {
+    await tryCloseDatabaseInstance(instance as PGliteInstanceShape, 'initialization-failure');
+    throw error;
   }
-  return instance;
 }
 
-/**
- * Get the database directory path
- * Uses a different directory for development vs production
- */
-function getDatabasePath(): string {
-  // In test mode, store the database within the isolated User Data directory.
-  // This ensures that parallel test shards (which have unique User Data dirs)
-  // do not conflict over the same database lock file in the shared Documents folder.
-  if (process.env['NODE_ENV'] === 'test') {
-    return path.join(app.getPath('userData'), 'pgdata');
+function sanitizeProfileSegment(raw: string): string {
+  const sanitized = raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!sanitized) {
+    return 'default';
   }
-
-  const isProduction = process.env['NODE_ENV'] === 'production';
-  const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
-  return path.join(app.getPath('documents'), dbDirName, 'pgdata');
+  return sanitized.slice(0, 64);
 }
 
-/**
- * Get the parent application data directory (contains pgdata and potentially other app files)
- */
-function getAppDataPath(): string {
+function hashProfileSeed(seed: string): string {
+  return createHash('sha1').update(seed).digest('hex').slice(0, WORKTREE_PROFILE_HASH_LENGTH);
+}
+
+function createWorktreeScopedProfile(branch: string, workspaceSeed: string): string {
+  const branchSegment = sanitizeProfileSegment(branch).slice(0, WORKTREE_PROFILE_BRANCH_MAX);
+  return sanitizeProfileSegment(`branch-${branchSegment}-wt-${hashProfileSeed(workspaceSeed)}`);
+}
+
+function parseGitHeadToBranch(headContent: string): string | null {
+  const trimmed = headContent.trim();
+  if (!trimmed.length) {
+    return null;
+  }
+
+  if (trimmed.startsWith('ref:')) {
+    const ref = trimmed.slice(4).trim();
+    if (ref.startsWith('refs/heads/')) {
+      return ref.slice('refs/heads/'.length);
+    }
+    return ref;
+  }
+
+  return `detached-${trimmed.slice(0, 12)}`;
+}
+
+function tryReadGitBranchFromGitDir(gitDirPath: string): string | null {
+  const headPath = path.join(gitDirPath, 'HEAD');
+  if (!existsSync(headPath)) {
+    return null;
+  }
+  return parseGitHeadToBranch(readFileSync(headPath, 'utf8'));
+}
+
+function tryResolveGitDirFromPointer(currentDir: string, gitPointerPath: string): string | null {
+  const gitPointer = readFileSync(gitPointerPath, 'utf8').trim();
+  const gitDirMatch = /^gitdir:\s*(.+)$/i.exec(gitPointer);
+  if (!gitDirMatch?.[1]) {
+    return null;
+  }
+  return path.resolve(currentDir, gitDirMatch[1].trim());
+}
+
+function tryReadGitContextAtDirectory(currentDir: string): GitProfileContext | null {
+  const gitPath = path.join(currentDir, '.git');
+  if (!existsSync(gitPath)) {
+    return null;
+  }
+
+  try {
+    const stats = lstatSync(gitPath);
+
+    if (stats.isDirectory()) {
+      return {
+        branch: tryReadGitBranchFromGitDir(gitPath),
+        workspaceSeed: path.resolve(currentDir),
+      };
+    }
+
+    if (stats.isFile()) {
+      const resolvedGitDir = tryResolveGitDirFromPointer(currentDir, gitPath);
+      if (resolvedGitDir) {
+        return {
+          branch: tryReadGitBranchFromGitDir(resolvedGitDir),
+          workspaceSeed: path.resolve(currentDir),
+        };
+      }
+    }
+  } catch {
+    // Ignore git metadata parsing errors and fall back to default profile.
+  }
+
+  return null;
+}
+
+function resolveGitContextFromDirectory(startDir: string): GitProfileContext | null {
+  let currentDir = path.resolve(startDir);
+
+  while (true) {
+    const contextAtCurrentDir = tryReadGitContextAtDirectory(currentDir);
+    if (contextAtCurrentDir) {
+      return contextAtCurrentDir;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      return null;
+    }
+    currentDir = parentDir;
+  }
+}
+
+function getGitProfileContext(): GitProfileContext | null {
+  if (cachedGitProfileContext !== undefined) {
+    return cachedGitProfileContext;
+  }
+
+  cachedGitProfileContext = resolveGitContextFromDirectory(process.cwd());
+  return cachedGitProfileContext;
+}
+
+function getDatabaseProfile(): string {
+  if (cachedDatabaseProfile !== null) {
+    return cachedDatabaseProfile;
+  }
+
   if (process.env['NODE_ENV'] === 'test') {
-    return path.join(app.getPath('userData'), 'pgdata');
+    cachedDatabaseProfile = 'test';
+    return cachedDatabaseProfile;
+  }
+
+  const explicitProfile = process.env[DB_PROFILE_ENV];
+  const normalizedExplicitProfile = explicitProfile?.trim();
+  if (
+    normalizedExplicitProfile &&
+    normalizedExplicitProfile.length > 0 &&
+    normalizedExplicitProfile.toLowerCase() !== 'undefined'
+  ) {
+    cachedDatabaseProfile = sanitizeProfileSegment(normalizedExplicitProfile);
+    return cachedDatabaseProfile;
+  }
+
+  if (process.env['NODE_ENV'] === 'production') {
+    cachedDatabaseProfile = 'default';
+    return cachedDatabaseProfile;
+  }
+
+  const gitContext = getGitProfileContext();
+  if (gitContext?.branch) {
+    cachedDatabaseProfile = createWorktreeScopedProfile(
+      gitContext.branch,
+      gitContext.workspaceSeed
+    );
+    return cachedDatabaseProfile;
+  }
+
+  cachedDatabaseProfile = 'dev-default';
+  return cachedDatabaseProfile;
+}
+
+function getDatabaseRootPath(): string {
+  if (process.env['NODE_ENV'] === 'test') {
+    return app.getPath('userData');
   }
 
   const isProduction = process.env['NODE_ENV'] === 'production';
   const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
   return path.join(app.getPath('documents'), dbDirName);
+}
+
+function getAppDataPath(): string {
+  if (process.env['NODE_ENV'] === 'test') {
+    return path.join(app.getPath('userData'), 'pgdata');
+  }
+  return path.join(getDatabaseRootPath(), PROFILES_DIRECTORY_NAME, getDatabaseProfile());
+}
+
+function getDatabasePath(): string {
+  if (process.env['NODE_ENV'] === 'test') {
+    return path.join(app.getPath('userData'), 'pgdata');
+  }
+  return path.join(getAppDataPath(), 'pgdata');
+}
+
+function createResetBackup(appDataDir: string): string | null {
+  if (process.env['NODE_ENV'] === 'test' || !existsSync(appDataDir)) {
+    return null;
+  }
+
+  const backupRootDir = path.join(getDatabaseRootPath(), PROFILE_BACKUPS_DIRECTORY_NAME);
+  const profileName = path.basename(appDataDir);
+  mkdirSync(backupRootDir, { recursive: true });
+  const backupSuffix = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupDir = path.join(backupRootDir, `${profileName}-${backupSuffix}`);
+
+  cpSync(appDataDir, backupDir, {
+    recursive: true,
+    errorOnExist: true,
+    force: false,
+  });
+  pruneProfileResetBackups(backupRootDir, profileName);
+
+  return backupDir;
+}
+
+function pruneProfileResetBackups(backupRootDir: string, profileName: string): void {
+  try {
+    const profilePrefix = `${profileName}-`;
+    const backupNames = readdirSync(backupRootDir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name.startsWith(profilePrefix))
+      .map((entry) => entry.name)
+      .sort((left, right) => right.localeCompare(left));
+    const staleBackupNames = backupNames.slice(PROFILE_BACKUPS_RETENTION_COUNT);
+    for (const staleBackupName of staleBackupNames) {
+      rmSync(path.join(backupRootDir, staleBackupName), { recursive: true, force: true });
+    }
+  } catch (error) {
+    logger.warn('Failed to prune database reset backups', {
+      backupRootDir,
+      profileName,
+      error: getErrorDetails(error),
+    });
+  }
+}
+
+function getDatabaseLockPath(appDataDir: string): string {
+  return path.join(appDataDir, DB_LOCK_FILENAME);
+}
+
+function readLockOwnerPid(lockPath: string): number | null {
+  try {
+    const pidText = readFileSync(lockPath, 'utf8').trim();
+    const parsedPid = Number.parseInt(pidText, 10);
+    if (!Number.isFinite(parsedPid) || parsedPid <= 0) {
+      return null;
+    }
+    return parsedPid;
+  } catch {
+    return null;
+  }
+}
+
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: string }).code
+        : undefined;
+    // EPERM means process exists but this process has no permission to signal it.
+    return code === 'EPERM';
+  }
+}
+
+function throwLockHeldError(lockOwnerPid: number | null): never {
+  if (lockOwnerPid && isPidAlive(lockOwnerPid)) {
+    throw new Error(
+      `Database lock is held by process ${lockOwnerPid}. Close other BrainStrike windows/processes and retry.`
+    );
+  }
+  throw new Error(
+    'Database lock is held by another process. Close other BrainStrike windows/processes and retry.'
+  );
+}
+
+function acquireDatabaseProcessLock(appDataDir: string): void {
+  if (dbProcessLockPath !== null) {
+    return;
+  }
+
+  const lockPath = getDatabaseLockPath(appDataDir);
+  mkdirSync(appDataDir, { recursive: true });
+
+  const createLock = (): void => {
+    // Use a single atomic create+write to avoid a race where a second process reads
+    // an empty lock file before the owner PID is written.
+    writeFileSync(lockPath, String(process.pid), { encoding: 'utf8', flag: 'wx' });
+    dbProcessLockPath = lockPath;
+  };
+
+  try {
+    createLock();
+    return;
+  } catch (error) {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: string }).code
+        : undefined;
+    if (code !== 'EEXIST') {
+      throw error;
+    }
+  }
+
+  const lockOwnerPid = readLockOwnerPid(lockPath);
+  if (lockOwnerPid === process.pid) {
+    dbProcessLockPath = lockPath;
+    return;
+  }
+
+  if (lockOwnerPid && isPidAlive(lockOwnerPid)) {
+    throwLockHeldError(lockOwnerPid);
+  }
+
+  // Stale lock file from a dead process (or unreadable pid) - clear and retry exactly once.
+  try {
+    unlinkSync(lockPath);
+  } catch {
+    // Ignore stale lock cleanup errors; lock acquisition below will surface true conflicts.
+  }
+
+  try {
+    createLock();
+  } catch (error) {
+    const code =
+      error && typeof error === 'object' && 'code' in error
+        ? (error as { code?: string }).code
+        : undefined;
+    if (code === 'EEXIST') {
+      const nextLockOwnerPid = readLockOwnerPid(lockPath);
+      if (nextLockOwnerPid === process.pid) {
+        dbProcessLockPath = lockPath;
+        return;
+      }
+      throwLockHeldError(nextLockOwnerPid);
+    }
+    throw error;
+  }
+}
+
+function releaseDatabaseProcessLock(): void {
+  if (!dbProcessLockPath) {
+    return;
+  }
+
+  const lockPath = dbProcessLockPath;
+  dbProcessLockPath = null;
+
+  try {
+    unlinkSync(lockPath);
+  } catch {
+    // Ignore lock unlink failures (e.g. file already removed by reset cleanup).
+  }
 }
 
 /**
@@ -193,6 +615,13 @@ const CORRUPTION_ERROR_PATTERNS = [
   'page verification failed',
 ] as const;
 
+const WASM_ABORT_ERROR_PATTERNS = [
+  'aborted(). build with -sassertions for more info.',
+  'aborted()',
+  'runtimeerror: unreachable',
+  'wasm trap',
+] as const;
+
 /**
  * Check if an error indicates database corruption that requires a full reset
  */
@@ -213,18 +642,133 @@ export function isCorruptionError(error: unknown): boolean {
   return CORRUPTION_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern.toLowerCase()));
 }
 
+export function isWasmAbortError(error: unknown): boolean {
+  if (!error) {
+    return false;
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const lowerMessage = message.toLowerCase();
+  return WASM_ABORT_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern));
+}
+
+const FILESYSTEM_ERROR_CODES = ['EACCES', 'EPERM', 'ENOENT', 'EIO', 'ENOTDIR'] as const;
+
+function classifyInitializationFailure(
+  stage: DatabaseInitStage,
+  error: unknown
+): DatabaseInitFailureCategory {
+  const details = getErrorDetails(error);
+  const message = details.message.toLowerCase();
+
+  if (isWasmAbortError(error)) {
+    return 'wasm-runtime';
+  }
+
+  if (
+    stage === 'load-extensions' ||
+    message.includes('@electric-sql/pglite/vector') ||
+    message.includes('vector export missing') ||
+    message.includes('failed to load via esm import')
+  ) {
+    return 'missing-extension';
+  }
+
+  if (
+    message.includes('database lock is held') ||
+    message.includes('close other brainstrike windows/processes')
+  ) {
+    return 'concurrency';
+  }
+
+  if (isCorruptionError(error)) {
+    return 'corruption';
+  }
+
+  if (
+    (details.code &&
+      FILESYSTEM_ERROR_CODES.includes(details.code as (typeof FILESYSTEM_ERROR_CODES)[number])) ||
+    message.includes('permission denied') ||
+    message.includes('read-only file system') ||
+    message.includes('no such file')
+  ) {
+    return 'filesystem';
+  }
+
+  if (stage === 'migration' || message.includes('migrations failed')) {
+    return 'migration';
+  }
+
+  return 'unknown';
+}
+
+function recordInitializationFailure(stage: DatabaseInitStage, error: unknown): void {
+  const details = getErrorDetails(error);
+  lastInitializationFailure = {
+    ...details,
+    stage,
+    category: classifyInitializationFailure(stage, error),
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function recordInitializationSuccess(): void {
+  lastInitializationSucceededAt = new Date().toISOString();
+  lastInitializationFailure = null;
+}
+
+function formatOpenDatabaseFailureMessage(
+  category: DatabaseInitFailureCategory | undefined,
+  details: string
+): string {
+  if (category === 'missing-extension') {
+    return `pgvector extension is required and failed to initialize via PGlite: ${details}.`;
+  }
+  if (category === 'wasm-runtime') {
+    return `PGlite runtime aborted while opening the desktop database: ${details}.`;
+  }
+  if (category === 'concurrency') {
+    return details;
+  }
+  if (category === 'filesystem') {
+    return `Desktop database filesystem access failed while opening database: ${details}.`;
+  }
+  return `Desktop database failed to initialize via PGlite: ${details}.`;
+}
+
+export function getDatabaseDiagnostics(): DatabaseDiagnosticsSnapshot {
+  return {
+    nodeEnv: process.env['NODE_ENV'] ?? null,
+    databaseProfile: process.env['NODE_ENV'] === 'test' ? 'test' : getDatabaseProfile(),
+    dataDir: getDatabasePath(),
+    appDataDir: getAppDataPath(),
+    initializationAttemptCount,
+    initializationInFlight: dbInitializationPromise !== null,
+    hasDatabaseHandle: Boolean(db),
+    databaseLockHeld: dbProcessLockPath !== null,
+    databaseLockPath: dbProcessLockPath,
+    lastInitializationStartedAt,
+    lastInitializationSucceededAt,
+    lastInitializationFailure: lastInitializationFailure ? { ...lastInitializationFailure } : null,
+    runtimeCorruptionRecoveryCount,
+    lastRuntimeCorruptionAt,
+    lastRuntimeCorruptionContext,
+  };
+}
+
 /**
  * Safely close the database connection, ignoring errors
  */
 async function safeCloseDatabase(): Promise<void> {
   try {
-    if (db && typeof db.close === 'function') {
-      await db.close();
+    if (db) {
+      await tryCloseDatabaseInstance(db as PGliteInstanceShape, 'safe-close');
     }
   } catch {
     // ignore close errors
   } finally {
     db = null;
+    releaseDatabaseProcessLock();
   }
 }
 
@@ -233,7 +777,9 @@ async function safeCloseDatabase(): Promise<void> {
  * Throws if recovery fails.
  */
 async function attemptCorruptionRecovery(context: string): Promise<void> {
-  logger.warn(`Database corruption detected during ${context}. Attempting auto-recovery...`);
+  logger.warn(
+    `Recoverable database corruption detected during ${context}. Attempting auto-recovery...`
+  );
   await safeCloseDatabase();
   await resetLocalDatabase();
   logger.info('Database reset complete. Retrying initialization...');
@@ -251,7 +797,8 @@ async function handleCorruptionError(
 ): Promise<any> {
   await safeCloseDatabase();
 
-  if (!(retryAfterCorruption && isCorruptionError(err))) {
+  const hasCorruptionSignal = isCorruptionError(err);
+  if (!(retryAfterCorruption && hasCorruptionSignal)) {
     return null; // Signal that we didn't handle it
   }
 
@@ -259,9 +806,14 @@ async function handleCorruptionError(
     await attemptCorruptionRecovery(context);
     return await initializeMainDatabaseInternal(false);
   } catch (resetErr) {
-    logger.error('Auto-recovery failed:', resetErr);
+    recordInitializationFailure('runtime-corruption-recovery', resetErr);
+    logger.error('Auto-recovery failed', {
+      context,
+      error: getErrorDetails(resetErr),
+      originalError: getErrorDetails(err),
+    });
     throw new Error(
-      `Database corruption detected during ${context} and auto-recovery failed. Please manually delete the BrainStrike data folder and restart the app.`
+      `Database initialization failed during ${context} and auto-recovery failed. Please manually delete the BrainStrike data folder and restart the app.`
     );
   }
 }
@@ -277,43 +829,76 @@ async function initializeMainDatabaseInternal(retryAfterCorruption = true): Prom
     return db;
   }
 
+  initializationAttemptCount += 1;
+  lastInitializationStartedAt = new Date().toISOString();
   const dataDir = getDatabasePath();
+  const appDataDir = getAppDataPath();
+
   if (!existsSync(dataDir)) {
     mkdirSync(dataDir, { recursive: true });
     logger.info(`Created database directory: ${dataDir}`);
   }
 
-  const { PGlite, migrate, vector, live } = await getPGlite();
+  let loadedPGlite: Awaited<ReturnType<typeof getPGlite>>;
+
+  try {
+    loadedPGlite = await getPGlite();
+  } catch (err) {
+    recordInitializationFailure('load-extensions', err);
+    logger.error('Failed to load required PGlite modules', {
+      dataDir,
+      appDataDir,
+      failure: lastInitializationFailure,
+    });
+    throw err instanceof Error ? err : new Error(getErrorDetails(err).message);
+  }
 
   // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension
   try {
-    db = await createVectorDatabase(PGlite, dataDir, vector, live);
+    acquireDatabaseProcessLock(appDataDir);
+    db = await createVectorDatabase(
+      loadedPGlite.PGlite,
+      dataDir,
+      loadedPGlite.vector,
+      loadedPGlite.live
+    );
     logger.info('Database initialized with pgvector extension at:', dataDir);
   } catch (err) {
+    recordInitializationFailure('open-database', err);
     const recovered = await handleCorruptionError(err, 'initialization', retryAfterCorruption);
     if (recovered) {
       return recovered;
     }
 
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Failed to initialize database with pgvector:', msg);
-    throw new Error(`pgvector extension is required and failed to initialize via PGlite: ${msg}.`);
+    logger.error('Failed to initialize database with pgvector', {
+      dataDir,
+      appDataDir,
+      failure: lastInitializationFailure,
+    });
+    throw new Error(formatOpenDatabaseFailureMessage(lastInitializationFailure?.category, msg));
   }
 
   // Run migrations
   try {
-    await migrate(db);
+    await loadedPGlite.migrate(db);
   } catch (err) {
+    recordInitializationFailure('migration', err);
     const recovered = await handleCorruptionError(err, 'migration', retryAfterCorruption);
     if (recovered) {
       return recovered;
     }
 
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Database migrations failed:', msg);
+    logger.error('Database migrations failed', {
+      dataDir,
+      appDataDir,
+      failure: lastInitializationFailure,
+    });
     throw new Error(`Database migrations failed with pgvector: ${msg}`);
   }
 
+  recordInitializationSuccess();
   logger.info(`Database initialized successfully at: ${dataDir}`);
   return db;
 }
@@ -358,10 +943,20 @@ export async function getDatabase(): Promise<any> {
  * Close the database connection
  */
 export async function closeDatabase(): Promise<void> {
-  if (db) {
-    await db.close();
+  try {
+    if (db) {
+      const currentDatabase = db as PGliteInstanceShape;
+      try {
+        await trySyncToFs(currentDatabase, 'closeDatabase');
+      } catch {
+        // trySyncToFs already logs sync failures; still close the handle to avoid leaks.
+      }
+      await tryCloseDatabaseInstance(currentDatabase, 'closeDatabase');
+      logger.info('Database connection closed');
+    }
+  } finally {
     db = null;
-    logger.info('Database connection closed');
+    releaseDatabaseProcessLock();
   }
 }
 
@@ -378,6 +973,9 @@ export async function reinitializeDatabase(): Promise<any> {
  */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
 export async function handleRuntimeCorruption(context: string): Promise<any> {
+  runtimeCorruptionRecoveryCount += 1;
+  lastRuntimeCorruptionAt = new Date().toISOString();
+  lastRuntimeCorruptionContext = context;
   logger.warn(`Runtime corruption detected during ${context}. Resetting database...`);
   await safeCloseDatabase();
   await resetLocalDatabase();
@@ -386,9 +984,8 @@ export async function handleRuntimeCorruption(context: string): Promise<any> {
 }
 
 /**
- * Reset local database by removing the entire app data directory and closing any open connection.
- * This deletes both the pgdata folder AND the parent BrainStrike/BrainStrike-dev folder
- * to ensure a complete clean slate, including any lock files or corrupted state.
+ * Reset local database by removing the active profile directory and closing any open connection.
+ * This deletes the profile-scoped pgdata and lock files while leaving other profiles untouched.
  * Next access will lazily recreate and migrate from scratch.
  */
 export async function resetLocalDatabase(): Promise<void> {
@@ -401,8 +998,22 @@ export async function resetLocalDatabase(): Promise<void> {
 
   const appDataDir = getAppDataPath();
   const dataDir = getDatabasePath();
+  let backupDir: string | null = null;
 
-  // Delete the entire app data directory (parent folder) for a complete reset
+  try {
+    backupDir = createResetBackup(appDataDir);
+    if (backupDir) {
+      logger.warn(`Created database backup before reset: ${backupDir}`);
+    }
+  } catch (err) {
+    logger.error('Failed to backup app data directory before reset', {
+      appDataDir,
+      error: getErrorDetails(err),
+    });
+    throw err;
+  }
+
+  // Delete the active profile directory for a complete profile-scoped reset.
   try {
     rmSync(appDataDir, { recursive: true, force: true });
     logger.info(`Removed app data directory: ${appDataDir}`);

@@ -368,6 +368,8 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 
 let stopAssistantServer: null | (() => Promise<void>) = null;
 let unregisterMainIpcHandlers: null | (() => void) = null;
+let signalShutdownInFlight = false;
+const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
   // Note: Embedding worker runs in renderer, not main process, so no need to stop it here
@@ -381,6 +383,55 @@ async function handleResetLocal(): Promise<{ success: boolean; message?: string 
   }
 
   return { success: true };
+}
+
+function scheduleForcedProcessExit(signal: NodeJS.Signals): void {
+  const timeoutHandle = setTimeout(() => {
+    logger.error('Timed out waiting for graceful shutdown after process signal; forcing exit', {
+      signal,
+    });
+    process.exit(1);
+  }, SIGNAL_SHUTDOWN_TIMEOUT_MS);
+  timeoutHandle.unref();
+}
+
+async function handleShutdownSignal(signal: NodeJS.Signals): Promise<void> {
+  if (signalShutdownInFlight) {
+    return;
+  }
+  signalShutdownInFlight = true;
+
+  logger.warn('Received shutdown signal, attempting graceful desktop shutdown', { signal });
+  scheduleForcedProcessExit(signal);
+
+  try {
+    if (stopAssistantServer) {
+      await stopAssistantServer();
+      stopAssistantServer = null;
+    }
+    await closeDatabase();
+  } catch (error) {
+    logger.error('Failed during signal-triggered shutdown', { signal, error });
+  } finally {
+    if (app.isReady()) {
+      app.quit();
+    } else {
+      process.exit(0);
+    }
+  }
+}
+
+function registerShutdownSignalHandlers(): void {
+  if (process.env['NODE_ENV'] === 'test') {
+    return;
+  }
+
+  const shutdownSignals: readonly NodeJS.Signals[] = ['SIGINT', 'SIGTERM'];
+  for (const signal of shutdownSignals) {
+    process.once(signal, () => {
+      void handleShutdownSignal(signal);
+    });
+  }
 }
 
 const fileSystem = new ElectronFileSystemAdapter();
@@ -407,142 +458,165 @@ process.on('uncaughtException', (error) => {
 process.on('unhandledRejection', (reason, promise) => {
   logger.error('Unhandled promise rejection', { reason, promise });
 });
+registerShutdownSignalHandlers();
 
-app.whenReady().then(async () => {
-  try {
-    logger.info('App ready, starting initialization...');
+const singleInstanceLockAcquired =
+  typeof app.requestSingleInstanceLock === 'function' ? app.requestSingleInstanceLock() : true;
 
-    logger.info('Setting up IPC handlers that require app readiness...');
-    registerSecretsIpcHandlers(createSecretsService());
-    registerAgentIpcHandlers();
-    registerMcpIpcHandlers();
-    registerToolsIpcHandlers();
-    logger.info('Ready-dependent IPC handlers registered successfully');
-
-    // Setup security before creating windows
-    setupSecurity();
-    logger.info('Security setup complete');
-
-    // NOTE: Embedding worker is started in renderer process, not here in main process.
-    // Main process cannot run transformers.js with Web Workers (they don't exist in Node.js).
-    // See apps/desktop/src/renderer/main.tsx for renderer-side worker initialization.
-
-    // Application menu with developer utilities
-    const menuTemplate: Electron.MenuItemConstructorOptions[] = [
-      {
-        label: 'Application',
-        submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }],
-      },
-      {
-        label: 'Edit',
-        submenu: [
-          { role: 'undo' },
-          { role: 'redo' },
-          { type: 'separator' },
-          { role: 'cut' },
-          { role: 'copy' },
-          { role: 'paste' },
-          { role: 'selectAll' },
-        ],
-      },
-      {
-        label: 'View',
-        submenu: [
-          { role: 'reload' },
-          { role: 'toggleDevTools' },
-          { type: 'separator' },
-          { role: 'resetZoom' },
-          { role: 'zoomIn' },
-          { role: 'zoomOut' },
-          { type: 'separator' },
-          { role: 'togglefullscreen' },
-        ],
-      },
-      {
-        label: 'Developer',
-        submenu: [
-          {
-            id: 'dev-reset-db',
-            label: 'Reset Local Database…',
-            accelerator:
-              process.platform === 'darwin' ? 'Cmd+Shift+Backspace' : 'Ctrl+Shift+Backspace',
-            click: async () => {
-              const res = await dialog.showMessageBox({
-                type: 'warning',
-                buttons: ['Reset', 'Cancel'],
-                defaultId: 1,
-                cancelId: 1,
-                title: 'Reset Local Database',
-                message:
-                  'This will delete the local database files and reinitialize on next access. This action cannot be undone.',
-              });
-              if (res.response !== 0) {
-                return;
-              }
-              try {
-                await resetLocalDatabase();
-                await dialog.showMessageBox({
-                  type: 'info',
-                  buttons: ['OK'],
-                  title: 'Database Reset',
-                  message: 'Local database has been reset. The app will reload.',
-                });
-                for (const win of BrowserWindow.getAllWindows()) {
-                  win.webContents.reloadIgnoringCache();
-                }
-              } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                dialog.showErrorBox('Reset Failed', message);
-              }
-            },
-          },
-        ],
-      },
-    ];
-    Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
-
-    // Start local data stream server for desktop assistant-ui
-    let assistantUrl = '';
-    try {
-      const { url, stop } = await startAssistantServer();
-      assistantUrl = url;
-      stopAssistantServer = stop;
-      logger.info(`Assistant server started at ${assistantUrl}`);
-    } catch (err) {
-      logger.error('Failed to start assistant server:', err);
+if (singleInstanceLockAcquired) {
+  app.on('second-instance', () => {
+    const existingWindow = BrowserWindow.getAllWindows()[0];
+    if (!existingWindow) {
+      return;
     }
 
-    // IPC to provide assistant URL to renderer
-    ipcMain.handle('assistant:get-url', () => assistantUrl);
+    if (typeof existingWindow.show === 'function') {
+      existingWindow.show();
+    }
+    if (typeof existingWindow.focus === 'function') {
+      existingWindow.focus();
+    }
+  });
 
-    const createMainWindow = async () => {
-      // Store is guaranteed to exist after app.whenReady()
-      const store = getSettingsStore();
-      if (!store) {
-        throw new Error('Settings store unavailable after app.ready - this should never happen');
+  app.whenReady().then(async () => {
+    try {
+      logger.info('App ready, starting initialization...');
+
+      logger.info('Setting up IPC handlers that require app readiness...');
+      registerSecretsIpcHandlers(createSecretsService());
+      registerAgentIpcHandlers();
+      registerMcpIpcHandlers();
+      registerToolsIpcHandlers();
+      logger.info('Ready-dependent IPC handlers registered successfully');
+
+      // Setup security before creating windows
+      setupSecurity();
+      logger.info('Security setup complete');
+
+      // NOTE: Embedding worker is started in renderer process, not here in main process.
+      // Main process cannot run transformers.js with Web Workers (they don't exist in Node.js).
+      // See apps/desktop/src/renderer/main.tsx for renderer-side worker initialization.
+
+      // Application menu with developer utilities
+      const menuTemplate: Electron.MenuItemConstructorOptions[] = [
+        {
+          label: 'Application',
+          submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }],
+        },
+        {
+          label: 'Edit',
+          submenu: [
+            { role: 'undo' },
+            { role: 'redo' },
+            { type: 'separator' },
+            { role: 'cut' },
+            { role: 'copy' },
+            { role: 'paste' },
+            { role: 'selectAll' },
+          ],
+        },
+        {
+          label: 'View',
+          submenu: [
+            { role: 'reload' },
+            { role: 'toggleDevTools' },
+            { type: 'separator' },
+            { role: 'resetZoom' },
+            { role: 'zoomIn' },
+            { role: 'zoomOut' },
+            { type: 'separator' },
+            { role: 'togglefullscreen' },
+          ],
+        },
+        {
+          label: 'Developer',
+          submenu: [
+            {
+              id: 'dev-reset-db',
+              label: 'Reset Local Database…',
+              accelerator:
+                process.platform === 'darwin' ? 'Cmd+Shift+Backspace' : 'Ctrl+Shift+Backspace',
+              click: async () => {
+                const res = await dialog.showMessageBox({
+                  type: 'warning',
+                  buttons: ['Reset', 'Cancel'],
+                  defaultId: 1,
+                  cancelId: 1,
+                  title: 'Reset Local Database',
+                  message:
+                    'This will delete the local database files and reinitialize on next access. This action cannot be undone.',
+                });
+                if (res.response !== 0) {
+                  return;
+                }
+                try {
+                  await resetLocalDatabase();
+                  await dialog.showMessageBox({
+                    type: 'info',
+                    buttons: ['OK'],
+                    title: 'Database Reset',
+                    message: 'Local database has been reset. The app will reload.',
+                  });
+                  for (const win of BrowserWindow.getAllWindows()) {
+                    win.webContents.reloadIgnoringCache();
+                  }
+                } catch (error) {
+                  const message = error instanceof Error ? error.message : String(error);
+                  dialog.showErrorBox('Reset Failed', message);
+                }
+              },
+            },
+          ],
+        },
+      ];
+      Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
+
+      // Start local data stream server for desktop assistant-ui
+      let assistantUrl = '';
+      try {
+        const { url, stop } = await startAssistantServer();
+        assistantUrl = url;
+        stopAssistantServer = stop;
+        logger.info(`Assistant server started at ${assistantUrl}`);
+      } catch (err) {
+        logger.error('Failed to start assistant server:', err);
       }
-      const storedWindowState = readStoredWindowState(store);
-      const win = await createWindow({ windowState: storedWindowState });
-      registerWindowStatePersistence(win, store);
-      return win;
-    };
 
-    logger.info('Creating main window...');
-    await createMainWindow();
-    logger.info('Main window created successfully');
+      // IPC to provide assistant URL to renderer
+      ipcMain.handle('assistant:get-url', () => assistantUrl);
 
-    app.on('activate', async () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        await createMainWindow();
-      }
-    });
-  } catch (error) {
-    logger.error('Failed to initialize application:', error);
-    // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
-    console.error('❌ FATAL: Failed to initialize application:', error);
-    app.quit();
-  }
-});
+      const createMainWindow = async () => {
+        // Store is guaranteed to exist after app.whenReady()
+        const store = getSettingsStore();
+        if (!store) {
+          throw new Error('Settings store unavailable after app.ready - this should never happen');
+        }
+        const storedWindowState = readStoredWindowState(store);
+        const win = await createWindow({ windowState: storedWindowState });
+        registerWindowStatePersistence(win, store);
+        return win;
+      };
+
+      logger.info('Creating main window...');
+      await createMainWindow();
+      logger.info('Main window created successfully');
+
+      app.on('activate', async () => {
+        if (BrowserWindow.getAllWindows().length === 0) {
+          await createMainWindow();
+        }
+      });
+    } catch (error) {
+      logger.error('Failed to initialize application:', error);
+      // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
+      console.error('❌ FATAL: Failed to initialize application:', error);
+      app.quit();
+    }
+  });
+} else {
+  logger.warn('Another BrainStrike desktop process is already running. Exiting this process.');
+  app.quit();
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

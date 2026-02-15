@@ -1,4 +1,4 @@
-import type { ElectronDatabaseAPI } from '@brainstrike/types';
+import type { DatabaseDiagnosticsSnapshot, ElectronDatabaseAPI } from '@brainstrike/types';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
@@ -126,6 +126,86 @@ function createDbHandle(executor: QueryExecutor): DbHandle {
   return handle;
 }
 
+function formatDesktopDatabaseInitError(
+  diagnostics: DatabaseDiagnosticsSnapshot | null,
+  fallbackMessage: string
+): string {
+  const failure = diagnostics?.lastInitializationFailure;
+  const rawFailureMessage =
+    failure && typeof failure === 'object' && 'message' in failure
+      ? (failure as { message?: unknown }).message
+      : null;
+  const failureMessage = normalizeFailureMessage(rawFailureMessage);
+  const failureDetail = failureMessage ? ` Last failure: ${failureMessage}` : '';
+
+  if (!failure) {
+    return `pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.${failureDetail}`;
+  }
+
+  if (failure.category === 'concurrency') {
+    return `Desktop database is already in use by another BrainStrike process. Close other instances and restart.${failureDetail}`;
+  }
+
+  if (failure.category === 'corruption') {
+    return `Desktop database files appear corrupted and cannot be opened safely.${failureDetail}`;
+  }
+
+  if (failure.category === 'wasm-runtime') {
+    return `Desktop database runtime aborted while opening the database.${failureDetail}`;
+  }
+
+  if (failure.category === 'filesystem') {
+    return `Desktop database filesystem access failed.${failureDetail}`;
+  }
+
+  if (failure.category === 'migration') {
+    return `Desktop database migration failed.${failureDetail}`;
+  }
+
+  if (failure.category === 'missing-extension') {
+    return `pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.${failureDetail}`;
+  }
+
+  return `${fallbackMessage}${failureDetail}`;
+}
+
+function normalizeFailureMessage(message: unknown): string | null {
+  if (typeof message === 'string') {
+    const trimmed = message.trim();
+    if (!trimmed.length) {
+      return null;
+    }
+    if (trimmed === '[object Object]') {
+      return null;
+    }
+    return trimmed;
+  }
+
+  if (message && typeof message === 'object') {
+    if ('message' in message) {
+      const nestedMessage = (message as { message?: unknown }).message;
+      const normalizedNestedMessage = normalizeFailureMessage(nestedMessage);
+      if (normalizedNestedMessage) {
+        return normalizedNestedMessage;
+      }
+    }
+    try {
+      const serialized = JSON.stringify(message);
+      if (serialized && serialized !== '{}') {
+        return serialized;
+      }
+    } catch {
+      return String(message);
+    }
+  }
+
+  if (message === null || message === undefined) {
+    return null;
+  }
+
+  return String(message);
+}
+
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
   const [fileRecordRepository, setFileRecordRepository] = useState<
@@ -167,6 +247,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
   }, []);
 
+  const getElectronDiagnostics = useCallback(async (electronDB: ElectronDatabaseAPI) => {
+    if (!electronDB.diagnostics) {
+      return null;
+    }
+    try {
+      return await electronDB.diagnostics();
+    } catch (error) {
+      logger.warn('Failed to fetch desktop database diagnostics', { error });
+      return null;
+    }
+  }, []);
+
   const initializeElectronIPC = useCallback(
     async (cancelled: { value: boolean }) => {
       if (!(useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.db)) {
@@ -194,16 +286,22 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       });
       // Detect pgvector extension availability over IPC
       let hasVector = false;
+      let diagnostics: DatabaseDiagnosticsSnapshot | null = null;
       try {
         const res = await electronDB.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
         hasVector = Array.isArray(res.rows) && res.rows.length > 0;
       } catch (error) {
+        diagnostics = await getElectronDiagnostics(electronDB);
         hasVector = false;
-        logger.warn('Failed to detect pgvector extension over IPC', { error });
+        logger.warn('Failed to detect pgvector extension over IPC', { error, diagnostics });
       }
       if (!hasVector) {
+        if (!diagnostics) {
+          diagnostics = await getElectronDiagnostics(electronDB);
+        }
+        logger.error('Desktop database initialization missing pgvector extension', { diagnostics });
         throw new Error(
-          'pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.'
+          formatDesktopDatabaseInitError(diagnostics, 'Desktop database failed to initialize.')
         );
       }
       const chunkRepo = new ElectronFileChunkRepository({
@@ -242,7 +340,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       return true;
     },
-    [useElectronIPC, testElectronConnection]
+    [useElectronIPC, testElectronConnection, getElectronDiagnostics]
   );
 
   const initializeDirectPGlite = useCallback(
