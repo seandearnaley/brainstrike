@@ -402,4 +402,19 @@ describe('db-main lifecycle', () => {
     expect(diagnostics.lastRuntimeCorruptionContext).toBe('db:query');
     expect(diagnostics.lastRuntimeCorruptionAt).not.toBeNull();
   });
+
+  it('exposes a test-only helper to reset mutable diagnostics state', async () => {
+    const { initializeMainDatabase, getDatabaseDiagnostics, __resetDatabaseModuleStateForTests } =
+      await import('../../db-main');
+
+    await initializeMainDatabase();
+    expect(getDatabaseDiagnostics().initializationAttemptCount).toBeGreaterThan(0);
+
+    __resetDatabaseModuleStateForTests();
+
+    const diagnostics = getDatabaseDiagnostics();
+    expect(diagnostics.initializationAttemptCount).toBe(0);
+    expect(diagnostics.lastInitializationFailure).toBeNull();
+    expect(diagnostics.runtimeCorruptionRecoveryCount).toBe(0);
+  });
 });
