@@ -155,7 +155,7 @@ describe('mcp-loader comprehensive tests', () => {
     });
 
     it('should throw for invalid JSON', () => {
-      expect(() => parseMcpConfig('invalid json')).toThrow();
+      expect(() => parseMcpConfig('invalid json')).toThrow('invalid_mcp_config:');
     });
 
     it('should throw when servers is not an array', () => {

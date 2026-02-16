@@ -298,7 +298,13 @@ function parseSseServer(s: unknown): McpServer | null {
 export function parseMcpConfig(text: string): McpConfig {
   const jsoncText = stripJsonComments(text);
   const normalizedJson = stripTrailingCommas(jsoncText);
-  const raw = JSON.parse(normalizedJson) as unknown;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(normalizedJson);
+  } catch (error) {
+    const parseMessage = error instanceof Error ? error.message : 'invalid JSON';
+    throw new Error(`invalid_mcp_config: ${parseMessage}`);
+  }
   if (
     !raw ||
     typeof raw !== 'object' ||
