@@ -351,7 +351,17 @@ async function loadCustomConfigPath(): Promise<string | null> {
       return null;
     }
     const content = await fsp.readFile(file, 'utf-8');
-    return content.trim() || null;
+    const trimmedPath = content.trim();
+    if (trimmedPath.length === 0) {
+      return null;
+    }
+    if (!path.isAbsolute(trimmedPath)) {
+      logger.warn('Ignoring invalid custom MCP config path from storage', {
+        path: trimmedPath,
+      });
+      return null;
+    }
+    return trimmedPath;
   } catch (error) {
     if ((error as { code?: string }).code === 'ENOENT') {
       return null;
@@ -385,9 +395,27 @@ async function saveCustomConfigPath(configPath: string | null): Promise<void> {
   }
 }
 
+function normalizeCustomConfigPath(configPath: string | null): string | null {
+  if (configPath === null) {
+    return null;
+  }
+
+  const trimmedPath = configPath.trim();
+  if (trimmedPath.length === 0) {
+    return null;
+  }
+
+  if (!path.isAbsolute(trimmedPath)) {
+    throw new Error('invalid_mcp_config_path: path must be absolute');
+  }
+
+  return trimmedPath;
+}
+
 export async function setCustomMcpConfigPath(configPath: string | null): Promise<void> {
-  customConfigPath = configPath;
-  await saveCustomConfigPath(configPath);
+  const normalizedPath = normalizeCustomConfigPath(configPath);
+  customConfigPath = normalizedPath;
+  await saveCustomConfigPath(normalizedPath);
 }
 
 export async function getMcpConfigPath(): Promise<string> {

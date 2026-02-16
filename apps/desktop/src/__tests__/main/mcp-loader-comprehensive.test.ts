@@ -260,6 +260,67 @@ describe('mcp-loader comprehensive tests', () => {
       expect(result.servers).toHaveLength(1);
       expect(result.servers[0]?.name).toBe('filesystem');
     });
+
+    it('should keep comment tokens inside JSON strings', () => {
+      const jsonWithCommentTokensInString = `{
+        "servers": [
+          {
+            "transport": "sse",
+            "name": "string-tokens",
+            "url": "https://example.com/sse",
+            "headers": {
+              "X-Notes": "keep // text and /* markers */ in string"
+            }
+          }
+        ]
+      }`;
+
+      const result = parseMcpConfig(jsonWithCommentTokensInString);
+      expect(result.servers).toHaveLength(1);
+      const server = result.servers[0];
+      if (server.transport !== 'sse') {
+        throw new Error('expected sse server');
+      }
+      expect(server.headers?.['X-Notes']).toBe('keep // text and /* markers */ in string');
+    });
+
+    it('should handle escaped quotes before inline comment tokens', () => {
+      const jsonWithEscapedQuotes = `{
+        "servers": [
+          {
+            "transport": "sse",
+            "name": "escaped-string",
+            "url": "https://example.com/sse",
+            "headers": {
+              "X-Example": "value with escaped quote: \\" // still string"
+            }
+          }
+        ]
+      }`;
+
+      const result = parseMcpConfig(jsonWithEscapedQuotes);
+      expect(result.servers).toHaveLength(1);
+      const server = result.servers[0];
+      if (server.transport !== 'sse') {
+        throw new Error('expected sse server');
+      }
+      expect(server.headers?.['X-Example']).toBe('value with escaped quote: " // still string');
+    });
+
+    it('should throw when block comment is unterminated', () => {
+      const unterminatedBlockComment = `{
+        "servers": [
+          /* unterminated comment
+          {
+            "transport": "sse",
+            "name": "broken",
+            "url": "https://example.com/sse"
+          }
+        ]
+      }`;
+
+      expect(() => parseMcpConfig(unterminatedBlockComment)).toThrow();
+    });
   });
 
   describe('getMcpConfigPath', () => {

@@ -106,6 +106,14 @@ describe('mcp-loader', () => {
     expect(fallback).toContain(path.join(tempDir, 'mcp', 'mcp.config.json'));
   });
 
+  it('rejects relative custom MCP config paths', async () => {
+    const { setCustomMcpConfigPath } = await import('../../mcp-loader');
+
+    await expect(setCustomMcpConfigPath('relative/mcp.config.json')).rejects.toThrow(
+      'invalid_mcp_config_path: path must be absolute'
+    );
+  });
+
   it('loads MCP config from disk and reports missing config', async () => {
     const { getMcpConfigPath, loadMcpConfig, setCustomMcpConfigPath } = await import(
       '../../mcp-loader'
