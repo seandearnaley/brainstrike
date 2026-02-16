@@ -319,7 +319,9 @@ describe('mcp-loader comprehensive tests', () => {
         ]
       }`;
 
-      expect(() => parseMcpConfig(unterminatedBlockComment)).toThrow();
+      expect(() => parseMcpConfig(unterminatedBlockComment)).toThrow(
+        'invalid_mcp_config: unterminated block comment'
+      );
     });
   });
 

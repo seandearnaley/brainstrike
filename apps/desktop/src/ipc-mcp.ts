@@ -15,6 +15,7 @@ import {
   type LoadedMcpConfig,
   loadMcpConfig,
   type McpConfig,
+  type McpServer,
   readMcpConfigText,
   setCustomMcpConfigPath,
   watchMcpConfig,
@@ -34,11 +35,7 @@ function normalizeUrl(url: string | undefined): string {
   return (url ?? '').trim().replace(/\/+$/u, '');
 }
 
-function isPlaceholderServer(server: {
-  transport: 'stdio' | 'sse';
-  args?: string[];
-  url?: string;
-}): boolean {
+function isPlaceholderServer(server: McpServer): boolean {
   if (server.transport === 'stdio') {
     const args = server.args ?? [];
     // Backward-compatibility guard for legacy sample configs created before we switched

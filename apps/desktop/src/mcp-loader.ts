@@ -150,6 +150,10 @@ function stripJsonComments(text: string): string {
     index += handleNormal(char, next, output, state);
   }
 
+  if (state.mode === 'block-comment') {
+    throw new Error('invalid_mcp_config: unterminated block comment');
+  }
+
   return output.join('');
 }
 
