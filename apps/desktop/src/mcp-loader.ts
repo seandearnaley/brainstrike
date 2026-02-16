@@ -122,6 +122,7 @@ function handleNormal(
 function stripJsonComments(text: string): string {
   // Keep JSONC preprocessing local and dependency-free in desktop main.
   // Supported syntax mirrors our MCP template/editor needs: comments + trailing commas.
+  // If this expands beyond MCP config editing, prefer a dedicated JSONC parser dependency.
   const output: string[] = [];
   const state: CommentStripState = { mode: 'normal', escaped: false };
 
@@ -152,6 +153,9 @@ function stripJsonComments(text: string): string {
 
   if (state.mode === 'block-comment') {
     throw new Error('invalid_mcp_config: unterminated block comment');
+  }
+  if (state.mode === 'string') {
+    throw new Error('invalid_mcp_config: unterminated string');
   }
 
   return output.join('');
@@ -336,7 +340,17 @@ export interface LoadedMcpConfig {
   error?: string;
 }
 
-let customConfigPath: string | null = null;
+interface CustomConfigPathCache {
+  initialized: boolean;
+  value: string | null;
+}
+
+// Main-process singleton cache for the selected MCP config path.
+// Electron main is single-threaded; this avoids repeated disk reads while keeping updates explicit.
+const customConfigPathCache: CustomConfigPathCache = {
+  initialized: false,
+  value: null,
+};
 
 const CUSTOM_CONFIG_PATH_FILE = 'mcp-custom-path.txt';
 
@@ -418,18 +432,21 @@ function normalizeCustomConfigPath(configPath: string | null): string | null {
 
 export async function setCustomMcpConfigPath(configPath: string | null): Promise<void> {
   const normalizedPath = normalizeCustomConfigPath(configPath);
-  customConfigPath = normalizedPath;
+  customConfigPathCache.value = normalizedPath;
+  customConfigPathCache.initialized = true;
   await saveCustomConfigPath(normalizedPath);
 }
 
 export async function getMcpConfigPath(): Promise<string> {
-  // Load from disk if not already in memory
-  if (!customConfigPath) {
-    customConfigPath = await loadCustomConfigPath();
+  // Keep custom-path overrides sticky in memory, but re-check disk while
+  // cache is empty so external/manual custom-path creation is still observed.
+  if (!customConfigPathCache.initialized || customConfigPathCache.value === null) {
+    customConfigPathCache.value = await loadCustomConfigPath();
+    customConfigPathCache.initialized = true;
   }
 
-  if (customConfigPath) {
-    return customConfigPath;
+  if (customConfigPathCache.value) {
+    return customConfigPathCache.value;
   }
   const userData = app.getPath('userData');
   if (!userData) {
@@ -623,7 +640,7 @@ export async function watchMcpConfig(
 ): Promise<McpWatcher> {
   const p = await getMcpConfigPath();
   // ensure directory exists to avoid immediate watch errors
-  void ensureMcpDirExists();
+  await ensureMcpDirExists();
   const watchedFileName = path.basename(p);
   let timer: NodeJS.Timeout | null = null;
   const watcher = fs.watch(path.dirname(p), async (_ev, filename) => {

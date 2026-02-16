@@ -1,5 +1,5 @@
 import { Button, Card, CardContent, Input } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ToolsSettingsOperations } from './types';
 
 interface McpConfigPanelProps {
@@ -9,6 +9,8 @@ interface McpConfigPanelProps {
 
 const WINDOWS_DRIVE_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
 const WINDOWS_UNC_PATH = /^\\\\/u;
+const MCP_CONFIG_STATUS_ID = 'mcp-config-status-message';
+const MCP_CONFIG_ERROR_ID = 'mcp-config-error-message';
 
 function isAbsoluteFilePath(filePath: string): boolean {
   return (
@@ -149,6 +151,18 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     }
   }, [editorValue, onConfigChanged, operations.writeMcpConfigText]);
 
+  const handleEditorKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+        event.preventDefault();
+        if (!loading && hasUnsavedChanges) {
+          void handleSave();
+        }
+      }
+    },
+    [handleSave, hasUnsavedChanges, loading]
+  );
+
   const handleReload = useCallback(async () => {
     if (hasUnsavedChanges) {
       setShowReloadConfirm(true);
@@ -166,6 +180,17 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
   const handleCancelReload = useCallback(() => {
     setShowReloadConfirm(false);
   }, []);
+
+  const editorDescribedBy = useMemo(() => {
+    const ids: string[] = [];
+    if (statusMessage) {
+      ids.push(MCP_CONFIG_STATUS_ID);
+    }
+    if (errorMessage) {
+      ids.push(MCP_CONFIG_ERROR_ID);
+    }
+    return ids.length > 0 ? ids.join(' ') : undefined;
+  }, [errorMessage, statusMessage]);
 
   if (!editorAvailable) {
     return (
@@ -254,10 +279,12 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
               </div>
             </div>
             <textarea
+              aria-describedby={editorDescribedBy}
               className="min-h-[360px] w-full rounded-md border bg-background p-3 font-mono text-xs leading-5"
               data-testid="mcp-config-editor"
               id="mcp-config-editor-field"
               onChange={(event) => setEditorValue(event.target.value)}
+              onKeyDown={handleEditorKeyDown}
               spellCheck={false}
               value={editorValue}
             />
@@ -290,6 +317,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
               <div
                 className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-emerald-900 text-xs dark:text-emerald-200"
                 data-testid="mcp-config-status"
+                id={MCP_CONFIG_STATUS_ID}
               >
                 {statusMessage}
               </div>
@@ -298,6 +326,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
               <div
                 className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-destructive text-xs"
                 data-testid="mcp-config-error"
+                id={MCP_CONFIG_ERROR_ID}
               >
                 {errorMessage}
               </div>
@@ -334,5 +363,3 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     </div>
   );
 }
-
-export default McpConfigPanel;

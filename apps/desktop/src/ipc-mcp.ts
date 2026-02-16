@@ -1,3 +1,5 @@
+import fsp from 'node:fs/promises';
+import path from 'node:path';
 import {
   isSupportedProvider,
   loadToolPreferences,
@@ -42,7 +44,10 @@ function isPlaceholderServer(server: McpServer): boolean {
     // to commented examples. Match exact sentinel values to avoid false positives.
     return args.some((arg) => arg.trim() === LEGACY_PLACEHOLDER_STDIO_ARG);
   }
-  return normalizeUrl(server.url) === normalizeUrl(LEGACY_PLACEHOLDER_SSE_URL);
+  if (server.transport === 'sse') {
+    return normalizeUrl(server.url) === normalizeUrl(LEGACY_PLACEHOLDER_SSE_URL);
+  }
+  return false;
 }
 
 /**
@@ -128,11 +133,20 @@ export function registerMcpIpcHandlers(): void {
     ): Promise<
       { success: true; path: string } | { success: false; path: string; error: string }
     > => {
+      const configPath = await getMcpConfigPath();
+
       if (typeof content !== 'string') {
         return {
           success: false,
-          path: await getMcpConfigPath(),
+          path: configPath,
           error: 'MCP config content must be a string',
+        };
+      }
+      if (content.trim().length === 0) {
+        return {
+          success: false,
+          path: configPath,
+          error: 'MCP config content cannot be empty',
         };
       }
 
@@ -140,7 +154,7 @@ export function registerMcpIpcHandlers(): void {
       if (contentBytes > MAX_MCP_CONFIG_TEXT_BYTES) {
         return {
           success: false,
-          path: await getMcpConfigPath(),
+          path: configPath,
           error: `MCP config exceeds ${MAX_MCP_CONFIG_TEXT_BYTES} bytes`,
         };
       }
@@ -243,33 +257,27 @@ export function registerMcpIpcHandlers(): void {
   ipcMain.handle(
     'mcp:config:createSample',
     async (): Promise<{ success: boolean; path: string; error?: string }> => {
+      let configPath = '';
       try {
-        const configPath = await getMcpConfigPath();
-
-        // Ensure directory exists
-        const fsp = await import('node:fs/promises');
-        const path = await import('node:path');
-        const exists = await fsp
-          .access(configPath)
-          .then(() => true)
-          .catch((error: unknown) => {
-            if ((error as { code?: unknown }).code === 'ENOENT') {
-              return false;
-            }
-            throw error;
-          });
-
-        if (exists) {
-          const error =
-            'MCP config already exists. Select the existing file or reset the path before creating a sample.';
-          logger.warn('Refusing to overwrite existing MCP config', { path: configPath });
-          return { success: false, path: configPath, error };
-        }
-
+        configPath = await getMcpConfigPath();
         await fsp.mkdir(path.dirname(configPath), { recursive: true });
 
         // Write commented template without active placeholder servers.
-        await fsp.writeFile(configPath, getDefaultMcpConfigTemplate(), 'utf-8');
+        // Use exclusive create to avoid TOCTOU races with concurrent writers.
+        try {
+          await fsp.writeFile(configPath, getDefaultMcpConfigTemplate(), {
+            encoding: 'utf-8',
+            flag: 'wx',
+          });
+        } catch (error) {
+          if ((error as { code?: unknown }).code === 'EEXIST') {
+            const message =
+              'MCP config already exists. Select the existing file or reset the path before creating a sample.';
+            logger.warn('Refusing to overwrite existing MCP config', { path: configPath });
+            return { success: false, path: configPath, error: message };
+          }
+          throw error;
+        }
         logger.info('Created sample MCP config', { path: configPath });
 
         // Clear existing tools, reload config, and ensure file watcher tracks the new file.
@@ -280,7 +288,7 @@ export function registerMcpIpcHandlers(): void {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         logger.error('Failed to create sample MCP config', { error });
-        return { success: false, path: '', error: message };
+        return { success: false, path: configPath, error: message };
       }
     }
   );

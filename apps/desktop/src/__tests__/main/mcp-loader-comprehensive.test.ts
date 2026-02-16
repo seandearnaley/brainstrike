@@ -307,6 +307,29 @@ describe('mcp-loader comprehensive tests', () => {
       expect(server.headers?.['X-Example']).toBe('value with escaped quote: " // still string');
     });
 
+    it('should preserve unicode escapes that decode to quote and slashes inside strings', () => {
+      const jsonWithUnicodeEscapes = `{
+        "servers": [
+          {
+            "transport": "sse",
+            "name": "unicode-escapes",
+            "url": "https://example.com/sse",
+            "headers": {
+              "X-Example": "unicode: \\u0022 and \\u002F\\u002F remain string text"
+            }
+          }
+        ]
+      }`;
+
+      const result = parseMcpConfig(jsonWithUnicodeEscapes);
+      expect(result.servers).toHaveLength(1);
+      const server = result.servers[0];
+      if (server.transport !== 'sse') {
+        throw new Error('expected sse server');
+      }
+      expect(server.headers?.['X-Example']).toBe('unicode: " and // remain string text');
+    });
+
     it('should throw when block comment is unterminated', () => {
       const unterminatedBlockComment = `{
         "servers": [
@@ -321,6 +344,25 @@ describe('mcp-loader comprehensive tests', () => {
 
       expect(() => parseMcpConfig(unterminatedBlockComment)).toThrow(
         'invalid_mcp_config: unterminated block comment'
+      );
+    });
+
+    it('should throw when string is unterminated during JSONC stripping', () => {
+      const unterminatedString = `{
+        "servers": [
+          {
+            "transport": "sse",
+            "name": "broken",
+            "url": "https://example.com/sse",
+            "headers": {
+              "X-Example": "unterminated
+            }
+          }
+        ]
+      }`;
+
+      expect(() => parseMcpConfig(unterminatedString)).toThrow(
+        'invalid_mcp_config: unterminated string'
       );
     });
   });

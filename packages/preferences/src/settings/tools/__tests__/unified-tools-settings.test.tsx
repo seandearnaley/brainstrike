@@ -1168,6 +1168,64 @@ describe('UnifiedToolsSettings', () => {
         expect(screen.getByLabelText('Config Editor (JSONC)')).toBeInTheDocument();
       });
     });
+
+    it('associates status and error feedback with the editor via aria-describedby', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: false,
+        created: true,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi.fn().mockResolvedValue({
+        success: false,
+        path: '/tmp/mcp.config.json',
+        error: 'Invalid JSONC payload',
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const editor = await screen.findByTestId('mcp-config-editor');
+      expect(editor).toHaveAttribute('aria-describedby', 'mcp-config-status-message');
+
+      fireEvent.change(editor, {
+        target: { value: '{ invalid }' },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-save'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-error')).toHaveTextContent('Invalid JSONC payload');
+      });
+      expect(screen.getByTestId('mcp-config-editor')).toHaveAttribute(
+        'aria-describedby',
+        'mcp-config-error-message'
+      );
+    });
+
+    it('saves MCP config from the editor with Ctrl+S', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const editor = await screen.findByTestId('mcp-config-editor');
+      fireEvent.change(editor, {
+        target: { value: '{\n  "servers": [{"transport":"stdio","name":"x","command":"node"}]\n}' },
+      });
+      fireEvent.keyDown(editor, { key: 's', ctrlKey: true });
+
+      await waitFor(() => {
+        expect(operations.writeMcpConfigText).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   describe('budget manager', () => {
