@@ -13,6 +13,7 @@ export const FileExplorerStrings = {
     rootDirectorySelected: 'Successfully set the root directory.',
     contextCopied: 'The context has been copied to your clipboard.',
     contextDownloaded: 'The context has been downloaded.',
+    // Deprecated report-named keys intentionally reuse context wording for UX consistency during migration.
     /** @deprecated Use `contextCopied`. */
     reportCopied: 'The context has been copied to your clipboard.',
     /** @deprecated Use `contextDownloaded`. */

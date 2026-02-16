@@ -73,6 +73,15 @@ export function splitContentLines(content: string): string[] {
   return lines.length > 0 ? lines : [''];
 }
 
+function escapeXmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/'/g, '&apos;');
+}
+
 function clampRange(range: ContextLineRange, totalLines: number): ContextLineRange {
   const safeTotalLines = Math.max(totalLines, 1);
   const maxStart = Math.max(safeTotalLines - 1, 0);
@@ -127,8 +136,9 @@ function buildFileContextContent(args: {
   useTapestryRanges: boolean;
 }): string {
   const { filePath, fileContents, selectedLineRangesByFile, useTapestryRanges } = args;
+  const escapedFilePath = escapeXmlAttribute(filePath);
   const content = fileContents[filePath] ?? `Unable to read file content for ${filePath}`;
-  const fullFileContextContent = `<file path="${filePath}">
+  const fullFileContextContent = `<file path="${escapedFilePath}">
 ${content}
 </file>`;
 
@@ -156,7 +166,7 @@ ${content}
     // Keep an explicit marker instead of omitting the file so downstream consumers
     // can distinguish "file intentionally excluded by ranges" from "file omitted".
     // Consumers should treat this as selection metadata, not file content.
-    return `<file path="${filePath}">
+    return `<file path="${escapedFilePath}">
 <selection_summary>No active tapestry ranges selected.</selection_summary>
 </file>`;
   }
@@ -170,7 +180,7 @@ ${selectionContent}
     })
     .join('\n');
 
-  return `<file path="${filePath}">
+  return `<file path="${escapedFilePath}">
 ${selections}
 </file>`;
 }
