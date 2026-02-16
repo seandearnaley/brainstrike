@@ -155,7 +155,7 @@ describe('mcp-loader comprehensive tests', () => {
     });
 
     it('should throw for invalid JSON', () => {
-      expect(() => parseMcpConfig('invalid json')).toThrow();
+      expect(() => parseMcpConfig('invalid json')).toThrow('invalid_mcp_config:');
     });
 
     it('should throw when servers is not an array', () => {
@@ -163,8 +163,17 @@ describe('mcp-loader comprehensive tests', () => {
       expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: servers must be array');
     });
 
-    it('should throw when no valid servers found', () => {
+    it('should allow an empty servers array for template-only configs', () => {
       const json = JSON.stringify({ servers: [] });
+      const result = parseMcpConfig(json);
+      expect(result.servers).toEqual([]);
+    });
+
+    it('should throw when all declared servers are invalid', () => {
+      const json = JSON.stringify({
+        servers: [{ transport: 'stdio' }, { transport: 'sse', name: 'missing-url' }],
+      });
+
       expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: no valid servers');
     });
 
@@ -213,6 +222,148 @@ describe('mcp-loader comprehensive tests', () => {
 
       const result = parseMcpConfig(json);
       expect(result.servers[0].args).toEqual(['valid', 'another']);
+    });
+
+    it('should parse JSON with comments', () => {
+      const jsonWithComments = `{
+        // comment
+        "servers": [
+          {
+            "transport": "sse",
+            "name": "commented",
+            "url": "http://localhost:3000/sse"
+          }
+        ]
+      }`;
+
+      const result = parseMcpConfig(jsonWithComments);
+      expect(result.servers).toHaveLength(1);
+      expect(result.servers[0]?.name).toBe('commented');
+    });
+
+    it('should parse JSONC with trailing commas', () => {
+      const jsonWithTrailingCommas = `{
+        "servers": [
+          {
+            "transport": "stdio",
+            "name": "filesystem",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@modelcontextprotocol/server-filesystem",
+            ],
+          },
+        ],
+      }`;
+
+      const result = parseMcpConfig(jsonWithTrailingCommas);
+      expect(result.servers).toHaveLength(1);
+      expect(result.servers[0]?.name).toBe('filesystem');
+    });
+
+    it('should keep comment tokens inside JSON strings', () => {
+      const jsonWithCommentTokensInString = `{
+        "servers": [
+          {
+            "transport": "sse",
+            "name": "string-tokens",
+            "url": "https://example.com/sse",
+            "headers": {
+              "X-Notes": "keep // text and /* markers */ in string"
+            }
+          }
+        ]
+      }`;
+
+      const result = parseMcpConfig(jsonWithCommentTokensInString);
+      expect(result.servers).toHaveLength(1);
+      const server = result.servers[0];
+      if (server.transport !== 'sse') {
+        throw new Error('expected sse server');
+      }
+      expect(server.headers?.['X-Notes']).toBe('keep // text and /* markers */ in string');
+    });
+
+    it('should handle escaped quotes before inline comment tokens', () => {
+      const jsonWithEscapedQuotes = `{
+        "servers": [
+          {
+            "transport": "sse",
+            "name": "escaped-string",
+            "url": "https://example.com/sse",
+            "headers": {
+              "X-Example": "value with escaped quote: \\" // still string"
+            }
+          }
+        ]
+      }`;
+
+      const result = parseMcpConfig(jsonWithEscapedQuotes);
+      expect(result.servers).toHaveLength(1);
+      const server = result.servers[0];
+      if (server.transport !== 'sse') {
+        throw new Error('expected sse server');
+      }
+      expect(server.headers?.['X-Example']).toBe('value with escaped quote: " // still string');
+    });
+
+    it('should preserve unicode escapes that decode to quote and slashes inside strings', () => {
+      const jsonWithUnicodeEscapes = `{
+        "servers": [
+          {
+            "transport": "sse",
+            "name": "unicode-escapes",
+            "url": "https://example.com/sse",
+            "headers": {
+              "X-Example": "unicode: \\u0022 and \\u002F\\u002F remain string text"
+            }
+          }
+        ]
+      }`;
+
+      const result = parseMcpConfig(jsonWithUnicodeEscapes);
+      expect(result.servers).toHaveLength(1);
+      const server = result.servers[0];
+      if (server.transport !== 'sse') {
+        throw new Error('expected sse server');
+      }
+      expect(server.headers?.['X-Example']).toBe('unicode: " and // remain string text');
+    });
+
+    it('should throw when block comment is unterminated', () => {
+      const unterminatedBlockComment = `{
+        "servers": [
+          /* unterminated comment
+          {
+            "transport": "sse",
+            "name": "broken",
+            "url": "https://example.com/sse"
+          }
+        ]
+      }`;
+
+      expect(() => parseMcpConfig(unterminatedBlockComment)).toThrow(
+        'invalid_mcp_config: unterminated block comment'
+      );
+    });
+
+    it('should throw when string is unterminated during JSONC stripping', () => {
+      const unterminatedString = `{
+        "servers": [
+          {
+            "transport": "sse",
+            "name": "broken",
+            "url": "https://example.com/sse",
+            "headers": {
+              "X-Example": "unterminated
+            }
+          }
+        ]
+      }`;
+
+      expect(() => parseMcpConfig(unterminatedString)).toThrow(
+        'invalid_mcp_config: unterminated string'
+      );
     });
   });
 
@@ -586,6 +737,33 @@ describe('mcp-loader comprehensive tests', () => {
       await vi.advanceTimersByTimeAsync(100);
 
       expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('should watch the selected config basename for custom paths', async () => {
+      const onChange = vi.fn();
+      mockedFsp.readFile.mockImplementation(async (path) => {
+        if (path.toString().endsWith('mcp-custom-path.txt')) {
+          return '/custom/location/custom-mcp.json' as never;
+        }
+        return JSON.stringify({
+          servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }],
+        }) as never;
+      });
+
+      await watchMcpConfig(onChange);
+
+      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
+        eventType: string,
+        filename?: string | undefined
+      ) => void;
+
+      watchCallback('change', 'mcp.config.json');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(onChange).not.toHaveBeenCalled();
+
+      watchCallback('change', 'custom-mcp.json');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(onChange).toHaveBeenCalledTimes(1);
     });
 
     it('should debounce rapid changes', async () => {

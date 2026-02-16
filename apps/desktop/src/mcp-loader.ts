@@ -18,6 +18,226 @@ export interface McpConfig {
 
 const logger = createLogger('DesktopMcpLoader');
 
+const DEFAULT_MCP_CONFIG_TEMPLATE = `{
+  // BrainStrike MCP configuration (JSON with comments is supported).
+  // Add server entries to the "servers" array below.
+  "servers": [
+    // Example: Local stdio server
+    // {
+    //   "transport": "stdio",
+    //   "name": "filesystem",
+    //   "command": "npx",
+    //   "args": ["-y", "@modelcontextprotocol/server-filesystem", "/absolute/path/to/workspace"]
+    // },
+
+    // Example: Remote SSE server
+    // {
+    //   "transport": "sse",
+    //   "name": "remote-api",
+    //   "url": "https://your-host.example.com/mcp/sse",
+    //   "headers": {
+    //     "Authorization": "Bearer YOUR_TOKEN"
+    //   }
+    // }
+  ]
+}
+`;
+
+type CommentStripMode = 'normal' | 'string' | 'line-comment' | 'block-comment';
+
+interface CommentStripState {
+  mode: CommentStripMode;
+  escaped: boolean;
+}
+
+function handleLineComment(char: string, output: string[], state: CommentStripState): void {
+  if (char !== '\n') {
+    return;
+  }
+  state.mode = 'normal';
+  output.push(char);
+}
+
+function handleBlockComment(
+  char: string,
+  next: string | undefined,
+  output: string[],
+  state: CommentStripState
+): number {
+  if (char === '*' && next === '/') {
+    state.mode = 'normal';
+    return 1;
+  }
+
+  if (char === '\n') {
+    output.push(char);
+  }
+
+  return 0;
+}
+
+function handleString(char: string, output: string[], state: CommentStripState): void {
+  output.push(char);
+  if (state.escaped) {
+    state.escaped = false;
+    return;
+  }
+
+  if (char === '\\') {
+    state.escaped = true;
+    return;
+  }
+
+  if (char === '"') {
+    state.mode = 'normal';
+  }
+}
+
+function handleNormal(
+  char: string,
+  next: string | undefined,
+  output: string[],
+  state: CommentStripState
+): number {
+  if (char === '"') {
+    state.mode = 'string';
+    output.push(char);
+    return 0;
+  }
+
+  if (char === '/' && next === '/') {
+    state.mode = 'line-comment';
+    return 1;
+  }
+
+  if (char === '/' && next === '*') {
+    state.mode = 'block-comment';
+    return 1;
+  }
+
+  output.push(char);
+  return 0;
+}
+
+function stripJsonComments(text: string): string {
+  // Keep JSONC preprocessing local and dependency-free in desktop main.
+  // Supported syntax mirrors our MCP template/editor needs: comments + trailing commas.
+  // If this expands beyond MCP config editing, prefer a dedicated JSONC parser dependency.
+  const output: string[] = [];
+  const state: CommentStripState = { mode: 'normal', escaped: false };
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === undefined) {
+      continue;
+    }
+    const next = text[index + 1];
+
+    if (state.mode === 'line-comment') {
+      handleLineComment(char, output, state);
+      continue;
+    }
+
+    if (state.mode === 'block-comment') {
+      index += handleBlockComment(char, next, output, state);
+      continue;
+    }
+
+    if (state.mode === 'string') {
+      handleString(char, output, state);
+      continue;
+    }
+
+    index += handleNormal(char, next, output, state);
+  }
+
+  if (state.mode === 'block-comment') {
+    throw new Error('invalid_mcp_config: unterminated block comment');
+  }
+  if (state.mode === 'string') {
+    throw new Error('invalid_mcp_config: unterminated string');
+  }
+
+  return output.join('');
+}
+
+function isJsonWhitespace(char: string | undefined): boolean {
+  return char === ' ' || char === '\n' || char === '\r' || char === '\t';
+}
+
+function findNextNonWhitespaceCharacter(text: string, startIndex: number): string | undefined {
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (!isJsonWhitespace(char)) {
+      return char;
+    }
+  }
+  return undefined;
+}
+
+interface TrailingCommaStripState {
+  escaped: boolean;
+  inString: boolean;
+}
+
+function consumeStringCharacter(
+  char: string,
+  output: string[],
+  state: TrailingCommaStripState
+): void {
+  output.push(char);
+  if (state.escaped) {
+    state.escaped = false;
+    return;
+  }
+  if (char === '\\') {
+    state.escaped = true;
+    return;
+  }
+  if (char === '"') {
+    state.inString = false;
+  }
+}
+
+function isTrailingCommaToken(text: string, commaIndex: number): boolean {
+  const nextNonWhitespace = findNextNonWhitespaceCharacter(text, commaIndex + 1);
+  return nextNonWhitespace === '}' || nextNonWhitespace === ']';
+}
+
+function stripTrailingCommas(text: string): string {
+  const output: string[] = [];
+  const state: TrailingCommaStripState = {
+    inString: false,
+    escaped: false,
+  };
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === undefined) {
+      continue;
+    }
+
+    if (state.inString) {
+      consumeStringCharacter(char, output, state);
+      continue;
+    }
+
+    if (char === '"') {
+      state.inString = true;
+      output.push(char);
+      continue;
+    }
+
+    if (char === ',' && isTrailingCommaToken(text, index)) {
+      continue;
+    }
+
+    output.push(char);
+  }
+
+  return output.join('');
+}
+
 function parseStdioServer(s: unknown): McpServer | null {
   if (!s || typeof s !== 'object' || !('transport' in s)) {
     return null;
@@ -76,7 +296,15 @@ function parseSseServer(s: unknown): McpServer | null {
 }
 
 export function parseMcpConfig(text: string): McpConfig {
-  const raw = JSON.parse(text) as unknown;
+  const jsoncText = stripJsonComments(text);
+  const normalizedJson = stripTrailingCommas(jsoncText);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(normalizedJson);
+  } catch (error) {
+    const parseMessage = error instanceof Error ? error.message : 'invalid JSON';
+    throw new Error(`invalid_mcp_config: ${parseMessage}`);
+  }
   if (
     !raw ||
     typeof raw !== 'object' ||
@@ -102,9 +330,10 @@ export function parseMcpConfig(text: string): McpConfig {
     }
   }
 
-  if (servers.length === 0) {
+  if (rawServers.length > 0 && servers.length === 0) {
     throw new Error('invalid_mcp_config: no valid servers');
   }
+
   return { servers };
 }
 
@@ -117,7 +346,17 @@ export interface LoadedMcpConfig {
   error?: string;
 }
 
-let customConfigPath: string | null = null;
+interface CustomConfigPathCache {
+  initialized: boolean;
+  value: string | null;
+}
+
+// Main-process singleton cache for the selected MCP config path.
+// Electron main is single-threaded; this avoids repeated disk reads while keeping updates explicit.
+const customConfigPathCache: CustomConfigPathCache = {
+  initialized: false,
+  value: null,
+};
 
 const CUSTOM_CONFIG_PATH_FILE = 'mcp-custom-path.txt';
 
@@ -136,7 +375,17 @@ async function loadCustomConfigPath(): Promise<string | null> {
       return null;
     }
     const content = await fsp.readFile(file, 'utf-8');
-    return content.trim() || null;
+    const trimmedPath = content.trim();
+    if (trimmedPath.length === 0) {
+      return null;
+    }
+    if (!path.isAbsolute(trimmedPath)) {
+      logger.warn('Ignoring invalid custom MCP config path from storage', {
+        path: trimmedPath,
+      });
+      return null;
+    }
+    return trimmedPath;
   } catch (error) {
     if ((error as { code?: string }).code === 'ENOENT') {
       return null;
@@ -170,19 +419,40 @@ async function saveCustomConfigPath(configPath: string | null): Promise<void> {
   }
 }
 
+function normalizeCustomConfigPath(configPath: string | null): string | null {
+  if (configPath === null) {
+    return null;
+  }
+
+  const trimmedPath = configPath.trim();
+  if (trimmedPath.length === 0) {
+    return null;
+  }
+
+  if (!path.isAbsolute(trimmedPath)) {
+    throw new Error('invalid_mcp_config_path: path must be absolute');
+  }
+
+  return trimmedPath;
+}
+
 export async function setCustomMcpConfigPath(configPath: string | null): Promise<void> {
-  customConfigPath = configPath;
-  await saveCustomConfigPath(configPath);
+  const normalizedPath = normalizeCustomConfigPath(configPath);
+  customConfigPathCache.value = normalizedPath;
+  customConfigPathCache.initialized = true;
+  await saveCustomConfigPath(normalizedPath);
 }
 
 export async function getMcpConfigPath(): Promise<string> {
-  // Load from disk if not already in memory
-  if (!customConfigPath) {
-    customConfigPath = await loadCustomConfigPath();
+  // Keep custom-path overrides sticky in memory, but re-check disk while
+  // cache is empty so external/manual custom-path creation is still observed.
+  if (!customConfigPathCache.initialized || customConfigPathCache.value === null) {
+    customConfigPathCache.value = await loadCustomConfigPath();
+    customConfigPathCache.initialized = true;
   }
 
-  if (customConfigPath) {
-    return customConfigPath;
+  if (customConfigPathCache.value) {
+    return customConfigPathCache.value;
   }
   const userData = app.getPath('userData');
   if (!userData) {
@@ -196,6 +466,100 @@ export async function getMcpConfigPath(): Promise<string> {
 export async function ensureMcpDirExists(): Promise<void> {
   const dir = path.dirname(await getMcpConfigPath());
   await fsp.mkdir(dir, { recursive: true });
+}
+
+export interface McpConfigTextDocument {
+  path: string;
+  exists: boolean;
+  created: boolean;
+  content: string;
+}
+
+async function ensureMcpConfigFile(createIfMissing: boolean): Promise<{
+  path: string;
+  exists: boolean;
+  created: boolean;
+}> {
+  const configPath = await getMcpConfigPath();
+
+  if (createIfMissing) {
+    await fsp.mkdir(path.dirname(configPath), { recursive: true });
+    try {
+      // Exclusive create avoids TOCTOU races between existence check and write.
+      await fsp.writeFile(configPath, DEFAULT_MCP_CONFIG_TEMPLATE, {
+        encoding: 'utf-8',
+        flag: 'wx',
+      });
+      return { path: configPath, exists: true, created: true };
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'EEXIST') {
+        throw error;
+      }
+    }
+  }
+
+  try {
+    await fsp.access(configPath);
+    return { path: configPath, exists: true, created: false };
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+
+  return { path: configPath, exists: false, created: false };
+}
+
+export async function readMcpConfigText(createIfMissing = false): Promise<McpConfigTextDocument> {
+  const ensured = await ensureMcpConfigFile(createIfMissing);
+  if (!ensured.exists) {
+    return {
+      path: ensured.path,
+      exists: false,
+      created: false,
+      content: '',
+    };
+  }
+
+  const content = await fsp.readFile(ensured.path, 'utf-8');
+  return {
+    path: ensured.path,
+    exists: true,
+    created: ensured.created,
+    content,
+  };
+}
+
+export async function writeMcpConfigText(
+  content: string
+): Promise<{ path: string; success: true } | { path: string; success: false; error: string }> {
+  const configPath = await getMcpConfigPath();
+
+  try {
+    parseMcpConfig(content);
+  } catch (error) {
+    return {
+      path: configPath,
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  try {
+    await fsp.mkdir(path.dirname(configPath), { recursive: true });
+    await fsp.writeFile(configPath, content, 'utf-8');
+    return { path: configPath, success: true };
+  } catch (error) {
+    return {
+      path: configPath,
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function getDefaultMcpConfigTemplate(): string {
+  return DEFAULT_MCP_CONFIG_TEMPLATE;
 }
 
 export function decryptIfEncrypted(value: string): string {
@@ -292,10 +656,11 @@ export async function watchMcpConfig(
 ): Promise<McpWatcher> {
   const p = await getMcpConfigPath();
   // ensure directory exists to avoid immediate watch errors
-  void ensureMcpDirExists();
+  await ensureMcpDirExists();
+  const watchedFileName = path.basename(p);
   let timer: NodeJS.Timeout | null = null;
   const watcher = fs.watch(path.dirname(p), async (_ev, filename) => {
-    if (!filename?.toString().includes('mcp.config.json')) {
+    if (filename?.toString() !== watchedFileName) {
       return;
     }
     if (timer) {

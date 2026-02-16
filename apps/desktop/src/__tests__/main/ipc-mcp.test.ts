@@ -5,8 +5,10 @@ import { disposeClients, initClients } from '../../mcp';
 import {
   getMcpConfigPath,
   loadMcpConfig,
+  readMcpConfigText,
   setCustomMcpConfigPath,
   watchMcpConfig,
+  writeMcpConfigText,
 } from '../../mcp-loader';
 import { readOpenAIApiKey } from '../../openai-api-key';
 
@@ -42,10 +44,13 @@ vi.mock('electron', () => ({
 
 // Mock dependencies
 vi.mock('../../mcp-loader', () => ({
+  getDefaultMcpConfigTemplate: vi.fn(() => '{\n  "servers": []\n}'),
   loadMcpConfig: vi.fn(),
   watchMcpConfig: vi.fn(),
   getMcpConfigPath: vi.fn(),
   setCustomMcpConfigPath: vi.fn(),
+  readMcpConfigText: vi.fn(),
+  writeMcpConfigText: vi.fn(),
 }));
 
 vi.mock('../../mcp', () => ({
@@ -105,6 +110,8 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:get', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:getPath', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:setPath', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:readText', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:writeText', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:selectPath', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:watch', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:unwatch', expect.any(Function));
@@ -119,7 +126,7 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:getStats', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:createSample', expect.any(Function));
 
-      expect(ipcMain.handle).toHaveBeenCalledTimes(14);
+      expect(ipcMain.handle).toHaveBeenCalledTimes(16);
     });
   });
 
@@ -563,6 +570,132 @@ describe('ipc-mcp handlers', () => {
     });
   });
 
+  describe('mcp:config:readText', () => {
+    it('returns MCP config text document', async () => {
+      vi.mocked(readMcpConfigText).mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      } as never);
+
+      const handler = handlers.get('mcp:config:readText');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const result = await handler();
+      expect(readMcpConfigText).toHaveBeenCalledWith(true);
+      expect(result).toEqual({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+    });
+  });
+
+  describe('mcp:config:writeText', () => {
+    it('writes valid config and reloads active clients', async () => {
+      vi.mocked(writeMcpConfigText).mockResolvedValue({
+        success: true,
+        path: '/tmp/mcp.config.json',
+      } as never);
+      vi.mocked(loadMcpConfig).mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        config: { servers: [] },
+      } as never);
+
+      const handler = handlers.get('mcp:config:writeText');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const result = await handler({} as never, '{ "servers": [] }');
+      expect(writeMcpConfigText).toHaveBeenCalledWith('{ "servers": [] }');
+      expect(loadMcpConfig).toHaveBeenCalled();
+      expect(result).toEqual({ success: true, path: '/tmp/mcp.config.json' });
+    });
+
+    it('returns validation failure without reloading clients', async () => {
+      vi.mocked(writeMcpConfigText).mockResolvedValue({
+        success: false,
+        path: '/tmp/mcp.config.json',
+        error: 'invalid_mcp_config',
+      } as never);
+
+      const handler = handlers.get('mcp:config:writeText');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const loadCallsBefore = vi.mocked(loadMcpConfig).mock.calls.length;
+      const result = await handler({} as never, '{ invalid }');
+      expect(vi.mocked(loadMcpConfig).mock.calls.length).toBe(loadCallsBefore);
+      expect(result).toEqual({
+        success: false,
+        path: '/tmp/mcp.config.json',
+        error: 'invalid_mcp_config',
+      });
+    });
+
+    it('rejects oversized config payloads before validation/write', async () => {
+      vi.mocked(getMcpConfigPath).mockResolvedValue('/tmp/mcp.config.json' as never);
+
+      const handler = handlers.get('mcp:config:writeText');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const oversizedContent = 'x'.repeat(1_000_001);
+      const result = await handler({} as never, oversizedContent);
+
+      expect(writeMcpConfigText).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        success: false,
+        path: '/tmp/mcp.config.json',
+        error: 'MCP config exceeds 1000000 bytes',
+      });
+    });
+
+    it('rejects non-string config payloads before validation/write', async () => {
+      vi.mocked(getMcpConfigPath).mockResolvedValue('/tmp/mcp.config.json' as never);
+
+      const handler = handlers.get('mcp:config:writeText');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const result = await handler({} as never, 42);
+
+      expect(writeMcpConfigText).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        success: false,
+        path: '/tmp/mcp.config.json',
+        error: 'MCP config content must be a string',
+      });
+    });
+
+    it('rejects empty config payloads before validation/write', async () => {
+      vi.mocked(getMcpConfigPath).mockResolvedValue('/tmp/mcp.config.json' as never);
+
+      const handler = handlers.get('mcp:config:writeText');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const result = await handler({} as never, '   ');
+
+      expect(writeMcpConfigText).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        success: false,
+        path: '/tmp/mcp.config.json',
+        error: 'MCP config content cannot be empty',
+      });
+    });
+  });
+
   describe('mcp:config:createSample', () => {
     it('writes a sample config to disk', async () => {
       const fsp = await import('node:fs/promises');
@@ -585,7 +718,7 @@ describe('ipc-mcp handlers', () => {
 
       expect(result).toEqual({ success: true, path: samplePath });
       const content = await fsp.readFile(samplePath, 'utf8');
-      expect(content).toContain('filesystem');
+      expect(content).toContain('"servers"');
       expect(app.getPath).toHaveBeenCalled();
 
       await fsp.rm(tempDir, { recursive: true, force: true });

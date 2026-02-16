@@ -113,6 +113,17 @@ declare global {
       unwatch: () => Promise<{ watching: false }>;
       getPath: () => Promise<string>;
       setPath: (configPath: string | null) => Promise<{ success: boolean; path: string }>;
+      readConfigText: () => Promise<{
+        path: string;
+        exists: boolean;
+        created: boolean;
+        content: string;
+      }>;
+      writeConfigText: (
+        content: string
+      ) => Promise<
+        { success: true; path: string } | { success: false; path: string; error: string }
+      >;
       selectPath: () => Promise<string | null>;
       createSampleConfig: () => Promise<{ success: boolean; path: string; error?: string }>;
       // Tool management

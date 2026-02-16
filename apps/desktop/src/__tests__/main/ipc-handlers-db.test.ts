@@ -250,6 +250,40 @@ describe('database IPC handlers', () => {
     expect(liveHandle.unsubscribe).toHaveBeenCalled();
   });
 
+  it('db:live-query:start registers a single destroyed listener per webContents', async () => {
+    const handler = handlers.get('db:live-query:start');
+    if (!handler) {
+      throw new Error('handler not registered');
+    }
+
+    const firstHandle = {
+      initialResults: { rows: [] },
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      refresh: vi.fn(),
+    };
+    const secondHandle = {
+      initialResults: { rows: [] },
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      refresh: vi.fn(),
+    };
+    mockDb.live.query.mockResolvedValueOnce(firstHandle).mockResolvedValueOnce(secondHandle);
+
+    const sender = {
+      id: 101,
+      isDestroyed: vi.fn(() => false),
+      send: vi.fn(),
+      once: vi.fn(),
+    };
+
+    await handler({ sender } as unknown, { query: 'select 1' });
+    await handler({ sender } as unknown, { query: 'select 2' });
+
+    expect(sender.once).toHaveBeenCalledTimes(1);
+    expect(sender.once).toHaveBeenCalledWith('destroyed', expect.any(Function));
+  });
+
   it('db:live-query:start supports incremental mode with key', async () => {
     const handler = handlers.get('db:live-query:start');
     if (!handler) {

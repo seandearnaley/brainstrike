@@ -37,6 +37,7 @@ interface LiveSubscriptionRecord {
 }
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
+const liveSubscriptionOwnerListeners = new Set<number>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
 
@@ -194,6 +195,25 @@ async function cleanupAllLiveSubscriptions(): Promise<void> {
   }
   await Promise.allSettled(ids.map((id) => cleanupLiveSubscription(id)));
   liveSubscriptions.clear();
+  liveSubscriptionOwnerListeners.clear();
+}
+
+function registerLiveSubscriptionOwner(sender: Pick<Electron.WebContents, 'id' | 'once'>): void {
+  if (liveSubscriptionOwnerListeners.has(sender.id)) {
+    return;
+  }
+
+  liveSubscriptionOwnerListeners.add(sender.id);
+  sender.once('destroyed', () => {
+    liveSubscriptionOwnerListeners.delete(sender.id);
+    const ownedSubscriptionIds = Array.from(liveSubscriptions.values())
+      .filter((subscription) => subscription.webContentsId === sender.id)
+      .map((subscription) => subscription.id);
+
+    for (const id of ownedSubscriptionIds) {
+      void cleanupLiveSubscription(id);
+    }
+  });
 }
 
 export function registerIpcHandlers(
@@ -486,7 +506,7 @@ export function registerIpcHandlers(
 
         handle.subscribe(listener);
         liveSubscriptions.set(id, { id, mode, handle, listener, webContentsId: sender.id });
-        sender.once('destroyed', () => void cleanupLiveSubscription(id));
+        registerLiveSubscriptionOwner(sender);
 
         return { id, initialResults: handle.initialResults };
       }, 'db:live-query:start')

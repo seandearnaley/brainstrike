@@ -1,3 +1,5 @@
+import fsp from 'node:fs/promises';
+import path from 'node:path';
 import {
   isSupportedProvider,
   loadToolPreferences,
@@ -10,11 +12,16 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { app, dialog, ipcMain } from 'electron';
 import { disposeClients, initClients } from './mcp';
 import {
+  getDefaultMcpConfigTemplate,
   getMcpConfigPath,
   type LoadedMcpConfig,
   loadMcpConfig,
+  type McpConfig,
+  type McpServer,
+  readMcpConfigText,
   setCustomMcpConfigPath,
   watchMcpConfig,
+  writeMcpConfigText,
 } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
 import { getSecretsService } from './secrets';
@@ -22,6 +29,26 @@ import { getSecretsService } from './secrets';
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
 const logger = createLogger('DesktopMcpIpc');
+const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
+const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
+const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
+
+function normalizeUrl(url: string | undefined): string {
+  return (url ?? '').trim().replace(/\/+$/u, '');
+}
+
+function isPlaceholderServer(server: McpServer): boolean {
+  if (server.transport === 'stdio') {
+    const args = server.args ?? [];
+    // Backward-compatibility guard for legacy sample configs created before we switched
+    // to commented examples. Match exact sentinel values to avoid false positives.
+    return args.some((arg) => arg.trim() === LEGACY_PLACEHOLDER_STDIO_ARG);
+  }
+  if (server.transport === 'sse') {
+    return normalizeUrl(server.url) === normalizeUrl(LEGACY_PLACEHOLDER_SSE_URL);
+  }
+  return false;
+}
 
 /**
  * Handles config changes by clearing the registry and reinitializing clients.
@@ -38,7 +65,11 @@ function handleConfigChange(cfg: LoadedMcpConfig): void {
   }
   if (cfg.config) {
     initClients(cfg.config);
-    void discoverToolsFromConfig(cfg.config);
+    void discoverToolsFromConfig(cfg.config).catch((error: unknown) => {
+      logger.error('Tool discovery failed after config change', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   } else {
     void disposeClients();
   }
@@ -85,6 +116,61 @@ export function registerMcpIpcHandlers(): void {
       await restartConfigWatcher();
 
       return { success: true, path: newPath };
+    }
+  );
+
+  ipcMain.handle(
+    'mcp:config:readText',
+    async (): Promise<{
+      path: string;
+      exists: boolean;
+      created: boolean;
+      content: string;
+    }> => await readMcpConfigText(true)
+  );
+
+  ipcMain.handle(
+    'mcp:config:writeText',
+    async (
+      _e: IpcMainInvokeEvent,
+      content: unknown
+    ): Promise<
+      { success: true; path: string } | { success: false; path: string; error: string }
+    > => {
+      const configPath = await getMcpConfigPath();
+
+      if (typeof content !== 'string') {
+        return {
+          success: false,
+          path: configPath,
+          error: 'MCP config content must be a string',
+        };
+      }
+      if (content.trim().length === 0) {
+        return {
+          success: false,
+          path: configPath,
+          error: 'MCP config content cannot be empty',
+        };
+      }
+
+      const contentBytes = Buffer.byteLength(content, 'utf-8');
+      if (contentBytes > MAX_MCP_CONFIG_TEXT_BYTES) {
+        return {
+          success: false,
+          path: configPath,
+          error: `MCP config exceeds ${MAX_MCP_CONFIG_TEXT_BYTES} bytes`,
+        };
+      }
+
+      const result = await writeMcpConfigText(content);
+      if (result.success) {
+        logger.info('MCP config text updated', { path: result.path });
+        // Path changes restart the watcher in mcp:config:setPath.
+        // A write targets the current path, so a watcher restart is unnecessary here.
+        handleConfigChange(await loadMcpConfig());
+      }
+      return result;
     }
   );
 
@@ -177,68 +263,27 @@ export function registerMcpIpcHandlers(): void {
   ipcMain.handle(
     'mcp:config:createSample',
     async (): Promise<{ success: boolean; path: string; error?: string }> => {
+      let configPath = '';
       try {
-        const configPath = await getMcpConfigPath();
-
-        // Sample config using BrainStrike's native format
-        // Each server requires: transport, name, and either command (stdio) or url (sse)
-        const sampleConfig = {
-          servers: [
-            {
-              // stdio transport: runs a local command
-              transport: 'stdio',
-              name: 'filesystem',
-              command: 'npx',
-              args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
-            },
-            {
-              // Another stdio example with environment variables
-              transport: 'stdio',
-              name: 'custom-server',
-              command: 'node',
-              args: ['path/to/your/mcp-server.js'],
-              env: {
-                // biome-ignore lint/style/useNamingConvention: Environment variables use SCREAMING_SNAKE_CASE
-                API_KEY: 'your-api-key-here',
-              },
-            },
-            {
-              // sse transport: connects to a remote HTTP endpoint
-              transport: 'sse',
-              name: 'remote-api',
-              url: 'https://example.com/mcp/sse',
-              headers: {
-                // biome-ignore lint/style/useNamingConvention: HTTP headers use PascalCase
-                Authorization: 'Bearer your-token-here',
-              },
-            },
-          ],
-        };
-
-        // Ensure directory exists
-        const fsp = await import('node:fs/promises');
-        const path = await import('node:path');
-        const exists = await fsp
-          .access(configPath)
-          .then(() => true)
-          .catch((error: unknown) => {
-            if ((error as { code?: unknown }).code === 'ENOENT') {
-              return false;
-            }
-            throw error;
-          });
-
-        if (exists) {
-          const error =
-            'MCP config already exists. Select the existing file or reset the path before creating a sample.';
-          logger.warn('Refusing to overwrite existing MCP config', { path: configPath });
-          return { success: false, path: configPath, error };
-        }
-
+        configPath = await getMcpConfigPath();
         await fsp.mkdir(path.dirname(configPath), { recursive: true });
 
-        // Write sample config
-        await fsp.writeFile(configPath, JSON.stringify(sampleConfig, null, 2), 'utf-8');
+        // Write commented template without active placeholder servers.
+        // Use exclusive create to avoid TOCTOU races with concurrent writers.
+        try {
+          await fsp.writeFile(configPath, getDefaultMcpConfigTemplate(), {
+            encoding: 'utf-8',
+            flag: 'wx',
+          });
+        } catch (error) {
+          if ((error as { code?: unknown }).code === 'EEXIST') {
+            const message =
+              'MCP config already exists. Select the existing file or reset the path before creating a sample.';
+            logger.warn('Refusing to overwrite existing MCP config', { path: configPath });
+            return { success: false, path: configPath, error: message };
+          }
+          throw error;
+        }
         logger.info('Created sample MCP config', { path: configPath });
 
         // Clear existing tools, reload config, and ensure file watcher tracks the new file.
@@ -249,7 +294,7 @@ export function registerMcpIpcHandlers(): void {
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error';
         logger.error('Failed to create sample MCP config', { error });
-        return { success: false, path: '', error: message };
+        return { success: false, path: configPath, error: message };
       }
     }
   );
@@ -291,44 +336,83 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
     return;
   }
 
+  const actionableServers = config.servers.filter((server) => !isPlaceholderServer(server));
+  const skippedPlaceholderServers = config.servers
+    .filter((server) => isPlaceholderServer(server))
+    .map((server) => server.name);
+
+  if (skippedPlaceholderServers.length > 0) {
+    logger.warn('Skipping placeholder MCP servers from discovery', {
+      skippedServers: skippedPlaceholderServers,
+    });
+  }
+
+  if (actionableServers.length === 0) {
+    logger.info('No actionable MCP servers configured after filtering placeholders');
+    return;
+  }
+
   logger.info('Starting tool discovery', {
-    serverCount: config.servers.length,
-    servers: config.servers.map((s) => s.name),
+    serverCount: actionableServers.length,
+    servers: actionableServers.map((s) => s.name),
   });
+
+  const credentials = await resolveDiscoveryCredentials();
+  if (!credentials) {
+    logger.warn('Skipping tool discovery - no provider credentials configured');
+    return;
+  }
 
   // We need to use Mastra's MCPClient to discover tools
   // Import it dynamically to avoid circular dependencies
   const { createMastraAgentRuntime } = await import('@brainstrike/agent');
 
+  const baseDiscoveryConfig = { servers: actionableServers };
   try {
-    const credentials = await resolveDiscoveryCredentials();
-    if (!credentials) {
-      logger.warn('Skipping tool discovery - no provider credentials configured');
-      return;
-    }
+    await runDiscoveryForConfig(createMastraAgentRuntime, baseDiscoveryConfig, credentials);
+  } catch (error) {
+    logger.warn('Bulk MCP discovery failed; retrying per server', {
+      error: error instanceof Error ? error.message : String(error),
+    });
 
-    // Create a temporary runtime just to discover tools
-    const runtime = await createMastraAgentRuntime({
+    // Keep retries sequential to avoid spawning many MCP transports at once
+    // when startup is already in a degraded state.
+    for (const server of actionableServers) {
+      try {
+        await runDiscoveryForConfig(createMastraAgentRuntime, { servers: [server] }, credentials);
+      } catch (serverError) {
+        logger.warn('MCP server discovery failed; skipping server', {
+          server: server.name,
+          error: serverError instanceof Error ? serverError.message : String(serverError),
+        });
+      }
+    }
+  }
+
+  const stats = mcpToolRegistry.getStats();
+  logger.info('Tool discovery complete', stats);
+  await loadToolPreferencesOnStartup();
+}
+
+async function runDiscoveryForConfig(
+  createMastraAgentRuntime: typeof import('@brainstrike/agent').createMastraAgentRuntime,
+  config: McpConfig,
+  credentials: { provider: ProviderId; apiKey: string }
+): Promise<void> {
+  let runtime: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
+
+  try {
+    runtime = await createMastraAgentRuntime({
       runtime: {
         provider: credentials.provider,
         apiKey: credentials.apiKey,
       },
       mcpConfig: config,
-      mcpTimeoutMs: 10_000, // 10 second timeout for discovery
+      mcpTimeoutMs: 10_000,
     });
-
-    // Tools are now registered in the global registry
-    const stats = mcpToolRegistry.getStats();
-    logger.info('Tool discovery complete', stats);
-
-    // Clean up the runtime
-    await runtime.dispose();
-
-    // Apply saved tool preferences now that discovery has populated the registry
-    await loadToolPreferencesOnStartup();
-  } catch (error) {
-    logger.error('Failed to discover tools', { error });
-    throw error; // Re-throw to see the full error
+    // Discovery and registry population happen during runtime construction.
+  } finally {
+    await runtime?.dispose();
   }
 }
 

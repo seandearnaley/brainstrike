@@ -160,6 +160,27 @@ vi.mock('@brainstrike/ui', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/ui')>('@brainstrike/ui');
   return {
     ...actual,
+    Tabs: ({ children }: { children: React.ReactNode }) => (
+      <div data-testid="tabs-container">{children}</div>
+    ),
+    TabsList: ({ children }: { children: React.ReactNode }) => (
+      <div data-testid="tabs-list">{children}</div>
+    ),
+    TabsTrigger: ({
+      children,
+      value,
+      onClick,
+    }: {
+      children: React.ReactNode;
+      value?: string;
+      onClick?: () => void;
+    }) => (
+      <button data-testid={`tabs-trigger-${value ?? 'unknown'}`} onClick={onClick} type="button">
+        {children}
+      </button>
+    ),
+    TabsContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+    Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
     Accordion: ({
       children,
       type,
@@ -711,6 +732,18 @@ describe('UnifiedToolsSettings', () => {
   });
 
   describe('MCP integration', () => {
+    it('shows MCP editor unavailable fallback when config text operations are missing', async () => {
+      const operations = createMockOperations();
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('MCP config editing is unavailable in this runtime.')
+        ).toBeInTheDocument();
+      });
+    });
+
     it('does not show MCP config alert when mcpAvailable is false', async () => {
       const operations = createMockOperations();
       operations.getMcpConfigInfo = vi.fn().mockResolvedValue({ path: '/test', exists: false });
@@ -789,6 +822,414 @@ describe('UnifiedToolsSettings', () => {
 
       await waitFor(() => {
         expect(screen.queryByText('MCP down')).not.toBeInTheDocument();
+      });
+    });
+
+    it('loads MCP config editor content when editor operations are provided', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(operations.readMcpConfigText).toHaveBeenCalled();
+      });
+
+      expect(screen.getByTestId('mcp-config-editor')).toBeInTheDocument();
+      expect(screen.getByTestId('mcp-config-path-input')).toHaveValue('/tmp/mcp.config.json');
+    });
+
+    it('saves MCP config editor content', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-editor')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByTestId('mcp-config-editor'), {
+        target: { value: '{\n  "servers": [{"transport":"stdio","name":"x","command":"node"}]\n}' },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-save'));
+
+      await waitFor(() => {
+        expect(operations.writeMcpConfigText).toHaveBeenCalled();
+      });
+    });
+
+    it('applies an absolute MCP config path and shows a success status', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+      operations.setMcpConfigPath = vi.fn().mockResolvedValue(undefined);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-path-input')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByTestId('mcp-config-path-input'), {
+        target: { value: '/tmp/custom.config.json' },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-apply-path'));
+
+      await waitFor(() => {
+        expect(operations.setMcpConfigPath).toHaveBeenCalledWith('/tmp/custom.config.json');
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-status')).toHaveTextContent(
+          'MCP config path updated.'
+        );
+      });
+    });
+
+    it('resets MCP config path when apply is clicked with whitespace input', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+      operations.setMcpConfigPath = vi.fn().mockResolvedValue(undefined);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-path-input')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByTestId('mcp-config-path-input'), {
+        target: { value: '   ' },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-apply-path'));
+
+      await waitFor(() => {
+        expect(operations.setMcpConfigPath).toHaveBeenCalledWith(null);
+      });
+    });
+
+    it('shows an error when MCP config save fails validation', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi.fn().mockResolvedValue({
+        success: false,
+        path: '/tmp/mcp.config.json',
+        error: 'Invalid JSONC payload',
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-editor')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByTestId('mcp-config-editor'), {
+        target: { value: '{ "servers": [ }' },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-save'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-error')).toHaveTextContent('Invalid JSONC payload');
+      });
+    });
+
+    it('runs browse and reset path actions from the MCP editor controls', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+      operations.openMcpConfig = vi.fn().mockResolvedValue(undefined);
+      operations.resetMcpConfig = vi.fn().mockResolvedValue(undefined);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-browse-path')).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId('mcp-config-browse-path'));
+      await waitFor(() => {
+        expect(operations.openMcpConfig).toHaveBeenCalledTimes(1);
+      });
+
+      fireEvent.click(screen.getByTestId('mcp-config-reset-path'));
+      await waitFor(() => {
+        expect(operations.resetMcpConfig).toHaveBeenCalledTimes(1);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-status')).toHaveTextContent(
+          'MCP config path reset to default.'
+        );
+      });
+    });
+
+    it('shows created-template status when config is auto-created on load', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: false,
+        created: true,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-status')).toHaveTextContent(
+          'Created a new MCP config template with commented examples.'
+        );
+      });
+    });
+
+    it('shows MCP editor load errors when reading config text fails', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockRejectedValue(new Error('Config read failed'));
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-error')).toHaveTextContent('Config read failed');
+      });
+    });
+
+    it('rejects relative MCP config paths in the editor', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+      operations.setMcpConfigPath = vi.fn().mockResolvedValue(undefined);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-path-input')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByTestId('mcp-config-path-input'), {
+        target: { value: 'relative/mcp.config.json' },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-apply-path'));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Please provide an absolute path to the MCP config file.')
+        ).toBeInTheDocument();
+      });
+      expect(operations.setMcpConfigPath).not.toHaveBeenCalled();
+    });
+
+    it('confirms before discarding unsaved editor changes on reload', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-editor')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByTestId('mcp-config-editor'), {
+        target: {
+          value: '{\n  "servers": [{"transport":"stdio","name":"x","command":"node"}]\n}',
+        },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-reload'));
+
+      expect(screen.getByTestId('mcp-config-reload-confirm')).toBeInTheDocument();
+      expect(operations.readMcpConfigText).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByTestId('mcp-config-reload-confirm-discard'));
+
+      await waitFor(() => {
+        expect(operations.readMcpConfigText).toHaveBeenCalledTimes(2);
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('mcp-config-reload-confirm')).not.toBeInTheDocument();
+      });
+    });
+
+    it('keeps unsaved changes when reload confirmation is canceled', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-editor')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByTestId('mcp-config-editor'), {
+        target: {
+          value: '{\n  "servers": [{"transport":"stdio","name":"keep","command":"node"}]\n}',
+        },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-reload'));
+      expect(screen.getByTestId('mcp-config-reload-confirm')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('mcp-config-reload-confirm-cancel'));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('mcp-config-reload-confirm')).not.toBeInTheDocument();
+      });
+      expect(screen.getByTestId('mcp-config-editor')).toHaveValue(
+        '{\n  "servers": [{"transport":"stdio","name":"keep","command":"node"}]\n}'
+      );
+      expect(operations.readMcpConfigText).toHaveBeenCalledTimes(1);
+    });
+
+    it('exposes accessible labels for MCP config path and editor fields', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('MCP Config Path')).toBeInTheDocument();
+        expect(screen.getByLabelText('Config Editor (JSONC)')).toBeInTheDocument();
+      });
+    });
+
+    it('associates status and error feedback with the editor via aria-describedby', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: false,
+        created: true,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi.fn().mockResolvedValue({
+        success: false,
+        path: '/tmp/mcp.config.json',
+        error: 'Invalid JSONC payload',
+      });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const editor = await screen.findByTestId('mcp-config-editor');
+      expect(editor).toHaveAttribute('aria-describedby', 'mcp-config-status-message');
+
+      fireEvent.change(editor, {
+        target: { value: '{ invalid }' },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-save'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-error')).toHaveTextContent('Invalid JSONC payload');
+      });
+      expect(screen.getByTestId('mcp-config-editor')).toHaveAttribute(
+        'aria-describedby',
+        'mcp-config-error-message'
+      );
+      expect(screen.getByTestId('mcp-config-editor')).toHaveAttribute('aria-invalid', 'true');
+      const statusMessage = screen.queryByTestId('mcp-config-status');
+      if (statusMessage) {
+        expect(statusMessage).toHaveAttribute('aria-live', 'polite');
+      }
+      expect(screen.getByTestId('mcp-config-error')).toHaveAttribute('aria-live', 'assertive');
+    });
+
+    it('saves MCP config from the editor with Ctrl+S', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      const editor = await screen.findByTestId('mcp-config-editor');
+      fireEvent.change(editor, {
+        target: { value: '{\n  "servers": [{"transport":"stdio","name":"x","command":"node"}]\n}' },
+      });
+      fireEvent.keyDown(editor, { key: 's', ctrlKey: true });
+
+      await waitFor(() => {
+        expect(operations.writeMcpConfigText).toHaveBeenCalledTimes(1);
       });
     });
   });

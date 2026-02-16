@@ -172,10 +172,13 @@ vi.mock('@brainstrike/agent', () => ({
 
 vi.mock('../../mcp-loader', () => ({
   __esModule: true,
+  getDefaultMcpConfigTemplate: () => '{\n  "servers": []\n}',
   loadMcpConfig: loadMcpConfigMock,
   watchMcpConfig: watchMcpConfigMock,
   getMcpConfigPath: getMcpConfigPathMock,
   setCustomMcpConfigPath: setCustomMcpConfigPathMock,
+  readMcpConfigText: vi.fn(),
+  writeMcpConfigText: vi.fn(),
 }));
 
 vi.mock('../../mcp', () => ({

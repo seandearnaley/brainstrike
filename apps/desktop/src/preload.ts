@@ -98,6 +98,8 @@ contextBridge.exposeInMainWorld('mcp', {
   unwatch: () => ipcRenderer.invoke('mcp:config:unwatch'),
   getPath: () => ipcRenderer.invoke('mcp:config:getPath'),
   setPath: (configPath: string | null) => ipcRenderer.invoke('mcp:config:setPath', configPath),
+  readConfigText: () => ipcRenderer.invoke('mcp:config:readText'),
+  writeConfigText: (content: string) => ipcRenderer.invoke('mcp:config:writeText', content),
   selectPath: () => ipcRenderer.invoke('mcp:config:selectPath'),
   createSampleConfig: () => ipcRenderer.invoke('mcp:config:createSample'),
   // Tool management
