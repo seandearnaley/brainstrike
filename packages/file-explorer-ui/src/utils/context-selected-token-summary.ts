@@ -192,11 +192,11 @@ export function computeContextSelectedTokenSummary(
       continue;
     }
 
-    summary.rangeAdjustedFilesCount++;
     const fullFileTokenCount = args.tokenCountByFile.get(compositeKey);
     if (fullFileTokenCount === undefined) {
       continue;
     }
+    summary.rangeAdjustedFilesCount++;
 
     const resolution = resolveRangedFileTokens({
       fullFileTokenCount,
