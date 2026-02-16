@@ -651,6 +651,26 @@ describe('reportGenerator', () => {
     expect(report).toContain('<file path="src/evil &quot;name&quot;&amp;&lt;tag&gt;.ts">');
     expect(report).toContain('export const risky = true;');
   });
+
+  it('strips XML-illegal control characters from file path attributes', async () => {
+    const selectedFiles = new Set(['src/bad\u0000name\u001F.ts']);
+    const fileContents = {
+      'src/bad\u0000name\u001F.ts': 'export const risky = true;',
+    };
+
+    const report = await generateReport(
+      selectedFiles,
+      fileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false
+    );
+
+    expect(report).toContain('<file path="src/badname.ts">');
+    expect(report).toContain('export const risky = true;');
+  });
 });
 
 describe('generateReportFromAdapter', () => {

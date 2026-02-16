@@ -226,6 +226,8 @@ export function computeContextSelectedTokenSummary(
   }
 
   const knownFileDelta = outputTokensFromKnownFiles - sourceTokensFromKnownFiles;
+  // Preserve the source aggregate as the baseline so pending/uncounted files are
+  // still represented. The range math only adjusts known files via delta.
   summary.outputSelectedTokens = Math.max(0, args.sourceSelectedTokens + knownFileDelta);
 
   return summary;

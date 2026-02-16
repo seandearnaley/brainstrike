@@ -292,6 +292,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const [tapestryRangesByKey, setTapestryRangesByKey] = useState<TapestryRangeMap>({});
   const tapestryTotalsRef = useRef<Map<string, number>>(new Map());
   const summaryFileContentsRef = useRef<Record<string, string>>({});
+  const legacyContextWarningRef = useRef<{ download: boolean; copy: boolean }>({
+    download: false,
+    copy: false,
+  });
 
   const {
     activeTab,
@@ -345,19 +349,18 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const { totalStats, flatListItems } = state;
   // Defer large list snapshots so expensive token summary work does not block UI updates.
   const deferredFlatListItems = useDeferredValue(flatListItems);
-  // Snapshot reconciliation intentionally uses ref + memo + effect together:
-  // memo compares next snapshot against the previous committed snapshot ref,
-  // then effect commits the current snapshot for the next render cycle.
-  // The ref is intentionally excluded from memo dependencies because it stores
-  // comparison baseline state from the previous committed render, not current inputs.
-  // This hook pair should be treated as a single unit: memo computes candidate snapshot,
-  // effect commits it as the baseline for the next render cycle.
+  // Snapshot reconciliation intentionally uses ref + memo together.
+  // We commit the selected snapshot inside this memo so rapid consecutive renders
+  // do not observe an effect-commit lag between range edits and token recalculation.
   const selectedFileContentSnapshot = useMemo(() => {
     const previousSnapshot = summaryFileContentsRef.current;
     if (!useTapestryRangesForContextOutput) {
-      return Object.keys(previousSnapshot).length === 0
-        ? previousSnapshot
-        : EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT;
+      const nextSnapshot =
+        Object.keys(previousSnapshot).length === 0
+          ? previousSnapshot
+          : EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT;
+      summaryFileContentsRef.current = nextSnapshot;
+      return nextSnapshot;
     }
 
     const nextSnapshot = createSelectedFileContentSnapshot({
@@ -366,16 +369,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       fileContents,
     });
     if (hasSameSelectedFileContentSnapshot(previousSnapshot, nextSnapshot)) {
+      summaryFileContentsRef.current = previousSnapshot;
       return previousSnapshot;
     }
 
+    summaryFileContentsRef.current = nextSnapshot;
     return nextSnapshot;
   }, [fileContents, selectedFiles, tapestryRangesByKey, useTapestryRangesForContextOutput]);
-
-  useEffect(() => {
-    // Commit after render so memo stays pure and future comparisons use the latest stable snapshot.
-    summaryFileContentsRef.current = selectedFileContentSnapshot;
-  }, [selectedFileContentSnapshot]);
 
   const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
     const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);
@@ -885,9 +885,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       onDownloadContext(contextExportOptions);
       return;
     }
-    // Legacy compatibility path while report-named callbacks are phased out.
-    logger.warn('PreviewPanel is using legacy onDownloadReport callback without context options');
-    onDownloadReport?.();
+    if (onDownloadReport) {
+      // Legacy compatibility path while report-named callbacks are phased out.
+      if (!legacyContextWarningRef.current.download) {
+        legacyContextWarningRef.current.download = true;
+        logger.warn(
+          'PreviewPanel is using deprecated onDownloadReport callback without context options'
+        );
+      }
+      onDownloadReport();
+    }
   }, [contextExportOptions, onDownloadContext, onDownloadReport]);
 
   const handleCopyContext = useCallback(() => {
@@ -895,9 +902,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       onCopyContext(contextExportOptions);
       return;
     }
-    // Legacy compatibility path while report-named callbacks are phased out.
-    logger.warn('PreviewPanel is using legacy onCopyReport callback without context options');
-    onCopyReport?.();
+    if (onCopyReport) {
+      // Legacy compatibility path while report-named callbacks are phased out.
+      if (!legacyContextWarningRef.current.copy) {
+        legacyContextWarningRef.current.copy = true;
+        logger.warn(
+          'PreviewPanel is using deprecated onCopyReport callback without context options'
+        );
+      }
+      onCopyReport();
+    }
   }, [contextExportOptions, onCopyContext, onCopyReport]);
 
   // Batch remove handler

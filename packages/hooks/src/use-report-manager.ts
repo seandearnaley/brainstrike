@@ -10,7 +10,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { error as logError } from '@brainstrike/utils';
 import { saveAs } from 'file-saver';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 
 type ContextGenerator<O> = (options?: O) => Promise<string>;
 
@@ -90,13 +90,7 @@ export const useReportManager = <A = unknown, O = unknown>({
   showToast,
   toast,
 }: UseReportManagerProps<A, O>): UseReportManagerResult<O> => {
-  const generatorRef = useRef<ContextGenerator<O> | undefined>(
-    generateContextWithContent ?? generateReportWithContent
-  );
-
-  useEffect(() => {
-    generatorRef.current = generateContextWithContent ?? generateReportWithContent;
-  }, [generateContextWithContent, generateReportWithContent]);
+  const contextGenerator = generateContextWithContent ?? generateReportWithContent;
 
   const handleGenerateContext = useCallback(
     async (options?: O) => {
@@ -110,11 +104,10 @@ export const useReportManager = <A = unknown, O = unknown>({
       }
 
       try {
-        const generator = generatorRef.current;
-        if (!generator) {
+        if (!contextGenerator) {
           throw new Error('No context generator provided');
         }
-        const context = await generator(options);
+        const context = await contextGenerator(options);
         return context;
       } catch (error) {
         logError('Error generating context:', error);
@@ -126,7 +119,7 @@ export const useReportManager = <A = unknown, O = unknown>({
         return null;
       }
     },
-    [rootDirectoryHandle, toast]
+    [contextGenerator, rootDirectoryHandle, toast]
   );
 
   const handleDownloadContext = useCallback(

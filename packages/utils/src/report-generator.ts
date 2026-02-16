@@ -73,8 +73,23 @@ export function splitContentLines(content: string): string[] {
   return lines.length > 0 ? lines : [''];
 }
 
+function stripXmlIllegalControlChars(value: string): string {
+  let sanitized = '';
+  for (const char of value) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint === undefined) {
+      continue;
+    }
+    if (codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd || codePoint >= 0x20) {
+      sanitized += char;
+    }
+  }
+  return sanitized;
+}
+
 function escapeXmlAttribute(value: string): string {
-  return value
+  const sanitized = stripXmlIllegalControlChars(value);
+  return sanitized
     .replace(/&/g, '&amp;')
     .replace(/"/g, '&quot;')
     .replace(/</g, '&lt;')
