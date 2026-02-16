@@ -8,10 +8,22 @@
 
 import type { ToolCategory, ToolLoadingTier } from '@brainstrike/agent/client';
 import { usePGliteLiveQuery } from '@brainstrike/db';
-import { Accordion, Button, Card, CardContent, ErrorBoundary, ScrollArea } from '@brainstrike/ui';
+import {
+  Accordion,
+  Button,
+  Card,
+  CardContent,
+  ErrorBoundary,
+  ScrollArea,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { groupTools } from './group-tools';
 import { McpConfigAlert } from './mcp-config-alert';
+import { McpConfigPanel } from './mcp-config-panel';
 import { TokenBudgetSummary } from './token-budget-summary';
 import type { McpConnectionStatus } from './tool-group-accordion';
 import { ToolGroupAccordion } from './tool-group-accordion';
@@ -125,6 +137,7 @@ export function UnifiedToolsSettings({
 
   // MCP config alert dismissed state
   const [configAlertDismissed, setConfigAlertDismissed] = useState(false);
+  const [activeTab, setActiveTab] = useState<'tools' | 'mcp-config'>('tools');
 
   const loadToolsData = useCallback(async () => {
     setLoadingState(true);
@@ -210,6 +223,11 @@ export function UnifiedToolsSettings({
     await loadMcpData();
   }, [loadMcpData]);
 
+  const handleMcpConfigUpdated = useCallback(async () => {
+    await refreshMcpData();
+    await refreshTools();
+  }, [refreshMcpData, refreshTools]);
+
   const handleErrorBoundaryReset = useCallback(() => {
     setLoadingState(!liveQueryEnabled);
     setErrorState(null);
@@ -261,30 +279,27 @@ export function UnifiedToolsSettings({
   const handleResetMcpConfig = useCallback(async () => {
     if (operations.resetMcpConfig) {
       await operations.resetMcpConfig();
-      await refreshMcpData();
-      await refreshTools();
+      await handleMcpConfigUpdated();
     }
-  }, [operations, refreshMcpData, refreshTools]);
+  }, [handleMcpConfigUpdated, operations]);
 
   const handleSelectMcpConfig = useCallback(async () => {
     if (operations.openMcpConfig) {
       await operations.openMcpConfig();
-      await refreshMcpData();
-      await refreshTools();
+      await handleMcpConfigUpdated();
     }
-  }, [operations, refreshMcpData, refreshTools]);
+  }, [handleMcpConfigUpdated, operations]);
 
   const handleCreateSampleConfig = useCallback(async () => {
     if (operations.createSampleConfig) {
       const result = await operations.createSampleConfig();
       if (result.success) {
-        await refreshMcpData();
-        await refreshTools();
+        await handleMcpConfigUpdated();
       } else if (result.error) {
         setErrorState(`Failed to create sample config: ${result.error}`);
       }
     }
-  }, [operations, refreshMcpData, refreshTools]);
+  }, [handleMcpConfigUpdated, operations]);
 
   const handleEnableGroup = useCallback(
     async (group: ToolGroup) => {
@@ -411,10 +426,8 @@ export function UnifiedToolsSettings({
 
   // Default expanded accordion items - expand all groups by default
   const defaultExpandedGroups = useMemo(() => toolGroups.map((g) => g.id), [toolGroups]);
-
-  return (
-    <div className="space-y-4" data-testid="unified-tools-settings">
-      {/* Token Budget Summary */}
+  const toolsPanel = (
+    <div className="space-y-4">
       {budgetData && (
         <TokenBudgetSummary
           conditionalTokens={budgetData.conditionalTokens}
@@ -424,7 +437,6 @@ export function UnifiedToolsSettings({
         />
       )}
 
-      {/* MCP Config Alert (when missing) */}
       {showConfigAlert && (
         <McpConfigAlert
           configInfo={mcpConfigInfo}
@@ -435,7 +447,6 @@ export function UnifiedToolsSettings({
         />
       )}
 
-      {/* Filter Bar */}
       {hasTools && (
         <ToolsFilterBar
           categoryFilter={categoryFilter}
@@ -449,19 +460,16 @@ export function UnifiedToolsSettings({
         />
       )}
 
-      {/* Error Display */}
       {error && (
         <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-destructive text-sm">
           {error}
         </div>
       )}
 
-      {/* Loading State */}
       {loading && (
         <div className="py-8 text-center text-muted-foreground text-sm">Loading tools...</div>
       )}
 
-      {/* Empty State */}
       {!(loading || hasTools) && (
         <Card>
           <CardContent className="py-8 text-center text-muted-foreground">
@@ -470,7 +478,6 @@ export function UnifiedToolsSettings({
         </Card>
       )}
 
-      {/* Tool Groups - Accordion Layout */}
       {!loading && hasTools && (
         <ErrorBoundary
           fallback={<ToolsErrorFallback onRetry={handleErrorBoundaryReset} />}
@@ -538,6 +545,35 @@ export function UnifiedToolsSettings({
             </Accordion>
           </ScrollArea>
         </ErrorBoundary>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4" data-testid="unified-tools-settings">
+      {mcpAvailable ? (
+        <Tabs
+          onValueChange={(value) => setActiveTab(value === 'mcp-config' ? 'mcp-config' : 'tools')}
+          value={activeTab}
+        >
+          <TabsList className="h-9">
+            <TabsTrigger className="px-4 text-sm" value="tools">
+              Tools
+            </TabsTrigger>
+            <TabsTrigger className="px-4 text-sm" value="mcp-config">
+              MCP Config
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent className="mt-4" value="tools">
+            {toolsPanel}
+          </TabsContent>
+          <TabsContent className="mt-4" value="mcp-config">
+            <McpConfigPanel onConfigChanged={handleMcpConfigUpdated} operations={operations} />
+          </TabsContent>
+        </Tabs>
+      ) : (
+        toolsPanel
       )}
     </div>
   );

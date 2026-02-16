@@ -35,8 +35,18 @@ interface SecretsApi {
 
 interface McpApi {
   getConfig: () => Promise<{ path: string; exists: boolean; servers: never[] }>;
+  getPath?: () => Promise<string>;
   selectPath: () => Promise<string | null>;
   setPath: (path: string | null) => Promise<{ success: boolean; path: string }>;
+  readConfigText?: () => Promise<{
+    path: string;
+    exists: boolean;
+    created: boolean;
+    content: string;
+  }>;
+  writeConfigText?: (
+    content: string
+  ) => Promise<{ success: true; path: string } | { success: false; path: string; error: string }>;
   listTools: () => Promise<Record<string, never[]>>;
   getToolStats: () => Promise<{
     total: number;
@@ -92,8 +102,16 @@ beforeEach(() => {
 
   const mcp: McpApi = {
     getConfig: vi.fn().mockResolvedValue({ path: '/tmp/mcp.json', exists: true, servers: [] }),
+    getPath: vi.fn().mockResolvedValue('/tmp/mcp.json'),
     selectPath: vi.fn().mockResolvedValue(null),
     setPath: vi.fn().mockResolvedValue({ success: true, path: '/tmp/mcp.json' }),
+    readConfigText: vi.fn().mockResolvedValue({
+      path: '/tmp/mcp.json',
+      exists: true,
+      created: false,
+      content: '{\n  "servers": []\n}',
+    }),
+    writeConfigText: vi.fn().mockResolvedValue({ success: true, path: '/tmp/mcp.json' }),
     listTools: vi.fn().mockResolvedValue({}),
     getToolStats: vi.fn().mockResolvedValue({ total: 0, enabled: 0, disabled: 0, servers: 0 }),
     disableTools: vi.fn().mockResolvedValue(undefined),

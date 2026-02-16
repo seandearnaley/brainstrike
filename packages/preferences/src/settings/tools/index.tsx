@@ -133,6 +133,7 @@ export { ToolRowExpanded } from './tool-row-expanded';
 export { ToolsFilterBar } from './tools-filter-bar';
 export type {
   McpConfigInfo,
+  McpConfigTextDocument,
   McpServerInfo,
   McpServerStatusProps,
   TokenBudgetSummaryProps,

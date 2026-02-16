@@ -131,6 +131,35 @@ describe('mcp-loader', () => {
     expect(missing.exists).toBe(false);
   });
 
+  it('creates and reads a commented MCP config template when missing', async () => {
+    const { readMcpConfigText, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const templatePath = path.join(tempDir, 'mcp', 'template.json');
+    await setCustomMcpConfigPath(templatePath);
+
+    const doc = await readMcpConfigText(true);
+    expect(doc.exists).toBe(true);
+    expect(doc.created).toBe(true);
+    expect(doc.path).toBe(templatePath);
+    expect(doc.content).toContain('// BrainStrike MCP configuration');
+  });
+
+  it('validates before writing MCP config text', async () => {
+    const { setCustomMcpConfigPath, writeMcpConfigText } = await import('../../mcp-loader');
+    const configPath = path.join(tempDir, 'mcp', 'editable.json');
+    await setCustomMcpConfigPath(configPath);
+
+    const invalid = await writeMcpConfigText('{ invalid json');
+    expect(invalid.success).toBe(false);
+
+    const valid = await writeMcpConfigText(
+      JSON.stringify({
+        servers: [{ transport: 'stdio', name: 'fs', command: 'node' }],
+      })
+    );
+    expect(valid.success).toBe(true);
+    expect(fs.existsSync(configPath)).toBe(true);
+  });
+
   it('reports parse errors without treating config as missing', async () => {
     const { getMcpConfigPath, loadMcpConfig, setCustomMcpConfigPath } = await import(
       '../../mcp-loader'

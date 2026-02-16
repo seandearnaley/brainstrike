@@ -4,6 +4,7 @@ import { defineConfig } from 'tsup';
 /**
  * Plugin to strip erroneous sourcemap references from bundled dependencies.
  * workerpool embeds a worker script that references worker.min.js.map which doesn't exist.
+ * Also rewrites webpackIgnore dynamic imports so Vite dev import-analysis does not emit noise.
  */
 const stripErroneousSourcemaps: Plugin = {
   name: 'strip-erroneous-sourcemaps',
@@ -11,13 +12,15 @@ const stripErroneousSourcemaps: Plugin = {
     build.onEnd((result) => {
       if (result.outputFiles) {
         for (const file of result.outputFiles) {
-          // Remove sourcemap references to non-existent files (from workerpool's embedded worker)
+          // Remove sourcemap references to non-existent files and normalize ignore hints.
           if (file.path.endsWith('.js')) {
             const content = file.text;
-            if (content.includes('//# sourceMappingURL=worker.min.js.map')) {
-              file.contents = new TextEncoder().encode(
-                content.replace(/\/\/# sourceMappingURL=worker\.min\.js\.map/g, '')
-              );
+            const nextContent = content
+              .replace(/\/\/# sourceMappingURL=worker\.min\.js\.map/g, '')
+              .replace(/\/\*webpackIgnore:true\*\//g, '/* @vite-ignore */');
+
+            if (nextContent !== content) {
+              file.contents = new TextEncoder().encode(nextContent);
             }
           }
         }

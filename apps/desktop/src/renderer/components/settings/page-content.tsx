@@ -179,6 +179,39 @@ export default function SettingsPageContent() {
         // Refresh tools list to pick up changes
         await window.mcp?.listTools?.();
       },
+      ...(window.mcp?.getPath && {
+        getMcpConfigPath: async () => (await window.mcp?.getPath?.()) ?? '',
+      }),
+      ...(window.mcp?.setPath && {
+        setMcpConfigPath: async (configPath: string | null) => {
+          const result = await window.mcp?.setPath?.(configPath);
+          if (!result?.success) {
+            throw new Error('Failed to set MCP config path');
+          }
+        },
+      }),
+      ...(window.mcp?.readConfigText && {
+        readMcpConfigText: async () => {
+          const result = await window.mcp?.readConfigText?.();
+          if (!result) {
+            throw new Error('Failed to read MCP config text');
+          }
+          return result;
+        },
+      }),
+      ...(window.mcp?.writeConfigText && {
+        writeMcpConfigText: async (content: string) => {
+          const result = await window.mcp?.writeConfigText?.(content);
+          if (!result) {
+            return {
+              success: false as const,
+              path: '',
+              error: 'Failed to write MCP config text',
+            };
+          }
+          return result;
+        },
+      }),
       getMcpConfigInfo: async () => {
         // Get current MCP config info
         const config = await window.mcp?.getConfig?.();

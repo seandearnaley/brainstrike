@@ -163,9 +163,10 @@ describe('mcp-loader comprehensive tests', () => {
       expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: servers must be array');
     });
 
-    it('should throw when no valid servers found', () => {
+    it('should allow an empty servers array for template-only configs', () => {
       const json = JSON.stringify({ servers: [] });
-      expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: no valid servers');
+      const result = parseMcpConfig(json);
+      expect(result.servers).toEqual([]);
     });
 
     it('should throw when servers field is missing', () => {
@@ -213,6 +214,23 @@ describe('mcp-loader comprehensive tests', () => {
 
       const result = parseMcpConfig(json);
       expect(result.servers[0].args).toEqual(['valid', 'another']);
+    });
+
+    it('should parse JSON with comments', () => {
+      const jsonWithComments = `{
+        // comment
+        "servers": [
+          {
+            "transport": "sse",
+            "name": "commented",
+            "url": "http://localhost:3000/sse"
+          }
+        ]
+      }`;
+
+      const result = parseMcpConfig(jsonWithComments);
+      expect(result.servers).toHaveLength(1);
+      expect(result.servers[0]?.name).toBe('commented');
     });
   });
 
@@ -586,6 +604,33 @@ describe('mcp-loader comprehensive tests', () => {
       await vi.advanceTimersByTimeAsync(100);
 
       expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('should watch the selected config basename for custom paths', async () => {
+      const onChange = vi.fn();
+      mockedFsp.readFile.mockImplementation(async (path) => {
+        if (path.toString().endsWith('mcp-custom-path.txt')) {
+          return '/custom/location/custom-mcp.json' as never;
+        }
+        return JSON.stringify({
+          servers: [{ transport: 'stdio', name: 'test', command: 'cmd' }],
+        }) as never;
+      });
+
+      await watchMcpConfig(onChange);
+
+      const watchCallback = mockedFs.watch.mock.calls[0][1] as (
+        eventType: string,
+        filename?: string | undefined
+      ) => void;
+
+      watchCallback('change', 'mcp.config.json');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(onChange).not.toHaveBeenCalled();
+
+      watchCallback('change', 'custom-mcp.json');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(onChange).toHaveBeenCalledTimes(1);
     });
 
     it('should debounce rapid changes', async () => {

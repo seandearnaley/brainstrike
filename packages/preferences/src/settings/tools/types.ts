@@ -114,6 +114,16 @@ export interface ToolsSettingsOperations {
   openMcpConfig?: () => Promise<void>;
   /** Reset MCP config to default path */
   resetMcpConfig?: () => Promise<void>;
+  /** Get current MCP config path */
+  getMcpConfigPath?: () => Promise<string>;
+  /** Set MCP config path (or reset to default when null) */
+  setMcpConfigPath?: (configPath: string | null) => Promise<void>;
+  /** Read MCP config file text, optionally auto-creating it from a template */
+  readMcpConfigText?: () => Promise<McpConfigTextDocument>;
+  /** Validate and write MCP config file text */
+  writeMcpConfigText?: (
+    content: string
+  ) => Promise<{ success: true; path: string } | { success: false; path: string; error: string }>;
   /** Get current MCP config info */
   getMcpConfigInfo?: () => Promise<McpConfigInfo | null>;
   /** Create a sample MCP config file */
@@ -189,6 +199,13 @@ export interface McpConfigInfo {
   exists: boolean;
   /** Optional config load or parse error */
   error?: string;
+}
+
+export interface McpConfigTextDocument {
+  path: string;
+  exists: boolean;
+  created: boolean;
+  content: string;
 }
 
 /**
