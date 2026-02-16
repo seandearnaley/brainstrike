@@ -325,7 +325,7 @@ function resolveProjectTreeFilterMode(
   useRegex: boolean,
   options: ContextGenerationOptions
 ): { includeFilters: string[]; excludeFilters: string[]; useRegex: boolean } {
-  const useViewFilters = options.projectTreeUsesViewFilters ?? true;
+  const useViewFilters = options.projectTreeUsesViewFilters ?? false;
 
   if (!useViewFilters) {
     return { includeFilters: [], excludeFilters: [], useRegex: false };

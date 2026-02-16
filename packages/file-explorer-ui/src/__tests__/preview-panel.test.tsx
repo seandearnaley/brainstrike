@@ -147,7 +147,7 @@ describe('PreviewPanel', () => {
       render(
         <PreviewPanel
           {...mockProps}
-          includeProjectTree={false}
+          includeProjectTree={true}
           onCopyReport={onCopyReport}
           onDownloadReport={onDownloadReport}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
@@ -167,11 +167,25 @@ describe('PreviewPanel', () => {
 
       const treeSwitch = screen.getByRole('switch', { name: /include project tree/i });
       await user.click(treeSwitch);
-      expect(onIncludeProjectTreeChange).toHaveBeenCalledWith(true);
+      expect(onIncludeProjectTreeChange).toHaveBeenCalledWith(false);
 
       const filteredTreeSwitch = screen.getByRole('switch', { name: /use filtered project tree/i });
       await user.click(filteredTreeSwitch);
       expect(onProjectTreeUsesViewFiltersChange).toHaveBeenCalledWith(true);
+    });
+
+    it('hides filtered tree toggle when project tree is disabled', () => {
+      render(
+        <PreviewPanel
+          {...mockProps}
+          includeProjectTree={false}
+          onProjectTreeUsesViewFiltersChange={vi.fn()}
+        />
+      );
+
+      expect(
+        screen.queryByRole('switch', { name: /use filtered project tree/i })
+      ).not.toBeInTheDocument();
     });
 
     it('disables context buttons when no files are selected', () => {

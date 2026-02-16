@@ -36,10 +36,12 @@ export class FileExplorerPage {
     return this.page.getByTestId('copy-context-button');
   }
 
+  /** @deprecated Use `downloadContextButton` instead. */
   get downloadReportButton(): Locator {
     return this.downloadContextButton;
   }
 
+  /** @deprecated Use `copyContextButton` instead. */
   get copyReportButton(): Locator {
     return this.copyContextButton;
   }

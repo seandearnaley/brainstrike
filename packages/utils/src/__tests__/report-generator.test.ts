@@ -527,7 +527,9 @@ describe('reportGenerator', () => {
       ['**/components/**/*.tsx'],
       [],
       false,
-      true
+      true,
+      5,
+      { projectTreeUsesViewFilters: true }
     );
 
     expect(report).toContain('<project_tree>');
@@ -547,7 +549,9 @@ describe('reportGenerator', () => {
       ['**/*.tsx'],
       ['**/tests/**'],
       false,
-      true
+      true,
+      5,
+      { projectTreeUsesViewFilters: true }
     );
 
     expect(report).toContain('<project_tree>');

@@ -134,7 +134,7 @@ export const PreviewPanelFooter = memo<PreviewPanelFooterProps>(
               </div>
             )}
 
-            {onProjectTreeUsesViewFiltersChange && (
+            {includeProjectTree && onProjectTreeUsesViewFiltersChange && (
               <>
                 <div aria-hidden className="@[650px]:block hidden h-6 w-px bg-border" />
                 <TooltipProvider delayDuration={400}>
