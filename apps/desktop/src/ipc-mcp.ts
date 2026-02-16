@@ -65,7 +65,11 @@ function handleConfigChange(cfg: LoadedMcpConfig): void {
   }
   if (cfg.config) {
     initClients(cfg.config);
-    void discoverToolsFromConfig(cfg.config);
+    void discoverToolsFromConfig(cfg.config).catch((error: unknown) => {
+      logger.error('Tool discovery failed after config change', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   } else {
     void disposeClients();
   }

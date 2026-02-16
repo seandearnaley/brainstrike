@@ -281,7 +281,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
             <textarea
               aria-describedby={editorDescribedBy}
               aria-invalid={errorMessage ? true : undefined}
-              className="min-h-[360px] w-full rounded-md border bg-background p-3 font-mono text-xs leading-5"
+              className="max-h-[600px] min-h-[360px] w-full resize-y overflow-y-auto rounded-md border bg-background p-3 font-mono text-xs leading-5"
               data-testid="mcp-config-editor"
               id="mcp-config-editor-field"
               onChange={(event) => setEditorValue(event.target.value)}
