@@ -179,6 +179,23 @@ describe('mcp-loader', () => {
     expect(doc.content).toContain('// BrainStrike MCP configuration');
   });
 
+  it('does not overwrite an existing MCP config when creation is requested', async () => {
+    const { readMcpConfigText, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const existingPath = path.join(tempDir, 'mcp', 'existing.json');
+    const existingContent = JSON.stringify({
+      servers: [{ transport: 'stdio', name: 'existing', command: 'node' }],
+    });
+
+    fs.mkdirSync(path.dirname(existingPath), { recursive: true });
+    fs.writeFileSync(existingPath, existingContent, 'utf-8');
+    await setCustomMcpConfigPath(existingPath);
+
+    const doc = await readMcpConfigText(true);
+    expect(doc.exists).toBe(true);
+    expect(doc.created).toBe(false);
+    expect(doc.content).toBe(existingContent);
+  });
+
   it('returns an empty document when MCP config is missing and creation is disabled', async () => {
     const { readMcpConfigText, setCustomMcpConfigPath } = await import('../../mcp-loader');
     const missingPath = path.join(tempDir, 'mcp', 'missing.json');

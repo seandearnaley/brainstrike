@@ -482,6 +482,22 @@ async function ensureMcpConfigFile(createIfMissing: boolean): Promise<{
 }> {
   const configPath = await getMcpConfigPath();
 
+  if (createIfMissing) {
+    await fsp.mkdir(path.dirname(configPath), { recursive: true });
+    try {
+      // Exclusive create avoids TOCTOU races between existence check and write.
+      await fsp.writeFile(configPath, DEFAULT_MCP_CONFIG_TEMPLATE, {
+        encoding: 'utf-8',
+        flag: 'wx',
+      });
+      return { path: configPath, exists: true, created: true };
+    } catch (error) {
+      if ((error as { code?: string }).code !== 'EEXIST') {
+        throw error;
+      }
+    }
+  }
+
   try {
     await fsp.access(configPath);
     return { path: configPath, exists: true, created: false };
@@ -491,13 +507,7 @@ async function ensureMcpConfigFile(createIfMissing: boolean): Promise<{
     }
   }
 
-  if (!createIfMissing) {
-    return { path: configPath, exists: false, created: false };
-  }
-
-  await fsp.mkdir(path.dirname(configPath), { recursive: true });
-  await fsp.writeFile(configPath, DEFAULT_MCP_CONFIG_TEMPLATE, 'utf-8');
-  return { path: configPath, exists: true, created: true };
+  return { path: configPath, exists: false, created: false };
 }
 
 export async function readMcpConfigText(createIfMissing = false): Promise<McpConfigTextDocument> {

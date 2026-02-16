@@ -280,6 +280,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
             </div>
             <textarea
               aria-describedby={editorDescribedBy}
+              aria-invalid={errorMessage ? true : undefined}
               className="min-h-[360px] w-full rounded-md border bg-background p-3 font-mono text-xs leading-5"
               data-testid="mcp-config-editor"
               id="mcp-config-editor-field"
@@ -315,6 +316,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
             {loading && <div className="text-muted-foreground text-xs">Loading MCP config…</div>}
             {statusMessage && (
               <div
+                aria-live="polite"
                 className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-2 text-emerald-900 text-xs dark:text-emerald-200"
                 data-testid="mcp-config-status"
                 id={MCP_CONFIG_STATUS_ID}
@@ -324,6 +326,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
             )}
             {errorMessage && (
               <div
+                aria-live="assertive"
                 className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-destructive text-xs"
                 data-testid="mcp-config-error"
                 id={MCP_CONFIG_ERROR_ID}

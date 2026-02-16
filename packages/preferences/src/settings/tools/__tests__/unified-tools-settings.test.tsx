@@ -1200,6 +1200,12 @@ describe('UnifiedToolsSettings', () => {
         'aria-describedby',
         'mcp-config-error-message'
       );
+      expect(screen.getByTestId('mcp-config-editor')).toHaveAttribute('aria-invalid', 'true');
+      const statusMessage = screen.queryByTestId('mcp-config-status');
+      if (statusMessage) {
+        expect(statusMessage).toHaveAttribute('aria-live', 'polite');
+      }
+      expect(screen.getByTestId('mcp-config-error')).toHaveAttribute('aria-live', 'assertive');
     });
 
     it('saves MCP config from the editor with Ctrl+S', async () => {

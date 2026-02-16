@@ -162,6 +162,8 @@ export function registerMcpIpcHandlers(): void {
       const result = await writeMcpConfigText(content);
       if (result.success) {
         logger.info('MCP config text updated', { path: result.path });
+        // Path changes restart the watcher in mcp:config:setPath.
+        // A write targets the current path, so a watcher restart is unnecessary here.
         handleConfigChange(await loadMcpConfig());
       }
       return result;
@@ -369,6 +371,8 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
       error: error instanceof Error ? error.message : String(error),
     });
 
+    // Keep retries sequential to avoid spawning many MCP transports at once
+    // when startup is already in a degraded state.
     for (const server of actionableServers) {
       try {
         await runDiscoveryForConfig(createMastraAgentRuntime, { servers: [server] }, credentials);
