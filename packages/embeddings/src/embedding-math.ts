@@ -277,20 +277,21 @@ export function normalize(embedding: number[]): number[] {
     return embedding.slice();
   }
 
-  const normSqrt = Math.sqrt(norm);
+  // Optimization: Multiplication is faster than division
+  const invNorm = 1 / Math.sqrt(norm);
   const result = new Array<number>(len);
 
   i = 0;
   for (; i < len4; i += 4) {
-    result[i] = (embedding[i] as number) / normSqrt;
-    result[i + 1] = (embedding[i + 1] as number) / normSqrt;
-    result[i + 2] = (embedding[i + 2] as number) / normSqrt;
-    result[i + 3] = (embedding[i + 3] as number) / normSqrt;
+    result[i] = (embedding[i] as number) * invNorm;
+    result[i + 1] = (embedding[i + 1] as number) * invNorm;
+    result[i + 2] = (embedding[i + 2] as number) * invNorm;
+    result[i + 3] = (embedding[i + 3] as number) * invNorm;
   }
 
   for (; i < len; i++) {
     const val = embedding[i] as number;
-    result[i] = val / normSqrt;
+    result[i] = val * invNorm;
   }
   return result;
 }
