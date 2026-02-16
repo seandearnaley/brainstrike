@@ -106,12 +106,40 @@ describe('mcp-loader', () => {
     expect(fallback).toContain(path.join(tempDir, 'mcp', 'mcp.config.json'));
   });
 
+  it('trims whitespace when setting a custom MCP config path', async () => {
+    const { getMcpConfigPath, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const expectedPath = path.join(tempDir, 'mcp', 'trimmed.config.json');
+
+    await setCustomMcpConfigPath(`  ${expectedPath}  `);
+    await expect(getMcpConfigPath()).resolves.toBe(expectedPath);
+  });
+
+  it('treats whitespace-only custom path input as reset', async () => {
+    const { getMcpConfigPath, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    await setCustomMcpConfigPath(path.join(tempDir, 'mcp', 'custom.config.json'));
+
+    await setCustomMcpConfigPath('   ');
+
+    const fallback = await getMcpConfigPath();
+    expect(fallback).toContain(path.join(tempDir, 'mcp', 'mcp.config.json'));
+  });
+
   it('rejects relative custom MCP config paths', async () => {
     const { setCustomMcpConfigPath } = await import('../../mcp-loader');
 
     await expect(setCustomMcpConfigPath('relative/mcp.config.json')).rejects.toThrow(
       'invalid_mcp_config_path: path must be absolute'
     );
+  });
+
+  it('ignores invalid persisted relative custom paths from disk', async () => {
+    const { getMcpConfigPath } = await import('../../mcp-loader');
+    const persistedPathFile = path.join(tempDir, 'mcp', 'mcp-custom-path.txt');
+    fs.mkdirSync(path.dirname(persistedPathFile), { recursive: true });
+    fs.writeFileSync(persistedPathFile, 'relative/path/from/storage.json', 'utf-8');
+
+    const loadedPath = await getMcpConfigPath();
+    expect(loadedPath).toContain(path.join(tempDir, 'mcp', 'mcp.config.json'));
   });
 
   it('loads MCP config from disk and reports missing config', async () => {
