@@ -6,9 +6,11 @@ import { useReportGeneration } from '../use-report-generation';
 // Mock the report generator
 vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+  const generateContext = vi.fn();
   return {
     ...actual,
-    generateReport: vi.fn(),
+    generateContext,
+    generateReport: generateContext,
   };
 });
 

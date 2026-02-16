@@ -13,7 +13,9 @@ export const FileExplorerStrings = {
     rootDirectorySelected: 'Successfully set the root directory.',
     contextCopied: 'The context has been copied to your clipboard.',
     contextDownloaded: 'The context has been downloaded.',
+    /** @deprecated Use `contextCopied`. */
     reportCopied: 'The context has been copied to your clipboard.',
+    /** @deprecated Use `contextDownloaded`. */
     reportDownloaded: 'The context has been downloaded.',
   },
 
@@ -25,7 +27,9 @@ export const FileExplorerStrings = {
     rootDirectoryFailed: 'Failed to select root directory',
     contextGenerationFailed: 'Failed to generate context',
     contextCopyFailed: 'Failed to generate or copy context',
+    /** @deprecated Use `contextGenerationFailed`. */
     reportGenerationFailed: 'Failed to generate context',
+    /** @deprecated Use `contextCopyFailed`. */
     reportCopyFailed: 'Failed to generate or copy context',
     fileLoadFailed: 'Failed to load file',
     selectionLimitExceeded: 'Cannot select more files. Maximum selection limit reached.',
@@ -36,6 +40,7 @@ export const FileExplorerStrings = {
     rootDirectory: 'Loading root directory...',
     selectingRoot: 'Selecting Root Directory...',
     generatingContext: 'Generating Context...',
+    /** @deprecated Use `generatingContext`. */
     generatingReport: 'Generating Context...',
     refreshing: 'Refreshing file tree...',
   },
@@ -43,8 +48,10 @@ export const FileExplorerStrings = {
   prompts: {
     chooseDirectory: 'Please choose a directory from the file picker',
     waitForContext: 'Please wait while we prepare your context',
+    /** @deprecated Use `waitForContext`. */
     waitForReport: 'Please wait while we prepare your context',
     waitForLoading: 'Please wait while we load the file tree',
+    /** @deprecated Use `waitForContext`. */
     reportGenerating: 'Context is currently being generated...',
   },
 
@@ -61,6 +68,7 @@ export const FileExplorerStrings = {
   // File Names
   fileNames: {
     context: 'context.txt',
+    /** @deprecated Use `context`. */
     report: 'context.txt',
   },
 

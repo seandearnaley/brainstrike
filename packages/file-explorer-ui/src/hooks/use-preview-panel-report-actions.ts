@@ -74,8 +74,7 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
     loadMissingContent: input.loadMultipleFileContents,
     getFileContents,
   });
-  const generateContextWithContent =
-    generation.generateContextWithContent ?? generation.generateReportWithContent;
+  const generateContextWithContent = generation.generateContextWithContent;
 
   const manager = useReportManager({
     rootDirectoryHandle: input.rootDirectoryHandle,
@@ -85,8 +84,8 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
     toast,
   });
 
-  const handleDownloadContext = manager.handleDownloadContext ?? manager.handleDownloadReport;
-  const handleCopyContext = manager.handleCopyContext ?? manager.handleCopyReport;
+  const handleDownloadContext = manager.handleDownloadContext;
+  const handleCopyContext = manager.handleCopyContext;
 
   const handleDownloadContextWithOptions = useCallback(
     async (options?: ContextExportOptions): Promise<void> =>

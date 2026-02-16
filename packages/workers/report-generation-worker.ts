@@ -1,8 +1,8 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import {
   type ContextLineRange,
-  generateReport,
-  generateReportFromAdapter,
+  generateContext,
+  generateContextFromAdapter,
 } from '@brainstrike/utils';
 
 export interface ReportGenerationRequest {
@@ -62,52 +62,29 @@ export function createReportGenerationWorker({
 
     const context =
       fileSystemAdapter && 'platform' in rootDirectoryHandle
-        ? generationOptions
-          ? await generateReportFromAdapter(
-              selectedFiles,
-              fileContents,
-              fileSystemAdapter,
-              rootDirectoryHandle as DirectoryHandle,
-              includeFilters,
-              excludeFilters,
-              useRegex,
-              includeProjectTree,
-              folderSummaryThreshold,
-              generationOptions
-            )
-          : await generateReportFromAdapter(
-              selectedFiles,
-              fileContents,
-              fileSystemAdapter,
-              rootDirectoryHandle as DirectoryHandle,
-              includeFilters,
-              excludeFilters,
-              useRegex,
-              includeProjectTree,
-              folderSummaryThreshold
-            )
-        : generationOptions
-          ? await generateReport(
-              selectedFiles,
-              fileContents,
-              rootDirectoryHandle as FileSystemDirectoryHandle,
-              includeFilters,
-              excludeFilters,
-              useRegex,
-              includeProjectTree,
-              folderSummaryThreshold,
-              generationOptions
-            )
-          : await generateReport(
-              selectedFiles,
-              fileContents,
-              rootDirectoryHandle as FileSystemDirectoryHandle,
-              includeFilters,
-              excludeFilters,
-              useRegex,
-              includeProjectTree,
-              folderSummaryThreshold
-            );
+        ? await generateContextFromAdapter(
+            selectedFiles,
+            fileContents,
+            fileSystemAdapter,
+            rootDirectoryHandle as DirectoryHandle,
+            includeFilters,
+            excludeFilters,
+            useRegex,
+            includeProjectTree,
+            folderSummaryThreshold,
+            generationOptions
+          )
+        : await generateContext(
+            selectedFiles,
+            fileContents,
+            rootDirectoryHandle as FileSystemDirectoryHandle,
+            includeFilters,
+            excludeFilters,
+            useRegex,
+            includeProjectTree,
+            folderSummaryThreshold,
+            generationOptions
+          );
 
     onProgress?.({ loaded: 1, total: 1 });
     return context;

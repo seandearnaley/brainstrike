@@ -24,7 +24,7 @@ describe('report-generation-worker', () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createReportGenerationWorker({ fileSystemAdapter: adapter });
     const rootHandle = await adapter.requestDirectoryAccess();
-    const spy = vi.spyOn(utils, 'generateReportFromAdapter').mockResolvedValue('report');
+    const spy = vi.spyOn(utils, 'generateContextFromAdapter').mockResolvedValue('report');
 
     const result = await worker({ ...baseRequest, rootDirectoryHandle: rootHandle });
 
@@ -37,7 +37,7 @@ describe('report-generation-worker', () => {
     const worker = createReportGenerationWorker();
     const rootHandle =
       (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
-    const spy = vi.spyOn(utils, 'generateReport').mockResolvedValue('report');
+    const spy = vi.spyOn(utils, 'generateContext').mockResolvedValue('report');
 
     const result = await worker({ ...baseRequest, rootDirectoryHandle: rootHandle });
 
@@ -50,7 +50,7 @@ describe('report-generation-worker', () => {
     const worker = createReportGenerationWorker();
     const rootHandle =
       (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
-    vi.spyOn(utils, 'generateReport').mockResolvedValue('done');
+    vi.spyOn(utils, 'generateContext').mockResolvedValue('done');
 
     const progress: number[] = [];
     await worker({ ...baseRequest, rootDirectoryHandle: rootHandle }, (e) =>
@@ -65,7 +65,7 @@ describe('report-generation-worker', () => {
     const worker = createReportGenerationWorker();
     const rootHandle =
       (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
-    const spy = vi.spyOn(utils, 'generateReport').mockResolvedValue('done');
+    const spy = vi.spyOn(utils, 'generateContext').mockResolvedValue('done');
 
     await worker({
       ...baseRequest,

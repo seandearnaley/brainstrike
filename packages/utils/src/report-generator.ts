@@ -69,7 +69,7 @@ function createChildDirectoryHandle(
   };
 }
 
-function splitContentLines(content: string): string[] {
+export function splitContentLines(content: string): string[] {
   const lines = content.split(/\r?\n/u);
   return lines.length > 0 ? lines : [''];
 }
@@ -82,7 +82,7 @@ function clampRange(range: ContextLineRange, totalLines: number): ContextLineRan
   return { ...range, startLine, endLine };
 }
 
-function normalizeActiveRanges(
+export function normalizeContextLineRanges(
   ranges: ContextLineRange[] | undefined,
   totalLines: number
 ): ContextLineRange[] {
@@ -145,7 +145,10 @@ ${content}
   }
 
   const lines = splitContentLines(content);
-  const activeRanges = normalizeActiveRanges(selectedLineRangesByFile?.[filePath], lines.length);
+  const activeRanges = normalizeContextLineRanges(
+    selectedLineRangesByFile?.[filePath],
+    lines.length
+  );
 
   if (activeRanges.length === 0) {
     return `<file path="${filePath}">
@@ -409,53 +412,8 @@ export async function generateContext(
   );
 }
 
-// Backward-compatible aliases
-export async function generateReportFromAdapter(
-  selectedFiles: Set<string>,
-  fileContents: Record<string, string>,
-  fileSystemAdapter: FileSystemAdapter,
-  rootDirectoryHandle: DirectoryHandle,
-  includeFilters: string[],
-  excludeFilters: string[],
-  useRegex: boolean,
-  includeProjectTree: boolean,
-  folderSummaryThreshold = 5,
-  options: ContextGenerationOptions = {}
-): Promise<string> {
-  return generateContextFromAdapter(
-    selectedFiles,
-    fileContents,
-    fileSystemAdapter,
-    rootDirectoryHandle,
-    includeFilters,
-    excludeFilters,
-    useRegex,
-    includeProjectTree,
-    folderSummaryThreshold,
-    options
-  );
-}
+/** @deprecated Use `generateContextFromAdapter` instead. */
+export const generateReportFromAdapter = generateContextFromAdapter;
 
-export async function generateReport(
-  selectedFiles: Set<string>,
-  fileContents: Record<string, string>,
-  rootDirectoryHandle: FileSystemDirectoryHandle,
-  includeFilters: string[],
-  excludeFilters: string[],
-  useRegex: boolean,
-  includeProjectTree: boolean,
-  folderSummaryThreshold = 5,
-  options: ContextGenerationOptions = {}
-): Promise<string> {
-  return generateContext(
-    selectedFiles,
-    fileContents,
-    rootDirectoryHandle,
-    includeFilters,
-    excludeFilters,
-    useRegex,
-    includeProjectTree,
-    folderSummaryThreshold,
-    options
-  );
-}
+/** @deprecated Use `generateContext` instead. */
+export const generateReport = generateContext;

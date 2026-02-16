@@ -13,7 +13,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { createLogger, getFileExtension } from '@brainstrike/utils';
+import {
+  type ContextLineRange,
+  createLogger,
+  getFileExtension,
+  normalizeContextLineRanges,
+  splitContentLines,
+} from '@brainstrike/utils';
 import {
   CheckSquare,
   FileText,
@@ -58,11 +64,6 @@ const logger = createLogger('PreviewPanel');
 const TAPESTRY_MAX_PAGE_SIZE = 24;
 const DECODED_SELECTION_CACHE_LIMIT = 2000;
 
-interface NormalizedLineRange {
-  startLine: number;
-  endLine: number;
-}
-
 interface ContextSelectedTokenSummary {
   sourceSelectedTokens: number;
   outputSelectedTokens: number;
@@ -70,49 +71,6 @@ interface ContextSelectedTokenSummary {
   outputPendingCount: number;
   rangeAdjustedFilesCount: number;
   activeRangeFilesCount: number;
-}
-
-function splitContentLines(content: string): string[] {
-  const lines = content.split(/\r?\n/u);
-  return lines.length > 0 ? lines : [''];
-}
-
-function normalizeActiveTapestryRanges(
-  ranges: TapestryRange[],
-  totalLines: number
-): NormalizedLineRange[] {
-  const safeTotalLines = Math.max(totalLines, 1);
-  const maxStart = Math.max(safeTotalLines - 1, 0);
-  const normalized = ranges
-    .filter((range) => range.isActive !== false)
-    .map((range) => {
-      const startLine = Math.min(Math.max(Math.floor(range.startLine), 0), maxStart);
-      const endLine = Math.min(Math.max(Math.floor(range.endLine), startLine + 1), safeTotalLines);
-      return { startLine, endLine };
-    })
-    .sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine);
-
-  if (normalized.length === 0) {
-    return [];
-  }
-
-  const merged: NormalizedLineRange[] = [];
-  for (const range of normalized) {
-    const current = merged.at(-1);
-    if (!current) {
-      merged.push(range);
-      continue;
-    }
-
-    if (range.startLine <= current.endLine) {
-      current.endLine = Math.max(current.endLine, range.endLine);
-      continue;
-    }
-
-    merged.push(range);
-  }
-
-  return merged;
 }
 
 function buildLinePrefixLengths(lines: string[]): number[] {
@@ -130,7 +88,7 @@ function buildLinePrefixLengths(lines: string[]): number[] {
 function estimateRangeAdjustedTokens(
   fullTokenCount: number,
   content: string,
-  activeRanges: NormalizedLineRange[]
+  activeRanges: ContextLineRange[]
 ): number {
   if (fullTokenCount <= 0 || activeRanges.length === 0) {
     return 0;
@@ -212,7 +170,7 @@ function resolveRangedFileTokens(args: {
     return { tokens: fullFileTokenCount, hasActiveSelection: true };
   }
 
-  const normalizedRanges = normalizeActiveTapestryRanges(ranges, splitContentLines(content).length);
+  const normalizedRanges = normalizeContextLineRanges(ranges, splitContentLines(content).length);
   if (normalizedRanges.length === 0) {
     return { tokens: 0, hasActiveSelection: false };
   }

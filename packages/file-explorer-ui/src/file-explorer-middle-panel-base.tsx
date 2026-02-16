@@ -106,9 +106,8 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     folderSummaryThreshold,
     loadMultipleFileContents,
   });
-  const handleDownloadContext =
-    reportActions.handleDownloadContext ?? reportActions.handleDownloadReport;
-  const handleCopyContext = reportActions.handleCopyContext ?? reportActions.handleCopyReport;
+  const handleDownloadContext = reportActions.handleDownloadContext;
+  const handleCopyContext = reportActions.handleCopyContext;
 
   const projectTreeText = useMemo(
     () =>
