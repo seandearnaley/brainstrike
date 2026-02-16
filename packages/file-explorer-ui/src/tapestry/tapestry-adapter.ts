@@ -34,11 +34,14 @@ const buildEstimatedStructure = (lines: number, seedKey: string): LineData[] => 
 };
 
 const estimateLineCount = (size?: number, tokens?: number): number | undefined => {
-  if (typeof tokens === 'number' && tokens > 0) {
-    return clampEstimatedLines(tokens / AVERAGE_TOKENS_PER_LINE);
-  }
+  // Prefer byte size for unloaded files. Token counts resolve asynchronously and can
+  // arrive later than size metadata, which would otherwise cause minimap/card
+  // heights to jump as token values stream in.
   if (typeof size === 'number' && size > 0) {
     return clampEstimatedLines(size / AVERAGE_BYTES_PER_LINE);
+  }
+  if (typeof tokens === 'number' && tokens > 0) {
+    return clampEstimatedLines(tokens / AVERAGE_TOKENS_PER_LINE);
   }
   return;
 };
