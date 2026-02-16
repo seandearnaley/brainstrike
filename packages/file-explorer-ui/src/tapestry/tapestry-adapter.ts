@@ -1,7 +1,8 @@
+import { splitContentLines } from '@brainstrike/utils';
 import type { TableRowData } from '../utils/grouping-configs';
 import { splitFilePath } from '../utils/path-display';
 import type { FileTapestry, LineData } from './types';
-import { buildStructureFromContent, splitContentLines } from './utils';
+import { buildStructureFromContent } from './utils';
 
 const AVERAGE_BYTES_PER_LINE = 80;
 const AVERAGE_TOKENS_PER_LINE = 12;

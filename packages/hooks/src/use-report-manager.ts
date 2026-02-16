@@ -9,12 +9,15 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { error as logError } from '@brainstrike/utils';
 import { saveAs } from 'file-saver';
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
+
+type ContextGenerator<O> = (options?: O) => Promise<string>;
 
 interface UseReportManagerProps<A = unknown, O = unknown> {
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
-  generateContextWithContent?: (options?: O) => Promise<string>;
-  generateReportWithContent?: (options?: O) => Promise<string>;
+  generateContextWithContent?: ContextGenerator<O>;
+  /** @deprecated Use `generateContextWithContent` instead. */
+  generateReportWithContent?: ContextGenerator<O>;
   showToast: (props: {
     title: string;
     description: string;
@@ -28,6 +31,15 @@ interface UseReportManagerProps<A = unknown, O = unknown> {
     action?: A;
     duration?: number;
   }) => { dismiss?: () => void };
+}
+
+interface UseReportManagerResult<O = unknown> {
+  handleDownloadContext: (options?: O) => Promise<void>;
+  handleCopyContext: (options?: O) => Promise<void>;
+  /** @deprecated Use `handleDownloadContext` instead. */
+  handleDownloadReport: (options?: O) => Promise<void>;
+  /** @deprecated Use `handleCopyContext` instead. */
+  handleCopyReport: (options?: O) => Promise<void>;
 }
 
 const DEFAULT_CONTEXT_FILENAME = FileExplorerStrings.fileNames.context;
@@ -76,8 +88,11 @@ export const useReportManager = <A = unknown, O = unknown>({
   generateReportWithContent,
   showToast,
   toast,
-}: UseReportManagerProps<A, O>) => {
-  const generator = generateContextWithContent ?? generateReportWithContent;
+}: UseReportManagerProps<A, O>): UseReportManagerResult<O> => {
+  const generatorRef = useRef<ContextGenerator<O> | undefined>(
+    generateContextWithContent ?? generateReportWithContent
+  );
+  generatorRef.current = generateContextWithContent ?? generateReportWithContent;
 
   const handleGenerateContext = useCallback(
     async (options?: O) => {
@@ -91,6 +106,7 @@ export const useReportManager = <A = unknown, O = unknown>({
       }
 
       try {
+        const generator = generatorRef.current;
         if (!generator) {
           throw new Error('No context generator provided');
         }
@@ -106,7 +122,7 @@ export const useReportManager = <A = unknown, O = unknown>({
         return null;
       }
     },
-    [rootDirectoryHandle, generator, toast]
+    [rootDirectoryHandle, toast]
   );
 
   const handleDownloadContext = useCallback(

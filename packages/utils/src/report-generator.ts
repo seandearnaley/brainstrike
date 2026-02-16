@@ -4,6 +4,16 @@ import { createLogger } from './logger';
 import { generateProjectTreeText } from './tree-generator';
 
 const logger = createLogger('ContextGenerator');
+const IGNORED_PATTERNS = [
+  'node_modules',
+  '.git',
+  '.DS_Store',
+  'dist',
+  'build',
+  '.turbo',
+  'coverage',
+  '.nyc_output',
+] as const;
 
 export interface ContextLineRange {
   startLine: number;
@@ -26,19 +36,8 @@ interface FileTreeProcessingConfig {
 }
 
 function shouldIgnorePath(pathString: string): boolean {
-  const ignoredPatterns = [
-    'node_modules',
-    '.git',
-    '.DS_Store',
-    'dist',
-    'build',
-    '.turbo',
-    'coverage',
-    '.nyc_output',
-  ];
-
   const normalizedPath = pathString.replace(/\/+/g, '/').replace(/^\/+/, '');
-  return ignoredPatterns.some((pattern) => normalizedPath.split('/').includes(pattern));
+  return IGNORED_PATTERNS.some((pattern) => normalizedPath.split('/').includes(pattern));
 }
 
 function createFileNodeBase(

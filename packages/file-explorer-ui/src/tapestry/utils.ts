@@ -170,11 +170,6 @@ export const buildStructureFromContent = (lines: string[]): LineData[] => {
   });
 };
 
-export const splitContentLines = (content: string): string[] => {
-  const lines = content.split(/\r?\n/u);
-  return lines.length > 0 ? lines : [''];
-};
-
 export const getTapestryRenderMetrics = (
   totalLines: number,
   density: number

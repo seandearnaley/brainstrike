@@ -47,7 +47,9 @@ const toContextGenerationOverrides = (
 export function usePreviewPanelReportActions(input: UsePreviewPanelReportActionsInput): {
   handleDownloadContext: (options?: ContextExportOptions) => Promise<void>;
   handleCopyContext: (options?: ContextExportOptions) => Promise<void>;
+  /** @deprecated Use `handleDownloadContext` instead. */
   handleDownloadReport: (options?: ContextExportOptions) => Promise<void>;
+  /** @deprecated Use `handleCopyContext` instead. */
   handleCopyReport: (options?: ContextExportOptions) => Promise<void>;
 } {
   const { fileSystemAdapter } = useAdapters();

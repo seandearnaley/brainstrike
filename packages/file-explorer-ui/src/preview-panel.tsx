@@ -13,13 +13,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import {
-  type ContextLineRange,
-  createLogger,
-  getFileExtension,
-  normalizeContextLineRanges,
-  splitContentLines,
-} from '@brainstrike/utils';
+import { createLogger, getFileExtension } from '@brainstrike/utils';
 import {
   CheckSquare,
   FileText,
@@ -44,12 +38,14 @@ import { buildTapestryFileBase } from './tapestry/tapestry-adapter';
 import { TapestryView } from './tapestry/tapestry-view';
 import type { TapestryRange } from './tapestry/types';
 import { createRangeId, getStableColorForKey } from './tapestry/utils';
-import {
-  type FileItem,
-  type UsePreviewPanelStateReturn,
-  usePreviewPanelState,
-} from './use-preview-panel-state';
+import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 import type { TokenCountingState } from './use-token-counting';
+import {
+  type ContextSelectedTokenSummary,
+  computeContextSelectedTokenSummary,
+  createTokenCountByFile,
+  type TapestryRangeMap,
+} from './utils/context-selected-token-summary';
 import {
   EXTENSIONLESS_FILE_TYPE,
   GROUPING_CONFIGS,
@@ -63,166 +59,6 @@ const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
 const TAPESTRY_MAX_PAGE_SIZE = 24;
 const DECODED_SELECTION_CACHE_LIMIT = 2000;
-
-interface ContextSelectedTokenSummary {
-  sourceSelectedTokens: number;
-  outputSelectedTokens: number;
-  sourcePendingCount: number;
-  outputPendingCount: number;
-  rangeAdjustedFilesCount: number;
-  activeRangeFilesCount: number;
-}
-
-function buildLinePrefixLengths(lines: string[]): number[] {
-  const prefix = new Array<number>(lines.length + 1).fill(0);
-  for (let index = 0; index < lines.length; index++) {
-    const line = lines[index] ?? '';
-    const isLastLine = index === lines.length - 1;
-    const lineLengthWithNormalizedBreak = line.length + (isLastLine ? 0 : 1);
-    const previousLength = prefix[index] ?? 0;
-    prefix[index + 1] = previousLength + lineLengthWithNormalizedBreak;
-  }
-  return prefix;
-}
-
-function estimateRangeAdjustedTokens(
-  fullTokenCount: number,
-  lines: string[],
-  activeRanges: ContextLineRange[]
-): number {
-  if (fullTokenCount <= 0 || activeRanges.length === 0) {
-    return 0;
-  }
-
-  const linePrefixLengths = buildLinePrefixLengths(lines);
-  const totalNormalizedChars = linePrefixLengths[lines.length] ?? 0;
-  if (totalNormalizedChars <= 0) {
-    return 0;
-  }
-
-  let selectedChars = 0;
-  for (const range of activeRanges) {
-    const rangeChars =
-      (linePrefixLengths[range.endLine] ?? 0) - (linePrefixLengths[range.startLine] ?? 0);
-    selectedChars += Math.max(rangeChars, 0);
-  }
-
-  const clampedSelectedChars = Math.min(selectedChars, totalNormalizedChars);
-  if (clampedSelectedChars <= 0) {
-    return 0;
-  }
-
-  const ratio = clampedSelectedChars / totalNormalizedChars;
-  const estimatedTokens = Math.round(fullTokenCount * ratio);
-  if (estimatedTokens === 0) {
-    return 1;
-  }
-  return Math.min(estimatedTokens, fullTokenCount);
-}
-
-interface RangedFileResolution {
-  tokens: number;
-  hasActiveSelection: boolean;
-}
-
-interface ContextSelectedTokenSummaryArgs {
-  sourceSelectedTokens: number;
-  sourcePendingCount: number;
-  selectedFiles: Set<string>;
-  useTapestryRangesForContextOutput: boolean;
-  tapestryRangesByKey: TapestryRangeMap;
-  tokenCountByFile: Map<string, number>;
-  fileContents: Record<string, string>;
-}
-
-function createTokenCountByFile(
-  flatListItems: UsePreviewPanelStateReturn['flatListItems']
-): Map<string, number> {
-  const tokenCountByFile = new Map<string, number>();
-  for (const item of flatListItems) {
-    if (item.type !== 'file') {
-      continue;
-    }
-    if (typeof item.compositeKey !== 'string') {
-      continue;
-    }
-    if (typeof item.tokens !== 'number') {
-      continue;
-    }
-    tokenCountByFile.set(item.compositeKey, item.tokens);
-  }
-  return tokenCountByFile;
-}
-
-function resolveRangedFileTokens(args: {
-  fullFileTokenCount: number;
-  ranges: TapestryRange[];
-  content: string | undefined;
-}): RangedFileResolution {
-  const { fullFileTokenCount, ranges, content } = args;
-  const hasAnyActiveRange = ranges.some((range) => range.isActive !== false);
-  if (!hasAnyActiveRange) {
-    return { tokens: 0, hasActiveSelection: false };
-  }
-
-  if (!content) {
-    return { tokens: fullFileTokenCount, hasActiveSelection: true };
-  }
-
-  const lines = splitContentLines(content);
-  const normalizedRanges = normalizeContextLineRanges(ranges, lines.length);
-  if (normalizedRanges.length === 0) {
-    return { tokens: 0, hasActiveSelection: false };
-  }
-
-  return {
-    tokens: estimateRangeAdjustedTokens(fullFileTokenCount, lines, normalizedRanges),
-    hasActiveSelection: true,
-  };
-}
-
-function computeContextSelectedTokenSummary(
-  args: ContextSelectedTokenSummaryArgs
-): ContextSelectedTokenSummary {
-  const summary: ContextSelectedTokenSummary = {
-    sourceSelectedTokens: args.sourceSelectedTokens,
-    outputSelectedTokens: args.sourceSelectedTokens,
-    sourcePendingCount: args.sourcePendingCount,
-    outputPendingCount: args.sourcePendingCount,
-    rangeAdjustedFilesCount: 0,
-    activeRangeFilesCount: 0,
-  };
-
-  if (!args.useTapestryRangesForContextOutput) {
-    return summary;
-  }
-
-  for (const [compositeKey, explicitRanges] of Object.entries(args.tapestryRangesByKey)) {
-    if (!args.selectedFiles.has(compositeKey)) {
-      continue;
-    }
-
-    summary.rangeAdjustedFilesCount++;
-    const fullFileTokenCount = args.tokenCountByFile.get(compositeKey);
-    if (fullFileTokenCount === undefined) {
-      continue;
-    }
-
-    const resolution = resolveRangedFileTokens({
-      fullFileTokenCount,
-      ranges: explicitRanges,
-      content: args.fileContents[compositeKey],
-    });
-    if (resolution.hasActiveSelection) {
-      summary.activeRangeFilesCount++;
-    }
-
-    const removedTokens = Math.max(fullFileTokenCount - resolution.tokens, 0);
-    summary.outputSelectedTokens = Math.max(0, summary.outputSelectedTokens - removedTokens);
-  }
-
-  return summary;
-}
 
 function getTokenUsageMetrics(args: {
   budget: number;
@@ -292,7 +128,9 @@ interface PreviewPanelProps {
   ) => void;
   onFileClick?: (compositeKey: string) => void;
   pageSize?: number;
+  /** @deprecated Use `onDownloadContext` instead. */
   onDownloadReport?: () => void;
+  /** @deprecated Use `onCopyContext` instead. */
   onCopyReport?: () => void;
   onDownloadContext?: (options: ContextExportOptions) => void;
   onCopyContext?: (options: ContextExportOptions) => void;
@@ -308,8 +146,6 @@ interface PreviewPanelProps {
   onFolderSummaryThresholdChange?: (threshold: number) => void;
   onRequestFileContent?: (compositeKey: string) => void;
 }
-
-type TapestryRangeMap = Record<string, TapestryRange[]>;
 
 function createDefaultTapestryRanges(compositeKey: string, totalLines: number): TapestryRange[] {
   return [
@@ -448,9 +284,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // Local selection state for preview panel - separate from file tree selections
   const [previewSelections, setPreviewSelections] = useState<Set<string>>(new Set());
 
-  const [tapestryRangesByKey, setTapestryRangesByKey] = useState<Record<string, TapestryRange[]>>(
-    {}
-  );
+  const [tapestryRangesByKey, setTapestryRangesByKey] = useState<TapestryRangeMap>({});
   const tapestryTotalsRef = useRef<Map<string, number>>(new Map());
 
   const {
@@ -478,8 +312,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     useTapestryRangesForContextOutput: true,
   });
 
-  // Gate expensive Tapestry computations behind active tab
+  // Gate expensive Tapestry computations behind active tab.
   const isTapestryActive = activeTab === 'tapestry';
+  const shouldSyncTapestryRanges = isTapestryActive || useTapestryRangesForContextOutput;
 
   const effectiveColumnVisibility = useMemo(() => {
     // Avoid redundant "Folder" column when grouping by directory or root folder (group headers already show it).
@@ -633,8 +468,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }, [tableData]);
 
   const tapestryFileBaseByKey = useMemo(() => {
-    // Skip expensive computation when Tapestry tab is not active
-    if (!isTapestryActive) {
+    // Skip expensive computation unless ranges must be rendered or exported.
+    if (!shouldSyncTapestryRanges) {
       return new Map<string, ReturnType<typeof buildTapestryFileBase>>();
     }
 
@@ -652,11 +487,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }
 
     return map;
-  }, [isTapestryActive, tableData, fileContents, loadingFiles]);
+  }, [shouldSyncTapestryRanges, tableData, fileContents, loadingFiles]);
 
   useEffect(() => {
-    // Skip sync when Tapestry tab is not active
-    if (!isTapestryActive) {
+    // Keep ranges synchronized while Tapestry is visible or when range-based export is enabled.
+    if (!shouldSyncTapestryRanges) {
       return;
     }
 
@@ -669,7 +504,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       tapestryTotalsRef.current = totals;
       return changed ? next : prev;
     });
-  }, [isTapestryActive, tapestryFileBaseByKey]);
+  }, [shouldSyncTapestryRanges, tapestryFileBaseByKey]);
 
   // Toggle group collapse
   const toggleGroupCollapse = useCallback((groupKey: GroupKey) => {
@@ -1012,6 +847,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       onDownloadContext(contextExportOptions);
       return;
     }
+    // Legacy compatibility path while report-named callbacks are phased out.
     onDownloadReport?.();
   }, [contextExportOptions, onDownloadContext, onDownloadReport]);
 
@@ -1020,6 +856,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       onCopyContext(contextExportOptions);
       return;
     }
+    // Legacy compatibility path while report-named callbacks are phased out.
     onCopyReport?.();
   }, [contextExportOptions, onCopyContext, onCopyReport]);
 
