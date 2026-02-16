@@ -1,10 +1,21 @@
 import { Button, Card, CardContent, Input } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ToolsSettingsOperations } from './types';
 
 interface McpConfigPanelProps {
   operations: ToolsSettingsOperations;
   onConfigChanged: () => Promise<void>;
+}
+
+const WINDOWS_DRIVE_ABSOLUTE_PATH = /^[A-Za-z]:[\\/]/u;
+const WINDOWS_UNC_PATH = /^\\\\/u;
+
+function isAbsoluteFilePath(filePath: string): boolean {
+  return (
+    filePath.startsWith('/') ||
+    WINDOWS_DRIVE_ABSOLUTE_PATH.test(filePath) ||
+    WINDOWS_UNC_PATH.test(filePath)
+  );
 }
 
 export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelProps) {
@@ -19,11 +30,17 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     () => Boolean(operations.readMcpConfigText && operations.writeMcpConfigText),
     [operations.readMcpConfigText, operations.writeMcpConfigText]
   );
+  const readMcpConfigTextRef = useRef(operations.readMcpConfigText);
+
+  useEffect(() => {
+    readMcpConfigTextRef.current = operations.readMcpConfigText;
+  }, [operations.readMcpConfigText]);
 
   const hasUnsavedChanges = editorValue !== savedValue;
 
   const loadDocument = useCallback(async () => {
-    if (!operations.readMcpConfigText) {
+    const readMcpConfigText = readMcpConfigTextRef.current;
+    if (!readMcpConfigText) {
       return;
     }
 
@@ -31,7 +48,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     setErrorMessage(null);
     setStatusMessage(null);
     try {
-      const doc = await operations.readMcpConfigText();
+      const doc = await readMcpConfigText();
       setPathDraft(doc.path);
       setEditorValue(doc.content);
       setSavedValue(doc.content);
@@ -43,7 +60,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     } finally {
       setLoading(false);
     }
-  }, [operations.readMcpConfigText]);
+  }, []);
 
   useEffect(() => {
     if (!editorAvailable) {
@@ -61,6 +78,10 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       setErrorMessage(null);
       setStatusMessage(null);
       const nextPath = pathDraft.trim();
+      if (nextPath.length > 0 && !isAbsoluteFilePath(nextPath)) {
+        setErrorMessage('Please provide an absolute path to the MCP config file.');
+        return;
+      }
       await operations.setMcpConfigPath(nextPath.length > 0 ? nextPath : null);
       await onConfigChanged();
       await loadDocument();

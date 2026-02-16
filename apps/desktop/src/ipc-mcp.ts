@@ -26,6 +26,13 @@ import { getSecretsService } from './secrets';
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
 const logger = createLogger('DesktopMcpIpc');
+const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
+const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
+const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
+
+function normalizeUrl(url: string | undefined): string {
+  return (url ?? '').trim().replace(/\/+$/u, '');
+}
 
 function isPlaceholderServer(server: {
   transport: 'stdio' | 'sse';
@@ -34,9 +41,11 @@ function isPlaceholderServer(server: {
 }) {
   if (server.transport === 'stdio') {
     const args = server.args ?? [];
-    return args.some((arg) => arg.includes('path/to/your/mcp-server.js'));
+    // Backward-compatibility guard for legacy sample configs created before we switched
+    // to commented examples. Match exact sentinel values to avoid false positives.
+    return args.some((arg) => arg.trim() === LEGACY_PLACEHOLDER_STDIO_ARG);
   }
-  return (server.url ?? '').includes('example.com/mcp/sse');
+  return normalizeUrl(server.url) === normalizeUrl(LEGACY_PLACEHOLDER_SSE_URL);
 }
 
 /**
@@ -122,6 +131,15 @@ export function registerMcpIpcHandlers(): void {
     ): Promise<
       { success: true; path: string } | { success: false; path: string; error: string }
     > => {
+      const contentBytes = Buffer.byteLength(content, 'utf-8');
+      if (contentBytes > MAX_MCP_CONFIG_TEXT_BYTES) {
+        return {
+          success: false,
+          path: await getMcpConfigPath(),
+          error: `MCP config exceeds ${MAX_MCP_CONFIG_TEXT_BYTES} bytes`,
+        };
+      }
+
       const result = await writeMcpConfigText(content);
       if (result.success) {
         logger.info('MCP config text updated', { path: result.path });
@@ -371,6 +389,7 @@ async function runDiscoveryForConfig(
 
   try {
     // Runtime construction triggers MCP discovery and registry population.
+    // Keep cleanup in finally so each discovery attempt releases process resources.
   } finally {
     await runtime.dispose();
   }

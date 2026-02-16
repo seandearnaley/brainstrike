@@ -151,6 +151,83 @@ function stripJsonComments(text: string): string {
   return output.join('');
 }
 
+function isJsonWhitespace(char: string | undefined): boolean {
+  return char === ' ' || char === '\n' || char === '\r' || char === '\t';
+}
+
+function findNextNonWhitespaceCharacter(text: string, startIndex: number): string | undefined {
+  for (let index = startIndex; index < text.length; index += 1) {
+    const char = text[index];
+    if (!isJsonWhitespace(char)) {
+      return char;
+    }
+  }
+  return undefined;
+}
+
+interface TrailingCommaStripState {
+  escaped: boolean;
+  inString: boolean;
+}
+
+function consumeStringCharacter(
+  char: string,
+  output: string[],
+  state: TrailingCommaStripState
+): void {
+  output.push(char);
+  if (state.escaped) {
+    state.escaped = false;
+    return;
+  }
+  if (char === '\\') {
+    state.escaped = true;
+    return;
+  }
+  if (char === '"') {
+    state.inString = false;
+  }
+}
+
+function isTrailingCommaToken(text: string, commaIndex: number): boolean {
+  const nextNonWhitespace = findNextNonWhitespaceCharacter(text, commaIndex + 1);
+  return nextNonWhitespace === '}' || nextNonWhitespace === ']';
+}
+
+function stripTrailingCommas(text: string): string {
+  const output: string[] = [];
+  const state: TrailingCommaStripState = {
+    inString: false,
+    escaped: false,
+  };
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === undefined) {
+      continue;
+    }
+
+    if (state.inString) {
+      consumeStringCharacter(char, output, state);
+      continue;
+    }
+
+    if (char === '"') {
+      state.inString = true;
+      output.push(char);
+      continue;
+    }
+
+    if (char === ',' && isTrailingCommaToken(text, index)) {
+      continue;
+    }
+
+    output.push(char);
+  }
+
+  return output.join('');
+}
+
 function parseStdioServer(s: unknown): McpServer | null {
   if (!s || typeof s !== 'object' || !('transport' in s)) {
     return null;
@@ -209,7 +286,9 @@ function parseSseServer(s: unknown): McpServer | null {
 }
 
 export function parseMcpConfig(text: string): McpConfig {
-  const raw = JSON.parse(stripJsonComments(text)) as unknown;
+  const jsoncText = stripJsonComments(text);
+  const normalizedJson = stripTrailingCommas(jsoncText);
+  const raw = JSON.parse(normalizedJson) as unknown;
   if (
     !raw ||
     typeof raw !== 'object' ||

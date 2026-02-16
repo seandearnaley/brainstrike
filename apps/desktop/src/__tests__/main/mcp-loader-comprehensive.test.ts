@@ -232,6 +232,26 @@ describe('mcp-loader comprehensive tests', () => {
       expect(result.servers).toHaveLength(1);
       expect(result.servers[0]?.name).toBe('commented');
     });
+
+    it('should parse JSONC with trailing commas', () => {
+      const jsonWithTrailingCommas = `{
+        "servers": [
+          {
+            "transport": "stdio",
+            "name": "filesystem",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@modelcontextprotocol/server-filesystem",
+            ],
+          },
+        ],
+      }`;
+
+      const result = parseMcpConfig(jsonWithTrailingCommas);
+      expect(result.servers).toHaveLength(1);
+      expect(result.servers[0]?.name).toBe('filesystem');
+    });
   });
 
   describe('getMcpConfigPath', () => {

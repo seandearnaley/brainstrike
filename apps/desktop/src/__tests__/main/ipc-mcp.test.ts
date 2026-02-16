@@ -639,6 +639,25 @@ describe('ipc-mcp handlers', () => {
         error: 'invalid_mcp_config',
       });
     });
+
+    it('rejects oversized config payloads before validation/write', async () => {
+      vi.mocked(getMcpConfigPath).mockResolvedValue('/tmp/mcp.config.json' as never);
+
+      const handler = handlers.get('mcp:config:writeText');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const oversizedContent = 'x'.repeat(1_000_001);
+      const result = await handler({} as never, oversizedContent);
+
+      expect(writeMcpConfigText).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        success: false,
+        path: '/tmp/mcp.config.json',
+        error: 'MCP config exceeds 1000000 bytes',
+      });
+    });
   });
 
   describe('mcp:config:createSample', () => {

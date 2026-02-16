@@ -862,6 +862,38 @@ describe('UnifiedToolsSettings', () => {
         expect(operations.writeMcpConfigText).toHaveBeenCalled();
       });
     });
+
+    it('rejects relative MCP config paths in the editor', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+      operations.setMcpConfigPath = vi.fn().mockResolvedValue(undefined);
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-path-input')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByTestId('mcp-config-path-input'), {
+        target: { value: 'relative/mcp.config.json' },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-apply-path'));
+
+      await waitFor(() => {
+        expect(
+          screen.getByText('Please provide an absolute path to the MCP config file.')
+        ).toBeInTheDocument();
+      });
+      expect(operations.setMcpConfigPath).not.toHaveBeenCalled();
+    });
   });
 
   describe('budget manager', () => {
