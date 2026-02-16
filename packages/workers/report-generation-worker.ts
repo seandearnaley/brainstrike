@@ -52,16 +52,13 @@ export function createReportGenerationWorker({
     } = request;
     const resolvedProjectTreeUsesViewFilters = projectTreeUsesViewFilters ?? false;
     const hasExplicitTreeFilterMode = projectTreeUsesViewFilters !== undefined;
-    const generationOptions =
-      hasExplicitTreeFilterMode || useTapestryRanges || selectedLineRangesByFile
-        ? {
-            ...(hasExplicitTreeFilterMode
-              ? { projectTreeUsesViewFilters: resolvedProjectTreeUsesViewFilters }
-              : {}),
-            ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
-            useTapestryRanges,
-          }
-        : undefined;
+    const generationOptions = {
+      ...(hasExplicitTreeFilterMode
+        ? { projectTreeUsesViewFilters: resolvedProjectTreeUsesViewFilters }
+        : {}),
+      ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
+      useTapestryRanges,
+    };
 
     const context =
       fileSystemAdapter && 'platform' in rootDirectoryHandle

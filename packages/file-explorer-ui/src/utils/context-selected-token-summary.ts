@@ -42,6 +42,7 @@ function buildLinePrefixLengths(lines: string[]): number[] {
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index] ?? '';
     const isLastLine = index === lines.length - 1;
+    // `splitContentLines` removes CRLF separators, so each non-last line contributes one normalized break.
     const lineLengthWithNormalizedBreak = line.length + (isLastLine ? 0 : 1);
     const previousLength = prefix[index] ?? 0;
     prefix[index + 1] = previousLength + lineLengthWithNormalizedBreak;
@@ -109,6 +110,46 @@ function resolveRangedFileTokens(args: {
     tokens: estimateRangeAdjustedTokens(fullFileTokenCount, lines, normalizedRanges),
     hasActiveSelection: true,
   };
+}
+
+export function createSelectedFileContentSnapshot(args: {
+  selectedFiles: Set<string>;
+  tapestryRangesByKey: TapestryRangeMap;
+  fileContents: Record<string, string>;
+}): Record<string, string> {
+  const snapshot: Record<string, string> = {};
+
+  for (const [compositeKey, ranges] of Object.entries(args.tapestryRangesByKey)) {
+    if (!args.selectedFiles.has(compositeKey) || ranges.length === 0) {
+      continue;
+    }
+
+    const content = args.fileContents[compositeKey];
+    if (typeof content === 'string') {
+      snapshot[compositeKey] = content;
+    }
+  }
+
+  return snapshot;
+}
+
+export function hasSameSelectedFileContentSnapshot(
+  previous: Record<string, string>,
+  next: Record<string, string>
+): boolean {
+  const previousKeys = Object.keys(previous);
+  const nextKeys = Object.keys(next);
+  if (previousKeys.length !== nextKeys.length) {
+    return false;
+  }
+
+  for (const key of nextKeys) {
+    if (previous[key] !== next[key]) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export function createTokenCountByFile(

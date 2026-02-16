@@ -43,7 +43,9 @@ import type { TokenCountingState } from './use-token-counting';
 import {
   type ContextSelectedTokenSummary,
   computeContextSelectedTokenSummary,
+  createSelectedFileContentSnapshot,
   createTokenCountByFile,
+  hasSameSelectedFileContentSnapshot,
   type TapestryRangeMap,
 } from './utils/context-selected-token-summary';
 import {
@@ -286,6 +288,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   const [tapestryRangesByKey, setTapestryRangesByKey] = useState<TapestryRangeMap>({});
   const tapestryTotalsRef = useRef<Map<string, number>>(new Map());
+  const summaryFileContentsRef = useRef<Record<string, string>>({});
 
   const {
     activeTab,
@@ -338,6 +341,29 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const { totalStats, flatListItems } = state;
   // Defer large list snapshots so expensive token summary work does not block UI updates.
   const deferredFlatListItems = useDeferredValue(flatListItems);
+  const selectedFileContentSnapshot = useMemo(() => {
+    if (!useTapestryRangesForContextOutput) {
+      const current = summaryFileContentsRef.current;
+      if (Object.keys(current).length === 0) {
+        return current;
+      }
+      summaryFileContentsRef.current = {};
+      return summaryFileContentsRef.current;
+    }
+
+    const nextSnapshot = createSelectedFileContentSnapshot({
+      selectedFiles,
+      tapestryRangesByKey,
+      fileContents,
+    });
+    const previousSnapshot = summaryFileContentsRef.current;
+    if (hasSameSelectedFileContentSnapshot(previousSnapshot, nextSnapshot)) {
+      return previousSnapshot;
+    }
+
+    summaryFileContentsRef.current = nextSnapshot;
+    return nextSnapshot;
+  }, [fileContents, selectedFiles, tapestryRangesByKey, useTapestryRangesForContextOutput]);
 
   const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
     const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);
@@ -349,7 +375,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       useTapestryRangesForContextOutput,
       tapestryRangesByKey,
       tokenCountByFile,
-      fileContents,
+      fileContents: selectedFileContentSnapshot,
     });
   }, [
     deferredFlatListItems,
@@ -357,7 +383,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     selectedFiles,
     useTapestryRangesForContextOutput,
     tapestryRangesByKey,
-    fileContents,
+    selectedFileContentSnapshot,
   ]);
 
   const tokenUsage = getTokenUsageMetrics({
