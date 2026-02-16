@@ -90,9 +90,7 @@ export const useReportManager = <A = unknown, O = unknown>({
   showToast,
   toast,
 }: UseReportManagerProps<A, O>): UseReportManagerResult<O> => {
-  const generatorRef = useRef<ContextGenerator<O> | undefined>(
-    generateContextWithContent ?? generateReportWithContent
-  );
+  const generatorRef = useRef<ContextGenerator<O> | undefined>(undefined);
   generatorRef.current = generateContextWithContent ?? generateReportWithContent;
 
   const handleGenerateContext = useCallback(
@@ -167,6 +165,7 @@ export const useReportManager = <A = unknown, O = unknown>({
       try {
         const context = await handleGenerateContext(options);
         if (!context) {
+          contextToast?.dismiss?.();
           return;
         }
 

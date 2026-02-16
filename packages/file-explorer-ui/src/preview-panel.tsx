@@ -61,6 +61,7 @@ const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
 const TAPESTRY_MAX_PAGE_SIZE = 24;
 const DECODED_SELECTION_CACHE_LIMIT = 2000;
+const EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT: Record<string, string> = {};
 
 function getTokenUsageMetrics(args: {
   budget: number;
@@ -312,6 +313,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     groupingConfig: 'none',
     sortDirection: 'asc',
     sortField: 'rootFolderId',
+    // Keep range-aware export on by default so context output follows the active tapestry selection model.
     useTapestryRangesForContextOutput: true,
   });
 
@@ -342,13 +344,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // Defer large list snapshots so expensive token summary work does not block UI updates.
   const deferredFlatListItems = useDeferredValue(flatListItems);
   const selectedFileContentSnapshot = useMemo(() => {
+    const previousSnapshot = summaryFileContentsRef.current;
     if (!useTapestryRangesForContextOutput) {
-      const current = summaryFileContentsRef.current;
-      if (Object.keys(current).length === 0) {
-        return current;
-      }
-      summaryFileContentsRef.current = {};
-      return summaryFileContentsRef.current;
+      return Object.keys(previousSnapshot).length === 0
+        ? previousSnapshot
+        : EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT;
     }
 
     const nextSnapshot = createSelectedFileContentSnapshot({
@@ -356,14 +356,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       tapestryRangesByKey,
       fileContents,
     });
-    const previousSnapshot = summaryFileContentsRef.current;
     if (hasSameSelectedFileContentSnapshot(previousSnapshot, nextSnapshot)) {
       return previousSnapshot;
     }
 
-    summaryFileContentsRef.current = nextSnapshot;
     return nextSnapshot;
   }, [fileContents, selectedFiles, tapestryRangesByKey, useTapestryRangesForContextOutput]);
+
+  useEffect(() => {
+    summaryFileContentsRef.current = selectedFileContentSnapshot;
+  }, [selectedFileContentSnapshot]);
 
   const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
     const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);

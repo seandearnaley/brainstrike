@@ -50,12 +50,8 @@ export function createReportGenerationWorker({
       selectedLineRangesByFile,
       useTapestryRanges = false,
     } = request;
-    const resolvedProjectTreeUsesViewFilters = projectTreeUsesViewFilters ?? false;
-    const hasExplicitTreeFilterMode = projectTreeUsesViewFilters !== undefined;
     const generationOptions = {
-      ...(hasExplicitTreeFilterMode
-        ? { projectTreeUsesViewFilters: resolvedProjectTreeUsesViewFilters }
-        : {}),
+      projectTreeUsesViewFilters: projectTreeUsesViewFilters ?? false,
       ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
       useTapestryRanges,
     };

@@ -55,6 +55,8 @@ function estimateRangeAdjustedTokens(
   lines: string[],
   activeRanges: ContextLineRange[]
 ): number {
+  // Heuristic estimate: assumes token density is roughly proportional to normalized character count.
+  // This is intentionally approximate and can drift on mixed-density content (comments/minified segments).
   if (fullTokenCount <= 0 || activeRanges.length === 0) {
     return 0;
   }

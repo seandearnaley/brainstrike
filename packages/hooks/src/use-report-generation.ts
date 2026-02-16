@@ -1,15 +1,12 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type { ContextLineRange } from '@brainstrike/utils';
 import {
   createReportGenerationWorker,
   type ProgressEvent as ReportProgressEvent,
 } from '@brainstrike/workers/report-generation-worker';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
-export interface ContextLineRange {
-  startLine: number;
-  endLine: number;
-  isActive?: boolean;
-}
+export type { ContextLineRange } from '@brainstrike/utils';
 
 export interface ContextGenerationOverrides {
   selectedLineRangesByFile?: Record<string, ContextLineRange[]>;

@@ -122,7 +122,7 @@ describe('useReportManager', () => {
       variant: 'destructive',
     });
     expect(mockShowToast).not.toHaveBeenCalled();
-    expect(mockDismiss).not.toHaveBeenCalled();
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
     expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
   });
 
