@@ -179,6 +179,20 @@ describe('mcp-loader', () => {
     expect(doc.content).toContain('// BrainStrike MCP configuration');
   });
 
+  it('returns an empty document when MCP config is missing and creation is disabled', async () => {
+    const { readMcpConfigText, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const missingPath = path.join(tempDir, 'mcp', 'missing.json');
+    await setCustomMcpConfigPath(missingPath);
+
+    const doc = await readMcpConfigText(false);
+    expect(doc).toEqual({
+      path: missingPath,
+      exists: false,
+      created: false,
+      content: '',
+    });
+  });
+
   it('validates before writing MCP config text', async () => {
     const { setCustomMcpConfigPath, writeMcpConfigText } = await import('../../mcp-loader');
     const configPath = path.join(tempDir, 'mcp', 'editable.json');
@@ -230,5 +244,51 @@ describe('mcp-loader', () => {
     expect(loaded.exists).toBe(true);
     expect(loaded.config).toBeUndefined();
     expect(loaded.error).toBeDefined();
+  });
+
+  it('falls back to default path when persisted custom path file is unreadable', async () => {
+    const persistedPathFile = path.join(tempDir, 'mcp', 'mcp-custom-path.txt');
+    fs.mkdirSync(path.dirname(persistedPathFile), { recursive: true });
+    fs.mkdirSync(persistedPathFile, { recursive: true }); // EISDIR on readFile
+
+    const { getMcpConfigPath } = await import('../../mcp-loader');
+    const resolved = await getMcpConfigPath();
+
+    expect(resolved).toBe(path.join(tempDir, 'mcp', 'mcp.config.json'));
+  });
+
+  it('keeps in-memory custom path when persisting custom path fails', async () => {
+    const userDataAsFile = path.join(tempDir, 'userdata-file');
+    fs.writeFileSync(userDataAsFile, 'not-a-directory', 'utf-8');
+    appGetPath.mockReturnValue(userDataAsFile);
+    vi.resetModules();
+
+    const { getMcpConfigPath, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const customPath = path.join(tempDir, 'mcp', 'persist-fail.json');
+    await setCustomMcpConfigPath(customPath);
+
+    await expect(getMcpConfigPath()).resolves.toBe(customPath);
+  });
+
+  it('returns the default MCP config template text', async () => {
+    const { getDefaultMcpConfigTemplate } = await import('../../mcp-loader');
+
+    const template = getDefaultMcpConfigTemplate();
+    expect(template).toContain('"servers"');
+    expect(template).toContain('BrainStrike MCP configuration');
+  });
+
+  it('leaves unknown transport entries unchanged in withDecryptedSecrets fallback', async () => {
+    const { withDecryptedSecrets } = await import('../../mcp-loader');
+    const unknownServer = { transport: 'custom', name: 'unknown-server' } as unknown as {
+      transport: 'sse' | 'stdio';
+      name: string;
+    };
+
+    const result = withDecryptedSecrets({
+      servers: [unknownServer],
+    } as unknown as { servers: Array<{ transport: 'sse' | 'stdio'; name: string }> });
+
+    expect(result.servers[0]).toBe(unknownServer);
   });
 });
