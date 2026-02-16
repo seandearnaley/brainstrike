@@ -658,6 +658,24 @@ describe('ipc-mcp handlers', () => {
         error: 'MCP config exceeds 1000000 bytes',
       });
     });
+
+    it('rejects non-string config payloads before validation/write', async () => {
+      vi.mocked(getMcpConfigPath).mockResolvedValue('/tmp/mcp.config.json' as never);
+
+      const handler = handlers.get('mcp:config:writeText');
+      if (!handler) {
+        throw new Error('handler not registered');
+      }
+
+      const result = await handler({} as never, 42);
+
+      expect(writeMcpConfigText).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        success: false,
+        path: '/tmp/mcp.config.json',
+        error: 'MCP config content must be a string',
+      });
+    });
   });
 
   describe('mcp:config:createSample', () => {

@@ -894,6 +894,65 @@ describe('UnifiedToolsSettings', () => {
       });
       expect(operations.setMcpConfigPath).not.toHaveBeenCalled();
     });
+
+    it('confirms before discarding unsaved editor changes on reload', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('mcp-config-editor')).toBeInTheDocument();
+      });
+
+      fireEvent.change(screen.getByTestId('mcp-config-editor'), {
+        target: {
+          value: '{\n  "servers": [{"transport":"stdio","name":"x","command":"node"}]\n}',
+        },
+      });
+      fireEvent.click(screen.getByTestId('mcp-config-reload'));
+
+      expect(screen.getByTestId('mcp-config-reload-confirm')).toBeInTheDocument();
+      expect(operations.readMcpConfigText).toHaveBeenCalledTimes(1);
+
+      fireEvent.click(screen.getByTestId('mcp-config-reload-confirm-discard'));
+
+      await waitFor(() => {
+        expect(operations.readMcpConfigText).toHaveBeenCalledTimes(2);
+      });
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('mcp-config-reload-confirm')).not.toBeInTheDocument();
+      });
+    });
+
+    it('exposes accessible labels for MCP config path and editor fields', async () => {
+      const operations = createMockOperations();
+      operations.readMcpConfigText = vi.fn().mockResolvedValue({
+        path: '/tmp/mcp.config.json',
+        exists: true,
+        created: false,
+        content: '{\n  "servers": []\n}',
+      });
+      operations.writeMcpConfigText = vi
+        .fn()
+        .mockResolvedValue({ success: true, path: '/tmp/mcp.config.json' });
+
+      render(<UnifiedToolsSettings mcpAvailable={true} operations={operations} />);
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('MCP Config Path')).toBeInTheDocument();
+        expect(screen.getByLabelText('Config Editor (JSONC)')).toBeInTheDocument();
+      });
+    });
   });
 
   describe('budget manager', () => {

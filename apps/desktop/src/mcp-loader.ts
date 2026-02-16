@@ -120,6 +120,8 @@ function handleNormal(
 }
 
 function stripJsonComments(text: string): string {
+  // Keep JSONC preprocessing local and dependency-free in desktop main.
+  // Supported syntax mirrors our MCP template/editor needs: comments + trailing commas.
   const output: string[] = [];
   const state: CommentStripState = { mode: 'normal', escaped: false };
 

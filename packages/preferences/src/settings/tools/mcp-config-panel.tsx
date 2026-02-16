@@ -25,6 +25,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showReloadConfirm, setShowReloadConfirm] = useState(false);
 
   const editorAvailable = useMemo(
     () => Boolean(operations.readMcpConfigText && operations.writeMcpConfigText),
@@ -45,6 +46,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     }
 
     setLoading(true);
+    setShowReloadConfirm(false);
     setErrorMessage(null);
     setStatusMessage(null);
     try {
@@ -138,12 +140,31 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
         return;
       }
       setSavedValue(editorValue);
+      setShowReloadConfirm(false);
       setStatusMessage('MCP config saved.');
       await onConfigChanged();
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : 'Failed to save MCP config');
     }
   }, [editorValue, onConfigChanged, operations.writeMcpConfigText]);
+
+  const handleReload = useCallback(async () => {
+    if (hasUnsavedChanges) {
+      setShowReloadConfirm(true);
+      return;
+    }
+
+    await loadDocument();
+  }, [hasUnsavedChanges, loadDocument]);
+
+  const handleConfirmReload = useCallback(async () => {
+    setShowReloadConfirm(false);
+    await loadDocument();
+  }, [loadDocument]);
+
+  const handleCancelReload = useCallback(() => {
+    setShowReloadConfirm(false);
+  }, []);
 
   if (!editorAvailable) {
     return (
@@ -160,11 +181,14 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
       <Card>
         <CardContent className="space-y-4 p-4">
           <div className="space-y-2">
-            <div className="font-medium text-sm">MCP Config Path</div>
+            <label className="font-medium text-sm" htmlFor="mcp-config-path-input-field">
+              MCP Config Path
+            </label>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Input
                 className="font-mono text-xs"
                 data-testid="mcp-config-path-input"
+                id="mcp-config-path-input-field"
                 onChange={(event) => setPathDraft(event.target.value)}
                 placeholder="/absolute/path/to/mcp.config.json"
                 value={pathDraft}
@@ -206,11 +230,13 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
 
           <div className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="font-medium text-sm">Config Editor (JSONC)</div>
+              <label className="font-medium text-sm" htmlFor="mcp-config-editor-field">
+                Config Editor (JSONC)
+              </label>
               <div className="flex gap-2">
                 <Button
                   data-testid="mcp-config-reload"
-                  onClick={() => void loadDocument()}
+                  onClick={() => void handleReload()}
                   size="sm"
                   variant="ghost"
                 >
@@ -229,10 +255,35 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
             <textarea
               className="min-h-[360px] w-full rounded-md border bg-background p-3 font-mono text-xs leading-5"
               data-testid="mcp-config-editor"
+              id="mcp-config-editor-field"
               onChange={(event) => setEditorValue(event.target.value)}
               spellCheck={false}
               value={editorValue}
             />
+            {showReloadConfirm && (
+              <div
+                className="flex flex-wrap items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs"
+                data-testid="mcp-config-reload-confirm"
+              >
+                <span>Discard unsaved MCP config changes and reload from disk?</span>
+                <Button
+                  data-testid="mcp-config-reload-confirm-discard"
+                  onClick={() => void handleConfirmReload()}
+                  size="sm"
+                  variant="outline"
+                >
+                  Discard and Reload
+                </Button>
+                <Button
+                  data-testid="mcp-config-reload-confirm-cancel"
+                  onClick={handleCancelReload}
+                  size="sm"
+                  variant="ghost"
+                >
+                  Keep Editing
+                </Button>
+              </div>
+            )}
             {loading && <div className="text-muted-foreground text-xs">Loading MCP config…</div>}
             {statusMessage && (
               <div

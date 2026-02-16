@@ -38,7 +38,7 @@ function isPlaceholderServer(server: {
   transport: 'stdio' | 'sse';
   args?: string[];
   url?: string;
-}) {
+}): boolean {
   if (server.transport === 'stdio') {
     const args = server.args ?? [];
     // Backward-compatibility guard for legacy sample configs created before we switched
@@ -127,10 +127,18 @@ export function registerMcpIpcHandlers(): void {
     'mcp:config:writeText',
     async (
       _e: IpcMainInvokeEvent,
-      content: string
+      content: unknown
     ): Promise<
       { success: true; path: string } | { success: false; path: string; error: string }
     > => {
+      if (typeof content !== 'string') {
+        return {
+          success: false,
+          path: await getMcpConfigPath(),
+          error: 'MCP config content must be a string',
+        };
+      }
+
       const contentBytes = Buffer.byteLength(content, 'utf-8');
       if (contentBytes > MAX_MCP_CONFIG_TEXT_BYTES) {
         return {
@@ -378,20 +386,20 @@ async function runDiscoveryForConfig(
   config: McpConfig,
   credentials: { provider: ProviderId; apiKey: string }
 ): Promise<void> {
-  const runtime = await createMastraAgentRuntime({
-    runtime: {
-      provider: credentials.provider,
-      apiKey: credentials.apiKey,
-    },
-    mcpConfig: config,
-    mcpTimeoutMs: 10_000,
-  });
+  let runtime: Awaited<ReturnType<typeof createMastraAgentRuntime>> | undefined;
 
   try {
-    // Runtime construction triggers MCP discovery and registry population.
-    // Keep cleanup in finally so each discovery attempt releases process resources.
+    runtime = await createMastraAgentRuntime({
+      runtime: {
+        provider: credentials.provider,
+        apiKey: credentials.apiKey,
+      },
+      mcpConfig: config,
+      mcpTimeoutMs: 10_000,
+    });
+    // Discovery and registry population happen during runtime construction.
   } finally {
-    await runtime.dispose();
+    await runtime?.dispose();
   }
 }
 
