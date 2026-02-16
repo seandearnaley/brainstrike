@@ -343,6 +343,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const { totalStats, flatListItems } = state;
   // Defer large list snapshots so expensive token summary work does not block UI updates.
   const deferredFlatListItems = useDeferredValue(flatListItems);
+  // Snapshot reconciliation intentionally uses ref + memo + effect together:
+  // memo compares next snapshot against the previous committed snapshot ref,
+  // then effect commits the current snapshot for the next render cycle.
   const selectedFileContentSnapshot = useMemo(() => {
     const previousSnapshot = summaryFileContentsRef.current;
     if (!useTapestryRangesForContextOutput) {
@@ -364,6 +367,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }, [fileContents, selectedFiles, tapestryRangesByKey, useTapestryRangesForContextOutput]);
 
   useEffect(() => {
+    // Commit after render so memo stays pure and future comparisons use the latest stable snapshot.
     summaryFileContentsRef.current = selectedFileContentSnapshot;
   }, [selectedFileContentSnapshot]);
 

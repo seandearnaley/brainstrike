@@ -139,7 +139,7 @@ function renderFilteredTree(
     return;
   }
 
-  const visibleChildren = sortFileNodes(node.children);
+  const visibleChildren = node.children;
   if (folderSummaryThreshold > 0 && visibleChildren.length > folderSummaryThreshold) {
     for (const child of visibleChildren.slice(0, folderSummaryThreshold)) {
       renderFilteredTree(child, lines, folderSummaryThreshold);

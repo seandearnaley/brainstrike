@@ -105,6 +105,32 @@ describe('computeContextSelectedTokenSummary', () => {
       activeRangeFilesCount: 0,
     });
   });
+
+  it('applies additive range adjustments while preserving source token baseline mismatches', () => {
+    const summary = computeContextSelectedTokenSummary({
+      sourceSelectedTokens: 20,
+      sourcePendingCount: 0,
+      selectedFiles: new Set(['a.ts', 'b.ts']),
+      useTapestryRangesForContextOutput: true,
+      tapestryRangesByKey: {
+        'a.ts': [createRange()],
+      } satisfies TapestryRangeMap,
+      tokenCountByFile: new Map([
+        ['a.ts', 30],
+        ['b.ts', 5],
+      ]),
+      fileContents: {
+        'a.ts': 'a\nb',
+        'b.ts': 'a\nb',
+      },
+    });
+
+    // a.ts range keeps ~20 tokens (from 30) and b.ts is unadjusted (+5),
+    // then baseline mismatch is preserved from sourceSelectedTokens (20).
+    expect(summary.outputSelectedTokens).toBe(10);
+    expect(summary.rangeAdjustedFilesCount).toBe(1);
+    expect(summary.activeRangeFilesCount).toBe(1);
+  });
 });
 
 describe('createSelectedFileContentSnapshot', () => {

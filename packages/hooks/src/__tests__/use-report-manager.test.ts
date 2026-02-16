@@ -234,6 +234,33 @@ describe('useReportManager', () => {
     expect(mockShowToast).not.toHaveBeenCalled();
   });
 
+  it('shows an error toast when download save fails', async () => {
+    const { saveAs } = await import('file-saver');
+    const mockSaveAs = saveAs as unknown as { mockImplementationOnce: (fn: () => never) => void };
+    mockSaveAs.mockImplementationOnce(() => {
+      throw new Error('disk full');
+    });
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        rootDirectoryHandle: mockRootDirectoryHandle,
+        generateReportWithContent: mockGenerateReportWithContent,
+        showToast,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDownloadReport();
+    });
+
+    expect(mockShowToast).toHaveBeenCalledWith({
+      title: FileExplorerStrings.error.title,
+      description: `${FileExplorerStrings.error.contextGenerationFailed}: disk full`,
+      variant: 'destructive',
+    });
+  });
+
   it('should handle toast with no return value', async () => {
     const mockToastNoReturn = vi.fn();
 

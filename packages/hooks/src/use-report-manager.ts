@@ -10,7 +10,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { error as logError } from '@brainstrike/utils';
 import { saveAs } from 'file-saver';
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 
 type ContextGenerator<O> = (options?: O) => Promise<string>;
 
@@ -90,8 +90,13 @@ export const useReportManager = <A = unknown, O = unknown>({
   showToast,
   toast,
 }: UseReportManagerProps<A, O>): UseReportManagerResult<O> => {
-  const generatorRef = useRef<ContextGenerator<O> | undefined>(undefined);
-  generatorRef.current = generateContextWithContent ?? generateReportWithContent;
+  const generatorRef = useRef<ContextGenerator<O> | undefined>(
+    generateContextWithContent ?? generateReportWithContent
+  );
+
+  useEffect(() => {
+    generatorRef.current = generateContextWithContent ?? generateReportWithContent;
+  }, [generateContextWithContent, generateReportWithContent]);
 
   const handleGenerateContext = useCallback(
     async (options?: O) => {
@@ -148,7 +153,14 @@ export const useReportManager = <A = unknown, O = unknown>({
         }
       } catch (error) {
         contextToast?.dismiss?.();
-        throw error;
+        showToast({
+          title: FileExplorerStrings.error.title,
+          description:
+            error instanceof Error
+              ? `${FileExplorerStrings.error.contextGenerationFailed}: ${error.message}`
+              : FileExplorerStrings.error.contextGenerationFailed,
+          variant: 'destructive',
+        });
       }
     },
     [handleGenerateContext, rootDirectoryHandle, showToast, toast]

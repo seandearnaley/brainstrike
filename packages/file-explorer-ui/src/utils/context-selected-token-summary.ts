@@ -191,15 +191,23 @@ export function computeContextSelectedTokenSummary(
     return summary;
   }
 
-  for (const [compositeKey, explicitRanges] of Object.entries(args.tapestryRangesByKey)) {
-    if (!args.selectedFiles.has(compositeKey)) {
-      continue;
-    }
+  let sourceTokensFromKnownFiles = 0;
+  let outputTokensFromKnownFiles = 0;
 
+  for (const compositeKey of args.selectedFiles) {
     const fullFileTokenCount = args.tokenCountByFile.get(compositeKey);
     if (fullFileTokenCount === undefined) {
       continue;
     }
+
+    sourceTokensFromKnownFiles += fullFileTokenCount;
+
+    const explicitRanges = args.tapestryRangesByKey[compositeKey];
+    if (!explicitRanges) {
+      outputTokensFromKnownFiles += fullFileTokenCount;
+      continue;
+    }
+
     summary.rangeAdjustedFilesCount++;
 
     const resolution = resolveRangedFileTokens({
@@ -211,9 +219,11 @@ export function computeContextSelectedTokenSummary(
       summary.activeRangeFilesCount++;
     }
 
-    const removedTokens = Math.max(fullFileTokenCount - resolution.tokens, 0);
-    summary.outputSelectedTokens = Math.max(0, summary.outputSelectedTokens - removedTokens);
+    outputTokensFromKnownFiles += resolution.tokens;
   }
+
+  const knownFileDelta = outputTokensFromKnownFiles - sourceTokensFromKnownFiles;
+  summary.outputSelectedTokens = Math.max(0, args.sourceSelectedTokens + knownFileDelta);
 
   return summary;
 }

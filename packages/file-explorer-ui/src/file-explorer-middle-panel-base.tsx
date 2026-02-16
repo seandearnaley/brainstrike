@@ -1,7 +1,11 @@
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
-import { decodeFileSelection, generateProjectTreeText } from '@brainstrike/utils';
+import {
+  decodeFileSelection,
+  generateProjectTreeText,
+  error as logError,
+} from '@brainstrike/utils';
 import { useCallback, useMemo, useState } from 'react';
 import type { ContextExportOptions } from './context-export-options';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
@@ -178,14 +182,18 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
 
   const handleDownloadContextFromPanel = useCallback(
     (options: ContextExportOptions) => {
-      void handleDownloadContext(options);
+      void handleDownloadContext(options).catch((error: unknown) => {
+        logError('Download context failed:', error);
+      });
     },
     [handleDownloadContext]
   );
 
   const handleCopyContextFromPanel = useCallback(
     (options: ContextExportOptions) => {
-      void handleCopyContext(options);
+      void handleCopyContext(options).catch((error: unknown) => {
+        logError('Copy context failed:', error);
+      });
     },
     [handleCopyContext]
   );

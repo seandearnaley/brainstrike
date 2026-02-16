@@ -107,7 +107,10 @@ export function normalizeContextLineRanges(
     }
 
     if (range.startLine <= current.endLine) {
-      current.endLine = Math.max(current.endLine, range.endLine);
+      merged[merged.length - 1] = {
+        ...current,
+        endLine: Math.max(current.endLine, range.endLine),
+      };
       continue;
     }
 
