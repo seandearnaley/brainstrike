@@ -3,6 +3,7 @@
  *
  * This hook manages context generation and export functionality.
  * It handles generating context and exporting it in various formats.
+ * Filename remains `use-report-manager.ts` during the staged report->context migration.
  */
 
 import type { DirectoryHandle } from '@brainstrike/file-system';

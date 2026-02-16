@@ -150,6 +150,8 @@ ${content}
   );
 
   if (activeRanges.length === 0) {
+    // Keep an explicit marker instead of omitting the file so downstream consumers
+    // can distinguish "file intentionally excluded by ranges" from "file omitted".
     return `<file path="${filePath}">
 <selection_summary>No active tapestry ranges selected.</selection_summary>
 </file>`;
@@ -176,6 +178,8 @@ function generateContextContent(
   includeProjectTree: boolean,
   options: ContextGenerationOptions
 ): string {
+  // Context export format uses <context>/<relevant_context>; function aliases below
+  // preserve API migration compatibility for callers still using "report" naming.
   const relevantContext = `<relevant_context>
 ${Array.from(selectedFiles)
   .map((filePath) =>

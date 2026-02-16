@@ -80,6 +80,7 @@ function estimateRangeAdjustedTokens(
   const ratio = clampedSelectedChars / totalNormalizedChars;
   const estimatedTokens = Math.round(fullTokenCount * ratio);
   if (estimatedTokens === 0) {
+    // Preserve a minimal contribution for tiny active selections that would otherwise round to zero.
     return 1;
   }
   return Math.min(estimatedTokens, fullTokenCount);
@@ -139,6 +140,7 @@ export function hasSameSelectedFileContentSnapshot(
 ): boolean {
   const previousKeys = Object.keys(previous);
   const nextKeys = Object.keys(next);
+  // Length parity ensures there are no extra keys in either snapshot.
   if (previousKeys.length !== nextKeys.length) {
     return false;
   }

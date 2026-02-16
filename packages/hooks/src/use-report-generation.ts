@@ -95,6 +95,7 @@ export function useReportGeneration({
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   payloadRef.current = stablePayload;
 
+  // Keep callback identity stable; runtime inputs are read from payloadRef at call time.
   const generateContextWithContent = useCallback(async (overrides?: ContextGenerationOverrides) => {
     if (!payloadRef.current.rootDirectoryHandle) {
       throw new Error('No root directory selected');
