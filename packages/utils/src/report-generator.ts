@@ -184,6 +184,8 @@ function generateContextContent(
 ): string {
   // Context export format uses <context>/<relevant_context>; function aliases below
   // preserve API migration compatibility for callers still using "report" naming.
+  // File payloads may contain either <selection> blocks or a <selection_summary> metadata marker
+  // when all ranges are inactive for a file.
   const relevantContext = `<relevant_context>
 ${Array.from(selectedFiles)
   .map((filePath) =>

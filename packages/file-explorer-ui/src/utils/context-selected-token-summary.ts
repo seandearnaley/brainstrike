@@ -84,6 +84,7 @@ function estimateRangeAdjustedTokens(
   const estimatedTokens = Math.round(fullTokenCount * ratio);
   if (estimatedTokens === 0) {
     // Preserve a minimal contribution for tiny active selections that would otherwise round to zero.
+    // This ensures a ranged file never appears as a zero-token contribution unless all ranges are inactive.
     return 1;
   }
   return Math.min(estimatedTokens, fullTokenCount);

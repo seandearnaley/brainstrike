@@ -61,6 +61,7 @@ const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
 const TAPESTRY_MAX_PAGE_SIZE = 24;
 const DECODED_SELECTION_CACHE_LIMIT = 2000;
+// Keep a stable reference for the "empty snapshot" state to preserve memo identity optimizations.
 const EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT: Record<string, string> = {};
 
 function getTokenUsageMetrics(args: {
@@ -131,7 +132,7 @@ interface PreviewPanelProps {
   ) => void;
   onFileClick?: (compositeKey: string) => void;
   pageSize?: number;
-  // TODO(BST-291): remove legacy report-named callbacks after context API migration.
+  // TODO(context-migration): remove legacy report-named callbacks after downstream migration.
   /** @deprecated Use `onDownloadContext` instead. */
   onDownloadReport?: () => void;
   /** @deprecated Use `onCopyContext` instead. */
@@ -349,6 +350,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // then effect commits the current snapshot for the next render cycle.
   // The ref is intentionally excluded from memo dependencies because it stores
   // comparison baseline state from the previous committed render, not current inputs.
+  // This hook pair should be treated as a single unit: memo computes candidate snapshot,
+  // effect commits it as the baseline for the next render cycle.
   const selectedFileContentSnapshot = useMemo(() => {
     const previousSnapshot = summaryFileContentsRef.current;
     if (!useTapestryRangesForContextOutput) {
@@ -883,6 +886,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       return;
     }
     // Legacy compatibility path while report-named callbacks are phased out.
+    logger.warn('PreviewPanel is using legacy onDownloadReport callback without context options');
     onDownloadReport?.();
   }, [contextExportOptions, onDownloadContext, onDownloadReport]);
 
@@ -892,6 +896,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       return;
     }
     // Legacy compatibility path while report-named callbacks are phased out.
+    logger.warn('PreviewPanel is using legacy onCopyReport callback without context options');
     onCopyReport?.();
   }, [contextExportOptions, onCopyContext, onCopyReport]);
 
