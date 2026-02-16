@@ -118,7 +118,7 @@ test.describe('Application Layout', () => {
       await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
       await expect(page.getByText('No files open')).toBeVisible();
       await expect(
-        page.getByText('Click on a file in the preview panel to open it here')
+        page.getByText('Click on a file in Context Explorer to open it here')
       ).toBeVisible();
 
       // Hide console
