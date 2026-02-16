@@ -8,6 +8,7 @@ describe('usePreviewPanelPreferences', () => {
     groupingConfig: 'none',
     sortDirection: 'asc' as const,
     sortField: 'path' as const,
+    useTapestryRangesForContextOutput: true,
   };
 
   it('sanitizes stored preferences', () => {

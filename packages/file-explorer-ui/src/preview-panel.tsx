@@ -23,6 +23,7 @@ import {
   Table as TableIcon,
 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import type { ContextExportOptions } from './context-export-options';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useGroupSelection } from './hooks/use-group-selection';
 import {
@@ -37,7 +38,11 @@ import { buildTapestryFileBase } from './tapestry/tapestry-adapter';
 import { TapestryView } from './tapestry/tapestry-view';
 import type { TapestryRange } from './tapestry/types';
 import { createRangeId, getStableColorForKey } from './tapestry/utils';
-import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
+import {
+  type FileItem,
+  type UsePreviewPanelStateReturn,
+  usePreviewPanelState,
+} from './use-preview-panel-state';
 import type { TokenCountingState } from './use-token-counting';
 import {
   EXTENSIONLESS_FILE_TYPE,
@@ -53,9 +58,220 @@ const logger = createLogger('PreviewPanel');
 const TAPESTRY_MAX_PAGE_SIZE = 24;
 const DECODED_SELECTION_CACHE_LIMIT = 2000;
 
+interface NormalizedLineRange {
+  startLine: number;
+  endLine: number;
+}
+
+interface ContextSelectedTokenSummary {
+  sourceSelectedTokens: number;
+  outputSelectedTokens: number;
+  sourcePendingCount: number;
+  outputPendingCount: number;
+  rangeAdjustedFilesCount: number;
+  activeRangeFilesCount: number;
+}
+
+function splitContentLines(content: string): string[] {
+  const lines = content.split(/\r?\n/u);
+  return lines.length > 0 ? lines : [''];
+}
+
+function normalizeActiveTapestryRanges(
+  ranges: TapestryRange[],
+  totalLines: number
+): NormalizedLineRange[] {
+  const safeTotalLines = Math.max(totalLines, 1);
+  const maxStart = Math.max(safeTotalLines - 1, 0);
+  const normalized = ranges
+    .filter((range) => range.isActive !== false)
+    .map((range) => {
+      const startLine = Math.min(Math.max(Math.floor(range.startLine), 0), maxStart);
+      const endLine = Math.min(Math.max(Math.floor(range.endLine), startLine + 1), safeTotalLines);
+      return { startLine, endLine };
+    })
+    .sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine);
+
+  if (normalized.length === 0) {
+    return [];
+  }
+
+  const merged: NormalizedLineRange[] = [];
+  for (const range of normalized) {
+    const current = merged.at(-1);
+    if (!current) {
+      merged.push(range);
+      continue;
+    }
+
+    if (range.startLine <= current.endLine) {
+      current.endLine = Math.max(current.endLine, range.endLine);
+      continue;
+    }
+
+    merged.push(range);
+  }
+
+  return merged;
+}
+
+function buildLinePrefixLengths(lines: string[]): number[] {
+  const prefix = new Array<number>(lines.length + 1).fill(0);
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index] ?? '';
+    const isLastLine = index === lines.length - 1;
+    const lineLengthWithNormalizedBreak = line.length + (isLastLine ? 0 : 1);
+    const previousLength = prefix[index] ?? 0;
+    prefix[index + 1] = previousLength + lineLengthWithNormalizedBreak;
+  }
+  return prefix;
+}
+
+function estimateRangeAdjustedTokens(
+  fullTokenCount: number,
+  content: string,
+  activeRanges: NormalizedLineRange[]
+): number {
+  if (fullTokenCount <= 0 || activeRanges.length === 0) {
+    return 0;
+  }
+
+  const lines = splitContentLines(content);
+  const linePrefixLengths = buildLinePrefixLengths(lines);
+  const totalNormalizedChars = linePrefixLengths[lines.length] ?? 0;
+  if (totalNormalizedChars <= 0) {
+    return 0;
+  }
+
+  let selectedChars = 0;
+  for (const range of activeRanges) {
+    const rangeChars =
+      (linePrefixLengths[range.endLine] ?? 0) - (linePrefixLengths[range.startLine] ?? 0);
+    selectedChars += Math.max(rangeChars, 0);
+  }
+
+  const clampedSelectedChars = Math.min(selectedChars, totalNormalizedChars);
+  if (clampedSelectedChars <= 0) {
+    return 0;
+  }
+
+  const ratio = clampedSelectedChars / totalNormalizedChars;
+  const estimatedTokens = Math.round(fullTokenCount * ratio);
+  if (estimatedTokens === 0) {
+    return 1;
+  }
+  return Math.min(estimatedTokens, fullTokenCount);
+}
+
+interface RangedFileResolution {
+  tokens: number;
+  hasActiveSelection: boolean;
+}
+
+interface ContextSelectedTokenSummaryArgs {
+  sourceSelectedTokens: number;
+  sourcePendingCount: number;
+  selectedFiles: Set<string>;
+  useTapestryRangesForContextOutput: boolean;
+  tapestryRangesByKey: TapestryRangeMap;
+  tokenCountByFile: Map<string, number>;
+  fileContents: Record<string, string>;
+}
+
+function createTokenCountByFile(
+  flatListItems: UsePreviewPanelStateReturn['flatListItems']
+): Map<string, number> {
+  const tokenCountByFile = new Map<string, number>();
+  for (const item of flatListItems) {
+    if (item.type !== 'file') {
+      continue;
+    }
+    if (typeof item.compositeKey !== 'string') {
+      continue;
+    }
+    if (typeof item.tokens !== 'number') {
+      continue;
+    }
+    tokenCountByFile.set(item.compositeKey, item.tokens);
+  }
+  return tokenCountByFile;
+}
+
+function resolveRangedFileTokens(args: {
+  fullFileTokenCount: number;
+  ranges: TapestryRange[];
+  content: string | undefined;
+}): RangedFileResolution {
+  const { fullFileTokenCount, ranges, content } = args;
+  const hasAnyActiveRange = ranges.some((range) => range.isActive !== false);
+  if (!hasAnyActiveRange) {
+    return { tokens: 0, hasActiveSelection: false };
+  }
+
+  if (!content) {
+    return { tokens: fullFileTokenCount, hasActiveSelection: true };
+  }
+
+  const normalizedRanges = normalizeActiveTapestryRanges(ranges, splitContentLines(content).length);
+  if (normalizedRanges.length === 0) {
+    return { tokens: 0, hasActiveSelection: false };
+  }
+
+  return {
+    tokens: estimateRangeAdjustedTokens(fullFileTokenCount, content, normalizedRanges),
+    hasActiveSelection: true,
+  };
+}
+
+function computeContextSelectedTokenSummary(
+  args: ContextSelectedTokenSummaryArgs
+): ContextSelectedTokenSummary {
+  const summary: ContextSelectedTokenSummary = {
+    sourceSelectedTokens: args.sourceSelectedTokens,
+    outputSelectedTokens: args.sourceSelectedTokens,
+    sourcePendingCount: args.sourcePendingCount,
+    outputPendingCount: args.sourcePendingCount,
+    rangeAdjustedFilesCount: 0,
+    activeRangeFilesCount: 0,
+  };
+
+  if (!args.useTapestryRangesForContextOutput) {
+    return summary;
+  }
+
+  for (const [compositeKey, explicitRanges] of Object.entries(args.tapestryRangesByKey)) {
+    if (!args.selectedFiles.has(compositeKey)) {
+      continue;
+    }
+
+    summary.rangeAdjustedFilesCount++;
+    const fullFileTokenCount = args.tokenCountByFile.get(compositeKey);
+    if (fullFileTokenCount === undefined) {
+      continue;
+    }
+
+    const resolution = resolveRangedFileTokens({
+      fullFileTokenCount,
+      ranges: explicitRanges,
+      content: args.fileContents[compositeKey],
+    });
+    if (resolution.hasActiveSelection) {
+      summary.activeRangeFilesCount++;
+    }
+
+    const removedTokens = Math.max(fullFileTokenCount - resolution.tokens, 0);
+    summary.outputSelectedTokens = Math.max(0, summary.outputSelectedTokens - removedTokens);
+  }
+
+  return summary;
+}
+
 function getTokenUsageMetrics(args: {
   budget: number;
   selectedTokens: number;
+  sourceSelectedTokens: number;
+  rangeAdjustedFilesCount: number;
+  activeRangeFilesCount: number;
   includeProjectTree: boolean;
   projectTreeTokenCount: number;
   projectTreeTokenCountLoading: boolean;
@@ -82,8 +298,11 @@ function getTokenUsageMetrics(args: {
 
   return {
     budget,
+    sourceSelectedTokens: args.sourceSelectedTokens,
     includedTreeTokens,
     isOverBudget,
+    rangeAdjustedFilesCount: args.rangeAdjustedFilesCount,
+    activeRangeFilesCount: args.activeRangeFilesCount,
     remainingLabel,
     selectedPercent,
     selectedTokens: args.selectedTokens,
@@ -117,8 +336,12 @@ interface PreviewPanelProps {
   pageSize?: number;
   onDownloadReport?: () => void;
   onCopyReport?: () => void;
+  onDownloadContext?: (options: ContextExportOptions) => void;
+  onCopyContext?: (options: ContextExportOptions) => void;
   includeProjectTree?: boolean;
   onIncludeProjectTreeChange?: (checked: boolean) => void;
+  projectTreeUsesViewFilters?: boolean;
+  onProjectTreeUsesViewFiltersChange?: (checked: boolean) => void;
   projectTreeTokenCount?: number;
   projectTreeTokenCountLoading?: boolean;
   tokenBudget?: number;
@@ -249,8 +472,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     pageSize = 50,
     onDownloadReport,
     onCopyReport,
+    onDownloadContext,
+    onCopyContext,
     includeProjectTree = false,
     onIncludeProjectTreeChange,
+    projectTreeUsesViewFilters = false,
+    onProjectTreeUsesViewFiltersChange,
     projectTreeTokenCount = 0,
     projectTreeTokenCountLoading = false,
     tokenBudget,
@@ -283,11 +510,14 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setSortField,
     sortDirection,
     sortField,
+    setUseTapestryRangesForContextOutput,
+    useTapestryRangesForContextOutput,
   } = usePreviewPanelPreferences({
     activeTab: 'table',
     groupingConfig: 'none',
     sortDirection: 'asc',
     sortField: 'rootFolderId',
+    useTapestryRangesForContextOutput: true,
   });
 
   // Gate expensive Tapestry computations behind active tab
@@ -314,12 +544,36 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   const { totalStats, flatListItems } = state;
 
+  const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
+    const tokenCountByFile = createTokenCountByFile(flatListItems);
+
+    return computeContextSelectedTokenSummary({
+      sourceSelectedTokens: totalStats.totalTokens,
+      sourcePendingCount: totalStats.pendingCount,
+      selectedFiles,
+      useTapestryRangesForContextOutput,
+      tapestryRangesByKey,
+      tokenCountByFile,
+      fileContents,
+    });
+  }, [
+    flatListItems,
+    totalStats,
+    selectedFiles,
+    useTapestryRangesForContextOutput,
+    tapestryRangesByKey,
+    fileContents,
+  ]);
+
   const tokenUsage = getTokenUsageMetrics({
     budget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
     includeProjectTree,
     projectTreeTokenCount,
     projectTreeTokenCountLoading,
-    selectedTokens: totalStats.totalTokens,
+    selectedTokens: contextSelectedTokenSummary.outputSelectedTokens,
+    sourceSelectedTokens: contextSelectedTokenSummary.sourceSelectedTokens,
+    rangeAdjustedFilesCount: contextSelectedTokenSummary.rangeAdjustedFilesCount,
+    activeRangeFilesCount: contextSelectedTokenSummary.activeRangeFilesCount,
   });
 
   // Use deferred value for expensive transformations to prevent blocking
@@ -785,6 +1039,31 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [tapestryFileBaseByKey]
   );
 
+  const contextExportOptions = useMemo<ContextExportOptions>(
+    () => ({
+      selectedLineRangesByFile: tapestryRangesByKey,
+      useTapestryRanges: useTapestryRangesForContextOutput,
+      projectTreeUsesViewFilters,
+    }),
+    [projectTreeUsesViewFilters, tapestryRangesByKey, useTapestryRangesForContextOutput]
+  );
+
+  const handleDownloadContext = useCallback(() => {
+    if (onDownloadContext) {
+      onDownloadContext(contextExportOptions);
+      return;
+    }
+    onDownloadReport?.();
+  }, [contextExportOptions, onDownloadContext, onDownloadReport]);
+
+  const handleCopyContext = useCallback(() => {
+    if (onCopyContext) {
+      onCopyContext(contextExportOptions);
+      return;
+    }
+    onCopyReport?.();
+  }, [contextExportOptions, onCopyContext, onCopyReport]);
+
   // Batch remove handler
   const handleBatchRemove = useCallback(() => {
     if (previewSelections.size === 0) {
@@ -852,17 +1131,21 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         <PreviewPanelFooter
           folderSummaryThreshold={folderSummaryThreshold ?? 5}
           includeProjectTree={includeProjectTree}
-          onCopyReport={onCopyReport}
-          onDownloadReport={onDownloadReport}
+          onCopyContext={handleCopyContext}
+          onDownloadContext={handleDownloadContext}
           onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+          onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
           onTokenBudgetChange={onTokenBudgetChange}
+          onUseTapestryRangesChange={setUseTapestryRangesForContextOutput}
+          projectTreeUsesViewFilters={projectTreeUsesViewFilters}
           selectedFilesCount={selectedFiles.size}
           selectedTokensPendingCount={0}
           tokenCounting={tokenCounting}
           tokenUsage={tokenUsage}
           totalFiles={0}
           treeLoading={projectTreeTokenCountLoading}
+          useTapestryRanges={useTapestryRangesForContextOutput}
         />
       </div>
     );
@@ -1014,10 +1297,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             >
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm">
-                  {previewSelections.size} files selected in preview
+                  {previewSelections.size} files selected in Context Explorer
                 </span>
                 <Button onClick={deselectAll} size="sm" variant="outline">
-                  Clear Preview Selection
+                  Clear Context Selection
                 </Button>
               </div>
               <div className="flex items-center gap-2">
@@ -1084,17 +1367,21 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       <PreviewPanelFooter
         folderSummaryThreshold={folderSummaryThreshold ?? 5}
         includeProjectTree={includeProjectTree}
-        onCopyReport={onCopyReport}
-        onDownloadReport={onDownloadReport}
+        onCopyContext={handleCopyContext}
+        onDownloadContext={handleDownloadContext}
         onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+        onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
         onTokenBudgetChange={onTokenBudgetChange}
+        onUseTapestryRangesChange={setUseTapestryRangesForContextOutput}
+        projectTreeUsesViewFilters={projectTreeUsesViewFilters}
         selectedFilesCount={selectedFiles.size}
-        selectedTokensPendingCount={totalStats.pendingCount}
+        selectedTokensPendingCount={contextSelectedTokenSummary.outputPendingCount}
         tokenCounting={tokenCounting}
         tokenUsage={tokenUsage}
         totalFiles={totalStats.totalFiles}
         treeLoading={projectTreeTokenCountLoading}
+        useTapestryRanges={useTapestryRangesForContextOutput}
       />
     </div>
   );

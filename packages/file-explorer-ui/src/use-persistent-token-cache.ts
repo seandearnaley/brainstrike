@@ -1,7 +1,7 @@
 /**
  * usePersistentTokenCache
  *
- * Bridge hook that integrates the persistent token cache with the preview panel.
+ * Bridge hook that integrates the persistent token cache with the context explorer panel.
  * Uses the TokenCacheContext when available, otherwise falls back to in-memory caching.
  *
  * Key Benefits:

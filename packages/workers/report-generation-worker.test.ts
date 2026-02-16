@@ -59,4 +59,31 @@ describe('report-generation-worker', () => {
 
     expect(progress).toEqual([0, 1]);
   });
+
+  it('passes tapestry and tree filter options when provided', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createReportGenerationWorker();
+    const rootHandle =
+      (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
+    const spy = vi.spyOn(utils, 'generateReport').mockResolvedValue('done');
+
+    await worker({
+      ...baseRequest,
+      rootDirectoryHandle: rootHandle,
+      projectTreeUsesViewFilters: false,
+      useTapestryRanges: true,
+      selectedLineRangesByFile: {
+        'a.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+      },
+    });
+
+    const call = spy.mock.calls[0];
+    expect(call?.[8]).toEqual({
+      projectTreeUsesViewFilters: false,
+      useTapestryRanges: true,
+      selectedLineRangesByFile: {
+        'a.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+      },
+    });
+  });
 });

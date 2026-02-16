@@ -116,6 +116,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 
 import type { IFileNode } from '@brainstrike/types';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
+import * as utilsModule from '@brainstrike/utils';
+import * as textTokenCountModule from '../hooks/use-text-token-count';
 import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
 
@@ -264,6 +266,143 @@ describe('FileExplorerMiddlePanel', () => {
 
     // Should not crash when openFileInTab is undefined
     expect(await screen.findByTestId('header')).toBeInTheDocument();
+  });
+
+  it('uses the unfiltered tree for the initial tree token count', async () => {
+    const filteredTree: IFileNode[] = [
+      {
+        name: 'src',
+        path: 'src',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [
+          {
+            name: 'main.ts',
+            path: 'src/main.ts',
+            type: 'file',
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+        ],
+      },
+    ];
+    const unfilteredTree: IFileNode[] = [
+      ...filteredTree,
+      {
+        name: 'docs',
+        path: 'docs',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [
+          {
+            name: 'readme.md',
+            path: 'docs/readme.md',
+            type: 'file',
+            handle: {} as FileSystemFileHandle,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'root',
+          },
+        ],
+      },
+    ];
+    const fullTreeText = 'full-tree-text';
+    const generateProjectTreeTextSpy = vi
+      .spyOn(utilsModule, 'generateProjectTreeText')
+      .mockReturnValue(fullTreeText);
+    const useTextTokenCountSpy = vi
+      .spyOn(textTokenCountModule, 'useTextTokenCount')
+      .mockReturnValue({ tokenCount: 321, loading: false });
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: filteredTree,
+      unfilteredFileTree: unfilteredTree,
+      fileContents: {},
+      loadingFiles: new Set<string>(),
+      loadFileContent: vi.fn(),
+      loadMultipleFileContents: vi.fn(),
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
+      rootDirectoryHandle: {
+        path: '/root',
+        name: 'root',
+        kind: 'directory',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      },
+      isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+      refreshFileExplorer: vi.fn(),
+      applyFileFilters: vi.fn().mockReturnValue([]),
+      filterError: null,
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
+      clearRootDirectory: vi.fn(),
+      loadingPaths: new Set<string>(),
+      loadChildren: vi.fn(),
+      refreshDirectory: vi.fn(),
+      expandAllProgressively: vi.fn(),
+      cancelExpandAll: vi.fn(),
+      isExpandingAll: false,
+      expandAllProgress: null,
+      isRestoringExpandedPaths: false,
+      restorationProgress: null,
+      cancelChildLoading: vi.fn(),
+      setRootDirectoryHandle: vi.fn(),
+      setAccessLoading: vi.fn(),
+      canLoadWithoutTree: false,
+      selectFolderRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelRecursiveSelect: vi.fn(),
+      isLoadingForSelection: false,
+      loadingPathForSelection: null,
+      selectAllRecursively: vi.fn().mockResolvedValue({ success: true, filePaths: [] }),
+      cancelSelectAll: vi.fn(),
+      isLoadingForSelectAll: false,
+    });
+
+    act(() => {
+      renderWithProviders(<FileExplorerMiddlePanel />);
+    });
+
+    expect(await screen.findByTestId('preview')).toBeInTheDocument();
+    expect(generateProjectTreeTextSpy).toHaveBeenCalledWith(
+      unfilteredTree,
+      [],
+      [],
+      false,
+      expect.any(Number)
+    );
+    expect(useTextTokenCountSpy).toHaveBeenCalledWith({
+      text: fullTreeText,
+      enabled: true,
+    });
+
+    const lastCallProps = (
+      previewPanelMock as unknown as { mock: { calls: unknown[][] } }
+    ).mock.calls.at(-1)?.[0] as
+      | {
+          projectTreeTokenCount?: number;
+          projectTreeUsesViewFilters?: boolean;
+        }
+      | undefined;
+
+    expect(lastCallProps?.projectTreeTokenCount).toBe(321);
+    expect(lastCallProps?.projectTreeUsesViewFilters).toBe(false);
+
+    generateProjectTreeTextSpy.mockRestore();
+    useTextTokenCountSpy.mockRestore();
   });
 
   it('passes fileSizes to preview panel based on file tree metadata', async () => {

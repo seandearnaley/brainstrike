@@ -11,8 +11,10 @@ export const FileExplorerStrings = {
     title: 'Success',
     refreshSuccess: 'File tree refreshed successfully.',
     rootDirectorySelected: 'Successfully set the root directory.',
-    reportCopied: 'The report has been copied to your clipboard.',
-    reportDownloaded: 'The report has been downloaded.',
+    contextCopied: 'The context has been copied to your clipboard.',
+    contextDownloaded: 'The context has been downloaded.',
+    reportCopied: 'The context has been copied to your clipboard.',
+    reportDownloaded: 'The context has been downloaded.',
   },
 
   error: {
@@ -21,8 +23,10 @@ export const FileExplorerStrings = {
     noRootDirectory: 'No root directory selected.',
     refreshFailed: 'Failed to refresh file tree',
     rootDirectoryFailed: 'Failed to select root directory',
-    reportGenerationFailed: 'Failed to generate report',
-    reportCopyFailed: 'Failed to generate or copy report',
+    contextGenerationFailed: 'Failed to generate context',
+    contextCopyFailed: 'Failed to generate or copy context',
+    reportGenerationFailed: 'Failed to generate context',
+    reportCopyFailed: 'Failed to generate or copy context',
     fileLoadFailed: 'Failed to load file',
     selectionLimitExceeded: 'Cannot select more files. Maximum selection limit reached.',
   },
@@ -31,15 +35,17 @@ export const FileExplorerStrings = {
     title: 'Please Wait',
     rootDirectory: 'Loading root directory...',
     selectingRoot: 'Selecting Root Directory...',
-    generatingReport: 'Generating Report...',
+    generatingContext: 'Generating Context...',
+    generatingReport: 'Generating Context...',
     refreshing: 'Refreshing file tree...',
   },
 
   prompts: {
     chooseDirectory: 'Please choose a directory from the file picker',
-    waitForReport: 'Please wait while we prepare your report',
+    waitForContext: 'Please wait while we prepare your context',
+    waitForReport: 'Please wait while we prepare your context',
     waitForLoading: 'Please wait while we load the file tree',
-    reportGenerating: 'Report is currently being generated...',
+    reportGenerating: 'Context is currently being generated...',
   },
 
   inlineFixture: {
@@ -54,7 +60,8 @@ export const FileExplorerStrings = {
 
   // File Names
   fileNames: {
-    report: 'report.txt',
+    context: 'context.txt',
+    report: 'context.txt',
   },
 
   // Status Messages

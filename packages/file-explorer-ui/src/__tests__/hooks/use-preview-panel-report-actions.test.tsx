@@ -53,7 +53,7 @@ describe('usePreviewPanelReportActions', () => {
     });
   });
 
-  it('returns download/copy handlers from useReportManager', () => {
+  it('returns download/copy handlers that delegate to useReportManager', async () => {
     const generateReportWithContent = vi.fn(async () => 'report');
     const handleDownloadReport = vi.fn();
     const handleCopyReport = vi.fn();
@@ -80,8 +80,11 @@ describe('usePreviewPanelReportActions', () => {
       { wrapper: createWrapper() }
     );
 
-    expect(result.current.handleDownloadReport).toBe(handleDownloadReport);
-    expect(result.current.handleCopyReport).toBe(handleCopyReport);
+    await result.current.handleDownloadReport();
+    await result.current.handleCopyReport();
+
+    expect(handleDownloadReport).toHaveBeenCalledTimes(1);
+    expect(handleCopyReport).toHaveBeenCalledTimes(1);
   });
 
   it('passes expected parameters to useReportGeneration and useReportManager', () => {
@@ -118,6 +121,7 @@ describe('usePreviewPanelReportActions', () => {
       excludeFilters: string[];
       useRegex: boolean;
       includeProjectTree: boolean;
+      projectTreeUsesViewFilters: boolean;
       folderSummaryThreshold: number;
       loadMissingContent?: (compositeKeys: string[]) => Promise<void>;
       getFileContents?: () => Record<string, string>;
@@ -131,6 +135,7 @@ describe('usePreviewPanelReportActions', () => {
     expect(reportGenerationArgs.excludeFilters).toEqual(['exclude']);
     expect(reportGenerationArgs.useRegex).toBe(true);
     expect(reportGenerationArgs.includeProjectTree).toBe(true);
+    expect(reportGenerationArgs.projectTreeUsesViewFilters).toBe(false);
     expect(reportGenerationArgs.folderSummaryThreshold).toBe(42);
     expect(reportGenerationArgs.loadMissingContent).toBe(loadMultipleFileContents);
     expect(reportGenerationArgs.getFileContents).toEqual(expect.any(Function));
@@ -138,12 +143,14 @@ describe('usePreviewPanelReportActions', () => {
     expect(mockUseReportManager).toHaveBeenCalledTimes(1);
     const reportManagerArgs = mockUseReportManager.mock.calls[0]?.[0] as {
       rootDirectoryHandle: DirectoryHandle | FileSystemDirectoryHandle | null;
+      generateContextWithContent: () => Promise<string>;
       generateReportWithContent: () => Promise<string>;
       showToast: unknown;
       toast: unknown;
     };
 
     expect(reportManagerArgs.rootDirectoryHandle).toBeNull();
+    expect(reportManagerArgs.generateContextWithContent).toBe(generateReportWithContent);
     expect(reportManagerArgs.generateReportWithContent).toBe(generateReportWithContent);
     expect(reportManagerArgs.showToast).toBe(mockShowToast);
     expect(reportManagerArgs.toast).toBe(mockToast);

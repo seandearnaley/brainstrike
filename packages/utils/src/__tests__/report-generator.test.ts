@@ -457,7 +457,7 @@ describe('reportGenerator', () => {
       false
     );
 
-    expect(report).toContain('<relevant_files>');
+    expect(report).toContain('<relevant_context>');
     expect(report).toContain('src/lib/utils.ts');
     expect(report).toContain('src/components/ui/Button.tsx');
     expect(report).toContain('export const formatDate');
@@ -481,7 +481,7 @@ describe('reportGenerator', () => {
       true
     );
 
-    expect(report).toContain('<relevant_files>');
+    expect(report).toContain('<relevant_context>');
     expect(report).toContain('src/components/ui/Button.tsx');
     expect(report).toContain('src/components/ui/Input.tsx');
     expect(report).toContain('src/components/layout/Header.tsx');
@@ -556,6 +556,77 @@ describe('reportGenerator', () => {
     expect(report).toContain('Header.tsx');
     expect(report).not.toContain('Button.test.tsx');
   });
+
+  it('can ignore view filters for full project tree output', async () => {
+    const selectedFiles = new Set(['src/components/ui/Button.tsx']);
+    const report = await generateReport(
+      selectedFiles,
+      mockFileContents,
+      mockRootDirectoryHandle,
+      ['**/components/**/*.tsx'],
+      ['**/tests/**'],
+      false,
+      true,
+      5,
+      { projectTreeUsesViewFilters: false }
+    );
+
+    expect(report).toContain('<project_tree>');
+    expect(report).toContain('index.tsx');
+    expect(report).toContain('globals.css');
+    expect(report).toContain('Button.test.tsx');
+  });
+
+  it('supports tapestry-aware range output for selected files', async () => {
+    const selectedFiles = new Set(['src/lib/utils.ts']);
+    const report = await generateReport(
+      selectedFiles,
+      mockFileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false,
+      5,
+      {
+        useTapestryRanges: true,
+        selectedLineRangesByFile: {
+          'src/lib/utils.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+        },
+      }
+    );
+
+    expect(report).toContain('<selection index="1" start_line="0" end_line="1">');
+    expect(report).toContain('export const formatDate');
+  });
+
+  it('treats files without explicit ranges as fully selected in tapestry mode', async () => {
+    const selectedFiles = new Set(['src/lib/utils.ts', 'README.md']);
+    const report = await generateReport(
+      selectedFiles,
+      mockFileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false,
+      5,
+      {
+        useTapestryRanges: true,
+        selectedLineRangesByFile: {
+          'src/lib/utils.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+        },
+      }
+    );
+
+    expect(report).toContain('<selection index="1" start_line="0" end_line="1">');
+    expect(report).toContain('export const formatDate');
+    expect(report).toContain('<file path="README.md">');
+    expect(report).toContain('# My Project');
+    expect(report).not.toContain(
+      '<selection_summary>No active tapestry ranges selected.</selection_summary>'
+    );
+  });
 });
 
 describe('generateReportFromAdapter', () => {
@@ -617,8 +688,8 @@ describe('generateReportFromAdapter', () => {
       true
     );
 
-    expect(report.startsWith('<report>')).toBe(true);
-    expect(report.trim().endsWith('</report>')).toBe(true);
+    expect(report.startsWith('<context>')).toBe(true);
+    expect(report.trim().endsWith('</context>')).toBe(true);
     expect(report).toContain('<project_tree>');
     expect(report).toContain('src/');
     expect(report).toContain('components/');
@@ -646,7 +717,7 @@ describe('generateReportFromAdapter', () => {
       true
     );
 
-    expect(report).toContain('<report>');
+    expect(report).toContain('<context>');
     expect(report).toContain('src/index.ts');
 
     spy.mockRestore();

@@ -86,7 +86,11 @@ describe('useReportGeneration', () => {
       mockExcludeFilters,
       mockUseRegex,
       mockIncludeProjectTree,
-      mockFolderSummaryThreshold
+      mockFolderSummaryThreshold,
+      {
+        projectTreeUsesViewFilters: false,
+        useTapestryRanges: false,
+      }
     );
 
     expect(reportResult).toBe(mockReport);
@@ -236,7 +240,11 @@ describe('useReportGeneration', () => {
         mockExcludeFilters,
         mockUseRegex,
         mockIncludeProjectTree,
-        mockFolderSummaryThreshold
+        mockFolderSummaryThreshold,
+        {
+          projectTreeUsesViewFilters: false,
+          useTapestryRanges: false,
+        }
       );
     });
 
@@ -310,7 +318,11 @@ describe('useReportGeneration', () => {
         expect.anything(),
         expect.anything(),
         expect.anything(),
-        expect.anything()
+        expect.anything(),
+        {
+          projectTreeUsesViewFilters: false,
+          useTapestryRanges: false,
+        }
       );
     });
 
@@ -347,7 +359,11 @@ describe('useReportGeneration', () => {
         expect.anything(),
         expect.anything(),
         expect.anything(),
-        expect.anything()
+        expect.anything(),
+        {
+          projectTreeUsesViewFilters: false,
+          useTapestryRanges: false,
+        }
       );
     });
 
@@ -378,7 +394,11 @@ describe('useReportGeneration', () => {
         mockExcludeFilters,
         mockUseRegex,
         mockIncludeProjectTree,
-        mockFolderSummaryThreshold
+        mockFolderSummaryThreshold,
+        {
+          projectTreeUsesViewFilters: false,
+          useTapestryRanges: false,
+        }
       );
     });
 

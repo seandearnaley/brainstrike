@@ -1,5 +1,9 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import { generateReport, generateReportFromAdapter } from '@brainstrike/utils';
+import {
+  type ContextLineRange,
+  generateReport,
+  generateReportFromAdapter,
+} from '@brainstrike/utils';
 
 export interface ReportGenerationRequest {
   selectedFiles: Set<string>;
@@ -9,7 +13,10 @@ export interface ReportGenerationRequest {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  projectTreeUsesViewFilters?: boolean;
   folderSummaryThreshold: number;
+  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
+  useTapestryRanges?: boolean;
 }
 
 export interface ProgressEvent {
@@ -38,34 +45,71 @@ export function createReportGenerationWorker({
       excludeFilters,
       useRegex,
       includeProjectTree,
+      projectTreeUsesViewFilters = false,
       folderSummaryThreshold,
+      selectedLineRangesByFile,
+      useTapestryRanges = false,
     } = request;
+    const hasExplicitTreeFilterMode = Object.hasOwn(request, 'projectTreeUsesViewFilters');
+    const generationOptions =
+      hasExplicitTreeFilterMode || useTapestryRanges || selectedLineRangesByFile
+        ? {
+            ...(hasExplicitTreeFilterMode ? { projectTreeUsesViewFilters } : {}),
+            ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
+            useTapestryRanges,
+          }
+        : undefined;
 
-    const report =
+    const context =
       fileSystemAdapter && 'platform' in rootDirectoryHandle
-        ? await generateReportFromAdapter(
-            selectedFiles,
-            fileContents,
-            fileSystemAdapter,
-            rootDirectoryHandle as DirectoryHandle,
-            includeFilters,
-            excludeFilters,
-            useRegex,
-            includeProjectTree,
-            folderSummaryThreshold
-          )
-        : await generateReport(
-            selectedFiles,
-            fileContents,
-            rootDirectoryHandle as FileSystemDirectoryHandle,
-            includeFilters,
-            excludeFilters,
-            useRegex,
-            includeProjectTree,
-            folderSummaryThreshold
-          );
+        ? generationOptions
+          ? await generateReportFromAdapter(
+              selectedFiles,
+              fileContents,
+              fileSystemAdapter,
+              rootDirectoryHandle as DirectoryHandle,
+              includeFilters,
+              excludeFilters,
+              useRegex,
+              includeProjectTree,
+              folderSummaryThreshold,
+              generationOptions
+            )
+          : await generateReportFromAdapter(
+              selectedFiles,
+              fileContents,
+              fileSystemAdapter,
+              rootDirectoryHandle as DirectoryHandle,
+              includeFilters,
+              excludeFilters,
+              useRegex,
+              includeProjectTree,
+              folderSummaryThreshold
+            )
+        : generationOptions
+          ? await generateReport(
+              selectedFiles,
+              fileContents,
+              rootDirectoryHandle as FileSystemDirectoryHandle,
+              includeFilters,
+              excludeFilters,
+              useRegex,
+              includeProjectTree,
+              folderSummaryThreshold,
+              generationOptions
+            )
+          : await generateReport(
+              selectedFiles,
+              fileContents,
+              rootDirectoryHandle as FileSystemDirectoryHandle,
+              includeFilters,
+              excludeFilters,
+              useRegex,
+              includeProjectTree,
+              folderSummaryThreshold
+            );
 
     onProgress?.({ loaded: 1, total: 1 });
-    return report;
+    return context;
   };
 }

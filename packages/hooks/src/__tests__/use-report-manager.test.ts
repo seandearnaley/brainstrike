@@ -203,7 +203,7 @@ describe('useReportManager', () => {
 
     // Check the filename argument
     const filenameArgument = firstCallArgs?.[1];
-    expect(filenameArgument).toBe('report-Sample-Project-2025-06-08_18-03-18Z.txt');
+    expect(filenameArgument).toBe('context-Sample-Project-2025-06-08_18-03-18Z.txt');
     // Should show a success toast
     expect(mockShowToast).toHaveBeenCalledWith({
       title: FileExplorerStrings.success.title,

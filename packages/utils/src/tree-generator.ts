@@ -35,8 +35,12 @@ export function matchesPattern(path: string, patterns: (RegExp | Minimatch)[]): 
   return false;
 }
 
+function normalizePath(path: string): string {
+  return path.startsWith('/') ? path.slice(1) : path;
+}
+
 function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
-  return nodes.sort((a, b) => {
+  return [...nodes].sort((a, b) => {
     if (a.type !== b.type) {
       return a.type === 'directory' ? -1 : 1;
     }
@@ -50,32 +54,9 @@ function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
   });
 }
 
-function shouldIncludeNode(node: IFileNode, compiledInclude: (RegExp | Minimatch)[]): boolean {
-  if (node.type === 'directory') {
-    return true;
-  }
-
-  if (compiledInclude.length === 0) {
-    return true;
-  }
-
-  return false;
-}
-
 function addNodeToLines(node: IFileNode, lines: string[]): void {
   const indentation = '  '.repeat(node.depth);
   lines.push(`${indentation}${node.name}${node.type === 'directory' ? '/' : ''}`);
-}
-
-function getVisibleChildren(
-  children: IFileNode[],
-  compiledExclude: (RegExp | Minimatch)[]
-): IFileNode[] {
-  const sortedChildren = sortFileNodes(children);
-  return sortedChildren.filter((child) => {
-    const childPath = child.path.startsWith('/') ? child.path.slice(1) : child.path;
-    return !matchesPattern(childPath, compiledExclude);
-  });
 }
 
 function addSummaryLine(node: IFileNode, remainingCount: number, lines: string[]): void {
@@ -85,24 +66,91 @@ function addSummaryLine(node: IFileNode, remainingCount: number, lines: string[]
   );
 }
 
-function processDirectoryChildren(
+function shouldIncludeFile(path: string, compiledInclude: (RegExp | Minimatch)[]): boolean {
+  if (compiledInclude.length === 0) {
+    return true;
+  }
+  return matchesPattern(path, compiledInclude);
+}
+
+function shouldIncludeDirectory(args: {
+  path: string;
+  hasVisibleChildren: boolean;
+  compiledInclude: (RegExp | Minimatch)[];
+}): boolean {
+  if (args.compiledInclude.length === 0) {
+    return true;
+  }
+  if (args.hasVisibleChildren) {
+    return true;
+  }
+  return matchesPattern(args.path, args.compiledInclude);
+}
+
+function filterTreeNode(
   node: IFileNode,
-  visibleChildren: IFileNode[],
   compiledInclude: (RegExp | Minimatch)[],
-  compiledExclude: (RegExp | Minimatch)[],
+  compiledExclude: (RegExp | Minimatch)[]
+): IFileNode | null {
+  const path = normalizePath(node.path);
+
+  if (matchesPattern(path, compiledExclude)) {
+    return null;
+  }
+
+  if (node.type === 'file') {
+    return shouldIncludeFile(path, compiledInclude) ? node : null;
+  }
+
+  const childNodes = node.children ? sortFileNodes(node.children) : [];
+  const visibleChildren: IFileNode[] = [];
+
+  for (const child of childNodes) {
+    const filteredChild = filterTreeNode(child, compiledInclude, compiledExclude);
+    if (filteredChild) {
+      visibleChildren.push(filteredChild);
+    }
+  }
+
+  if (
+    !shouldIncludeDirectory({
+      path,
+      hasVisibleChildren: visibleChildren.length > 0,
+      compiledInclude,
+    })
+  ) {
+    return null;
+  }
+
+  return {
+    ...node,
+    children: visibleChildren,
+  };
+}
+
+function renderFilteredTree(
+  node: IFileNode,
   lines: string[],
   folderSummaryThreshold: number
 ): void {
+  addNodeToLines(node, lines);
+
+  if (node.type !== 'directory' || !node.children || node.children.length === 0) {
+    return;
+  }
+
+  const visibleChildren = sortFileNodes(node.children);
   if (folderSummaryThreshold > 0 && visibleChildren.length > folderSummaryThreshold) {
     for (const child of visibleChildren.slice(0, folderSummaryThreshold)) {
-      traverseFileTree(child, compiledInclude, compiledExclude, lines, folderSummaryThreshold);
+      renderFilteredTree(child, lines, folderSummaryThreshold);
     }
     const remainingCount = visibleChildren.length - folderSummaryThreshold;
     addSummaryLine(node, remainingCount, lines);
-  } else {
-    for (const child of visibleChildren) {
-      traverseFileTree(child, compiledInclude, compiledExclude, lines, folderSummaryThreshold);
-    }
+    return;
+  }
+
+  for (const child of visibleChildren) {
+    renderFilteredTree(child, lines, folderSummaryThreshold);
   }
 }
 
@@ -113,31 +161,12 @@ export function traverseFileTree(
   lines: string[],
   folderSummaryThreshold: number
 ): void {
-  const path = node.path.startsWith('/') ? node.path.slice(1) : node.path;
-
-  if (matchesPattern(path, compiledExclude)) {
+  const filteredNode = filterTreeNode(node, compiledInclude, compiledExclude);
+  if (!filteredNode) {
     return;
   }
 
-  const includeNode =
-    shouldIncludeNode(node, compiledInclude) ||
-    (node.type === 'file' && matchesPattern(path, compiledInclude));
-
-  if (includeNode) {
-    addNodeToLines(node, lines);
-  }
-
-  if (node.type === 'directory' && node.children) {
-    const visibleChildren = getVisibleChildren(node.children, compiledExclude);
-    processDirectoryChildren(
-      node,
-      visibleChildren,
-      compiledInclude,
-      compiledExclude,
-      lines,
-      folderSummaryThreshold
-    );
-  }
+  renderFilteredTree(filteredNode, lines, folderSummaryThreshold);
 }
 
 export function generateProjectTreeText(

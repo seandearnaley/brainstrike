@@ -39,7 +39,7 @@ describe('TabbedFileEditor', () => {
     render(<TabbedFileEditor {...mockProps} />);
     expect(screen.getByText('No files open')).toBeInTheDocument();
     expect(
-      screen.getByText('Click on a file in the preview panel to open it here')
+      screen.getByText('Click on a file in Context Explorer to open it here')
     ).toBeInTheDocument();
   });
 

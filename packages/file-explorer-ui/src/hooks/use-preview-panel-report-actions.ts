@@ -1,7 +1,9 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { ContextGenerationOverrides } from '@brainstrike/hooks';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { useCallback } from 'react';
+import type { ContextExportOptions } from '../context-export-options';
 import type { useFileExplorerStoreContext } from '../file-explorer-provider';
 
 interface UsePreviewPanelReportActionsInput {
@@ -13,13 +15,39 @@ interface UsePreviewPanelReportActionsInput {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  projectTreeUsesViewFilters?: boolean;
   folderSummaryThreshold: number;
   loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
 }
 
+const toContextGenerationOverrides = (
+  options: ContextExportOptions | undefined
+): ContextGenerationOverrides | undefined => {
+  if (!options) {
+    return;
+  }
+
+  return {
+    projectTreeUsesViewFilters: options.projectTreeUsesViewFilters,
+    useTapestryRanges: options.useTapestryRanges,
+    selectedLineRangesByFile: Object.fromEntries(
+      Object.entries(options.selectedLineRangesByFile).map(([fileKey, ranges]) => [
+        fileKey,
+        ranges.map((range) => ({
+          startLine: range.startLine,
+          endLine: range.endLine,
+          isActive: range.isActive,
+        })),
+      ])
+    ),
+  };
+};
+
 export function usePreviewPanelReportActions(input: UsePreviewPanelReportActionsInput): {
-  handleDownloadReport: () => void;
-  handleCopyReport: () => void;
+  handleDownloadContext: (options?: ContextExportOptions) => Promise<void>;
+  handleCopyContext: (options?: ContextExportOptions) => Promise<void>;
+  handleDownloadReport: (options?: ContextExportOptions) => Promise<void>;
+  handleCopyReport: (options?: ContextExportOptions) => Promise<void>;
 } {
   const { fileSystemAdapter } = useAdapters();
   const { toast, showToast } = useToastManager();
@@ -32,7 +60,7 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
   const rootDirectoryHandleForGeneration =
     input.rootDirectoryHandle === null ? undefined : input.rootDirectoryHandle;
 
-  const { generateReportWithContent } = useReportGeneration({
+  const generation = useReportGeneration({
     selectedFiles: input.selectedFiles,
     fileContents: input.fileContents,
     rootDirectoryHandle: rootDirectoryHandleForGeneration,
@@ -41,20 +69,41 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
     excludeFilters: input.excludeFilters,
     useRegex: input.useRegex,
     includeProjectTree: input.includeProjectTree,
+    projectTreeUsesViewFilters: input.projectTreeUsesViewFilters ?? false,
     folderSummaryThreshold: input.folderSummaryThreshold,
     loadMissingContent: input.loadMultipleFileContents,
     getFileContents,
   });
+  const generateContextWithContent =
+    generation.generateContextWithContent ?? generation.generateReportWithContent;
 
-  const { handleDownloadReport, handleCopyReport } = useReportManager({
+  const manager = useReportManager({
     rootDirectoryHandle: input.rootDirectoryHandle,
-    generateReportWithContent,
+    generateContextWithContent,
+    generateReportWithContent: generateContextWithContent,
     showToast,
     toast,
   });
 
+  const handleDownloadContext = manager.handleDownloadContext ?? manager.handleDownloadReport;
+  const handleCopyContext = manager.handleCopyContext ?? manager.handleCopyReport;
+
+  const handleDownloadContextWithOptions = useCallback(
+    async (options?: ContextExportOptions): Promise<void> =>
+      handleDownloadContext(toContextGenerationOverrides(options)),
+    [handleDownloadContext]
+  );
+
+  const handleCopyContextWithOptions = useCallback(
+    async (options?: ContextExportOptions): Promise<void> =>
+      handleCopyContext(toContextGenerationOverrides(options)),
+    [handleCopyContext]
+  );
+
   return {
-    handleDownloadReport,
-    handleCopyReport,
+    handleDownloadContext: handleDownloadContextWithOptions,
+    handleCopyContext: handleCopyContextWithOptions,
+    handleDownloadReport: handleDownloadContextWithOptions,
+    handleCopyReport: handleCopyContextWithOptions,
   };
 }

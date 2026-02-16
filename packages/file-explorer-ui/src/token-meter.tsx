@@ -6,8 +6,10 @@ interface TokenMeterProps {
   usedTokens: number;
   budget: number;
   selectedTokens: number;
+  sourceSelectedTokens?: number;
   treeTokens: number;
   includeTree: boolean;
+  useTapestryRanges?: boolean;
   isOverBudget: boolean;
   size?: 'sm' | 'md' | 'lg';
 }
@@ -40,8 +42,10 @@ export const TokenMeter = memo<TokenMeterProps>(function TokenMeter({
   usedTokens,
   budget,
   selectedTokens,
+  sourceSelectedTokens = selectedTokens,
   treeTokens,
   includeTree,
+  useTapestryRanges = false,
   isOverBudget,
   size = 'md',
 }) {
@@ -98,8 +102,18 @@ export const TokenMeter = memo<TokenMeterProps>(function TokenMeter({
       <div className="space-y-1.5 text-xs">
         <div className="font-medium">Token Usage</div>
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
-          <span className="text-muted-foreground">Selected:</span>
+          <span className="text-muted-foreground">
+            {useTapestryRanges ? 'Output:' : 'Selected:'}
+          </span>
           <span className="font-medium tabular-nums">{selectedTokens.toLocaleString()}</span>
+          {useTapestryRanges && (
+            <>
+              <span className="text-muted-foreground">Source:</span>
+              <span className="font-medium tabular-nums">
+                {sourceSelectedTokens.toLocaleString()}
+              </span>
+            </>
+          )}
           {includeTree && (
             <>
               <span className="text-muted-foreground">Tree:</span>
@@ -119,7 +133,16 @@ export const TokenMeter = memo<TokenMeterProps>(function TokenMeter({
         </div>
       </div>
     );
-  }, [usedTokens, budget, selectedTokens, treeTokens, includeTree, isOverBudget]);
+  }, [
+    usedTokens,
+    budget,
+    selectedTokens,
+    sourceSelectedTokens,
+    treeTokens,
+    includeTree,
+    useTapestryRanges,
+    isOverBudget,
+  ]);
 
   return (
     <TooltipProvider delayDuration={200}>

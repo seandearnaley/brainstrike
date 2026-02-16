@@ -28,12 +28,20 @@ export class FileExplorerPage {
     return this.page.getByTestId('file-filter-input');
   }
 
+  get downloadContextButton(): Locator {
+    return this.page.getByTestId('download-context-button');
+  }
+
+  get copyContextButton(): Locator {
+    return this.page.getByTestId('copy-context-button');
+  }
+
   get downloadReportButton(): Locator {
-    return this.page.getByTestId('download-report-button');
+    return this.downloadContextButton;
   }
 
   get copyReportButton(): Locator {
-    return this.page.getByTestId('copy-report-button');
+    return this.copyContextButton;
   }
 
   get selectAllButton(): Locator {
