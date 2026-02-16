@@ -39,6 +39,7 @@ interface StoredPreferences {
   activeTab?: string;
   collapsedGroups?: string[];
   pageSize?: number;
+  useTapestryRangesForContextOutput?: boolean;
 }
 
 interface PreviewPanelPreferences {
@@ -49,6 +50,7 @@ interface PreviewPanelPreferences {
   activeTab: string;
   collapsedGroups: Set<string>;
   pageSize: number;
+  useTapestryRangesForContextOutput: boolean;
 }
 
 interface PreviewPanelPreferencesDefaults {
@@ -56,6 +58,7 @@ interface PreviewPanelPreferencesDefaults {
   sortDirection: 'asc' | 'desc';
   groupingConfig: string;
   activeTab: string;
+  useTapestryRangesForContextOutput: boolean;
 }
 
 function loadStoredPreferences(): StoredPreferences | null {
@@ -155,6 +158,15 @@ function sanitizePageSize(value: StoredPreferences['pageSize']): StoredPreferenc
   return;
 }
 
+function sanitizeUseTapestryRangesForContextOutput(
+  value: StoredPreferences['useTapestryRangesForContextOutput']
+): StoredPreferences['useTapestryRangesForContextOutput'] {
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return;
+}
+
 function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPreferences | null {
   if (!stored || typeof stored !== 'object') {
     return null;
@@ -189,6 +201,12 @@ function sanitizeStoredPreferences(stored: StoredPreferences | null): StoredPref
   if (pageSize !== undefined) {
     sanitized.pageSize = pageSize;
   }
+  const useTapestryRangesForContextOutput = sanitizeUseTapestryRangesForContextOutput(
+    stored.useTapestryRangesForContextOutput
+  );
+  if (useTapestryRangesForContextOutput !== undefined) {
+    sanitized.useTapestryRangesForContextOutput = useTapestryRangesForContextOutput;
+  }
 
   return sanitized;
 }
@@ -208,6 +226,7 @@ interface PreviewPanelPreferencesSetters {
   setActiveTab: Dispatch<SetStateAction<string>>;
   setCollapsedGroups: Dispatch<SetStateAction<Set<string>>>;
   setPageSize: Dispatch<SetStateAction<number>>;
+  setUseTapestryRangesForContextOutput: Dispatch<SetStateAction<boolean>>;
 }
 
 export function usePreviewPanelPreferences(
@@ -245,6 +264,14 @@ export function usePreviewPanelPreferences(
   const [pageSize, setPageSize] = useState<number>(() =>
     getStoredValue(storedPreferences, 'pageSize', DEFAULT_PAGE_SIZE)
   );
+  const [useTapestryRangesForContextOutput, setUseTapestryRangesForContextOutput] =
+    useState<boolean>(() =>
+      getStoredValue(
+        storedPreferences,
+        'useTapestryRangesForContextOutput',
+        defaults.useTapestryRangesForContextOutput
+      )
+    );
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
@@ -257,6 +284,7 @@ export function usePreviewPanelPreferences(
           activeTab,
           collapsedGroups: Array.from(collapsedGroups),
           pageSize,
+          useTapestryRangesForContextOutput,
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
       } catch (error) {
@@ -282,6 +310,7 @@ export function usePreviewPanelPreferences(
     collapsedGroups,
     activeTab,
     pageSize,
+    useTapestryRangesForContextOutput,
   ]);
 
   return {
@@ -290,11 +319,13 @@ export function usePreviewPanelPreferences(
     columnVisibility,
     groupingConfig,
     pageSize,
+    useTapestryRangesForContextOutput,
     setActiveTab,
     setCollapsedGroups,
     setColumnVisibility,
     setGroupingConfig,
     setPageSize,
+    setUseTapestryRangesForContextOutput,
     setSortDirection,
     setSortField,
     sortDirection,

@@ -2,7 +2,8 @@ import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
 import { decodeFileSelection, generateProjectTreeText } from '@brainstrike/utils';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import type { ContextExportOptions } from './context-export-options';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { usePreviewPanelReportActions } from './hooks/use-preview-panel-report-actions';
 import { useTextTokenCount } from './hooks/use-text-token-count';
@@ -22,11 +23,15 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
   const {
     fileContents,
     loadingFiles,
-    fileTree: rawFileTree,
+    fileTree: rawFilteredFileTree,
+    unfilteredFileTree: rawUnfilteredFileTree,
     rootDirectoryHandle,
     loadMultipleFileContents,
   } = useFileExplorer();
-  const fileTree = Array.isArray(rawFileTree) ? rawFileTree : [];
+  const filteredFileTree = Array.isArray(rawFilteredFileTree) ? rawFilteredFileTree : [];
+  const unfilteredFileTree = Array.isArray(rawUnfilteredFileTree)
+    ? rawUnfilteredFileTree
+    : filteredFileTree;
 
   const tokenCounting = useTokenCounting();
   const { handleSelectionLimitError } = useToastManager();
@@ -60,8 +65,11 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitError,
   });
+  const [projectTreeUsesViewFilters, setProjectTreeUsesViewFilters] = useState(false);
 
-  const fileNodeCache = useMemo(() => buildFileNodeCache(fileTree), [fileTree]);
+  const fileNodeCache = useMemo(() => buildFileNodeCache(unfilteredFileTree), [unfilteredFileTree]);
+
+  const projectTreeSource = projectTreeUsesViewFilters ? filteredFileTree : unfilteredFileTree;
 
   const fileSizes = useMemo(() => {
     if (selectedFilePaths.size === 0 || fileNodeCache.size === 0) {
@@ -85,7 +93,7 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     return sizes;
   }, [fileNodeCache, selectedFilePaths]);
 
-  const { handleDownloadReport, handleCopyReport } = usePreviewPanelReportActions({
+  const reportActions = usePreviewPanelReportActions({
     store,
     selectedFiles: selectedFilePaths,
     fileContents,
@@ -94,20 +102,30 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     excludeFilters,
     useRegex,
     includeProjectTree,
+    projectTreeUsesViewFilters,
     folderSummaryThreshold,
     loadMultipleFileContents,
   });
+  const handleDownloadContext = reportActions.handleDownloadContext;
+  const handleCopyContext = reportActions.handleCopyContext;
 
   const projectTreeText = useMemo(
     () =>
       generateProjectTreeText(
-        fileTree,
-        includeFilters,
-        excludeFilters,
-        useRegex,
+        projectTreeSource,
+        projectTreeUsesViewFilters ? includeFilters : [],
+        projectTreeUsesViewFilters ? excludeFilters : [],
+        projectTreeUsesViewFilters ? useRegex : false,
         folderSummaryThreshold
       ),
-    [excludeFilters, fileTree, folderSummaryThreshold, includeFilters, useRegex]
+    [
+      excludeFilters,
+      projectTreeSource,
+      folderSummaryThreshold,
+      includeFilters,
+      projectTreeUsesViewFilters,
+      useRegex,
+    ]
   );
 
   const { tokenCount: projectTreeTokenCount, loading: projectTreeTokenCountLoading } =
@@ -158,6 +176,20 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
     [loadMultipleFileContents]
   );
 
+  const handleDownloadContextFromPanel = useCallback(
+    (options: ContextExportOptions) => {
+      void handleDownloadContext(options);
+    },
+    [handleDownloadContext]
+  );
+
+  const handleCopyContextFromPanel = useCallback(
+    (options: ContextExportOptions) => {
+      void handleCopyContext(options);
+    },
+    [handleCopyContext]
+  );
+
   return (
     <FileExplorerErrorBoundary>
       <div className="flex h-full flex-col overflow-hidden">
@@ -172,17 +204,19 @@ export const FileExplorerMiddlePanelBase: React.FC<FileExplorerMiddlePanelBasePr
               folderSummaryThreshold={folderSummaryThreshold}
               includeProjectTree={includeProjectTree}
               loadingFiles={loadingFiles}
-              onCopyReport={handleCopyReport}
-              onDownloadReport={handleDownloadReport}
+              onCopyContext={handleCopyContextFromPanel}
+              onDownloadContext={handleDownloadContextFromPanel}
               onFileClick={handleFileClick}
               onFolderSummaryThresholdChange={setFolderSummaryThreshold}
               onIncludeProjectTreeChange={setIncludeProjectTree}
+              onProjectTreeUsesViewFiltersChange={setProjectTreeUsesViewFilters}
               onRequestFileContent={handlePreviewContentRequest}
               onSelectionChange={handleSelectionChange}
               onTokenBudgetChange={setTokenBudget}
               performUndoableAction={performUndoableActionForPanel}
               projectTreeTokenCount={projectTreeTokenCount}
               projectTreeTokenCountLoading={projectTreeTokenCountLoading}
+              projectTreeUsesViewFilters={projectTreeUsesViewFilters}
               selectedFiles={selectedFilePaths}
               tokenBudget={tokenBudget}
               tokenCounting={tokenCounting}

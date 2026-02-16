@@ -122,7 +122,7 @@ describe('useReportManager', () => {
       variant: 'destructive',
     });
     expect(mockShowToast).not.toHaveBeenCalled();
-    expect(mockDismiss).not.toHaveBeenCalled();
+    expect(mockDismiss).toHaveBeenCalledTimes(1);
     expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
   });
 
@@ -203,7 +203,7 @@ describe('useReportManager', () => {
 
     // Check the filename argument
     const filenameArgument = firstCallArgs?.[1];
-    expect(filenameArgument).toBe('report-Sample-Project-2025-06-08_18-03-18Z.txt');
+    expect(filenameArgument).toBe('context-Sample-Project-2025-06-08_18-03-18Z.txt');
     // Should show a success toast
     expect(mockShowToast).toHaveBeenCalledWith({
       title: FileExplorerStrings.success.title,
@@ -232,6 +232,33 @@ describe('useReportManager', () => {
     expect(saveAs).not.toHaveBeenCalled();
     // Should not show a success toast
     expect(mockShowToast).not.toHaveBeenCalled();
+  });
+
+  it('shows an error toast when download save fails', async () => {
+    const { saveAs } = await import('file-saver');
+    const mockSaveAs = saveAs as unknown as { mockImplementationOnce: (fn: () => never) => void };
+    mockSaveAs.mockImplementationOnce(() => {
+      throw new Error('disk full');
+    });
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        rootDirectoryHandle: mockRootDirectoryHandle,
+        generateReportWithContent: mockGenerateReportWithContent,
+        showToast,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDownloadReport();
+    });
+
+    expect(mockShowToast).toHaveBeenCalledWith({
+      title: FileExplorerStrings.error.title,
+      description: `${FileExplorerStrings.error.contextGenerationFailed}: disk full`,
+      variant: 'destructive',
+    });
   });
 
   it('should handle toast with no return value', async () => {

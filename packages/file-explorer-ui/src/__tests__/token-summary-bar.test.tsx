@@ -48,6 +48,22 @@ describe('TokenSummaryBar', () => {
       expect(screen.getByText(/5,000 selected/)).toBeInTheDocument();
       expect(screen.queryByText(/estimating/)).not.toBeInTheDocument();
     });
+
+    it('shows output/source breakdown when tapestry range mode is enabled', () => {
+      render(
+        <TokenSummaryBar
+          {...defaultProps}
+          activeRangeFilesCount={2}
+          rangeAdjustedFilesCount={3}
+          selectedTokens={3200}
+          sourceSelectedTokens={5000}
+          useTapestryRanges
+        />
+      );
+
+      expect(screen.getByText(/3,200 output/)).toBeInTheDocument();
+      expect(screen.getByText(/5,000 source/)).toBeInTheDocument();
+    });
   });
 
   describe('tree loading state', () => {

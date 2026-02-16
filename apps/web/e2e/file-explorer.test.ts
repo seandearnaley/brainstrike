@@ -66,10 +66,10 @@ test.describe('File Explorer', () => {
     });
 
     test('should show action buttons in disabled state initially', async () => {
-      await expect(explorer.downloadReportButton).toBeVisible({ timeout: 10_000 });
-      await expect(explorer.downloadReportButton).toBeDisabled();
-      await expect(explorer.copyReportButton).toBeVisible();
-      await expect(explorer.copyReportButton).toBeDisabled();
+      await expect(explorer.downloadContextButton).toBeVisible({ timeout: 10_000 });
+      await expect(explorer.downloadContextButton).toBeDisabled();
+      await expect(explorer.copyContextButton).toBeVisible();
+      await expect(explorer.copyContextButton).toBeDisabled();
       await expect(explorer.includeProjectTreeToggle).toBeVisible();
     });
 
@@ -77,7 +77,7 @@ test.describe('File Explorer', () => {
       await expect(page.getByText('0/10')).toBeVisible();
     });
 
-    test('should allow downloading a report with multiple file selections', async ({ page }) => {
+    test('should allow downloading context with multiple file selections', async ({ page }) => {
       await explorer.selectRoot();
 
       await expect(explorer.filterInput).toBeVisible({ timeout: 10_000 });
@@ -96,14 +96,14 @@ test.describe('File Explorer', () => {
 
       await expect(page.getByText('2/10')).toBeVisible();
 
-      await expect(explorer.downloadReportButton).toBeEnabled();
+      await expect(explorer.downloadContextButton).toBeEnabled();
 
       const [download] = await Promise.all([
         page.waitForEvent('download'),
-        explorer.downloadReportButton.click(),
+        explorer.downloadContextButton.click(),
       ]);
 
-      expect(download.suggestedFilename()).toMatch(/report/i);
+      expect(download.suggestedFilename()).toMatch(/context/i);
     });
   });
 

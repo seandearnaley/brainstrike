@@ -457,7 +457,7 @@ describe('reportGenerator', () => {
       false
     );
 
-    expect(report).toContain('<relevant_files>');
+    expect(report).toContain('<relevant_context>');
     expect(report).toContain('src/lib/utils.ts');
     expect(report).toContain('src/components/ui/Button.tsx');
     expect(report).toContain('export const formatDate');
@@ -481,7 +481,7 @@ describe('reportGenerator', () => {
       true
     );
 
-    expect(report).toContain('<relevant_files>');
+    expect(report).toContain('<relevant_context>');
     expect(report).toContain('src/components/ui/Button.tsx');
     expect(report).toContain('src/components/ui/Input.tsx');
     expect(report).toContain('src/components/layout/Header.tsx');
@@ -527,7 +527,9 @@ describe('reportGenerator', () => {
       ['**/components/**/*.tsx'],
       [],
       false,
-      true
+      true,
+      5,
+      { projectTreeUsesViewFilters: true }
     );
 
     expect(report).toContain('<project_tree>');
@@ -547,7 +549,9 @@ describe('reportGenerator', () => {
       ['**/*.tsx'],
       ['**/tests/**'],
       false,
-      true
+      true,
+      5,
+      { projectTreeUsesViewFilters: true }
     );
 
     expect(report).toContain('<project_tree>');
@@ -555,6 +559,117 @@ describe('reportGenerator', () => {
     expect(report).toContain('Input.tsx');
     expect(report).toContain('Header.tsx');
     expect(report).not.toContain('Button.test.tsx');
+  });
+
+  it('can ignore view filters for full project tree output', async () => {
+    const selectedFiles = new Set(['src/components/ui/Button.tsx']);
+    const report = await generateReport(
+      selectedFiles,
+      mockFileContents,
+      mockRootDirectoryHandle,
+      ['**/components/**/*.tsx'],
+      ['**/tests/**'],
+      false,
+      true,
+      5,
+      { projectTreeUsesViewFilters: false }
+    );
+
+    expect(report).toContain('<project_tree>');
+    expect(report).toContain('index.tsx');
+    expect(report).toContain('globals.css');
+    expect(report).toContain('Button.test.tsx');
+  });
+
+  it('supports tapestry-aware range output for selected files', async () => {
+    const selectedFiles = new Set(['src/lib/utils.ts']);
+    const report = await generateReport(
+      selectedFiles,
+      mockFileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false,
+      5,
+      {
+        useTapestryRanges: true,
+        selectedLineRangesByFile: {
+          'src/lib/utils.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+        },
+      }
+    );
+
+    expect(report).toContain('<selection index="1" start_line="0" end_line="1">');
+    expect(report).toContain('export const formatDate');
+  });
+
+  it('treats files without explicit ranges as fully selected in tapestry mode', async () => {
+    const selectedFiles = new Set(['src/lib/utils.ts', 'README.md']);
+    const report = await generateReport(
+      selectedFiles,
+      mockFileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false,
+      5,
+      {
+        useTapestryRanges: true,
+        selectedLineRangesByFile: {
+          'src/lib/utils.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+        },
+      }
+    );
+
+    expect(report).toContain('<selection index="1" start_line="0" end_line="1">');
+    expect(report).toContain('export const formatDate');
+    expect(report).toContain('<file path="README.md">');
+    expect(report).toContain('# My Project');
+    expect(report).not.toContain(
+      '<selection_summary>No active tapestry ranges selected.</selection_summary>'
+    );
+  });
+
+  it('escapes XML-sensitive characters in file path attributes', async () => {
+    const selectedFiles = new Set(['src/evil "name"&<tag>.ts']);
+    const fileContents = {
+      'src/evil "name"&<tag>.ts': 'export const risky = true;',
+    };
+
+    const report = await generateReport(
+      selectedFiles,
+      fileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false
+    );
+
+    expect(report).toContain('<file path="src/evil &quot;name&quot;&amp;&lt;tag&gt;.ts">');
+    expect(report).toContain('export const risky = true;');
+  });
+
+  it('strips XML-illegal control characters from file path attributes', async () => {
+    const selectedFiles = new Set(['src/bad\u0000name\u001F.ts']);
+    const fileContents = {
+      'src/bad\u0000name\u001F.ts': 'export const risky = true;',
+    };
+
+    const report = await generateReport(
+      selectedFiles,
+      fileContents,
+      mockRootDirectoryHandle,
+      [],
+      [],
+      false,
+      false
+    );
+
+    expect(report).toContain('<file path="src/badname.ts">');
+    expect(report).toContain('export const risky = true;');
   });
 });
 
@@ -617,8 +732,8 @@ describe('generateReportFromAdapter', () => {
       true
     );
 
-    expect(report.startsWith('<report>')).toBe(true);
-    expect(report.trim().endsWith('</report>')).toBe(true);
+    expect(report.startsWith('<context>')).toBe(true);
+    expect(report.trim().endsWith('</context>')).toBe(true);
     expect(report).toContain('<project_tree>');
     expect(report).toContain('src/');
     expect(report).toContain('components/');
@@ -646,7 +761,7 @@ describe('generateReportFromAdapter', () => {
       true
     );
 
-    expect(report).toContain('<report>');
+    expect(report).toContain('<context>');
     expect(report).toContain('src/index.ts');
 
     spy.mockRestore();

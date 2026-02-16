@@ -30,16 +30,16 @@ test.describe('Complete File Explorer Workflow', () => {
     await waitForAppLoad(page);
   });
 
-  test('should complete the full file selection and report generation workflow', async ({
+  test('should complete the full file selection and context generation workflow', async ({
     page,
   }) => {
     // Step 1: Verify initial state
     await expect(page.getByText('0/10')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Download Report' })).toBeDisabled();
-    // Handle both "Copy Report" and "Copy" text due to responsive design
+    await expect(page.getByRole('button', { name: 'Download Context' })).toBeDisabled();
+    // Handle both "Copy Context" and "Copy" text due to responsive design
     const copyButton = page
       .locator(
-        'button:has-text("Copy Report"), button:has-text("Copy"):not(:has-text("Copy Report"))'
+        'button:has-text("Copy Context"), button:has-text("Copy"):not(:has-text("Copy Context"))'
       )
       .first();
     await expect(copyButton).toBeDisabled();
@@ -74,7 +74,7 @@ test.describe('Complete File Explorer Workflow', () => {
     await expect(page.getByText('2/10')).toBeVisible();
 
     // Step 6: Verify action buttons are now enabled
-    await expect(page.getByRole('button', { name: 'Download Report' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Download Context' })).toBeEnabled();
     await expect(copyButton).toBeEnabled();
     // Look for the file tree's Deselect All button (which shows when files are selected)
     await expect(page.getByRole('button', { name: 'Deselect All' })).toBeEnabled();
@@ -108,14 +108,14 @@ test.describe('Complete File Explorer Workflow', () => {
     await expect(nestedCheckbox).toBeChecked();
     await expect(page.getByText('3/10')).toBeVisible();
 
-    // Step 9: Test report download
-    const downloadButton = page.getByRole('button', { name: 'Download Report' });
+    // Step 9: Test context download
+    const downloadButton = page.getByRole('button', { name: 'Download Context' });
     await expect(downloadButton).toBeEnabled();
 
     const [download] = await Promise.all([page.waitForEvent('download'), downloadButton.click()]);
 
     // Verify download occurred
-    expect(download.suggestedFilename()).toMatch(/report/i);
+    expect(download.suggestedFilename()).toMatch(/context/i);
 
     // Step 10: Test copy to clipboard functionality
     await expect(copyButton).toBeEnabled();
@@ -124,7 +124,7 @@ test.describe('Complete File Explorer Workflow', () => {
     // Wait for success toast (copy operation should show a success message)
     // Use first() to avoid strict mode violation when multiple elements have the same text
     await expect(
-      page.getByText('The report has been copied to your clipboard.').first()
+      page.getByText('The context has been copied to your clipboard.').first()
     ).toBeVisible();
 
     // Step 11: Test filter functionality

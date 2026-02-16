@@ -101,6 +101,25 @@ describe('generateProjectTreeText', () => {
     expect(result).not.toContain('file5.ts');
   });
 
+  it('prunes directories that have no matching descendants when include filters are active', () => {
+    const rootDir = createMockDir('root', 'root');
+    const srcDir = createMockDir('root/src', 'src');
+    const docsDir = createMockDir('root/docs', 'docs');
+    const appFile = createMockFile('root/src/app.ts', 'app.ts');
+    const readmeFile = createMockFile('root/docs/readme.md', 'readme.md');
+
+    srcDir.children = [appFile];
+    docsDir.children = [readmeFile];
+    rootDir.children = [srcDir, docsDir];
+
+    const result = generateProjectTreeText([rootDir], ['**/*.ts'], [], false, 0);
+
+    expect(result).toContain('src/');
+    expect(result).toContain('app.ts');
+    expect(result).not.toContain('docs/');
+    expect(result).not.toContain('readme.md');
+  });
+
   it('handles paths with leading slashes', () => {
     const rootDir = createMockDir('/root', 'root');
     const testFile = createMockFile('/root/test.ts', 'test.ts');

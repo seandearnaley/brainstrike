@@ -28,12 +28,22 @@ export class FileExplorerPage {
     return this.page.getByTestId('file-filter-input');
   }
 
-  get downloadReportButton(): Locator {
-    return this.page.getByTestId('download-report-button');
+  get downloadContextButton(): Locator {
+    return this.page.getByTestId('download-context-button');
   }
 
+  get copyContextButton(): Locator {
+    return this.page.getByTestId('copy-context-button');
+  }
+
+  /** @deprecated Use `downloadContextButton` instead. */
+  get downloadReportButton(): Locator {
+    return this.downloadContextButton;
+  }
+
+  /** @deprecated Use `copyContextButton` instead. */
   get copyReportButton(): Locator {
-    return this.page.getByTestId('copy-report-button');
+    return this.copyContextButton;
   }
 
   get selectAllButton(): Locator {

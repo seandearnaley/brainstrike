@@ -136,25 +136,27 @@ describe('PreviewPanel', () => {
     });
   });
 
-  describe('Report Actions', () => {
-    it('renders report actions and wires callbacks', async () => {
+  describe('Context Actions', () => {
+    it('renders context actions and wires callbacks', async () => {
       const user = userEvent.setup();
       const onDownloadReport = vi.fn();
       const onCopyReport = vi.fn();
       const onIncludeProjectTreeChange = vi.fn();
+      const onProjectTreeUsesViewFiltersChange = vi.fn();
 
       render(
         <PreviewPanel
           {...mockProps}
-          includeProjectTree={false}
+          includeProjectTree={true}
           onCopyReport={onCopyReport}
           onDownloadReport={onDownloadReport}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+          onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
         />
       );
 
-      const downloadButton = screen.getByRole('button', { name: /download report/i });
-      const copyButton = screen.getByRole('button', { name: /copy report/i });
+      const downloadButton = screen.getByRole('button', { name: /download context/i });
+      const copyButton = screen.getByRole('button', { name: /copy context/i });
       expect(downloadButton).not.toBeDisabled();
       expect(copyButton).not.toBeDisabled();
 
@@ -165,10 +167,28 @@ describe('PreviewPanel', () => {
 
       const treeSwitch = screen.getByRole('switch', { name: /include project tree/i });
       await user.click(treeSwitch);
-      expect(onIncludeProjectTreeChange).toHaveBeenCalledWith(true);
+      expect(onIncludeProjectTreeChange).toHaveBeenCalledWith(false);
+
+      const filteredTreeSwitch = screen.getByRole('switch', { name: /use filtered project tree/i });
+      await user.click(filteredTreeSwitch);
+      expect(onProjectTreeUsesViewFiltersChange).toHaveBeenCalledWith(true);
     });
 
-    it('disables report buttons when no files are selected', () => {
+    it('hides filtered tree toggle when project tree is disabled', () => {
+      render(
+        <PreviewPanel
+          {...mockProps}
+          includeProjectTree={false}
+          onProjectTreeUsesViewFiltersChange={vi.fn()}
+        />
+      );
+
+      expect(
+        screen.queryByRole('switch', { name: /use filtered project tree/i })
+      ).not.toBeInTheDocument();
+    });
+
+    it('disables context buttons when no files are selected', () => {
       const onDownloadReport = vi.fn();
       const onCopyReport = vi.fn();
 
@@ -182,8 +202,8 @@ describe('PreviewPanel', () => {
       );
 
       expect(screen.getByText('No files selected')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /download report/i })).toBeDisabled();
-      expect(screen.getByRole('button', { name: /copy report/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /download context/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /copy context/i })).toBeDisabled();
     });
   });
 
@@ -191,8 +211,9 @@ describe('PreviewPanel', () => {
     it('should render file list with proper data', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      // Check stats display - new UI shows "selected" in the summary bar
-      expect(screen.getByText(/1,500 selected/i)).toBeInTheDocument();
+      // Check stats display - range-aware UI shows output + source tokens
+      expect(screen.getByText(/1,500 output/i)).toBeInTheDocument();
+      expect(screen.getByText(/1,500 source/i)).toBeInTheDocument();
 
       // Check files are displayed
       expect(screen.getByText('file1.txt')).toBeInTheDocument();
@@ -307,8 +328,8 @@ describe('PreviewPanel', () => {
         />
       );
 
-      // Should show 0 selected
-      expect(screen.getByText(/0 selected/i)).toBeInTheDocument();
+      // Should show 0 output (range-aware context estimate)
+      expect(screen.getByText(/0 output/i)).toBeInTheDocument();
     });
 
     it('should show over budget status when over budget', () => {
@@ -520,7 +541,7 @@ describe('PreviewPanel', () => {
 
       // Should show action bar
       await waitFor(() => {
-        expect(screen.getByText('1 files selected in preview')).toBeInTheDocument();
+        expect(screen.getByText('1 files selected in Context Explorer')).toBeInTheDocument();
       });
 
       // Click remove button

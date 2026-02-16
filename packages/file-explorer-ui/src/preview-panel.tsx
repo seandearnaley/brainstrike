@@ -23,6 +23,7 @@ import {
   Table as TableIcon,
 } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import type { ContextExportOptions } from './context-export-options';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useGroupSelection } from './hooks/use-group-selection';
 import {
@@ -40,6 +41,14 @@ import { createRangeId, getStableColorForKey } from './tapestry/utils';
 import { type FileItem, usePreviewPanelState } from './use-preview-panel-state';
 import type { TokenCountingState } from './use-token-counting';
 import {
+  type ContextSelectedTokenSummary,
+  computeContextSelectedTokenSummary,
+  createSelectedFileContentSnapshot,
+  createTokenCountByFile,
+  hasSameSelectedFileContentSnapshot,
+  type TapestryRangeMap,
+} from './utils/context-selected-token-summary';
+import {
   EXTENSIONLESS_FILE_TYPE,
   GROUPING_CONFIGS,
   type GroupKey,
@@ -52,10 +61,15 @@ const logger = createLogger('PreviewPanel');
 // Cap tapestry items per page so previews keep a readable "page" density.
 const TAPESTRY_MAX_PAGE_SIZE = 24;
 const DECODED_SELECTION_CACHE_LIMIT = 2000;
+// Keep a stable reference for the "empty snapshot" state to preserve memo identity optimizations.
+const EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT: Record<string, string> = {};
 
 function getTokenUsageMetrics(args: {
   budget: number;
   selectedTokens: number;
+  sourceSelectedTokens: number;
+  rangeAdjustedFilesCount: number;
+  activeRangeFilesCount: number;
   includeProjectTree: boolean;
   projectTreeTokenCount: number;
   projectTreeTokenCountLoading: boolean;
@@ -82,8 +96,11 @@ function getTokenUsageMetrics(args: {
 
   return {
     budget,
+    sourceSelectedTokens: args.sourceSelectedTokens,
     includedTreeTokens,
     isOverBudget,
+    rangeAdjustedFilesCount: args.rangeAdjustedFilesCount,
+    activeRangeFilesCount: args.activeRangeFilesCount,
     remainingLabel,
     selectedPercent,
     selectedTokens: args.selectedTokens,
@@ -115,10 +132,17 @@ interface PreviewPanelProps {
   ) => void;
   onFileClick?: (compositeKey: string) => void;
   pageSize?: number;
+  // TODO(context-migration): remove legacy report-named callbacks after downstream migration.
+  /** @deprecated Use `onDownloadContext` instead. */
   onDownloadReport?: () => void;
+  /** @deprecated Use `onCopyContext` instead. */
   onCopyReport?: () => void;
+  onDownloadContext?: (options: ContextExportOptions) => void;
+  onCopyContext?: (options: ContextExportOptions) => void;
   includeProjectTree?: boolean;
   onIncludeProjectTreeChange?: (checked: boolean) => void;
+  projectTreeUsesViewFilters?: boolean;
+  onProjectTreeUsesViewFiltersChange?: (checked: boolean) => void;
   projectTreeTokenCount?: number;
   projectTreeTokenCountLoading?: boolean;
   tokenBudget?: number;
@@ -127,8 +151,6 @@ interface PreviewPanelProps {
   onFolderSummaryThresholdChange?: (threshold: number) => void;
   onRequestFileContent?: (compositeKey: string) => void;
 }
-
-type TapestryRangeMap = Record<string, TapestryRange[]>;
 
 function createDefaultTapestryRanges(compositeKey: string, totalLines: number): TapestryRange[] {
   return [
@@ -249,8 +271,12 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     pageSize = 50,
     onDownloadReport,
     onCopyReport,
+    onDownloadContext,
+    onCopyContext,
     includeProjectTree = false,
     onIncludeProjectTreeChange,
+    projectTreeUsesViewFilters = false,
+    onProjectTreeUsesViewFiltersChange,
     projectTreeTokenCount = 0,
     projectTreeTokenCountLoading = false,
     tokenBudget,
@@ -263,10 +289,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // Local selection state for preview panel - separate from file tree selections
   const [previewSelections, setPreviewSelections] = useState<Set<string>>(new Set());
 
-  const [tapestryRangesByKey, setTapestryRangesByKey] = useState<Record<string, TapestryRange[]>>(
-    {}
-  );
+  const [tapestryRangesByKey, setTapestryRangesByKey] = useState<TapestryRangeMap>({});
   const tapestryTotalsRef = useRef<Map<string, number>>(new Map());
+  const summaryFileContentsRef = useRef<Record<string, string>>({});
+  const legacyContextWarningRef = useRef<{ download: boolean; copy: boolean }>({
+    download: false,
+    copy: false,
+  });
 
   const {
     activeTab,
@@ -283,15 +312,20 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     setSortField,
     sortDirection,
     sortField,
+    setUseTapestryRangesForContextOutput,
+    useTapestryRangesForContextOutput,
   } = usePreviewPanelPreferences({
     activeTab: 'table',
     groupingConfig: 'none',
     sortDirection: 'asc',
     sortField: 'rootFolderId',
+    // Keep range-aware export on by default so context output follows the active tapestry selection model.
+    useTapestryRangesForContextOutput: true,
   });
 
-  // Gate expensive Tapestry computations behind active tab
+  // Gate expensive Tapestry computations behind active tab.
   const isTapestryActive = activeTab === 'tapestry';
+  const shouldSyncTapestryRanges = isTapestryActive || useTapestryRangesForContextOutput;
 
   const effectiveColumnVisibility = useMemo(() => {
     // Avoid redundant "Folder" column when grouping by directory or root folder (group headers already show it).
@@ -313,17 +347,68 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   });
 
   const { totalStats, flatListItems } = state;
+  // Defer large list snapshots so expensive token summary work does not block UI updates.
+  const deferredFlatListItems = useDeferredValue(flatListItems);
+  // Snapshot reconciliation intentionally uses ref + memo together.
+  // We commit the selected snapshot inside this memo so rapid consecutive renders
+  // do not observe an effect-commit lag between range edits and token recalculation.
+  const selectedFileContentSnapshot = useMemo(() => {
+    const previousSnapshot = summaryFileContentsRef.current;
+    if (!useTapestryRangesForContextOutput) {
+      const nextSnapshot =
+        Object.keys(previousSnapshot).length === 0
+          ? previousSnapshot
+          : EMPTY_SELECTED_FILE_CONTENT_SNAPSHOT;
+      summaryFileContentsRef.current = nextSnapshot;
+      return nextSnapshot;
+    }
+
+    const nextSnapshot = createSelectedFileContentSnapshot({
+      selectedFiles,
+      tapestryRangesByKey,
+      fileContents,
+    });
+    if (hasSameSelectedFileContentSnapshot(previousSnapshot, nextSnapshot)) {
+      summaryFileContentsRef.current = previousSnapshot;
+      return previousSnapshot;
+    }
+
+    summaryFileContentsRef.current = nextSnapshot;
+    return nextSnapshot;
+  }, [fileContents, selectedFiles, tapestryRangesByKey, useTapestryRangesForContextOutput]);
+
+  const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
+    const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);
+
+    return computeContextSelectedTokenSummary({
+      sourceSelectedTokens: totalStats.totalTokens,
+      sourcePendingCount: totalStats.pendingCount,
+      selectedFiles,
+      useTapestryRangesForContextOutput,
+      tapestryRangesByKey,
+      tokenCountByFile,
+      fileContents: selectedFileContentSnapshot,
+    });
+  }, [
+    deferredFlatListItems,
+    totalStats,
+    selectedFiles,
+    useTapestryRangesForContextOutput,
+    tapestryRangesByKey,
+    selectedFileContentSnapshot,
+  ]);
 
   const tokenUsage = getTokenUsageMetrics({
     budget: tokenBudget ?? DEFAULT_TOKEN_BUDGET,
     includeProjectTree,
     projectTreeTokenCount,
     projectTreeTokenCountLoading,
-    selectedTokens: totalStats.totalTokens,
+    selectedTokens: contextSelectedTokenSummary.outputSelectedTokens,
+    sourceSelectedTokens: contextSelectedTokenSummary.sourceSelectedTokens,
+    rangeAdjustedFilesCount: contextSelectedTokenSummary.rangeAdjustedFilesCount,
+    activeRangeFilesCount: contextSelectedTokenSummary.activeRangeFilesCount,
   });
 
-  // Use deferred value for expensive transformations to prevent blocking
-  const deferredFlatListItems = useDeferredValue(flatListItems);
   const decodedSelectionCacheRef = useRef<Map<string, { folderId: string; path: string } | null>>(
     new Map()
   );
@@ -421,8 +506,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }, [tableData]);
 
   const tapestryFileBaseByKey = useMemo(() => {
-    // Skip expensive computation when Tapestry tab is not active
-    if (!isTapestryActive) {
+    // Skip expensive computation unless ranges must be rendered or exported.
+    if (!shouldSyncTapestryRanges) {
       return new Map<string, ReturnType<typeof buildTapestryFileBase>>();
     }
 
@@ -440,11 +525,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     }
 
     return map;
-  }, [isTapestryActive, tableData, fileContents, loadingFiles]);
+  }, [shouldSyncTapestryRanges, tableData, fileContents, loadingFiles]);
 
   useEffect(() => {
-    // Skip sync when Tapestry tab is not active
-    if (!isTapestryActive) {
+    // Keep ranges synchronized while Tapestry is visible or when range-based export is enabled.
+    if (!shouldSyncTapestryRanges) {
       return;
     }
 
@@ -457,7 +542,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       tapestryTotalsRef.current = totals;
       return changed ? next : prev;
     });
-  }, [isTapestryActive, tapestryFileBaseByKey]);
+  }, [shouldSyncTapestryRanges, tapestryFileBaseByKey]);
 
   // Toggle group collapse
   const toggleGroupCollapse = useCallback((groupKey: GroupKey) => {
@@ -785,6 +870,50 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [tapestryFileBaseByKey]
   );
 
+  // Keep export payload synchronized with the latest range edits and tree toggle state.
+  const contextExportOptions = useMemo<ContextExportOptions>(
+    () => ({
+      selectedLineRangesByFile: tapestryRangesByKey,
+      useTapestryRanges: useTapestryRangesForContextOutput,
+      projectTreeUsesViewFilters,
+    }),
+    [projectTreeUsesViewFilters, tapestryRangesByKey, useTapestryRangesForContextOutput]
+  );
+
+  const handleDownloadContext = useCallback(() => {
+    if (onDownloadContext) {
+      onDownloadContext(contextExportOptions);
+      return;
+    }
+    if (onDownloadReport) {
+      // Legacy compatibility path while report-named callbacks are phased out.
+      if (!legacyContextWarningRef.current.download) {
+        legacyContextWarningRef.current.download = true;
+        logger.warn(
+          'PreviewPanel is using deprecated onDownloadReport callback without context options'
+        );
+      }
+      onDownloadReport();
+    }
+  }, [contextExportOptions, onDownloadContext, onDownloadReport]);
+
+  const handleCopyContext = useCallback(() => {
+    if (onCopyContext) {
+      onCopyContext(contextExportOptions);
+      return;
+    }
+    if (onCopyReport) {
+      // Legacy compatibility path while report-named callbacks are phased out.
+      if (!legacyContextWarningRef.current.copy) {
+        legacyContextWarningRef.current.copy = true;
+        logger.warn(
+          'PreviewPanel is using deprecated onCopyReport callback without context options'
+        );
+      }
+      onCopyReport();
+    }
+  }, [contextExportOptions, onCopyContext, onCopyReport]);
+
   // Batch remove handler
   const handleBatchRemove = useCallback(() => {
     if (previewSelections.size === 0) {
@@ -852,17 +981,21 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         <PreviewPanelFooter
           folderSummaryThreshold={folderSummaryThreshold ?? 5}
           includeProjectTree={includeProjectTree}
-          onCopyReport={onCopyReport}
-          onDownloadReport={onDownloadReport}
+          onCopyContext={handleCopyContext}
+          onDownloadContext={handleDownloadContext}
           onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
           onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+          onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
           onTokenBudgetChange={onTokenBudgetChange}
+          onUseTapestryRangesChange={setUseTapestryRangesForContextOutput}
+          projectTreeUsesViewFilters={projectTreeUsesViewFilters}
           selectedFilesCount={selectedFiles.size}
           selectedTokensPendingCount={0}
           tokenCounting={tokenCounting}
           tokenUsage={tokenUsage}
           totalFiles={0}
           treeLoading={projectTreeTokenCountLoading}
+          useTapestryRanges={useTapestryRangesForContextOutput}
         />
       </div>
     );
@@ -1014,10 +1147,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             >
               <div className="flex items-center gap-2">
                 <span className="font-medium text-sm">
-                  {previewSelections.size} files selected in preview
+                  {previewSelections.size} files selected in Context Explorer
                 </span>
                 <Button onClick={deselectAll} size="sm" variant="outline">
-                  Clear Preview Selection
+                  Clear Context Selection
                 </Button>
               </div>
               <div className="flex items-center gap-2">
@@ -1084,17 +1217,21 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       <PreviewPanelFooter
         folderSummaryThreshold={folderSummaryThreshold ?? 5}
         includeProjectTree={includeProjectTree}
-        onCopyReport={onCopyReport}
-        onDownloadReport={onDownloadReport}
+        onCopyContext={handleCopyContext}
+        onDownloadContext={handleDownloadContext}
         onFolderSummaryThresholdChange={onFolderSummaryThresholdChange}
         onIncludeProjectTreeChange={onIncludeProjectTreeChange}
+        onProjectTreeUsesViewFiltersChange={onProjectTreeUsesViewFiltersChange}
         onTokenBudgetChange={onTokenBudgetChange}
+        onUseTapestryRangesChange={setUseTapestryRangesForContextOutput}
+        projectTreeUsesViewFilters={projectTreeUsesViewFilters}
         selectedFilesCount={selectedFiles.size}
-        selectedTokensPendingCount={totalStats.pendingCount}
+        selectedTokensPendingCount={contextSelectedTokenSummary.outputPendingCount}
         tokenCounting={tokenCounting}
         tokenUsage={tokenUsage}
         totalFiles={totalStats.totalFiles}
         treeLoading={projectTreeTokenCountLoading}
+        useTapestryRanges={useTapestryRangesForContextOutput}
       />
     </div>
   );

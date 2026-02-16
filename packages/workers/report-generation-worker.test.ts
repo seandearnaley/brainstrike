@@ -24,7 +24,7 @@ describe('report-generation-worker', () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createReportGenerationWorker({ fileSystemAdapter: adapter });
     const rootHandle = await adapter.requestDirectoryAccess();
-    const spy = vi.spyOn(utils, 'generateReportFromAdapter').mockResolvedValue('report');
+    const spy = vi.spyOn(utils, 'generateContextFromAdapter').mockResolvedValue('report');
 
     const result = await worker({ ...baseRequest, rootDirectoryHandle: rootHandle });
 
@@ -37,7 +37,7 @@ describe('report-generation-worker', () => {
     const worker = createReportGenerationWorker();
     const rootHandle =
       (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
-    const spy = vi.spyOn(utils, 'generateReport').mockResolvedValue('report');
+    const spy = vi.spyOn(utils, 'generateContext').mockResolvedValue('report');
 
     const result = await worker({ ...baseRequest, rootDirectoryHandle: rootHandle });
 
@@ -50,7 +50,7 @@ describe('report-generation-worker', () => {
     const worker = createReportGenerationWorker();
     const rootHandle =
       (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
-    vi.spyOn(utils, 'generateReport').mockResolvedValue('done');
+    vi.spyOn(utils, 'generateContext').mockResolvedValue('done');
 
     const progress: number[] = [];
     await worker({ ...baseRequest, rootDirectoryHandle: rootHandle }, (e) =>
@@ -58,5 +58,32 @@ describe('report-generation-worker', () => {
     );
 
     expect(progress).toEqual([0, 1]);
+  });
+
+  it('passes tapestry and tree filter options when provided', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createReportGenerationWorker();
+    const rootHandle =
+      (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
+    const spy = vi.spyOn(utils, 'generateContext').mockResolvedValue('done');
+
+    await worker({
+      ...baseRequest,
+      rootDirectoryHandle: rootHandle,
+      projectTreeUsesViewFilters: false,
+      useTapestryRanges: true,
+      selectedLineRangesByFile: {
+        'a.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+      },
+    });
+
+    const call = spy.mock.calls[0];
+    expect(call?.[8]).toEqual({
+      projectTreeUsesViewFilters: false,
+      useTapestryRanges: true,
+      selectedLineRangesByFile: {
+        'a.ts': [{ startLine: 0, endLine: 1, isActive: true }],
+      },
+    });
   });
 });

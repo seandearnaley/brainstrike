@@ -1,5 +1,9 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import { generateReport, generateReportFromAdapter } from '@brainstrike/utils';
+import {
+  type ContextLineRange,
+  generateContext,
+  generateContextFromAdapter,
+} from '@brainstrike/utils';
 
 export interface ReportGenerationRequest {
   selectedFiles: Set<string>;
@@ -9,7 +13,10 @@ export interface ReportGenerationRequest {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  projectTreeUsesViewFilters?: boolean;
   folderSummaryThreshold: number;
+  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
+  useTapestryRanges?: boolean;
 }
 
 export interface ProgressEvent {
@@ -38,12 +45,20 @@ export function createReportGenerationWorker({
       excludeFilters,
       useRegex,
       includeProjectTree,
+      projectTreeUsesViewFilters,
       folderSummaryThreshold,
+      selectedLineRangesByFile,
+      useTapestryRanges = false,
     } = request;
+    const generationOptions = {
+      projectTreeUsesViewFilters: projectTreeUsesViewFilters ?? false,
+      ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
+      useTapestryRanges,
+    };
 
-    const report =
+    const context =
       fileSystemAdapter && 'platform' in rootDirectoryHandle
-        ? await generateReportFromAdapter(
+        ? await generateContextFromAdapter(
             selectedFiles,
             fileContents,
             fileSystemAdapter,
@@ -52,9 +67,10 @@ export function createReportGenerationWorker({
             excludeFilters,
             useRegex,
             includeProjectTree,
-            folderSummaryThreshold
+            folderSummaryThreshold,
+            generationOptions
           )
-        : await generateReport(
+        : await generateContext(
             selectedFiles,
             fileContents,
             rootDirectoryHandle as FileSystemDirectoryHandle,
@@ -62,10 +78,11 @@ export function createReportGenerationWorker({
             excludeFilters,
             useRegex,
             includeProjectTree,
-            folderSummaryThreshold
+            folderSummaryThreshold,
+            generationOptions
           );
 
     onProgress?.({ loaded: 1, total: 1 });
-    return report;
+    return context;
   };
 }

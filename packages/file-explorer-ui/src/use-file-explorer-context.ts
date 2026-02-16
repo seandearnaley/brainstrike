@@ -88,7 +88,10 @@ export interface RestorationProgress {
 }
 
 interface UseFileExplorerReturn {
+  /** Filtered tree currently visible in the explorer */
   fileTree: IFileNode[];
+  /** Unfiltered tree from the file-system source */
+  unfilteredFileTree?: IFileNode[];
   handleRootDirectorySelect: () => Promise<DirectoryHandle | null>;
   isLoading: boolean;
   error: Error | null;
@@ -674,6 +677,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   return {
     fileTree: filteredTree,
+    unfilteredFileTree: fileTree,
     handleRootDirectorySelect,
     isLoading: isTreeLoading,
     error: displayError,

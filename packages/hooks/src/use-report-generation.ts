@@ -1,9 +1,18 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type { ContextLineRange } from '@brainstrike/utils';
 import {
   createReportGenerationWorker,
   type ProgressEvent as ReportProgressEvent,
 } from '@brainstrike/workers/report-generation-worker';
 import { useCallback, useMemo, useRef, useState } from 'react';
+
+export type { ContextLineRange } from '@brainstrike/utils';
+
+export interface ContextGenerationOverrides {
+  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
+  useTapestryRanges?: boolean;
+  projectTreeUsesViewFilters?: boolean;
+}
 
 interface UseReportGenerationProps {
   selectedFiles: Set<string>;
@@ -14,6 +23,7 @@ interface UseReportGenerationProps {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  projectTreeUsesViewFilters?: boolean;
   folderSummaryThreshold: number;
   /**
    * Optional callback to load missing file contents before report generation.
@@ -38,6 +48,7 @@ export function useReportGeneration({
   excludeFilters,
   useRegex,
   includeProjectTree,
+  projectTreeUsesViewFilters = false,
   folderSummaryThreshold,
   loadMissingContent,
   getFileContents,
@@ -54,6 +65,7 @@ export function useReportGeneration({
       excludeFilters,
       useRegex,
       includeProjectTree,
+      projectTreeUsesViewFilters,
       folderSummaryThreshold,
       fileSystemAdapter,
       loadMissingContent,
@@ -67,6 +79,7 @@ export function useReportGeneration({
       excludeFilters,
       useRegex,
       includeProjectTree,
+      projectTreeUsesViewFilters,
       folderSummaryThreshold,
       fileSystemAdapter,
       loadMissingContent,
@@ -79,7 +92,8 @@ export function useReportGeneration({
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   payloadRef.current = stablePayload;
 
-  const generateReportWithContent = useCallback(async () => {
+  // Keep callback identity stable; runtime inputs are read from payloadRef at call time.
+  const generateContextWithContent = useCallback(async (overrides?: ContextGenerationOverrides) => {
     if (!payloadRef.current.rootDirectoryHandle) {
       throw new Error('No root directory selected');
     }
@@ -96,6 +110,7 @@ export function useReportGeneration({
         excludeFilters: exc,
         useRegex: rx,
         includeProjectTree: proj,
+        projectTreeUsesViewFilters: treeUsesViewFilters,
         folderSummaryThreshold: thr,
         loadMissingContent: loadContent,
         getFileContents: getContents,
@@ -123,7 +138,13 @@ export function useReportGeneration({
           excludeFilters: exc,
           useRegex: rx,
           includeProjectTree: proj,
+          // When override is undefined, use the latest persisted toggle from payloadRef.
+          projectTreeUsesViewFilters: overrides?.projectTreeUsesViewFilters ?? treeUsesViewFilters,
           folderSummaryThreshold: thr,
+          ...(overrides?.selectedLineRangesByFile
+            ? { selectedLineRangesByFile: overrides.selectedLineRangesByFile }
+            : {}),
+          useTapestryRanges: overrides?.useTapestryRanges ?? false,
         },
         (e: ReportProgressEvent) => setProgress(e)
       );
@@ -133,7 +154,8 @@ export function useReportGeneration({
   }, []);
 
   return {
-    generateReportWithContent,
+    generateContextWithContent,
+    generateReportWithContent: generateContextWithContent,
     isGenerating,
     progress,
   };

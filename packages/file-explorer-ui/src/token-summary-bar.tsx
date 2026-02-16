@@ -1,5 +1,5 @@
 import { Badge, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
-import { CheckCircle2, Files, Layers, type LucideIcon, TreePine } from 'lucide-react';
+import { CheckCircle2, Files, FileText, Layers, type LucideIcon, TreePine } from 'lucide-react';
 import { memo, type ReactNode } from 'react';
 import type { TokenCountingState } from './use-token-counting';
 
@@ -105,8 +105,12 @@ const BudgetStatus = memo<BudgetStatusProps>(function BudgetStatus({ remaining, 
 interface TokenSummaryBarProps {
   totalFiles: number;
   selectedTokens: number;
+  sourceSelectedTokens?: number;
   treeTokens: number;
   includeTree: boolean;
+  useTapestryRanges?: boolean;
+  rangeAdjustedFilesCount?: number;
+  activeRangeFilesCount?: number;
   treeLoading?: boolean;
   /** BST-153: Number of files still being indexed (for "estimating..." state) */
   selectedTokensPendingCount?: number;
@@ -124,8 +128,12 @@ interface TokenSummaryBarProps {
 export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryBar({
   totalFiles,
   selectedTokens,
+  sourceSelectedTokens = selectedTokens,
   treeTokens,
   includeTree,
+  useTapestryRanges = false,
+  rangeAdjustedFilesCount = 0,
+  activeRangeFilesCount = 0,
   treeLoading = false,
   selectedTokensPendingCount = 0,
   budget,
@@ -135,6 +143,8 @@ export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryB
   const remaining = budget - (selectedTokens + (includeTree ? treeTokens : 0));
   // BST-153: Show estimating indicator when files are still being indexed
   const isEstimating = selectedTokensPendingCount > 0;
+  const sourceAndOutputDiffer = sourceSelectedTokens !== selectedTokens;
+  const showSourceTokens = useTapestryRanges;
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -157,20 +167,49 @@ export const TokenSummaryBar = memo<TokenSummaryBarProps>(function TokenSummaryB
           label=""
           tooltip={
             <div className="text-xs">
-              <div className="font-medium">Selected Tokens</div>
+              <div className="font-medium">
+                {useTapestryRanges ? 'Context Output Tokens' : 'Selected Tokens'}
+              </div>
               <div className="text-muted-foreground">
                 {isEstimating
                   ? `Counted ${totalFiles - selectedTokensPendingCount} of ${totalFiles} file${totalFiles !== 1 ? 's' : ''}…`
-                  : `Tokens from ${totalFiles} selected file${totalFiles !== 1 ? 's' : ''}`}
+                  : useTapestryRanges
+                    ? 'Estimated tokens included in final context export'
+                    : `Tokens from ${totalFiles} selected file${totalFiles !== 1 ? 's' : ''}`}
               </div>
+              {useTapestryRanges && (
+                <div className="text-muted-foreground">
+                  {rangeAdjustedFilesCount > 0
+                    ? `${activeRangeFilesCount} of ${rangeAdjustedFilesCount} ranged file${rangeAdjustedFilesCount !== 1 ? 's' : ''} currently include active selections`
+                    : 'Files without explicit ranges are treated as fully selected'}
+                </div>
+              )}
             </div>
           }
           value={
             isEstimating
               ? `${selectedTokens.toLocaleString()}+ estimating…`
-              : `${selectedTokens.toLocaleString()} selected`
+              : `${selectedTokens.toLocaleString()} ${useTapestryRanges ? 'output' : 'selected'}`
           }
         />
+
+        {showSourceTokens && (
+          <StatItem
+            icon={FileText}
+            iconColor="text-muted-foreground"
+            label=""
+            muted={!sourceAndOutputDiffer}
+            tooltip={
+              <div className="text-xs">
+                <div className="font-medium">Full-File Source Tokens</div>
+                <div className="text-muted-foreground">
+                  Tokens across complete selected files before tapestry range filtering
+                </div>
+              </div>
+            }
+            value={`${sourceSelectedTokens.toLocaleString()} source`}
+          />
+        )}
 
         {/* Tree tokens (if enabled) */}
         <StatItem

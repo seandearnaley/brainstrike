@@ -6,9 +6,11 @@ import { useReportGeneration } from '../use-report-generation';
 // Mock the report generator
 vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+  const generateContext = vi.fn();
   return {
     ...actual,
-    generateReport: vi.fn(),
+    generateContext,
+    generateReport: generateContext,
   };
 });
 
@@ -86,7 +88,11 @@ describe('useReportGeneration', () => {
       mockExcludeFilters,
       mockUseRegex,
       mockIncludeProjectTree,
-      mockFolderSummaryThreshold
+      mockFolderSummaryThreshold,
+      {
+        projectTreeUsesViewFilters: false,
+        useTapestryRanges: false,
+      }
     );
 
     expect(reportResult).toBe(mockReport);
@@ -236,7 +242,11 @@ describe('useReportGeneration', () => {
         mockExcludeFilters,
         mockUseRegex,
         mockIncludeProjectTree,
-        mockFolderSummaryThreshold
+        mockFolderSummaryThreshold,
+        {
+          projectTreeUsesViewFilters: false,
+          useTapestryRanges: false,
+        }
       );
     });
 
@@ -310,7 +320,11 @@ describe('useReportGeneration', () => {
         expect.anything(),
         expect.anything(),
         expect.anything(),
-        expect.anything()
+        expect.anything(),
+        {
+          projectTreeUsesViewFilters: false,
+          useTapestryRanges: false,
+        }
       );
     });
 
@@ -347,7 +361,11 @@ describe('useReportGeneration', () => {
         expect.anything(),
         expect.anything(),
         expect.anything(),
-        expect.anything()
+        expect.anything(),
+        {
+          projectTreeUsesViewFilters: false,
+          useTapestryRanges: false,
+        }
       );
     });
 
@@ -378,7 +396,11 @@ describe('useReportGeneration', () => {
         mockExcludeFilters,
         mockUseRegex,
         mockIncludeProjectTree,
-        mockFolderSummaryThreshold
+        mockFolderSummaryThreshold,
+        {
+          projectTreeUsesViewFilters: false,
+          useTapestryRanges: false,
+        }
       );
     });
 

@@ -7,6 +7,7 @@ export interface LineData {
 export interface TapestryRange {
   id: string;
   startLine: number;
+  // End line is exclusive: range covers [startLine, endLine).
   endLine: number;
   isActive: boolean;
   color: string;

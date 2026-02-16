@@ -475,7 +475,7 @@ export function TabbedFileEditor({
         {tabs.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center p-4 text-center text-muted-foreground">
             <p className="font-semibold">No files open</p>
-            <p className="text-sm">Click on a file in the preview panel to open it here</p>
+            <p className="text-sm">Click on a file in Context Explorer to open it here</p>
           </div>
         ) : activeTabId === null ? (
           <div className="p-4 text-muted-foreground">Select a file to view its content.</div>

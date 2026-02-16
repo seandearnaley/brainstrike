@@ -46,20 +46,34 @@ const createMockStore = (initialContents: Record<string, string>) => {
 describe('usePreviewPanelReportActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUseReportGeneration.mockReturnValue({ generateReportWithContent: vi.fn() });
+    const generateContextWithContent = vi.fn();
+    mockUseReportGeneration.mockReturnValue({
+      generateContextWithContent,
+      generateReportWithContent: generateContextWithContent,
+    });
     mockUseReportManager.mockReturnValue({
+      handleDownloadContext: vi.fn(),
+      handleCopyContext: vi.fn(),
       handleDownloadReport: vi.fn(),
       handleCopyReport: vi.fn(),
     });
   });
 
-  it('returns download/copy handlers from useReportManager', () => {
-    const generateReportWithContent = vi.fn(async () => 'report');
-    const handleDownloadReport = vi.fn();
-    const handleCopyReport = vi.fn();
+  it('returns download/copy handlers that delegate to useReportManager', async () => {
+    const generateContextWithContent = vi.fn(async () => 'report');
+    const handleDownloadContext = vi.fn();
+    const handleCopyContext = vi.fn();
 
-    mockUseReportGeneration.mockReturnValue({ generateReportWithContent });
-    mockUseReportManager.mockReturnValue({ handleDownloadReport, handleCopyReport });
+    mockUseReportGeneration.mockReturnValue({
+      generateContextWithContent,
+      generateReportWithContent: generateContextWithContent,
+    });
+    mockUseReportManager.mockReturnValue({
+      handleDownloadContext,
+      handleCopyContext,
+      handleDownloadReport: handleDownloadContext,
+      handleCopyReport: handleCopyContext,
+    });
 
     const { store } = createMockStore({});
 
@@ -80,13 +94,19 @@ describe('usePreviewPanelReportActions', () => {
       { wrapper: createWrapper() }
     );
 
-    expect(result.current.handleDownloadReport).toBe(handleDownloadReport);
-    expect(result.current.handleCopyReport).toBe(handleCopyReport);
+    await result.current.handleDownloadContext();
+    await result.current.handleCopyContext();
+
+    expect(handleDownloadContext).toHaveBeenCalledTimes(1);
+    expect(handleCopyContext).toHaveBeenCalledTimes(1);
   });
 
   it('passes expected parameters to useReportGeneration and useReportManager', () => {
-    const generateReportWithContent = vi.fn(async () => 'report');
-    mockUseReportGeneration.mockReturnValue({ generateReportWithContent });
+    const generateContextWithContent = vi.fn(async () => 'report');
+    mockUseReportGeneration.mockReturnValue({
+      generateContextWithContent,
+      generateReportWithContent: generateContextWithContent,
+    });
 
     const { store } = createMockStore({ fileA: 'content' });
     const loadMultipleFileContents = vi.fn().mockResolvedValue(undefined);
@@ -118,6 +138,7 @@ describe('usePreviewPanelReportActions', () => {
       excludeFilters: string[];
       useRegex: boolean;
       includeProjectTree: boolean;
+      projectTreeUsesViewFilters: boolean;
       folderSummaryThreshold: number;
       loadMissingContent?: (compositeKeys: string[]) => Promise<void>;
       getFileContents?: () => Record<string, string>;
@@ -131,6 +152,7 @@ describe('usePreviewPanelReportActions', () => {
     expect(reportGenerationArgs.excludeFilters).toEqual(['exclude']);
     expect(reportGenerationArgs.useRegex).toBe(true);
     expect(reportGenerationArgs.includeProjectTree).toBe(true);
+    expect(reportGenerationArgs.projectTreeUsesViewFilters).toBe(false);
     expect(reportGenerationArgs.folderSummaryThreshold).toBe(42);
     expect(reportGenerationArgs.loadMissingContent).toBe(loadMultipleFileContents);
     expect(reportGenerationArgs.getFileContents).toEqual(expect.any(Function));
@@ -138,13 +160,13 @@ describe('usePreviewPanelReportActions', () => {
     expect(mockUseReportManager).toHaveBeenCalledTimes(1);
     const reportManagerArgs = mockUseReportManager.mock.calls[0]?.[0] as {
       rootDirectoryHandle: DirectoryHandle | FileSystemDirectoryHandle | null;
-      generateReportWithContent: () => Promise<string>;
+      generateContextWithContent: () => Promise<string>;
       showToast: unknown;
       toast: unknown;
     };
 
     expect(reportManagerArgs.rootDirectoryHandle).toBeNull();
-    expect(reportManagerArgs.generateReportWithContent).toBe(generateReportWithContent);
+    expect(reportManagerArgs.generateContextWithContent).toBe(generateContextWithContent);
     expect(reportManagerArgs.showToast).toBe(mockShowToast);
     expect(reportManagerArgs.toast).toBe(mockToast);
   });

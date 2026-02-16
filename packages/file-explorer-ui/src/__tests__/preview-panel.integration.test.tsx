@@ -70,6 +70,19 @@ interface MockCheckboxProps {
   [key: string]: unknown;
 }
 
+interface MockLabelProps {
+  children: React.ReactNode;
+  htmlFor?: string;
+  [key: string]: unknown;
+}
+
+interface MockSwitchProps {
+  checked?: boolean;
+  disabled?: boolean;
+  onCheckedChange?: (checked: boolean) => void;
+  [key: string]: unknown;
+}
+
 interface MockProgressProps {
   value?: number;
   [key: string]: unknown;
@@ -106,6 +119,26 @@ vi.mock('@brainstrike/ui', () => ({
       data-testid="checkbox"
       onChange={(e) => onCheckedChange?.(e.target.checked)}
       type="checkbox"
+      {...props}
+    />
+  ),
+  Label: ({ children, htmlFor, ...props }: MockLabelProps) => (
+    <label data-testid="label" htmlFor={htmlFor} {...props}>
+      {children}
+    </label>
+  ),
+  Switch: ({ checked, disabled, onCheckedChange, ...props }: MockSwitchProps) => (
+    <button
+      aria-checked={checked}
+      data-testid="switch"
+      disabled={disabled}
+      onClick={() => {
+        if (!disabled) {
+          onCheckedChange?.(!checked);
+        }
+      }}
+      role="switch"
+      type="button"
       {...props}
     />
   ),
@@ -621,7 +654,7 @@ describe('PreviewPanel Integration Tests', () => {
       // Verify initial state
       const runStats = screen.getAllByText((_, element) => {
         const text = element?.textContent ?? '';
-        return text.includes('25 files') && text.includes('5,000 selected');
+        return text.includes('25 files') && text.includes('5,000 output');
       });
       expect(runStats.length > 0).toBe(true);
 
@@ -642,7 +675,7 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Verify selection UI appears
       await waitFor(() => {
-        expect(screen.getByText(/files selected in preview/)).toBeInTheDocument();
+        expect(screen.getByText(/files selected in Context Explorer/)).toBeInTheDocument();
       });
 
       // Perform batch removal
@@ -777,7 +810,7 @@ describe('PreviewPanel Integration Tests', () => {
       // Should still render successfully with mixed states
       const mixedStats = screen.getAllByText((_, element) => {
         const text = element?.textContent ?? '';
-        return text.includes('50 files') && text.includes('10,000 selected');
+        return text.includes('50 files') && text.includes('10,000 output');
       });
       expect(mixedStats.length > 0).toBe(true);
       expect(screen.getByText('file1.txt')).toBeInTheDocument();
@@ -792,7 +825,7 @@ describe('PreviewPanel Integration Tests', () => {
 
       const pagedStats = screen.getAllByText((_, element) => {
         const text = element?.textContent ?? '';
-        return text.includes('10 files') && text.includes('2,000 selected');
+        return text.includes('10 files') && text.includes('2,000 output');
       });
       expect(pagedStats.length > 0).toBe(true);
 
@@ -805,7 +838,7 @@ describe('PreviewPanel Integration Tests', () => {
 
       const reducedStats = screen.getAllByText((_, element) => {
         const text = element?.textContent ?? '';
-        return text.includes('20 files') && text.includes('4,000 selected');
+        return text.includes('20 files') && text.includes('4,000 output');
       });
       expect(reducedStats.length > 0).toBe(true);
     });
@@ -834,18 +867,18 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Should show selection bar
       await waitFor(() => {
-        expect(screen.getByText(/files selected in preview/)).toBeInTheDocument();
+        expect(screen.getByText(/files selected in Context Explorer/)).toBeInTheDocument();
       });
 
       // Clear selection
-      const clearButton = screen.getByText('Clear Preview Selection');
+      const clearButton = screen.getByText('Clear Context Selection');
       act(() => {
         fireEvent.click(clearButton);
       });
 
       // Selection bar should disappear
       await waitFor(() => {
-        expect(screen.queryByText(/files selected in preview/)).not.toBeInTheDocument();
+        expect(screen.queryByText(/files selected in Context Explorer/)).not.toBeInTheDocument();
       });
     });
 

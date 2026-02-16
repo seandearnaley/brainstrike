@@ -28,7 +28,7 @@ test.describe('Report Folder Summary Threshold', () => {
     await waitForAppLoad(page);
   });
 
-  test('should respect folderSummaryThreshold when generating reports', async ({ page }) => {
+  test('should respect folderSummaryThreshold when generating context', async ({ page }) => {
     // Select root directory
     await page.getByTestId('select-root-button').click();
 
@@ -50,8 +50,8 @@ test.describe('Report Folder Summary Threshold', () => {
     await expect(testCheckbox).toBeChecked();
     await expect(page.getByText('1/10')).toBeVisible();
 
-    // Download report with default threshold (5)
-    const downloadButton = page.getByRole('button', { name: 'Download Report' });
+    // Download context with default threshold (5)
+    const downloadButton = page.getByRole('button', { name: 'Download Context' });
     await expect(downloadButton).toBeEnabled();
     const download1Promise = page.waitForEvent('download');
     await downloadButton.click();
@@ -79,7 +79,7 @@ test.describe('Report Folder Summary Threshold', () => {
     await expect(thresholdInput).toBeVisible();
     await thresholdInput.fill('2');
 
-    // Download another report
+    // Download another context file
     await expect(downloadButton).toBeEnabled({ timeout: 10_000 });
     const download2Promise = page.waitForEvent('download');
     await downloadButton.click();

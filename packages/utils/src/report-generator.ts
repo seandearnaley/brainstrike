@@ -3,7 +3,29 @@ import { readFullFileTree } from './file-system-utils';
 import { createLogger } from './logger';
 import { generateProjectTreeText } from './tree-generator';
 
-const logger = createLogger('ReportGenerator');
+const logger = createLogger('ContextGenerator');
+const IGNORED_PATTERNS = [
+  'node_modules',
+  '.git',
+  '.DS_Store',
+  'dist',
+  'build',
+  '.turbo',
+  'coverage',
+  '.nyc_output',
+] as const;
+
+export interface ContextLineRange {
+  startLine: number;
+  endLine: number;
+  isActive?: boolean;
+}
+
+export interface ContextGenerationOptions {
+  projectTreeUsesViewFilters?: boolean;
+  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
+  useTapestryRanges?: boolean;
+}
 
 // File tree processing configuration
 interface FileTreeProcessingConfig {
@@ -13,24 +35,11 @@ interface FileTreeProcessingConfig {
   maxDepth: number;
 }
 
-// Helper function to check if a path should be ignored
 function shouldIgnorePath(pathString: string): boolean {
-  const ignoredPatterns = [
-    'node_modules',
-    '.git',
-    '.DS_Store',
-    'dist',
-    'build',
-    '.turbo',
-    'coverage',
-    '.nyc_output',
-  ];
-
   const normalizedPath = pathString.replace(/\/+/g, '/').replace(/^\/+/, '');
-  return ignoredPatterns.some((pattern) => normalizedPath.split('/').includes(pattern));
+  return IGNORED_PATTERNS.some((pattern) => normalizedPath.split('/').includes(pattern));
 }
 
-// File node processing helpers
 function createFileNodeBase(
   node: import('@brainstrike/types').IFileNode,
   depth: number,
@@ -59,41 +68,178 @@ function createChildDirectoryHandle(
   };
 }
 
-// Shared report content generation logic
-function generateReportContent(
-  selectedFiles: Set<string>,
-  fileContents: { [path: string]: string },
-  projectTreeText: string,
-  includeProjectTree: boolean
-): string {
-  // Generate report content
-  const reportContent = `<relevant_files>
-${Array.from(selectedFiles)
-  .map((filePath) => {
-    const content = fileContents[filePath] || `Unable to read file content for ${filePath}`;
-    return `<file path="${filePath}">
+export function splitContentLines(content: string): string[] {
+  const lines = content.split(/\r?\n/u);
+  return lines.length > 0 ? lines : [''];
+}
+
+function stripXmlIllegalControlChars(value: string): string {
+  let sanitized = '';
+  for (const char of value) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint === undefined) {
+      continue;
+    }
+    if (codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd || codePoint >= 0x20) {
+      sanitized += char;
+    }
+  }
+  return sanitized;
+}
+
+function escapeXmlAttribute(value: string): string {
+  const sanitized = stripXmlIllegalControlChars(value);
+  return sanitized
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/'/g, '&apos;');
+}
+
+function clampRange(range: ContextLineRange, totalLines: number): ContextLineRange {
+  const safeTotalLines = Math.max(totalLines, 1);
+  const maxStart = Math.max(safeTotalLines - 1, 0);
+  const startLine = Math.min(Math.max(Math.floor(range.startLine), 0), maxStart);
+  const endLine = Math.min(Math.max(Math.floor(range.endLine), startLine + 1), safeTotalLines);
+  return { ...range, startLine, endLine };
+}
+
+export function normalizeContextLineRanges(
+  ranges: ContextLineRange[] | undefined,
+  totalLines: number
+): ContextLineRange[] {
+  if (!ranges || ranges.length === 0) {
+    return [];
+  }
+
+  const normalized = ranges
+    .filter((range) => range.isActive !== false)
+    .map((range) => clampRange(range, totalLines))
+    .sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine);
+
+  if (normalized.length === 0) {
+    return [];
+  }
+
+  const merged: ContextLineRange[] = [];
+  for (const range of normalized) {
+    const current = merged.at(-1);
+    if (!current) {
+      merged.push(range);
+      continue;
+    }
+
+    if (range.startLine <= current.endLine) {
+      merged[merged.length - 1] = {
+        ...current,
+        endLine: Math.max(current.endLine, range.endLine),
+      };
+      continue;
+    }
+
+    merged.push(range);
+  }
+
+  return merged;
+}
+
+function buildFileContextContent(args: {
+  filePath: string;
+  fileContents: Record<string, string>;
+  selectedLineRangesByFile?: Record<string, ContextLineRange[]>;
+  useTapestryRanges: boolean;
+}): string {
+  const { filePath, fileContents, selectedLineRangesByFile, useTapestryRanges } = args;
+  const escapedFilePath = escapeXmlAttribute(filePath);
+  const content = fileContents[filePath] ?? `Unable to read file content for ${filePath}`;
+  const fullFileContextContent = `<file path="${escapedFilePath}">
 ${content}
 </file>`;
-  })
-  .join('\n')}
-</relevant_files>`;
 
-  // Construct the final report
-  const finalReportParts = ['<report>', reportContent];
+  if (!(useTapestryRanges && filePath in fileContents)) {
+    return fullFileContextContent;
+  }
+
+  const hasExplicitRangesForFile = selectedLineRangesByFile
+    ? Object.hasOwn(selectedLineRangesByFile, filePath)
+    : false;
+
+  // If a file has no explicit tapestry ranges, treat it as fully selected.
+  // This preserves expected "default hot" behavior for context export.
+  if (!hasExplicitRangesForFile) {
+    return fullFileContextContent;
+  }
+
+  const lines = splitContentLines(content);
+  const activeRanges = normalizeContextLineRanges(
+    selectedLineRangesByFile?.[filePath],
+    lines.length
+  );
+
+  if (activeRanges.length === 0) {
+    // Keep an explicit marker instead of omitting the file so downstream consumers
+    // can distinguish "file intentionally excluded by ranges" from "file omitted".
+    // Consumers should treat this as selection metadata, not file content.
+    return `<file path="${escapedFilePath}">
+<selection_summary>No active tapestry ranges selected.</selection_summary>
+</file>`;
+  }
+
+  const selections = activeRanges
+    .map((range, index) => {
+      const selectionContent = lines.slice(range.startLine, range.endLine).join('\n');
+      return `<selection index="${index + 1}" start_line="${range.startLine}" end_line="${range.endLine}">
+${selectionContent}
+</selection>`;
+    })
+    .join('\n');
+
+  return `<file path="${escapedFilePath}">
+${selections}
+</file>`;
+}
+
+function generateContextContent(
+  selectedFiles: Set<string>,
+  fileContents: Record<string, string>,
+  projectTreeText: string,
+  includeProjectTree: boolean,
+  options: ContextGenerationOptions
+): string {
+  // Context export format uses <context>/<relevant_context>; function aliases below
+  // preserve API migration compatibility for callers still using "report" naming.
+  // File payloads may contain either <selection> blocks or a <selection_summary> metadata marker
+  // when all ranges are inactive for a file.
+  const relevantContext = `<relevant_context>
+${Array.from(selectedFiles)
+  .map((filePath) =>
+    buildFileContextContent({
+      filePath,
+      fileContents,
+      ...(options.selectedLineRangesByFile
+        ? { selectedLineRangesByFile: options.selectedLineRangesByFile }
+        : {}),
+      useTapestryRanges: options.useTapestryRanges ?? false,
+    })
+  )
+  .join('\n')}
+</relevant_context>`;
+
+  const finalContextParts = ['<context>', relevantContext];
 
   if (includeProjectTree && projectTreeText) {
-    finalReportParts.push(`
+    finalContextParts.push(`
 <project_tree>
 ${projectTreeText}
 </project_tree>`);
   }
 
-  finalReportParts.push('</report>');
+  finalContextParts.push('</context>');
 
-  return finalReportParts.join('\n');
+  return finalContextParts.join('\n');
 }
 
-// Directory processing logic
 async function processDirectoryNode(
   node: import('@brainstrike/types').IFileNode,
   config: FileTreeProcessingConfig,
@@ -102,7 +248,6 @@ async function processDirectoryNode(
 ): Promise<import('@brainstrike/types').IFileNode> {
   const baseNode = createFileNodeBase(node, config.depth, config.rootFolderId);
 
-  // Check depth limit first
   if (config.depth >= config.maxDepth - 1) {
     return {
       ...baseNode,
@@ -111,7 +256,6 @@ async function processDirectoryNode(
     };
   }
 
-  // Check for circular references
   if (config.visitedPaths.has(node.path)) {
     return {
       ...baseNode,
@@ -120,7 +264,6 @@ async function processDirectoryNode(
     };
   }
 
-  // Recursively read subdirectory
   const childDirectoryHandle = createChildDirectoryHandle(node, directoryHandle);
   const children = await readFullFileTreeFromAdapter(
     fileSystemAdapter,
@@ -138,7 +281,6 @@ async function processDirectoryNode(
   };
 }
 
-// Process individual file or directory nodes
 async function processFileNode(
   node: import('@brainstrike/types').IFileNode,
   config: FileTreeProcessingConfig,
@@ -150,13 +292,12 @@ async function processFileNode(
   }
 
   if (node.type === 'directory') {
-    return await processDirectoryNode(node, config, fileSystemAdapter, directoryHandle);
+    return processDirectoryNode(node, config, fileSystemAdapter, directoryHandle);
   }
 
   return null;
 }
 
-// Platform-agnostic file tree reading function
 async function readFullFileTreeFromAdapter(
   fileSystemAdapter: FileSystemAdapter,
   directoryHandle: DirectoryHandle,
@@ -168,9 +309,8 @@ async function readFullFileTreeFromAdapter(
 ): Promise<import('@brainstrike/types').IFileNode[]> {
   const currentPath = parentPath || directoryHandle.path;
 
-  // Check for circular references using paths instead of handles
   if (visitedPaths.has(currentPath)) {
-    return []; // Avoid infinite recursion
+    return [];
   }
 
   const newVisitedPaths = new Set(visitedPaths);
@@ -210,61 +350,104 @@ async function readFullFileTreeFromAdapter(
   }
 }
 
+function resolveProjectTreeFilterMode(
+  includeFilters: string[],
+  excludeFilters: string[],
+  useRegex: boolean,
+  options: ContextGenerationOptions
+): { includeFilters: string[]; excludeFilters: string[]; useRegex: boolean } {
+  const useViewFilters = options.projectTreeUsesViewFilters ?? false;
+
+  if (!useViewFilters) {
+    return { includeFilters: [], excludeFilters: [], useRegex: false };
+  }
+
+  return { includeFilters, excludeFilters, useRegex };
+}
+
 // Platform-agnostic version that works with our adapter pattern
-export async function generateReportFromAdapter(
+export async function generateContextFromAdapter(
   selectedFiles: Set<string>,
-  fileContents: { [path: string]: string },
+  fileContents: Record<string, string>,
   fileSystemAdapter: FileSystemAdapter,
   rootDirectoryHandle: DirectoryHandle,
   includeFilters: string[],
   excludeFilters: string[],
   useRegex: boolean,
   includeProjectTree: boolean,
-  folderSummaryThreshold = 5
+  folderSummaryThreshold = 5,
+  options: ContextGenerationOptions = {}
 ): Promise<string> {
   let projectTreeText = '';
 
   if (includeProjectTree) {
-    // Read the full file tree recursively using our adapter
     const fullFileTree = await readFullFileTreeFromAdapter(fileSystemAdapter, rootDirectoryHandle);
-    // Generate project tree text
-    projectTreeText = generateProjectTreeText(
-      fullFileTree,
+    const treeFilterMode = resolveProjectTreeFilterMode(
       includeFilters,
       excludeFilters,
       useRegex,
+      options
+    );
+    projectTreeText = generateProjectTreeText(
+      fullFileTree,
+      treeFilterMode.includeFilters,
+      treeFilterMode.excludeFilters,
+      treeFilterMode.useRegex,
       folderSummaryThreshold
     );
   }
 
-  return generateReportContent(selectedFiles, fileContents, projectTreeText, includeProjectTree);
+  return generateContextContent(
+    selectedFiles,
+    fileContents,
+    projectTreeText,
+    includeProjectTree,
+    options
+  );
 }
 
-// Original web-only version for backward compatibility
-export async function generateReport(
+// Web-only version for browser FileSystem APIs
+export async function generateContext(
   selectedFiles: Set<string>,
-  fileContents: { [path: string]: string },
+  fileContents: Record<string, string>,
   rootDirectoryHandle: FileSystemDirectoryHandle,
   includeFilters: string[],
   excludeFilters: string[],
   useRegex: boolean,
   includeProjectTree: boolean,
-  folderSummaryThreshold = 5
+  folderSummaryThreshold = 5,
+  options: ContextGenerationOptions = {}
 ): Promise<string> {
   let projectTreeText = '';
 
   if (includeProjectTree) {
-    // Read the full file tree recursively using readFullFileTree from local utils
     const fullFileTree = await readFullFileTree(rootDirectoryHandle);
-    // Generate project tree text
-    projectTreeText = generateProjectTreeText(
-      fullFileTree,
+    const treeFilterMode = resolveProjectTreeFilterMode(
       includeFilters,
       excludeFilters,
       useRegex,
+      options
+    );
+    projectTreeText = generateProjectTreeText(
+      fullFileTree,
+      treeFilterMode.includeFilters,
+      treeFilterMode.excludeFilters,
+      treeFilterMode.useRegex,
       folderSummaryThreshold
     );
   }
 
-  return generateReportContent(selectedFiles, fileContents, projectTreeText, includeProjectTree);
+  return generateContextContent(
+    selectedFiles,
+    fileContents,
+    projectTreeText,
+    includeProjectTree,
+    options
+  );
 }
+
+/** @deprecated Use `generateContextFromAdapter` instead. */
+export const generateReportFromAdapter = generateContextFromAdapter;
+
+/** @deprecated Use `generateContext` instead. */
+export const generateReport = generateContext;
