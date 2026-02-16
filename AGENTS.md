@@ -17,29 +17,6 @@ Always treat this file as authoritative and current.
 
 ---
 
-## TOOLING WORKFLOW (MCP / CODE NAVIGATION)
-
-Use tools before speculating. Follow this order unless explicitly told otherwise.
-
-Priority:
-- Tier 1:
-  - semantic_search_with_context
-  - analyze_impact
-- Tier 2:
-  - find_symbol
-  - get_calls
-  - find_callers
-- Tier 3:
-  - search_symbols
-  - semantic_search_docs
-  - get_index_info
-
-Default workflow:
-1. Use semantic_search_with_context to locate relevant code + context.
-2. Use analyze_impact to understand dependencies and change radius.
-3. Use find_symbol / get_calls / find_callers for precise usage details.
-4. Only then propose or apply changes.
-
 Do not start dev servers or heavy processes unless explicitly requested.
 
 ---
