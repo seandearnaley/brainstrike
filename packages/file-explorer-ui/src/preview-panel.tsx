@@ -131,6 +131,7 @@ interface PreviewPanelProps {
   ) => void;
   onFileClick?: (compositeKey: string) => void;
   pageSize?: number;
+  // TODO(BST-291): remove legacy report-named callbacks after context API migration.
   /** @deprecated Use `onDownloadContext` instead. */
   onDownloadReport?: () => void;
   /** @deprecated Use `onCopyContext` instead. */
@@ -346,6 +347,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // Snapshot reconciliation intentionally uses ref + memo + effect together:
   // memo compares next snapshot against the previous committed snapshot ref,
   // then effect commits the current snapshot for the next render cycle.
+  // The ref is intentionally excluded from memo dependencies because it stores
+  // comparison baseline state from the previous committed render, not current inputs.
   const selectedFileContentSnapshot = useMemo(() => {
     const previousSnapshot = summaryFileContentsRef.current;
     if (!useTapestryRangesForContextOutput) {

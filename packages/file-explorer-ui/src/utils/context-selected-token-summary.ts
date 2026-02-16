@@ -57,6 +57,7 @@ function estimateRangeAdjustedTokens(
 ): number {
   // Heuristic estimate: assumes token density is roughly proportional to normalized character count.
   // This is intentionally approximate and can drift on mixed-density content (comments/minified segments).
+  // Range convention is half-open [startLine, endLine), matching normalizeContextLineRanges output.
   if (fullTokenCount <= 0 || activeRanges.length === 0) {
     return 0;
   }
@@ -182,6 +183,7 @@ export function computeContextSelectedTokenSummary(
     sourceSelectedTokens: args.sourceSelectedTokens,
     outputSelectedTokens: args.sourceSelectedTokens,
     sourcePendingCount: args.sourcePendingCount,
+    // Pending source files mean outputSelectedTokens is still a partial estimate.
     outputPendingCount: args.sourcePendingCount,
     rangeAdjustedFilesCount: 0,
     activeRangeFilesCount: 0,

@@ -82,7 +82,6 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
   const manager = useReportManager({
     rootDirectoryHandle: input.rootDirectoryHandle,
     generateContextWithContent,
-    generateReportWithContent: generateContextWithContent,
     showToast,
     toast,
   });

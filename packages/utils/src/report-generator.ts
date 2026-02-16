@@ -155,6 +155,7 @@ ${content}
   if (activeRanges.length === 0) {
     // Keep an explicit marker instead of omitting the file so downstream consumers
     // can distinguish "file intentionally excluded by ranges" from "file omitted".
+    // Consumers should treat this as selection metadata, not file content.
     return `<file path="${filePath}">
 <selection_summary>No active tapestry ranges selected.</selection_summary>
 </file>`;

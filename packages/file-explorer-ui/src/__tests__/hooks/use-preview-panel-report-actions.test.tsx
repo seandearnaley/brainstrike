@@ -161,14 +161,12 @@ describe('usePreviewPanelReportActions', () => {
     const reportManagerArgs = mockUseReportManager.mock.calls[0]?.[0] as {
       rootDirectoryHandle: DirectoryHandle | FileSystemDirectoryHandle | null;
       generateContextWithContent: () => Promise<string>;
-      generateReportWithContent: () => Promise<string>;
       showToast: unknown;
       toast: unknown;
     };
 
     expect(reportManagerArgs.rootDirectoryHandle).toBeNull();
     expect(reportManagerArgs.generateContextWithContent).toBe(generateContextWithContent);
-    expect(reportManagerArgs.generateReportWithContent).toBe(generateContextWithContent);
     expect(reportManagerArgs.showToast).toBe(mockShowToast);
     expect(reportManagerArgs.toast).toBe(mockToast);
   });
