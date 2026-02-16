@@ -31,6 +31,7 @@ export function McpConfigPanel({ operations, onConfigChanged }: McpConfigPanelPr
     () => Boolean(operations.readMcpConfigText && operations.writeMcpConfigText),
     [operations.readMcpConfigText, operations.writeMcpConfigText]
   );
+  // Keep loadDocument stable while still using the latest operation callback from props.
   const readMcpConfigTextRef = useRef(operations.readMcpConfigText);
 
   useEffect(() => {

@@ -480,9 +480,17 @@ export async function writeMcpConfigText(
     };
   }
 
-  await fsp.mkdir(path.dirname(configPath), { recursive: true });
-  await fsp.writeFile(configPath, content, 'utf-8');
-  return { path: configPath, success: true };
+  try {
+    await fsp.mkdir(path.dirname(configPath), { recursive: true });
+    await fsp.writeFile(configPath, content, 'utf-8');
+    return { path: configPath, success: true };
+  } catch (error) {
+    return {
+      path: configPath,
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 export function getDefaultMcpConfigTemplate(): string {

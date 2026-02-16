@@ -160,6 +160,26 @@ describe('mcp-loader', () => {
     expect(fs.existsSync(configPath)).toBe(true);
   });
 
+  it('returns structured errors when writing MCP config text fails', async () => {
+    const { setCustomMcpConfigPath, writeMcpConfigText } = await import('../../mcp-loader');
+    const nonDirectoryPath = path.join(tempDir, 'not-a-directory');
+    fs.writeFileSync(nonDirectoryPath, 'file marker', 'utf-8');
+    const configPath = path.join(nonDirectoryPath, 'failing-write.json');
+    await setCustomMcpConfigPath(configPath);
+
+    const result = await writeMcpConfigText(
+      JSON.stringify({
+        servers: [{ transport: 'stdio', name: 'fs', command: 'node' }],
+      })
+    );
+
+    expect(result.path).toBe(configPath);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.length).toBeGreaterThan(0);
+    }
+  });
+
   it('reports parse errors without treating config as missing', async () => {
     const { getMcpConfigPath, loadMcpConfig, setCustomMcpConfigPath } = await import(
       '../../mcp-loader'
