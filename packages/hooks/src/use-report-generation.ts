@@ -140,6 +140,7 @@ export function useReportGeneration({
           excludeFilters: exc,
           useRegex: rx,
           includeProjectTree: proj,
+          // When override is undefined, use the latest persisted toggle from payloadRef.
           projectTreeUsesViewFilters: overrides?.projectTreeUsesViewFilters ?? treeUsesViewFilters,
           folderSummaryThreshold: thr,
           ...(overrides?.selectedLineRangesByFile

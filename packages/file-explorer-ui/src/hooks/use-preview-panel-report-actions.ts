@@ -20,6 +20,7 @@ interface UsePreviewPanelReportActionsInput {
   loadMultipleFileContents: (compositeKeys: string[]) => Promise<void>;
 }
 
+// Strip UI-only range fields (id, color) before passing ranges to context generation.
 const toContextGenerationOverrides = (
   options: ContextExportOptions | undefined
 ): ContextGenerationOverrides | undefined => {

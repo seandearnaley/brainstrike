@@ -87,14 +87,13 @@ function buildLinePrefixLengths(lines: string[]): number[] {
 
 function estimateRangeAdjustedTokens(
   fullTokenCount: number,
-  content: string,
+  lines: string[],
   activeRanges: ContextLineRange[]
 ): number {
   if (fullTokenCount <= 0 || activeRanges.length === 0) {
     return 0;
   }
 
-  const lines = splitContentLines(content);
   const linePrefixLengths = buildLinePrefixLengths(lines);
   const totalNormalizedChars = linePrefixLengths[lines.length] ?? 0;
   if (totalNormalizedChars <= 0) {
@@ -170,13 +169,14 @@ function resolveRangedFileTokens(args: {
     return { tokens: fullFileTokenCount, hasActiveSelection: true };
   }
 
-  const normalizedRanges = normalizeContextLineRanges(ranges, splitContentLines(content).length);
+  const lines = splitContentLines(content);
+  const normalizedRanges = normalizeContextLineRanges(ranges, lines.length);
   if (normalizedRanges.length === 0) {
     return { tokens: 0, hasActiveSelection: false };
   }
 
   return {
-    tokens: estimateRangeAdjustedTokens(fullFileTokenCount, content, normalizedRanges),
+    tokens: estimateRangeAdjustedTokens(fullFileTokenCount, lines, normalizedRanges),
     hasActiveSelection: true,
   };
 }
@@ -501,9 +501,11 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   });
 
   const { totalStats, flatListItems } = state;
+  // Defer large list snapshots so expensive token summary work does not block UI updates.
+  const deferredFlatListItems = useDeferredValue(flatListItems);
 
   const contextSelectedTokenSummary = useMemo<ContextSelectedTokenSummary>(() => {
-    const tokenCountByFile = createTokenCountByFile(flatListItems);
+    const tokenCountByFile = createTokenCountByFile(deferredFlatListItems);
 
     return computeContextSelectedTokenSummary({
       sourceSelectedTokens: totalStats.totalTokens,
@@ -515,7 +517,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       fileContents,
     });
   }, [
-    flatListItems,
+    deferredFlatListItems,
     totalStats,
     selectedFiles,
     useTapestryRangesForContextOutput,
@@ -534,8 +536,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     activeRangeFilesCount: contextSelectedTokenSummary.activeRangeFilesCount,
   });
 
-  // Use deferred value for expensive transformations to prevent blocking
-  const deferredFlatListItems = useDeferredValue(flatListItems);
   const decodedSelectionCacheRef = useRef<Map<string, { folderId: string; path: string } | null>>(
     new Map()
   );
@@ -997,6 +997,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [tapestryFileBaseByKey]
   );
 
+  // Keep export payload synchronized with the latest range edits and tree toggle state.
   const contextExportOptions = useMemo<ContextExportOptions>(
     () => ({
       selectedLineRangesByFile: tapestryRangesByKey,

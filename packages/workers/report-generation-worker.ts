@@ -45,16 +45,19 @@ export function createReportGenerationWorker({
       excludeFilters,
       useRegex,
       includeProjectTree,
-      projectTreeUsesViewFilters = false,
+      projectTreeUsesViewFilters,
       folderSummaryThreshold,
       selectedLineRangesByFile,
       useTapestryRanges = false,
     } = request;
-    const hasExplicitTreeFilterMode = Object.hasOwn(request, 'projectTreeUsesViewFilters');
+    const resolvedProjectTreeUsesViewFilters = projectTreeUsesViewFilters ?? false;
+    const hasExplicitTreeFilterMode = projectTreeUsesViewFilters !== undefined;
     const generationOptions =
       hasExplicitTreeFilterMode || useTapestryRanges || selectedLineRangesByFile
         ? {
-            ...(hasExplicitTreeFilterMode ? { projectTreeUsesViewFilters } : {}),
+            ...(hasExplicitTreeFilterMode
+              ? { projectTreeUsesViewFilters: resolvedProjectTreeUsesViewFilters }
+              : {}),
             ...(selectedLineRangesByFile ? { selectedLineRangesByFile } : {}),
             useTapestryRanges,
           }
