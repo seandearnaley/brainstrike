@@ -314,6 +314,10 @@ export function parseMcpConfig(text: string): McpConfig {
     }
   }
 
+  if (rawServers.length > 0 && servers.length === 0) {
+    throw new Error('invalid_mcp_config: no valid servers');
+  }
+
   return { servers };
 }
 

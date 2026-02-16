@@ -169,6 +169,14 @@ describe('mcp-loader comprehensive tests', () => {
       expect(result.servers).toEqual([]);
     });
 
+    it('should throw when all declared servers are invalid', () => {
+      const json = JSON.stringify({
+        servers: [{ transport: 'stdio' }, { transport: 'sse', name: 'missing-url' }],
+      });
+
+      expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: no valid servers');
+    });
+
     it('should throw when servers field is missing', () => {
       const json = JSON.stringify({ other: 'field' });
       expect(() => parseMcpConfig(json)).toThrow('invalid_mcp_config: servers must be array');
