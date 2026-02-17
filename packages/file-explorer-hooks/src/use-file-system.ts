@@ -62,6 +62,10 @@ export function useFileSystem({
     (folderId: string | null) => {
       if (typeof setCurrentFolderId === 'function') {
         setCurrentFolderId(folderId);
+      } else {
+        logger.warn('setCurrentFolderId is unavailable; skipping folder id update', {
+          folderId,
+        });
       }
     },
     [setCurrentFolderId]
@@ -135,8 +139,6 @@ export function useFileSystem({
       if (isCancelled()) {
         return;
       }
-      dispatch({ type: 'setRoot', handle: restored });
-
       // CRITICAL: Wait for store hydration before calling setCurrentFolderId.
       // Without this, the store may still have empty initial state, and
       // setCurrentFolderId would read from the empty folderStates, overwriting
@@ -147,6 +149,7 @@ export function useFileSystem({
       if (isCancelled()) {
         return;
       }
+      dispatch({ type: 'setRoot', handle: restored });
 
       // Check if the persisted currentFolderId already matches.
       // If so, skip calling setCurrentFolderId to avoid triggering the

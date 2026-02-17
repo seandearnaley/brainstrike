@@ -36,8 +36,10 @@ function readQuantizedFlag(parameters: ModelParameters): boolean {
   return typeof value === 'boolean' ? value : false;
 }
 
-function resolveDimensions(model: DbModel): number {
-  const rawDimension = model.capabilities.defaultDimension;
+function resolveDimensions(
+  capabilities: DbModel['capabilities'] | null | undefined
+): number {
+  const rawDimension = capabilities?.defaultDimension;
   if (typeof rawDimension !== 'number' || !Number.isFinite(rawDimension) || rawDimension <= 0) {
     return DEFAULT_EMBEDDING_DIMENSION;
   }
@@ -54,10 +56,14 @@ function readTags(bestFor: DbModel['bestFor']): string[] {
 function hasEmbeddingCapabilities(
   capabilities: unknown
 ): capabilities is DbModel['capabilities'] & { type: 'embedding' } {
-  if (!capabilities || typeof capabilities !== 'object' || !('type' in capabilities)) {
+  if (!capabilities || typeof capabilities !== 'object') {
     return false;
   }
-  return capabilities.type === 'embedding';
+  if (!('type' in capabilities)) {
+    return false;
+  }
+  const typeValue = (capabilities as { type?: unknown }).type;
+  return typeValue === 'embedding';
 }
 
 function sanitizeModelId(value: string): string {
@@ -72,11 +78,11 @@ export function isEmbeddingModel(model: DbModel | null | undefined): model is Db
   if (!model) {
     return false;
   }
-  return hasEmbeddingCapabilities((model as { capabilities?: unknown }).capabilities);
+  return hasEmbeddingCapabilities(model.capabilities);
 }
 
 export function toEmbeddingModelConfig(model: DbModel): ModelConfig {
-  const dimensions = resolveDimensions(model);
+  const dimensions = resolveDimensions(model.capabilities);
   const tags = readTags(model.bestFor);
   const description = model.description ?? model.tagline ?? '';
   const metadata = readModelMetadata(model.parameters);
