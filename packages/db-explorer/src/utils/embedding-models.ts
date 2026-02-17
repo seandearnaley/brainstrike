@@ -40,6 +40,9 @@ function resolveDimensions(
   capabilities: DbModel['capabilities'] | null | undefined
 ): number {
   const rawDimension = capabilities?.defaultDimension;
+  if (!hasEmbeddingCapabilities(capabilities)) {
+    return DEFAULT_EMBEDDING_DIMENSION;
+  }
   if (typeof rawDimension !== 'number' || !Number.isFinite(rawDimension) || rawDimension <= 0) {
     return DEFAULT_EMBEDDING_DIMENSION;
   }
