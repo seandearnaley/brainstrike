@@ -6,6 +6,27 @@ import { useEffect, useRef } from 'react';
 
 const logger = createLogger('EmbeddingWorkerProvider');
 
+function stopWorker(
+  controller: EmbeddingWorkerController,
+  message: string,
+  completeMessage: string
+): void {
+  logger.info(message);
+  void controller.stop().then(() => {
+    logger.info(completeMessage);
+  });
+}
+
+function logWorkerStartError(error: unknown): void {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const errorStack = error instanceof Error ? error.stack : undefined;
+  logger.error('Failed to start embedding worker', {
+    message: errorMessage,
+    stack: errorStack,
+    name: error instanceof Error ? error.name : 'Unknown',
+  });
+}
+
 /**
  * Automatically starts the embedding worker in the renderer process when the database is ready.
  * The worker runs in the browser context where Web Workers (workerpool) are available.
@@ -45,6 +66,8 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
       return;
     }
 
+    let isDisposed = false;
+
     const startWorker = async () => {
       if (startingRef.current || controllerRef.current) {
         return;
@@ -56,17 +79,18 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
         logger.info('Starting embedding worker in renderer process...');
         const config = createWorkerConfig(db);
         const controller = await startEmbeddingWorker(config);
+        if (isDisposed) {
+          stopWorker(
+            controller,
+            'Embedding worker started after provider dispose; stopping stale worker',
+            'Stale embedding worker stopped after dispose'
+          );
+          return;
+        }
         controllerRef.current = controller;
         logger.info('Embedding worker started successfully');
       } catch (error) {
-        // Error objects don't serialize to JSON - extract message and stack explicitly
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const errorStack = error instanceof Error ? error.stack : undefined;
-        logger.error('Failed to start embedding worker', {
-          message: errorMessage,
-          stack: errorStack,
-          name: error instanceof Error ? error.name : 'Unknown',
-        });
+        logWorkerStartError(error);
       } finally {
         startingRef.current = false;
       }
@@ -75,13 +99,11 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
     void startWorker();
 
     return () => {
+      isDisposed = true;
       if (controllerRef.current) {
-        logger.info('Stopping embedding worker...');
         const currentController = controllerRef.current;
         controllerRef.current = null;
-        void currentController.stop().then(() => {
-          logger.info('Embedding worker stopped');
-        });
+        stopWorker(currentController, 'Stopping embedding worker...', 'Embedding worker stopped');
       }
     };
   }, [db]);

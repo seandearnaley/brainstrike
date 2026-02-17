@@ -37,6 +37,8 @@ export function LogList({
     getScrollElement: () => parentRef.current,
     estimateSize: () => 40, // Reduced estimate for tighter packing
     overscan: 20, // Increased overscan for smoother scrolling
+    // Avoid react-virtual calling ReactDOM.flushSync during layout updates.
+    useFlushSync: false,
   });
 
   // ResizeObserver to handle dynamic container sizing and fix "dead space" bug

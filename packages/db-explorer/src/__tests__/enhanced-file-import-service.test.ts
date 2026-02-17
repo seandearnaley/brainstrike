@@ -1,3 +1,4 @@
+import type { QueueAdapter } from '@brainstrike/queue';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnhancedFileImportService } from '../enhanced-file-import-service';
@@ -337,6 +338,157 @@ describe('useEnhancedFileImportService', () => {
         expect.stringContaining('UPDATE file_chunks'),
         expect.arrayContaining(['set-fallback'])
       );
+    });
+  });
+
+  describe('Queue progress updates', () => {
+    it('coalesces rapid queue-progress events and applies the latest snapshot', async () => {
+      vi.useFakeTimers();
+      try {
+        runEnhancedImportMock.mockResolvedValueOnce([
+          { id: 'file1', imported: true, existed: false, chunksCreated: 1 },
+        ]);
+
+        const embeddingQueue = {
+          add: vi.fn(),
+        } as unknown as QueueAdapter;
+
+        const { result } = renderHook(() => useEnhancedFileImportService({ embeddingQueue }));
+
+        await act(async () => {
+          await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+            'test-folder:/test/path': 'test content',
+          });
+        });
+
+        const detailA = {
+          queue: 'embeddings',
+          chunkId: 'chunk-a',
+          status: 'completed',
+          model: 'local:test',
+          embeddingSetId: 'set-1',
+          pending: 3,
+          processed: 11,
+          failed: 0,
+          totalQueued: 14,
+          lastError: null,
+        } as const;
+
+        const detailB = {
+          queue: 'embeddings',
+          chunkId: 'chunk-b',
+          status: 'completed',
+          model: 'local:test',
+          embeddingSetId: 'set-1',
+          pending: 2,
+          processed: 12,
+          failed: 0,
+          totalQueued: 14,
+          lastError: null,
+        } as const;
+
+        act(() => {
+          window.dispatchEvent(new CustomEvent('brainstrike:queue-progress', { detail: detailA }));
+          window.dispatchEvent(new CustomEvent('brainstrike:queue-progress', { detail: detailB }));
+        });
+
+        expect(result.current.progress?.queueProgress).toBeUndefined();
+
+        act(() => {
+          vi.advanceTimersByTime(99);
+        });
+        expect(result.current.progress?.queueProgress).toBeUndefined();
+
+        act(() => {
+          vi.advanceTimersByTime(1);
+        });
+
+        expect(result.current.progress?.queueProgress).toMatchObject({
+          pending: 2,
+          processed: 12,
+          failed: 0,
+          totalQueued: 14,
+          lastError: null,
+          lastEvent: {
+            chunkId: 'chunk-b',
+            status: 'completed',
+            model: 'local:test',
+          },
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('flushes queue-progress updates immediately when pending reaches zero', async () => {
+      vi.useFakeTimers();
+      try {
+        runEnhancedImportMock.mockResolvedValueOnce([
+          { id: 'file1', imported: true, existed: false, chunksCreated: 1 },
+        ]);
+
+        const embeddingQueue = {
+          add: vi.fn(),
+        } as unknown as QueueAdapter;
+
+        const { result } = renderHook(() => useEnhancedFileImportService({ embeddingQueue }));
+
+        await act(async () => {
+          await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+            'test-folder:/test/path': 'test content',
+          });
+        });
+
+        const inFlight = {
+          queue: 'embeddings',
+          chunkId: 'chunk-in-flight',
+          status: 'completed',
+          model: 'local:test',
+          embeddingSetId: 'set-1',
+          pending: 5,
+          processed: 20,
+          failed: 0,
+          totalQueued: 25,
+          lastError: null,
+        } as const;
+
+        const drained = {
+          queue: 'embeddings',
+          chunkId: 'chunk-final',
+          status: 'completed',
+          model: 'local:test',
+          embeddingSetId: 'set-1',
+          pending: 0,
+          processed: 25,
+          failed: 0,
+          totalQueued: 25,
+          lastError: null,
+        } as const;
+
+        act(() => {
+          window.dispatchEvent(new CustomEvent('brainstrike:queue-progress', { detail: inFlight }));
+        });
+        expect(result.current.progress?.queueProgress).toBeUndefined();
+
+        act(() => {
+          window.dispatchEvent(new CustomEvent('brainstrike:queue-progress', { detail: drained }));
+        });
+
+        expect(result.current.progress?.queueProgress).toMatchObject({
+          pending: 0,
+          processed: 25,
+          failed: 0,
+          totalQueued: 25,
+          lastError: null,
+          lastEvent: {
+            chunkId: 'chunk-final',
+            status: 'completed',
+            model: 'local:test',
+          },
+        });
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

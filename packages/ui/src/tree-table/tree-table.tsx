@@ -135,6 +135,9 @@ export function TreeTable<T>({
       return row ? getRowHeight(row.node) : 40;
     },
     overscan,
+    // Avoid react-virtual calling ReactDOM.flushSync during layout updates.
+    // Under sustained high-frequency updates this can trigger runtime warnings/errors.
+    useFlushSync: false,
   });
 
   // ResizeObserver for container sizing - uses RAF debouncing to prevent

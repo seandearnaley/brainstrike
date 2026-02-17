@@ -9,11 +9,12 @@ import {
   applyLoggingPreferences,
   initializeLogging,
   installConsoleGuard,
+  installPerformanceMeasureGuard,
   installRendererErrorHooks,
   LogLevel,
 } from '@brainstrike/utils';
 import React from 'react';
-import ReactDOM from 'react-dom/client';
+import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
 // Import global CSS
 import './app/globals.css';
@@ -30,8 +31,16 @@ const storageAdapter = createStorageAdapter('web');
 const defaultLevel = LogLevel.INFO;
 let flushQueueTelemetry: (() => void) | null = null;
 
+declare global {
+  interface Window {
+    // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
+    __BRAINSTRIKE_WEB_REACT_ROOT__?: ReactRoot;
+  }
+}
+
 if (typeof window !== 'undefined') {
   installConsoleGuard();
+  installPerformanceMeasureGuard();
 }
 
 initializeLogging({
@@ -76,13 +85,12 @@ if (import.meta.hot) {
   });
 }
 
-const telemetryEndpoint =
-  import.meta.env['VITE_QUEUE_TELEMETRY_ENDPOINT'] ??
-  (import.meta.env.DEV ? 'http://localhost:4130/queue-telemetry' : undefined);
+const telemetryEndpoint = import.meta.env['VITE_QUEUE_TELEMETRY_ENDPOINT'];
 const telemetrySink =
   typeof window !== 'undefined' && telemetryEndpoint
     ? initializeQueueTelemetrySink({
         endpoint: telemetryEndpoint,
+        useSendBeacon: false,
         ...(import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY']
           ? { apiKey: import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY'] }
           : {}),
@@ -134,7 +142,13 @@ if (!rootElement) {
   throw new Error("Failed to find the root element with ID 'root'");
 }
 
-ReactDOM.createRoot(rootElement).render(
+const existingRoot = window.__BRAINSTRIKE_WEB_REACT_ROOT__;
+const root = existingRoot ?? ReactDOM.createRoot(rootElement);
+if (!existingRoot) {
+  window.__BRAINSTRIKE_WEB_REACT_ROOT__ = root;
+}
+
+root.render(
   <React.StrictMode>
     <HelmetProvider>
       <DbProvider dbPath="idb://web">

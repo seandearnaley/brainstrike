@@ -4,7 +4,7 @@
  */
 
 import { type ParserPlugin, parse } from '@babel/parser';
-import { CharacterTextSplitter, RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { CHUNKING_CONFIG, type CodeLanguage } from './chunking-config';
 import type { ChunkingRequestOptions, ChunkingStrategy, ChunkType, PortableChunk } from './shared';
 import { countTokensAccurate, countTokensHeuristic } from './token-utils-lite';
@@ -718,6 +718,15 @@ export async function chunkContent(
     return [{ pieces: await tokenChunker.splitText(content), type: 'text' }];
   };
 
+  const chunkSentenceAwareText = async (text: string): Promise<string[]> => {
+    const sentenceAwareChunker = new RecursiveCharacterTextSplitter({
+      chunkSize: maxChars,
+      chunkOverlap: overlapChars,
+      separators: ['\n\n', '\n', '. ', ' ', ''],
+    });
+    return sentenceAwareChunker.splitText(text);
+  };
+
   const splitMarkdownBlocks = async (): Promise<ChunkGroup[]> => {
     const blocks = splitMarkdownIntoBlocks(content);
     const groups: ChunkGroup[] = [];
@@ -727,12 +736,7 @@ export async function chunkContent(
           block.text.length > maxChars * 2 ? splitByBlankLines(block.text) : [block.text];
         groups.push({ pieces: parts, type: 'recursive' });
       } else {
-        const sentenceChunker = new CharacterTextSplitter({
-          chunkSize: maxChars,
-          chunkOverlap: overlapChars,
-          separator: '. ',
-        });
-        groups.push({ pieces: await sentenceChunker.splitText(block.text), type: 'sentence' });
+        groups.push({ pieces: await chunkSentenceAwareText(block.text), type: 'sentence' });
       }
     }
     return groups;
@@ -776,12 +780,7 @@ export async function chunkContent(
   };
 
   const chunkText = async (): Promise<ChunkGroup[]> => {
-    const sentenceChunker = new CharacterTextSplitter({
-      chunkSize: maxChars,
-      chunkOverlap: overlapChars,
-      separator: '. ',
-    });
-    return [{ pieces: await sentenceChunker.splitText(content), type: 'sentence' }];
+    return [{ pieces: await chunkSentenceAwareText(content), type: 'sentence' }];
   };
 
   const chunkStructuredData = async (): Promise<ChunkGroup[]> => {

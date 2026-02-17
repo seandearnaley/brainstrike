@@ -358,6 +358,7 @@ describe('processFileChunking', () => {
         updateProgress: mockUpdateProgress,
         chunkSize: 500,
         chunkOverlap: 50,
+        tokenLimit: 2048,
         chunkingStrategy: 'recursive',
         chunkingWorkerPort: customWorkerPort,
       }
@@ -372,6 +373,7 @@ describe('processFileChunking', () => {
         strategy: 'recursive',
         maxTokens: 500,
         overlap: 50,
+        maxTokensCap: 2048,
         ignoreFileTypeRecommendations: true,
       })
     );

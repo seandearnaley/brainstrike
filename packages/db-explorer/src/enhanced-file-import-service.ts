@@ -26,7 +26,7 @@ import {
 import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
-import { createLogger } from '@brainstrike/utils';
+import { createBulkOperationContext, createLogger, LogLevel } from '@brainstrike/utils';
 import {
   type Dispatch,
   type SetStateAction,
@@ -40,6 +40,7 @@ import { useFileImportService } from './base-file-import-service';
 import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-preferences';
 
 const logger = createLogger('AppShell:EnhancedFileImport');
+const QUEUE_PROGRESS_THROTTLE_MS = 100;
 
 // Extended progress interface for chunking and embedding
 interface EnhancedFileImportOptions {
@@ -277,6 +278,8 @@ export function useEnhancedFileImportService(
   const setGlobalIsImporting = useVectorStatusUIStore((s) => s.setIsImporting);
   const lastQueueActiveRef = useRef(false);
   const queueActiveClearTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingQueueProgressRef = useRef<QueueProgressEventDetail | null>(null);
+  const queueProgressFlushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const baseCallbacksRef = useRef<{
     onProgress?: (progress: ImportProgress) => void;
     onComplete?: (results: FileImportResult[]) => void;
@@ -393,6 +396,42 @@ export function useEnhancedFileImportService(
     [setIsEmbeddingQueueActive]
   );
 
+  const flushPendingQueueProgress = useCallback(() => {
+    if (queueProgressFlushTimeoutRef.current) {
+      clearTimeout(queueProgressFlushTimeoutRef.current);
+      queueProgressFlushTimeoutRef.current = null;
+    }
+
+    const detail = pendingQueueProgressRef.current;
+    if (!detail) {
+      return;
+    }
+
+    pendingQueueProgressRef.current = null;
+    updateQueueProgress(detail);
+    updateQueueActive(detail.pending > 0);
+  }, [updateQueueActive, updateQueueProgress]);
+
+  const scheduleQueueProgressUpdate = useCallback(
+    (detail: QueueProgressEventDetail) => {
+      pendingQueueProgressRef.current = detail;
+
+      if (detail.pending === 0 || detail.status === 'error') {
+        flushPendingQueueProgress();
+        return;
+      }
+
+      if (queueProgressFlushTimeoutRef.current) {
+        return;
+      }
+
+      queueProgressFlushTimeoutRef.current = setTimeout(() => {
+        flushPendingQueueProgress();
+      }, QUEUE_PROGRESS_THROTTLE_MS);
+    },
+    [flushPendingQueueProgress]
+  );
+
   useEffect(() => {
     if (typeof window === 'undefined' || !browserQueuePort) {
       return;
@@ -405,13 +444,17 @@ export function useEnhancedFileImportService(
         return;
       }
 
-      updateQueueProgress(detail);
-      updateQueueActive(detail.pending > 0);
+      scheduleQueueProgressUpdate(detail);
     };
 
     window.addEventListener('brainstrike:queue-progress', handler as EventListener);
     return () => {
       window.removeEventListener('brainstrike:queue-progress', handler as EventListener);
+      if (queueProgressFlushTimeoutRef.current) {
+        clearTimeout(queueProgressFlushTimeoutRef.current);
+        queueProgressFlushTimeoutRef.current = null;
+      }
+      pendingQueueProgressRef.current = null;
       if (queueActiveClearTimeoutRef.current) {
         clearTimeout(queueActiveClearTimeoutRef.current);
         queueActiveClearTimeoutRef.current = null;
@@ -419,7 +462,7 @@ export function useEnhancedFileImportService(
       lastQueueActiveRef.current = false;
       setIsEmbeddingQueueActive(false);
     };
-  }, [browserQueuePort, updateQueueActive, updateQueueProgress]);
+  }, [browserQueuePort, scheduleQueueProgressUpdate, setIsEmbeddingQueueActive]);
 
   const jobQueuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
     if (browserQueuePort) {
@@ -550,6 +593,8 @@ export function useEnhancedFileImportService(
       // Ensure UI can react immediately (e.g., show progress panel)
       options.onProgress?.(initialProgress);
 
+      const bulkContext = createBulkOperationContext({ level: LogLevel.WARN });
+      bulkContext.enter();
       try {
         await runImportFlow({
           controller,
@@ -567,6 +612,7 @@ export function useEnhancedFileImportService(
           activeSetIdRef,
         });
       } finally {
+        bulkContext.exit();
         setIsImporting(false);
         setGlobalIsImporting(false); // Resume background token indexer
         abortControllerRef.current = null;

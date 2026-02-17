@@ -1,6 +1,6 @@
 import { type ParserPlugin, parse } from '@babel/parser';
 import { countTokensAccurate, createLogger } from '@brainstrike/utils';
-import { CharacterTextSplitter, RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { CHUNKING_CONFIG } from '../config/chunking-config.js';
 import type { FileChunkInsert } from '../models/file-chunk';
 
@@ -562,6 +562,15 @@ export class ChunkingService {
       return [{ pieces: await tokenChunker.splitText(content), type: 'text' }];
     };
 
+    const chunkSentenceAwareText = async (text: string): Promise<string[]> => {
+      const sentenceAwareChunker = new RecursiveCharacterTextSplitter({
+        chunkSize: maxChars,
+        chunkOverlap: overlapChars,
+        separators: ['\n\n', '\n', '. ', ' ', ''],
+      });
+      return sentenceAwareChunker.splitText(text);
+    };
+
     const splitMarkdownBlocks = async (): Promise<ChunkGroup[]> => {
       const blocks = splitMarkdownIntoBlocks(content);
       const groups: ChunkGroup[] = [];
@@ -571,12 +580,7 @@ export class ChunkingService {
             block.text.length > maxChars * 2 ? splitByBlankLines(block.text) : [block.text];
           groups.push({ pieces: parts, type: 'recursive' });
         } else {
-          const sentenceChunker = new CharacterTextSplitter({
-            chunkSize: maxChars,
-            chunkOverlap: overlapChars,
-            separator: '. ',
-          });
-          groups.push({ pieces: await sentenceChunker.splitText(block.text), type: 'sentence' });
+          groups.push({ pieces: await chunkSentenceAwareText(block.text), type: 'sentence' });
         }
       }
       return groups;
@@ -626,12 +630,7 @@ export class ChunkingService {
     };
 
     const chunkText = async (): Promise<ChunkGroup[]> => {
-      const sentenceChunker = new CharacterTextSplitter({
-        chunkSize: maxChars,
-        chunkOverlap: overlapChars,
-        separator: '. ',
-      });
-      return [{ pieces: await sentenceChunker.splitText(content), type: 'sentence' }];
+      return [{ pieces: await chunkSentenceAwareText(content), type: 'sentence' }];
     };
 
     // Use RecursiveCharacterTextSplitter for structured data (JSON, XML, etc.)

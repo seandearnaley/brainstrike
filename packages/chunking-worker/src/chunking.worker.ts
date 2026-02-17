@@ -140,6 +140,10 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
 
 // Default to 'info' to suppress debug logs - set WORKER_LOG_LEVEL=debug for verbose output
 const WORKER_LOG_LEVEL: LogLevel = 'info';
+const OVERSIZED_CHUNK_WARNING_PATTERN = /Created a chunk of size \d+,.*longer than specified \d+/;
+const SUPPRESSED_WARNING_LOG_INTERVAL = 100;
+
+let restoreChunkWarningFilter: (() => void) | null = null;
 
 function shouldLog(level: LogLevel): boolean {
   return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[WORKER_LOG_LEVEL];
@@ -193,6 +197,48 @@ function log(level: LogLevel, message: string, data?: Record<string, unknown>): 
   postLog(level, message, data);
 }
 
+function shouldSuppressChunkWarning(args: unknown[]): boolean {
+  const firstArg = args[0];
+  if (typeof firstArg !== 'string') {
+    return false;
+  }
+  return OVERSIZED_CHUNK_WARNING_PATTERN.test(firstArg);
+}
+
+function installChunkWarningFilter(): () => void {
+  // biome-ignore lint/suspicious/noConsole: Worker must intercept third-party chunking warnings at console boundary.
+  if (typeof console === 'undefined' || typeof console.warn !== 'function') {
+    return () => {};
+  }
+
+  // biome-ignore lint/suspicious/noConsole: Preserve original console.warn for non-filtered warnings.
+  const originalWarn = console.warn.bind(console);
+  let suppressedCount = 0;
+
+  const filteredWarn: typeof console.warn = ((...args: unknown[]) => {
+    if (shouldSuppressChunkWarning(args)) {
+      suppressedCount += 1;
+      if (suppressedCount === 1 || suppressedCount % SUPPRESSED_WARNING_LOG_INTERVAL === 0) {
+        originalWarn('[ChunkingWorker] Suppressed oversized chunk warnings', {
+          suppressedCount,
+        });
+      }
+      return;
+    }
+
+    originalWarn(...(args as Parameters<typeof console.warn>));
+  }) as typeof console.warn;
+
+  try {
+    console.warn = filteredWarn;
+    return () => {
+      console.warn = originalWarn;
+    };
+  } catch {
+    return () => {};
+  }
+}
+
 // ============================================================================
 // Global Error Handlers (with cleanup support)
 // ============================================================================
@@ -235,6 +281,7 @@ function handleUnhandledRejection(event: PromiseRejectionEvent): void {
 // Register global error handlers
 self.addEventListener('error', handleGlobalError);
 self.addEventListener('unhandledrejection', handleUnhandledRejection);
+restoreChunkWarningFilter = installChunkWarningFilter();
 
 /**
  * Clean up global error handlers (defensive cleanup for edge cases).
@@ -243,6 +290,8 @@ self.addEventListener('unhandledrejection', handleUnhandledRejection);
 function cleanupGlobalHandlers(): void {
   self.removeEventListener('error', handleGlobalError);
   self.removeEventListener('unhandledrejection', handleUnhandledRejection);
+  restoreChunkWarningFilter?.();
+  restoreChunkWarningFilter = null;
   log('info', 'Global error handlers cleaned up');
 }
 
