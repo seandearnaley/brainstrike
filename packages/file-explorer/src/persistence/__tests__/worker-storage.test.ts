@@ -467,6 +467,21 @@ describe('WorkerStorage', () => {
       expect(mockLogger.error).toHaveBeenCalledWith('Worker error occurred:', expect.anything());
     });
 
+    it('should resolve pending debounced setItem calls when worker errors', async () => {
+      vi.useFakeTimers();
+      const storage = new WorkerStorageClass(mockWorkerUrl);
+
+      const promise = storage.setItem('debounced-key', 'value');
+
+      mockWorker.emitError(new Error('Worker crashed'));
+
+      await expect(promise).resolves.toBeUndefined();
+
+      // Debounced timer should be cleared and never reach localStorage fallback.
+      await vi.advanceTimersByTimeAsync(200);
+      expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
+    });
+
     it('should handle unknown response IDs gracefully', () => {
       new WorkerStorageClass(mockWorkerUrl);
 

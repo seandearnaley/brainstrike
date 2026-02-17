@@ -243,6 +243,13 @@ export class WorkerStorage {
       clearTimeout(timer);
     }
     this.timeouts.clear();
+
+    // Resolve and clear pending debounced setItem callers immediately.
+    for (const { timer, resolve } of this.debounceState.values()) {
+      clearTimeout(timer);
+      resolve();
+    }
+    this.debounceState.clear();
   }
 
   private sendMessage(
