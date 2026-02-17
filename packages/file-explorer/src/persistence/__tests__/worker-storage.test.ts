@@ -482,6 +482,21 @@ describe('WorkerStorage', () => {
       expect(mockLocalStorage.setItem).not.toHaveBeenCalled();
     });
 
+    it('should mark worker unavailable after error for fast fallback writes', async () => {
+      vi.useFakeTimers();
+      const storage = new WorkerStorageClass(mockWorkerUrl);
+
+      mockWorker.emitError(new Error('Worker crashed'));
+      expect(storage.isWorkerAvailable).toBe(false);
+
+      const promise = storage.setItem('after-error', 'value');
+
+      // Debounce window; fallback should happen immediately after this, not after 5s timeout.
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(promise).resolves.toBeUndefined();
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('after-error', 'value');
+    });
+
     it('should handle unknown response IDs gracefully', () => {
       new WorkerStorageClass(mockWorkerUrl);
 

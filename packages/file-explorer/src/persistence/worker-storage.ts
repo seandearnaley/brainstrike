@@ -232,6 +232,12 @@ export class WorkerStorage {
 
   private handleWorkerError(error: ErrorEvent) {
     logger.error('Worker error occurred:', error.error || error.message);
+
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
+
     // Reject all pending requests
     for (const [, request] of this.pendingRequests) {
       request.reject(new Error('Worker error occurred'));
