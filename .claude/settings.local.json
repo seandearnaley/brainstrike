@@ -286,8 +286,7 @@
       "Bash(git remote get-url:*)",
       "Bash(gh repo view:*)",
       "Bash(npx js-yaml:*)",
-      "Bash(do echo \"=== $pkg ===\")",
-      "Bash(git -C /Users/seandearnaley/Documents/GitHub/brainstrike diff --stat)"
+      "Bash(do echo \"=== $pkg ===\")"
     ],
     "deny": [],
     "ask": []
