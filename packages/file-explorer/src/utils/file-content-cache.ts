@@ -183,6 +183,7 @@ export class FileContentCache {
 
   /**
    * Evict entries by size (LRU). Iterates from front of Map (oldest access first).
+   * Deleting the current key during `for...of` iteration is safe per ES spec §24.1.5.4.
    */
   private evictBySize(): void {
     const targetSize = this.maxSizeBytes * 0.5; // Evict to 50% of max (more aggressive)
@@ -204,6 +205,7 @@ export class FileContentCache {
 
   /**
    * Evict entries by count (LRU). Iterates from front of Map (oldest access first).
+   * Deleting the current key during `for...of` iteration is safe per ES spec §24.1.5.4.
    */
   private evictByCount(): void {
     const targetCount = Math.floor(this.maxEntries * 0.5); // Evict to 50% of max (more aggressive)

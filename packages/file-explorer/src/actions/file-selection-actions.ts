@@ -323,6 +323,10 @@ export const createFileSelectionActions = (
     // then apply all keys in a single state update. This avoids O(k*n) Set copies
     // where k = number of chunks and n = existing selection size.
 
+    // Budget snapshot is taken before async work. It may become stale if other
+    // actions mutate selection concurrently, but Phase 2's set() reads the
+    // authoritative latest state — this cap is purely an optimization to skip
+    // unnecessary key computation.
     const currentState = get();
     const remainingBudget = Math.max(
       0,
