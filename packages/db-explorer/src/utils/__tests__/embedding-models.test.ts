@@ -47,6 +47,9 @@ describe('embedding-models utilities', () => {
   it('filters embedding models by capabilities', () => {
     expect(isEmbeddingModel(makeModel())).toBe(true);
     expect(isEmbeddingModel(makeModel({ capabilities: { type: 'llm' } }))).toBe(false);
+    expect(
+      isEmbeddingModel({ ...makeModel(), capabilities: undefined } as unknown as DbModel)
+    ).toBe(false);
   });
 
   it('maps DbModel to ModelConfig with metadata', () => {
@@ -107,6 +110,21 @@ describe('embedding-models utilities', () => {
     expect(map.size).toBe(1);
     expect(map.has('disabled')).toBe(false);
     expect(map.get('local')?.dimensions).toBe(768);
+  });
+
+  it('ignores malformed models when building local config map', () => {
+    const malformed = {
+      ...makeModel(),
+      id: 'broken',
+      capabilities: undefined,
+    } as unknown as DbModel;
+    const valid = makeModel({ id: 'valid-local', providerId: 'local' });
+
+    const map = buildLocalEmbeddingModelConfigMap([malformed, valid]);
+
+    expect(map.size).toBe(1);
+    expect(map.has('broken')).toBe(false);
+    expect(map.has('valid-local')).toBe(true);
   });
 
   it('resolves hosted model info without local config', () => {

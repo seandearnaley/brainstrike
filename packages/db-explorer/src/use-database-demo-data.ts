@@ -163,6 +163,33 @@ interface FileChunkRow {
   updatedAt: string;
 }
 
+interface CachedRecordSummary {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+  tokenCount: number | undefined;
+  chunksCount: number | undefined;
+  embeddingSetId: string | undefined;
+}
+
+interface CachedChunkSummary {
+  id: string;
+  fileRecordId: string;
+  chunkIndex: number;
+  tokenCount: number;
+  chunkType: FileChunk['chunkType'];
+  embeddingSetId: string | undefined;
+}
+
+interface CollectionFileDataSnapshot {
+  collectionId: string;
+  records: CachedRecordSummary[];
+  chunks: CachedChunkSummary[];
+}
+
 // NOTE: Embedding normalization functions (coerceNumericArray, parseStringEmbedding,
 // normalizeEmbeddingVector) were removed as part of the performance optimization.
 // Full embedding vectors are no longer fetched in live queries - only hasEmbedding
@@ -255,6 +282,83 @@ function mapChunkRow(row: FileChunkRow): FileChunk {
   return chunk;
 }
 
+function toCachedRecordSummary(record: FileRecord): CachedRecordSummary {
+  return {
+    id: record.id,
+    name: record.name,
+    path: record.path,
+    size: record.size,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    tokenCount: record.tokenCount,
+    chunksCount: record.chunksCount,
+    embeddingSetId: record.embeddingSetId,
+  };
+}
+
+function toCachedChunkSummary(chunk: FileChunk): CachedChunkSummary {
+  return {
+    id: chunk.id,
+    fileRecordId: chunk.fileRecordId,
+    chunkIndex: chunk.chunkIndex,
+    tokenCount: chunk.tokenCount,
+    chunkType: chunk.chunkType,
+    embeddingSetId: chunk.embeddingSetId,
+  };
+}
+
+function buildCollectionFileDataSnapshot(
+  collectionId: string,
+  records: FileRecord[],
+  chunks: FileChunk[]
+): CollectionFileDataSnapshot {
+  return {
+    collectionId,
+    records: records.map(toCachedRecordSummary),
+    chunks: chunks.map(toCachedChunkSummary),
+  };
+}
+
+function restoreCachedRecord(summary: CachedRecordSummary): FileRecord {
+  const record: FileRecord = {
+    id: summary.id,
+    name: summary.name,
+    path: summary.path,
+    size: summary.size,
+    createdAt: summary.createdAt,
+    updatedAt: summary.updatedAt,
+  };
+  if (summary.tokenCount !== undefined) {
+    record.tokenCount = summary.tokenCount;
+  }
+  if (summary.chunksCount !== undefined) {
+    record.chunksCount = summary.chunksCount;
+  }
+  if (summary.embeddingSetId !== undefined) {
+    record.embeddingSetId = summary.embeddingSetId;
+  }
+  return record;
+}
+
+function restoreCachedChunk(summary: CachedChunkSummary): FileChunk {
+  const chunk: FileChunk = {
+    id: summary.id,
+    fileRecordId: summary.fileRecordId,
+    chunkIndex: summary.chunkIndex,
+    content: '',
+    contentHash: '',
+    tokenCount: summary.tokenCount,
+    chunkType: summary.chunkType,
+    chunkSize: 0,
+    createdAt: '',
+    updatedAt: '',
+  };
+  if (summary.embeddingSetId !== undefined) {
+    chunk.embeddingSetId = summary.embeddingSetId;
+  }
+  return chunk;
+}
+
 function extractErrorMessage(error: unknown): string | null {
   if (error instanceof Error) {
     return error.message ?? null;
@@ -341,52 +445,29 @@ export function useDatabaseDemoData({
 
   // Restore cached data from global store on mount
   useEffect(() => {
-    if (globalCachedFileData && activeCollectionId === globalCachedFileData.collectionId) {
-      // Restore from global cache if it matches the active collection
-      const restoredRecords: FileRecord[] = globalCachedFileData.records.map((r) => {
-        const record: FileRecord = {
-          id: r.id,
-          name: r.name,
-          path: r.path,
-          size: r.size,
-          createdAt: r.createdAt,
-          updatedAt: r.updatedAt,
-        };
-        if (r.tokenCount !== undefined) {
-          record.tokenCount = r.tokenCount;
-        }
-        if (r.chunksCount !== undefined) {
-          record.chunksCount = r.chunksCount;
-        }
-        if (r.embeddingSetId !== undefined) {
-          record.embeddingSetId = r.embeddingSetId;
-        }
-        return record;
-      });
-      const restoredChunks: FileChunk[] = globalCachedFileData.chunks.map((c) => {
-        const chunk: FileChunk = {
-          id: c.id,
-          fileRecordId: c.fileRecordId,
-          chunkIndex: c.chunkIndex,
-          content: '', // Not cached - will be loaded on demand
-          contentHash: '',
-          tokenCount: c.tokenCount,
-          chunkType: c.chunkType,
-          chunkSize: 0,
-          createdAt: '',
-          updatedAt: '',
-        };
-        if (c.embeddingSetId !== undefined) {
-          chunk.embeddingSetId = c.embeddingSetId;
-        }
-        return chunk;
-      });
-      cachedRecordsRef.current.set(activeCollectionId, restoredRecords);
-      cachedChunksRef.current.set(activeCollectionId, restoredChunks);
-      loadedRecordsRef.current.add(activeCollectionId);
-      loadedChunksRef.current.add(activeCollectionId);
-      setCacheVersion((prev) => prev + 1);
+    if (!globalCachedFileData || activeCollectionId !== globalCachedFileData.collectionId) {
+      return;
     }
+
+    const hasLocalCache =
+      loadedRecordsRef.current.has(activeCollectionId) ||
+      loadedChunksRef.current.has(activeCollectionId);
+    if (hasLocalCache) {
+      return;
+    }
+
+    // Restore from global cache if it matches the active collection and local cache is empty.
+    cachedRecordsRef.current.set(
+      activeCollectionId,
+      globalCachedFileData.records.map(restoreCachedRecord)
+    );
+    cachedChunksRef.current.set(
+      activeCollectionId,
+      globalCachedFileData.chunks.map(restoreCachedChunk)
+    );
+    loadedRecordsRef.current.add(activeCollectionId);
+    loadedChunksRef.current.add(activeCollectionId);
+    setCacheVersion((prev) => prev + 1);
   }, [activeCollectionId, globalCachedFileData]);
 
   // Schema verification effect - runs migrations if needed, then enables queries
@@ -534,28 +615,9 @@ export function useDatabaseDemoData({
     setFallbackError(null);
     // Update global cache for persistence across remounts
     const cachedChunksForCollection = cachedChunksRef.current.get(activeCollectionId) ?? [];
-    setGlobalCachedFileData({
-      collectionId: activeCollectionId,
-      records: records.map((r) => ({
-        id: r.id,
-        name: r.name,
-        path: r.path,
-        size: r.size,
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt,
-        tokenCount: r.tokenCount,
-        chunksCount: r.chunksCount,
-        embeddingSetId: r.embeddingSetId,
-      })),
-      chunks: cachedChunksForCollection.map((c) => ({
-        id: c.id,
-        fileRecordId: c.fileRecordId,
-        chunkIndex: c.chunkIndex,
-        tokenCount: c.tokenCount,
-        chunkType: c.chunkType,
-        embeddingSetId: c.embeddingSetId,
-      })),
-    });
+    setGlobalCachedFileData(
+      buildCollectionFileDataSnapshot(activeCollectionId, records, cachedChunksForCollection)
+    );
   }, [activeCollectionId, liveQueryEnabled, records, recordsLoading, setGlobalCachedFileData]);
 
   // biome-ignore lint/plugin: This syncs live query results to cache, not fetching data
@@ -569,28 +631,9 @@ export function useDatabaseDemoData({
     setFallbackError(null);
     // Update global cache for persistence across remounts
     const cachedRecordsForCollection = cachedRecordsRef.current.get(activeCollectionId) ?? [];
-    setGlobalCachedFileData({
-      collectionId: activeCollectionId,
-      records: cachedRecordsForCollection.map((r) => ({
-        id: r.id,
-        name: r.name,
-        path: r.path,
-        size: r.size,
-        createdAt: r.createdAt,
-        updatedAt: r.updatedAt,
-        tokenCount: r.tokenCount,
-        chunksCount: r.chunksCount,
-        embeddingSetId: r.embeddingSetId,
-      })),
-      chunks: chunks.map((c) => ({
-        id: c.id,
-        fileRecordId: c.fileRecordId,
-        chunkIndex: c.chunkIndex,
-        tokenCount: c.tokenCount,
-        chunkType: c.chunkType,
-        embeddingSetId: c.embeddingSetId,
-      })),
-    });
+    setGlobalCachedFileData(
+      buildCollectionFileDataSnapshot(activeCollectionId, cachedRecordsForCollection, chunks)
+    );
   }, [activeCollectionId, liveQueryEnabled, chunks, chunksLoading, setGlobalCachedFileData]);
 
   const cachedRecords = useMemo<FileRecord[]>(() => {
