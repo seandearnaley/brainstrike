@@ -449,25 +449,29 @@ export function useDatabaseDemoData({
       return;
     }
 
-    const hasLocalCache =
-      loadedRecordsRef.current.has(activeCollectionId) ||
-      loadedChunksRef.current.has(activeCollectionId);
-    if (hasLocalCache) {
-      return;
+    let didRestoreFromGlobalCache = false;
+
+    if (!loadedRecordsRef.current.has(activeCollectionId)) {
+      cachedRecordsRef.current.set(
+        activeCollectionId,
+        globalCachedFileData.records.map(restoreCachedRecord)
+      );
+      loadedRecordsRef.current.add(activeCollectionId);
+      didRestoreFromGlobalCache = true;
     }
 
-    // Restore from global cache if it matches the active collection and local cache is empty.
-    cachedRecordsRef.current.set(
-      activeCollectionId,
-      globalCachedFileData.records.map(restoreCachedRecord)
-    );
-    cachedChunksRef.current.set(
-      activeCollectionId,
-      globalCachedFileData.chunks.map(restoreCachedChunk)
-    );
-    loadedRecordsRef.current.add(activeCollectionId);
-    loadedChunksRef.current.add(activeCollectionId);
-    setCacheVersion((prev) => prev + 1);
+    if (!loadedChunksRef.current.has(activeCollectionId)) {
+      cachedChunksRef.current.set(
+        activeCollectionId,
+        globalCachedFileData.chunks.map(restoreCachedChunk)
+      );
+      loadedChunksRef.current.add(activeCollectionId);
+      didRestoreFromGlobalCache = true;
+    }
+
+    if (didRestoreFromGlobalCache) {
+      setCacheVersion((prev) => prev + 1);
+    }
   }, [activeCollectionId, globalCachedFileData]);
 
   // Schema verification effect - runs migrations if needed, then enables queries

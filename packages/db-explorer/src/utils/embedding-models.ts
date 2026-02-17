@@ -54,11 +54,10 @@ function readTags(bestFor: DbModel['bestFor']): string[] {
 function hasEmbeddingCapabilities(
   capabilities: unknown
 ): capabilities is DbModel['capabilities'] & { type: 'embedding' } {
-  if (!capabilities || typeof capabilities !== 'object') {
+  if (!capabilities || typeof capabilities !== 'object' || !('type' in capabilities)) {
     return false;
   }
-  const capabilityRecord = capabilities as { type?: unknown };
-  return capabilityRecord.type === 'embedding';
+  return capabilities.type === 'embedding';
 }
 
 function sanitizeModelId(value: string): string {
