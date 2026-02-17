@@ -25,15 +25,17 @@ export interface UseVirtualListReturn {
  * - Uses requestAnimationFrame to batch scroll updates
  * - Default overscan of 5 rows provides buffer for smooth scrolling
  * - Avoids unnecessary re-renders by comparing previous range values
- * - Uses useEffect instead of useLayoutEffect to avoid blocking the browser
- *   during heavy state updates (e.g., select all with 1000+ files)
+ * - Uses useLayoutEffect for synchronous initial measurement, ensuring the
+ *   container dimensions are captured before paint
  */
+/** Sentinel value indicating a RAF has been scheduled but the ID is not yet known. */
+const RAF_SCHEDULED_SENTINEL = -1;
+
 export function useVirtualList(
   itemCount: number,
   rowHeight: number,
   options: UseVirtualListOptions = {}
 ): UseVirtualListReturn {
-  const RafScheduledSentinel = -1;
   // Default overscan of 5 provides smooth scrolling buffer
   const { overscan = 5 } = options;
   const containerRef = useRef<HTMLDivElement>(null);
@@ -104,15 +106,15 @@ export function useVirtualList(
       return;
     }
     // Use a sentinel first to handle sync RAF mocks in tests.
-    rafIdRef.current = RafScheduledSentinel;
+    rafIdRef.current = RAF_SCHEDULED_SENTINEL;
     const rafId = requestAnimationFrame(() => {
       rafIdRef.current = null;
       calculateRange();
     });
-    if (rafIdRef.current === RafScheduledSentinel) {
+    if (rafIdRef.current === RAF_SCHEDULED_SENTINEL) {
       rafIdRef.current = rafId;
     }
-  }, [calculateRange, RafScheduledSentinel]);
+  }, [calculateRange]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -142,7 +144,7 @@ export function useVirtualList(
     return () => {
       container.removeEventListener('scroll', handleScroll);
       resizeObserver?.disconnect();
-      if (rafIdRef.current !== null && rafIdRef.current !== RafScheduledSentinel) {
+      if (rafIdRef.current !== null && rafIdRef.current !== RAF_SCHEDULED_SENTINEL) {
         cancelAnimationFrame(rafIdRef.current);
       }
       rafIdRef.current = null;

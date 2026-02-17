@@ -1,4 +1,4 @@
-import type { FileExplorerState } from '@brainstrike/types';
+import type { FileExplorerState, FolderState } from '@brainstrike/types';
 import {
   MAX_FOLDER_SUMMARY_THRESHOLD,
   MAX_SELECTION_COUNT,
@@ -9,13 +9,22 @@ import {
 } from '@brainstrike/types';
 import type { GetState, SetState } from '../types/store-types';
 
+/** Properties shared between FileExplorerState and FolderState, safe to sync between them. */
+type FolderSyncUpdate = Partial<
+  Pick<FileExplorerState, Extract<keyof FileExplorerState, keyof FolderState>>
+>;
+
 /**
  * Helper to update both a top-level state property and the matching per-folder state entry.
  * Handles the currentFolderId / folderState guard boilerplate in one place.
+ *
+ * The parameter type constrains updates to properties that exist on both
+ * FileExplorerState and FolderState, preventing accidental leakage of
+ * top-level-only state (e.g. selectionVersion) into folder entries.
  */
 function updateWithFolderState(
   state: FileExplorerState,
-  updates: Partial<FileExplorerState>
+  updates: FolderSyncUpdate
 ): Partial<FileExplorerState> {
   const { currentFolderId } = state;
   if (!currentFolderId) {

@@ -303,6 +303,15 @@ export class WorkerStorage {
     }
   }
 
+  /**
+   * Persist a value, debounced by key (100ms).
+   *
+   * When rapid calls supersede each other, the previous caller's Promise
+   * resolves immediately (not rejected) even though that specific value
+   * was never persisted. This is by design: callers should interpret a
+   * resolved Promise as "the key will be persisted with the latest value,"
+   * not "this exact value was written."
+   */
   async setItem(key: string, value: unknown): Promise<void> {
     return new Promise((resolve, reject) => {
       // Resolve any superseded caller's Promise before replacing

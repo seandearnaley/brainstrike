@@ -57,6 +57,92 @@ export interface FileSelectionActions {
   ) => Promise<ChunkedSelectionResult>;
 }
 
+/** Schedule work during browser idle time with error handling. */
+function scheduleChunk(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const scheduleCallback =
+      typeof requestIdleCallback !== 'undefined'
+        ? (cb: () => void) =>
+            requestIdleCallback(
+              () => {
+                try {
+                  cb();
+                } catch (error) {
+                  reject(error);
+                }
+              },
+              { timeout: IDLE_CALLBACK_TIMEOUT_MS }
+            )
+        : (cb: () => void) =>
+            setTimeout(() => {
+              try {
+                cb();
+              } catch (error) {
+                reject(error);
+              }
+            }, 0);
+
+    scheduleCallback(resolve);
+  });
+}
+
+interface ComputeKeysResult {
+  computedKeys: string[];
+  processedCount: number;
+  cancelled: boolean;
+  wasCapped: boolean;
+}
+
+/**
+ * Phase 1: Compute composite keys in chunks, yielding between chunks.
+ * Caps iteration to the remaining selection budget to avoid unnecessary work.
+ */
+async function computeKeysInChunks(
+  folderId: string,
+  paths: string[],
+  remainingBudget: number,
+  chunkSize: number,
+  signal?: AbortSignal,
+  onProgress?: (processed: number, total: number) => void
+): Promise<ComputeKeysResult> {
+  const cappedPaths = remainingBudget < paths.length ? paths.slice(0, remainingBudget) : paths;
+  const computedKeys: string[] = [];
+  let processedCount = 0;
+  let cancelled = false;
+
+  while (processedCount < cappedPaths.length && !cancelled) {
+    if (signal?.aborted) {
+      cancelled = true;
+      break;
+    }
+
+    await scheduleChunk();
+
+    if (signal?.aborted) {
+      cancelled = true;
+      break;
+    }
+
+    const chunkEnd = Math.min(processedCount + chunkSize, cappedPaths.length);
+    for (let i = processedCount; i < chunkEnd; i++) {
+      const path = cappedPaths[i];
+      if (path !== undefined) {
+        computedKeys.push(encodeFileSelection(folderId, path));
+      }
+    }
+
+    processedCount = chunkEnd;
+    onProgress?.(processedCount, paths.length);
+  }
+
+  return {
+    computedKeys,
+    processedCount,
+    cancelled,
+    wasCapped: cappedPaths.length < paths.length,
+  };
+}
+
 export const createFileSelectionActions = (
   set: SetState<FileExplorerState>,
   get: GetState<FileExplorerState>
@@ -237,68 +323,24 @@ export const createFileSelectionActions = (
     // then apply all keys in a single state update. This avoids O(k*n) Set copies
     // where k = number of chunks and n = existing selection size.
 
-    // Helper to schedule work during idle time with error handling
-    const scheduleChunk = (): Promise<void> => {
-      return new Promise((resolve, reject) => {
-        const scheduleCallback =
-          typeof requestIdleCallback !== 'undefined'
-            ? (cb: () => void) =>
-                requestIdleCallback(
-                  () => {
-                    try {
-                      cb();
-                    } catch (error) {
-                      reject(error);
-                    }
-                  },
-                  { timeout: IDLE_CALLBACK_TIMEOUT_MS }
-                )
-            : (cb: () => void) =>
-                setTimeout(() => {
-                  try {
-                    cb();
-                  } catch (error) {
-                    reject(error);
-                  }
-                }, 0);
+    const currentState = get();
+    const remainingBudget = Math.max(
+      0,
+      currentState.maxSelectionCount - currentState.selectedFilePaths.size
+    );
 
-        scheduleCallback(resolve);
-      });
-    };
-
-    // Phase 1: Compute composite keys in chunks, yielding between chunks
-    const computedKeys: string[] = [];
-    let processedCount = 0;
-    let cancelled = false;
-
-    while (processedCount < paths.length && !cancelled) {
-      if (signal?.aborted) {
-        cancelled = true;
-        break;
-      }
-
-      await scheduleChunk();
-
-      if (signal?.aborted) {
-        cancelled = true;
-        break;
-      }
-
-      const chunkEnd = Math.min(processedCount + chunkSize, paths.length);
-      for (let i = processedCount; i < chunkEnd; i++) {
-        const path = paths[i];
-        if (path !== undefined) {
-          computedKeys.push(encodeFileSelection(folderId, path));
-        }
-      }
-
-      processedCount = chunkEnd;
-      onProgress?.(processedCount, paths.length);
-    }
+    const { computedKeys, processedCount, cancelled, wasCapped } = await computeKeysInChunks(
+      folderId,
+      paths,
+      remainingBudget,
+      chunkSize,
+      signal,
+      onProgress
+    );
 
     // Phase 2: Single atomic state update with all computed keys
     let addedCount = 0;
-    let limitReached = false;
+    let limitReached = wasCapped;
 
     if (computedKeys.length > 0) {
       set((state) => {
