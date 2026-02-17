@@ -4,7 +4,12 @@ const logger = createLogger('FileContentCache');
 export const fileContentCacheLogger = logger;
 
 /**
- * LRU Cache for file contents with automatic eviction based on memory limits
+ * LRU Cache for file contents with automatic eviction based on memory limits.
+ *
+ * Uses Map's insertion-order iteration for O(1) amortized LRU eviction:
+ * - On access (`get`), the entry is deleted and re-inserted to move it to the back.
+ * - Eviction iterates from the front (oldest access) — no sorting required.
+ * - A running `currentSize` counter avoids O(n) size recomputation.
  */
 
 export interface CacheEntry {
@@ -12,7 +17,6 @@ export interface CacheEntry {
   timestamp: number;
   lastAccessed: number;
   size: number; // in bytes
-  accessOrder: number;
 }
 
 export interface CacheStats {
@@ -22,6 +26,9 @@ export interface CacheStats {
   evictionCount: number;
 }
 
+/** Shared encoder instance for byte-length measurement (avoids Blob allocation). */
+const textEncoder = new TextEncoder();
+
 export class FileContentCache {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly maxSizeBytes: number;
@@ -29,7 +36,7 @@ export class FileContentCache {
   private hits = 0;
   private misses = 0;
   private evictions = 0;
-  private accessSequence = 0;
+  private currentSize = 0;
 
   constructor(
     maxSizeBytes = 10 * 1024 * 1024, // 10MB default (much more aggressive)
@@ -40,13 +47,18 @@ export class FileContentCache {
   }
 
   /**
-   * Get file content from cache
+   * Get file content from cache.
+   *
+   * Moves the entry to the back of the Map (most-recently-used position)
+   * via delete + re-insert. This is O(1) amortized.
    */
   get(key: string): string | undefined {
     const entry = this.cache.get(key);
     if (entry) {
       entry.lastAccessed = Date.now();
-      entry.accessOrder = this.nextAccessOrder();
+      // Move to back of Map (most-recently-used) via delete + re-insert
+      this.cache.delete(key);
+      this.cache.set(key, entry);
       this.hits++;
       return entry.content;
     }
@@ -55,10 +67,10 @@ export class FileContentCache {
   }
 
   /**
-   * Set file content in cache with automatic eviction
+   * Set file content in cache with automatic eviction.
    */
   set(key: string, content: string): void {
-    const size = new Blob([content]).size;
+    const size = textEncoder.encode(content).byteLength;
     const now = Date.now();
 
     // Don't cache large files (>1MB) - much more aggressive
@@ -75,16 +87,18 @@ export class FileContentCache {
       timestamp: now,
       lastAccessed: now,
       size,
-      accessOrder: this.nextAccessOrder(),
     };
 
-    // Remove existing entry if it exists
-    if (this.cache.has(key)) {
+    // Remove existing entry if it exists (adjusting running size counter)
+    const existing = this.cache.get(key);
+    if (existing) {
+      this.currentSize -= existing.size;
       this.cache.delete(key);
     }
 
-    // Add new entry
+    // Add new entry at the back (most-recently-used position)
     this.cache.set(key, entry);
+    this.currentSize += size;
 
     // Evict if necessary
     this.evictIfNecessary();
@@ -94,7 +108,12 @@ export class FileContentCache {
    * Remove entry from cache
    */
   delete(key: string): boolean {
-    return this.cache.delete(key);
+    const entry = this.cache.get(key);
+    if (entry) {
+      this.currentSize -= entry.size;
+      return this.cache.delete(key);
+    }
+    return false;
   }
 
   /**
@@ -102,7 +121,7 @@ export class FileContentCache {
    */
   deleteKeys(keys: string[]): void {
     for (const key of keys) {
-      this.cache.delete(key);
+      this.delete(key);
     }
   }
 
@@ -111,6 +130,7 @@ export class FileContentCache {
    */
   clear(): void {
     this.cache.clear();
+    this.currentSize = 0;
     this.hits = 0;
     this.misses = 0;
     this.evictions = 0;
@@ -124,15 +144,14 @@ export class FileContentCache {
   }
 
   /**
-   * Get cache statistics
+   * Get cache statistics. O(1) — uses running counter for totalSize.
    */
   getStats(): CacheStats {
-    const totalSize = Array.from(this.cache.values()).reduce((sum, entry) => sum + entry.size, 0);
     const totalRequests = this.hits + this.misses;
     const hitRate = totalRequests > 0 ? this.hits / totalRequests : 0;
 
     return {
-      totalSize,
+      totalSize: this.currentSize,
       entryCount: this.cache.size,
       hitRate,
       evictionCount: this.evictions,
@@ -147,117 +166,98 @@ export class FileContentCache {
   }
 
   /**
-   * Evict entries if cache exceeds limits
+   * Evict entries if cache exceeds limits. O(evicted) amortized.
+   *
+   * Iterates from the front of the Map (least-recently-used) and deletes
+   * entries until the cache is within limits. No sorting required.
    */
   private evictIfNecessary(): void {
-    const currentSize = this.getCurrentSize();
-
-    // Evict by size
-    if (currentSize > this.maxSizeBytes) {
+    if (this.currentSize > this.maxSizeBytes) {
       this.evictBySize();
     }
 
-    // Evict by count
     if (this.cache.size > this.maxEntries) {
       this.evictByCount();
     }
   }
 
   /**
-   * Evict entries by size (LRU)
+   * Evict entries by size (LRU). Iterates from front of Map (oldest access first).
    */
   private evictBySize(): void {
-    const entries = Array.from(this.cache.entries());
-
-    // Sort by last accessed (oldest first)
-    entries.sort((a, b) => a[1].accessOrder - b[1].accessOrder);
-
-    let currentSize = this.getCurrentSize();
     const targetSize = this.maxSizeBytes * 0.5; // Evict to 50% of max (more aggressive)
 
-    for (const [key, entry] of entries) {
-      if (currentSize <= targetSize) {
+    for (const [key, entry] of this.cache) {
+      if (this.currentSize <= targetSize) {
         break;
       }
-
       this.cache.delete(key);
-      currentSize -= entry.size;
+      this.currentSize -= entry.size;
       this.evictions++;
     }
 
     logger.info('Evicted entries by size', {
       evictions: this.evictions,
-      currentSizeMb: Math.round(currentSize / 1024 / 1024),
+      currentSizeMb: Math.round(this.currentSize / 1024 / 1024),
     });
   }
 
   /**
-   * Evict entries by count (LRU)
+   * Evict entries by count (LRU). Iterates from front of Map (oldest access first).
    */
   private evictByCount(): void {
-    const entries = Array.from(this.cache.entries());
-
-    // Sort by last accessed (oldest first)
-    entries.sort((a, b) => a[1].accessOrder - b[1].accessOrder);
-
     const targetCount = Math.floor(this.maxEntries * 0.5); // Evict to 50% of max (more aggressive)
-    const toRemove = entries.slice(0, this.cache.size - targetCount);
+    const toRemoveCount = this.cache.size - targetCount;
+    let removed = 0;
 
-    for (const [key] of toRemove) {
+    for (const [key, entry] of this.cache) {
+      if (removed >= toRemoveCount) {
+        break;
+      }
       this.cache.delete(key);
+      this.currentSize -= entry.size;
       this.evictions++;
+      removed++;
     }
 
     logger.info('Evicted entries by count', {
-      removedEntries: toRemove.length,
+      removedEntries: removed,
       currentCount: this.cache.size,
     });
   }
 
   /**
-   * Get current total size of cache
-   */
-  private getCurrentSize(): number {
-    return Array.from(this.cache.values()).reduce((sum, entry) => sum + entry.size, 0);
-  }
-
-  /**
-   * Get entries sorted by last accessed (for debugging)
+   * Get entries sorted by last accessed (for debugging).
+   * Returns most-recently-accessed first (reverse iteration order).
    */
   getEntriesByAccess(): Array<{ key: string; lastAccessed: number; size: number }> {
-    const entriesWithOrder = Array.from(this.cache.entries()).map(([key, entry]) => ({
+    const entries = Array.from(this.cache.entries()).map(([key, entry]) => ({
       key,
       lastAccessed: entry.lastAccessed,
       size: entry.size,
-      accessOrder: entry.accessOrder,
     }));
 
-    entriesWithOrder.sort((a, b) => b.accessOrder - a.accessOrder);
-
-    return entriesWithOrder.map(({ accessOrder: _accessOrder, ...rest }) => rest);
+    // Map iteration is oldest-first, so reverse for most-recent-first
+    entries.reverse();
+    return entries;
   }
 
   /**
-   * Force eviction of oldest entries
+   * Force eviction of oldest entries.
+   * Iterates from front of Map (oldest access first).
    */
   evictOldest(count: number): void {
-    const entries = Array.from(this.cache.entries());
-    entries.sort((a, b) => a[1].accessOrder - b[1].accessOrder);
-
-    const toRemove = entries.slice(0, count);
-    for (const [key] of toRemove) {
+    let removed = 0;
+    for (const [key, entry] of this.cache) {
+      if (removed >= count) {
+        break;
+      }
       this.cache.delete(key);
+      this.currentSize -= entry.size;
       this.evictions++;
+      removed++;
     }
 
-    logger.info('Force evicted oldest cache entries', { removedEntries: toRemove.length });
-  }
-
-  private nextAccessOrder(): number {
-    this.accessSequence += 1;
-    if (this.accessSequence >= Number.MAX_SAFE_INTEGER) {
-      this.accessSequence = 1;
-    }
-    return this.accessSequence;
+    logger.info('Force evicted oldest cache entries', { removedEntries: removed });
   }
 }

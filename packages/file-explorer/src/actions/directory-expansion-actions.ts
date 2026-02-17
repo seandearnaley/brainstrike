@@ -1,8 +1,5 @@
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import type { StoreApi, UseBoundStore } from 'zustand';
-
-type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
-type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
+import type { GetState, SetState } from '../types/store-types';
 
 export interface DirectoryExpansionActions {
   setExpandedPaths: (paths: ReadonlySet<string>) => void;

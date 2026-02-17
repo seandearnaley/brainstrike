@@ -845,8 +845,8 @@ describe('file-selection-actions', () => {
       const fileSelectionActions = createFileSelectionActions(mockSet, get);
       const pathsToAdd = Array.from({ length: 250 }, (_, i) => `file${i}.ts`);
 
-      // Track chunk processing
-      let chunkCount = 0;
+      // Track progress callbacks (fired per chunk during key computation phase)
+      const progressUpdates: Array<{ processed: number; total: number }> = [];
       mockSet.mockImplementation((updater) => {
         if (typeof updater === 'function') {
           const result = updater(currentState);
@@ -855,7 +855,6 @@ describe('file-selection-actions', () => {
             selectedFilePaths: result.selectedFilePaths,
             selectionVersion: result.selectionVersion,
           };
-          chunkCount++;
         }
       });
 
@@ -865,6 +864,9 @@ describe('file-selection-actions', () => {
         pathsToAdd,
         {
           chunkSize: 100,
+          onProgress: (processed, total) => {
+            progressUpdates.push({ processed, total });
+          },
         }
       );
 
@@ -872,8 +874,11 @@ describe('file-selection-actions', () => {
       expect(result.addedCount).toBe(250);
       expect(result.cancelled).toBe(false);
       expect(result.limitReached).toBe(false);
-      // Should have processed in multiple chunks (250 files / 100 chunk size = 3 chunks)
-      expect(chunkCount).toBeGreaterThanOrEqual(3);
+      // Two-phase approach: keys are computed in chunks (verified via progress),
+      // then applied in a single atomic set() call
+      expect(progressUpdates.length).toBeGreaterThanOrEqual(3);
+      // Single atomic state update (the optimization)
+      expect(mockSet).toHaveBeenCalledTimes(1);
     });
 
     it('should respect max selection count limit', async () => {
@@ -923,7 +928,6 @@ describe('file-selection-actions', () => {
       const pathsToAdd = Array.from({ length: 500 }, (_, i) => `file${i}.ts`);
 
       const abortController = new AbortController();
-      let processedChunks = 0;
 
       mockSet.mockImplementation((updater) => {
         if (typeof updater === 'function') {
@@ -933,29 +937,31 @@ describe('file-selection-actions', () => {
             selectedFilePaths: result.selectedFilePaths,
             selectionVersion: result.selectionVersion,
           };
-          processedChunks++;
-
-          // Cancel after first chunk
-          if (processedChunks === 1) {
-            abortController.abort();
-          }
         }
       });
 
-      // Act
+      // Act — cancel during key computation phase (after first chunk's progress)
       const result = await fileSelectionActions.addMultipleSelectedFilesChunked(
         'folder1',
         pathsToAdd,
         {
           chunkSize: 50,
           signal: abortController.signal,
+          onProgress: (processed) => {
+            // Cancel after first chunk is computed
+            if (processed >= 50) {
+              abortController.abort();
+            }
+          },
         }
       );
 
       // Assert
       expect(result.cancelled).toBe(true);
-      // Should have stopped early (not all 500 files)
+      // Should have stopped early — only the first chunk's keys get applied
       expect(result.addedCount).toBeLessThan(500);
+      // Partial results are still applied from computed keys before cancellation
+      expect(result.addedCount).toBeGreaterThan(0);
     });
 
     it('should call onProgress callback with progress updates', async () => {

@@ -7,10 +7,37 @@ import {
   MIN_MAX_SELECTION_COUNT,
   MIN_TOKEN_BUDGET,
 } from '@brainstrike/types';
-import type { StoreApi, UseBoundStore } from 'zustand';
+import type { GetState, SetState } from '../types/store-types';
 
-type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
-type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
+/**
+ * Helper to update both a top-level state property and the matching per-folder state entry.
+ * Handles the currentFolderId / folderState guard boilerplate in one place.
+ */
+function updateWithFolderState(
+  state: FileExplorerState,
+  updates: Partial<FileExplorerState>
+): Partial<FileExplorerState> {
+  const { currentFolderId } = state;
+  if (!currentFolderId) {
+    return updates;
+  }
+
+  const folderState = state.folderStates[currentFolderId];
+  if (!folderState) {
+    return updates;
+  }
+
+  return {
+    ...updates,
+    folderStates: {
+      ...state.folderStates,
+      [currentFolderId]: {
+        ...folderState,
+        ...updates,
+      },
+    },
+  };
+}
 
 export interface SettingsActions {
   setFilters: (include: readonly string[], exclude: readonly string[]) => void;
@@ -47,28 +74,7 @@ export const createSettingsActions = (
 
     const normalized = Math.round(budget);
     const clamped = Math.max(MIN_TOKEN_BUDGET, Math.min(normalized, MAX_TOKEN_BUDGET));
-    set((state: FileExplorerState) => {
-      const currentFolderId = state.currentFolderId;
-      if (!currentFolderId) {
-        return { tokenBudget: clamped };
-      }
-
-      const folderState = state.folderStates[currentFolderId];
-      if (!folderState) {
-        return { tokenBudget: clamped };
-      }
-
-      return {
-        tokenBudget: clamped,
-        folderStates: {
-          ...state.folderStates,
-          [currentFolderId]: {
-            ...folderState,
-            tokenBudget: clamped,
-          },
-        },
-      };
-    });
+    set((state: FileExplorerState) => updateWithFolderState(state, { tokenBudget: clamped }));
   },
 
   setFolderSummaryThreshold: (value: number) => {
@@ -101,28 +107,9 @@ export const createSettingsActions = (
   },
 
   setViewFilterPresetId: (presetId: string | null) => {
-    set((state: FileExplorerState) => {
-      const currentFolderId = state.currentFolderId;
-      if (!currentFolderId) {
-        return { viewFilterPresetId: presetId };
-      }
-
-      const folderState = state.folderStates[currentFolderId];
-      if (!folderState) {
-        return { viewFilterPresetId: presetId };
-      }
-
-      return {
-        viewFilterPresetId: presetId,
-        folderStates: {
-          ...state.folderStates,
-          [currentFolderId]: {
-            ...folderState,
-            viewFilterPresetId: presetId,
-          },
-        },
-      };
-    });
+    set((state: FileExplorerState) =>
+      updateWithFolderState(state, { viewFilterPresetId: presetId })
+    );
   },
 
   toggleFilterEnabled: (filter: string, type: 'include' | 'exclude') => {

@@ -37,13 +37,14 @@ export const fileExplorer = {
   },
 
   /**
-   * Finds a node in the file tree by its path and optionally root folder ID
+   * Finds a node in the file tree by its path and optionally root folder ID.
+   * Uses DFS with stack (pop is O(1)) instead of BFS with queue (shift is O(n)).
    */
   findNodeByPath(roots: IFileNode[], path: string, rootFolderId?: string): IFileNode | null {
-    const queue = [...roots];
+    const stack = [...roots];
 
-    while (queue.length > 0) {
-      const node = queue.shift();
+    while (stack.length > 0) {
+      const node = stack.pop();
       if (!node) {
         continue;
       }
@@ -57,7 +58,11 @@ export const fileExplorer = {
       }
 
       if (node.type === 'directory' && node.children) {
-        queue.push(...node.children);
+        // Push children to stack (DFS); push in reverse order to maintain
+        // left-to-right traversal if needed, but for path lookup order doesn't matter
+        for (const child of node.children) {
+          stack.push(child);
+        }
       }
     }
 
