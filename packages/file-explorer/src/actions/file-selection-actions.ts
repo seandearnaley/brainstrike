@@ -342,7 +342,10 @@ export const createFileSelectionActions = (
       onProgress
     );
 
-    // Phase 2: Single atomic state update with all computed keys
+    // Phase 2: Single atomic state update with all computed keys.
+    // `addedCount` and `limitReached` are mutated inside the `set()` updater
+    // and read after it returns. This is safe because Zustand's `set()` invokes
+    // the updater synchronously before returning.
     let addedCount = 0;
     let limitReached = wasCapped;
 
