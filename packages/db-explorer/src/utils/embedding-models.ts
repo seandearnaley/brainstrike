@@ -36,6 +36,39 @@ function readQuantizedFlag(parameters: ModelParameters): boolean {
   return typeof value === 'boolean' ? value : false;
 }
 
+function resolveDimensions(
+  capabilities: DbModel['capabilities'] | null | undefined
+): number {
+  const rawDimension = capabilities?.defaultDimension;
+  if (!hasEmbeddingCapabilities(capabilities)) {
+    return DEFAULT_EMBEDDING_DIMENSION;
+  }
+  if (typeof rawDimension !== 'number' || !Number.isFinite(rawDimension) || rawDimension <= 0) {
+    return DEFAULT_EMBEDDING_DIMENSION;
+  }
+  return rawDimension;
+}
+
+function readTags(bestFor: DbModel['bestFor']): string[] {
+  if (!Array.isArray(bestFor)) {
+    return [];
+  }
+  return bestFor.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0);
+}
+
+function hasEmbeddingCapabilities(
+  capabilities: unknown
+): capabilities is DbModel['capabilities'] & { type: 'embedding' } {
+  if (!capabilities || typeof capabilities !== 'object') {
+    return false;
+  }
+  if (!('type' in capabilities)) {
+    return false;
+  }
+  const typeValue = (capabilities as { type?: unknown }).type;
+  return typeValue === 'embedding';
+}
+
 function sanitizeModelId(value: string): string {
   return value.slice(0, 100).replace(/[^\w\-:./@]/g, '_');
 }
@@ -44,13 +77,16 @@ export function isLocalProviderId(providerId: string): boolean {
   return LOCAL_PROVIDER_IDS.has(providerId);
 }
 
-export function isEmbeddingModel(model: DbModel): boolean {
-  return model.capabilities.type === 'embedding';
+export function isEmbeddingModel(model: DbModel | null | undefined): model is DbModel {
+  if (!model) {
+    return false;
+  }
+  return hasEmbeddingCapabilities(model.capabilities);
 }
 
 export function toEmbeddingModelConfig(model: DbModel): ModelConfig {
-  const dimensions = model.capabilities.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION;
-  const tags = Array.isArray(model.bestFor) ? model.bestFor : [];
+  const dimensions = resolveDimensions(model.capabilities);
+  const tags = readTags(model.bestFor);
   const description = model.description ?? model.tagline ?? '';
   const metadata = readModelMetadata(model.parameters);
   const quantized = readQuantizedFlag(model.parameters);
@@ -68,13 +104,23 @@ export function toEmbeddingModelConfig(model: DbModel): ModelConfig {
   };
 }
 
-export function getLocalEmbeddingModels(models: DbModel[]): DbModel[] {
+export function getLocalEmbeddingModels(models: readonly DbModel[] | null | undefined): DbModel[] {
+  if (!models || models.length === 0) {
+    return [];
+  }
   return models
-    .filter((model) => isEmbeddingModel(model) && isLocalProviderId(model.providerId))
+    .filter(
+      (model): model is DbModel =>
+        isEmbeddingModel(model) &&
+        typeof model.providerId === 'string' &&
+        isLocalProviderId(model.providerId)
+    )
     .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
-export function buildLocalEmbeddingModelConfigMap(models: DbModel[]): Map<string, ModelConfig> {
+export function buildLocalEmbeddingModelConfigMap(
+  models: readonly DbModel[] | null | undefined
+): Map<string, ModelConfig> {
   const map = new Map<string, ModelConfig>();
   for (const model of getLocalEmbeddingModels(models).filter((model) => model.isEnabled)) {
     map.set(model.id, toEmbeddingModelConfig(model));

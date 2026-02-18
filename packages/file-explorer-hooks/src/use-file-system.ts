@@ -58,6 +58,18 @@ export function useFileSystem({
 
   const hasAttemptedRestoreRef = useRef(false);
   const isRestoringRef = useRef(false);
+  const updateCurrentFolderId = useCallback(
+    (folderId: string | null) => {
+      if (typeof setCurrentFolderId === 'function') {
+        setCurrentFolderId(folderId);
+      } else {
+        logger.warn('setCurrentFolderId is unavailable; skipping folder id update', {
+          folderId,
+        });
+      }
+    },
+    [setCurrentFolderId]
+  );
 
   const isFileSystemAccessSupported = useCallback((): { supported: boolean; reason: string } => {
     const hasWebAPI =
@@ -78,7 +90,7 @@ export function useFileSystem({
     try {
       const handle = await fileSystemAdapter.requestDirectoryAccess();
       dispatch({ type: 'setRoot', handle });
-      setCurrentFolderId(handle.name);
+      updateCurrentFolderId(handle.name);
       return handle;
     } catch (error) {
       if (isUserCancellation(error)) {
@@ -88,12 +100,12 @@ export function useFileSystem({
     } finally {
       dispatch({ type: 'setAccessLoading', loading: false });
     }
-  }, [fileSystemAdapter, isFileSystemAccessSupported, setCurrentFolderId]);
+  }, [fileSystemAdapter, isFileSystemAccessSupported, updateCurrentFolderId]);
 
   const clearRootDirectory = useCallback(() => {
     dispatch({ type: 'setRoot', handle: null });
-    setCurrentFolderId(null);
-  }, [setCurrentFolderId]);
+    updateCurrentFolderId(null);
+  }, [updateCurrentFolderId]);
 
   /**
    * Set root directory handle from external source (e.g., restore banner).
@@ -104,12 +116,12 @@ export function useFileSystem({
     (handle: DirectoryHandle | null) => {
       dispatch({ type: 'setRoot', handle });
       if (handle) {
-        setCurrentFolderId(handle.name);
+        updateCurrentFolderId(handle.name);
       } else {
-        setCurrentFolderId(null);
+        updateCurrentFolderId(null);
       }
     },
-    [setCurrentFolderId]
+    [updateCurrentFolderId]
   );
 
   /**
@@ -121,6 +133,38 @@ export function useFileSystem({
   const setAccessLoading = useCallback((loading: boolean) => {
     dispatch({ type: 'setAccessLoading', loading });
   }, []);
+
+  const applyRestoredFolderState = useCallback(
+    async (restored: DirectoryHandle, isCancelled: () => boolean) => {
+      if (isCancelled()) {
+        return;
+      }
+      // CRITICAL: Wait for store hydration before calling setCurrentFolderId.
+      // Without this, the store may still have empty initial state, and
+      // setCurrentFolderId would read from the empty folderStates, overwriting
+      // the persisted selections that are about to be hydrated.
+      if (waitForHydration) {
+        await waitForHydration();
+      }
+      if (isCancelled()) {
+        return;
+      }
+      dispatch({ type: 'setRoot', handle: restored });
+
+      // Check if the persisted currentFolderId already matches.
+      // If so, skip calling setCurrentFolderId to avoid triggering the
+      // folder-switching logic which would read from stale folderStates.
+      const persistedFolderId = getPersistedCurrentFolderId?.();
+      if (persistedFolderId !== restored.name) {
+        updateCurrentFolderId(restored.name);
+      } else {
+        logger.debug('Skipping setCurrentFolderId - folder already matches persisted state', {
+          folderId: restored.name,
+        });
+      }
+    },
+    [getPersistedCurrentFolderId, updateCurrentFolderId, waitForHydration]
+  );
 
   // Auto-restore last folder on startup. Runs once and never changes hook order.
   useEffect(() => {
@@ -138,6 +182,8 @@ export function useFileSystem({
     isRestoringRef.current = true;
     dispatch({ type: 'setAccessLoading', loading: true });
 
+    let cancelled = false;
+
     const run = async () => {
       try {
         const restoreFn = (
@@ -147,41 +193,31 @@ export function useFileSystem({
           return;
         }
         const restored = await restoreFn();
-        if (restored) {
-          dispatch({ type: 'setRoot', handle: restored });
-
-          // CRITICAL: Wait for store hydration before calling setCurrentFolderId.
-          // Without this, the store may still have empty initial state, and
-          // setCurrentFolderId would read from the empty folderStates, overwriting
-          // the persisted selections that are about to be hydrated.
-          if (waitForHydration) {
-            await waitForHydration();
-          }
-
-          // Check if the persisted currentFolderId already matches.
-          // If so, skip calling setCurrentFolderId to avoid triggering the
-          // folder-switching logic which would read from stale folderStates.
-          const persistedFolderId = getPersistedCurrentFolderId?.();
-          if (persistedFolderId !== restored.name) {
-            setCurrentFolderId(restored.name);
-          } else {
-            logger.debug('Skipping setCurrentFolderId - folder already matches persisted state', {
-              folderId: restored.name,
-            });
-          }
+        if (!restored || cancelled) {
+          return;
         }
+        await applyRestoredFolderState(restored, () => cancelled);
       } catch (error) {
-        logger.warn('Failed to restore last folder', { error });
+        if (!cancelled) {
+          logger.warn('Failed to restore last folder', { error });
+        }
       } finally {
-        dispatch({ type: 'setAccessLoading', loading: false });
+        if (!cancelled) {
+          dispatch({ type: 'setAccessLoading', loading: false });
+        }
         isRestoringRef.current = false;
       }
     };
     void run();
+    return () => {
+      cancelled = true;
+      isRestoringRef.current = false;
+    };
   }, [
     fileSystemAdapter,
     rootDirectoryHandle,
-    setCurrentFolderId,
+    updateCurrentFolderId,
+    applyRestoredFolderState,
     waitForHydration,
     getPersistedCurrentFolderId,
   ]);

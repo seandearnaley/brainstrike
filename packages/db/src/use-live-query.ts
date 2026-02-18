@@ -83,67 +83,76 @@ type LiveSource =
   | { kind: 'pglite'; live: LiveNamespace }
   | { kind: 'electron'; bridge: ElectronLiveBridge };
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Deep comparison requires complex logic
-// biome-ignore lint/suspicious/noExplicitAny: Deep comparison handles any type
-export function deepEqual(a: any, b: any): boolean {
+function isObjectLike(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
+function areArraysDeepEqual(arrayA: readonly unknown[], arrayB: readonly unknown[]): boolean {
+  if (arrayA.length !== arrayB.length) {
+    return false;
+  }
+  for (let index = 0; index < arrayA.length; index += 1) {
+    if (!deepEqual(arrayA[index], arrayB[index])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areUint8ArraysEqual(arrayA: Uint8Array, arrayB: Uint8Array): boolean {
+  if (arrayA.length !== arrayB.length) {
+    return false;
+  }
+  for (let index = 0; index < arrayA.length; index += 1) {
+    if (arrayA[index] !== arrayB[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areObjectsDeepEqual(
+  objectA: Record<string, unknown>,
+  objectB: Record<string, unknown>
+): boolean {
+  const keysA = Object.keys(objectA);
+  const keysB = Object.keys(objectB);
+  if (keysA.length !== keysB.length) {
+    return false;
+  }
+  for (const key of keysA) {
+    if (!(Object.hasOwn(objectB, key) && deepEqual(objectA[key], objectB[key]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) {
     return true;
   }
-
-  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
+  if (!(isObjectLike(a) && isObjectLike(b))) {
     return false;
   }
-
   if (a.constructor !== b.constructor) {
     return false;
   }
 
   if (Array.isArray(a)) {
-    if (a.length !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < a.length; i++) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
+    return Array.isArray(b) && areArraysDeepEqual(a, b);
   }
-
   if (a instanceof Date) {
-    return a.getTime() === b.getTime();
+    return b instanceof Date && a.getTime() === b.getTime();
   }
-
   if (a instanceof Uint8Array) {
-    if (a.length !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < a.length; i++) {
-      if (a[i] !== b[i]) {
-        return false;
-      }
-    }
-    return true;
+    return b instanceof Uint8Array && areUint8ArraysEqual(a, b);
   }
-
   if (a instanceof RegExp) {
-    return a.source === b.source && a.flags === b.flags;
+    return b instanceof RegExp && a.source === b.source && a.flags === b.flags;
   }
 
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-
-  if (keysA.length !== keysB.length) {
-    return false;
-  }
-
-  for (const key of keysA) {
-    if (!(Object.hasOwn(b, key) && deepEqual(a[key], b[key]))) {
-      return false;
-    }
-  }
-
-  return true;
+  return areObjectsDeepEqual(a, b);
 }
 
 function useDeepCompareMemoize<T>(value: T): T {

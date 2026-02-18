@@ -425,6 +425,41 @@ describe('useFileSystem', () => {
       restoreSpy.mockRestore();
     });
 
+    it('does not update folder state after unmount while restore is in-flight', async () => {
+      const originalRestoreLastFolder = MockFileSystemAdapter.prototype.restoreLastFolder;
+      let resolveRestore: ((value: DirectoryHandle | null) => void) | undefined;
+
+      MockFileSystemAdapter.prototype.restoreLastFolder = vi.fn().mockImplementation(
+        () =>
+          new Promise<DirectoryHandle | null>((resolve) => {
+            resolveRestore = resolve;
+          })
+      );
+
+      try {
+        const { unmount } = renderHook(
+          () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+          { wrapper: AdaptersTestWrapper }
+        );
+
+        unmount();
+
+        await act(async () => {
+          resolveRestore?.({
+            path: '/test/restored/late',
+            name: 'late',
+            kind: 'directory',
+            platform: 'web',
+          });
+          await Promise.resolve();
+        });
+
+        expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
+      } finally {
+        MockFileSystemAdapter.prototype.restoreLastFolder = originalRestoreLastFolder;
+      }
+    });
+
     it('should set isAccessLoading=true synchronously before async restore starts', async () => {
       // This test verifies the fix for the race condition where other effects
       // might see isAccessLoading=false before the restore completes.
