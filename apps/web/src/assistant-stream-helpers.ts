@@ -8,7 +8,6 @@ import {
   type StreamChunk,
   sanitizeStreamChunk,
   toAiSdkStyleStream,
-  webTools,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils';
 import type { AssistantProviderConfig } from './server/assistant-config';
@@ -50,7 +49,6 @@ export async function handleChatEndpoint(
   try {
     stream = await toAiSdkStyleStream(agentMessages, {
       ...(data as RuntimeData | undefined),
-      mastraTools: webTools,
       apiKey: provider.apiKey,
     });
   } catch (error) {
@@ -117,7 +115,6 @@ export async function handleAssistantEndpoint(
   try {
     agentStream = await toAiSdkStyleStream(agentMessages, {
       ...(data ?? {}),
-      mastraTools: webTools,
       apiKey: provider.apiKey,
       signal: abortController.signal,
     });

@@ -16,8 +16,6 @@ export interface ToolRegistry<TController extends ToolCallControllerLike> {
   nameToKeys: Map<string, string[]>;
 }
 
-let toolKeyCounter = 0;
-
 export function createToolRegistry<
   TController extends ToolCallControllerLike,
 >(): ToolRegistry<TController> {
@@ -114,10 +112,13 @@ function extractCallId(payload: unknown): string | undefined {
   return;
 }
 
-function nextSyntheticToolKey(name: string): string {
-  toolKeyCounter += 1;
-  return `${name}#${Date.now()}#${toolKeyCounter}`;
-}
+const nextSyntheticToolKey = (() => {
+  let counter = 0;
+  return (name: string): string => {
+    counter += 1;
+    return `${name}#${Date.now()}#${counter}`;
+  };
+})();
 
 function registerToolController<TController extends ToolCallControllerLike>(
   registry: ToolRegistry<TController>,

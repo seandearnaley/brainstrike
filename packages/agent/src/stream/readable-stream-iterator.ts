@@ -1,4 +1,7 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
+import { createLogger } from '@brainstrike/utils';
+
+const logger = createLogger('ReadableStreamIterator');
 
 export async function* readableStreamIterator<T>(
   stream: NodeReadableStream<T> | ReadableStream<T>,
@@ -7,15 +10,13 @@ export async function* readableStreamIterator<T>(
   const webStream = stream as ReadableStream<T>;
   const reader = webStream.getReader();
 
+  let abortHandler: (() => void) | undefined;
   const abortPromise = signal
     ? new Promise<{ done: true; value: undefined }>((resolve) => {
-        signal.addEventListener(
-          'abort',
-          () => {
-            resolve({ done: true, value: undefined });
-          },
-          { once: true }
-        );
+        abortHandler = () => {
+          resolve({ done: true, value: undefined });
+        };
+        signal.addEventListener('abort', abortHandler, { once: true });
       })
     : new Promise<never>(() => {});
 
@@ -35,9 +36,18 @@ export async function* readableStreamIterator<T>(
       }
     }
   } finally {
+    if (signal && abortHandler) {
+      signal.removeEventListener('abort', abortHandler);
+    }
     try {
       reader.cancel();
-    } catch {}
+    } catch (cancelError) {
+      // Stream reader cancel errors during cleanup are non-critical
+      // but logged for debugging silent failures
+      if (cancelError instanceof Error) {
+        logger.warn('Stream reader cancel failed', { error: cancelError.message });
+      }
+    }
     reader.releaseLock();
   }
 }

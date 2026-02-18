@@ -13,8 +13,10 @@ import {
   type ContextPackerResult,
   type PackedContextChunk,
 } from '../context-packer';
-import type { RetrievalContextInput, RuntimeData } from '../index';
+import type { RuntimeData } from '../types';
+import type { RetrievalContextInput } from './schemas';
 import { RetrievalContextInputSchema } from './schemas';
+import type { ToolContext } from './types';
 
 /** Tool identifier used in the Mastra tools registry */
 export const RETRIEVAL_TOOL_ID = 'brainstrike.retrieveContext' as const;
@@ -332,13 +334,6 @@ function handleRetrievalError(error: unknown, logger?: RetrievalToolDependencies
     throw new Error(`${RETRIEVAL_ERROR_MESSAGES.retrievalFailed} [Debug: ${debugMessage}]`);
   }
   throw new Error(RETRIEVAL_ERROR_MESSAGES.retrievalFailed);
-}
-
-/**
- * Context type for Mastra tool execution.
- */
-interface ToolContext<TInput> {
-  context: TInput;
 }
 
 type MastraTools = NonNullable<RuntimeData['mastraTools']>;

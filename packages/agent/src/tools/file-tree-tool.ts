@@ -9,6 +9,7 @@
 
 import type { QueryFileTreeInput } from './schemas';
 import { QueryFileTreeInputSchema } from './schemas';
+import { handleToolError, type ToolContext } from './types';
 
 /** Tool identifier used in the Mastra tools registry */
 export const QUERY_FILE_TREE_TOOL_ID = 'brainstrike.queryFileTree' as const;
@@ -106,30 +107,9 @@ export interface FileTreeToolDependencies {
   };
 }
 
-/**
- * Context type for Mastra tool execution.
- */
-interface ToolContext<TInput> {
-  context: TInput;
-}
-
 /** Maximum entries to return by default */
 const DEFAULT_LIMIT = 100;
 const DEFAULT_MAX_DEPTH = 3;
-
-/**
- * Handles errors from file tree operations.
- */
-function handleError(error: unknown, logger?: FileTreeToolDependencies['logger']): never {
-  const message = error instanceof Error ? error.message : FILE_TREE_ERROR_MESSAGES.queryFailed;
-
-  if (SAFE_FILE_TREE_ERRORS.has(message)) {
-    throw new Error(message);
-  }
-
-  logger?.error('File tree query failed', { error });
-  throw new Error(FILE_TREE_ERROR_MESSAGES.queryFailed);
-}
 
 /**
  * Generate a human-readable summary.
@@ -241,7 +221,12 @@ export function createQueryFileTreeTool(deps: FileTreeToolDependencies): MastraT
       try {
         return await runQueryFileTree(context.context, deps);
       } catch (error) {
-        handleError(error, deps.logger);
+        handleToolError(
+          error,
+          SAFE_FILE_TREE_ERRORS,
+          FILE_TREE_ERROR_MESSAGES.queryFailed,
+          deps.logger
+        );
       }
     },
   };

@@ -10,6 +10,7 @@
 
 import type { HybridSearchInput } from './schemas';
 import { HybridSearchInputSchema } from './schemas';
+import { handleToolError, type ToolContext } from './types';
 
 /** Tool identifier used in the Mastra tools registry */
 export const HYBRID_SEARCH_TOOL_ID = 'brainstrike.hybridSearch' as const;
@@ -176,28 +177,6 @@ const DEFAULT_FTS_WEIGHT = 1.0;
 const DEFAULT_VECTOR_THRESHOLD = 0.5;
 
 /**
- * Context type for Mastra tool execution.
- */
-interface ToolContext<TInput> {
-  context: TInput;
-}
-
-/**
- * Handles errors from the search process.
- */
-function handleSearchError(error: unknown, logger?: HybridSearchToolDependencies['logger']): never {
-  const message =
-    error instanceof Error ? error.message : HYBRID_SEARCH_ERROR_MESSAGES.searchFailed;
-
-  if (SAFE_HYBRID_SEARCH_ERRORS.has(message)) {
-    throw new Error(message);
-  }
-
-  logger?.error('Hybrid search failed', { error });
-  throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.searchFailed);
-}
-
-/**
  * Core hybrid search execution logic.
  */
 async function runHybridSearch(
@@ -341,7 +320,12 @@ export function createHybridSearchTool(deps: HybridSearchToolDependencies): Mast
       try {
         return await runHybridSearch(context.context, deps);
       } catch (error) {
-        handleSearchError(error, deps.logger);
+        handleToolError(
+          error,
+          SAFE_HYBRID_SEARCH_ERRORS,
+          HYBRID_SEARCH_ERROR_MESSAGES.searchFailed,
+          deps.logger
+        );
       }
     },
   };

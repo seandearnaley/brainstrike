@@ -93,7 +93,7 @@ describe('createDebounce', () => {
     expect(mockFn).toHaveBeenCalledWith('third');
   });
 
-  it('ignores errors from the debounced function', async () => {
+  it('ignores errors when no onError callback is provided', async () => {
     const mockFn = vi.fn().mockRejectedValue(new Error('err'));
     const { run } = createDebounce(mockFn, 100);
 
@@ -103,6 +103,34 @@ describe('createDebounce', () => {
     await vi.runAllTimersAsync();
 
     expect(mockFn).toHaveBeenCalledWith('boom');
+  });
+
+  it('passes run errors to onError callback', async () => {
+    const error = new Error('run error');
+    const mockFn = vi.fn().mockRejectedValue(error);
+    const onError = vi.fn();
+    const { run } = createDebounce(mockFn, 100, { onError });
+
+    run('boom');
+
+    vi.advanceTimersByTime(100);
+    await vi.runAllTimersAsync();
+
+    expect(mockFn).toHaveBeenCalledWith('boom');
+    expect(onError).toHaveBeenCalledWith(error);
+  });
+
+  it('passes flush errors to onError callback', async () => {
+    const error = new Error('flush error');
+    const mockFn = vi.fn().mockRejectedValue(error);
+    const onError = vi.fn();
+    const { run, flush } = createDebounce(mockFn, 100, { onError });
+
+    run('test');
+    await flush();
+
+    expect(mockFn).toHaveBeenCalledWith('test');
+    expect(onError).toHaveBeenCalledWith(error);
   });
 
   it('should not clear timer when timer is already null', async () => {

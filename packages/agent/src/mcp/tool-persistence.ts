@@ -4,6 +4,24 @@ import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('ToolPersistence');
 
+export interface FileSystemAdapter {
+  readFile(filePath: string, encoding: 'utf-8'): Promise<string>;
+  writeFile(filePath: string, content: string, encoding: 'utf-8'): Promise<void>;
+  mkdir(dirPath: string, options: { recursive: boolean }): Promise<unknown>;
+  unlink(filePath: string): Promise<void>;
+  join(...segments: string[]): string;
+  dirname(filePath: string): string;
+}
+
+const defaultFs: FileSystemAdapter = {
+  readFile: (filePath, encoding) => fsp.readFile(filePath, encoding),
+  writeFile: (filePath, content, encoding) => fsp.writeFile(filePath, content, encoding),
+  mkdir: (dirPath, options) => fsp.mkdir(dirPath, options),
+  unlink: (filePath) => fsp.unlink(filePath),
+  join: (...segments) => path.join(...segments),
+  dirname: (filePath) => path.dirname(filePath),
+};
+
 export interface ToolPreferences {
   enabledTools: string[];
   disabledTools: string[];
@@ -15,12 +33,13 @@ export interface ToolPreferences {
  * Load tool preferences from disk
  */
 export async function loadToolPreferences(
-  userDataDir: string
+  userDataDir: string,
+  fs: FileSystemAdapter = defaultFs
 ): Promise<ToolPreferences | undefined> {
-  const prefsPath = getToolPreferencesPath(userDataDir);
+  const prefsPath = getToolPreferencesPath(userDataDir, fs);
 
   try {
-    const content = await fsp.readFile(prefsPath, 'utf-8');
+    const content = await fs.readFile(prefsPath, 'utf-8');
     const parsed = JSON.parse(content) as unknown;
 
     if (!isValidToolPreferences(parsed)) {
@@ -58,13 +77,14 @@ export async function loadToolPreferences(
  */
 export async function saveToolPreferences(
   userDataDir: string,
-  preferences: ToolPreferences
+  preferences: ToolPreferences,
+  fs: FileSystemAdapter = defaultFs
 ): Promise<void> {
-  const prefsPath = getToolPreferencesPath(userDataDir);
-  const prefsDir = path.dirname(prefsPath);
+  const prefsPath = getToolPreferencesPath(userDataDir, fs);
+  const prefsDir = fs.dirname(prefsPath);
 
   try {
-    await fsp.mkdir(prefsDir, { recursive: true });
+    await fs.mkdir(prefsDir, { recursive: true });
 
     const content = JSON.stringify(
       {
@@ -75,7 +95,7 @@ export async function saveToolPreferences(
       2
     );
 
-    await fsp.writeFile(prefsPath, content, 'utf-8');
+    await fs.writeFile(prefsPath, content, 'utf-8');
 
     logger.info('tool preferences saved', {
       code: 'preferences_saved',
@@ -94,29 +114,28 @@ export async function saveToolPreferences(
 /**
  * Delete tool preferences file
  */
-export async function deleteToolPreferences(userDataDir: string): Promise<void> {
-  const prefsPath = getToolPreferencesPath(userDataDir);
+export async function deleteToolPreferences(
+  userDataDir: string,
+  fs: FileSystemAdapter = defaultFs
+): Promise<void> {
+  const prefsPath = getToolPreferencesPath(userDataDir, fs);
 
   try {
-    await fsp.unlink(prefsPath);
+    await fs.unlink(prefsPath);
     logger.info('tool preferences deleted', { code: 'preferences_deleted' });
   } catch (error) {
-    const err = error as { code?: string };
-    if (err.code === 'ENOENT') {
-      return;
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return; // File doesn't exist, nothing to delete
     }
-    logger.error('failed to delete tool preferences', {
-      code: 'delete_preferences_failed',
-      error: error instanceof Error ? error.message : String(error),
-    });
+    throw error;
   }
 }
 
 /**
  * Get the path to tool preferences file
  */
-function getToolPreferencesPath(userDataDir: string): string {
-  return path.join(userDataDir, 'mcp', 'tool-preferences.json');
+function getToolPreferencesPath(userDataDir: string, fs: FileSystemAdapter = defaultFs): string {
+  return fs.join(userDataDir, 'mcp', 'tool-preferences.json');
 }
 
 /**

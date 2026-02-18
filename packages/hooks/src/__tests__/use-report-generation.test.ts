@@ -77,7 +77,7 @@ describe('useReportGeneration', () => {
 
     let reportResult: string | undefined;
     await act(async () => {
-      reportResult = await result.current.generateReportWithContent();
+      reportResult = await result.current.generateContextWithContent();
     });
 
     expect(generateReport).toHaveBeenCalledWith(
@@ -133,7 +133,7 @@ describe('useReportGeneration', () => {
 
     await act(async () => {
       // Start the generation process
-      generatePromise = result.current.generateReportWithContent();
+      generatePromise = result.current.generateContextWithContent();
     });
 
     // Check the state right after starting (should be generating)
@@ -144,7 +144,7 @@ describe('useReportGeneration', () => {
       if (resolvePromise) {
         resolvePromise('test report');
       }
-      // Wait for the generateReportWithContent promise to resolve
+      // Wait for the generateContextWithContent promise to resolve
       await generatePromise;
     });
 
@@ -166,7 +166,7 @@ describe('useReportGeneration', () => {
       })
     );
 
-    await expect(result.current.generateReportWithContent()).rejects.toThrow(
+    await expect(result.current.generateContextWithContent()).rejects.toThrow(
       'No root directory selected'
     );
   });
@@ -191,7 +191,7 @@ describe('useReportGeneration', () => {
 
     await act(async () => {
       try {
-        await result.current.generateReportWithContent();
+        await result.current.generateContextWithContent();
       } catch {
         // Expected error
       }
@@ -223,7 +223,7 @@ describe('useReportGeneration', () => {
       );
 
       await act(async () => {
-        await result.current.generateReportWithContent();
+        await result.current.generateContextWithContent();
       });
 
       // Should have called loadMissingContent with both files
@@ -275,7 +275,7 @@ describe('useReportGeneration', () => {
       );
 
       await act(async () => {
-        await result.current.generateReportWithContent();
+        await result.current.generateContextWithContent();
       });
 
       // Should only load the missing file (file2.ts)
@@ -303,7 +303,7 @@ describe('useReportGeneration', () => {
       );
 
       await act(async () => {
-        await result.current.generateReportWithContent();
+        await result.current.generateContextWithContent();
       });
 
       // Should not call loadMissingContent since all files have content
@@ -346,7 +346,7 @@ describe('useReportGeneration', () => {
       );
 
       await act(async () => {
-        await result.current.generateReportWithContent();
+        await result.current.generateContextWithContent();
       });
 
       // Should still call loadMissingContent
@@ -384,7 +384,7 @@ describe('useReportGeneration', () => {
       );
 
       await act(async () => {
-        await result.current.generateReportWithContent();
+        await result.current.generateContextWithContent();
       });
 
       // Should work and use the provided fileContents directly
@@ -419,7 +419,7 @@ describe('useReportGeneration', () => {
       // Should propagate the error
       await expect(
         act(async () => {
-          await result.current.generateReportWithContent();
+          await result.current.generateContextWithContent();
         })
       ).rejects.toThrow('Load failed');
 

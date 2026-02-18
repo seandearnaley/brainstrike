@@ -5,7 +5,6 @@ vi.mock('@brainstrike/agent', () => ({
   convertAssistantUiMessages: vi.fn((messages: unknown) => messages),
   resolveDataStreamSession: vi.fn(),
   toAiSdkStyleStream: vi.fn(),
-  webTools: { id: 'web-tools' },
 }));
 
 vi.mock('../../../../server/assistant-config', () => ({
@@ -114,7 +113,7 @@ describe('assistant route', () => {
     expect(convertAssistantUiMessages).toHaveBeenCalled();
     expect(toAiSdkStyleStream).toHaveBeenCalledWith(
       expect.any(Array),
-      expect.objectContaining({ apiKey: 'test-key', mastraTools: { id: 'web-tools' } })
+      expect.objectContaining({ apiKey: 'test-key' })
     );
   });
 });

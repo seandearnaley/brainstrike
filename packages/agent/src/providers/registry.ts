@@ -348,13 +348,9 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
   },
 ];
 
-const PROVIDER_BY_ID: Record<ProviderId, ProviderDefinition> = PROVIDER_DEFINITIONS.reduce(
-  (acc, provider) => {
-    acc[provider.id] = provider;
-    return acc;
-  },
-  {} as Record<ProviderId, ProviderDefinition>
-);
+const PROVIDER_BY_ID = Object.fromEntries(
+  PROVIDER_DEFINITIONS.map((provider) => [provider.id, provider])
+) as Record<ProviderId, ProviderDefinition>;
 
 export function listProviders(): readonly ProviderDefinition[] {
   return PROVIDER_DEFINITIONS;

@@ -733,6 +733,8 @@ export class UnifiedToolRegistry {
     return undefined;
   }
 
+  private static readonly patternCache = new Map<string, RegExp>();
+
   private matchPattern(toolId: string, pattern: string): boolean {
     if (pattern === '*') {
       return true;
@@ -741,19 +743,24 @@ export class UnifiedToolRegistry {
       return true;
     }
 
-    const escapedPattern = pattern.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
-    const regexPattern = escapedPattern.replace(/\*/g, '.*').replace(/\?/g, '.');
+    let regex = UnifiedToolRegistry.patternCache.get(pattern);
+    if (!regex) {
+      const escapedPattern = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      const regexPattern = escapedPattern.replace(/\*/g, '.*').replace(/\?/g, '.');
 
-    try {
-      const regex = new RegExp(`^${regexPattern}$`);
-      return regex.test(toolId);
-    } catch (error) {
-      logger.warn('Invalid tool pattern provided', {
-        pattern,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return false;
+      try {
+        regex = new RegExp(`^${regexPattern}$`);
+        UnifiedToolRegistry.patternCache.set(pattern, regex);
+      } catch (error) {
+        logger.warn('Invalid tool pattern provided', {
+          pattern,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
     }
+
+    return regex.test(toolId);
   }
 
   private notifyListeners(): void {

@@ -4,8 +4,24 @@
  * Implements standard IR metrics: precision@k, recall@k, MRR.
  */
 
-import { minimatch } from 'minimatch';
+import { Minimatch } from 'minimatch';
 import type { AggregateMetrics, GoldenTestCase, RetrievalResult, TestCaseResult } from './types';
+
+const minimatchCache = new Map<string, Minimatch>();
+const minimatchOpts = { matchBase: true } as const;
+
+function getCachedMatcher(pattern: string): Minimatch {
+  let matcher = minimatchCache.get(pattern);
+  if (!matcher) {
+    matcher = new Minimatch(pattern, minimatchOpts);
+    minimatchCache.set(pattern, matcher);
+  }
+  return matcher;
+}
+
+function matchesPattern(filePath: string, pattern: string): boolean {
+  return getCachedMatcher(pattern).match(filePath);
+}
 
 /**
  * Checks if a file path matches any of the expected patterns.
@@ -13,12 +29,7 @@ import type { AggregateMetrics, GoldenTestCase, RetrievalResult, TestCaseResult 
  */
 export function matchesExpectedPath(filePath: string, expectedPatterns: string[]): boolean {
   for (const pattern of expectedPatterns) {
-    // Try exact match first
-    if (filePath === pattern) {
-      return true;
-    }
-    // Try glob match
-    if (minimatch(filePath, pattern, { matchBase: true })) {
+    if (filePath === pattern || matchesPattern(filePath, pattern)) {
       return true;
     }
   }
@@ -99,10 +110,7 @@ export function computeRecallAtK(
     if (isRelevant(result, testCase)) {
       // Find which expected path this matches
       for (const pattern of testCase.expectedFilePaths) {
-        if (
-          result.filePath === pattern ||
-          minimatch(result.filePath, pattern, { matchBase: true })
-        ) {
+        if (result.filePath === pattern || matchesPattern(result.filePath, pattern)) {
           foundPaths.add(pattern);
           break;
         }
@@ -154,7 +162,7 @@ export function evaluateTestCase(
   const foundPaths = new Set<string>();
   for (const result of relevantResults) {
     for (const pattern of testCase.expectedFilePaths) {
-      if (result.filePath === pattern || minimatch(result.filePath, pattern, { matchBase: true })) {
+      if (result.filePath === pattern || matchesPattern(result.filePath, pattern)) {
         foundPaths.add(pattern);
       }
     }

@@ -4,7 +4,7 @@ import {
   createReportGenerationWorker,
   type ProgressEvent as ReportProgressEvent,
 } from '@brainstrike/workers/report-generation-worker';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 export type { ContextLineRange } from '@brainstrike/utils';
 
@@ -56,41 +56,22 @@ export function useReportGeneration({
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<ReportProgressEvent | null>(null);
 
-  const stablePayload = useMemo(
-    () => ({
-      selectedFiles,
-      fileContents,
-      rootDirectoryHandle,
-      includeFilters,
-      excludeFilters,
-      useRegex,
-      includeProjectTree,
-      projectTreeUsesViewFilters,
-      folderSummaryThreshold,
-      fileSystemAdapter,
-      loadMissingContent,
-      getFileContents,
-    }),
-    [
-      selectedFiles,
-      fileContents,
-      rootDirectoryHandle,
-      includeFilters,
-      excludeFilters,
-      useRegex,
-      includeProjectTree,
-      projectTreeUsesViewFilters,
-      folderSummaryThreshold,
-      fileSystemAdapter,
-      loadMissingContent,
-      getFileContents,
-    ]
-  );
-
-  const payloadRef = useRef(stablePayload);
-  // Keep the current payload synchronized without introducing conditional hooks.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  payloadRef.current = stablePayload;
+  const payload = {
+    selectedFiles,
+    fileContents,
+    rootDirectoryHandle,
+    fileSystemAdapter,
+    includeFilters,
+    excludeFilters,
+    useRegex,
+    includeProjectTree,
+    projectTreeUsesViewFilters,
+    folderSummaryThreshold,
+    loadMissingContent,
+    getFileContents,
+  };
+  const payloadRef = useRef(payload);
+  payloadRef.current = payload;
 
   // Keep callback identity stable; runtime inputs are read from payloadRef at call time.
   const generateContextWithContent = useCallback(async (overrides?: ContextGenerationOverrides) => {
@@ -150,12 +131,12 @@ export function useReportGeneration({
       );
     } finally {
       setIsGenerating(false);
+      setProgress(null);
     }
   }, []);
 
   return {
     generateContextWithContent,
-    generateReportWithContent: generateContextWithContent,
     isGenerating,
     progress,
   };

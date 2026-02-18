@@ -65,7 +65,7 @@ export function normalizeProgressPayload(input: unknown): NormalizedProgress {
 
 function clamp01To100(n: number): number {
   if (!Number.isFinite(n)) {
-    return undefined as unknown as number;
+    return 0;
   }
   if (n < 0) {
     return 0;

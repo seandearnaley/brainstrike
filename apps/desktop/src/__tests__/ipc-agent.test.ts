@@ -128,7 +128,6 @@ describe('registerAgentIpcHandlers', () => {
       const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
       g.__agentModule = {
         streamMastraAgent,
-        webTools: { someTool: {} },
       } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
@@ -181,7 +180,6 @@ describe('registerAgentIpcHandlers', () => {
       const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
       g.__agentModule = {
         streamMastraAgent,
-        webTools: {},
       } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
@@ -230,7 +228,6 @@ describe('registerAgentIpcHandlers', () => {
       const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
       g.__agentModule = {
         streamMastraAgent,
-        webTools: {},
       } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
@@ -283,7 +280,6 @@ describe('registerAgentIpcHandlers', () => {
       const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
       g.__agentModule = {
         streamMastraAgent,
-        webTools: {},
       } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
@@ -319,7 +315,6 @@ describe('registerAgentIpcHandlers', () => {
       const g1 = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
       g1.__agentModule = {
         streamMastraAgent: mockStreamMastraAgent,
-        webTools: { tool1: {}, tool2: {} },
       } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
@@ -358,7 +353,6 @@ describe('registerAgentIpcHandlers', () => {
           mcpConfig,
           apiKey: 'secret-key',
         },
-        tools: { tool1: {}, tool2: {} },
       });
     });
 
@@ -416,7 +410,6 @@ describe('registerAgentIpcHandlers', () => {
       const g2 = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
       g2.__agentModule = {
         streamMastraAgent: mockStreamMastraAgent,
-        webTools: {},
       } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');

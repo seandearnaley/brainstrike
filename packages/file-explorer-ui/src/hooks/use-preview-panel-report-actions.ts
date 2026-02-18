@@ -47,13 +47,9 @@ const toContextGenerationOverrides = (
 export function usePreviewPanelReportActions(input: UsePreviewPanelReportActionsInput): {
   handleDownloadContext: (options?: ContextExportOptions) => Promise<void>;
   handleCopyContext: (options?: ContextExportOptions) => Promise<void>;
-  /** @deprecated Use `handleDownloadContext` instead. */
-  handleDownloadReport: (options?: ContextExportOptions) => Promise<void>;
-  /** @deprecated Use `handleCopyContext` instead. */
-  handleCopyReport: (options?: ContextExportOptions) => Promise<void>;
 } {
   const { fileSystemAdapter } = useAdapters();
-  const { toast, showToast } = useToastManager();
+  const { toast } = useToastManager();
 
   // Get fresh file contents from store state when needed (avoids stale closure).
   // The store reference is stable, but we call getState() to get current values.
@@ -82,7 +78,6 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
   const manager = useReportManager({
     rootDirectoryHandle: input.rootDirectoryHandle,
     generateContextWithContent,
-    showToast,
     toast,
   });
 
@@ -104,7 +99,5 @@ export function usePreviewPanelReportActions(input: UsePreviewPanelReportActions
   return {
     handleDownloadContext: handleDownloadContextWithOptions,
     handleCopyContext: handleCopyContextWithOptions,
-    handleDownloadReport: handleDownloadContextWithOptions,
-    handleCopyReport: handleCopyContextWithOptions,
   };
 }

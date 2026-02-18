@@ -1,5 +1,5 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
-import { isMastraAgentError, toAiSdkStyleStream, webTools } from '@brainstrike/agent';
+import { isMastraAgentError, toAiSdkStyleStream } from '@brainstrike/agent';
 import { z } from 'zod';
 import type { AssistantProviderConfig } from '../../../server/assistant-config';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
@@ -97,7 +97,6 @@ export async function POST(req: Request): Promise<Response> {
 
     const stream = await toAiSdkStyleStream(messages, {
       ...(data ?? {}),
-      mastraTools: webTools,
       apiKey: provider.apiKey,
     });
 

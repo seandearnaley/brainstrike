@@ -9,6 +9,7 @@
 
 import type { QueueStatusInput } from './schemas';
 import { QueueStatusInputSchema } from './schemas';
+import { handleToolError, type ToolContext } from './types';
 
 /** Tool identifier used in the Mastra tools registry */
 export const QUEUE_STATUS_TOOL_ID = 'brainstrike.queueStatus' as const;
@@ -119,27 +120,6 @@ export interface QueueStatusToolDependencies {
     debug: (message: string, context?: Record<string, unknown>) => void;
     error: (message: string, context?: Record<string, unknown>) => void;
   };
-}
-
-/**
- * Context type for Mastra tool execution.
- */
-interface ToolContext<TInput> {
-  context: TInput;
-}
-
-/**
- * Handles errors from the status check.
- */
-function handleStatusError(error: unknown, logger?: QueueStatusToolDependencies['logger']): never {
-  const message = error instanceof Error ? error.message : QUEUE_STATUS_ERROR_MESSAGES.fetchFailed;
-
-  if (SAFE_QUEUE_STATUS_ERRORS.has(message)) {
-    throw new Error(message);
-  }
-
-  logger?.error('Queue status check failed', { error });
-  throw new Error(QUEUE_STATUS_ERROR_MESSAGES.fetchFailed);
 }
 
 /**
@@ -272,7 +252,12 @@ export function createQueueStatusTool(deps: QueueStatusToolDependencies): Mastra
       try {
         return await runQueueStatus(context.context, deps);
       } catch (error) {
-        handleStatusError(error, deps.logger);
+        handleToolError(
+          error,
+          SAFE_QUEUE_STATUS_ERRORS,
+          QUEUE_STATUS_ERROR_MESSAGES.fetchFailed,
+          deps.logger
+        );
       }
     },
   };

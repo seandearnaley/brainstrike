@@ -9,7 +9,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { error as logError } from '@brainstrike/utils';
-import { saveAs } from 'file-saver';
 import { useCallback } from 'react';
 
 type ContextGenerator<O> = (options?: O) => Promise<string>;
@@ -17,14 +16,6 @@ type ContextGenerator<O> = (options?: O) => Promise<string>;
 interface UseReportManagerProps<A = unknown, O = unknown> {
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
   generateContextWithContent?: ContextGenerator<O>;
-  /** @deprecated Use `generateContextWithContent` instead. */
-  generateReportWithContent?: ContextGenerator<O>;
-  showToast: (props: {
-    title: string;
-    description: string;
-    variant?: 'default' | 'destructive';
-    action?: A;
-  }) => void;
   toast: (props: {
     title: string;
     description: string;
@@ -37,10 +28,6 @@ interface UseReportManagerProps<A = unknown, O = unknown> {
 interface UseReportManagerResult<O = unknown> {
   handleDownloadContext: (options?: O) => Promise<void>;
   handleCopyContext: (options?: O) => Promise<void>;
-  /** @deprecated Use `handleDownloadContext` instead. */
-  handleDownloadReport: (options?: O) => Promise<void>;
-  /** @deprecated Use `handleCopyContext` instead. */
-  handleCopyReport: (options?: O) => Promise<void>;
 }
 
 const DEFAULT_CONTEXT_FILENAME = FileExplorerStrings.fileNames.context;
@@ -86,12 +73,8 @@ const buildContextFilename = (
 export const useReportManager = <A = unknown, O = unknown>({
   rootDirectoryHandle,
   generateContextWithContent,
-  generateReportWithContent,
-  showToast,
   toast,
 }: UseReportManagerProps<A, O>): UseReportManagerResult<O> => {
-  const contextGenerator = generateContextWithContent ?? generateReportWithContent;
-
   const handleGenerateContext = useCallback(
     async (options?: O) => {
       if (!rootDirectoryHandle) {
@@ -104,10 +87,10 @@ export const useReportManager = <A = unknown, O = unknown>({
       }
 
       try {
-        if (!contextGenerator) {
+        if (!generateContextWithContent) {
           throw new Error('No context generator provided');
         }
-        const context = await contextGenerator(options);
+        const context = await generateContextWithContent(options);
         return context;
       } catch (error) {
         logError('Error generating context:', error);
@@ -119,48 +102,16 @@ export const useReportManager = <A = unknown, O = unknown>({
         return null;
       }
     },
-    [contextGenerator, rootDirectoryHandle, toast]
+    [generateContextWithContent, rootDirectoryHandle, toast]
   );
 
-  const handleDownloadContext = useCallback(
-    async (options?: O): Promise<void> => {
-      const contextToast = toast({
-        title: FileExplorerStrings.loading.generatingContext,
-        description: FileExplorerStrings.prompts.waitForContext,
-        duration: Number.POSITIVE_INFINITY,
-      });
-
-      try {
-        const context = await handleGenerateContext(options);
-        contextToast?.dismiss?.();
-
-        if (context) {
-          saveAs(
-            new Blob([context], { type: 'text/plain;charset=utf-8' }),
-            buildContextFilename(rootDirectoryHandle)
-          );
-          showToast({
-            title: FileExplorerStrings.success.title,
-            description: FileExplorerStrings.success.contextDownloaded,
-          });
-        }
-      } catch (error) {
-        contextToast?.dismiss?.();
-        showToast({
-          title: FileExplorerStrings.error.title,
-          description:
-            error instanceof Error
-              ? `${FileExplorerStrings.error.contextGenerationFailed}: ${error.message}`
-              : FileExplorerStrings.error.contextGenerationFailed,
-          variant: 'destructive',
-        });
-      }
-    },
-    [handleGenerateContext, rootDirectoryHandle, showToast, toast]
-  );
-
-  const handleCopyContext = useCallback(
-    async (options?: O): Promise<void> => {
+  const executeWithToast = useCallback(
+    async (
+      options: O | undefined,
+      action: (context: string) => Promise<void>,
+      successMessage: string,
+      errorMessage: string
+    ): Promise<void> => {
       const contextToast = toast({
         title: FileExplorerStrings.loading.generatingContext,
         description: FileExplorerStrings.prompts.waitForContext,
@@ -174,32 +125,56 @@ export const useReportManager = <A = unknown, O = unknown>({
           return;
         }
 
-        await navigator.clipboard.writeText(context);
+        await action(context);
         contextToast?.dismiss?.();
-        showToast({
+        toast({
           title: FileExplorerStrings.success.title,
-          description: FileExplorerStrings.success.contextCopied,
+          description: successMessage,
         });
-        return;
       } catch (error) {
         contextToast?.dismiss?.();
-        showToast({
+        toast({
           title: FileExplorerStrings.error.title,
-          description:
-            error instanceof Error
-              ? `${FileExplorerStrings.error.contextCopyFailed}: ${error.message}`
-              : FileExplorerStrings.error.contextCopyFailed,
+          description: error instanceof Error ? `${errorMessage}: ${error.message}` : errorMessage,
           variant: 'destructive',
         });
       }
     },
-    [handleGenerateContext, showToast, toast]
+    [handleGenerateContext, toast]
+  );
+
+  const handleDownloadContext = useCallback(
+    async (options?: O): Promise<void> =>
+      executeWithToast(
+        options,
+        async (context) => {
+          const { saveAs } = await import('file-saver');
+          saveAs(
+            new Blob([context], { type: 'text/plain;charset=utf-8' }),
+            buildContextFilename(rootDirectoryHandle)
+          );
+        },
+        FileExplorerStrings.success.contextDownloaded,
+        FileExplorerStrings.error.contextGenerationFailed
+      ),
+    [executeWithToast, rootDirectoryHandle]
+  );
+
+  const handleCopyContext = useCallback(
+    async (options?: O): Promise<void> =>
+      executeWithToast(
+        options,
+        async (context) => {
+          await navigator.clipboard.writeText(context);
+        },
+        FileExplorerStrings.success.contextCopied,
+        FileExplorerStrings.error.contextCopyFailed
+      ),
+    [executeWithToast]
   );
 
   return {
     handleDownloadContext,
     handleCopyContext,
-    handleDownloadReport: handleDownloadContext,
-    handleCopyReport: handleCopyContext,
   };
 };

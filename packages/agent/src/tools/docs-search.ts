@@ -5,7 +5,7 @@ const MAX_SEARCH_LIMIT = 10;
 const MAX_QUERY_LENGTH = 200;
 const MAX_QUERY_TOKENS = 8;
 
-interface WebDocEntry {
+export interface WebDocEntry {
   id: string;
   title: string;
   summary: string;
@@ -51,7 +51,7 @@ export interface DocSummaryResponse {
   };
 }
 
-const DOCS_INDEX: readonly WebDocEntry[] = [
+const DEFAULT_DOCS_INDEX: readonly WebDocEntry[] = [
   {
     id: 'assistant-ui-integration',
     title: 'Assistant UI Runtime Handoff (2025-09-14)',
@@ -167,7 +167,7 @@ function indexDocs(entries: readonly WebDocEntry[]): {
   return { docs, map };
 }
 
-const { docs: INDEXED_DOCS, map: INDEXED_DOC_MAP } = indexDocs(DOCS_INDEX);
+const { docs: INDEXED_DOCS, map: INDEXED_DOC_MAP } = indexDocs(DEFAULT_DOCS_INDEX);
 
 function scoreDoc(doc: IndexedDoc, queryTokens: readonly string[]): number {
   let score = 0;
@@ -213,7 +213,8 @@ export const docSummaryInputSchema = z.object({
 });
 
 export async function searchDocsExecute(
-  input: z.infer<typeof searchDocsInputSchema>
+  input: z.infer<typeof searchDocsInputSchema>,
+  customIndex?: readonly WebDocEntry[]
 ): Promise<SearchResponse> {
   const query = (input.query ?? '').trim();
   const limit = input.limit ?? DEFAULT_SEARCH_LIMIT;
@@ -230,8 +231,10 @@ export async function searchDocsExecute(
     } satisfies SearchResponse;
   }
 
+  const indexedDocs = customIndex ? indexDocs(customIndex).docs : INDEXED_DOCS;
+
   const ranked: Array<{ doc: IndexedDoc; score: number; highlight: string }> = [];
-  for (const doc of INDEXED_DOCS) {
+  for (const doc of indexedDocs) {
     const score = scoreDoc(doc, queryTokens);
     if (score > 0) {
       ranked.push({
@@ -268,10 +271,12 @@ export async function searchDocsExecute(
 }
 
 export async function docSummaryExecute(
-  input: z.infer<typeof docSummaryInputSchema>
+  input: z.infer<typeof docSummaryInputSchema>,
+  customIndex?: readonly WebDocEntry[]
 ): Promise<DocSummaryResponse> {
   const docId = (input.docId ?? '').trim();
-  const doc = docId.length > 0 ? INDEXED_DOC_MAP.get(docId) : undefined;
+  const docMap = customIndex ? indexDocs(customIndex).map : INDEXED_DOC_MAP;
+  const doc = docId.length > 0 ? docMap.get(docId) : undefined;
 
   if (!doc) {
     throw new Error(`Doc not found: ${docId}`);
