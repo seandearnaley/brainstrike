@@ -252,6 +252,8 @@ export class ToolRegistry {
     return enabledTools.some((pattern) => this.matchPattern(toolId, pattern));
   }
 
+  private static readonly patternCache = new Map<string, RegExp>();
+
   private matchPattern(toolId: string, pattern: string): boolean {
     if (pattern === '*') {
       return true;
@@ -260,9 +262,15 @@ export class ToolRegistry {
       return true;
     }
 
-    // Support glob-style wildcards
-    const regexPattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
-    const regex = new RegExp(`^${regexPattern}$`);
+    let regex = ToolRegistry.patternCache.get(pattern);
+    if (!regex) {
+      // Escape regex metacharacters before converting glob wildcards
+      const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+      const regexPattern = escaped.replace(/\*/g, '.*').replace(/\?/g, '.');
+      regex = new RegExp(`^${regexPattern}$`);
+      ToolRegistry.patternCache.set(pattern, regex);
+    }
+
     return regex.test(toolId);
   }
 

@@ -241,6 +241,45 @@ describe('MCP ToolRegistry', () => {
     });
   });
 
+  describe('matchPattern with regex metacharacters', () => {
+    it('should match tool.read as a literal dot pattern', () => {
+      const fresh = new ToolRegistry();
+      fresh.register('test-server', mockTools, {
+        enabledTools: ['tool.read'],
+      });
+
+      const tools = fresh.getToolsForServer('test-server');
+      expect(tools.find((t) => t.id === 'tool.read')?.enabled).toBe(true);
+      expect(tools.find((t) => t.id === 'tool.write')?.enabled).toBe(false);
+    });
+
+    it('should not match toolXread when pattern is tool.read (dot is escaped)', () => {
+      const fresh = new ToolRegistry();
+      const extraTools = {
+        ...mockTools,
+        toolXread: createMockTool('toolXread', 'Extra tool'),
+      } as ToolsInput;
+
+      fresh.register('test-server', extraTools, {
+        enabledTools: ['tool.read'],
+      });
+
+      const tools = fresh.getToolsForServer('test-server');
+      expect(tools.find((t) => t.id === 'tool.read')?.enabled).toBe(true);
+      expect(tools.find((t) => t.id === 'toolXread')?.enabled).toBe(false);
+    });
+
+    it('should handle glob wildcard with metacharacter patterns', () => {
+      const fresh = new ToolRegistry();
+      fresh.register('test-server', mockTools, {
+        enabledTools: ['tool.*'],
+      });
+
+      const tools = fresh.getToolsForServer('test-server');
+      expect(tools.every((t) => t.enabled)).toBe(true);
+    });
+  });
+
   describe('subscribe', () => {
     it('should notify listeners on tool state changes', () => {
       let notificationCount = 0;

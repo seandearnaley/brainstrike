@@ -754,7 +754,13 @@ class SessionSubscription {
     this.closed = true;
     try {
       this.controller.close();
-    } catch {}
+    } catch (closeError) {
+      // Controller close errors during subscription teardown are non-critical
+      // but logged for debugging silent failures
+      if (closeError instanceof Error) {
+        console.warn('Stream controller close failed:', closeError.message);
+      }
+    }
     this.session.removeSubscription(this);
   }
 }

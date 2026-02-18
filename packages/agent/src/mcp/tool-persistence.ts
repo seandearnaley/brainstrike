@@ -101,14 +101,10 @@ export async function deleteToolPreferences(userDataDir: string): Promise<void> 
     await fsp.unlink(prefsPath);
     logger.info('tool preferences deleted', { code: 'preferences_deleted' });
   } catch (error) {
-    const err = error as { code?: string };
-    if (err.code === 'ENOENT') {
-      return;
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return; // File doesn't exist, nothing to delete
     }
-    logger.error('failed to delete tool preferences', {
-      code: 'delete_preferences_failed',
-      error: error instanceof Error ? error.message : String(error),
-    });
+    throw error;
   }
 }
 

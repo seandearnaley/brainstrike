@@ -37,7 +37,13 @@ export async function* readableStreamIterator<T>(
   } finally {
     try {
       reader.cancel();
-    } catch {}
+    } catch (cancelError) {
+      // Stream reader cancel errors during cleanup are non-critical
+      // but logged for debugging silent failures
+      if (cancelError instanceof Error) {
+        console.warn('Stream reader cancel failed:', cancelError.message);
+      }
+    }
     reader.releaseLock();
   }
 }
