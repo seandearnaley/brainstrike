@@ -102,6 +102,7 @@ export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } fr
 export {
   createDefaultToolPreferences,
   deleteToolPreferences,
+  type FileSystemAdapter,
   loadToolPreferences,
   saveToolPreferences,
   type ToolPreferences,
@@ -234,6 +235,7 @@ export {
   type SearchResponse,
   searchDocsExecute,
   searchDocsInputSchema,
+  type WebDocEntry,
 } from './tools/docs-search';
 // Embedding sets tool factory (Tier 2)
 export {

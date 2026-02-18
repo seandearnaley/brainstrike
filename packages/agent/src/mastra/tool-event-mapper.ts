@@ -1,4 +1,4 @@
-import type { StreamChunk } from '../index';
+import type { StreamChunk } from '../types';
 
 type ToolEventPart = {
   type: string;

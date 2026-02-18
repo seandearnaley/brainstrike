@@ -1,4 +1,4 @@
-import type { RuntimeData } from '../index';
+import type { RuntimeData } from '../types';
 import { getProviderEnvKeys } from './registry';
 import type { SupportedProvider } from './types';
 import { isSupportedProvider } from './types';

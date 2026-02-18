@@ -13,7 +13,8 @@ import {
   type ContextPackerResult,
   type PackedContextChunk,
 } from '../context-packer';
-import type { RetrievalContextInput, RuntimeData } from '../index';
+import type { RuntimeData } from '../types';
+import type { RetrievalContextInput } from './schemas';
 import { RetrievalContextInputSchema } from './schemas';
 import type { ToolContext } from './types';
 

@@ -10,15 +10,13 @@ export async function* readableStreamIterator<T>(
   const webStream = stream as ReadableStream<T>;
   const reader = webStream.getReader();
 
+  let abortHandler: (() => void) | undefined;
   const abortPromise = signal
     ? new Promise<{ done: true; value: undefined }>((resolve) => {
-        signal.addEventListener(
-          'abort',
-          () => {
-            resolve({ done: true, value: undefined });
-          },
-          { once: true }
-        );
+        abortHandler = () => {
+          resolve({ done: true, value: undefined });
+        };
+        signal.addEventListener('abort', abortHandler, { once: true });
       })
     : new Promise<never>(() => {});
 
@@ -38,6 +36,9 @@ export async function* readableStreamIterator<T>(
       }
     }
   } finally {
+    if (signal && abortHandler) {
+      signal.removeEventListener('abort', abortHandler);
+    }
     try {
       reader.cancel();
     } catch (cancelError) {

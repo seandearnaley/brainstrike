@@ -99,10 +99,10 @@ vi.mock('@brainstrike/hooks', () => ({
     isFirstPage: true,
     isLastPage: true,
   })),
-  useReportGeneration: vi.fn(() => ({ generateReportWithContent: vi.fn() })),
+  useReportGeneration: vi.fn(() => ({ generateContextWithContent: vi.fn() })),
   useReportManager: vi.fn(() => ({
-    handleDownloadReport: vi.fn(),
-    handleCopyReport: vi.fn(),
+    handleDownloadContext: vi.fn(),
+    handleCopyContext: vi.fn(),
   })),
 }));
 vi.mock('@brainstrike/ui', async (importOriginal) => {

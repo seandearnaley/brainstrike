@@ -1,0 +1,445 @@
+import type {
+  StreamChunk,
+  StreamChunkFinish,
+  StreamChunkMessageFinish,
+  StreamChunkText,
+  StreamChunkTool,
+} from '../types';
+import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
+import { toJsonSafe } from './json';
+
+interface ToolState {
+  toolName: string;
+  pendingArgsText: string;
+  lastInput?: unknown;
+}
+
+interface StepState {
+  id: string;
+  index: number;
+  usage: Usage;
+  finishReason: FinishReason;
+  status: 'success' | 'error';
+}
+
+interface Usage {
+  promptTokens: number;
+  completionTokens: number;
+}
+
+type FinishReason =
+  | 'stop'
+  | 'length'
+  | 'content-filter'
+  | 'tool-calls'
+  | 'error'
+  | 'other'
+  | 'unknown';
+
+function toUsage(raw?: { promptTokens?: unknown; completionTokens?: unknown }): Usage {
+  const prompt =
+    typeof raw?.promptTokens === 'number' && Number.isFinite(raw.promptTokens)
+      ? raw.promptTokens
+      : 0;
+  const completion =
+    typeof raw?.completionTokens === 'number' && Number.isFinite(raw.completionTokens)
+      ? raw.completionTokens
+      : 0;
+  return { promptTokens: prompt, completionTokens: completion };
+}
+
+export { toUsage };
+
+function sanitizeDelta(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') {
+    return;
+  }
+  if (value.length === 0) {
+    return;
+  }
+  return value;
+}
+
+function sanitizeToolCallId(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) {
+    return value;
+  }
+  return;
+}
+
+function extractFinishUsage(chunk: StreamChunkFinish | StreamChunkMessageFinish): Usage {
+  const usage = (chunk as { usage?: { promptTokens?: unknown; completionTokens?: unknown } }).usage;
+  return toUsage(usage ?? {});
+}
+
+function resolveFinishReason(chunk: StreamChunkFinish | StreamChunkMessageFinish): FinishReason {
+  const reason = (chunk as { finishReason?: unknown }).finishReason;
+  if (typeof reason !== 'string') {
+    return 'unknown';
+  }
+  switch (reason) {
+    case 'stop':
+    case 'length':
+    case 'content-filter':
+    case 'tool-calls':
+    case 'error':
+    case 'other':
+    case 'unknown':
+      return reason;
+    default:
+      return 'unknown';
+  }
+}
+
+function extractToolInput(payload: unknown): unknown {
+  if (!payload || typeof payload !== 'object') {
+    return;
+  }
+  const record = payload as Record<string, unknown>;
+  if (record['input'] !== undefined) {
+    return toJsonSafe(record['input']);
+  }
+  if (record['args'] !== undefined) {
+    return toJsonSafe(record['args']);
+  }
+  return;
+}
+
+function readProgressStep(payload: unknown): string | undefined {
+  const stepValue = (payload as { step?: unknown })?.step;
+  return typeof stepValue === 'string' ? stepValue : undefined;
+}
+
+function toArgsObject(value: unknown, fallbackText?: string): unknown {
+  if (value && typeof value === 'object') {
+    return toJsonSafe(value);
+  }
+  const text = typeof value === 'string' ? value : fallbackText;
+  if (!text) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export class DataStreamMapper {
+  private readonly sessionId: string;
+  private readonly messageId: string;
+  private readonly toolState = new Map<string, ToolState>();
+  private currentStep: StepState | null = null;
+  private nextStepIndex = 0;
+  private finishEmitted = false;
+  private startNewStepForNextText = false;
+
+  constructor(sessionId: string, messageId: string) {
+    this.sessionId = sessionId;
+    this.messageId = messageId;
+  }
+
+  initialChunks(): EncodedChunk[] {
+    const createdAt = new Date().toISOString();
+    return [
+      {
+        code: DataStreamCode.data,
+        value: [
+          {
+            type: 'start',
+            messageId: this.messageId,
+            sessionId: this.sessionId,
+            createdAt,
+          },
+        ],
+      },
+      ...this.startStepIfNeeded(),
+    ];
+  }
+
+  *handleChunk(chunk: StreamChunk): Generator<EncodedChunk> {
+    if (this.finishEmitted) {
+      return;
+    }
+
+    switch (chunk.type) {
+      case 'text-delta':
+        yield* this.handleTextDelta(chunk);
+        return;
+      case 'tool-event':
+        yield* this.handleToolEvent(chunk);
+        return;
+      case 'finish':
+      case 'message-finish':
+        yield* this.handleFinish(chunk);
+        return;
+      default:
+        return;
+    }
+  }
+
+  *handleError(error: unknown): Generator<EncodedChunk> {
+    const errorText = error instanceof Error ? error.message : String(error);
+    this.markCurrentStepAsError();
+    yield { code: DataStreamCode.error, value: errorText } satisfies EncodedChunk;
+    yield* this.finalizeCurrentStep();
+    if (!this.finishEmitted) {
+      const usage = this.currentStep?.usage ?? toUsage();
+      yield {
+        code: DataStreamCode.finishMessage,
+        value: {
+          finishReason: 'error',
+          usage,
+          path: [],
+        },
+      } satisfies EncodedChunk;
+      this.finishEmitted = true;
+    }
+  }
+
+  finalizeOnStreamEnd(): EncodedChunk[] {
+    if (this.finishEmitted) {
+      return [];
+    }
+    const chunks: EncodedChunk[] = [];
+    chunks.push(...this.finalizeCurrentStep());
+    const usage = this.currentStep?.usage ?? toUsage();
+    const reason = this.currentStep?.finishReason ?? 'unknown';
+    chunks.push({
+      code: DataStreamCode.finishMessage,
+      value: {
+        finishReason: this.currentStep?.status === 'error' ? 'error' : reason,
+        usage,
+        path: [],
+      },
+    });
+    this.finishEmitted = true;
+    return chunks;
+  }
+
+  didEmitFinish(): boolean {
+    return this.finishEmitted;
+  }
+
+  private *handleTextDelta(chunk: StreamChunkText): Generator<EncodedChunk> {
+    const delta = sanitizeDelta(chunk.value);
+    if (!delta) {
+      return;
+    }
+    if (this.startNewStepForNextText) {
+      yield* this.finalizeCurrentStep();
+      yield* this.startStepIfNeeded(true);
+      this.startNewStepForNextText = false;
+    } else {
+      yield* this.startStepIfNeeded();
+    }
+    yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;
+  }
+
+  private *handleToolEvent(chunk: StreamChunkTool): Generator<EncodedChunk> {
+    const callId = sanitizeToolCallId(
+      (chunk.payload as { toolCallId?: unknown; callId?: unknown })?.toolCallId ??
+        (chunk.payload as { toolCallId?: unknown; callId?: unknown })?.callId
+    );
+    if (!callId) {
+      return;
+    }
+    const toolName = chunk.name;
+    if (chunk.status === 'start') {
+      const existingState = this.toolState.get(callId);
+      if (existingState) {
+        existingState.lastInput = extractToolInput(chunk.payload);
+        return;
+      }
+      yield* this.handleToolStart(toolName, callId, chunk.payload);
+      return;
+    }
+
+    if (!this.toolState.has(callId)) {
+      yield* this.handleToolStart(toolName, callId, chunk.payload);
+    }
+
+    switch (chunk.status) {
+      case 'progress':
+        yield* this.handleToolProgress(callId, chunk.payload);
+        break;
+      case 'success':
+        yield* this.handleToolSuccess(callId, chunk.payload);
+        break;
+      case 'error':
+        yield* this.handleToolError(callId, chunk.payload);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private *handleToolStart(
+    toolName: string,
+    callId: string,
+    payload: unknown
+  ): Generator<EncodedChunk> {
+    yield* this.finalizeCurrentTextIfNeeded();
+    yield* this.startStepIfNeeded();
+    this.toolState.set(callId, {
+      toolName,
+      pendingArgsText: '',
+      lastInput: extractToolInput(payload),
+    });
+    yield {
+      code: DataStreamCode.startToolCall,
+      value: { toolCallId: callId, toolName },
+    } satisfies EncodedChunk;
+  }
+
+  private *handleToolProgress(callId: string, payload: unknown): Generator<EncodedChunk> {
+    const step = readProgressStep(payload);
+    if (step === 'input_stream_delta') {
+      const delta = sanitizeDelta((payload as { argsTextDelta?: unknown }).argsTextDelta as string);
+      if (!delta) {
+        return;
+      }
+      const state = this.toolState.get(callId);
+      if (state) {
+        state.pendingArgsText += delta;
+      }
+      yield {
+        code: DataStreamCode.toolCallArgsTextDelta,
+        value: { toolCallId: callId, argsTextDelta: delta },
+      } satisfies EncodedChunk;
+      return;
+    }
+    if (step === 'input_stream_end') {
+      const state = this.toolState.get(callId);
+      if (!state) {
+        return;
+      }
+      const args = toArgsObject(state.lastInput, state.pendingArgsText);
+      yield {
+        code: DataStreamCode.toolCall,
+        value: { toolCallId: callId, toolName: state.toolName, args },
+      } satisfies EncodedChunk;
+    }
+  }
+
+  private *handleToolSuccess(callId: string, payload: unknown): Generator<EncodedChunk> {
+    const output = toJsonSafe(
+      (payload as { output?: unknown; result?: unknown }).output ??
+        (payload as { result?: unknown }).result
+    );
+    this.toolState.delete(callId);
+    yield {
+      code: DataStreamCode.toolCallResult,
+      value: { toolCallId: callId, result: output },
+    } satisfies EncodedChunk;
+    this.startNewStepForNextText = true;
+  }
+
+  private *handleToolError(callId: string, payload: unknown): Generator<EncodedChunk> {
+    this.markCurrentStepAsError();
+    const output = toJsonSafe(
+      (payload as { error?: unknown; result?: unknown }).error ??
+        (payload as { result?: unknown }).result ??
+        'tool_error'
+    );
+
+    // Emit ToolCall with args if we haven't already (needed for UI to display tool)
+    const state = this.toolState.get(callId);
+    if (state) {
+      const args = toArgsObject(state.lastInput, state.pendingArgsText);
+      yield {
+        code: DataStreamCode.toolCall,
+        value: { toolCallId: callId, toolName: state.toolName, args },
+      } satisfies EncodedChunk;
+    }
+
+    this.toolState.delete(callId);
+    yield {
+      code: DataStreamCode.toolCallResult,
+      value: { toolCallId: callId, result: output, isError: true },
+    } satisfies EncodedChunk;
+    const message = typeof output === 'string' ? output : 'Tool execution failed';
+    yield { code: DataStreamCode.error, value: message } satisfies EncodedChunk;
+    this.startNewStepForNextText = true;
+  }
+
+  private *handleFinish(
+    chunk: StreamChunkFinish | StreamChunkMessageFinish
+  ): Generator<EncodedChunk> {
+    const usage = extractFinishUsage(chunk);
+    const finishReason = resolveFinishReason(chunk);
+    const stepBeforeFinalize = this.currentStep;
+    if (this.currentStep) {
+      this.currentStep.usage = usage;
+      this.currentStep.finishReason = this.currentStep.status === 'error' ? 'error' : finishReason;
+    }
+    yield* this.finalizeCurrentStep();
+    yield {
+      code: DataStreamCode.finishMessage,
+      value: {
+        finishReason: stepBeforeFinalize?.finishReason ?? finishReason,
+        usage,
+        path: [],
+      },
+    } satisfies EncodedChunk;
+    this.finishEmitted = true;
+  }
+
+  private *startStepIfNeeded(forceNew = false): Generator<EncodedChunk> {
+    if (this.currentStep && !forceNew) {
+      return;
+    }
+    if (this.currentStep && forceNew) {
+      yield* this.finalizeCurrentStep();
+    }
+    const stepId = `${this.messageId}:step:${this.nextStepIndex}`;
+    this.currentStep = {
+      id: stepId,
+      index: this.nextStepIndex,
+      usage: toUsage(),
+      finishReason: 'unknown',
+      status: 'success',
+    } satisfies StepState;
+    this.nextStepIndex += 1;
+    yield {
+      code: DataStreamCode.startStep,
+      value: {
+        messageId: this.messageId,
+        path: [],
+      },
+    } satisfies EncodedChunk;
+  }
+
+  private *finalizeCurrentTextIfNeeded(): Generator<EncodedChunk> {
+    if (this.startNewStepForNextText) {
+      yield* this.finalizeCurrentStep();
+      yield* this.startStepIfNeeded(true);
+      this.startNewStepForNextText = false;
+    }
+  }
+
+  private *finalizeCurrentStep(): Generator<EncodedChunk> {
+    if (!this.currentStep) {
+      return;
+    }
+    const step = this.currentStep;
+    this.currentStep = null;
+    yield {
+      code: DataStreamCode.finishStep,
+      value: {
+        finishReason: step.finishReason,
+        usage: step.usage,
+        isContinued: false,
+        path: [],
+      },
+    } satisfies EncodedChunk;
+  }
+
+  private markCurrentStepAsError(): void {
+    if (this.currentStep) {
+      this.currentStep.status = 'error';
+      this.currentStep.finishReason = 'error';
+    }
+  }
+}

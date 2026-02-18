@@ -133,11 +133,23 @@ export async function runEvaluationHarness(
     kValues: config.kValues,
   });
 
-  // Run all test cases
+  // Run all test cases with configurable concurrency
   const testCaseResults: TestCaseResult[] = [];
-  for (const testCase of dataset.testCases) {
-    const result = await runTestCase(testCase, options.search, config, logger);
-    testCaseResults.push(result);
+  const concurrency = Math.max(config.concurrency ?? 1, 1);
+
+  if (concurrency <= 1) {
+    for (const testCase of dataset.testCases) {
+      const result = await runTestCase(testCase, options.search, config, logger);
+      testCaseResults.push(result);
+    }
+  } else {
+    for (let i = 0; i < dataset.testCases.length; i += concurrency) {
+      const batch = dataset.testCases.slice(i, i + concurrency);
+      const batchResults = await Promise.all(
+        batch.map((testCase) => runTestCase(testCase, options.search, config, logger))
+      );
+      testCaseResults.push(...batchResults);
+    }
   }
 
   // Aggregate metrics

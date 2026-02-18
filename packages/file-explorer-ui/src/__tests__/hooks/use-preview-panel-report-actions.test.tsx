@@ -11,11 +11,9 @@ const mockUseReportGeneration = vi.fn();
 const mockUseReportManager = vi.fn();
 const mockFileSystemAdapter = {};
 const mockToast = vi.fn();
-const mockShowToast = vi.fn();
-
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({ fileSystemAdapter: mockFileSystemAdapter }),
-  useToastManager: () => ({ toast: mockToast, showToast: mockShowToast }),
+  useToastManager: () => ({ toast: mockToast }),
 }));
 
 vi.mock('@brainstrike/hooks', () => ({
@@ -49,13 +47,10 @@ describe('usePreviewPanelReportActions', () => {
     const generateContextWithContent = vi.fn();
     mockUseReportGeneration.mockReturnValue({
       generateContextWithContent,
-      generateReportWithContent: generateContextWithContent,
     });
     mockUseReportManager.mockReturnValue({
       handleDownloadContext: vi.fn(),
       handleCopyContext: vi.fn(),
-      handleDownloadReport: vi.fn(),
-      handleCopyReport: vi.fn(),
     });
   });
 
@@ -66,13 +61,10 @@ describe('usePreviewPanelReportActions', () => {
 
     mockUseReportGeneration.mockReturnValue({
       generateContextWithContent,
-      generateReportWithContent: generateContextWithContent,
     });
     mockUseReportManager.mockReturnValue({
       handleDownloadContext,
       handleCopyContext,
-      handleDownloadReport: handleDownloadContext,
-      handleCopyReport: handleCopyContext,
     });
 
     const { store } = createMockStore({});
@@ -105,7 +97,6 @@ describe('usePreviewPanelReportActions', () => {
     const generateContextWithContent = vi.fn(async () => 'report');
     mockUseReportGeneration.mockReturnValue({
       generateContextWithContent,
-      generateReportWithContent: generateContextWithContent,
     });
 
     const { store } = createMockStore({ fileA: 'content' });
@@ -161,13 +152,11 @@ describe('usePreviewPanelReportActions', () => {
     const reportManagerArgs = mockUseReportManager.mock.calls[0]?.[0] as {
       rootDirectoryHandle: DirectoryHandle | FileSystemDirectoryHandle | null;
       generateContextWithContent: () => Promise<string>;
-      showToast: unknown;
       toast: unknown;
     };
 
     expect(reportManagerArgs.rootDirectoryHandle).toBeNull();
     expect(reportManagerArgs.generateContextWithContent).toBe(generateContextWithContent);
-    expect(reportManagerArgs.showToast).toBe(mockShowToast);
     expect(reportManagerArgs.toast).toBe(mockToast);
   });
 

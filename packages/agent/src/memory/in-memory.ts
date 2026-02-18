@@ -1,4 +1,4 @@
-import type { AgentMessage } from '../index';
+import type { AgentMessage } from '../types';
 
 export interface Conversation {
   id: string;

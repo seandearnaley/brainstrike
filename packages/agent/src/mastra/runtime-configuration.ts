@@ -1,5 +1,5 @@
 import { createLogger } from '@brainstrike/utils';
-import type { RuntimeData } from '../index';
+import type { RuntimeData } from '../types';
 import {
   isSupportedProvider,
   resolveProviderApiKey,

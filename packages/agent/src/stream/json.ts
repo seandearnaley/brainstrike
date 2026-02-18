@@ -1,4 +1,4 @@
-import type { StreamChunk } from '../index';
+import type { StreamChunk } from '../types';
 
 /**
  * Serializes arbitrary values into JSON-safe structures while preserving helpful metadata.
