@@ -7,6 +7,7 @@ import type { ToolsInput } from '@mastra/core/agent';
 import type { MastraAgentRuntimeOptions } from './mastra/agent-runtime';
 import { streamMastraAgent } from './mastra/agent-runtime';
 import type { McpConfig } from './mcp/config';
+import { createRandomId } from './stream/data-stream';
 
 export interface AgentMessagePartText {
   type: 'text';
@@ -78,14 +79,6 @@ function normalizeRole(
   return fallback;
 }
 
-function randomMessageId(): string {
-  const cryptoLike = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
-  if (cryptoLike && typeof cryptoLike.randomUUID === 'function') {
-    return cryptoLike.randomUUID();
-  }
-  return `msg_${Math.random().toString(36).slice(2, 10)}`;
-}
-
 function ensureMessageId(value: AssistantUiMessage['id'] | AssistantUiMessageStrict['id']): string {
   if (typeof value === 'string' && value.trim().length > 0) {
     return value;
@@ -93,7 +86,7 @@ function ensureMessageId(value: AssistantUiMessage['id'] | AssistantUiMessageStr
   if (typeof value === 'number' && Number.isFinite(value)) {
     return String(value);
   }
-  return randomMessageId();
+  return createRandomId('msg');
 }
 
 function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStrict): string[] {
@@ -540,6 +533,7 @@ export {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,
   assistantDataStreamSessions,
+  createRandomId,
   resolveDataStreamSession,
 } from './stream/data-stream';
 export {

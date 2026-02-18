@@ -237,41 +237,63 @@ interface UsageLike {
   inputTokens?: number;
 }
 
+/** Shape of a Mastra stream part with potential usage/text/tool payload fields. */
+interface MastraStreamPart {
+  type: string;
+  text?: string;
+  textDelta?: string;
+  delta?: string;
+  usage?: UsageLike;
+  error?: unknown;
+  tripwireReason?: string;
+  payload?: {
+    text?: string;
+    textDelta?: string;
+    delta?: string;
+    error?: unknown;
+    tripwireReason?: string;
+    output?: { usage?: UsageLike };
+    metadata?: { usage?: UsageLike };
+  };
+}
+
+function asMastraStreamPart(part: unknown): MastraStreamPart {
+  if (part && typeof part === 'object') {
+    return part as MastraStreamPart;
+  }
+  return { type: 'unknown' };
+}
+
 function makeFinishChunk(part: unknown): StreamChunk {
+  const p = asMastraStreamPart(part);
   const usageCandidates: Array<UsageLike | undefined> = [
-    (part as { usage?: UsageLike }).usage,
-    (part as { payload?: { output?: { usage?: UsageLike } } }).payload?.output?.usage,
-    (part as { payload?: { metadata?: { usage?: UsageLike } } }).payload?.metadata?.usage,
+    p.usage,
+    p.payload?.output?.usage,
+    p.payload?.metadata?.usage,
   ];
   const usage = usageCandidates.find((candidate) => candidate !== undefined) ?? {};
   const promptTokensRaw = usage.promptTokens ?? usage.inputTokens;
-  const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw as number) : 0;
+  const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw ?? 0) : 0;
   const completionTokens = Number.isFinite(usage.completionTokens)
-    ? (usage.completionTokens as number)
+    ? (usage.completionTokens ?? 0)
     : 0;
   return {
     type: 'message-finish',
     finishReason: 'stop',
     usage: { promptTokens, completionTokens },
     path: [],
-  } as StreamChunk;
+  };
 }
 
 function getDeltaText(part: unknown): string {
-  const candidate = part as {
-    text?: string;
-    textDelta?: string;
-    delta?: string;
-    payload?: { text?: string; textDelta?: string; delta?: string };
-  };
-  const payloadText =
-    candidate.payload?.text ?? candidate.payload?.textDelta ?? candidate.payload?.delta;
-  return candidate.text ?? candidate.textDelta ?? candidate.delta ?? payloadText ?? '';
+  const p = asMastraStreamPart(part);
+  const payloadText = p.payload?.text ?? p.payload?.textDelta ?? p.payload?.delta;
+  return p.text ?? p.textDelta ?? p.delta ?? payloadText ?? '';
 }
 
 function readTripwireReason(part: unknown): string | undefined {
-  const candidate = part as { tripwireReason?: string; payload?: { tripwireReason?: string } };
-  return candidate.tripwireReason ?? candidate.payload?.tripwireReason;
+  const p = asMastraStreamPart(part);
+  return p.tripwireReason ?? p.payload?.tripwireReason;
 }
 
 interface ProcessStreamPartResult {
@@ -284,13 +306,13 @@ function processMastraStreamPart(
   toolNames: Map<string, string>,
   sanitizedNameMap?: Map<string, string>
 ): ProcessStreamPartResult {
-  const partType = (part as { type: string }).type;
+  const p = asMastraStreamPart(part);
 
-  switch (partType) {
+  switch (p.type) {
     case 'text-delta': {
       const delta = getDeltaText(part);
       return delta.length > 0
-        ? { chunks: [{ type: 'text-delta', value: delta } as StreamChunk], finished: false }
+        ? { chunks: [{ type: 'text-delta', value: delta }], finished: false }
         : { chunks: [], finished: false };
     }
     case 'finish': {
@@ -307,10 +329,6 @@ function processMastraStreamPart(
       return evt ? { chunks: [evt], finished: false } : { chunks: [], finished: false };
     }
     case 'error': {
-      const payloadCandidate = part as {
-        error?: unknown;
-        payload?: { error?: unknown };
-      };
       return {
         chunks: [
           {
@@ -318,10 +336,9 @@ function processMastraStreamPart(
             name: 'agent',
             status: 'error',
             payload: {
-              error:
-                payloadCandidate.error ?? payloadCandidate.payload?.error ?? 'agent_stream_error',
+              error: p.error ?? p.payload?.error ?? 'agent_stream_error',
             },
-          } as StreamChunk,
+          },
         ],
         finished: false,
       };
@@ -335,7 +352,7 @@ function processMastraStreamPart(
             name: 'agent',
             status: 'error',
             payload: { error: reason ?? 'tripwire' },
-          } as StreamChunk,
+          },
           makeFinishChunk(part),
         ],
         finished: true,

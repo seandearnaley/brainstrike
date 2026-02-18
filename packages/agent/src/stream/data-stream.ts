@@ -36,19 +36,19 @@ type FinishReason =
   | 'other'
   | 'unknown';
 
-// biome-ignore lint/style/noEnum: Internal enum used for protocol encoding - values must be stable
-enum DataStreamCode {
-  TextDelta = '0',
-  Data = '2',
-  Error = '3',
-  ToolCall = '9',
-  ToolCallResult = 'a',
-  StartToolCall = 'b',
-  ToolCallArgsTextDelta = 'c',
-  FinishMessage = 'd',
-  FinishStep = 'e',
-  StartStep = 'f',
-}
+const DataStreamCode = {
+  textDelta: '0',
+  data: '2',
+  error: '3',
+  toolCall: '9',
+  toolCallResult: 'a',
+  startToolCall: 'b',
+  toolCallArgsTextDelta: 'c',
+  finishMessage: 'd',
+  finishStep: 'e',
+  startStep: 'f',
+} as const;
+type DataStreamCode = (typeof DataStreamCode)[keyof typeof DataStreamCode];
 
 interface EncodedChunk {
   code: DataStreamCode;
@@ -214,7 +214,7 @@ class DataStreamMapper {
     const createdAt = new Date().toISOString();
     return [
       {
-        code: DataStreamCode.Data,
+        code: DataStreamCode.data,
         value: [
           {
             type: 'start',
@@ -252,12 +252,12 @@ class DataStreamMapper {
   *handleError(error: unknown): Generator<EncodedChunk> {
     const errorText = error instanceof Error ? error.message : String(error);
     this.markCurrentStepAsError();
-    yield { code: DataStreamCode.Error, value: errorText } satisfies EncodedChunk;
+    yield { code: DataStreamCode.error, value: errorText } satisfies EncodedChunk;
     yield* this.finalizeCurrentStep();
     if (!this.finishEmitted) {
       const usage = this.currentStep?.usage ?? toUsage();
       yield {
-        code: DataStreamCode.FinishMessage,
+        code: DataStreamCode.finishMessage,
         value: {
           finishReason: 'error',
           usage,
@@ -277,7 +277,7 @@ class DataStreamMapper {
     const usage = this.currentStep?.usage ?? toUsage();
     const reason = this.currentStep?.finishReason ?? 'unknown';
     chunks.push({
-      code: DataStreamCode.FinishMessage,
+      code: DataStreamCode.finishMessage,
       value: {
         finishReason: this.currentStep?.status === 'error' ? 'error' : reason,
         usage,
@@ -304,7 +304,7 @@ class DataStreamMapper {
     } else {
       yield* this.startStepIfNeeded();
     }
-    yield { code: DataStreamCode.TextDelta, value: delta } satisfies EncodedChunk;
+    yield { code: DataStreamCode.textDelta, value: delta } satisfies EncodedChunk;
   }
 
   private *handleToolEvent(chunk: StreamChunkTool): Generator<EncodedChunk> {
@@ -358,7 +358,7 @@ class DataStreamMapper {
       lastInput: extractToolInput(payload),
     });
     yield {
-      code: DataStreamCode.StartToolCall,
+      code: DataStreamCode.startToolCall,
       value: { toolCallId: callId, toolName },
     } satisfies EncodedChunk;
   }
@@ -375,7 +375,7 @@ class DataStreamMapper {
         state.pendingArgsText += delta;
       }
       yield {
-        code: DataStreamCode.ToolCallArgsTextDelta,
+        code: DataStreamCode.toolCallArgsTextDelta,
         value: { toolCallId: callId, argsTextDelta: delta },
       } satisfies EncodedChunk;
       return;
@@ -387,7 +387,7 @@ class DataStreamMapper {
       }
       const args = toArgsObject(state.lastInput, state.pendingArgsText);
       yield {
-        code: DataStreamCode.ToolCall,
+        code: DataStreamCode.toolCall,
         value: { toolCallId: callId, toolName: state.toolName, args },
       } satisfies EncodedChunk;
     }
@@ -400,7 +400,7 @@ class DataStreamMapper {
     );
     this.toolState.delete(callId);
     yield {
-      code: DataStreamCode.ToolCallResult,
+      code: DataStreamCode.toolCallResult,
       value: { toolCallId: callId, result: output },
     } satisfies EncodedChunk;
     this.startNewStepForNextText = true;
@@ -419,18 +419,18 @@ class DataStreamMapper {
     if (state) {
       const args = toArgsObject(state.lastInput, state.pendingArgsText);
       yield {
-        code: DataStreamCode.ToolCall,
+        code: DataStreamCode.toolCall,
         value: { toolCallId: callId, toolName: state.toolName, args },
       } satisfies EncodedChunk;
     }
 
     this.toolState.delete(callId);
     yield {
-      code: DataStreamCode.ToolCallResult,
+      code: DataStreamCode.toolCallResult,
       value: { toolCallId: callId, result: output, isError: true },
     } satisfies EncodedChunk;
     const message = typeof output === 'string' ? output : 'Tool execution failed';
-    yield { code: DataStreamCode.Error, value: message } satisfies EncodedChunk;
+    yield { code: DataStreamCode.error, value: message } satisfies EncodedChunk;
     this.startNewStepForNextText = true;
   }
 
@@ -446,7 +446,7 @@ class DataStreamMapper {
     }
     yield* this.finalizeCurrentStep();
     yield {
-      code: DataStreamCode.FinishMessage,
+      code: DataStreamCode.finishMessage,
       value: {
         finishReason: stepBeforeFinalize?.finishReason ?? finishReason,
         usage,
@@ -473,7 +473,7 @@ class DataStreamMapper {
     } satisfies StepState;
     this.nextStepIndex += 1;
     yield {
-      code: DataStreamCode.StartStep,
+      code: DataStreamCode.startStep,
       value: {
         messageId: this.messageId,
         path: [],
@@ -496,7 +496,7 @@ class DataStreamMapper {
     const step = this.currentStep;
     this.currentStep = null;
     yield {
-      code: DataStreamCode.FinishStep,
+      code: DataStreamCode.finishStep,
       value: {
         finishReason: step.finishReason,
         usage: step.usage,
@@ -806,7 +806,7 @@ export function resolveDataStreamSession(
   return assistantDataStreamSessions.getByEventId(eventId);
 }
 
-function createRandomId(prefix: string): string {
+export function createRandomId(prefix: string): string {
   const globalScope = globalThis as {
     crypto?: { randomUUID?: () => string };
   };

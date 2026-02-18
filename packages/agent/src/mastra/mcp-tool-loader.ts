@@ -20,8 +20,6 @@ export interface CollectCombinedToolsOptions {
 
 type McpServerConfig = NonNullable<McpConfig['servers']>[number];
 
-type WithTimeout<T> = Promise<T>;
-
 export async function collectCombinedTools({
   sanitizedLocalTools,
   mcpClient,
@@ -120,24 +118,22 @@ async function fetchMcpToolsWithTimeout(
   toolNameMap: Map<string, string>,
   timeoutMs: number
 ): Promise<ToolsInput | undefined> {
-  const withTimeout = async <T>(p: Promise<T>, ms: number): WithTimeout<T> =>
-    await new Promise<T>((resolve, reject) => {
-      const t = setTimeout(
-        () =>
-          reject(createMastraAgentError('mcp_tool_discovery_timeout', { detail: `timeout_${ms}` })),
-        ms
-      );
-      p.then((value) => {
-        clearTimeout(t);
-        resolve(value);
-      }).catch((err) => {
-        clearTimeout(t);
-        reject(err);
-      });
-    });
-
   try {
-    const toolsFromClient = (await withTimeout(mcpClient.listTools(), timeoutMs)) as ToolsInput;
+    const toolsFromClient = (await Promise.race([
+      mcpClient.listTools(),
+      new Promise<never>((_resolve, reject) => {
+        const timer = setTimeout(
+          () =>
+            reject(
+              createMastraAgentError('mcp_tool_discovery_timeout', {
+                detail: `timeout_${timeoutMs}`,
+              })
+            ),
+          timeoutMs
+        );
+        (timer as { unref?: () => void }).unref?.();
+      }),
+    ])) as ToolsInput;
     return sanitizeTools(toolsFromClient, toolNameMap);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
