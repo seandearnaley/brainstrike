@@ -271,7 +271,7 @@ export interface EmbeddingWorkerOptions {
   metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
   enable?: boolean; // explicit runtime toggle; overrides env flag
   device?: 'webgpu' | 'wasm'; // preferred device for transformers backend
-  reinitEveryN?: number; // reinitialize service every N successes (default from env or 200)
+  reinitEveryN?: number; // reinitialize service every N successes (default disabled unless env/option set)
   cacheDir?: string; // directory to cache/load models from
   onDownloadProgress?: (modelId: string, progress: number) => void;
   /** Optional embedding cache for content-level deduplication (BST-170) */
@@ -885,13 +885,14 @@ export async function startEmbeddingWorker(
   // Stability controls
   let processedSinceInit = 0;
   let consecutiveFailures = 0;
+  let scheduledReinitPending = false;
   const reinitEveryN =
     options.reinitEveryN ??
     (() => {
       const raw = (globalThis as { process?: { env?: Record<string, string | undefined> } })
         ?.process?.env?.['EMBED_REINIT_EVERY'];
       const parsed = Number(raw);
-      return Number.isFinite(parsed) && parsed > 0 ? parsed : 100;
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
     })();
   async function ensureLocalModel(
     targetModelId: string,
@@ -964,6 +965,7 @@ export async function startEmbeddingWorker(
     await ensureLocalModel(activeModelId, activeCompositeKey, {
       forceReinit: true,
     });
+    scheduledReinitPending = false;
   }
 
   // biome-ignore lint/style/useNamingConvention: DB field name
@@ -1203,7 +1205,7 @@ export async function startEmbeddingWorker(
     metrics.jobsFailed += jobs.length;
     consecutiveFailures += 1;
 
-    if (consecutiveFailures >= reinitEveryN) {
+    if (reinitEveryN > 0 && consecutiveFailures >= reinitEveryN) {
       workerLogger.warn(
         `Consecutive failures (${consecutiveFailures}); forcing service reinitialization.`
       );
@@ -1358,13 +1360,6 @@ export async function startEmbeddingWorker(
     const texts = cacheMisses.map((item) => item.chunk.content);
 
     if (isLocalProviderType(jobModel.provider)) {
-      workerLogger.info('generateEmbeddingsForGroup: processing local model', {
-        provider: jobModel.provider,
-        modelId: jobModel.modelId,
-        compositeKey: jobModel.compositeKey,
-        chunkCount: cacheMisses.length,
-        cacheHits: cacheHits.size,
-      });
       await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
       const results = await generateLocalEmbeddings(
         cacheMisses.map((item) => item.chunk),
@@ -1619,13 +1614,13 @@ export async function startEmbeddingWorker(
   }
 
   async function maybeReinitialize() {
-    if (processedSinceInit < reinitEveryN) {
+    if (reinitEveryN <= 0 || processedSinceInit < reinitEveryN || scheduledReinitPending) {
       return;
     }
+    scheduledReinitPending = true;
     workerLogger.info(
-      `Processed ${processedSinceInit} jobs; performing scheduled reinitialization.`
+      `Processed ${processedSinceInit} jobs; scheduling reinitialization for next idle window.`
     );
-    await resetService();
   }
 
   async function resolveJobModelOrFail(
@@ -1765,15 +1760,18 @@ export async function startEmbeddingWorker(
       })) as ClaimedJob[];
 
       if (jobs.length === 0) {
+        if (scheduledReinitPending) {
+          workerLogger.info('Queue idle; performing scheduled embedding service reinitialization.');
+          try {
+            await resetService();
+          } catch (error) {
+            workerLogger.error('Scheduled embedding service reinitialization failed', { error });
+          }
+        }
         // Silent on empty polls - this happens constantly during idle
         await sleep(400); // idle backoff
         return;
       }
-
-      workerLogger.info('processBatch: claimed jobs', {
-        jobCount: jobs.length,
-        jobIds: jobs.slice(0, 3).map((j) => j.id),
-      });
 
       await processClaimedJobs(jobs);
 

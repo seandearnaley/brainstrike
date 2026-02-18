@@ -62,7 +62,13 @@ export class WorkerStorage {
   >();
   private readonly activeSaveOps = new Map<string, number>();
   private readonly timeouts = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly debounceState = new Map<
+    string,
+    {
+      timer: ReturnType<typeof setTimeout>;
+      resolve: () => void;
+    }
+  >();
 
   /**
    * Create a WorkerStorage instance.
@@ -226,11 +232,30 @@ export class WorkerStorage {
 
   private handleWorkerError(error: ErrorEvent) {
     logger.error('Worker error occurred:', error.error || error.message);
+
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
+
     // Reject all pending requests
     for (const [, request] of this.pendingRequests) {
       request.reject(new Error('Worker error occurred'));
     }
     this.pendingRequests.clear();
+
+    // Clear orphaned timeout timers to prevent resource leaks
+    for (const timer of this.timeouts.values()) {
+      clearTimeout(timer);
+    }
+    this.timeouts.clear();
+
+    // Resolve and clear pending debounced setItem callers immediately.
+    for (const { timer, resolve } of this.debounceState.values()) {
+      clearTimeout(timer);
+      resolve();
+    }
+    this.debounceState.clear();
   }
 
   private sendMessage(
@@ -291,17 +316,27 @@ export class WorkerStorage {
     }
   }
 
+  /**
+   * Persist a value, debounced by key (100ms).
+   *
+   * When rapid calls supersede each other, the previous caller's Promise
+   * resolves immediately (not rejected) even though that specific value
+   * was never persisted. This is by design: callers should interpret a
+   * resolved Promise as "the key will be persisted with the latest value,"
+   * not "this exact value was written."
+   */
   async setItem(key: string, value: unknown): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Clear any existing debounce timer for this key
-      const existingTimer = this.debounceTimers.get(key);
-      if (existingTimer) {
-        clearTimeout(existingTimer);
+      // Resolve any superseded caller's Promise before replacing
+      const existing = this.debounceState.get(key);
+      if (existing) {
+        clearTimeout(existing.timer);
+        existing.resolve();
       }
 
       // Debounce rapid saves for the same key
       const timer = setTimeout(async () => {
-        this.debounceTimers.delete(key);
+        this.debounceState.delete(key);
         try {
           await this.sendMessage('save', key, value);
           resolve();
@@ -318,7 +353,7 @@ export class WorkerStorage {
         }
       }, 100); // 100ms debounce
 
-      this.debounceTimers.set(key, timer);
+      this.debounceState.set(key, { timer, resolve });
     });
   }
 
@@ -349,11 +384,12 @@ export class WorkerStorage {
     }
     this.pendingRequests.clear();
 
-    // Clear all active debounce timers to prevent memory leaks
-    for (const timer of this.debounceTimers.values()) {
+    // Resolve and clear all active debounce states to prevent memory leaks
+    for (const { timer, resolve } of this.debounceState.values()) {
       clearTimeout(timer);
+      resolve();
     }
-    this.debounceTimers.clear();
+    this.debounceState.clear();
 
     // Clear any remaining timeout timers
     for (const timer of this.timeouts.values()) {

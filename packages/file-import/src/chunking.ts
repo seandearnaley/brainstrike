@@ -456,6 +456,7 @@ async function processFileChunkingWorkerPath(
     ignoreFileTypeRecommendations: hasUserOverrides,
     ...(options.chunkSize !== undefined ? { maxTokens: options.chunkSize } : {}),
     ...(options.chunkOverlap !== undefined ? { overlap: options.chunkOverlap } : {}),
+    ...(options.tokenLimit !== undefined ? { maxTokensCap: options.tokenLimit } : {}),
   };
 
   // Call worker to chunk content

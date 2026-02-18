@@ -84,6 +84,19 @@ describe('portable-chunking', () => {
           chunkSize: expect.any(Number),
         });
       });
+
+      it('should split punctuation-poor text to the configured chunk target', async () => {
+        const text = 'x'.repeat(5000);
+        const result = await chunkContent(text, {
+          strategy: 'sentence',
+          fileName: 'plain.txt',
+        });
+
+        expect(result.chunks.length).toBeGreaterThan(1);
+        for (const chunk of result.chunks) {
+          expect(chunk.content.length).toBeLessThanOrEqual(2000);
+        }
+      });
     });
 
     describe('recursive strategy', () => {

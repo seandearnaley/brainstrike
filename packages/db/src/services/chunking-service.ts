@@ -1,6 +1,6 @@
 import { type ParserPlugin, parse } from '@babel/parser';
 import { countTokensAccurate, createLogger } from '@brainstrike/utils';
-import { CharacterTextSplitter, RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { CHUNKING_CONFIG } from '../config/chunking-config.js';
 import type { FileChunkInsert } from '../models/file-chunk';
 
@@ -431,6 +431,242 @@ export class ChunkingService {
     return { chunks, count: chunks.length };
   }
 
+  private async splitChunkToTokenBudget(
+    content: string,
+    maxTokens: number,
+    overlap: number,
+    tokenCounter: (text: string) => Promise<number>
+  ): Promise<Array<{ content: string; tokenCount: number }>> {
+    const pendingPieces: string[] = [content];
+    const resolvedPieces: Array<{ content: string; tokenCount: number }> = [];
+
+    while (pendingPieces.length > 0) {
+      const nextPiece = pendingPieces.shift();
+      if (!nextPiece) {
+        continue;
+      }
+
+      const normalizedPiece = nextPiece.trim();
+      if (!normalizedPiece) {
+        continue;
+      }
+
+      const tokenCount = await tokenCounter(normalizedPiece);
+      if (tokenCount <= maxTokens || normalizedPiece.length <= 1) {
+        resolvedPieces.push({ content: normalizedPiece, tokenCount });
+        continue;
+      }
+
+      const splitTarget = Math.max(1, Math.min(maxTokens, tokenCount - 1));
+      const splitPieces = await this.reSplitOversizedChunk(normalizedPiece, splitTarget, overlap);
+      const normalizedSplitPieces = splitPieces
+        .map((piece) => piece.trim())
+        .filter((piece) => piece.length > 0);
+
+      if (normalizedSplitPieces.length <= 1) {
+        const splitIndex = findBalancedSplitPoint(normalizedPiece);
+        const left = normalizedPiece.slice(0, splitIndex).trim();
+        const right = normalizedPiece.slice(splitIndex).trim();
+        if (!(left && right)) {
+          resolvedPieces.push({ content: normalizedPiece, tokenCount });
+          continue;
+        }
+        pendingPieces.unshift(right, left);
+        continue;
+      }
+
+      for (let index = normalizedSplitPieces.length - 1; index >= 0; index -= 1) {
+        const piece = normalizedSplitPieces[index];
+        if (piece) {
+          pendingPieces.unshift(piece);
+        }
+      }
+    }
+
+    return resolvedPieces;
+  }
+
+  private async generateChunksFromMeasuredPieces(
+    pieces: Array<{ content: string; tokenCount: number }>,
+    fileRecordId: string,
+    startSeq: number,
+    maxTokens: number,
+    nowIso: () => string,
+    chunkType: FileChunkInsert['chunkType']
+  ): Promise<{ chunks: FileChunkInsert[]; count: number }> {
+    const chunks: FileChunkInsert[] = [];
+    let seq = startSeq;
+
+    for (const piece of pieces) {
+      const content = piece.content.trim();
+      if (!content) {
+        continue;
+      }
+
+      const contentHash = await this.generateContentHash(content);
+      const now = nowIso();
+      const id = `${fileRecordId}_chunk_${seq}`;
+      chunks.push({
+        id,
+        fileRecordId,
+        chunkIndex: seq,
+        content,
+        contentHash,
+        tokenCount: piece.tokenCount,
+        chunkType,
+        chunkSize: maxTokens,
+        createdAt: now,
+        updatedAt: now,
+      });
+      seq += 1;
+    }
+
+    return { chunks, count: chunks.length };
+  }
+
+  private async handleOversizedChunk({
+    content,
+    chunkType,
+    fileRecordId,
+    tokenCount,
+    tokenLimit,
+    tokenTrueSizing,
+    maxSafeTokens,
+    maxTokens,
+    effectiveOverlap,
+    startSeq,
+    nowIso,
+    tokenCounter,
+  }: {
+    content: string;
+    chunkType: FileChunkInsert['chunkType'];
+    fileRecordId: string;
+    tokenCount: number;
+    tokenLimit: number;
+    tokenTrueSizing: boolean;
+    maxSafeTokens: number;
+    maxTokens: number;
+    effectiveOverlap: number;
+    startSeq: number;
+    nowIso: () => string;
+    tokenCounter?: (text: string) => Promise<number>;
+  }): Promise<{ chunks: FileChunkInsert[]; count: number }> {
+    const logDetails = {
+      fileRecordId,
+      originalTokens: tokenCount,
+      tokenLimit,
+      tokenTrueSizing,
+      maxSafeTokens,
+      charCount: content.length,
+    };
+    if (tokenTrueSizing) {
+      logger.debug('Chunk exceeds strict token budget, re-splitting', logDetails);
+      const strictCounter = tokenCounter ?? (async (text: string) => countTokensAccurate(text));
+      const budgetedPieces = await this.splitChunkToTokenBudget(
+        content,
+        maxTokens,
+        effectiveOverlap,
+        strictCounter
+      );
+      return this.generateChunksFromMeasuredPieces(
+        budgetedPieces,
+        fileRecordId,
+        startSeq,
+        maxTokens,
+        nowIso,
+        chunkType
+      );
+    }
+
+    logger.warn('Chunk exceeds safe token limit, re-splitting', logDetails);
+    const subPieces = await this.reSplitOversizedChunk(
+      content,
+      Math.min(maxTokens, maxSafeTokens),
+      effectiveOverlap
+    );
+    return this.generateSubChunks(
+      subPieces,
+      fileRecordId,
+      startSeq,
+      maxTokens,
+      nowIso,
+      tokenCounter
+    );
+  }
+
+  private async processStreamPiece({
+    rawText,
+    chunkType,
+    fileRecordId,
+    seq,
+    maxTokens,
+    tokenTrueSizing,
+    maxSafeTokens,
+    effectiveOverlap,
+    nowIso,
+    tokenCounter,
+  }: {
+    rawText: string;
+    chunkType: FileChunkInsert['chunkType'];
+    fileRecordId: string;
+    seq: number;
+    maxTokens: number;
+    tokenTrueSizing: boolean;
+    maxSafeTokens: number;
+    effectiveOverlap: number;
+    nowIso: () => string;
+    tokenCounter?: (text: string) => Promise<number>;
+  }): Promise<{ chunks: FileChunkInsert[]; nextSeq: number }> {
+    const content = rawText.trim();
+    if (!content) {
+      return { chunks: [], nextSeq: seq };
+    }
+
+    const measuredTokenCount = tokenCounter
+      ? await tokenCounter(content)
+      : this.estimateTokenCount(content);
+    const tokenLimit = tokenTrueSizing ? maxTokens : maxSafeTokens;
+
+    if (measuredTokenCount > tokenLimit) {
+      const { chunks: oversizedChunks, count } = await this.handleOversizedChunk({
+        content,
+        chunkType,
+        fileRecordId,
+        tokenCount: measuredTokenCount,
+        tokenLimit,
+        tokenTrueSizing,
+        maxSafeTokens,
+        maxTokens,
+        effectiveOverlap,
+        startSeq: seq,
+        nowIso,
+        ...(tokenCounter ? { tokenCounter } : {}),
+      });
+      return { chunks: oversizedChunks, nextSeq: seq + count };
+    }
+
+    const contentHash = await this.generateContentHash(content);
+    const now = nowIso();
+    const id = `${fileRecordId}_chunk_${seq}`;
+    return {
+      chunks: [
+        {
+          id,
+          fileRecordId,
+          chunkIndex: seq,
+          content,
+          contentHash,
+          tokenCount: measuredTokenCount,
+          chunkType,
+          chunkSize: maxTokens,
+          createdAt: now,
+          updatedAt: now,
+        } satisfies FileChunkInsert,
+      ],
+      nextSeq: seq + 1,
+    };
+  }
+
   /**
    * Streaming chunk production to reduce peak memory.
    * Yields FileChunkInsert items without materializing a large array.
@@ -472,60 +708,22 @@ export class ChunkingService {
       maxTokens: number
     ): AsyncGenerator<FileChunkInsert> {
       for (const txt of pieces) {
-        const c = txt?.trim();
-        if (!c) {
-          continue;
-        }
-        const tokenCount = options.tokenCounter
-          ? await options.tokenCounter(c)
-          : this.estimateTokenCount(c);
-
-        // If chunk exceeds safe token limit, re-split it using RecursiveCharacterTextSplitter
-        if (tokenCount > maxSafeTokens) {
-          logger.warn('Chunk exceeds safe token limit, re-splitting', {
-            fileRecordId,
-            originalTokens: tokenCount,
-            maxSafeTokens,
-            charCount: c.length,
-          });
-
-          // Re-split using helper method to enforce token limits
-          const subPieces = await this.reSplitOversizedChunk(
-            c,
-            Math.min(maxTokens, maxSafeTokens),
-            effectiveOverlap
-          );
-          const { chunks: subChunks, count } = await this.generateSubChunks(
-            subPieces,
-            fileRecordId,
-            seq,
-            maxTokens,
-            nowIso,
-            options.tokenCounter
-          );
-          for (const chunk of subChunks) {
-            yield chunk;
-          }
-          seq += count;
-          continue; // Skip the original oversized chunk
-        }
-
-        const contentHash = await this.generateContentHash(c);
-        const now = nowIso();
-        const id = `${fileRecordId}_chunk_${seq}`;
-        yield {
-          id,
-          fileRecordId,
-          chunkIndex: seq,
-          content: c,
-          contentHash,
-          tokenCount,
+        const { chunks: emittedChunks, nextSeq } = await this.processStreamPiece({
+          rawText: txt,
           chunkType,
-          chunkSize: maxTokens,
-          createdAt: now,
-          updatedAt: now,
-        } satisfies FileChunkInsert;
-        seq++;
+          fileRecordId,
+          seq,
+          maxTokens,
+          tokenTrueSizing: options.tokenTrueSizing === true,
+          maxSafeTokens,
+          effectiveOverlap,
+          nowIso,
+          ...(options.tokenCounter ? { tokenCounter: options.tokenCounter } : {}),
+        });
+        for (const chunk of emittedChunks) {
+          yield chunk;
+        }
+        seq = nextSeq;
       }
     }.bind(this);
 
@@ -562,6 +760,15 @@ export class ChunkingService {
       return [{ pieces: await tokenChunker.splitText(content), type: 'text' }];
     };
 
+    const chunkSentenceAwareText = async (text: string): Promise<string[]> => {
+      const sentenceAwareChunker = new RecursiveCharacterTextSplitter({
+        chunkSize: maxChars,
+        chunkOverlap: overlapChars,
+        separators: ['\n\n', '\n', '. ', ' ', ''],
+      });
+      return sentenceAwareChunker.splitText(text);
+    };
+
     const splitMarkdownBlocks = async (): Promise<ChunkGroup[]> => {
       const blocks = splitMarkdownIntoBlocks(content);
       const groups: ChunkGroup[] = [];
@@ -571,12 +778,7 @@ export class ChunkingService {
             block.text.length > maxChars * 2 ? splitByBlankLines(block.text) : [block.text];
           groups.push({ pieces: parts, type: 'recursive' });
         } else {
-          const sentenceChunker = new CharacterTextSplitter({
-            chunkSize: maxChars,
-            chunkOverlap: overlapChars,
-            separator: '. ',
-          });
-          groups.push({ pieces: await sentenceChunker.splitText(block.text), type: 'sentence' });
+          groups.push({ pieces: await chunkSentenceAwareText(block.text), type: 'sentence' });
         }
       }
       return groups;
@@ -626,12 +828,7 @@ export class ChunkingService {
     };
 
     const chunkText = async (): Promise<ChunkGroup[]> => {
-      const sentenceChunker = new CharacterTextSplitter({
-        chunkSize: maxChars,
-        chunkOverlap: overlapChars,
-        separator: '. ',
-      });
-      return [{ pieces: await sentenceChunker.splitText(content), type: 'sentence' }];
+      return [{ pieces: await chunkSentenceAwareText(content), type: 'sentence' }];
     };
 
     // Use RecursiveCharacterTextSplitter for structured data (JSON, XML, etc.)
@@ -978,6 +1175,25 @@ function splitByBlankLines(text: string): string[] {
     parts.push(buf.join('\n'));
   }
   return parts;
+}
+
+function findBalancedSplitPoint(content: string): number {
+  const midpoint = Math.floor(content.length / 2);
+  const separators = ['\n\n', '\n', '. ', ' '] as const;
+
+  for (const separator of separators) {
+    const before = content.lastIndexOf(separator, midpoint);
+    if (before > 0 && before < content.length - separator.length) {
+      return before + separator.length;
+    }
+
+    const after = content.indexOf(separator, midpoint);
+    if (after > 0 && after < content.length - separator.length) {
+      return after + separator.length;
+    }
+  }
+
+  return Math.max(1, midpoint);
 }
 
 function splitMarkdownIntoBlocks(content: string) {

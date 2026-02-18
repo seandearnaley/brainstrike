@@ -10,11 +10,12 @@ import {
   createLogger,
   initializeLogging,
   installConsoleGuard,
+  installPerformanceMeasureGuard,
   installRendererErrorHooks,
   LogLevel,
 } from '@brainstrike/utils';
 import { StrictMode, useEffect, useState } from 'react';
-import ReactDOM from 'react-dom/client';
+import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import './styles.css';
 
@@ -35,6 +36,7 @@ let flushQueueTelemetry: (() => void) | null = null;
 
 if (typeof window !== 'undefined') {
   installConsoleGuard();
+  installPerformanceMeasureGuard();
 }
 
 initializeLogging({
@@ -100,13 +102,12 @@ if (import.meta.hot) {
   });
 }
 
-const telemetryEndpoint =
-  import.meta.env['VITE_QUEUE_TELEMETRY_ENDPOINT'] ??
-  (import.meta.env.DEV ? 'http://localhost:4130/queue-telemetry' : undefined);
+const telemetryEndpoint = import.meta.env['VITE_QUEUE_TELEMETRY_ENDPOINT'];
 const rendererTelemetrySink =
   typeof window !== 'undefined' && telemetryEndpoint
     ? initializeQueueTelemetrySink({
         endpoint: telemetryEndpoint,
+        useSendBeacon: false,
         ...(import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY']
           ? { apiKey: import.meta.env['VITE_QUEUE_TELEMETRY_API_KEY'] }
           : {}),
@@ -146,6 +147,8 @@ declare global {
   interface Window {
     // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
     __BRAINSTRIKE_READY__?: boolean;
+    // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
+    __BRAINSTRIKE_DESKTOP_REACT_ROOT__?: ReactRoot;
   }
 }
 
@@ -200,7 +203,13 @@ if (!rootElement) {
   throw new Error("Failed to find the root element with ID 'root'");
 }
 
-ReactDOM.createRoot(rootElement).render(
+const existingRoot = window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__;
+const root = existingRoot ?? ReactDOM.createRoot(rootElement);
+if (!existingRoot) {
+  window.__BRAINSTRIKE_DESKTOP_REACT_ROOT__ = root;
+}
+
+root.render(
   <StrictMode>
     <App />
   </StrictMode>

@@ -56,6 +56,7 @@ vi.mock('@brainstrike/utils', () => ({
   initializeLogging: vi.fn(),
   applyLoggingPreferences: vi.fn(),
   installConsoleGuard: vi.fn(),
+  installPerformanceMeasureGuard: vi.fn(),
   installRendererErrorHooks: vi.fn(() => () => {}),
   LogLevel: { DEBUG: 'debug', INFO: 'info' },
 }));
@@ -123,6 +124,7 @@ describe('main entry file', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    Reflect.deleteProperty(window, '__BRAINSTRIKE_WEB_REACT_ROOT__');
   });
 
   test('throws an error when root element is missing', async () => {

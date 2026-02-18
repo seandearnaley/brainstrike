@@ -64,6 +64,9 @@ export class LogBuffer {
         args: [],
         bindings: {},
       });
+      if (this.records.length > this.maxSize) {
+        this.records.shift();
+      }
       this.notify();
     }
     this.skippedWhilePaused = 0;
@@ -318,6 +321,9 @@ export class LogBuffer {
   }
 
   private notify(): void {
+    if (this.subscribers.size === 0) {
+      return;
+    }
     const snapshot = this.getRecords();
     for (const subscriber of this.subscribers) {
       try {

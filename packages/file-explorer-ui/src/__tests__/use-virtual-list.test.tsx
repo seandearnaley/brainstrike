@@ -3,6 +3,9 @@ import { useLayoutEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVirtualList } from '../use-virtual-list';
 
+type ResizeObserverCallbackRef = ResizeObserverCallback | null;
+let resizeObserverCallback: ResizeObserverCallbackRef = null;
+
 interface TestComponentProps {
   itemCount: number;
   rowHeight: number;
@@ -23,7 +26,7 @@ function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestCompone
       data-testid="container"
       ref={(element) => {
         if (element) {
-          Object.defineProperty(element, 'clientHeight', { value: 50 });
+          Object.defineProperty(element, 'clientHeight', { configurable: true, value: 50 });
         }
         if (containerRef) {
           (containerRef as { current: HTMLDivElement | null }).current = element;
@@ -41,9 +44,23 @@ describe('useVirtualList', () => {
       return 0;
     });
     vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+
+    resizeObserverCallback = null;
+    class ResizeObserverMock {
+      constructor(callback: ResizeObserverCallback) {
+        resizeObserverCallback = callback;
+      }
+
+      observe = vi.fn();
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+      takeRecords = vi.fn(() => []);
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock);
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
   it('applies overscan above and below the visible range', () => {
@@ -98,5 +115,40 @@ describe('useVirtualList', () => {
 
     const last = updates.at(-1);
     expect(last).toEqual({ start: 0, end: 6 });
+  });
+
+  it('recomputes range when container height changes', () => {
+    const updates: { start: number; end: number }[] = [];
+    render(
+      <TestComponent
+        itemCount={100}
+        onUpdate={(r) => updates.push(r)}
+        overscan={1}
+        rowHeight={10}
+      />
+    );
+
+    const container = screen.getByTestId('container');
+    Object.defineProperty(container, 'clientHeight', { configurable: true, value: 90 });
+
+    act(() => {
+      resizeObserverCallback?.(
+        [{ target: container } as unknown as ResizeObserverEntry],
+        {} as ResizeObserver
+      );
+    });
+
+    const last = updates.at(-1);
+    expect(last).toEqual({ start: 0, end: 10 });
+  });
+
+  it('returns an empty range when there are no items', () => {
+    const updates: { start: number; end: number }[] = [];
+    render(
+      <TestComponent itemCount={0} onUpdate={(r) => updates.push(r)} overscan={2} rowHeight={10} />
+    );
+
+    const last = updates.at(-1);
+    expect(last).toEqual({ start: 0, end: -1 });
   });
 });

@@ -1,14 +1,11 @@
 import type { FileExplorerState, FolderState } from '@brainstrike/types';
-import type { StoreApi, UseBoundStore } from 'zustand';
+import type { GetState, SetState } from '../types/store-types';
 import {
   cleanupOldFolderStates,
   createNewFolderState,
   saveFolderState,
   updateFolderAccessOrder,
 } from '../utils/file-explorer-utils';
-
-type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
-type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
 
 export interface FolderStateActions {
   setCurrentFolderId: (folderId: string | null) => void;
@@ -142,11 +139,11 @@ export const createFolderStateActions = (
         return {};
       }
 
-      folderState.lastAccessed = Date.now();
+      const updatedFolderState = { ...folderState, lastAccessed: Date.now() };
       const order = updateFolderAccessOrder(state.folderAccessOrder, folderId);
 
       return {
-        folderStates: { ...state.folderStates, [folderId]: folderState },
+        folderStates: { ...state.folderStates, [folderId]: updatedFolderState },
         folderAccessOrder: order,
         selectedFilePaths: new Set(folderState.selectedFilePaths),
         expandedDirectoryPaths: new Set(folderState.expandedDirectoryPaths),

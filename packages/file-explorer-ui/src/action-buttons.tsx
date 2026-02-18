@@ -114,8 +114,7 @@ export const ActionButtons = React.memo(
       (folderId: string): void => {
         const filesToSelect = Array.from(displayedFiles)
           .slice(0, maxSelectionCount)
-          .map((path) => encodeFileSelection(folderId, path))
-          .filter((v): v is string => typeof v === 'string');
+          .map((path) => encodeFileSelection(folderId, path));
 
         if (displayedFiles.size > maxSelectionCount && onSelectionLimitExceeded) {
           onSelectionLimitExceeded();

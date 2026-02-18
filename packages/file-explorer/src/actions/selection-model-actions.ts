@@ -6,10 +6,7 @@
  */
 
 import type { FileExplorerState, SelectionMode } from '@brainstrike/types';
-import type { StoreApi, UseBoundStore } from 'zustand';
-
-type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
-type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
+import type { GetState, SetState } from '../types/store-types';
 
 export interface SelectionModelActions {
   setSelectionMode: (mode: SelectionMode) => void;
