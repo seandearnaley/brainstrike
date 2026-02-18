@@ -15,7 +15,7 @@ export function useLoadingManager<K>(
   keys: Iterable<K>,
   isLoaded: (key: K) => boolean,
   loadFn: (key: K) => Promise<void>
-): { loading: Set<K> } {
+): { loading: ReadonlySet<K> } {
   const [loading, setLoading] = useState<Set<K>>(new Set());
   const shouldInitiateLoadRef = useRef(false);
 

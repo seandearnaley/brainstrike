@@ -281,6 +281,8 @@ export function useFileFilters() {
     lastUseRegex: false,
   });
   const [filterError, setFilterError] = useState<string | null>(null);
+  const filterErrorRef = useRef(filterError);
+  filterErrorRef.current = filterError;
 
   const applyFileFilters = useCallback(
     (
@@ -290,7 +292,7 @@ export function useFileFilters() {
       useRegex = false
     ): IFileNode[] => {
       // Only clear error if there was one, to avoid unnecessary state updates
-      if (filterError !== null) {
+      if (filterErrorRef.current !== null) {
         setFilterError(null);
       }
 
@@ -324,7 +326,7 @@ export function useFileFilters() {
 
       return processTree(fileTree);
     },
-    [filterError]
+    []
   );
 
   return { applyFileFilters, filterError };
