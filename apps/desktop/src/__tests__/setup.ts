@@ -227,7 +227,6 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
     streamMastraAgent: vi.fn(async function* () {
       yield { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } };
     }),
-    webTools: [],
     loadToolPreferences: vi.fn().mockResolvedValue({}),
     mcpToolRegistry: mockMcpToolRegistry,
     createMastraAgentRuntime: vi.fn(async () => ({

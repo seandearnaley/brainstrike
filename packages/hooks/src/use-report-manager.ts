@@ -9,7 +9,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { error as logError } from '@brainstrike/utils';
-import { saveAs } from 'file-saver';
 import { useCallback } from 'react';
 
 type ContextGenerator<O> = (options?: O) => Promise<string>;
@@ -122,45 +121,13 @@ export const useReportManager = <A = unknown, O = unknown>({
     [contextGenerator, rootDirectoryHandle, toast]
   );
 
-  const handleDownloadContext = useCallback(
-    async (options?: O): Promise<void> => {
-      const contextToast = toast({
-        title: FileExplorerStrings.loading.generatingContext,
-        description: FileExplorerStrings.prompts.waitForContext,
-        duration: Number.POSITIVE_INFINITY,
-      });
-
-      try {
-        const context = await handleGenerateContext(options);
-        contextToast?.dismiss?.();
-
-        if (context) {
-          saveAs(
-            new Blob([context], { type: 'text/plain;charset=utf-8' }),
-            buildContextFilename(rootDirectoryHandle)
-          );
-          showToast({
-            title: FileExplorerStrings.success.title,
-            description: FileExplorerStrings.success.contextDownloaded,
-          });
-        }
-      } catch (error) {
-        contextToast?.dismiss?.();
-        showToast({
-          title: FileExplorerStrings.error.title,
-          description:
-            error instanceof Error
-              ? `${FileExplorerStrings.error.contextGenerationFailed}: ${error.message}`
-              : FileExplorerStrings.error.contextGenerationFailed,
-          variant: 'destructive',
-        });
-      }
-    },
-    [handleGenerateContext, rootDirectoryHandle, showToast, toast]
-  );
-
-  const handleCopyContext = useCallback(
-    async (options?: O): Promise<void> => {
+  const executeWithToast = useCallback(
+    async (
+      options: O | undefined,
+      action: (context: string) => Promise<void>,
+      successMessage: string,
+      errorMessage: string
+    ): Promise<void> => {
       const contextToast = toast({
         title: FileExplorerStrings.loading.generatingContext,
         description: FileExplorerStrings.prompts.waitForContext,
@@ -174,26 +141,52 @@ export const useReportManager = <A = unknown, O = unknown>({
           return;
         }
 
-        await navigator.clipboard.writeText(context);
+        await action(context);
         contextToast?.dismiss?.();
         showToast({
           title: FileExplorerStrings.success.title,
-          description: FileExplorerStrings.success.contextCopied,
+          description: successMessage,
         });
-        return;
       } catch (error) {
         contextToast?.dismiss?.();
         showToast({
           title: FileExplorerStrings.error.title,
-          description:
-            error instanceof Error
-              ? `${FileExplorerStrings.error.contextCopyFailed}: ${error.message}`
-              : FileExplorerStrings.error.contextCopyFailed,
+          description: error instanceof Error ? `${errorMessage}: ${error.message}` : errorMessage,
           variant: 'destructive',
         });
       }
     },
     [handleGenerateContext, showToast, toast]
+  );
+
+  const handleDownloadContext = useCallback(
+    async (options?: O): Promise<void> =>
+      executeWithToast(
+        options,
+        async (context) => {
+          const { saveAs } = await import('file-saver');
+          saveAs(
+            new Blob([context], { type: 'text/plain;charset=utf-8' }),
+            buildContextFilename(rootDirectoryHandle)
+          );
+        },
+        FileExplorerStrings.success.contextDownloaded,
+        FileExplorerStrings.error.contextGenerationFailed
+      ),
+    [executeWithToast, rootDirectoryHandle]
+  );
+
+  const handleCopyContext = useCallback(
+    async (options?: O): Promise<void> =>
+      executeWithToast(
+        options,
+        async (context) => {
+          await navigator.clipboard.writeText(context);
+        },
+        FileExplorerStrings.success.contextCopied,
+        FileExplorerStrings.error.contextCopyFailed
+      ),
+    [executeWithToast]
   );
 
   return {

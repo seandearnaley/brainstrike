@@ -71,45 +71,38 @@ function processFileNode(
   return null;
 }
 
-function setupRegexFilters(
+type PatternCacheRef = React.RefObject<{
+  includeRegex: RegExp[];
+  excludeRegex: RegExp[];
+  includeGlobs: Minimatch[];
+  excludeGlobs: Minimatch[];
+}>;
+
+function setupFilters(
+  mode: 'regex' | 'glob',
   processedIncludeFilters: string[],
   processedExcludeFilters: string[],
-  patternCache: React.RefObject<{
-    includeRegex: RegExp[];
-    excludeRegex: RegExp[];
-    includeGlobs: Minimatch[];
-    excludeGlobs: Minimatch[];
-  }>,
+  patternCache: PatternCacheRef,
   setError: (msg: string) => void
 ): boolean {
-  const includes = compileRegexPatterns(processedIncludeFilters, setError);
-  if (!includes) {
-    return false;
+  if (mode === 'regex') {
+    const includes = compileRegexPatterns(processedIncludeFilters, setError);
+    if (!includes) {
+      return false;
+    }
+
+    const excludes = compileRegexPatterns(processedExcludeFilters, setError);
+    if (!excludes) {
+      return false;
+    }
+
+    patternCache.current.includeRegex = includes;
+    patternCache.current.excludeRegex = excludes;
+    patternCache.current.includeGlobs = [];
+    patternCache.current.excludeGlobs = [];
+    return true;
   }
 
-  const excludes = compileRegexPatterns(processedExcludeFilters, setError);
-  if (!excludes) {
-    return false;
-  }
-
-  patternCache.current.includeRegex = includes;
-  patternCache.current.excludeRegex = excludes;
-  patternCache.current.includeGlobs = [];
-  patternCache.current.excludeGlobs = [];
-  return true;
-}
-
-function setupGlobFilters(
-  processedIncludeFilters: string[],
-  processedExcludeFilters: string[],
-  patternCache: React.RefObject<{
-    includeRegex: RegExp[];
-    excludeRegex: RegExp[];
-    includeGlobs: Minimatch[];
-    excludeGlobs: Minimatch[];
-  }>,
-  setError: (msg: string) => void
-): boolean {
   try {
     patternCache.current.includeGlobs = compileGlobPatterns(processedIncludeFilters);
     patternCache.current.excludeGlobs = compileGlobPatterns(processedExcludeFilters);
@@ -122,15 +115,7 @@ function setupGlobFilters(
   }
 }
 
-function createFilterFunctions(
-  patternCache: React.RefObject<{
-    includeRegex: RegExp[];
-    excludeRegex: RegExp[];
-    includeGlobs: Minimatch[];
-    excludeGlobs: Minimatch[];
-  }>,
-  useRegex: boolean
-) {
+function createFilterFunctions(patternCache: PatternCacheRef, useRegex: boolean) {
   const matchesInclude = (path: string): boolean => {
     if (
       useRegex
@@ -225,22 +210,13 @@ function updateRegexCacheIfNeeded(
     return true;
   }
 
-  let success = true;
-  if (useRegex) {
-    success = setupRegexFilters(
-      processedIncludeFilters,
-      processedExcludeFilters,
-      regexCache,
-      setError
-    );
-  } else {
-    success = setupGlobFilters(
-      processedIncludeFilters,
-      processedExcludeFilters,
-      regexCache,
-      setError
-    );
-  }
+  const success = setupFilters(
+    useRegex ? 'regex' : 'glob',
+    processedIncludeFilters,
+    processedExcludeFilters,
+    regexCache,
+    setError
+  );
 
   if (!success) {
     return false;

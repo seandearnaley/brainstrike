@@ -56,7 +56,6 @@ vi.mock('@brainstrike/agent', () => ({
       yield { type: 'text', content: 'test' };
     },
   })),
-  webTools: [],
   isSupportedProvider: (provider: string) =>
     ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
 }));
