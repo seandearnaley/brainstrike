@@ -77,7 +77,6 @@ async function runAgentChat(
       apiKey,
       ...(config.config ? { mcpConfig: config.config } : {}),
     },
-    tools: agentModule.webTools,
   });
 
   const stream = await ensureAsyncIterable<StreamChunk>(maybeStream);

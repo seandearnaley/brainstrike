@@ -8,7 +8,6 @@ import {
   convertAssistantUiMessages,
   resolveDataStreamSession,
   toAiSdkStyleStream,
-  webTools,
 } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/utils';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
@@ -52,7 +51,6 @@ export async function POST(req: Request): Promise<Response> {
   try {
     agentStream = await toAiSdkStyleStream(agentMessages, {
       ...(data ?? {}),
-      mastraTools: webTools,
       apiKey: provider.apiKey,
     });
   } catch (error) {

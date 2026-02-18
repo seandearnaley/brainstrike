@@ -368,7 +368,6 @@ export {
   MastraAgentError,
   type MastraAgentErrorCode,
 } from './mastra/mastra-agent-error';
-export { webTools } from './mastra/web-tools';
 // Minimal placeholder agent: echoes user text in a streamed fashion.
 // Memory store for early development
 export { InMemoryMemoryStore } from './memory/in-memory';

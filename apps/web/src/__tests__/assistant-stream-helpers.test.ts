@@ -8,7 +8,6 @@ vi.mock('@brainstrike/agent', () => ({
   resolveDataStreamSession: vi.fn(),
   sanitizeStreamChunk: vi.fn((chunk: unknown) => chunk),
   toAiSdkStyleStream: vi.fn(),
-  webTools: { id: 'web-tools' },
 }));
 
 vi.mock('../server/assistant-config', () => ({

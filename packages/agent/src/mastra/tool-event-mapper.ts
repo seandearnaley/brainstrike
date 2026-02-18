@@ -207,10 +207,3 @@ function isToolEventPart(candidate: unknown): candidate is ToolEventPart {
       typeof (candidate as { type?: unknown }).type === 'string'
   );
 }
-
-// Internal utilities exposed for testing only.
-/* @__PURE__ */ export const __test__ = {
-  read,
-  readString,
-  isToolEventPart,
-};
