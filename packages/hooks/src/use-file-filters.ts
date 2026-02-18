@@ -74,7 +74,7 @@ function processFileNode(
 function setupRegexFilters(
   processedIncludeFilters: string[],
   processedExcludeFilters: string[],
-  patternCache: React.MutableRefObject<{
+  patternCache: React.RefObject<{
     includeRegex: RegExp[];
     excludeRegex: RegExp[];
     includeGlobs: Minimatch[];
@@ -102,7 +102,7 @@ function setupRegexFilters(
 function setupGlobFilters(
   processedIncludeFilters: string[],
   processedExcludeFilters: string[],
-  patternCache: React.MutableRefObject<{
+  patternCache: React.RefObject<{
     includeRegex: RegExp[];
     excludeRegex: RegExp[];
     includeGlobs: Minimatch[];
@@ -123,7 +123,7 @@ function setupGlobFilters(
 }
 
 function createFilterFunctions(
-  patternCache: React.MutableRefObject<{
+  patternCache: React.RefObject<{
     includeRegex: RegExp[];
     excludeRegex: RegExp[];
     includeGlobs: Minimatch[];
@@ -195,7 +195,7 @@ function arraysEqual(a: string[], b: string[]): boolean {
   return true;
 }
 
-type RegexCacheRef = React.MutableRefObject<{
+type RegexCacheRef = React.RefObject<{
   includeRegex: RegExp[];
   excludeRegex: RegExp[];
   includeGlobs: Minimatch[];

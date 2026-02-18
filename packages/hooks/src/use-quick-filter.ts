@@ -1,7 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { parseFilterString } from '@brainstrike/utils';
 import { useCallback, useMemo, useState } from 'react';
-// New file: useQuickFilter hook
 import { useDebouncedValue } from './use-debounced-value';
 
 function createSearchableText(node: IFileNode): string {
