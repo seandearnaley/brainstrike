@@ -758,7 +758,7 @@ class SessionSubscription {
       // Controller close errors during subscription teardown are non-critical
       // but logged for debugging silent failures
       if (closeError instanceof Error) {
-        console.warn('Stream controller close failed:', closeError.message);
+        logger.warn('Stream controller close failed', { error: closeError.message });
       }
     }
     this.session.removeSubscription(this);
