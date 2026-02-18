@@ -9,6 +9,7 @@
 
 import type { SystemDiagnosticsInput } from './schemas';
 import { SystemDiagnosticsInputSchema } from './schemas';
+import { handleToolError, type ToolContext } from './types';
 
 /** Tool identifier used in the Mastra tools registry */
 export const SYSTEM_DIAGNOSTICS_TOOL_ID = 'brainstrike.systemDiagnostics' as const;
@@ -186,27 +187,6 @@ export interface DiagnosticsToolDependencies {
 }
 
 /**
- * Context type for Mastra tool execution.
- */
-interface ToolContext<TInput> {
-  context: TInput;
-}
-
-/**
- * Handles errors from diagnostics operations.
- */
-function handleError(error: unknown, logger?: DiagnosticsToolDependencies['logger']): never {
-  const message = error instanceof Error ? error.message : DIAGNOSTICS_ERROR_MESSAGES.checkFailed;
-
-  if (SAFE_DIAGNOSTICS_ERRORS.has(message)) {
-    throw new Error(message);
-  }
-
-  logger?.error('Diagnostics check failed', { error });
-  throw new Error(DIAGNOSTICS_ERROR_MESSAGES.checkFailed, { cause: error });
-}
-
-/**
  * Compute overall status from individual component statuses.
  */
 function computeOverallStatus(statuses: HealthStatus[]): HealthStatus {
@@ -368,40 +348,71 @@ async function runSystemDiagnostics(
 
   deps.logger?.debug('Running system diagnostics', { categories });
 
+  // Run all applicable health checks in parallel
+  const checks: Array<{
+    category: string;
+    promise: Promise<{
+      data: DatabaseDiagnostics | QueueDiagnostics | WorkerDiagnostics | StorageDiagnostics;
+      status: HealthStatus;
+    }>;
+  }> = [];
+
+  if (shouldCheck('database', categories, checkAll) && deps.getDatabaseHealth) {
+    checks.push({
+      category: 'database',
+      promise: checkHealthWithFallback(deps.getDatabaseHealth, FALLBACK_DATABASE),
+    });
+  }
+  if (shouldCheck('queue', categories, checkAll) && deps.getQueueHealth) {
+    checks.push({
+      category: 'queue',
+      promise: checkHealthWithFallback(deps.getQueueHealth, FALLBACK_QUEUE),
+    });
+  }
+  if (shouldCheck('worker', categories, checkAll) && deps.getWorkerHealth) {
+    checks.push({
+      category: 'worker',
+      promise: checkHealthWithFallback(deps.getWorkerHealth, FALLBACK_WORKER),
+    });
+  }
+  if (shouldCheck('storage', categories, checkAll) && deps.getStorageHealth) {
+    checks.push({
+      category: 'storage',
+      promise: checkHealthWithFallback(deps.getStorageHealth, FALLBACK_STORAGE),
+    });
+  }
+
+  const results = await Promise.all(checks.map((c) => c.promise));
+
   const categoriesChecked: string[] = [];
   const statuses: HealthStatus[] = [];
-
   let database: DatabaseDiagnostics | undefined;
   let queue: QueueDiagnostics | undefined;
   let worker: WorkerDiagnostics | undefined;
   let storage: StorageDiagnostics | undefined;
 
-  if (shouldCheck('database', categories, checkAll) && deps.getDatabaseHealth) {
-    const result = await checkHealthWithFallback(deps.getDatabaseHealth, FALLBACK_DATABASE);
-    database = result.data;
-    categoriesChecked.push('database');
+  for (let i = 0; i < checks.length; i++) {
+    const check = checks[i];
+    const result = results[i];
+    if (!(check && result)) {
+      continue;
+    }
+    categoriesChecked.push(check.category);
     statuses.push(result.status);
-  }
-
-  if (shouldCheck('queue', categories, checkAll) && deps.getQueueHealth) {
-    const result = await checkHealthWithFallback(deps.getQueueHealth, FALLBACK_QUEUE);
-    queue = result.data;
-    categoriesChecked.push('queue');
-    statuses.push(result.status);
-  }
-
-  if (shouldCheck('worker', categories, checkAll) && deps.getWorkerHealth) {
-    const result = await checkHealthWithFallback(deps.getWorkerHealth, FALLBACK_WORKER);
-    worker = result.data;
-    categoriesChecked.push('worker');
-    statuses.push(result.status);
-  }
-
-  if (shouldCheck('storage', categories, checkAll) && deps.getStorageHealth) {
-    const result = await checkHealthWithFallback(deps.getStorageHealth, FALLBACK_STORAGE);
-    storage = result.data;
-    categoriesChecked.push('storage');
-    statuses.push(result.status);
+    switch (check.category) {
+      case 'database':
+        database = result.data as DatabaseDiagnostics;
+        break;
+      case 'queue':
+        queue = result.data as QueueDiagnostics;
+        break;
+      case 'worker':
+        worker = result.data as WorkerDiagnostics;
+        break;
+      case 'storage':
+        storage = result.data as StorageDiagnostics;
+        break;
+    }
   }
 
   const overallStatus = computeOverallStatus(statuses);
@@ -470,7 +481,12 @@ export function createSystemDiagnosticsTool(deps: DiagnosticsToolDependencies): 
       try {
         return await runSystemDiagnostics(context.context, deps);
       } catch (error) {
-        handleError(error, deps.logger);
+        handleToolError(
+          error,
+          SAFE_DIAGNOSTICS_ERRORS,
+          DIAGNOSTICS_ERROR_MESSAGES.checkFailed,
+          deps.logger
+        );
       }
     },
   };

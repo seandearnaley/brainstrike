@@ -9,6 +9,7 @@
 
 import type { CreateEmbeddingSetInput, ListEmbeddingSetsInput } from './schemas';
 import { CreateEmbeddingSetInputSchema, ListEmbeddingSetsInputSchema } from './schemas';
+import { handleToolError, type ToolContext } from './types';
 
 /** Tool identifiers used in the Mastra tools registry */
 export const LIST_EMBEDDING_SETS_TOOL_ID = 'brainstrike.listEmbeddingSets' as const;
@@ -130,31 +131,6 @@ export interface EmbeddingSetsToolDependencies {
 }
 
 /**
- * Context type for Mastra tool execution.
- */
-interface ToolContext<TInput> {
-  context: TInput;
-}
-
-/**
- * Handles errors from embedding set operations.
- */
-function handleError(
-  error: unknown,
-  defaultMessage: string,
-  logger?: EmbeddingSetsToolDependencies['logger']
-): never {
-  const message = error instanceof Error ? error.message : defaultMessage;
-
-  if (SAFE_EMBEDDING_SETS_ERRORS.has(message)) {
-    throw new Error(message);
-  }
-
-  logger?.error('Embedding sets operation failed', { error });
-  throw new Error(defaultMessage);
-}
-
-/**
  * Core list embedding sets execution logic.
  */
 async function runListEmbeddingSets(
@@ -248,7 +224,12 @@ export function createListEmbeddingSetsTool(deps: EmbeddingSetsToolDependencies)
       try {
         return await runListEmbeddingSets(context.context, deps);
       } catch (error) {
-        handleError(error, EMBEDDING_SETS_ERROR_MESSAGES.listFailed, deps.logger);
+        handleToolError(
+          error,
+          SAFE_EMBEDDING_SETS_ERRORS,
+          EMBEDDING_SETS_ERROR_MESSAGES.listFailed,
+          deps.logger
+        );
       }
     },
   };
@@ -278,7 +259,12 @@ export function createCreateEmbeddingSetTool(
       try {
         return await runCreateEmbeddingSet(context.context, deps);
       } catch (error) {
-        handleError(error, EMBEDDING_SETS_ERROR_MESSAGES.createFailed, deps.logger);
+        handleToolError(
+          error,
+          SAFE_EMBEDDING_SETS_ERRORS,
+          EMBEDDING_SETS_ERROR_MESSAGES.createFailed,
+          deps.logger
+        );
       }
     },
   };

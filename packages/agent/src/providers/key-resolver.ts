@@ -1,21 +1,10 @@
 import type { RuntimeData } from '../index';
+import { getProviderEnvKeys } from './registry';
 import type { SupportedProvider } from './types';
+import { isSupportedProvider } from './types';
 
 export type { SupportedProvider } from './types';
 export { isSupportedProvider } from './types';
-
-/**
- * Environment variable mapping for each supported provider
- */
-const PROVIDER_ENV_VARS: Record<SupportedProvider, string[]> = {
-  openai: ['OPENAI_API_KEY', 'AI_OPENAI_API_KEY', 'OPENAI_API_KEY_V1', 'OPENAI_API_KEY_V2'],
-  anthropic: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
-  google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
-  openrouter: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
-  cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
-  voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
-  local: [], // Local provider runs client-side, no API key needed
-};
 
 /**
  * Resolves the API key for a given provider from runtime data or environment variables
@@ -36,7 +25,7 @@ export function resolveProviderApiKey(
   // Second priority: environment variables (only check in Node.js environments)
   if (typeof process !== 'undefined') {
     const env = process.env ?? {};
-    const envVars = PROVIDER_ENV_VARS[provider as SupportedProvider] ?? [];
+    const envVars = isSupportedProvider(provider) ? getProviderEnvKeys(provider) : [];
 
     for (const envVar of envVars) {
       const value = env[envVar];
