@@ -59,6 +59,8 @@ const DEFAULT_STATE: Omit<
   activeTab: 'explorer',
 };
 
+// Note: The '.v1' suffix is a storage key identifier, not a schema version.
+// Schema versioning is handled by the persist middleware's `version` field.
 const STORE_NAME = 'panel-layout-store.v1' as const;
 
 /**

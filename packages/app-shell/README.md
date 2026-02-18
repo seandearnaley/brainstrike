@@ -207,57 +207,28 @@ import { QueueHUD } from "@brainstrike/app-shell";
 />
 ```
 
-#### `SettingsPageContent`
-Render a master–detail settings experience with category navigation and in-page search.
-
-```tsx
-import {
-  SettingsPageContent,
-  createAppearanceSettingsCategory,
-  type SettingsCategory,
-} from "@brainstrike/app-shell";
-import { Key } from "lucide-react";
-
-const categories: SettingsCategory[] = [
-  createAppearanceSettingsCategory(),
-  {
-    id: "account",
-    title: "Account",
-    description: "Manage authentication, linked identities, and access tokens.",
-    keywords: ["auth", "tokens", "security"],
-    icon: Key,
-    render: () => <AccountSettings />,
-  },
-];
-
-<SettingsPageContent categories={categories} defaultCategoryId="appearance" />;
-```
-
 ## State Management
 
 ### Panel Layout Store
 
-Manage panel visibility and sizes using the built-in Zustand store:
+Panel layout state (sizes, visibility, active tab) is managed by `@brainstrike/preferences`:
 
 ```tsx
-import { usePanelLayoutStore } from "@brainstrike/app-shell";
+import { usePanelLayoutStore } from "@brainstrike/preferences";
 
 function MyComponent() {
-  const {
-    leftPanelOpen,
-    rightPanelOpen,
-    leftPanelSize,
-    rightPanelSize,
-    toggleLeftPanel,
-    toggleRightPanel,
-    setLeftPanelSize,
-    setRightPanelSize,
-    resetLayout
-  } = usePanelLayoutStore();
+  const activeTab = usePanelLayoutStore((s) => s.activeTab);
+  const showLeftPanel = usePanelLayoutStore((s) => s.showLeftPanel);
+  const toggleLeft = usePanelLayoutStore((s) => s.toggleLeft);
 
   // Use store values and actions
 }
 ```
+
+### Settings
+
+Settings page content (`SettingsPageContent`, `LoggingSettingsSection`) lives in `@brainstrike/preferences`.
+Import directly from that package rather than from app-shell.
 
 ## Utilities
 
@@ -378,8 +349,7 @@ src/
 │   ├── components/
 │   ├── hooks/
 │   └── types/
-├── stores/              # Zustand stores
-│   └── panel-layout-store.ts
+├── stores/              # Zustand stores (layout moved to @brainstrike/preferences)
 ├── types/               # TypeScript definitions
 └── index.ts            # Public exports
 ```

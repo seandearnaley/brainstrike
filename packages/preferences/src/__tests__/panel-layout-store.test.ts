@@ -43,7 +43,7 @@ describe('panel-layout-store', () => {
   it('normalizes sizes and preserves tuple shape', () => {
     store.getState().setSizes([200, -10, Number.NaN]);
     const s = store.getState();
-    // validateAndNormalizeSizes clamps into [0..100] and prevents NaN; preserves existing slots where undefined
+    // normalizeSizes clamps into [0..100] and prevents NaN; preserves existing slots where undefined
     expect(s.sizes.length).toBe(3);
     expect(s.sizes[0]).toBe(100); // 200 -> 100
     expect(s.sizes[1]).toBe(0); // -10 -> 0

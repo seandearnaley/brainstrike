@@ -2,7 +2,6 @@
 
 This folder contains lightweight Zustand slices used by the app shell. Slices are persisted with storage adapters that work in browser and tests.
 
-- `panel-layout-store.ts`: Canonical IDE layout state (sizes, visibility, activeTab). Used as the controlled source for `PanelLayoutProvider`.
 - `tools-panel-store.ts`: Tools panel active tab.
 - `search-panel-store.ts`: Search tab filters (query/regex/case/whole-word/globs).
 - `db-panel-store.ts`: Database tab UI (active subtab, paging, sort, filter).
