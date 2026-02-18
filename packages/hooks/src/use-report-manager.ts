@@ -16,14 +16,6 @@ type ContextGenerator<O> = (options?: O) => Promise<string>;
 interface UseReportManagerProps<A = unknown, O = unknown> {
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
   generateContextWithContent?: ContextGenerator<O>;
-  /** @deprecated Use `generateContextWithContent` instead. */
-  generateReportWithContent?: ContextGenerator<O>;
-  showToast: (props: {
-    title: string;
-    description: string;
-    variant?: 'default' | 'destructive';
-    action?: A;
-  }) => void;
   toast: (props: {
     title: string;
     description: string;
@@ -36,10 +28,6 @@ interface UseReportManagerProps<A = unknown, O = unknown> {
 interface UseReportManagerResult<O = unknown> {
   handleDownloadContext: (options?: O) => Promise<void>;
   handleCopyContext: (options?: O) => Promise<void>;
-  /** @deprecated Use `handleDownloadContext` instead. */
-  handleDownloadReport: (options?: O) => Promise<void>;
-  /** @deprecated Use `handleCopyContext` instead. */
-  handleCopyReport: (options?: O) => Promise<void>;
 }
 
 const DEFAULT_CONTEXT_FILENAME = FileExplorerStrings.fileNames.context;
@@ -85,12 +73,8 @@ const buildContextFilename = (
 export const useReportManager = <A = unknown, O = unknown>({
   rootDirectoryHandle,
   generateContextWithContent,
-  generateReportWithContent,
-  showToast,
   toast,
 }: UseReportManagerProps<A, O>): UseReportManagerResult<O> => {
-  const contextGenerator = generateContextWithContent ?? generateReportWithContent;
-
   const handleGenerateContext = useCallback(
     async (options?: O) => {
       if (!rootDirectoryHandle) {
@@ -103,10 +87,10 @@ export const useReportManager = <A = unknown, O = unknown>({
       }
 
       try {
-        if (!contextGenerator) {
+        if (!generateContextWithContent) {
           throw new Error('No context generator provided');
         }
-        const context = await contextGenerator(options);
+        const context = await generateContextWithContent(options);
         return context;
       } catch (error) {
         logError('Error generating context:', error);
@@ -118,7 +102,7 @@ export const useReportManager = <A = unknown, O = unknown>({
         return null;
       }
     },
-    [contextGenerator, rootDirectoryHandle, toast]
+    [generateContextWithContent, rootDirectoryHandle, toast]
   );
 
   const executeWithToast = useCallback(
@@ -143,20 +127,20 @@ export const useReportManager = <A = unknown, O = unknown>({
 
         await action(context);
         contextToast?.dismiss?.();
-        showToast({
+        toast({
           title: FileExplorerStrings.success.title,
           description: successMessage,
         });
       } catch (error) {
         contextToast?.dismiss?.();
-        showToast({
+        toast({
           title: FileExplorerStrings.error.title,
           description: error instanceof Error ? `${errorMessage}: ${error.message}` : errorMessage,
           variant: 'destructive',
         });
       }
     },
-    [handleGenerateContext, showToast, toast]
+    [handleGenerateContext, toast]
   );
 
   const handleDownloadContext = useCallback(
@@ -192,7 +176,5 @@ export const useReportManager = <A = unknown, O = unknown>({
   return {
     handleDownloadContext,
     handleCopyContext,
-    handleDownloadReport: handleDownloadContext,
-    handleCopyReport: handleCopyContext,
   };
 };

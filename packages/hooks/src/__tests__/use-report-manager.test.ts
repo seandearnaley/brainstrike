@@ -13,28 +13,15 @@ describe('useReportManager', () => {
   const mockRootDirectoryHandle = {
     name: 'Sample Project',
   } as FileSystemDirectoryHandle;
-  const mockGenerateReportWithContent = vi.fn();
-  const mockShowToast = vi.fn();
+  const mockGenerateContextWithContent = vi.fn();
   const mockToast = vi.fn();
   const mockDismiss = vi.fn();
-
-  // Define the toast props type
-  interface ToastProps {
-    title: string;
-    description: string;
-    variant?: 'default' | 'destructive';
-  }
-
-  // Helper function to match the interface expected by the hook
-  function showToast(props: ToastProps) {
-    mockShowToast(props);
-  }
 
   beforeEach(() => {
     vi.clearAllMocks();
     // Setup default mock return values
     mockToast.mockReturnValue({ dismiss: mockDismiss });
-    mockGenerateReportWithContent.mockResolvedValue('Test Report Content');
+    mockGenerateContextWithContent.mockResolvedValue('Test Report Content');
     // Mock navigator.clipboard.writeText
     Object.defineProperty(navigator, 'clipboard', {
       value: {
@@ -48,29 +35,27 @@ describe('useReportManager', () => {
     vi.useRealTimers();
   });
 
-  it('should handle report generation success', async () => {
+  it('should handle context generation success', async () => {
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToast,
       })
     );
 
-    // Test the internal handleGenerateReport function via handleCopyReport
     await act(async () => {
-      await result.current.handleCopyReport();
+      await result.current.handleCopyContext();
     });
 
-    // Should call the report generation function
-    expect(mockGenerateReportWithContent).toHaveBeenCalledTimes(1);
+    // Should call the context generation function
+    expect(mockGenerateContextWithContent).toHaveBeenCalledTimes(1);
     // Should dismiss the loading toast
     expect(mockDismiss).toHaveBeenCalledTimes(1);
     // Should show a success toast
-    expect(mockShowToast).toHaveBeenCalledWith({
+    expect(mockToast).toHaveBeenCalledWith({
       title: FileExplorerStrings.success.title,
-      description: FileExplorerStrings.success.reportCopied,
+      description: FileExplorerStrings.success.contextCopied,
     });
     // Should call clipboard.writeText with the report content
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('Test Report Content');
@@ -80,14 +65,13 @@ describe('useReportManager', () => {
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: null,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToast,
       })
     );
 
     await act(async () => {
-      await result.current.handleCopyReport();
+      await result.current.handleCopyContext();
     });
 
     // Should show an error toast
@@ -96,32 +80,30 @@ describe('useReportManager', () => {
       description: FileExplorerStrings.error.noRootDirectory,
       variant: 'destructive',
     });
-    // Should not call report generation
-    expect(mockGenerateReportWithContent).not.toHaveBeenCalled();
+    // Should not call context generation
+    expect(mockGenerateContextWithContent).not.toHaveBeenCalled();
   });
 
-  it('should handle error during report generation', async () => {
-    mockGenerateReportWithContent.mockRejectedValue(new Error('gen fail'));
+  it('should handle error during context generation', async () => {
+    mockGenerateContextWithContent.mockRejectedValue(new Error('gen fail'));
 
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToast,
       })
     );
 
     await act(async () => {
-      await result.current.handleCopyReport();
+      await result.current.handleCopyContext();
     });
 
     expect(mockToast).toHaveBeenCalledWith({
       title: FileExplorerStrings.error.title,
-      description: FileExplorerStrings.error.reportGenerationFailed,
+      description: FileExplorerStrings.error.contextGenerationFailed,
       variant: 'destructive',
     });
-    expect(mockShowToast).not.toHaveBeenCalled();
     expect(mockDismiss).toHaveBeenCalledTimes(1);
     expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
   });
@@ -138,27 +120,26 @@ describe('useReportManager', () => {
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToast,
       })
     );
 
     await act(async () => {
-      await result.current.handleCopyReport();
+      await result.current.handleCopyContext();
     });
 
     // Should dismiss the loading toast
     expect(mockDismiss).toHaveBeenCalledTimes(1);
     // Should show an error toast
-    expect(mockShowToast).toHaveBeenCalledWith({
+    expect(mockToast).toHaveBeenCalledWith({
       title: FileExplorerStrings.error.title,
-      description: `${FileExplorerStrings.error.reportCopyFailed}: Clipboard error`,
+      description: `${FileExplorerStrings.error.contextCopyFailed}: Clipboard error`,
       variant: 'destructive',
     });
   });
 
-  it('should handle download report', async () => {
+  it('should handle download context', async () => {
     const { saveAs } = await import('file-saver');
 
     vi.useFakeTimers();
@@ -167,18 +148,17 @@ describe('useReportManager', () => {
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToast,
       })
     );
 
     await act(async () => {
-      await result.current.handleDownloadReport();
+      await result.current.handleDownloadContext();
     });
 
-    // Should call the report generation function
-    expect(mockGenerateReportWithContent).toHaveBeenCalledTimes(1);
+    // Should call the context generation function
+    expect(mockGenerateContextWithContent).toHaveBeenCalledTimes(1);
     // Should call saveAs with the right parameters
     expect(saveAs).toHaveBeenCalledTimes(1);
     // First argument should be a Blob with the report content
@@ -205,33 +185,30 @@ describe('useReportManager', () => {
     const filenameArgument = firstCallArgs?.[1];
     expect(filenameArgument).toBe('context-Sample-Project-2025-06-08_18-03-18Z.txt');
     // Should show a success toast
-    expect(mockShowToast).toHaveBeenCalledWith({
+    expect(mockToast).toHaveBeenCalledWith({
       title: FileExplorerStrings.success.title,
-      description: FileExplorerStrings.success.reportDownloaded,
+      description: FileExplorerStrings.success.contextDownloaded,
     });
   });
 
-  it('should not download if report generation fails', async () => {
-    mockGenerateReportWithContent.mockResolvedValue(null);
+  it('should not download if context generation fails', async () => {
+    mockGenerateContextWithContent.mockResolvedValue(null);
     const { saveAs } = await import('file-saver');
 
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToast,
       })
     );
 
     await act(async () => {
-      await result.current.handleDownloadReport();
+      await result.current.handleDownloadContext();
     });
 
-    // Should not call saveAs if no report is generated
+    // Should not call saveAs if no context is generated
     expect(saveAs).not.toHaveBeenCalled();
-    // Should not show a success toast
-    expect(mockShowToast).not.toHaveBeenCalled();
   });
 
   it('shows an error toast when download save fails', async () => {
@@ -244,17 +221,16 @@ describe('useReportManager', () => {
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToast,
       })
     );
 
     await act(async () => {
-      await result.current.handleDownloadReport();
+      await result.current.handleDownloadContext();
     });
 
-    expect(mockShowToast).toHaveBeenCalledWith({
+    expect(mockToast).toHaveBeenCalledWith({
       title: FileExplorerStrings.error.title,
       description: `${FileExplorerStrings.error.contextGenerationFailed}: disk full`,
       variant: 'destructive',
@@ -267,25 +243,24 @@ describe('useReportManager', () => {
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToastNoReturn,
       })
     );
 
     await act(async () => {
-      await result.current.handleCopyReport();
+      await result.current.handleCopyContext();
     });
 
-    expect(mockGenerateReportWithContent).toHaveBeenCalled();
+    expect(mockGenerateContextWithContent).toHaveBeenCalled();
     expect(mockToastNoReturn).toHaveBeenCalledWith({
-      title: FileExplorerStrings.loading.generatingReport,
-      description: FileExplorerStrings.prompts.waitForReport,
+      title: FileExplorerStrings.loading.generatingContext,
+      description: FileExplorerStrings.prompts.waitForContext,
       duration: Number.POSITIVE_INFINITY,
     });
-    expect(mockShowToast).toHaveBeenCalledWith({
+    expect(mockToastNoReturn).toHaveBeenCalledWith({
       title: FileExplorerStrings.success.title,
-      description: FileExplorerStrings.success.reportCopied,
+      description: FileExplorerStrings.success.contextCopied,
     });
   });
 
@@ -295,21 +270,20 @@ describe('useReportManager', () => {
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToastNoDismiss,
       })
     );
 
     await act(async () => {
-      await result.current.handleCopyReport();
+      await result.current.handleCopyContext();
     });
 
     // Should handle missing dismiss gracefully
-    expect(mockGenerateReportWithContent).toHaveBeenCalled();
-    expect(mockShowToast).toHaveBeenCalledWith({
+    expect(mockGenerateContextWithContent).toHaveBeenCalled();
+    expect(mockToastNoDismiss).toHaveBeenCalledWith({
       title: FileExplorerStrings.success.title,
-      description: FileExplorerStrings.success.reportCopied,
+      description: FileExplorerStrings.success.contextCopied,
     });
   });
 
@@ -319,20 +293,19 @@ describe('useReportManager', () => {
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToastNoDismiss,
       })
     );
 
     await act(async () => {
-      await result.current.handleDownloadReport();
+      await result.current.handleDownloadContext();
     });
 
-    expect(mockGenerateReportWithContent).toHaveBeenCalled();
-    expect(mockShowToast).toHaveBeenCalledWith({
+    expect(mockGenerateContextWithContent).toHaveBeenCalled();
+    expect(mockToastNoDismiss).toHaveBeenCalledWith({
       title: FileExplorerStrings.success.title,
-      description: FileExplorerStrings.success.reportDownloaded,
+      description: FileExplorerStrings.success.contextDownloaded,
     });
   });
 
@@ -348,19 +321,18 @@ describe('useReportManager', () => {
     const { result } = renderHook(() =>
       useReportManager({
         rootDirectoryHandle: mockRootDirectoryHandle,
-        generateReportWithContent: mockGenerateReportWithContent,
-        showToast,
+        generateContextWithContent: mockGenerateContextWithContent,
         toast: mockToast,
       })
     );
 
     await act(async () => {
-      await result.current.handleCopyReport();
+      await result.current.handleCopyContext();
     });
 
-    expect(mockShowToast).toHaveBeenCalledWith({
+    expect(mockToast).toHaveBeenCalledWith({
       title: FileExplorerStrings.error.title,
-      description: `${FileExplorerStrings.error.reportCopyFailed}: ${errorMessage}`,
+      description: `${FileExplorerStrings.error.contextCopyFailed}: ${errorMessage}`,
       variant: 'destructive',
     });
   });

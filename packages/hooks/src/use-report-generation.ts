@@ -137,7 +137,6 @@ export function useReportGeneration({
 
   return {
     generateContextWithContent,
-    generateReportWithContent: generateContextWithContent,
     isGenerating,
     progress,
   };
