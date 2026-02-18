@@ -85,7 +85,10 @@ function filterTreeIterative(
   }
 
   while (stack.length > 0) {
-    const frame = stack.pop() as Frame;
+    const frame = stack.pop();
+    if (!frame) {
+      continue;
+    }
     if (frame.state === 'enter') {
       if (frame.node.type === 'directory' && frame.node.children) {
         pushChildren(frame.node, frame.parentChildren);

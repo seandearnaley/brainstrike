@@ -149,6 +149,7 @@ export function useReportGeneration({
       );
     } finally {
       setIsGenerating(false);
+      setProgress(null);
     }
   }, []);
 

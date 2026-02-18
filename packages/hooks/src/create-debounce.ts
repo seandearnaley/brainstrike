@@ -1,6 +1,11 @@
+export interface DebounceOptions {
+  onError?: (error: unknown) => void;
+}
+
 export function createDebounce<Args extends unknown[]>(
   fn: (...args: Args) => unknown | Promise<unknown>,
-  delay: number
+  delay: number,
+  options?: DebounceOptions
 ): { run: (...args: Args) => void; flush: () => Promise<void> } {
   let timer: NodeJS.Timeout | undefined;
   let latestArgs: Args | null = null;
@@ -14,8 +19,8 @@ export function createDebounce<Args extends unknown[]>(
       if (latestArgs) {
         try {
           await fn(...latestArgs);
-        } catch {
-          // ignore errors from debounced fn
+        } catch (error: unknown) {
+          options?.onError?.(error);
         }
         latestArgs = null;
       }
@@ -31,8 +36,8 @@ export function createDebounce<Args extends unknown[]>(
     if (latestArgs) {
       try {
         await fn(...latestArgs);
-      } catch {
-        // ignore errors from debounced fn
+      } catch (error: unknown) {
+        options?.onError?.(error);
       }
       latestArgs = null;
     }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * A generic hook to manage asynchronous loading state for a set of keys.
@@ -17,22 +17,23 @@ export function useLoadingManager<K>(
   loadFn: (key: K) => Promise<void>
 ): { loading: Set<K> } {
   const [loading, setLoading] = useState<Set<K>>(new Set());
+  const shouldInitiateLoadRef = useRef(false);
 
   const handleLoad = useCallback(
     async (key: K) => {
-      let shouldInitiateLoad = false;
+      shouldInitiateLoadRef.current = false;
       setLoading((prevLoading) => {
         if (prevLoading.has(key)) {
           // Already loading or load initiated in a concurrent call, no state change needed.
           return prevLoading;
         }
-        shouldInitiateLoad = true;
+        shouldInitiateLoadRef.current = true;
         const newLoading = new Set(prevLoading);
         newLoading.add(key);
         return newLoading;
       });
 
-      if (!shouldInitiateLoad) {
+      if (!shouldInitiateLoadRef.current) {
         // If the key was already in the loading set, don't re-execute loadFn.
         return;
       }

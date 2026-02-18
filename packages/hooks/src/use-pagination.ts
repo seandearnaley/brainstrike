@@ -26,9 +26,10 @@ export function usePagination({
 }: UsePaginationOptions): UsePaginationReturn {
   const [currentPage, setCurrentPage] = useState(initialPage);
 
-  const totalPages = Math.ceil(totalItems / pageSize);
-  const startIndex = currentPage * pageSize;
-  const endIndex = Math.min(startIndex + pageSize, totalItems);
+  const safePageSize = Math.max(pageSize, 1);
+  const totalPages = Math.ceil(totalItems / safePageSize);
+  const startIndex = currentPage * safePageSize;
+  const endIndex = Math.min(startIndex + safePageSize, totalItems);
 
   const isFirstPage = currentPage === 0;
   const isLastPage = currentPage === totalPages - 1 || totalPages === 0;
