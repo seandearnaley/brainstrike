@@ -171,7 +171,6 @@ export function useFileSystem({
     if (hasAttemptedRestoreRef.current || rootDirectoryHandle || isRestoringRef.current) {
       return;
     }
-    hasAttemptedRestoreRef.current = true;
     if (typeof fileSystemAdapter.restoreLastFolder !== 'function') {
       return;
     }
@@ -203,6 +202,9 @@ export function useFileSystem({
         }
       } finally {
         if (!cancelled) {
+          // Mark as attempted only after a non-cancelled completion.
+          // This allows retries when a run is cancelled (e.g. effect preflight cleanup).
+          hasAttemptedRestoreRef.current = true;
           dispatch({ type: 'setAccessLoading', loading: false });
         }
         isRestoringRef.current = false;

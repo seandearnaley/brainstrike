@@ -36,9 +36,7 @@ function readQuantizedFlag(parameters: ModelParameters): boolean {
   return typeof value === 'boolean' ? value : false;
 }
 
-function resolveDimensions(
-  capabilities: DbModel['capabilities'] | null | undefined
-): number {
+function resolveDimensions(capabilities: DbModel['capabilities'] | null | undefined): number {
   const rawDimension = capabilities?.defaultDimension;
   if (!hasEmbeddingCapabilities(capabilities)) {
     return DEFAULT_EMBEDDING_DIMENSION;

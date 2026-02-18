@@ -2,11 +2,15 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import {
   AccessError,
   DialogError,
+  type FileSystemAdapter,
   PermissionError,
   UserCancelledError,
 } from '@brainstrike/file-system';
+import { createStorageAdapter } from '@brainstrike/storage';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { createElement, type ReactNode, StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AdaptersProvider } from '../adapters-context';
 import { useFileSystem } from '../use-file-system';
 import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 
@@ -423,6 +427,109 @@ describe('useFileSystem', () => {
       await waitFor(() => expect(restoreSpy).toHaveBeenCalledTimes(1));
 
       restoreSpy.mockRestore();
+    });
+
+    it('restores last folder under React StrictMode effect double-invoke', async () => {
+      MockFileSystemAdapter.setMockLastFolderPath('/test/restored/path');
+      const originalRestoreLastFolder = MockFileSystemAdapter.prototype.restoreLastFolder;
+      MockFileSystemAdapter.prototype.restoreLastFolder = vi.fn().mockImplementation(
+        async () =>
+          await new Promise<DirectoryHandle>((resolve) => {
+            setTimeout(() => {
+              resolve({
+                path: '/test/restored/path',
+                name: 'path',
+                kind: 'directory',
+                platform: 'web',
+              });
+            }, 0);
+          })
+      );
+
+      const StrictAdaptersWrapper = ({ children }: { children: ReactNode }) =>
+        createElement(StrictMode, null, createElement(AdaptersTestWrapper, null, children));
+
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: StrictAdaptersWrapper }
+      );
+
+      try {
+        await waitFor(() =>
+          expect(result.current?.rootDirectoryHandle).toEqual({
+            path: '/test/restored/path',
+            name: 'path',
+            kind: 'directory',
+            platform: 'web',
+          })
+        );
+
+        expect(mockSetCurrentFolderId).toHaveBeenCalledWith('path');
+      } finally {
+        MockFileSystemAdapter.prototype.restoreLastFolder = originalRestoreLastFolder;
+      }
+    });
+
+    it('retries restore after an in-flight attempt is cancelled by adapter replacement', async () => {
+      const restoredHandle: DirectoryHandle = {
+        path: '/test/restored/path',
+        name: 'path',
+        kind: 'directory',
+        platform: 'web',
+      };
+      const storageAdapter = createStorageAdapter('web');
+
+      let resolveFirstRestore: ((value: DirectoryHandle | null) => void) | undefined;
+
+      const createAdapter = (
+        restoreLastFolder: () => Promise<DirectoryHandle | null>
+      ): FileSystemAdapter => ({
+        requestDirectoryAccess: async () => ({
+          path: 'mock-root',
+          name: 'mock-root',
+          kind: 'directory',
+          platform: 'web',
+        }),
+        readDirectory: async () => [],
+        readFile: async () => 'test content',
+        exists: async () => true,
+        restoreLastFolder,
+      });
+
+      const firstAdapter = createAdapter(
+        async () =>
+          await new Promise<DirectoryHandle | null>((resolve) => {
+            resolveFirstRestore = resolve;
+          })
+      );
+      const secondAdapter = createAdapter(async () => restoredHandle);
+      let activeAdapter: FileSystemAdapter = firstAdapter;
+
+      const DynamicAdaptersWrapper = ({ children }: { children: ReactNode }) =>
+        createElement(AdaptersProvider, {
+          fileSystemAdapter: activeAdapter,
+          storageAdapter,
+          children,
+        });
+
+      const { result, rerender } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: DynamicAdaptersWrapper }
+      );
+
+      activeAdapter = secondAdapter;
+      rerender();
+
+      await act(async () => {
+        resolveFirstRestore?.(null);
+        await Promise.resolve();
+      });
+
+      await waitFor(() => {
+        expect(result.current?.rootDirectoryHandle).toEqual(restoredHandle);
+      });
+
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('path');
     });
 
     it('does not update folder state after unmount while restore is in-flight', async () => {
