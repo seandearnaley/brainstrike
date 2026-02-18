@@ -11,7 +11,7 @@ describe('panel-layout-store', () => {
 
   it('initializes with default state', () => {
     const s = store.getState();
-    expect(s.sizes).toEqual([25, 55, 20]);
+    expect(s.sizes).toEqual([25, 20, 20]);
     expect(s.showLeftPanel).toBe(true);
     expect(s.showRightPanel).toBe(false);
     expect(s.showConsole).toBe(false);
@@ -57,5 +57,23 @@ describe('panel-layout-store', () => {
     expect(s.activeTab).toBe('settings');
     // unchanged remain
     expect(s.showLeftPanel).toBe(true);
+  });
+
+  it('supports prompts tab', () => {
+    store.getState().setActiveTab('prompts');
+    expect(store.getState().activeTab).toBe('prompts');
+  });
+
+  it('resets corrupted sizes below minimum threshold to defaults', () => {
+    // Sizes like [4.488, 5.386, 0] represent corrupted localStorage values
+    store.getState().setSizes([4.488, 5.386, 0]);
+    const s = store.getState();
+    expect(s.sizes).toEqual([25, 20, 20]);
+  });
+
+  it('preserves valid sizes above minimum threshold', () => {
+    store.getState().setSizes([30, 25, 15]);
+    const s = store.getState();
+    expect(s.sizes).toEqual([30, 25, 15]);
   });
 });

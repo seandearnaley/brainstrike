@@ -27,6 +27,7 @@ import {
   useEnsureModelRegistry,
   useModelRegistryStore,
   useNativeToolPreferencesStore,
+  usePanelLayoutStore,
   useSecretsStore,
   useVectorStatusUIStore,
 } from '@brainstrike/preferences';
@@ -45,7 +46,6 @@ import {
 } from '@brainstrike/ui/assistant-ui-panel';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { type FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePanelLayoutStore } from './stores/panel-layout-store';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;

@@ -4,12 +4,12 @@ import {
   TabbedFileEditorPanel,
   useFileSystem,
 } from '@brainstrike/file-explorer-ui';
+import { usePanelLayoutStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { cn, IdeLayout, PanelLayoutProvider } from '@brainstrike/ui';
 import { type ReactElement, type ReactNode, useCallback, useMemo } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
-import { usePanelLayoutStore } from './stores/panel-layout-store';
 import { ToolsPanel } from './tools-panel';
 import type { NavigationItem } from './types';
 

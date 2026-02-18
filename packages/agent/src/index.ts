@@ -1,66 +1,5 @@
 // Types — all inline type definitions live in types.ts
-export type {
-  AgentMessage,
-  AgentMessagePart,
-  AgentMessagePartText,
-  AgentMessagePartTool,
-  AnthropicEffort,
-  AnthropicProviderOptions,
-  AssistantUiMessage,
-  AssistantUiMessageStrict,
-  AssistantUiNode,
-  AssistantUiNodeObject,
-  AssistantUiScalar,
-  GoogleProviderOptions,
-  GoogleThinkingLevel,
-  OpenAiProviderOptions,
-  OpenAiReasoningEffort,
-  OpenAiReasoningSummary,
-  RuntimeData,
-  RuntimeModelSettings,
-  RuntimeProviderOptions,
-  StreamChunk,
-  StreamChunkFinish,
-  StreamChunkMessageFinish,
-  StreamChunkText,
-  StreamChunkTool,
-  StreamIterator,
-} from './types';
 
-// Message utilities — conversion and normalization functions
-export { convertAssistantUiMessages, toAiSdkStyleStream } from './message-utils';
-
-export {
-  convertMessagesToMastra,
-  createMastraAgentRuntime,
-  type MastraAgentRuntime,
-  type MastraAgentRuntimeOptions,
-  streamMastraAgent,
-} from './mastra/agent-runtime';
-export {
-  createMastraAgentError,
-  isMastraAgentError,
-  MastraAgentError,
-  type MastraAgentErrorCode,
-} from './mastra/mastra-agent-error';
-// Memory store for early development
-export { InMemoryMemoryStore } from './memory/in-memory';
-export {
-  type FilesystemListInput,
-  type FilesystemReadInput,
-  type FilesystemSearchInput,
-  type ReadWorkspaceDirectoryInput,
-  ReadWorkspaceDirectoryInputSchema,
-  type ReadWorkspaceFileInput,
-  ReadWorkspaceFileInputSchema,
-  type RetrievalContextInput,
-  RetrievalContextInputSchema,
-  type SelectRootTreeFilesInput,
-  SelectRootTreeFilesInputSchema,
-  type UpdatePreviewContextFilesInput,
-  UpdatePreviewContextFilesInputSchema,
-  validateToolInput,
-} from './tools/schemas';
 export {
   ContextPacker,
   type ContextPackerChunk,
@@ -96,6 +35,20 @@ export {
   sampleGoldenDataset,
   type TestCaseResult,
 } from './evaluation';
+
+export {
+  convertMessagesToMastra,
+  createMastraAgentRuntime,
+  type MastraAgentRuntime,
+  type MastraAgentRuntimeOptions,
+  streamMastraAgent,
+} from './mastra/agent-runtime';
+export {
+  createMastraAgentError,
+  isMastraAgentError,
+  MastraAgentError,
+  type MastraAgentErrorCode,
+} from './mastra/mastra-agent-error';
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';
 export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';
@@ -113,6 +66,10 @@ export {
   ToolRegistry as McpToolRegistry,
   toolRegistry as mcpToolRegistry,
 } from './mcp/tool-registry';
+// Memory store for early development
+export { InMemoryMemoryStore } from './memory/in-memory';
+// Message utilities — conversion and normalization functions
+export { convertAssistantUiMessages, toAiSdkStyleStream } from './message-utils';
 export type {
   LocalLlmConfig,
   LocalLlmGenerationOptions,
@@ -306,3 +263,46 @@ export {
   type RetrievalToolResult,
   SAFE_ERROR_MESSAGES,
 } from './tools/retrieval-tool';
+export {
+  type FilesystemListInput,
+  type FilesystemReadInput,
+  type FilesystemSearchInput,
+  type ReadWorkspaceDirectoryInput,
+  ReadWorkspaceDirectoryInputSchema,
+  type ReadWorkspaceFileInput,
+  ReadWorkspaceFileInputSchema,
+  type RetrievalContextInput,
+  RetrievalContextInputSchema,
+  type SelectRootTreeFilesInput,
+  SelectRootTreeFilesInputSchema,
+  type UpdatePreviewContextFilesInput,
+  UpdatePreviewContextFilesInputSchema,
+  validateToolInput,
+} from './tools/schemas';
+export type {
+  AgentMessage,
+  AgentMessagePart,
+  AgentMessagePartText,
+  AgentMessagePartTool,
+  AnthropicEffort,
+  AnthropicProviderOptions,
+  AssistantUiMessage,
+  AssistantUiMessageStrict,
+  AssistantUiNode,
+  AssistantUiNodeObject,
+  AssistantUiScalar,
+  GoogleProviderOptions,
+  GoogleThinkingLevel,
+  OpenAiProviderOptions,
+  OpenAiReasoningEffort,
+  OpenAiReasoningSummary,
+  RuntimeData,
+  RuntimeModelSettings,
+  RuntimeProviderOptions,
+  StreamChunk,
+  StreamChunkFinish,
+  StreamChunkMessageFinish,
+  StreamChunkText,
+  StreamChunkTool,
+  StreamIterator,
+} from './types';
