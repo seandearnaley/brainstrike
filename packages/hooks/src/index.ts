@@ -1,4 +1,5 @@
-export { type DebounceOptions, createDebounce } from './create-debounce';
+// TODO: createDebounce is a pure utility, not a hook — should move to @brainstrike/utils
+export { createDebounce, type DebounceOptions } from './create-debounce';
 export { useDebouncedValue } from './use-debounced-value';
 export { useFileFilters } from './use-file-filters';
 export { useLoadingManager } from './use-loading-manager';
