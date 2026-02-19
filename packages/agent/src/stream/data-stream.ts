@@ -1,6 +1,6 @@
 import { createLogger } from '@brainstrike/utils';
 import type { StreamChunk } from '../types';
-import { type EncodedChunk, type StoredChunk, encodeChunk } from './data-stream-codes';
+import { type EncodedChunk, encodeChunk, type StoredChunk } from './data-stream-codes';
 import { DataStreamMapper } from './data-stream-mapper';
 import { parseEventId } from './session-manager';
 import { SessionSubscription } from './session-subscription';

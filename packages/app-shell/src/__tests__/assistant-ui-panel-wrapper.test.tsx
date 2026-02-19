@@ -2,6 +2,7 @@ import type { SupportedProvider } from '@brainstrike/agent/client';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
+  usePanelLayoutStore,
 } from '@brainstrike/preferences';
 import type { AssistantSelectionUpdatePayload } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
@@ -9,7 +10,6 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
-import { usePanelLayoutStore } from '../stores/panel-layout-store';
 
 const { fileExplorerMocks, testEnabledModels } = vi.hoisted(() => ({
   fileExplorerMocks: {
@@ -220,12 +220,21 @@ vi.mock('@brainstrike/preferences', async () => {
     nativeToolPreferencesState.toolStates = {};
   };
 
+  const usePanelLayoutStore = create<{
+    activeTab: string;
+    setActiveTab: (tab: string) => void;
+  }>((set) => ({
+    activeTab: 'explorer',
+    setActiveTab: (tab: string) => set({ activeTab: tab }),
+  }));
+
   return {
     __resetAssistantPreferencesStoreForTests,
     useAssistantPreferencesStore,
     useEnsureModelRegistry: vi.fn(),
     useModelRegistryStore,
     useNativeToolPreferencesStore,
+    usePanelLayoutStore,
     useSecretsStore,
     useVectorStatusUIStore,
   };
