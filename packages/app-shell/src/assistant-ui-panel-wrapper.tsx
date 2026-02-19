@@ -1201,16 +1201,17 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
 
       const currentComposite = getSelectedModel();
       const currentModelName = resolveModelNameFromComposite(currentComposite);
-      if (currentModelName) {
+      if (currentModelName && isModelEnabled(currentProvider, currentModelName)) {
         return true;
       }
 
       if (providerHasEnabledModels(currentProvider)) {
         selectModelForProvider(currentProvider);
+        return true;
       }
-      return true;
+      return false;
     },
-    [getSelectedModel, providerHasEnabledModels, selectModelForProvider]
+    [getSelectedModel, isModelEnabled, providerHasEnabledModels, selectModelForProvider]
   );
 
   // Reconcile selection whenever providers or enabled models change
