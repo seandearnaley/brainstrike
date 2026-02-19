@@ -247,6 +247,34 @@ describe('retrieval-tool', () => {
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('ollama');
   });
 
+  it('supports lmstudio runtime embedding providers without API keys', async () => {
+    getKeyMock.mockResolvedValue(undefined);
+    resolveHostedProviderApiKeyMock.mockResolvedValue(undefined);
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return {
+          rows: [
+            {
+              modelKey: 'lmstudio::text-embedding-model',
+              modelId: 'text-embedding-model',
+              dimensions: 2,
+              distance: null,
+            },
+          ],
+        };
+      }
+      return { rows: [] };
+    });
+
+    const tool = createRetrievalTool({ embeddingSetId: 'set-1' });
+    const result = await tool.execute({
+      context: { query: 'hello', embeddingSetId: 'set-1' },
+    });
+
+    expect(result.embeddingSetId).toBe('set-1');
+    expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('lmstudio');
+  });
+
   it('creates a selection snapshot when file paths exceed limit', async () => {
     getKeyMock.mockResolvedValue(undefined);
     const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
