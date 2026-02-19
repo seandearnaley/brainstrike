@@ -48,6 +48,20 @@ export function installRendererErrorHooks(options: RendererErrorHooksOptions = {
   };
 
   const handleRejection = (event: PromiseRejectionEvent) => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/a67c7242-fa95-40d2-befe-f4f7a66bce86', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'b4e51e' },
+      body: JSON.stringify({
+        sessionId: 'b4e51e',
+        location: 'install-renderer-error-hooks.ts:51',
+        message: 'Promise rejection caught',
+        data: { reason: event.reason ? String(event.reason) : 'unknown' },
+        hypothesisId: 'H3,H5',
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     const reason = event.reason;
     const payload: RendererErrorEventPayload = {
       type: 'unhandledrejection',

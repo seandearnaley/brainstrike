@@ -15,22 +15,38 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
 import {
   type BrowserNodeData,
+  type BulkAction,
   Button,
   CollectionBrowser,
   type CollectionBrowserFilters,
   type CollectionNodeType,
   type CollectionSortState,
   type CollectionTreeInput,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   type EmbeddingStatus,
   FilterBar,
+  type GroupByKey,
   NodeInspector,
   type SearchConfig,
   SearchConfigPanel,
   type SearchMode,
   SearchModeBar,
 } from '@brainstrike/ui';
-import { ChevronLeft } from 'lucide-react';
-import { useCallback, useMemo, useRef } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Copy,
+  Eye,
+  SquareCheck,
+} from 'lucide-react';
+import type * as React from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { Group, Panel, type PanelImperativeHandle, Separator } from 'react-resizable-panels';
 import { useSemanticSearch } from '../contexts/semantic-search-context';
 import { useCollectionBrowserStore } from '../stores/collection-browser-store';
@@ -262,6 +278,12 @@ export function CollectionBrowserView({
     // Grouping and checkbox state
     groupBy,
     showCheckbox,
+    multiSelectEnabled,
+    setGroupBy,
+    setShowCheckbox,
+    setMultiSelectEnabled,
+    toggleExpanded,
+    expandIds,
   } = useCollectionBrowserStore();
 
   // Convert store filter state to CollectionBrowserFilters format
@@ -509,6 +531,180 @@ export function CollectionBrowserView({
     [setSelectedId, records, chunks, onFileSelect, onChunkSelect]
   );
 
+  // Handle multi-select toggle — also toggles showCheckbox in sync
+  const handleMultiSelectToggle = useCallback(
+    (enabled: boolean) => {
+      setMultiSelectEnabled(enabled);
+      setShowCheckbox(enabled);
+    },
+    [setMultiSelectEnabled, setShowCheckbox]
+  );
+
+  // Handle group-by change from toolbar
+  const handleGroupByChange = useCallback(
+    (key: GroupByKey) => {
+      setGroupBy(key);
+    },
+    [setGroupBy]
+  );
+
+  // Handle multi-select callback
+  const handleMultiSelect = useCallback((nodeIds: Set<string>) => {
+    // Multi-select state is managed internally by CollectionBrowser;
+    // this callback provides the consumer with the current selection.
+    // Future: could integrate with bulk operations outside of the BulkActionBar.
+    void nodeIds;
+  }, []);
+
+  // Handle double-click: toggle expand for parent nodes, open inspector for leaves
+  const handleDoubleClick = useCallback(
+    (nodeId: string, nodeType: string, _data: BrowserNodeData) => {
+      // Parent nodes (files with chunks) → toggle expand
+      if (nodeType === 'file' || nodeType === 'collection') {
+        toggleExpanded(nodeId);
+        return;
+      }
+      // Chunk nodes with embeddings → toggle expand
+      if (nodeType === 'chunk') {
+        toggleExpanded(nodeId);
+        return;
+      }
+      // Leaf nodes (embedding) → open the inspector
+      setSelectedId(nodeId);
+      if (isInspectorCollapsed) {
+        handleInspectorCollapse(false);
+      }
+    },
+    [toggleExpanded, setSelectedId, isInspectorCollapsed, handleInspectorCollapse]
+  );
+
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    nodeId: string;
+    nodeType: string;
+    hasChildren: boolean;
+  } | null>(null);
+
+  // Handle right-click context menu
+  const handleContextMenu = useCallback(
+    (nodeId: string, nodeType: string, _data: BrowserNodeData, event: React.MouseEvent) => {
+      event.preventDefault();
+      const hasChildren = nodeType === 'file' || nodeType === 'collection' || nodeType === 'chunk';
+      setContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        nodeId,
+        nodeType,
+        hasChildren,
+      });
+    },
+    []
+  );
+
+  // Close context menu
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  // Context menu: expand/collapse node
+  const handleContextExpand = useCallback(() => {
+    if (contextMenu) {
+      toggleExpanded(contextMenu.nodeId);
+    }
+    closeContextMenu();
+  }, [contextMenu, toggleExpanded, closeContextMenu]);
+
+  // Context menu: expand all children for a parent node
+  const handleContextExpandAllChildren = useCallback(() => {
+    if (!contextMenu) {
+      return;
+    }
+    // Find all child IDs based on node type
+    const childIds: string[] = [];
+    const originalId = contextMenu.nodeId.replace(/^(collection|file|chunk|embedding)-/, '');
+
+    if (contextMenu.nodeType === 'file') {
+      const fileChunks = chunks.filter((c) => c.fileRecordId === originalId);
+      childIds.push(contextMenu.nodeId); // expand the file itself
+      for (const chunk of fileChunks) {
+        if (chunk.embedding && chunk.embedding.length > 0) {
+          childIds.push(`chunk-${chunk.id}`);
+        }
+      }
+    }
+    if (childIds.length > 0) {
+      expandIds(childIds);
+    }
+    closeContextMenu();
+  }, [contextMenu, chunks, expandIds, closeContextMenu]);
+
+  // Context menu: inspect node (open inspector)
+  const handleContextInspect = useCallback(() => {
+    if (contextMenu) {
+      setSelectedId(contextMenu.nodeId);
+      if (isInspectorCollapsed) {
+        handleInspectorCollapse(false);
+      }
+    }
+    closeContextMenu();
+  }, [contextMenu, setSelectedId, isInspectorCollapsed, handleInspectorCollapse, closeContextMenu]);
+
+  // Context menu: copy node ID to clipboard
+  const handleContextCopyId = useCallback(() => {
+    if (contextMenu) {
+      const originalId = contextMenu.nodeId.replace(/^(collection|file|chunk|embedding)-/, '');
+      navigator.clipboard.writeText(originalId).catch(() => {
+        // Clipboard write can fail if page doesn't have focus or permissions are denied
+      });
+    }
+    closeContextMenu();
+  }, [contextMenu, closeContextMenu]);
+
+  // Bulk actions for the multi-select action bar
+  const bulkActions: BulkAction[] = useMemo(
+    () => [
+      {
+        id: 'expand-selected',
+        label: 'Expand',
+        icon: <ChevronsUpDown className="h-4 w-4" />,
+        onAction: (selectedIds: Set<string>) => {
+          expandIds(Array.from(selectedIds));
+        },
+        applicableTypes: ['file', 'chunk'] as CollectionNodeType[],
+      },
+      {
+        id: 'collapse-selected',
+        label: 'Collapse',
+        icon: <ChevronsDownUp className="h-4 w-4" />,
+        onAction: (selectedIds: Set<string>) => {
+          // Remove selected IDs from expanded set
+          const currentExpanded = new Set(expandedIds);
+          for (const id of selectedIds) {
+            currentExpanded.delete(id);
+          }
+          setExpandedIds(Array.from(currentExpanded));
+        },
+        applicableTypes: ['file', 'chunk'] as CollectionNodeType[],
+      },
+      {
+        id: 'copy-ids',
+        label: 'Copy IDs',
+        icon: <Copy className="h-4 w-4" />,
+        onAction: (selectedIds: Set<string>) => {
+          const ids = Array.from(selectedIds)
+            .map((id) => id.replace(/^(collection|file|chunk|embedding)-/, ''))
+            .join('\n');
+          navigator.clipboard.writeText(ids).catch(() => {
+            // Clipboard write can fail if page doesn't have focus or permissions are denied
+          });
+        },
+      },
+    ],
+    [expandIds, expandedIds, setExpandedIds]
+  );
+
   // Empty state message - depends on search mode
   const emptyMessage = useMemo(() => {
     if (searchMode === 'semantic' && hasSearched && searchResults.length === 0) {
@@ -523,16 +719,20 @@ export function CollectionBrowserView({
       <SearchModeBar
         className="border-border border-b"
         filters={filters}
+        groupBy={groupBy}
         hasSearched={hasSearched}
         isConfigExpanded={searchConfigExpanded}
         isFilterVisible={isFilterVisible}
         isSearching={isSearching}
         mode={searchMode}
+        multiSelectEnabled={multiSelectEnabled}
         onCollapseAll={handleCollapseAll}
         onConfigExpandedChange={setSearchConfigExpanded}
         onExpandAll={handleExpandAll}
         onFilterVisibleChange={setIsFilterVisible}
+        onGroupByChange={handleGroupByChange}
         onModeChange={handleSearchModeChange}
+        onMultiSelectToggle={handleMultiSelectToggle}
         onResetFilters={handleResetFilters}
         onSemanticQueryChange={setSemanticQuery}
         onSemanticSearch={handleSearch}
@@ -591,6 +791,7 @@ export function CollectionBrowserView({
             minSize="30%"
           >
             <CollectionBrowser
+              bulkActions={bulkActions}
               className="h-full"
               data={treeData}
               emptyMessage={emptyMessage}
@@ -600,17 +801,21 @@ export function CollectionBrowserView({
               height="100%"
               isLoading={isLoading}
               isSearching={isSearching}
+              multiSelectEnabled={multiSelectEnabled}
+              onContextMenu={handleContextMenu}
+              onDoubleClick={handleDoubleClick}
               onExpandedIdsChange={handleExpandedIdsChange}
               onFiltersChange={handleFiltersChange}
+              onMultiSelect={handleMultiSelect}
               onSelect={handleSelect}
               onSelectedIdChange={handleSelectedIdChange}
               onSortChange={handleSortChange}
               searchMode={searchMode}
               selectedId={selectedId}
+              showCheckbox={showCheckbox && multiSelectEnabled}
               {...(sortState ? { sortState } : {})}
               {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
               {...(groupBy !== 'none' ? { groupBy } : {})}
-              showCheckbox={showCheckbox}
             />
           </Panel>
 
@@ -644,6 +849,72 @@ export function CollectionBrowserView({
             </>
           )}
         </Group>
+
+        {/* Context menu (positioned at right-click location) */}
+        {contextMenu && (
+          <DropdownMenu
+            onOpenChange={(open) => {
+              if (!open) {
+                closeContextMenu();
+              }
+            }}
+            open
+          >
+            <DropdownMenuTrigger asChild>
+              <div
+                className="pointer-events-none fixed"
+                style={{ left: contextMenu.x, top: contextMenu.y }}
+              />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" side="right">
+              {contextMenu.hasChildren && (
+                <>
+                  <DropdownMenuItem onClick={handleContextExpand}>
+                    {expandedIds.includes(contextMenu.nodeId) ? (
+                      <>
+                        <ChevronRight className="mr-2 h-4 w-4 rotate-90" />
+                        Collapse
+                      </>
+                    ) : (
+                      <>
+                        <ChevronRight className="mr-2 h-4 w-4" />
+                        Expand
+                      </>
+                    )}
+                  </DropdownMenuItem>
+                  {contextMenu.nodeType === 'file' && (
+                    <DropdownMenuItem onClick={handleContextExpandAllChildren}>
+                      <ChevronsUpDown className="mr-2 h-4 w-4" />
+                      Expand All Children
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
+              <DropdownMenuItem onClick={handleContextInspect}>
+                <Eye className="mr-2 h-4 w-4" />
+                Inspect
+              </DropdownMenuItem>
+              {multiSelectEnabled && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    if (contextMenu) {
+                      setSelectedId(contextMenu.nodeId);
+                    }
+                    closeContextMenu();
+                  }}
+                >
+                  <SquareCheck className="mr-2 h-4 w-4" />
+                  Select
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleContextCopyId}>
+                <Copy className="mr-2 h-4 w-4" />
+                Copy ID
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
     </div>
   );

@@ -334,6 +334,14 @@ export interface SearchModeBarProps {
   onFiltersChange?: (filters: CollectionBrowserFilters) => void;
   /** Callback to reset filters */
   onResetFilters?: () => void;
+  /** Whether multi-select mode is enabled */
+  multiSelectEnabled?: boolean;
+  /** Callback when multi-select toggle changes */
+  onMultiSelectToggle?: (enabled: boolean) => void;
+  /** Current group-by key */
+  groupBy?: GroupByKey;
+  /** Callback when group-by changes */
+  onGroupByChange?: (groupBy: GroupByKey) => void;
   /** Custom class name */
   className?: string;
 }

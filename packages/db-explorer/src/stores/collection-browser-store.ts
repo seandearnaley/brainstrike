@@ -58,6 +58,8 @@ interface CollectionBrowserData {
   groupBy: GroupByKey;
   /** Whether to show checkboxes for multi-select */
   showCheckbox: boolean;
+  /** Whether multi-select mode is enabled */
+  multiSelectEnabled: boolean;
 }
 
 /**
@@ -115,6 +117,8 @@ interface CollectionBrowserActions {
   setGroupBy: (groupBy: GroupByKey) => void;
   /** Set checkbox visibility */
   setShowCheckbox: (show: boolean) => void;
+  /** Set multi-select mode */
+  setMultiSelectEnabled: (enabled: boolean) => void;
   /** Reset all state to defaults */
   reset: () => void;
 }
@@ -149,6 +153,7 @@ const DEFAULT_STATE: CollectionBrowserData = {
   isFilterVisible: false,
   groupBy: 'none' as GroupByKey,
   showCheckbox: false,
+  multiSelectEnabled: false,
 };
 
 /**
@@ -264,6 +269,8 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setShowCheckbox: (show) => set({ showCheckbox: show }),
 
+      setMultiSelectEnabled: (enabled) => set({ multiSelectEnabled: enabled }),
+
       // Reset action
       reset: () => set(DEFAULT_STATE),
     }),
@@ -294,6 +301,7 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         isFilterVisible: s.isFilterVisible,
         groupBy: s.groupBy,
         showCheckbox: s.showCheckbox,
+        multiSelectEnabled: s.multiSelectEnabled,
       }),
     }
   )
@@ -331,6 +339,7 @@ export const collectionBrowserSelectors = {
   isFilterVisible: (s: CollectionBrowserStore) => s.isFilterVisible,
   groupBy: (s: CollectionBrowserStore) => s.groupBy,
   showCheckbox: (s: CollectionBrowserStore) => s.showCheckbox,
+  multiSelectEnabled: (s: CollectionBrowserStore) => s.multiSelectEnabled,
 };
 
 /**

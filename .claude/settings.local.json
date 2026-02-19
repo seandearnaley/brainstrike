@@ -305,5 +305,8 @@
         ]
       }
     ]
+  },
+  "remote": {
+    "defaultEnvironmentId": "env_011CUyb5b7aG1wDuDLJBthH8"
   }
 }

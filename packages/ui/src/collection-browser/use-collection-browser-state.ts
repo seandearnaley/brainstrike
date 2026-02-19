@@ -285,6 +285,17 @@ export function useCollectionBrowserState({
     [onSortChange]
   );
 
+  // Clear selectedId when the selected node is no longer in the visible tree
+  // (e.g., after filtering, search mode change, or data update)
+  React.useEffect(() => {
+    if (selectedId !== null && nodes.length > 0) {
+      const stillVisible = nodes.some((n) => n.id === selectedId);
+      if (!stillVisible) {
+        setSelectedId(null);
+      }
+    }
+  }, [selectedId, nodes, setSelectedId]);
+
   const highlightedIds = isSemanticMode && hasSemanticResults ? semanticMatchIds : searchMatchIds;
 
   return {

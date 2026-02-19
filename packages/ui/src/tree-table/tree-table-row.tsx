@@ -8,7 +8,7 @@
  * aria-posinset, aria-rowindex, and aria-expanded attributes.
  */
 
-import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Layers, Loader2 } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '../button';
 import { Checkbox } from '../checkbox';
@@ -20,6 +20,62 @@ import type { FlattenedRow, TreeTableColumn, TreeTableRowProps } from './types';
  * Default indentation width per depth level in pixels.
  */
 const INDENT_WIDTH = 20;
+
+/**
+ * Props for the GroupHeaderCell component.
+ */
+interface GroupHeaderCellProps<T> {
+  node: FlattenedRow<T>['node'];
+  isExpanded: boolean;
+  onExpandClick: (event: React.MouseEvent) => void;
+  columns: TreeTableColumn<T>[];
+}
+
+/**
+ * GroupHeaderCell renders a single spanning cell for group header rows.
+ * Displays an expand/collapse toggle, group icon, label, and item count.
+ */
+function GroupHeaderCell<T>({ node, isExpanded, onExpandClick, columns }: GroupHeaderCellProps<T>) {
+  // Access GroupHeaderData (cast through unknown because group nodes
+  // store GroupHeaderData in the BrowserNodeData union slot)
+  const groupData = node.data as unknown as {
+    groupLabel: string;
+    itemCount: number;
+  };
+
+  return (
+    <TableCell className="p-0" colSpan={columns.length} role="gridcell">
+      <div className="flex items-center">
+        {/* Indentation spacer */}
+        <span className="flex-shrink-0" style={{ width: node.depth * INDENT_WIDTH }} />
+
+        {/* Expand/Collapse toggle */}
+        <Button
+          aria-label={isExpanded ? 'Collapse group' : 'Expand group'}
+          className="h-6 w-6 flex-shrink-0 p-0"
+          onClick={onExpandClick}
+          size="sm"
+          variant="ghost"
+        >
+          {node.isLoading ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : isExpanded ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
+        </Button>
+
+        {/* Group icon */}
+        <Layers className="mx-1 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+
+        {/* Group label and item count */}
+        <span className="px-1 font-semibold text-sm">{groupData.groupLabel}</span>
+        <span className="text-muted-foreground text-xs">({groupData.itemCount})</span>
+      </div>
+    </TableCell>
+  );
+}
 
 /**
  * TreeTableRow renders a single row with:
@@ -103,6 +159,8 @@ function TreeTableRowInner<T>(
     [ref, measureRef]
   );
 
+  const isGroupHeader = node.type === 'group';
+
   return (
     <TableRow
       aria-expanded={node.hasChildren ? row.isExpanded : undefined}
@@ -113,8 +171,9 @@ function TreeTableRowInner<T>(
       aria-setsize={aria.ariaSetSize}
       className={cn(
         'cursor-pointer transition-colors',
-        isSelected && 'bg-accent',
-        isHighlighted && !isSelected && 'bg-yellow-50 dark:bg-yellow-950/20',
+        isGroupHeader && 'bg-muted/50',
+        isSelected && !isGroupHeader && 'bg-accent',
+        isHighlighted && !isSelected && !isGroupHeader && 'bg-yellow-50 dark:bg-yellow-950/20',
         isInContext && !isSelected && !isHighlighted && 'border-l-2 border-l-primary/60',
         isFocused && 'ring-2 ring-primary ring-inset',
         !matchesFilter && 'opacity-50',
@@ -135,18 +194,27 @@ function TreeTableRowInner<T>(
       style={style}
       tabIndex={isFocused ? 0 : -1}
     >
-      {columns.map((column, columnIndex) => (
-        <TreeTableCellComponent
-          checkboxState={checkboxState ?? 'unchecked'}
-          column={column}
-          columnIndex={columnIndex}
-          key={column.id}
-          onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
+      {isGroupHeader ? (
+        <GroupHeaderCell
+          columns={columns}
+          isExpanded={row.isExpanded}
+          node={node}
           onExpandClick={handleExpandClick}
-          row={row}
-          showCheckbox={showCheckbox}
         />
-      ))}
+      ) : (
+        columns.map((column, columnIndex) => (
+          <TreeTableCellComponent
+            checkboxState={checkboxState ?? 'unchecked'}
+            column={column}
+            columnIndex={columnIndex}
+            key={column.id}
+            onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
+            onExpandClick={handleExpandClick}
+            row={row}
+            showCheckbox={showCheckbox}
+          />
+        ))
+      )}
     </TableRow>
   );
 }
@@ -285,6 +353,7 @@ export const DEFAULT_ROW_HEIGHTS: Record<string, number> = {
   file: 44,
   chunk: 60,
   vector: 80,
+  group: 40,
   default: 40,
 };
 

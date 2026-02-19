@@ -109,6 +109,16 @@ export function useTreeKeyboard<T>(options: UseTreeKeyboardOptions<T>): UseTreeK
     }
   }, [isActive, focusedId, rows]);
 
+  // Reset focusedId when the focused node disappears from rows (filtered/deleted)
+  React.useEffect(() => {
+    if (focusedId !== null && rows.length > 0) {
+      const stillExists = rows.some((r) => r.node.id === focusedId);
+      if (!stillExists) {
+        setFocusedId(null);
+      }
+    }
+  }, [focusedId, rows]);
+
   // Navigation actions
   const moveUp = React.useCallback(() => {
     const nextId = getNextVisibleNodeId(rows, focusedId, 'up');

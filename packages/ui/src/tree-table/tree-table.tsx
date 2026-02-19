@@ -157,6 +157,15 @@ export function TreeTable<T>({
   // Total row count for ARIA (includes header row)
   const totalRowCount = rows.length + 1;
 
+  // O(1) node lookup map — avoids O(N) nodes.find() per row
+  const nodeById = React.useMemo(() => {
+    const map = new Map<string, TreeNode<T>>();
+    for (const node of nodes) {
+      map.set(node.id, node);
+    }
+    return map;
+  }, [nodes]);
+
   // Compute checkbox states for all visible rows when showCheckbox is enabled
   const checkboxStates = React.useMemo((): Map<string, CheckboxState> => {
     if (!showCheckbox) {
@@ -164,7 +173,7 @@ export function TreeTable<T>({
     }
     const states = new Map<string, CheckboxState>();
     const getDescendantsFn = (nodeId: string): Set<string> => {
-      const node = nodes.find((n) => n.id === nodeId);
+      const node = nodeById.get(nodeId);
       if (!node) {
         return new Set();
       }
@@ -178,7 +187,7 @@ export function TreeTable<T>({
       );
     }
     return states;
-  }, [showCheckbox, rows, nodes, multiSelectedIds, getChildren]);
+  }, [showCheckbox, rows, nodeById, multiSelectedIds, getChildren]);
 
   // Handle checkbox toggle - select/deselect node and all descendants
   const handleCheckboxChange = React.useCallback(
@@ -187,7 +196,7 @@ export function TreeTable<T>({
         return;
       }
 
-      const node = nodes.find((n) => n.id === nodeId);
+      const node = nodeById.get(nodeId);
       if (!node) {
         return;
       }
@@ -212,7 +221,7 @@ export function TreeTable<T>({
 
       onMultiSelectChange(newSelection);
     },
-    [nodes, getChildren, multiSelectedIds, onMultiSelectChange, checkboxStates]
+    [nodeById, getChildren, multiSelectedIds, onMultiSelectChange, checkboxStates]
   );
 
   const getRowHeight = React.useCallback(

@@ -185,4 +185,55 @@ describe('SearchModeBar', () => {
     expect(screen.getByRole('button', { name: 'Toggle filters' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Toggle search settings' })).toBeInTheDocument();
   });
+
+  it('renders multi-select toggle when onMultiSelectToggle is provided', () => {
+    const onMultiSelectToggle = vi.fn();
+    render(<SearchModeBar {...createProps({ onMultiSelectToggle })} />);
+
+    expect(screen.getByRole('button', { name: 'Toggle multi-select' })).toBeInTheDocument();
+  });
+
+  it('does not render multi-select toggle when onMultiSelectToggle is not provided', () => {
+    render(<SearchModeBar {...createProps()} />);
+
+    expect(screen.queryByRole('button', { name: 'Toggle multi-select' })).not.toBeInTheDocument();
+  });
+
+  it('calls onMultiSelectToggle with toggled value when clicked', () => {
+    const onMultiSelectToggle = vi.fn();
+    render(<SearchModeBar {...createProps({ multiSelectEnabled: false, onMultiSelectToggle })} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Toggle multi-select' }));
+
+    expect(onMultiSelectToggle).toHaveBeenCalledWith(true);
+  });
+
+  it('highlights multi-select toggle when enabled', () => {
+    const onMultiSelectToggle = vi.fn();
+    render(<SearchModeBar {...createProps({ multiSelectEnabled: true, onMultiSelectToggle })} />);
+
+    const toggle = screen.getByRole('button', { name: 'Toggle multi-select' });
+    expect(toggle.className).toContain('bg-accent');
+  });
+
+  it('renders group-by button when onGroupByChange is provided', () => {
+    const onGroupByChange = vi.fn();
+    render(<SearchModeBar {...createProps({ onGroupByChange })} />);
+
+    expect(screen.getByRole('button', { name: 'Group by' })).toBeInTheDocument();
+  });
+
+  it('does not render group-by button when onGroupByChange is not provided', () => {
+    render(<SearchModeBar {...createProps()} />);
+
+    expect(screen.queryByRole('button', { name: 'Group by' })).not.toBeInTheDocument();
+  });
+
+  it('highlights group-by button when groupBy is active', () => {
+    const onGroupByChange = vi.fn();
+    render(<SearchModeBar {...createProps({ groupBy: 'status', onGroupByChange })} />);
+
+    const groupByBtn = screen.getByRole('button', { name: 'Group by' });
+    expect(groupByBtn.className).toContain('bg-accent');
+  });
 });
