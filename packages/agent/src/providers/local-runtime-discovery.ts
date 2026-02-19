@@ -91,6 +91,7 @@ const DEFAULT_FAILURE_BASE_BACKOFF_MS = 2000;
 const DEFAULT_FAILURE_MAX_BACKOFF_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 2000;
 
+// Ollama defaults to 127.0.0.1 on its standard local port.
 const OLLAMA_PROBES: readonly RuntimeProbeDefinition[] = [
   {
     endpoint: 'http://127.0.0.1:11434/v1/models',
@@ -106,6 +107,7 @@ const OLLAMA_PROBES: readonly RuntimeProbeDefinition[] = [
   },
 ];
 
+// LM Studio documents localhost for its OpenAI-compatible server endpoint.
 const LM_STUDIO_PROBES: readonly RuntimeProbeDefinition[] = [
   {
     endpoint: 'http://localhost:1234/v1/models',

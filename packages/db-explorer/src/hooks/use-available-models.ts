@@ -138,6 +138,18 @@ export function useAvailableModels(
       merged.set(model.id, model);
     }
     for (const model of runtimeModels) {
+      const registryModel = merged.get(model.id);
+      if (
+        registryModel &&
+        typeof registryModel.pricePer1MTokensInput === 'number' &&
+        typeof model.pricePer1MTokensInput !== 'number'
+      ) {
+        merged.set(model.id, {
+          ...model,
+          pricePer1MTokensInput: registryModel.pricePer1MTokensInput,
+        });
+        continue;
+      }
       merged.set(model.id, model);
     }
     return Array.from(merged.values());

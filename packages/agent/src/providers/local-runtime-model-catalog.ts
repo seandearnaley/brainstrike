@@ -184,6 +184,8 @@ const DEFAULT_SUCCESS_TTL_MS = 30_000;
 const DEFAULT_FAILURE_BASE_BACKOFF_MS = 2000;
 const DEFAULT_FAILURE_MAX_BACKOFF_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 2500;
+// Keep verification capped because unknown model-family fallbacks can produce
+// false positives that would otherwise fan out into many localhost probes.
 const DEFAULT_MAX_VERIFICATION_MODELS = 4;
 const DEFAULT_DIMENSION_PROBE_TEXT = 'brainstrike dimension probe';
 
@@ -962,6 +964,8 @@ export class LocalRuntimeModelCatalogService {
     const result: LocalRuntimeNormalizedModel[] = [];
     let remaining = options.maxVerificationModels;
 
+    // Verify sequentially to avoid overwhelming local runtimes with concurrent
+    // embedding requests during initial catalog hydration.
     for (const model of models) {
       const shouldVerify =
         remaining > 0 &&

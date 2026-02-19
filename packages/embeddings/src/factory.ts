@@ -374,7 +374,13 @@ export class EmbeddingProviderFactory {
         const endpoint =
           config.endpoint ?? DEFAULT_LOCAL_RUNTIME_EMBEDDING_ENDPOINTS[config.provider];
         const keyHash = hostedApiKey === null ? 'none' : `key_${hashVariantToken(hostedApiKey)}`;
-        return `${config.dimensions}:${endpoint}:${keyHash}`;
+        const dimensionsVariant =
+          typeof config.dimensions === 'number' &&
+          Number.isFinite(config.dimensions) &&
+          config.dimensions > 0
+            ? String(config.dimensions)
+            : 'auto';
+        return `${dimensionsVariant}:${endpoint}:${keyHash}`;
       }
       default:
         return 'default';

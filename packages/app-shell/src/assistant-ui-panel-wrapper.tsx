@@ -1110,6 +1110,24 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
   }, [getLocalRuntimeStatuses]);
 
   useEffect(() => {
+    if (!localRuntimeStatuses) {
+      return;
+    }
+    const isCheckingStatuses = LOCAL_RUNTIME_PROVIDER_IDS.some(
+      (runtimeId) => localRuntimeStatuses[runtimeId].state === 'checking'
+    );
+    if (isCheckingStatuses) {
+      return;
+    }
+    const hasReachableRuntime = LOCAL_RUNTIME_PROVIDER_IDS.some((runtimeId) => {
+      const state = localRuntimeStatuses[runtimeId].state;
+      return state === 'available' || state === 'stale';
+    });
+    if (!hasReachableRuntime) {
+      setLocalRuntimeModels(null);
+      return;
+    }
+
     let cancelled = false;
 
     void getLocalRuntimeModels()
@@ -1127,7 +1145,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ init
     return () => {
       cancelled = true;
     };
-  }, [getLocalRuntimeModels]);
+  }, [getLocalRuntimeModels, localRuntimeStatuses]);
 
   const localRuntimeHint = useMemo(() => {
     if (!localRuntimeStatuses) {
