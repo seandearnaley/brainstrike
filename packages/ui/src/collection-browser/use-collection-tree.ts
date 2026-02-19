@@ -15,6 +15,8 @@ import type {
   EmbeddingData,
   EmbeddingStatus,
   FileData,
+  GroupByKey,
+  GroupHeaderData,
   SemanticSearchResult,
 } from './types';
 import { EMBEDDING_STATUS_CONFIG } from './types';
@@ -88,6 +90,8 @@ export interface UseCollectionTreeOptions {
   semanticResults?: SemanticSearchResult[];
   /** Whether to filter tree to only show semantic results (default: true when results present) */
   filterToSemanticResults?: boolean;
+  /** Grouping key for organizing nodes into groups (optional, default: 'none') */
+  groupBy?: GroupByKey;
 }
 
 /**
@@ -716,6 +720,150 @@ function buildSemanticVisibleNodeIds(
 }
 
 /**
+ * Get the file extension from a file name.
+ */
+function getFileExtension(fileName: string): string {
+  const dotIndex = fileName.lastIndexOf('.');
+  if (dotIndex <= 0) {
+    return 'No extension';
+  }
+  return fileName.slice(dotIndex).toLowerCase();
+}
+
+/**
+ * Get group key value for a file node based on the grouping key.
+ */
+function getGroupValue(node: TreeNode<BrowserNodeData>, groupBy: GroupByKey): string {
+  if (node.type !== 'file') {
+    return '';
+  }
+  const fileData = node.data as FileData;
+  switch (groupBy) {
+    case 'status':
+      return fileData.embeddingStatus;
+    case 'type':
+      return getFileExtension(fileData.name);
+    default:
+      return '';
+  }
+}
+
+/**
+ * Get a display label for a group value.
+ */
+function getGroupLabel(groupBy: GroupByKey, groupValue: string): string {
+  if (groupBy === 'status') {
+    const config = EMBEDDING_STATUS_CONFIG[groupValue as keyof typeof EMBEDDING_STATUS_CONFIG];
+    return config?.label ?? groupValue;
+  }
+  return groupValue;
+}
+
+/**
+ * Organize root file nodes into groups based on a grouping key.
+ * Returns new root nodes (group headers) with file nodes as children,
+ * along with updated children and all-nodes maps.
+ */
+function applyGrouping(
+  rootNodes: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  allNodes: TreeNode<BrowserNodeData>[],
+  groupBy: GroupByKey
+): {
+  groupedRoots: TreeNode<BrowserNodeData>[];
+  groupedChildrenMap: Map<string, TreeNode<BrowserNodeData>[]>;
+  groupedAllNodes: TreeNode<BrowserNodeData>[];
+} {
+  if (groupBy === 'none') {
+    return {
+      groupedRoots: rootNodes,
+      groupedChildrenMap: childrenMap,
+      groupedAllNodes: allNodes,
+    };
+  }
+
+  // Group file nodes by the grouping key
+  const groups = new Map<string, TreeNode<BrowserNodeData>[]>();
+  for (const root of rootNodes) {
+    const groupValue = getGroupValue(root, groupBy);
+    if (!groups.has(groupValue)) {
+      groups.set(groupValue, []);
+    }
+    groups.get(groupValue)?.push(root);
+  }
+
+  // Create group header nodes and rebuild the tree
+  const groupedRoots: TreeNode<BrowserNodeData>[] = [];
+  const groupedChildrenMap = new Map(childrenMap);
+  const groupedAllNodes = [...allNodes];
+
+  // Sort groups by label
+  const sortedGroupEntries = [...groups.entries()].sort(([a], [b]) =>
+    getGroupLabel(groupBy, a).localeCompare(getGroupLabel(groupBy, b))
+  );
+
+  for (const [groupValue, files] of sortedGroupEntries) {
+    const groupId = `group-${groupBy}-${groupValue}`;
+    const groupLabel = getGroupLabel(groupBy, groupValue);
+
+    const groupHeaderData: GroupHeaderData = {
+      groupLabel,
+      groupKey: groupBy,
+      groupValue,
+      itemCount: files.length,
+    };
+
+    const groupNode: TreeNode<BrowserNodeData> = {
+      id: groupId,
+      type: 'group',
+      depth: 0,
+      data: groupHeaderData as unknown as BrowserNodeData,
+      parentId: null,
+      hasChildren: files.length > 0,
+      childCount: files.length,
+    };
+
+    groupedRoots.push(groupNode);
+    groupedAllNodes.push(groupNode);
+
+    // Re-parent file nodes under the group header
+    const reparentedFiles = files.map((file) => ({
+      ...file,
+      depth: 1,
+      parentId: groupId,
+    }));
+
+    // Also re-depth chunks and embeddings
+    for (const file of reparentedFiles) {
+      const fileChildren = groupedChildrenMap.get(file.id);
+      if (fileChildren) {
+        const reparentedChunks = fileChildren.map((chunk) => ({
+          ...chunk,
+          depth: 2,
+        }));
+        groupedChildrenMap.set(file.id, reparentedChunks);
+
+        // Re-depth embeddings under chunks
+        for (const chunk of reparentedChunks) {
+          const chunkChildren = groupedChildrenMap.get(chunk.id);
+          if (chunkChildren) {
+            const reparentedEmbeddings = chunkChildren.map((emb) => ({
+              ...emb,
+              depth: 3,
+            }));
+            groupedChildrenMap.set(chunk.id, reparentedEmbeddings);
+          }
+        }
+      }
+    }
+
+    groupedChildrenMap.set(groupId, reparentedFiles);
+  }
+
+  return { groupedRoots, groupedChildrenMap, groupedAllNodes };
+}
+
+/**
  * Hook to transform flat data into a hierarchical tree structure
  */
 export function useCollectionTree({
@@ -725,9 +873,14 @@ export function useCollectionTree({
   sortState,
   semanticResults,
   filterToSemanticResults = true,
+  groupBy = 'none',
 }: UseCollectionTreeOptions): UseCollectionTreeResult {
   // Build the tree structure using helper functions
-  const { rootNodes, allNodes, childrenMap } = React.useMemo(() => {
+  const {
+    rootNodes: rawRootNodes,
+    allNodes: rawAllNodes,
+    childrenMap: rawChildrenMap,
+  } = React.useMemo(() => {
     const ctx: TreeBuildContext = {
       all: [],
       children: new Map<string, TreeNode<BrowserNodeData>[]>(),
@@ -737,6 +890,28 @@ export function useCollectionTree({
 
     return { rootNodes: roots, allNodes: ctx.all, childrenMap: ctx.children };
   }, [data]);
+
+  // Apply grouping if a groupBy key is set
+  const { rootNodes, allNodes, childrenMap } = React.useMemo(() => {
+    if (groupBy === 'none') {
+      return {
+        rootNodes: rawRootNodes,
+        allNodes: rawAllNodes,
+        childrenMap: rawChildrenMap,
+      };
+    }
+    const { groupedRoots, groupedChildrenMap, groupedAllNodes } = applyGrouping(
+      rawRootNodes,
+      rawChildrenMap,
+      rawAllNodes,
+      groupBy
+    );
+    return {
+      rootNodes: groupedRoots,
+      allNodes: groupedAllNodes,
+      childrenMap: groupedChildrenMap,
+    };
+  }, [rawRootNodes, rawAllNodes, rawChildrenMap, groupBy]);
 
   // Compute semantic search match IDs and scores
   const { semanticMatchIds, similarityScores, semanticExpandIds } = React.useMemo(() => {

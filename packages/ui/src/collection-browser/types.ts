@@ -356,6 +356,47 @@ export interface SearchConfigPanelProps {
   className?: string;
 }
 
+// ============================================================================
+// GROUPING TYPES
+// ============================================================================
+
+/**
+ * Available keys for grouping tree nodes.
+ * - 'none': No grouping (flat list)
+ * - 'status': Group by embedding status
+ * - 'type': Group by file extension / MIME type
+ */
+export type GroupByKey = 'none' | 'status' | 'type';
+
+/**
+ * Grouping configuration for the collection browser.
+ */
+export interface GroupingState {
+  /** Active grouping key */
+  groupBy: GroupByKey;
+}
+
+/**
+ * Default grouping state (no grouping)
+ */
+export const DEFAULT_GROUPING_STATE: GroupingState = {
+  groupBy: 'none',
+};
+
+/**
+ * Data for a virtual group header node.
+ */
+export interface GroupHeaderData {
+  /** Group display label */
+  groupLabel: string;
+  /** Grouping key that produced this group */
+  groupKey: GroupByKey;
+  /** Value of the group (e.g., 'complete', '.ts') */
+  groupValue: string;
+  /** Number of direct children in this group */
+  itemCount: number;
+}
+
 /**
  * Configuration for embedding status display
  */

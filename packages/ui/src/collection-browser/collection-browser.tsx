@@ -13,6 +13,7 @@ import { BulkActionBar } from './bulk-action-bar';
 import type {
   BrowserNodeData,
   CollectionBrowserFilters,
+  GroupByKey,
   SearchMode,
   SemanticSearchResult,
 } from './types';
@@ -81,6 +82,12 @@ export interface CollectionBrowserProps {
   filters?: CollectionBrowserFilters;
   /** Callback when filters change (controlled) */
   onFiltersChange?: (filters: CollectionBrowserFilters) => void;
+  /** Grouping key for organizing tree nodes (default: 'none') */
+  groupBy?: GroupByKey;
+  /** Set of node IDs that are in the active context (e.g., selected in file explorer) */
+  contextNodeIds?: Set<string>;
+  /** Whether to show checkboxes for multi-select */
+  showCheckbox?: boolean;
 }
 
 /**
@@ -129,6 +136,9 @@ export function CollectionBrowser({
   isSearching = false,
   hasSearched = false,
   filters: controlledFilters,
+  groupBy,
+  contextNodeIds,
+  showCheckbox = false,
 }: CollectionBrowserProps) {
   const {
     nodes,
@@ -165,6 +175,7 @@ export function CollectionBrowser({
     semanticResults,
     hasSearched,
     filters: controlledFilters,
+    groupBy,
   });
 
   const columns = useCollectionBrowserColumns({
@@ -216,6 +227,7 @@ export function CollectionBrowser({
               }
             : {})}
           ariaLabel="Collection browser"
+          {...(contextNodeIds ? { contextNodeIds } : {})}
           emptyState={
             <div className="p-4 text-muted-foreground text-sm">{displayEmptyMessage}</div>
           }
@@ -224,6 +236,7 @@ export function CollectionBrowser({
           onRowContextMenu={handleContextMenu}
           onRowDoubleClick={handleDoubleClick}
           rowHeight={48}
+          showCheckbox={showCheckbox && multiSelectEnabled}
           {...(treeTableSortState ? { sortState: treeTableSortState } : {})}
           {...(onSortChange ? { onSortChange: handleTreeTableSortChange } : {})}
         />

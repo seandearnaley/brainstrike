@@ -2,12 +2,16 @@
  * TreeTableRow Component
  *
  * Renders a single row in the TreeTable with indentation, expansion toggle,
- * and support for selection/highlighting states.
+ * and support for selection/highlighting/context states.
+ *
+ * Follows WAI-ARIA treegrid pattern with proper aria-level, aria-setsize,
+ * aria-posinset, aria-rowindex, and aria-expanded attributes.
  */
 
 import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import * as React from 'react';
 import { Button } from '../button';
+import { Checkbox } from '../checkbox';
 import { cn } from '../lib/utils';
 import { TableCell, TableRow } from '../table';
 import type { FlattenedRow, TreeTableColumn, TreeTableRowProps } from './types';
@@ -22,7 +26,9 @@ const INDENT_WIDTH = 20;
  * - Indentation based on depth
  * - Expand/collapse toggle for nodes with children
  * - Loading indicator when children are being loaded
- * - Visual states for selection and highlighting
+ * - Visual states for selection, highlighting, and context
+ * - ARIA attributes for treegrid accessibility
+ * - Optional checkbox for multi-select
  */
 function TreeTableRowInner<T>(
   {
@@ -37,10 +43,14 @@ function TreeTableRowInner<T>(
     isFocused = false,
     measureRef,
     virtualIndex,
+    showCheckbox = false,
+    checkboxState,
+    onCheckboxChange,
+    totalRowCount,
   }: TreeTableRowProps<T>,
   ref: React.Ref<HTMLTableRowElement>
 ) {
-  const { node, isSelected, isHighlighted, matchesFilter } = row;
+  const { node, isSelected, isHighlighted, isInContext, matchesFilter, aria } = row;
 
   // Handle row click
   const handleClick = React.useCallback(
@@ -72,6 +82,11 @@ function TreeTableRowInner<T>(
     [node.id, onToggleExpand]
   );
 
+  // Handle checkbox click (stop propagation to prevent row selection)
+  const handleCheckboxChange = React.useCallback(() => {
+    onCheckboxChange?.(node.id);
+  }, [node.id, onCheckboxChange]);
+
   // Combine external ref with measure ref
   const combinedRef = React.useCallback(
     (element: HTMLTableRowElement | null) => {
@@ -90,15 +105,22 @@ function TreeTableRowInner<T>(
 
   return (
     <TableRow
+      aria-expanded={node.hasChildren ? row.isExpanded : undefined}
+      aria-level={aria.ariaLevel}
+      aria-posinset={aria.ariaPosInSet}
+      aria-rowindex={totalRowCount ? aria.ariaRowIndex : undefined}
       aria-selected={isSelected}
+      aria-setsize={aria.ariaSetSize}
       className={cn(
         'cursor-pointer transition-colors',
         isSelected && 'bg-accent',
         isHighlighted && !isSelected && 'bg-yellow-50 dark:bg-yellow-950/20',
+        isInContext && !isSelected && !isHighlighted && 'border-l-2 border-l-primary/60',
         isFocused && 'ring-2 ring-primary ring-inset',
         !matchesFilter && 'opacity-50',
         className
       )}
+      data-context={isInContext || undefined}
       data-depth={node.depth}
       data-focused={isFocused}
       data-highlighted={isHighlighted}
@@ -114,12 +136,15 @@ function TreeTableRowInner<T>(
       tabIndex={isFocused ? 0 : -1}
     >
       {columns.map((column, columnIndex) => (
-        <TreeTableCell
+        <TreeTableCellComponent
+          checkboxState={checkboxState ?? 'unchecked'}
           column={column}
           columnIndex={columnIndex}
           key={column.id}
+          onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
           onExpandClick={handleExpandClick}
           row={row}
+          showCheckbox={showCheckbox}
         />
       ))}
     </TableRow>
@@ -128,17 +153,28 @@ function TreeTableRowInner<T>(
 
 /**
  * TreeTableCell renders a single cell, with special handling for the first column
- * which includes indentation and the expand/collapse toggle.
+ * which includes indentation, checkbox, and the expand/collapse toggle.
  */
-interface TreeTableCellProps<T> {
+interface TreeTableCellInternalProps<T> {
   row: FlattenedRow<T>;
   column: TreeTableColumn<T>;
   columnIndex: number;
   onExpandClick: (event: React.MouseEvent) => void;
+  showCheckbox: boolean;
+  checkboxState: 'checked' | 'unchecked' | 'indeterminate';
+  onCheckboxChange: (() => void) | undefined;
 }
 
-function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTableCellProps<T>) {
-  const { node, isExpanded, isSelected, isHighlighted, index } = row;
+function TreeTableCellComponent<T>({
+  row,
+  column,
+  columnIndex,
+  onExpandClick,
+  showCheckbox,
+  checkboxState,
+  onCheckboxChange,
+}: TreeTableCellInternalProps<T>) {
+  const { node, isExpanded, isSelected, isHighlighted, isInContext, index } = row;
   const isFirstColumn = columnIndex === 0;
 
   // Render cell content using the column's cell renderer
@@ -148,13 +184,14 @@ function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTable
     isExpanded,
     isSelected,
     isHighlighted,
+    isInContext,
     rowIndex: index,
   });
 
-  // For the first column, add indentation and expand toggle
+  // For the first column, add indentation, checkbox, and expand toggle
   if (isFirstColumn) {
     return (
-      <TableCell className={cn('p-0', column.className)}>
+      <TableCell className={cn('p-0', column.className)} role="gridcell">
         <div className="flex items-center">
           {/* Indentation spacer */}
           <span className="flex-shrink-0" style={{ width: node.depth * INDENT_WIDTH }} />
@@ -162,7 +199,6 @@ function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTable
           {/* Expand/Collapse toggle or spacer */}
           {node.hasChildren ? (
             <Button
-              aria-expanded={isExpanded}
               aria-label={isExpanded ? 'Collapse' : 'Expand'}
               className="h-6 w-6 flex-shrink-0 p-0"
               onClick={onExpandClick}
@@ -182,6 +218,28 @@ function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTable
             <span className="h-6 w-6 flex-shrink-0" />
           )}
 
+          {/* Checkbox for multi-select */}
+          {showCheckbox && (
+            <Checkbox
+              aria-label={`Select ${node.id}`}
+              checked={checkboxState === 'checked' || checkboxState === 'indeterminate'}
+              className="mx-1 h-4 w-4 flex-shrink-0"
+              data-state={checkboxState}
+              onCheckedChange={() => onCheckboxChange?.()}
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+
+          {/* Context indicator dot */}
+          {isInContext && (
+            <span
+              aria-label="In context"
+              className="mx-0.5 h-2 w-2 flex-shrink-0 rounded-full bg-primary/70"
+              role="img"
+              title="In context"
+            />
+          )}
+
           {/* Cell content */}
           <div className="min-w-0 flex-1 px-2">{cellContent}</div>
         </div>
@@ -190,7 +248,11 @@ function TreeTableCell<T>({ row, column, columnIndex, onExpandClick }: TreeTable
   }
 
   // Regular cell for non-first columns
-  return <TableCell className={cn('px-2', column.className)}>{cellContent}</TableCell>;
+  return (
+    <TableCell className={cn('px-2', column.className)} role="gridcell">
+      {cellContent}
+    </TableCell>
+  );
 }
 
 /**

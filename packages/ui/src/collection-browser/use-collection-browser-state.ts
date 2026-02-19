@@ -11,6 +11,7 @@ import type {
   BrowserNodeData,
   CollectionBrowserFilters,
   CollectionNodeType,
+  GroupByKey,
   SearchMode,
   SemanticSearchResult,
 } from './types';
@@ -56,6 +57,7 @@ interface UseCollectionBrowserStateOptions {
   semanticResults?: SemanticSearchResult[] | undefined;
   hasSearched?: boolean | undefined;
   filters?: CollectionBrowserFilters | undefined;
+  groupBy?: GroupByKey | undefined;
 }
 
 export interface UseCollectionBrowserStateResult {
@@ -103,6 +105,7 @@ export function useCollectionBrowserState({
   semanticResults,
   hasSearched = false,
   filters: controlledFilters,
+  groupBy,
 }: UseCollectionBrowserStateOptions): UseCollectionBrowserStateResult {
   const [internalFilters] = React.useState<CollectionBrowserFilters>(() => ({
     ...DEFAULT_FILTERS,
@@ -140,6 +143,7 @@ export function useCollectionBrowserState({
     ...(shouldFilterToSemanticResults
       ? { semanticResults: semanticResults ?? [], filterToSemanticResults: true }
       : {}),
+    ...(groupBy ? { groupBy } : {}),
   });
 
   const prevSearchQuery = React.useRef(filters.searchQuery);

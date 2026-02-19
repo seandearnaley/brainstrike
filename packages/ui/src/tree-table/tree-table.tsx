@@ -4,10 +4,12 @@
  * A virtualized hierarchical table component supporting:
  * - Tree structure with expand/collapse
  * - Virtual scrolling via @tanstack/react-virtual
- * - Single and multi-selection
+ * - Single and multi-selection with optional checkboxes
  * - Keyboard navigation
  * - Search highlighting
- * - Sorting
+ * - Context awareness indicators
+ * - Sorting with aria-sort
+ * - Full WAI-ARIA treegrid compliance
  */
 
 import { useVirtualizer } from '@tanstack/react-virtual';
@@ -16,8 +18,13 @@ import { useResizeObserver } from '../hooks/use-resize-observer';
 import { cn } from '../lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '../table';
 import { DEFAULT_ROW_HEIGHTS, TreeTableRow } from './tree-table-row';
-import { createChildrenGetter, flattenTreeRecursive } from './tree-utils';
-import type { TreeNode, TreeTableProps } from './types';
+import {
+  computeCheckboxState,
+  createChildrenGetter,
+  flattenTreeRecursive,
+  getDescendantIds,
+} from './tree-utils';
+import type { CheckboxState, TreeNode, TreeTableProps } from './types';
 import { type UseTreeKeyboardOptions, useTreeKeyboard } from './use-tree-keyboard';
 import { useTreeTableHandlers } from './use-tree-table-handlers';
 
@@ -29,7 +36,27 @@ const DEFAULT_OVERSCAN = 10;
 
 const DEFAULT_MULTI_SELECTED = new Set<string>();
 const DEFAULT_HIGHLIGHTED = new Set<string>();
+const DEFAULT_CONTEXT_NODE_IDS = new Set<string>();
 const DEFAULT_LOADING_NODE_IDS = new Set<string>();
+
+/**
+ * Maps our SortDirection to ARIA sort values.
+ */
+function getAriaSortValue(
+  columnId: string,
+  sortState?: { columnId: string | null; direction: 'asc' | 'desc' | null }
+): 'ascending' | 'descending' | 'none' | undefined {
+  if (!sortState || sortState.columnId !== columnId) {
+    return undefined;
+  }
+  if (sortState.direction === 'asc') {
+    return 'ascending';
+  }
+  if (sortState.direction === 'desc') {
+    return 'descending';
+  }
+  return 'none';
+}
 
 /**
  * TreeTable - A virtualized hierarchical table component.
@@ -37,11 +64,13 @@ const DEFAULT_LOADING_NODE_IDS = new Set<string>();
  * Features:
  * - Virtual scrolling for large datasets (10k+ rows)
  * - Tree structure with expand/collapse
- * - Single and multi-selection modes
+ * - Single and multi-selection modes with optional checkboxes
  * - Full keyboard navigation (arrow keys, Enter, Space, etc.)
  * - Search result highlighting
- * - Column sorting
+ * - Context awareness indicators
+ * - Column sorting with ARIA sort indicators
  * - Lazy loading support for children
+ * - Full WAI-ARIA treegrid compliance
  *
  * @example
  * ```tsx
@@ -52,6 +81,7 @@ const DEFAULT_LOADING_NODE_IDS = new Set<string>();
  *   onToggleExpand={handleToggleExpand}
  *   selectedId={selectedId}
  *   onSelect={handleSelect}
+ *   contextNodeIds={inContextIds}
  * />
  * ```
  */
@@ -68,6 +98,7 @@ export function TreeTable<T>({
   onMultiSelectChange,
   selectionMode = 'single',
   highlightedIds = DEFAULT_HIGHLIGHTED,
+  contextNodeIds = DEFAULT_CONTEXT_NODE_IDS,
   rowHeight = DEFAULT_ROW_HEIGHTS,
   overscan = DEFAULT_OVERSCAN,
   maxHeight = '600px',
@@ -79,6 +110,7 @@ export function TreeTable<T>({
   rowClassName,
   emptyState,
   ariaLabel = 'Tree table',
+  showCheckbox = false,
   onRowDoubleClick,
   onRowContextMenu,
 }: TreeTableProps<T>) {
@@ -108,10 +140,80 @@ export function TreeTable<T>({
         selectedId,
         multiSelectedIds,
         highlightedIds,
+        contextNodeIds,
       },
       getChildrenWithLoading
     );
-  }, [nodes, expandedIds, selectedId, multiSelectedIds, highlightedIds, loadingNodeIds]);
+  }, [
+    nodes,
+    expandedIds,
+    selectedId,
+    multiSelectedIds,
+    highlightedIds,
+    contextNodeIds,
+    loadingNodeIds,
+  ]);
+
+  // Total row count for ARIA (includes header row)
+  const totalRowCount = rows.length + 1;
+
+  // Compute checkbox states for all visible rows when showCheckbox is enabled
+  const checkboxStates = React.useMemo((): Map<string, CheckboxState> => {
+    if (!showCheckbox) {
+      return new Map();
+    }
+    const states = new Map<string, CheckboxState>();
+    const getDescendantsFn = (nodeId: string): Set<string> => {
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) {
+        return new Set();
+      }
+      return getDescendantIds(node, getChildren);
+    };
+
+    for (const row of rows) {
+      states.set(
+        row.node.id,
+        computeCheckboxState(row.node.id, multiSelectedIds, getDescendantsFn)
+      );
+    }
+    return states;
+  }, [showCheckbox, rows, nodes, multiSelectedIds, getChildren]);
+
+  // Handle checkbox toggle - select/deselect node and all descendants
+  const handleCheckboxChange = React.useCallback(
+    (nodeId: string) => {
+      if (!onMultiSelectChange) {
+        return;
+      }
+
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) {
+        return;
+      }
+
+      const descendants = getDescendantIds(node, getChildren);
+      const currentState = checkboxStates.get(nodeId);
+      const newSelection = new Set(multiSelectedIds);
+
+      if (currentState === 'checked') {
+        // Deselect this node and all descendants
+        newSelection.delete(nodeId);
+        for (const descId of descendants) {
+          newSelection.delete(descId);
+        }
+      } else {
+        // Select this node and all descendants
+        newSelection.add(nodeId);
+        for (const descId of descendants) {
+          newSelection.add(descId);
+        }
+      }
+
+      onMultiSelectChange(newSelection);
+    },
+    [nodes, getChildren, multiSelectedIds, onMultiSelectChange, checkboxStates]
+  );
 
   const getRowHeight = React.useCallback(
     (node: TreeNode<T>): number => {
@@ -223,7 +325,10 @@ export function TreeTable<T>({
 
   return (
     <div
+      aria-colcount={columns.length}
       aria-label={ariaLabel}
+      aria-multiselectable={selectionMode === 'multi' || undefined}
+      aria-rowcount={totalRowCount}
       className={cn('overflow-auto', className)}
       onKeyDown={keyboard.onKeyDown}
       ref={parentRef}
@@ -232,40 +337,48 @@ export function TreeTable<T>({
       tabIndex={0}
     >
       <Table>
-        <TableHeader className="sticky top-0 z-10 bg-background">
-          <TableRow>
-            {columns.map((column) => (
-              <TableHead
-                className={cn(
-                  column.headerClassName,
-                  column.sortable && onSortChange && 'cursor-pointer select-none'
-                )}
-                key={column.id}
-                onClick={() => column.sortable && handleSortClick(column.id)}
-                style={{
-                  width: column.width,
-                  minWidth: column.minWidth,
-                  maxWidth: column.maxWidth,
-                }}
-              >
-                <div className="flex items-center gap-1">
-                  {column.header ?? column.id}
-                  {column.sortable && sortState?.columnId === column.id && (
-                    <span className="text-xs">
-                      {sortState.direction === 'asc'
-                        ? '↑'
-                        : sortState.direction === 'desc'
-                          ? '↓'
-                          : ''}
-                    </span>
+        <TableHeader className="sticky top-0 z-10 bg-background" role="rowgroup">
+          <TableRow role="row">
+            {columns.map((column) => {
+              const ariaSortValue = column.sortable
+                ? getAriaSortValue(column.id, sortState)
+                : undefined;
+
+              return (
+                <TableHead
+                  aria-sort={ariaSortValue}
+                  className={cn(
+                    column.headerClassName,
+                    column.sortable && onSortChange && 'cursor-pointer select-none'
                   )}
-                </div>
-              </TableHead>
-            ))}
+                  key={column.id}
+                  onClick={() => column.sortable && handleSortClick(column.id)}
+                  role="columnheader"
+                  style={{
+                    width: column.width,
+                    minWidth: column.minWidth,
+                    maxWidth: column.maxWidth,
+                  }}
+                >
+                  <div className="flex items-center gap-1">
+                    {column.header ?? column.id}
+                    {column.sortable && sortState?.columnId === column.id && (
+                      <span aria-hidden="true" className="text-xs">
+                        {sortState.direction === 'asc'
+                          ? '\u2191'
+                          : sortState.direction === 'desc'
+                            ? '\u2193'
+                            : ''}
+                      </span>
+                    )}
+                  </div>
+                </TableHead>
+              );
+            })}
           </TableRow>
         </TableHeader>
 
-        <TableBody>
+        <TableBody role="rowgroup">
           {paddingTop > 0 && (
             <tr>
               <td colSpan={columns.length} style={{ height: `${paddingTop}px`, padding: 0 }} />
@@ -280,16 +393,20 @@ export function TreeTable<T>({
 
             return (
               <TreeTableRow
+                checkboxState={checkboxStates.get(row.node.id) ?? 'unchecked'}
                 className={getRowClassName(row.node)}
                 columns={columns}
                 isFocused={keyboard.state.focusedId === row.node.id}
                 key={row.node.id}
                 measureRef={measureRow}
+                onCheckboxChange={showCheckbox ? handleCheckboxChange : undefined}
                 onClick={handleRowClick}
                 onContextMenu={handleRowContextMenu}
                 onDoubleClick={handleRowDoubleClick}
                 onToggleExpand={onToggleExpand}
                 row={row}
+                showCheckbox={showCheckbox}
+                totalRowCount={totalRowCount}
                 virtualIndex={virtualRow.index}
               />
             );

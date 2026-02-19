@@ -3,6 +3,7 @@ import type {
   CollectionSortKey,
   CollectionSortState,
   DistanceMetric,
+  GroupByKey,
   SearchMode,
 } from '@brainstrike/ui';
 import { createSafeJsonStorageAdapter } from '@brainstrike/utils';
@@ -53,6 +54,10 @@ interface CollectionBrowserData {
   searchConfigExpanded: boolean;
   /** Whether the filter bar is visible */
   isFilterVisible: boolean;
+  /** Grouping key for the tree (default: 'none') */
+  groupBy: GroupByKey;
+  /** Whether to show checkboxes for multi-select */
+  showCheckbox: boolean;
 }
 
 /**
@@ -106,6 +111,10 @@ interface CollectionBrowserActions {
   setSearchConfigExpanded: (expanded: boolean) => void;
   /** Set filter bar visibility */
   setIsFilterVisible: (visible: boolean) => void;
+  /** Set grouping key */
+  setGroupBy: (groupBy: GroupByKey) => void;
+  /** Set checkbox visibility */
+  setShowCheckbox: (show: boolean) => void;
   /** Reset all state to defaults */
   reset: () => void;
 }
@@ -138,6 +147,8 @@ const DEFAULT_STATE: CollectionBrowserData = {
   searchConfigFtsWeight: 1.0,
   searchConfigExpanded: false,
   isFilterVisible: false,
+  groupBy: 'none' as GroupByKey,
+  showCheckbox: false,
 };
 
 /**
@@ -249,6 +260,10 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setIsFilterVisible: (visible) => set({ isFilterVisible: visible }),
 
+      setGroupBy: (groupBy) => set({ groupBy }),
+
+      setShowCheckbox: (show) => set({ showCheckbox: show }),
+
       // Reset action
       reset: () => set(DEFAULT_STATE),
     }),
@@ -277,6 +292,8 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchConfigFtsWeight: s.searchConfigFtsWeight,
         searchConfigExpanded: s.searchConfigExpanded,
         isFilterVisible: s.isFilterVisible,
+        groupBy: s.groupBy,
+        showCheckbox: s.showCheckbox,
       }),
     }
   )
@@ -312,6 +329,8 @@ export const collectionBrowserSelectors = {
   }),
   searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
   isFilterVisible: (s: CollectionBrowserStore) => s.isFilterVisible,
+  groupBy: (s: CollectionBrowserStore) => s.groupBy,
+  showCheckbox: (s: CollectionBrowserStore) => s.showCheckbox,
 };
 
 /**

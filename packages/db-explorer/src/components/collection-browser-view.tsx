@@ -259,6 +259,9 @@ export function CollectionBrowserView({
     setSearchConfigFtsWeight,
     setSearchConfigExpanded,
     setIsFilterVisible,
+    // Grouping and checkbox state
+    groupBy,
+    showCheckbox,
   } = useCollectionBrowserStore();
 
   // Convert store filter state to CollectionBrowserFilters format
@@ -606,6 +609,8 @@ export function CollectionBrowserView({
               selectedId={selectedId}
               {...(sortState ? { sortState } : {})}
               {...(searchMode === 'semantic' ? { semanticResults: searchResults } : {})}
+              {...(groupBy !== 'none' ? { groupBy } : {})}
+              showCheckbox={showCheckbox}
             />
           </Panel>
 

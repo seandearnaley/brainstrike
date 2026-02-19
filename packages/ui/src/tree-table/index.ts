@@ -44,7 +44,9 @@ export {
 // Utilities
 export {
   buildTreeFromFlatNodes,
+  computeCheckboxState,
   createChildrenGetter,
+  DEFAULT_ARIA,
   expandToNode,
   filterTreeNodes,
   findNodeById,
@@ -61,6 +63,7 @@ export {
 } from './tree-utils';
 // Types
 export type {
+  CheckboxState,
   FlattenedRow,
   FlattenOptions,
   FlattenResult,
@@ -71,6 +74,7 @@ export type {
   SortDirection,
   SortState,
   TreeNode,
+  TreeRowAriaAttributes,
   TreeTableCellProps,
   TreeTableColumn,
   TreeTableProps,

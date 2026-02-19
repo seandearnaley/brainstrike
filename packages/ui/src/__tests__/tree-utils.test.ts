@@ -4,7 +4,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildTreeFromFlatNodes,
+  computeCheckboxState,
   createChildrenGetter,
+  DEFAULT_ARIA,
   expandToNode,
   filterTreeNodes,
   findNodeById,
@@ -56,7 +58,14 @@ function createFlattenedRow<T>(
     isExpanded: false,
     isSelected: false,
     isHighlighted: false,
+    isInContext: false,
     matchesFilter: true,
+    aria: {
+      ariaLevel: node.depth + 1,
+      ariaSetSize: 1,
+      ariaPosInSet: 1,
+      ariaRowIndex: index + 2,
+    },
     ...options,
   };
 }
@@ -488,6 +497,187 @@ describe('tree-utils', () => {
       expect(result.matchingIds.has('2')).toBe(true);
       expect(result.ancestorIds.has('1')).toBe(true);
       expect(result.matchingIds.has('3')).toBe(false);
+    });
+  });
+
+  describe('ARIA attributes in flattenTree', () => {
+    it('computes aria-level from node depth (1-based)', () => {
+      const nodes: TreeNode<TestData>[] = [createTestNode('1', 'Root', null, false, 0)];
+
+      const result = flattenTree(nodes, { expandedIds: new Set() });
+      const row = result.rows[0];
+      expect(row).toBeDefined();
+      expect(row!.aria.ariaLevel).toBe(1); // depth 0 => level 1
+    });
+
+    it('computes aria-setsize and aria-posinset for siblings', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('a', 'First', null, false, 0),
+        createTestNode('b', 'Second', null, false, 0),
+        createTestNode('c', 'Third', null, false, 0),
+      ];
+
+      const result = flattenTree(nodes, { expandedIds: new Set() });
+      expect(result.rows).toHaveLength(3);
+
+      // All three are siblings at root level
+      expect(result.rows[0]!.aria.ariaSetSize).toBe(3);
+      expect(result.rows[0]!.aria.ariaPosInSet).toBe(1);
+      expect(result.rows[1]!.aria.ariaSetSize).toBe(3);
+      expect(result.rows[1]!.aria.ariaPosInSet).toBe(2);
+      expect(result.rows[2]!.aria.ariaSetSize).toBe(3);
+      expect(result.rows[2]!.aria.ariaPosInSet).toBe(3);
+    });
+
+    it('computes aria-rowindex (1-based, accounting for header row)', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('x', 'One', null, false, 0),
+        createTestNode('y', 'Two', null, false, 0),
+      ];
+
+      const result = flattenTree(nodes, { expandedIds: new Set() });
+      // Header row is row 1, so first data row is 2
+      expect(result.rows[0]!.aria.ariaRowIndex).toBe(2);
+      expect(result.rows[1]!.aria.ariaRowIndex).toBe(3);
+    });
+
+    it('provides default ARIA attributes', () => {
+      expect(DEFAULT_ARIA).toEqual({
+        ariaLevel: 1,
+        ariaSetSize: 1,
+        ariaPosInSet: 1,
+        ariaRowIndex: 1,
+      });
+    });
+  });
+
+  describe('ARIA attributes in flattenTreeRecursive', () => {
+    it('computes correct aria-setsize for child nodes', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('parent', 'Parent', null, true, 0),
+        createTestNode('child1', 'Child 1', 'parent', false, 1),
+        createTestNode('child2', 'Child 2', 'parent', false, 1),
+      ];
+      const getChildren = createChildrenGetter(nodes);
+      const roots = buildTreeFromFlatNodes(nodes);
+
+      const result = flattenTreeRecursive(roots, { expandedIds: new Set(['parent']) }, getChildren);
+
+      expect(result.rows).toHaveLength(3);
+      // Parent: setSize=1, posInSet=1 (only root)
+      expect(result.rows[0]!.aria.ariaSetSize).toBe(1);
+      expect(result.rows[0]!.aria.ariaPosInSet).toBe(1);
+      expect(result.rows[0]!.aria.ariaLevel).toBe(1);
+
+      // Children: setSize=2, posInSet 1 and 2
+      expect(result.rows[1]!.aria.ariaSetSize).toBe(2);
+      expect(result.rows[1]!.aria.ariaPosInSet).toBe(1);
+      expect(result.rows[1]!.aria.ariaLevel).toBe(2);
+
+      expect(result.rows[2]!.aria.ariaSetSize).toBe(2);
+      expect(result.rows[2]!.aria.ariaPosInSet).toBe(2);
+      expect(result.rows[2]!.aria.ariaLevel).toBe(2);
+    });
+  });
+
+  describe('context awareness in flattenTree', () => {
+    it('marks nodes as in-context when contextNodeIds is provided', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('1', 'File A', null, false, 0),
+        createTestNode('2', 'File B', null, false, 0),
+        createTestNode('3', 'File C', null, false, 0),
+      ];
+
+      const result = flattenTree(nodes, {
+        expandedIds: new Set(),
+        contextNodeIds: new Set(['1', '3']),
+      });
+
+      expect(result.rows[0]!.isInContext).toBe(true);
+      expect(result.rows[1]!.isInContext).toBe(false);
+      expect(result.rows[2]!.isInContext).toBe(true);
+    });
+
+    it('defaults isInContext to false when no contextNodeIds provided', () => {
+      const nodes: TreeNode<TestData>[] = [createTestNode('1', 'File A', null, false, 0)];
+
+      const result = flattenTree(nodes, { expandedIds: new Set() });
+      expect(result.rows[0]!.isInContext).toBe(false);
+    });
+  });
+
+  describe('context awareness in flattenTreeRecursive', () => {
+    it('marks nodes as in-context recursively', () => {
+      const nodes: TreeNode<TestData>[] = [
+        createTestNode('parent', 'Parent', null, true, 0),
+        createTestNode('child1', 'Child 1', 'parent', false, 1),
+        createTestNode('child2', 'Child 2', 'parent', false, 1),
+      ];
+      const getChildren = createChildrenGetter(nodes);
+      const roots = buildTreeFromFlatNodes(nodes);
+
+      const result = flattenTreeRecursive(
+        roots,
+        {
+          expandedIds: new Set(['parent']),
+          contextNodeIds: new Set(['child2']),
+        },
+        getChildren
+      );
+
+      expect(result.rows[0]!.isInContext).toBe(false); // parent
+      expect(result.rows[1]!.isInContext).toBe(false); // child1
+      expect(result.rows[2]!.isInContext).toBe(true); // child2
+    });
+  });
+
+  describe('computeCheckboxState', () => {
+    it('returns checked when node itself is selected', () => {
+      const selected = new Set(['node1']);
+      const result = computeCheckboxState('node1', selected, () => new Set());
+      expect(result).toBe('checked');
+    });
+
+    it('returns unchecked when node has no descendants and is not selected', () => {
+      const selected = new Set<string>();
+      const result = computeCheckboxState('leaf', selected, () => new Set());
+      expect(result).toBe('unchecked');
+    });
+
+    it('returns checked when all descendants are selected', () => {
+      const selected = new Set(['child1', 'child2']);
+      const getDescendants = (id: string): Set<string> => {
+        if (id === 'parent') {
+          return new Set(['child1', 'child2']);
+        }
+        return new Set();
+      };
+      const result = computeCheckboxState('parent', selected, getDescendants);
+      expect(result).toBe('checked');
+    });
+
+    it('returns indeterminate when some descendants are selected', () => {
+      const selected = new Set(['child1']);
+      const getDescendants = (id: string): Set<string> => {
+        if (id === 'parent') {
+          return new Set(['child1', 'child2', 'child3']);
+        }
+        return new Set();
+      };
+      const result = computeCheckboxState('parent', selected, getDescendants);
+      expect(result).toBe('indeterminate');
+    });
+
+    it('returns unchecked when no descendants are selected', () => {
+      const selected = new Set<string>();
+      const getDescendants = (id: string): Set<string> => {
+        if (id === 'parent') {
+          return new Set(['child1', 'child2']);
+        }
+        return new Set();
+      };
+      const result = computeCheckboxState('parent', selected, getDescendants);
+      expect(result).toBe('unchecked');
     });
   });
 });
